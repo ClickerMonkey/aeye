@@ -81,9 +81,16 @@ const DEFAULT_TYPES: TypeDefinition[] = [
 ];
 
 /**
+ * Type change event listener type
+ */
+export type TypeChangeListener = () => void | Promise<void>;
+
+/**
  * Config file manager
  */
 export class ConfigFile extends JsonFile<Config> {
+  private typeChangeListeners: Map<string, TypeChangeListener> = new Map();
+
   constructor() {
     const initialData: Config = {
       updated: Date.now(),
@@ -115,6 +122,31 @@ export class ConfigFile extends JsonFile<Config> {
     };
 
     super(getConfigPath(), initialData);
+  }
+
+  /**
+   * Register a listener for type changes by name.
+   * Using the same name will replace any existing listener with that name.
+   */
+  onTypeChange(name: string, listener: TypeChangeListener): () => void {
+    this.typeChangeListeners.set(name, listener);
+    return () => this.typeChangeListeners.delete(name);
+  }
+
+  /**
+   * Unregister a type change listener by name
+   */
+  offTypeChange(name: string): void {
+    this.typeChangeListeners.delete(name);
+  }
+
+  /**
+   * Notify all type change listeners
+   */
+  private async notifyTypeChange(): Promise<void> {
+    for (const listener of this.typeChangeListeners.values()) {
+      await listener();
+    }
   }
 
   protected validate(parsed: any): Config {
@@ -202,6 +234,24 @@ export class ConfigFile extends JsonFile<Config> {
       }
       config.types.push(type);
     });
+    await this.notifyTypeChange();
+  }
+
+  /**
+   * Save changes that may include type modifications
+   * @param modifier - Function to modify config
+   * @param mayModifyTypes - Whether this save may modify types (triggers listener notification)
+   */
+  async saveWithTypeCheck<R = void>(modifier: (current: Config) => R | Promise<R>): Promise<R> {
+    const typesBefore = JSON.stringify(this.data.types);
+    const result = await this.save(modifier);
+    const typesAfter = JSON.stringify(this.data.types);
+    
+    if (typesBefore !== typesAfter) {
+      await this.notifyTypeChange();
+    }
+    
+    return result;
   }
 
   /**

@@ -103,7 +103,7 @@ export type OperationDefinition<TInput, TOutput> = {
   render?: (op: OperationOf<TInput, TOutput>, ai: CletusAI, showInput?: boolean, showOutput?: boolean) => React.ReactNode;
 
   /**
-   * A signature passed into the chat-agent's delegate prompt to identify this operation.
+   * A signature passed into the chat-agent's prompt to identify this operation.
    */
   signature: string;
 

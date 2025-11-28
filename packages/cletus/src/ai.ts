@@ -328,8 +328,8 @@ Chat Mode: {{mode}}
 - delete: All operations are automatic
 
 Agent Mode: {{agentMode}}
-- default: All sub-agents are available for delegation
-- plan: Only the planner sub-agent is available. Use this mode when you need to focus on planning and task management
+- default: All toolsets are available
+- plan: Only the planner toolset is available. Use this mode when you need to focus on planning and task management
 
 {{#if chatPrompt}}
 Prompt: {{chatPrompt}}
@@ -338,7 +338,7 @@ Prompt: {{chatPrompt}}
 
 <types>
 Data types are user defined schemas representing structured information.
-The schemas are managed by the 'architect' sub-agent and the data is managed by the 'dba'.
+The schemas are managed by the 'architect' toolset and the data is managed by the 'dba' toolset.
 {{#if types.length}}
 Available Data Types:
 {{#each types}}
@@ -354,7 +354,7 @@ No custom data types defined.
 - Base your responses in what you know based on the context or what tool results you have.
 - If your response is not based on tool results or context, clearly state that you are not basing it on any known information.
 - Do not assume anything about a data type based on it's name - always use the architect to understand the schema first.
-- Todos are mainly managed by the planner agent; only reference them if specifically asked about them. Do not misinterpret anything else as todos - they are explicitly referred to as "todos". They simply have a name and a done status. Todos are meant for cletus, not the user.
+- Todos are mainly managed by the planner toolsets; only reference them if specifically asked about them. Do not misinterpret anything else as todos - they are explicitly referred to as "todos". They simply have a name and a done status. Todos are meant for cletus, not the user.
 </IMPORTANT>
 `);
 

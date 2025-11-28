@@ -1,211 +1,207 @@
+import { AnyTool } from '@aeye/core';
 import { z } from 'zod';
 import type { CletusAI, CletusAIContext } from '../ai';
 import { abbreviate } from '../common';
+import { ADAPTIVE_TOOLING, CONSTS } from '../constants';
 import { OperationManager } from '../operations/manager';
 import { OperationMode, Operations } from '../operations/types';
+import { 
+  toolRegistry, 
+  getToolInstructions, 
+  buildToolSelectionQuery,
+  getDBAToolsetName,
+  RegisteredTool
+} from '../tool-registry';
 import { createUtilityTools } from '../tools/utility';
-import { createSubAgents } from './sub-agents';
-import { CONSTS } from '../constants';
+import { createToolsets } from './toolsets';
 
 /**
- * Create the main chat agent that routes to sub-agents
+ * Initialize the tool registry with all static tools
+ */
+function initializeToolRegistry(ai: CletusAI, toolsets: ReturnType<typeof createToolsets>) {
+  const {
+    plannerTools,
+    librarianTools,
+    clerkTools,
+    secretaryTools,
+    architectTools,
+    artistTools,
+    internetTools,
+    createDBATools,
+  } = toolsets;
+
+  // Register static toolsets
+  toolRegistry.registerToolset('planner', plannerTools, getToolInstructions);
+  toolRegistry.registerToolset('librarian', librarianTools, getToolInstructions);
+  toolRegistry.registerToolset('clerk', clerkTools, getToolInstructions);
+  toolRegistry.registerToolset('secretary', secretaryTools, getToolInstructions);
+  toolRegistry.registerToolset('architect', architectTools, getToolInstructions);
+  toolRegistry.registerToolset('artist', artistTools, getToolInstructions);
+  toolRegistry.registerToolset('internet', internetTools, getToolInstructions);
+
+  // Register utility tools
+  const utilityTools = createUtilityTools(ai);
+  toolRegistry.registerToolset('utility', utilityTools, getToolInstructions);
+
+  // Register DBA tools for existing types
+  const config = ai.config.defaultContext?.config;
+  if (!config) return;
+  
+  const types = config.getData().types;
+  for (const type of types) {
+    const dbaTools = createDBATools(type);
+    const toolsetName = getDBAToolsetName(type.name);
+    toolRegistry.registerToolset(toolsetName, dbaTools, getToolInstructions);
+  }
+}
+
+/**
+ * Update DBA tools when types change
+ */
+export function updateDBATools(ai: CletusAI, toolsets: ReturnType<typeof createToolsets>) {
+  const { createDBATools } = toolsets;
+  const config = ai.config.defaultContext?.config;
+
+  if (!config) {
+    return;
+  }
+  
+  const types = config.getData().types;
+
+  // Get current DBA toolsets
+  const currentDBAToolsets = toolRegistry.getToolsets().filter(t => t.startsWith('dba:'));
+  const expectedDBAToolsets = types.map(t => getDBAToolsetName(t.name));
+
+  // Remove old DBA toolsets
+  for (const toolset of currentDBAToolsets) {
+    if (!expectedDBAToolsets.includes(toolset)) {
+      toolRegistry.unregisterToolset(toolset);
+    }
+  }
+
+  // Add/update DBA toolsets
+  for (const type of types) {
+    const toolsetName = getDBAToolsetName(type.name);
+    toolRegistry.unregisterToolset(toolsetName);
+    const dbaTools = createDBATools(type);
+    toolRegistry.registerToolset(toolsetName, dbaTools, getToolInstructions);
+  }
+
+  // Re-embed all DBA tools
+  for (const type of types) {
+    const toolsetName = getDBAToolsetName(type.name);
+    toolRegistry.reembedToolset(toolsetName);
+  }
+}
+
+/**
+ * Get tools based on current toolset or adaptive selection
+ */
+async function getActiveTools(ctx: CletusAIContext): Promise<RegisteredTool[]> {
+  const toolset = ctx.chat?.toolset;
+
+  if (toolset) {
+    // Use specific toolset
+    return toolRegistry.getToolset(toolset);
+  }
+
+  // Adaptive selection: use embeddings of recent user messages
+  const query = buildToolSelectionQuery(ctx.messages || []);
+  if (!query) {
+    // No user messages yet, return a default set of tools
+    return [
+      ...toolRegistry.getToolset('utility'),
+      ...toolRegistry.getToolset('planner').slice(0, 2),
+      ...toolRegistry.getToolset('clerk').slice(0, 3),
+    ];
+  }
+
+  // Select tools based on semantic similarity
+  // Always include utility tools
+  const utilityTools = toolRegistry.getToolset('utility');
+  const selectedTools = await toolRegistry.selectTools(
+    query,
+    ADAPTIVE_TOOLING.TOP_TOOLS_TO_SELECT - utilityTools.length,
+    ['utility'] // Exclude utility since we add it separately
+  );
+
+  return [...utilityTools, ...selectedTools];
+}
+
+/**
+ * Create the main chat agent with adaptive tooling
  */
 export function createChatAgent(ai: CletusAI) {
-  // Create all sub-agents
-  const subAgents = createSubAgents(ai);
+  // Create all toolsets
+  const toolsets = createToolsets(ai);
   
-  // Create utility tools
+  // Initialize the tool registry
+  initializeToolRegistry(ai, toolsets);
+
+  // Register listener for type changes to update DBA tools dynamically
+  // Using a named listener so subsequent chat agents replace the previous listener
+  const config = ai.config.defaultContext?.config;
+  if (config) {
+    config.onTypeChange('chat-agent', () => {
+      updateDBATools(ai, toolsets);
+    });
+  }
+
+  // Create utility tools (always available)
   const utilityTools = createUtilityTools(ai);
 
-  const [
-    { refs: plannerTools }, 
-    { refs: librarianTools },
-    { refs: clerkTools },
-    { refs: secretaryTools },
-    { refs: architectTools },
-    { refs: artistTools },
-    { refs: internetTools },
-    { refs: dbaTools },
-  ] = subAgents;
+  // Build toolset descriptions for the prompt
+  const buildToolsetDescriptions = (ctx: CletusAIContext) => {
+    const toolsetNames = toolRegistry.getToolsets();
+    const descriptions: string[] = [];
 
-  // Create the routing tool that decides which sub-agent to use
-  const delegate = ai.tool({
-    name: 'delegate',
-    description: 'Delegate work to a specialized sub-agent',
-    instructionsFn: ({ cwd }) => `Use this tool to route requests to specialized agents:
+    // Collect DBA toolsets separately to avoid duplicating signatures
+    const dbaToolsets: string[] = [];
+    let dbaToolSignatures: string | null = null;
 
-- **planner**: The user will make requests and when a request takes multiple steps to complete, you should use the planner agent to create and manage todos for Cletus to perform. These are only to keep track of Cletus's own work and should not be presented to the user unless explicitly asked for.
-${plannerTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-  
-- **librarian**: Knowledge search, semantic search, managing knowledge. Knowledge is built from custom data, indexed files, and explicitly created by the user. It's text that can be retrieved with semantic search.
-${librarianTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-  
-- **clerk**: File operations (text search, semantic search, read, create, edit, delete, move, copy, info, summarization, indexing)
-${clerkTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-
-- **secretary**: User memory, assistant personas, switching assistants
-${secretaryTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-
-- **architect**: Type definitions, creating/modifying data schemas
-${architectTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-
-- **artist**: Image generation, editing, analysis, and search
-${artistTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-
-- **internet**: Web searches, page fetching, and REST API calls
-${internetTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-
-- **dba:[type]**: Data operations for each custom data type defined in the system
-${dbaTools.map(tool => `  - ${Operations[tool.name].signature}`).join('\n')}
-
-Choose the appropriate agent based on what the user wants done.
-You need to provide a 'request' that includes all necessary details for the sub-agent to complete the task. This request should begin with human readable instructions followed by a technical description of what needs to be done (for example, a signature of one of the above tools with parameters filled in).
-
-<simulateMode>
-Use the 'simulateMode' parameter to override the operation mode for this delegation:
-- When the user asks "what would happen if..." or wants to preview effects without executing operations, use a lower mode
-- For example, if in 'delete' mode but user wants to see what would be deleted without actually deleting, use 'read' mode
-- If in 'update' mode but user wants to preview changes without applying them, use 'read' mode  
-- The simulateMode defaults to the current chat mode, so only specify it when you need to downgrade for simulation purposes
-- Available modes depend on current mode: you can only use modes at or below the current mode level
-</simulateMode>
-
-<tools>
-{{tools}}
-</tools>
-
-<rules>
-- If the user requests an action around data types defined that can be accomplished with a database query like tool call - use the 'dba'.
-- If the user requests anything related to images, use the 'artist' agent.
-- If the user requests anything related to web searches, fetching web pages, or making API calls, use the 'internet' agent.
-- If the user requests anything that would involve making multiple steps or tracking progress over time, use the 'planner' agent.
-- If the user requests anything related to file operations, use the 'clerk' agent.
-- If the user requests anything to a perceived data type that they don't have yet - confirm they want to create a new type with the 'architect' agent.
-- If the user wants to create something and it sounds like a record or data entry, use the 'dba' agent - if they mention a concept that doesn't exist confirm if necessary and use the 'architect'.
-- If the user explicitly asks to memories, or assistants - use the 'secretary' agent.
-- If the user says something and it sounds important to remember for all future conversations, use the 'secretary' agent to add a memory.
-- All file operations are done within the current working directory - not outside. All files are relative. CWD: ${cwd}
-- Todos are exlusively for Cletus's internal management of user requests. They are only referred to as todos - anything else should assumed to be a separate data type.
-- If you've executed ANY tools - DO NOT ask a question at the end of your response. You are either going to automatically continue your work OR the user will respond next. NEVER ask a question after executing tools. Only for clarifications.
-</rules>
-<importantRules>
-- Don't present the results of an operation in <input> or <output> tags - those are only for your internal processing.
-- Don't pretend to delegate to an agent - you MUST use the 'delegate' tool for ALL actions.
-- Don't ask for permisision to perform operations - if you need to do something, just do it. The user will be asked for approval automatically if needed.
-</importantRules>
-`,
-    schema: ({ config, chat }) => {
-      // Get current chat mode, defaulting to 'none'
-      const currentMode = chat?.mode || 'none';
-      
-      // Build available modes based on current mode hierarchy
-      const modeHierarchy: OperationMode[] = ['local', 'none', 'read', 'create', 'update', 'delete'];
-      const currentModeIndex = modeHierarchy.indexOf(currentMode);
-      const availableModes = currentModeIndex === 0 
-        ? ['local'] as [OperationMode, ...OperationMode[]]
-        : modeHierarchy.slice(0, currentModeIndex + 1) as [OperationMode, ...OperationMode[]];
-      const dbas = config.getData().types.map(t => `dba:${t.name}`) as [`dba:${string}`, ...`dba:${string}`[]]
-      
-      return z.object({
-        agent: z.enum(['planner', 'librarian', 'clerk', 'secretary', 'architect', 'artist', 'internet', ...dbas]).describe('Which sub-agent to use'),
-        request: z.string().describe(`The user request to pass along to the sub-agent. Include all necessary details for the sub-agent to make accurate tool calls. At the end provide one or more suggested tool calls with parameters filled in based on your understanding of their capabilities.`),
-        simulateMode: z.enum(availableModes).default(currentMode).describe(`Mode override for this delegation. Current mode is '${currentMode}'. Use a lower mode (e.g., 'read' when in 'delete' mode) to simulate what would happen without actually executing destructive operations. This allows you to preview the effects before committing to them. Defaults to current mode.`),
-      });
-    },
-    refs: subAgents,
-    call: async ({ agent, request, simulateMode }, [planner, librarian, clerk, secretary, architect, artist, internet, dba], ctx) => {
-      ctx.log('Routing to sub-agent: ' + agent + ' with request: ' + request + (simulateMode !== ctx.chat?.mode ? ` (simulating in ${simulateMode} mode)` : ''));
-
-      ctx.chatStatus(`Delegating to ${agent}: ${abbreviate(request, 80)}${simulateMode !== ctx.chat?.mode ? ` [${simulateMode} mode]` : ''}`);
-
-      // Create a new OperationManager with the simulated mode if different from current mode
-      const effectiveOps = simulateMode !== ctx.chat?.mode && simulateMode !== 'none'
-        ? new OperationManager(
-            simulateMode,
-            ctx.ops.operations,
-            ctx.ops.onOperationAdded,
-            ctx.ops.onOperationUpdated
-          )
-        : ctx.ops;
-      
-      const operationProgress = effectiveOps.operations.length;
-      const types = ctx.config.getData().types;
-      const [isDBA, typeName] = agent.startsWith('dba:') 
-        ? [true, agent.substring('dba:'.length)] 
-        : [false, undefined];
-      const type = typeName ? types.find(t => t.name === typeName) : undefined;
-      const recent = (ctx.messages || []).slice(-CONSTS.SUB_AGENT_CONTEXT_MESSAGES);
-      const agentContext: CletusAIContext = { 
-        ...ctx, 
-        ops: effectiveOps,
-        messages: recent.concat([{
-          role: 'assistant',
-          content: `Delegating to ${agent} agent. They will handle the following request:\n\n${request}`,
-        }]),
-      };
-      
-      const tools = await (() => {
-        if (isDBA) {
-          if (!type) {
-            throw new Error('The dba agent requires a type parameter to specify the data type to operate on. given: ' + (typeName || '(null))'));
-          }
-          
-          return dba.get('tools', { request }, { ...agentContext, type });
-        } else {
-          const subAgentName = agent as Exclude<typeof agent, `dba:${string}`>;
-          const subAgent = {
-            planner,
-            librarian,
-            clerk,
-            secretary,
-            architect,
-            artist,
-            internet,
-          }[subAgentName];
-
-          if (!subAgent) {
-            throw new Error(`Invalid sub-agent: ${agent || '(null)'}`);
-          }
-
-          return subAgent.get('tools', { request }, agentContext);
-        }
-      })();
-
-      ctx.chatStatus(`Processing ${agent} results...`);
-
-      const agentInstructions = !tools?.length
-        ? `The ${agent} agent could not find any appropriate tools to handle the request. You should try a different agent or provide more details in the request and try again.`
-        : effectiveOps.automatedOperations(operationProgress)
-          ? `The ${agent} agent was able to complete all operations without user approval. The agent loop will continue - DO NOT RESPOND to the user yet. No questions. You will enter an automated loop until interrupted. Do not comment about the automated loop. If you want you can make a brief comment on the results so far.`
-          : effectiveOps.needsUserInput(operationProgress)
-            ? `The ${agent} is handing operations off to the user for approval before proceeding. Present the operations clearly for approval - be concise but don't leave out any important details. DO NOT ask questions, the user will automatically be prompted for permission.`
-            : `The ${agent} agent is in a state where it needs user input before proceeding. Wait for the user to respond. Ask questions that are needed to get tool calls correct.`;
-
-      // Record the request index for all new operations from this delegation
-      const chatMessage = ctx.chatMessage;
-      if (chatMessage) {
-        if (!chatMessage.requests) {
-          chatMessage.requests = [];
-        }
-        const requestIndex = chatMessage.requests.length;
-        chatMessage.requests.push({
-          agent,
-          request,
-          typeName: isDBA ? typeName! : undefined,
-          simulateMode: simulateMode !== ctx.chat?.mode ? simulateMode : undefined,
-        });
-
-        const operations = effectiveOps.operations.slice(operationProgress);
-        for (const op of operations) {
-          op.requestIndex = requestIndex;
-        }
+    for (const name of toolsetNames) {
+      if (name === 'utility') {
+        continue; // Skip utility, it's always available
       }
+      
+      if (name.startsWith('dba:')) {
+        // Collect DBA toolset names
+        dbaToolsets.push(name);
+        // Get signatures from first DBA toolset (they're all the same)
+        if (!dbaToolSignatures) {
+          const tools = toolRegistry.getToolset(name);
+          dbaToolSignatures = tools
+            .map(t => {
+              const opName = t.name as keyof typeof Operations;
+              return Operations[opName]?.signature || t.name;
+            })
+            .join('\n  - ');
+        }
+      } else {
+        // Non-DBA toolsets
+        const tools = toolRegistry.getToolset(name);
+        const toolSignatures = tools
+          .map(t => {
+            const opName = t.name as keyof typeof Operations;
+            return Operations[opName]?.signature || t.name;
+          })
+          .join('\n  - ');
+        
+        const desc = getToolsetDescription(name);
+        descriptions.push(`- **${name}**: ${desc}\n  - ${toolSignatures}`);
+      }
+    }
 
-      return { tools, agentInstructions };
-    },
-  });
+    // Add consolidated DBA toolsets description
+    if (dbaToolsets.length > 0 && dbaToolSignatures) {
+      const dbaNames = dbaToolsets.map(t => t.substring(4)).join(', ');
+      descriptions.push(`- **dba:[type]**: Data operations for types: ${dbaNames}\n  - ${dbaToolSignatures}`);
+    }
 
-  // Create the main chat prompt with just the routing tool
+    return descriptions.join('\n\n');
+  };
+
+  // Create the main chat prompt with adaptive tool selection
   const chatPrompt = ai.prompt({
     name: 'cletus_chat',
     description: 'Main Cletus chat interface',
@@ -215,27 +211,30 @@ Use the 'simulateMode' parameter to override the operation mode for this delegat
 {{userPrompt}}
 </userInformation>
 
-You have access to specialized agents via the 'delegate' tool. When the user asks for something, determine which agent can best handle it and delegate the work. You can delegate to multiple agents if needed.
+You have access to tools organized in toolsets. The system uses adaptive tool selection to provide the most relevant tools based on your conversation context.
 
-The current agent mode determines which sub-agents are available:
-- In 'default' mode, all sub-agents are available for delegation
-- In 'plan' mode, only the planner sub-agent is available - use this mode when focusing on planning and task management
+<toolsets>
+{{toolsetDescriptions}}
+</toolsets>
 
-You MUST use the 'delegate' tool to perform any actions; do not attempt to do anything yourself.
-
-Only do explicitly what the user asks you to do. If the user request is unclear, ask for clarification.
-
-If you don't find the information you need, try to get it from another agent.
+<currentToolset>
+{{#if toolset}}
+Currently focused on: {{toolset}}
+Use the 'retool' utility to switch toolsets or enable adaptive selection.
+{{else}}
+Using adaptive tool selection. The most relevant tools have been selected based on recent conversation.
+{{/if}}
+</currentToolset>
 
 <behavior>
 The user is going to make requests. 
 If you think it can be done in a few simple operations then proceed without todos.
-If the request is complex and will take multiple steps, you MUST use the planner agent to create todos for Cletus to complete the request step by step.
+If the request is complex and will take multiple steps, you should use the planner tools to create todos for Cletus to complete the request step by step.
 
 The workflow will be:
 1. User makes a request
 2. Cletus determines whether to use planner first or not, if so generate todos
-3. Delegate to the appropriate sub-agent(s) to complete the request
+3. Use the appropriate tools to complete the request
 4. The user may have to approve it.
 5. A follow up call to Cletus - perhaps without a user message - will be made. If there are active todos should be checked and updated when it makes sense.
 6. Mark todos done when completed. If all are done and the user makes another request, clear the todos.
@@ -262,9 +261,35 @@ Files:
 - If a file does not exist because you assumed the user gave a correct path, search for the file.
 - Before performing write operations, ensure you have the latest file state by reading it first.
 - Do not ask the user to locate a file unless you've already tried searching for it.
+
+Tools:
+- If you need tools from a different toolset, use the 'retool' utility to switch or enable adaptive selection.
+- The adaptive tool selection uses embedding similarity to find the most relevant tools for your current task.
+- Use 'retool' with null to re-enable adaptive selection if you've been focused on a specific toolset.
 </rules>
+
+<importantRules>
+- Don't present the results of an operation in <input> or <output> tags - those are only for your internal processing.
+- Don't ask for permission to perform operations - if you need to do something, just do it. The user will be asked for approval automatically if needed.
+- Todos are exclusively for Cletus's internal management of user requests. They are only referred to as todos - anything else should be assumed to be a separate data type.
+- If you've executed ANY tools - DO NOT ask a question at the end of your response. You are either going to automatically continue your work OR the user will respond next. NEVER ask a question after executing tools. Only for clarifications.
+</importantRules>
 `,
-    tools: [delegate, ...utilityTools],
+    tools: [
+      ...toolsets.architectTools,
+      ...toolsets.artistTools,
+      ...toolsets.clerkTools,
+      ...toolsets.internetTools,
+      ...toolsets.librarianTools,
+      ...toolsets.plannerTools,
+      ...toolsets.secretaryTools,
+      ...utilityTools,
+    ],
+    // Dynamic tools based on adaptive selection using retool
+    retool: async (_, ctx) => {
+      const activeTools = await getActiveTools(ctx);
+      return activeTools.map(t => t.tool);
+    },
     toolsMax: 50,
     metadata: {
       weights: {
@@ -272,15 +297,39 @@ Files:
         accuracy: 0.3,
       },
     },
-    config: {
-      toolsOneAtATime: true,
-    },
     dynamic: true,
     metadataFn: (_, { config, chat }) => ({
       model: chat?.model || config.getData().user.models?.chat,
     }),
-    input: (input: {}, ctx) => ({ userPrompt: ctx.userPrompt }),
+    input: (input: {}, ctx) => ({ 
+      userPrompt: ctx.userPrompt,
+      toolsetDescriptions: buildToolsetDescriptions(ctx),
+      toolset: ctx.chat?.toolset,
+    }),
   });
 
   return chatPrompt;
+}
+
+/**
+ * Get a human-readable description for a toolset
+ */
+function getToolsetDescription(name: string): string {
+  if (name.startsWith('dba:')) {
+    const typeName = name.substring(4);
+    return `Data operations for ${typeName} records (create, read, update, delete, search, aggregate)`;
+  }
+
+  const descriptions: Record<string, string> = {
+    planner: 'Task planning and todo management for multi-step operations',
+    librarian: 'Knowledge search and management using semantic search',
+    clerk: 'File operations (search, read, create, edit, delete, move, copy, summarize, index)',
+    secretary: 'User memory and assistant persona management',
+    architect: 'Type definitions and data schema management',
+    artist: 'Image generation, editing, analysis, and search',
+    internet: 'Web searches, page fetching, and REST API calls',
+    utility: 'Core utilities like retool for switching toolsets',
+  };
+
+  return descriptions[name] || `Tools for ${name}`;
 }

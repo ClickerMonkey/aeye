@@ -164,6 +164,11 @@ export const ChatMetaSchema = z.object({
   mode: ChatModeSchema.default('none'),
   agentMode: AgentModeSchema.default('default'),
   model: z.string().optional(),
+  /** 
+   * Current toolset name. When undefined, adaptive tool selection is used 
+   * based on embedding similarity. When set, only tools from that toolset are available.
+   */
+  toolset: z.string().optional(),
   created: z.number(),
   updated: z.number(),
   todos: z.array(TodoItemSchema).default([]),

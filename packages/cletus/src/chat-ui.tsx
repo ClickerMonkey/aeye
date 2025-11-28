@@ -83,8 +83,8 @@ const MODETEXT: Record<ChatMode, string> = {
 };
 
 const AGENTMODETEXT: Record<AgentMode, string> = {
-  default: 'all agents',
-  plan: 'planner only',
+  default: 'run mode',
+  plan: 'plan mode',
 };
 
 
@@ -479,8 +479,8 @@ CHAT MODES:
 • delete - Auto-approve all operations (least safe)
 
 AGENT MODES:
-• default - All sub-agents available (planner, librarian, clerk, secretary, architect, artist, dba)
-• plan    - Only planner sub-agent available (for focused task management)
+• default - All toolsets available (planner, librarian, clerk, secretary, architect, artist, dba)
+• plan    - Only planning related tools available (for focused task management)
 
 AVAILABLE COMMANDS:
 /help       - Show this help message
@@ -1179,8 +1179,8 @@ After installation and the SoX executable is in the path, restart Cletus and try
             <Text bold color="cyan">Agent Modes:</Text>
             <Box flexDirection="row" gap={2}>
               <Box flexDirection="column">
-                <Text dimColor>default: all agents</Text>
-                <Text dimColor>plan: planner only</Text>
+                <Text dimColor>default: run mode</Text>
+                <Text dimColor>plan: plan mode</Text>
               </Box>
               <Box flexDirection="column" marginLeft={2}>
                 <Text dimColor>({altKeyLabel}+M to toggle)</Text>
@@ -1256,7 +1256,7 @@ After installation and the SoX executable is in the path, restart Cletus and try
         <Text dimColor>
           {chatMeta.assistant ? `${chatMeta.assistant} │ ` : ''}
           {chatMeta.model && chatMeta.model !== config.getData().user.models?.chat ? ` ${chatMeta.model} │ ` : ''}
-          {MODETEXT[chatMeta.mode]} │ {AGENTMODETEXT[chatMeta.agentMode || 'default']} │ {chatMessages.length} message{chatMessages.length !== 1 ? 's' : ''} │{' '}
+          {MODETEXT[chatMeta.mode]} │ {AGENTMODETEXT[chatMeta.agentMode || 'default']} │ {chatMeta.toolset ? `${chatMeta.toolset} toolset` : 'adaptive tools'} │ {chatMessages.length} message{chatMessages.length !== 1 ? 's' : ''} │{' '}
           {chatMeta.todos.length ? `${chatMeta.todos.length} todo${chatMeta.todos.length !== 1 ? 's' : ''}` : 'no todos'}
           {accumulatedCost > 0 && (
             <>

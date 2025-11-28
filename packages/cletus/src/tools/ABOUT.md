@@ -6,15 +6,15 @@
 
 Cletus is a sophisticated AI assistant that lives in your terminal. It combines:
 
-- 🤖 **Specialized AI Agents** - Domain-specific assistants for different tasks (file management, data operations, image generation, web search, and more)
+- 🤖 **Specialized AI Toolsets** - Domain-specific toolsets for different tasks (file management, data operations, image generation, web search, and more)
 - 💾 **Persistent Storage** - Remembers your conversations, preferences, and custom data
 - 🎨 **Beautiful TUI** - Modern, interactive terminal interface powered by React/Ink
 - ⚡ **Autonomous Mode** - Can execute multiple operations without constant approval
 - 🔧 **Customizable** - Create custom assistants, data types, and workflows
 
-## Specialized Agents
+## Specialized Toolsets
 
-Cletus organizes its capabilities through specialized agents:
+Cletus organizes its capabilities through specialized toolsets:
 
 - **Architect** - Manages custom data type definitions
 - **Artist** - Handles image generation, editing, analysis, and search
@@ -88,23 +88,3 @@ On first launch, you'll be guided through an interactive setup to configure your
 - **Cletus Package**: [@aeye/cletus](https://www.npmjs.com/package/@aeye/cletus)
 
 ---
-
-## Future Additions
-
-_This section is reserved for additional information about Cletus, new features, community contributions, and other updates._
-
-### Planned Features
-- Enhanced autonomous capabilities
-- Additional AI providers
-- More specialized agents
-- Plugin system for custom tools
-- Collaborative features
-
-### Community
-- Contributions are welcome!
-- See the repository for contribution guidelines
-- Join discussions on GitHub
-
----
-
-**Made with ❤️ and TypeScript** | **MIT Licensed** | **Open Source**
