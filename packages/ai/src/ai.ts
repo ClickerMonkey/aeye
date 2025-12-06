@@ -865,6 +865,9 @@ export class AI<T extends AIBaseTypes> {
       descriptionFn: hydrateFn(rest.descriptionFn, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
       })),
+      metadataFn: hydrateFn(rest.metadataFn, (r) => (async (params, ctxPartial) => {
+        return r(params, await getContext(ctxPartial));
+      })),
       input: hydrateFn(input, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
       })),
@@ -906,7 +909,7 @@ export class AI<T extends AIBaseTypes> {
       TRefs
     >, 'types'>
   ) {
-    const { call, applicable, ...rest } = options;
+    const { call, applicable, metadataFn, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -932,6 +935,9 @@ export class AI<T extends AIBaseTypes> {
       })),
       applicable: hydrateFn(applicable, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
+      })),
+      metadataFn: hydrateFn(metadataFn, (r) => (async (input, ctxPartial) => {
+        return r(input, await getContext(ctxPartial));
       })),
     });
 

@@ -50,6 +50,10 @@ export interface ToolInput<
     TRuntimeContext extends TContext, 
     TRuntimeMetadata extends TMetadata
   >(ctx: Context<TRuntimeContext, TRuntimeMetadata>) => boolean | Promise<boolean>;
+  /** Metadata about the tool to be passed during execution/streaming. Typically contains requirements, configuration, etc. */
+  metadata?: TMetadata;
+  /** A function/promise that returns metadata about the tool to be passed during execution/streaming. */
+  metadataFn?: (input: TParams, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
   /** Optional way to explicitly declare the types used in this component */
   types?: {
     params?: TParams;
@@ -125,6 +129,7 @@ export class Tool<
     private translate = resolveFn(input.input),
     private descriptionFn = resolveFn(input.descriptionFn),
     private instructionsFn = resolveFn(input.instructionsFn, (r) => r ? Tool.compileInstructions(r, !!input.input) : undefined),
+    private metadataFn = resolveFn(input.metadataFn),
   ) {
   }
 
@@ -262,6 +267,28 @@ export class Tool<
     }
 
     return await Promise.all(this.refs.map(ref => ref.applicable(ctx))).then(results => results.some(r => r));
+  }
+
+  /**
+   * Returns metadata for the tool based on the input and context.
+   * Combines static metadata with dynamically generated metadata from metadataFn.
+   *
+   * @param input - The input for the tool.
+   * @param ctx - The context for the tool's operation.
+   * @returns The metadata for the tool.
+   */
+  async metadata<
+    TRuntimeContext extends TContext,
+    TRuntimeMetadata extends TMetadata,
+    TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TParams, TCoreContext]>): Promise<TMetadata> {
+    const input = (inputMaybe || {}) as TParams;
+    const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
+
+    return {
+      ...(this.input.metadata || {} as TMetadata),
+      ...(await this.metadataFn(input, ctx) || {}),
+    } as TMetadata;
   }
 
 }

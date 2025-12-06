@@ -294,7 +294,7 @@ export class Prompt<
     private config = resolveFn(input.config),
     private translate = resolveFn(input.input),
     private content = Prompt.compileContent(input.content, !!input.tools?.length),
-    private metadata = resolveFn(input.metadataFn),
+    private metadataFn = resolveFn(input.metadataFn),
   ) {
   }
 
@@ -466,6 +466,28 @@ export class Prompt<
   }
 
   /**
+   * Returns metadata for the prompt based on the input and context.
+   * Combines static metadata with dynamically generated metadata from metadataFn.
+   *
+   * @param input - The input for the prompt.
+   * @param ctx - The context for the prompt's operation.
+   * @returns The metadata for the prompt.
+   */
+  async metadata<
+    TRuntimeContext extends TContext,
+    TRuntimeMetadata extends TMetadata,
+    TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>): Promise<TMetadata> {
+    const input = (inputMaybe || {}) as TInput;
+    const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
+
+    return {
+      ...(this.input.metadata || {} as TMetadata),
+      ...(await this.metadataFn(input, ctx) || {}),
+    } as TMetadata;
+  }
+
+  /**
    * Streams the prompt execution, yielding events as they occur.
    * This is the core execution method that handles AI interaction, tool calling, and response parsing.
    *
@@ -592,7 +614,7 @@ export class Prompt<
 
       const metadata: TMetadata = {
         ...(this.input.metadata || {} as TMetadata),
-        ...(await this.metadata(input, ctx) || {}),
+        ...(await this.metadataFn(input, ctx) || {}),
       };
 
       const stream = streamer(request, ctx, metadata, streamController.signal);

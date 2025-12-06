@@ -1,3 +1,4 @@
+import { resolveFn } from "./common";
 import { AnyComponent, Component, ComponentCompatible, Context, OptionalParams, Tuple } from "./types";
 
 /**
@@ -29,6 +30,10 @@ export interface AgentInput<
   call: (input: TInput, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
   /** Optional function to determine if the component is applicable in the given context */
   applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
+  /** Metadata about the agent to be passed during execution/streaming. Typically contains requirements, configuration, etc. */
+  metadata?: TMetadata;
+  /** A function/promise that returns metadata about the agent to be passed during execution/streaming. */
+  metadataFn?: (input: TInput, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
   /** Optional way to explicitly declare the types used in this component */
   types?: {
     input?: TInput;
@@ -77,6 +82,7 @@ export class Agent<
    */
   constructor(
     public input: AgentInput<TContext, TMetadata, TName, TInput, TOutput, TRefs>,
+    private metadataFn = resolveFn(input.metadataFn),
   ) { }
 
   get kind(): 'agent' {
@@ -141,6 +147,28 @@ export class Agent<
     }
 
     return await Promise.all(this.refs.map(ref => ref.applicable(ctx))).then(results => results.some(r => r));
+  }
+
+  /**
+   * Returns metadata for the agent based on the input and context.
+   * Combines static metadata with dynamically generated metadata from metadataFn.
+   *
+   * @param input - The input for the agent.
+   * @param ctx - The context for the agent's operation.
+   * @returns The metadata for the agent.
+   */
+  async metadata<
+    TRuntimeContext extends TContext,
+    TRuntimeMetadata extends TMetadata,
+    TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>): Promise<TMetadata> {
+    const input = (inputMaybe || {}) as TInput;
+    const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
+
+    return {
+      ...(this.input.metadata || {} as TMetadata),
+      ...(await this.metadataFn(input, ctx) || {}),
+    } as TMetadata;
   }
 
 }
