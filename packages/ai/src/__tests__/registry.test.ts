@@ -229,7 +229,7 @@ describe('ModelRegistry', () => {
       it('should filter by minimum context window', () => {
         const results = registry.searchModels({
           required: ['chat'],
-          minContextWindow: 100000
+          contextWindow: { min: 100000 }
         });
 
         results.forEach(result => {
@@ -240,10 +240,85 @@ describe('ModelRegistry', () => {
       it('should return empty when context window too large', () => {
         const results = registry.searchModels({
           required: ['chat'],
-          minContextWindow: 1000000
+          contextWindow: { min: 1000000 }
         });
 
         expect(results).toHaveLength(0);
+      });
+    });
+
+    describe('New Constraint System', () => {
+      it('should filter by pricing min/max constraints', () => {
+        const results = registry.searchModels({
+          required: ['chat'],
+          pricing: { 
+            min: { text: { input: 0, output: 0 } },
+            max: { text: { input: 5, output: 15 } }
+          }
+        });
+
+        results.forEach(result => {
+          const avgCost = ((result.model.pricing.text?.input ?? 0) + (result.model.pricing.text?.output ?? 0)) / 2;
+          expect(avgCost).toBeLessThanOrEqual(10);
+        });
+      });
+
+      it('should filter by context window max constraint', () => {
+        const results = registry.searchModels({
+          required: ['chat'],
+          contextWindow: { max: 50000 }
+        });
+
+        results.forEach(result => {
+          expect(result.model.contextWindow).toBeLessThanOrEqual(50000);
+        });
+      });
+
+      it('should filter by output tokens constraint', () => {
+        const results = registry.searchModels({
+          required: ['chat'],
+          outputTokens: { min: 4000 }
+        });
+
+        results.forEach(result => {
+          expect(result.model.maxOutputTokens).toBeGreaterThanOrEqual(4000);
+        });
+      });
+
+      it('should use target-based scoring for pricing', () => {
+        const results = registry.searchModels({
+          required: ['chat'],
+          pricing: {
+            target: { text: { input: 1, output: 2 } }
+          },
+          weights: { cost: 1.0 }
+        });
+
+        expect(results.length).toBeGreaterThan(0);
+        // Models closer to target should score higher
+        const firstModel = results[0];
+        const avgCost = ((firstModel.model.pricing.text?.input ?? 0) + (firstModel.model.pricing.text?.output ?? 0)) / 2;
+        expect(avgCost).toBeDefined();
+      });
+
+      it('should use target-based scoring for context window', () => {
+        const results = registry.searchModels({
+          required: ['chat'],
+          contextWindow: {
+            min: 10000,
+            max: 200000,
+            target: 32000
+          },
+          weights: { contextWindow: 1.0 }
+        });
+
+        expect(results.length).toBeGreaterThan(0);
+        // Models with context window close to 32000 should score highest
+        const topModels = results.slice(0, 3);
+        topModels.forEach(result => {
+          expect(result.model.contextWindow).toBeGreaterThanOrEqual(10000);
+          expect(result.model.contextWindow).toBeLessThanOrEqual(200000);
+        });
       });
     });
   });

@@ -257,7 +257,7 @@ export async function summarize(ai: CletusAI, text: string, signal?: AbortSignal
   }, {
     signal,
     metadata: {
-      minContextWindow: (text.length / 4) + 1000,
+      contextWindow: { min: (text.length / 4) + 1000 },
       weights: {
         cost: 0.5,
         speed: 0.5,

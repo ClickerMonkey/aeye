@@ -846,7 +846,7 @@ export const file_edit = operationOf<
     }, {
       signal,
       metadata: {
-        minContextWindow: (paginatedContent.length / 4) + (input.request.length / 4) + 2000,
+        contextWindow: { min: (paginatedContent.length / 4) + (input.request.length / 4) + 2000 },
       }
     });
 

@@ -397,6 +397,19 @@ export type AITypesInfer<
 export type AIProviderNames<T extends AIBaseTypes> = keyof AIProviders<T> & string;
 
 /**
+ * Range constraint for model selection criteria.
+ * @template T - Type of the value being constrained
+ */
+export interface RangeConstraint<T> {
+  // Minimum acceptable value (models without this metric or below this value are excluded)
+  min?: T;
+  // Maximum acceptable value (models without this metric or above this value are excluded)
+  max?: T;
+  // Target value for scoring (models closer to this value score higher)
+  target?: T;
+}
+
+/**
  * Base metadata that all AI operations need.
  * Provides model selection criteria and constraints.
  *
@@ -418,17 +431,18 @@ export interface AIBaseMetadata<TProviders extends Providers> {
     allow?: (keyof TProviders)[];
     deny?: (keyof TProviders)[];
   };
-  // Cost constraints
-  budget?: {
-    maxCostPerRequest?: number;
-    maxCostPerMillionTokens?: number;
-  };
+  // Pricing constraints (per 1M tokens)
+  pricing?: RangeConstraint<ModelPricing>;
+  // Context window constraints (in tokens)
+  contextWindow?: RangeConstraint<number>;
+  // Output token constraints (in tokens)
+  outputTokens?: RangeConstraint<number>;
+  // Performance metrics constraints
+  metrics?: RangeConstraint<ModelMetrics>;
   // Scoring weights for model selection (takes priority over weightProfile)
   weights?: ModelSelectionWeights;
   // Named weight profile to use (from weightProfiles config)
   weightProfile?: string;
-  // Minimum context window size required
-  minContextWindow?: number;
   // The tier to use to pick the best model
   tier?: ModelTier;
 }

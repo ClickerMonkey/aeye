@@ -403,17 +403,18 @@ export class AI<T extends AIBaseTypes> {
           case 'optional':
             merged[key] = mergeArray(merged[key], metadata[key]);
             break;
-          case 'budget':
-            merged[key] = mergeBudget(merged[key], metadata[key]);
-            break;
           case 'weights':
             merged[key] = mergeWeights(merged[key], metadata[key]);
             break;
           case 'providers':
             merged[key] = mergeProviders(merged[key], metadata[key]);
             break;
-          case 'minContextWindow':
-            merged[key] = mergeMax(merged[key], metadata[key]);
+          case 'pricing':
+          case 'contextWindow':
+          case 'outputTokens':
+          case 'metrics':
+            // For constraint fields, later metadata takes precedence
+            merged[key] = metadata[key];
             break;
           default:
             merged[key] = metadata[key];
