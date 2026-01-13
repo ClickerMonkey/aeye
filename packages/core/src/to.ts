@@ -95,7 +95,7 @@ export async function toBase64(
   if (typeof input === 'string') {
     if (input.startsWith('data:')) {
       return input;
-    }
+    }[]
     if (input.startsWith('http://') || input.startsWith('https://')) {
       input = new URL(input);
     } else if (input.startsWith('file://')) {

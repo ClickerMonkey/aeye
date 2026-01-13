@@ -195,30 +195,19 @@ export async function convertMessage(msg: Message): Promise<AIMessage[]> {
         toolCallId: `${msg.created}-${index}-${msg.operations?.[index]!.type}`,
       }));
 
-      // Create a toolCalls message with all operation inputs
-      const toolCalls: ToolCall[] = operations.map(({ toolCallId, operation }) => ({
-        id: toolCallId,
-        name: operation.type,
-        arguments: JSON.stringify(operation.input),
-      }));
-
-        // Include reasoning in the toolCalls message as a separate message
-      if (currentReasoning) {
-        messages.push({
-          role: 'assistant',
-          name: msg.name,
-          content: '',
-          reasoning: currentReasoning,
-        });
-        currentReasoning = undefined;
-      }
-
+      // Create a toolCalls message with all operation inputs and any reasoning collected so far
       messages.push({
         role: 'assistant',
         name: msg.name,
-        content: '',
-        toolCalls,
+        reasoning: currentReasoning,
+        content: [],
+        toolCalls: operations.map(({ toolCallId, operation }) => ({
+          id: toolCallId,
+          name: operation.type,
+          arguments: JSON.stringify(operation.input),
+        })),
       });
+      currentReasoning = undefined;
 
       // Separate operations into auto-executed and needing approval
       const approvalOperations = operations.filter(({ operation }) => operation.analysis);
@@ -376,7 +365,7 @@ export async function convertMessage(msg: Message): Promise<AIMessage[]> {
       role: msg.role,
       name: msg.name,
       tokens: msg.tokens,
-      content: '',
+      content: [],
       reasoning: currentReasoning,
     });
   }
@@ -395,18 +384,16 @@ export const INSTRUCTIONS_START = '\n\n<instructions>\n';
 export const INSTRUCTIONS_END = '\n</instructions>';
  */
 
-export const INPUT_START = '\n\nInput:\n';
+export const INPUT_START = '';
 export const INPUT_END = '';
-export const ANALYSIS_START = '\n\nAnalysis:\n';
+export const ANALYSIS_START = 'Operation requires approval, this operation has NOT been performed yet. The analysis follows - you can ask for approval and talk about the results of the analysis but the user will approve the operation and respond back with the actual results.\n\nAnalysis:\n';
 export const ANALYSIS_END = '';
-export const OUTPUT_START = '';
+export const OUTPUT_START = 'Operation completed successfully! The output follows and you can discuss the results.\n\nOutput:\n';
 export const OUTPUT_END = '';
 export const INSTRUCTIONS_START = '\n\n<instructions>\n';
 export const INSTRUCTIONS_END = '\n</instructions>';
-
-export const ANALYSIS_HEADER = 'Operation requires approval, DO NOT respond after this. The user will approve/reject the operation and respond with the actual results. The initial analysis follows:';
-export const ERROR_HEADER = 'Operation failed:';
-export const OUTPUT_HEADER = 'Operation completed successfully:';
+export const ERROR_START = 'Operation failed:';
+export const ERROR_END = '';
 
 /**
  * 

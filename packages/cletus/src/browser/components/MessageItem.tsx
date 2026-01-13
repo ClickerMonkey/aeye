@@ -61,6 +61,7 @@ interface MessageItemProps {
   onRejectOperation: (message: Message, idx: number) => void;
   hasMultiplePendingOperations?: boolean;
   isProcessing?: boolean;
+  isLast?: boolean;
 }
 
 export const MessageItem: React.FC<MessageItemProps> = ({
@@ -71,6 +72,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onRejectOperation,
   hasMultiplePendingOperations: hasMultiplePendingOps = false,
   isProcessing = false,
+  isLast = false,
 }) => {
   const { role, name, content, operations = [] } = message;
 
@@ -139,7 +141,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
         {/* Content and Operations in order */}
         <div className={cn('flex-1 space-y-2', isUser && 'flex flex-col items-end')}>
-          {visibleContent.length === 0 && isAssistant && isProcessing ? (
+          {visibleContent.length === 0 && isAssistant && isProcessing && isLast ? (
             <div className="rounded-lg bg-card p-2">
               <TypingIndicator />
             </div>
@@ -160,6 +162,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                   onReject={() => onRejectOperation(message, opIdx)}
                   hasMultipleOperations={hasMultiplePendingOps}
                   isProcessing={isProcessing}
+                  isLast={isLast}
                 />
               );
             }

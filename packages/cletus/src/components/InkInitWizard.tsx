@@ -84,6 +84,14 @@ export const InkInitWizard: React.FC<InkInitWizardProps> = ({ onComplete }) => {
     setApiKey('');
     setError(null);
   }, [step]);
+  
+  // Initialize AWS test on first render
+  React.useEffect(() => {
+    if (step === 'aws-test' && awsTestStatus === 'idle') {
+      testAWSCredentials();
+    }
+  }, [step]);
+
 
   // Test AWS credentials
   const testAWSCredentials = async (): Promise<boolean> => {
@@ -432,13 +440,6 @@ export const InkInitWizard: React.FC<InkInitWizardProps> = ({ onComplete }) => {
 
   // AWS - Test credentials
   if (step === 'aws-test') {
-    // Initialize AWS test on first render
-    React.useEffect(() => {
-      if (awsTestStatus === 'idle') {
-        testAWSCredentials();
-      }
-    }, []);
-
     if (awsTestStatus === 'testing') {
       return (
         <Box flexDirection="column" padding={1}>

@@ -12,7 +12,8 @@ export type RendererDisplayProps = Pick<OperationDisplayProps,
   'approvalDecision' |
   'onToggleDecision' |
   'hasMultipleOperations' | 
-  'isProcessing'
+  'isProcessing' | 
+  'isLast'
 >;
 
 /**

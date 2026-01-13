@@ -766,9 +766,11 @@ async function handleWebSocketConnection(ws: WebSocket): Promise<void> {
                 // Move to end of message content array to ensure visibility.
                 const contentIndex = targetMessage.content.findIndex((c) => c.operationIndex === opIndex);
                 if (contentIndex !== -1) {
-                  const content = targetMessage.content.splice(contentIndex, 1)[0];
-                  content.content = op.message || '';
-                  targetMessage.content.push(content);
+                  // const content = targetMessage.content.splice(contentIndex, 1)[0];
+                  // content.content = op.message || '';
+                  // targetMessage.content.push(content);
+
+                  targetMessage.content[contentIndex].content = op.message || '';
 
                   chatFile.updateMessage(targetMessage);
                   broadcastMessageUpdate();
@@ -833,6 +835,9 @@ async function handleWebSocketConnection(ws: WebSocket): Promise<void> {
                     operations[idx].status = previousStatus[idx] || 'analyzed';
                     await manager.execute(operations[idx], true, ctx);
                     hasExecutedOperations = true;
+                    if (abortController.signal.aborted) {
+                      break;
+                    }
                   }
                 }
 

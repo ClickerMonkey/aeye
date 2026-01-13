@@ -356,6 +356,33 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
     }
   }
 
+  protected async convertMessages(request: Request, config: OpenRouterConfig): Promise<OpenRouterRequestMessage[]> {
+    const messages = await super.convertMessages(request, config) as OpenRouterRequestMessage[];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      // If the message has content & reasoning, move details into a separate field
+      // Annoying OpenRouter doesn't transform it correctly for us
+      if (message.role === 'assistant' && 
+        (message.content?.length) && 
+        (message.reasoning?.length || message.reasoning_details?.length)
+      ) {
+        // Remove reasoning details from content
+        const { reasoning, reasoning_details } = message;
+        delete message.reasoning;
+        delete message.reasoning_details;
+
+        // Insert a new message before this one with the reasoning info
+        messages.splice(i, 0, {
+          role: 'assistant',
+          name: message.name,
+          reasoning,
+          reasoning_details,
+        });
+      }
+    }
+    return messages;
+  }
+
   /**
    * OpenRouter does not support image generation
    */

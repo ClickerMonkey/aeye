@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import { ClickableImage } from './ImageViewer';
+import { ClickableImage, ImageViewer } from './ImageViewer';
 import { X, Download, ExternalLink } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -26,6 +26,12 @@ const preprocessLatex = (text: string): string => {
 // Check if a URL is a local file path
 const isLocalFile = (href: string): boolean => {
   if (!href) return false;
+
+  // For now - consider any non-http(s) URL as local file
+  if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('data:')) return false;
+
+  return true;
+/*
   // file:// protocol
   if (href.startsWith('file://')) return true;
   // Absolute paths starting with /
@@ -33,6 +39,7 @@ const isLocalFile = (href: string): boolean => {
   // Windows drive letter paths (C:\, D:\, etc.)
   if (/^[A-Za-z]:\\/.test(href)) return true;
   return false;
+*/
 };
 
 // Check if a file extension can be previewed with syntax highlighting
@@ -56,6 +63,14 @@ const canPreviewFile = (filepath: string): boolean => {
   ];
 
   return previewableExtensions.includes(ext);
+};
+
+// Check if a file extension is an image
+const canPreviewImage = (filepath: string): boolean => {
+  const ext = filepath.split('.').pop()?.toLowerCase();
+  if (!ext) return false;
+  const imageExtensions = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'svg'];
+  return imageExtensions.includes(ext);
 };
 
 // Get file path from various URL formats
@@ -358,6 +373,7 @@ export const CustomLink: React.FC<{ href: string | undefined, children: React.Re
   const { href, children } = props;
   const [showFileViewer, setShowFileViewer] = useState(false);
   const [showURLConfirm, setShowURLConfirm] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
 
   // If href is empty but children is a string that looks like a filename, use children as the path
   let effectiveHref = href || (typeof children === 'string' ? children : '');
@@ -369,6 +385,9 @@ export const CustomLink: React.FC<{ href: string | undefined, children: React.Re
     // If decoding fails, use the original
     console.warn('Failed to decode href:', effectiveHref, e);
   }
+
+  const filepath = effectiveHref && isLocalFile(effectiveHref) ? getFilePath(effectiveHref) : '';
+  const download = `/file?path=${encodeURIComponent(filepath)}`;
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -383,10 +402,12 @@ export const CustomLink: React.FC<{ href: string | undefined, children: React.Re
 
       if (canPreviewFile(filepath)) {
         setShowFileViewer(true);
+      } else if (canPreviewImage(filepath)) {
+        setShowImageViewer(true);
       } else {
         // Download the file
         const a = document.createElement('a');
-        a.href = `/file?path=${encodeURIComponent(filepath)}`;
+        a.href = download;
         a.download = filepath.split('/').pop() || filepath.split('\\').pop() || 'file';
         document.body.appendChild(a);
         a.click();
@@ -396,8 +417,6 @@ export const CustomLink: React.FC<{ href: string | undefined, children: React.Re
       setShowURLConfirm(true);
     }
   };
-
-  const filepath = effectiveHref && isLocalFile(effectiveHref) ? getFilePath(effectiveHref) : '';
 
   return (
     <>
@@ -414,6 +433,14 @@ export const CustomLink: React.FC<{ href: string | undefined, children: React.Re
           filepath={filepath}
           isOpen={showFileViewer}
           onClose={() => setShowFileViewer(false)}
+        />
+      )}
+
+      {effectiveHref && isLocalFile(effectiveHref) && canPreviewImage(filepath) && (
+        <ImageViewer
+          src={download}
+          isOpen={showImageViewer}
+          onClose={() => setShowImageViewer(false)}
         />
       )}
 

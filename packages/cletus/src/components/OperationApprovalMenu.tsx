@@ -64,9 +64,11 @@ export const OperationApprovalMenu: React.FC<OperationApprovalMenuProps> = ({
     // Move to end of message content array to ensure visibility.
     const contentIndex = message.content.findIndex((c) => c.operationIndex === operationIndex);
     if (contentIndex !== -1) {
-      const content = message.content.splice(contentIndex, 1)[0];
-      content.content = op.message || '';
-      message.content.push(content);
+      // const content = message.content.splice(contentIndex, 1)[0];
+      // content.content = op.message || '';
+      // message.content.push(content);
+
+      message.content[contentIndex].content = op.message || '';
       onMessageUpdate?.(message);
     }
   };

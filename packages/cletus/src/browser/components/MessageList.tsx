@@ -59,7 +59,8 @@ export const MessageList: React.FC<MessageListProps> = ({
                 onApproveOperation={onApproveOperation}
                 onRejectOperation={onRejectOperation}
                 hasMultiplePendingOperations={pendingCount > 1}
-                isProcessing={isLastMessage && (loading || isProcessing)}
+                isProcessing={loading || isProcessing}
+                isLast={isLastMessage}
               />
             );
           })}

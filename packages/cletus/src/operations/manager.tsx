@@ -1,6 +1,6 @@
 
 import { CletusAIContext } from "../ai";
-import { ANALYSIS_END, ANALYSIS_HEADER, ANALYSIS_START, ERROR_HEADER, formatName, formatValue, formatValueWithFormat, INPUT_END, INPUT_START, INSTRUCTIONS_END, INSTRUCTIONS_START, OUTPUT_END, OUTPUT_HEADER, OUTPUT_START } from "../common";
+import { ANALYSIS_END, ERROR_END, ANALYSIS_START, ERROR_START, formatName, formatValue, formatValueWithFormat, INPUT_END, INPUT_START, INSTRUCTIONS_END, INSTRUCTIONS_START, OUTPUT_END, OUTPUT_START } from "../common";
 import { Operation, OperationKind } from "../schemas";
 import { OperationDefinition, OperationDefinitionFor, OperationInput, OperationMode, Operations } from "./types";
 
@@ -185,14 +185,14 @@ export class OperationManager {
     let content = '';
 
     if (op.analysis && (prioritizeAnalysis || (!def.content && !op.error && op.output === undefined))) {
-      content = `${ANALYSIS_HEADER}${ANALYSIS_START}${formatValue(op.analysis)}${ANALYSIS_END}`;
+      content = `${ANALYSIS_START}${formatValue(op.analysis)}${ANALYSIS_END}`;
     } else if (def.content) {
       content = def.content(op);
     } else if (op.error) {
-      content = `${ERROR_HEADER}${op.error}`;
+      content = `${ERROR_START}${op.error}${ERROR_END}`;
     } else if (op.output !== undefined) {
       const outputFormat = def.outputFormat || 'yaml';
-      content = `${OUTPUT_HEADER}${OUTPUT_START}${formatValueWithFormat(op.output, outputFormat)}${OUTPUT_END}`
+      content = `${OUTPUT_START}${formatValueWithFormat(op.output, outputFormat)}${OUTPUT_END}`
       if (def.instructions) {
         content += `${INSTRUCTIONS_START}${def.instructions}${INSTRUCTIONS_END}`;
       }

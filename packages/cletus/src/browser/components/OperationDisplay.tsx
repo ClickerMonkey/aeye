@@ -6,6 +6,7 @@ import { Operation } from '../../schemas';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { MarkdownContent } from './Markdown';
+import { is } from 'zod/v4/locales';
 
 
 /**
@@ -383,6 +384,7 @@ export interface OperationDisplayProps {
   onToggleDecision?: (index: number, decision: 'approve' | 'reject') => void;
   hasMultipleOperations?: boolean;
   isProcessing?: boolean;
+  isLast?: boolean;
 }
 
 /**
@@ -404,6 +406,7 @@ export const OperationDisplay: React.FC<OperationDisplayProps> = ({
   onToggleDecision,
   hasMultipleOperations = false,
   isProcessing = false,
+  isLast = false,
 }) => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const { color: statusColor, label: statusLabel } = getStatusInfo(operation.status);
@@ -412,8 +415,8 @@ export const OperationDisplay: React.FC<OperationDisplayProps> = ({
   // Determine summary to display
   const displaySummary = operation.error ? operation.error : summary;
 
-  const needsApproval = operation.status === 'analyzed' && !isProcessing;
-  const isOperationProcessing = operation.status === 'doing' || (!!operation.start && !operation.end);
+  const needsApproval = operation.status === 'analyzed' && !isProcessing && isLast;
+  const isOperationProcessing = (operation.status === 'doing' || (!!operation.start && !operation.end)) && isLast;
   const showOptions = needsApproval || isOperationProcessing;
 
   return (

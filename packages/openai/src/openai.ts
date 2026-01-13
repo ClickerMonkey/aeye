@@ -627,7 +627,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     config: TConfig
   ): string | OpenAI.Chat.Completions.ChatCompletionContentPartText[] {
     if (typeof x === 'string') {
-      return x;
+      return [{ type: 'text', text: x }];
     }
     if (!Array.isArray(x)) {
       console.warn(`[OpenAIProvider] convertContentText: Unsupported content type from ${name}.`);
@@ -660,7 +660,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     config: TConfig
   ): Promise<string | OpenAI.Chat.Completions.ChatCompletionContentPart[]> {
     if (typeof x === 'string') {
-      return x;
+      return [{ type: 'text', text: x }];
     }
 
     return Promise.all(x.map(async (part): Promise<OpenAI.Chat.Completions.ChatCompletionContentPart> => {

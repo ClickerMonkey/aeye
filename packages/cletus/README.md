@@ -120,6 +120,7 @@ Here are some examples of what you can do with Cletus:
 - **Custom Assistants** - Create persona-based assistants with unique prompts (Gollum, Sherlock Holmes, etc.)
 - **Type System** - Define custom data structures with fields and validation
 - **Knowledge Base** - Semantic search over user memories, files, and data records
+- **Reasoning Support** - Built-in reasoning capabilities with chain-of-thought processing, break down complex tasks into manageable steps, connects information across different contexts, and employs analytical problem-solving to handle user requests with sophisticated reasoning
 - **File Intelligence** - Summarize, index, and search files (PDF, Word, Excel, images, etc.)
 - **Image Operations** - Generate, edit, analyze, and find images
 - **Web Integration** - Search the web, scrape pages, make API calls
