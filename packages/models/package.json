@@ -1,6 +1,6 @@
 {
   "name": "@aeye/models",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "description": "Static model information scraped from OpenAI, OpenRouter, Replicate, and AWS Bedrock",
   "type": "module",
   "main": "dist/src/index.js",
@@ -37,10 +37,10 @@
     "directory": "packages/models"
   },
   "dependencies": {
-    "@aeye/ai": "0.3.2",
-    "@aeye/aws": "0.3.2",
-    "@aeye/openrouter": "0.3.2",
-    "@aeye/replicate": "0.3.2"
+    "@aeye/ai": "0.3.4",
+    "@aeye/aws": "0.3.4",
+    "@aeye/openrouter": "0.3.4",
+    "@aeye/replicate": "0.3.4"
   },
   "devDependencies": {
     "@aws-sdk/client-bedrock": "^3.709.0",

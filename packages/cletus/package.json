@@ -1,6 +1,6 @@
 {
   "name": "@aeye/cletus",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "description": "Interactive CLI demo showcasing @aeye capabilities",
   "type": "module",
   "main": "dist/index.js",
@@ -66,13 +66,13 @@
     "puppeteer": "^24.31.0"
   },
   "devDependencies": {
-    "@aeye/ai": "0.3.2",
-    "@aeye/aws": "0.3.2",
-    "@aeye/core": "0.3.2",
-    "@aeye/models": "0.3.2",
-    "@aeye/openai": "0.3.2",
-    "@aeye/openrouter": "0.3.2",
-    "@aeye/replicate": "0.3.2",
+    "@aeye/ai": "0.3.4",
+    "@aeye/aws": "0.3.4",
+    "@aeye/core": "0.3.4",
+    "@aeye/models": "0.3.4",
+    "@aeye/openai": "0.3.4",
+    "@aeye/openrouter": "0.3.4",
+    "@aeye/replicate": "0.3.4",
     "@babel/preset-env": "^7.26.0",
     "@jest/globals": "^29.7.0",
     "@langchain/core": "^0.3.79",
