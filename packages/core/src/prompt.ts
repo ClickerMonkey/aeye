@@ -1402,13 +1402,14 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
       if (execution.status !== 'ready') {
         return execution;
       }
+      const args = execution.toolCall.arguments || '{}';
       try {
-        execution.args = await toolInfo!.tool.parse(ctx, execution.toolCall.arguments, toolInfo!.definition.parameters);
+        execution.args = await toolInfo!.tool.parse(ctx, args, toolInfo!.definition.parameters);
         execution.status = 'parsed';
         start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
-        execution.error = `Error parsing tool arguments: ${e.message}, args: ${execution.toolCall.arguments}`;
+        execution.error = `Error parsing tool arguments: ${e.message}, args: ${args}`;
         error.ready = true;
       }
 

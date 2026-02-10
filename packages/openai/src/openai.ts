@@ -1277,6 +1277,11 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
             if (!toolCall.updated && !toolCall.finished) {
               toolCall.finished = true;
               yieldChunk.toolCall = toolCall;
+              if (!toolCall.named) {
+                yieldChunk.toolCallNamed = toolCall;
+                yieldChunk.toolCallArguments = toolCall;
+                toolCall.named = true;
+              }
             }
           }
 
@@ -1296,10 +1301,19 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
             toolCall.finished = true;
 
             const chunk: OpenAI.Chat.Completions.ChatCompletionChunk = { choices: [], created: 0, id: '', model: '', object: 'chat.completion.chunk' };
+            
             const yieldChunk: Chunk = { toolCall };
+            if (!toolCall.named) {
+              yieldChunk.toolCallNamed = toolCall;
+              yieldChunk.toolCallArguments = toolCall;
+              toolCall.named = true;
+            }
 
             // Augment chunk with provider-specific data  
             this.augmentChatChunk(chunk, yieldChunk, effectiveConfig);
+
+            // Keep track of all chunks for post-processing if needed
+            chunks.push(yieldChunk);
 
             // Send it!
             yield yieldChunk;

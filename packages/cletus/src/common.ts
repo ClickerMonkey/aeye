@@ -336,9 +336,9 @@ export async function convertMessage(msg: Message): Promise<AIMessage[]> {
           role: 'user',
           content: approvalOperations.map(({ operation, toolCallId}) => ({
             type: 'text',
-            content: operation.status === 'rejected' 
-              ? `<rejected-operation id=${toolCallId} />`
-              : `<approved-operation id=${toolCallId}>\n${OperationManager.getContent(operation)}\n</approved-operation>`,
+            content: operation.status === 'rejected'
+              ? `<rejected-operation id="${toolCallId}" />`
+              : `<approved-operation id="${toolCallId}">\n${OperationManager.getContent(operation)}\n</approved-operation>`,
           })),
         });
       }
