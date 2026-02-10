@@ -176,6 +176,9 @@ export async function scrapeOpenRouter(
     convertOpenRouterModel(model, zdrModelIds, metricsMap.get(model.id))
   );
 
+  // Sort them
+  modelInfos.sort((a, b) => a.id.localeCompare(b.id));
+
   // Save JSON for reference
   await fs.writeFile(
     path.join(outputDir, 'openrouter-modelinfo.json'),

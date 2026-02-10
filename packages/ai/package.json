@@ -1,6 +1,6 @@
 {
   "name": "@aeye/ai",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "@aeye AI - AI TypeScript library main functionality",
   "type": "module",
   "main": "dist/index.js",
@@ -31,7 +31,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@aeye/core": "^0.3.4"
+    "@aeye/core": "^0.3.5"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
