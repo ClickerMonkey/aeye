@@ -1,6 +1,6 @@
 {
   "name": "@aeye/core",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "@aeye Core - Core primitives for AI components (agents, tools, prompts)",
   "type": "module",
   "main": "dist/index.js",
@@ -11,10 +11,15 @@
         "import": "./dist/browser.js",
         "types": "./dist/browser.d.ts"
       },
-      "default": {
-        "import": "./dist/index.js",
-        "types": "./dist/index.d.ts"
-      }
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
