@@ -1,6 +1,6 @@
 {
   "name": "@aeye/replicate",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "@aeye Replicate - Replicate integration for @aeye",
   "type": "module",
   "main": "dist/index.js",
@@ -42,8 +42,8 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@aeye/ai": "^0.3.6",
-    "@aeye/core": "^0.3.6",
+    "@aeye/ai": "^0.3.7",
+    "@aeye/core": "^0.3.7",
     "replicate": "^1.3.0"
   },
   "devDependencies": {
