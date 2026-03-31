@@ -72,8 +72,13 @@ export function detectAWSCapabilities(model: FoundationModelSummary): Set<ModelC
     capabilities.add('embedding');
   }
   
-  // Tool calling for supported models
-  if (family === 'anthropic' && modelId.includes('claude')) {
+  // Tool calling via the Converse API - supported by chat-capable models in these families
+  if (
+    (family === 'anthropic' && modelId.includes('claude')) ||
+    (family === 'meta' && (modelId.includes('llama3-1') || modelId.includes('llama3-2') || modelId.includes('llama3-3'))) ||
+    (family === 'mistral' && modelId.includes('large')) ||
+    (family === 'cohere' && (modelId.includes('command-r')))
+  ) {
     capabilities.add('tools');
   }
   

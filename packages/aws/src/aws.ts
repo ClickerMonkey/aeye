@@ -3,6 +3,7 @@
  *
  * Provider for AWS Bedrock models including Claude, Llama, Titan, Mistral, and more.
  * Uses AWS SDK v3 to automatically pick up credentials from environment, IAM roles, or credential files.
+ * All chat LLM calls use the Bedrock Converse API for a unified request/response format across models.
  */
 
 import type {
@@ -27,7 +28,6 @@ import {
   toJSONSchema,
   ToolCall,
 } from '@aeye/core';
-import type { Anthropic } from '@anthropic-ai/sdk';
 import {
   BedrockClient,
   BedrockClientConfig,
@@ -35,18 +35,78 @@ import {
 } from '@aws-sdk/client-bedrock';
 import {
   BedrockRuntimeClient,
+  ContentBlock,
+  ConverseCommand,
+  ConverseCommandInput,
+  ConverseStreamCommand,
+  ConverseStreamCommandInput,
+  ImageFormat,
   InvokeModelCommand,
-  InvokeModelWithResponseStreamCommand
+  Message as BedrockMessage,
+  SystemContentBlock,
+  Tool as BedrockTool,
+  ToolChoice as BedrockToolChoice,
 } from '@aws-sdk/client-bedrock-runtime';
-import { isModelInfo } from 'packages/ai/src/common';
-import { convertAWSModel, detectAWSFamily } from './common';
+import { convertAWSModel } from './common';
 import { AWSAuthError, AWSContextWindowError, AWSError, AWSQuotaError, AWSRateLimitError, type ModelFamilyConfig } from './types';
-import { get } from 'http';
-import { Base64ImageSource, URLImageSource } from '@anthropic-ai/sdk/resources/messages.mjs';
 
 // ============================================================================
 // AWS Bedrock Provider Configuration
 // ============================================================================
+
+/**
+ * Hook called before a request is made to the provider.
+ *
+ * @template TRequest - The request type
+ * @template TCommand - The AWS command type
+ * @param request - The request object
+ * @param command - The AWS SDK command being sent
+ * @param ctx - The context object
+ */
+export type PreRequestHook<TRequest = any, TCommand = any> = (
+  request: TRequest,
+  command: TCommand,
+  ctx: AIContextAny
+) => void | Promise<void>;
+
+/**
+ * Hook called after a response is received from the provider.
+ *
+ * @template TRequest - The request type
+ * @template TCommand - The AWS command type
+ * @template TResponse - The response type
+ * @param request - The request object
+ * @param command - The AWS SDK command that was sent
+ * @param response - The response object
+ * @param ctx - The context object
+ */
+export type PostRequestHook<TRequest = any, TCommand = any, TResponse = any> = (
+  request: TRequest,
+  command: TCommand,
+  response: TResponse,
+  ctx: AIContextAny
+) => void | Promise<void>;
+
+/**
+ * Hooks for different operation types.
+ */
+export interface AWSBedrockHooks {
+  // Chat completion hooks (using Converse API)
+  chat?: {
+    beforeRequest?: PreRequestHook<Request, ConverseCommand | ConverseStreamCommand>;
+    afterRequest?: PostRequestHook<Request, ConverseCommand | ConverseStreamCommand, Response>;
+  };
+  // Image generation hooks
+  imageGenerate?: {
+    beforeRequest?: PreRequestHook<ImageGenerationRequest, InvokeModelCommand>;
+    afterRequest?: PostRequestHook<ImageGenerationRequest, InvokeModelCommand, ImageGenerationResponse>;
+  };
+  // Embedding hooks
+  embed?: {
+    beforeRequest?: PreRequestHook<EmbeddingRequest, InvokeModelCommand>;
+    afterRequest?: PostRequestHook<EmbeddingRequest, InvokeModelCommand, EmbeddingResponse>;
+  };
+}
 
 /**
  * Configuration options for the AWS Bedrock provider.
@@ -75,60 +135,6 @@ import { Base64ImageSource, URLImageSource } from '@anthropic-ai/sdk/resources/m
  * };
  * ```
  */
-/**
- * Hook called before a request is made to the provider.
- * 
- * @template TRequest - The request type
- * @template TCommand - The AWS command type
- * @param request - The request object
- * @param command - The AWS SDK command being sent
- * @param ctx - The context object
- */
-export type PreRequestHook<TRequest = any, TCommand = any> = (
-  request: TRequest,
-  command: TCommand,
-  ctx: AIContextAny
-) => void | Promise<void>;
-
-/**
- * Hook called after a response is received from the provider.
- * 
- * @template TRequest - The request type
- * @template TCommand - The AWS command type
- * @template TResponse - The response type
- * @param request - The request object
- * @param command - The AWS SDK command that was sent
- * @param response - The response object
- * @param ctx - The context object
- */
-export type PostRequestHook<TRequest = any, TCommand = any, TResponse = any> = (
-  request: TRequest,
-  command: TCommand,
-  response: TResponse,
-  ctx: AIContextAny
-) => void | Promise<void>;
-
-/**
- * Hooks for different operation types.
- */
-export interface AWSBedrockHooks {
-  // Chat completion hooks
-  chat?: {
-    beforeRequest?: PreRequestHook<Request, InvokeModelCommand | InvokeModelWithResponseStreamCommand>;
-    afterRequest?: PostRequestHook<Request, InvokeModelCommand | InvokeModelWithResponseStreamCommand, Response>;
-  };
-  // Image generation hooks
-  imageGenerate?: {
-    beforeRequest?: PreRequestHook<ImageGenerationRequest, InvokeModelCommand>;
-    afterRequest?: PostRequestHook<ImageGenerationRequest, InvokeModelCommand, ImageGenerationResponse>;
-  };
-  // Embedding hooks
-  embed?: {
-    beforeRequest?: PreRequestHook<EmbeddingRequest, InvokeModelCommand>;
-    afterRequest?: PostRequestHook<EmbeddingRequest, InvokeModelCommand, EmbeddingResponse>;
-  };
-}
-
 export interface AWSBedrockConfig {
   // AWS region (e.g., 'us-east-1', 'us-west-2')
   region?: string;
@@ -148,23 +154,15 @@ export interface AWSBedrockConfig {
     imageGenerate?: ModelInput;
     embedding?: ModelInput;
   };
-  // Anthropic-specific configuration
-  anthropic?: {
-    version?: string;
-    beta?: AnthropicBeta[];
-    emptyMessage?: Anthropic.MessageParam;
-  },
   // Hooks for intercepting requests and responses
   hooks?: AWSBedrockHooks;
 }
 
-
-// Helper types
-type AnthropicBeta = 'computer-use-2025-01-24' | 'token-efficient-tools-2025-02-19' | 'Interleaved-thinking-2025-05-14' | 'output-128k-2025-02-19' | 'dev-full-thinking-2025-05-14' | 'context-1m-2025-08-07' | 'context-management-2025-06-27';
-type AnthropicRequest = Omit<Anthropic.MessageCreateParams, 'model' | 'stream'> & {
-  anthropic_version: string;
-  anthropic_beta?: AnthropicBeta[];
-};
+/**
+ * A recursive JSON-compatible value type matching AWS SDK's internal DocumentType.
+ * Used for tool inputs and additional model request fields.
+ */
+type JsonDocument = null | boolean | number | string | JsonDocument[] | { [key: string]: JsonDocument };
 
 // ============================================================================
 // AWS Bedrock Provider Class
@@ -305,24 +303,11 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     const self = this;
 
     return async (request: Request, ctx: AIContextAny, metadata?: AIMetadataAny): Promise<Response> => {
-      const modelInput = request.model || ctx.metadata?.model || metadata?.model || effectiveConfig.defaultModels?.chat
+      const modelInput = request.model || ctx.metadata?.model || metadata?.model || effectiveConfig.defaultModels?.chat;
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      
-      const model = getModel(modelInput);
-      const family = detectAWSFamily(model.id);
-      
-      // Route to appropriate model handler
-      if (family === 'anthropic') {
-        return self.executeAnthropicModel(modelInput, request, ctx);
-      } else if (family === 'meta' || family === 'mistral') {
-        return self.executeLlamaStyleModel(model.id, request, ctx);
-      } else if (family === 'cohere') {
-        return self.executeCohereModel(model.id, request, ctx);
-      } else {
-        throw new AWSError(`Unsupported model family: ${family}`);
-      }
+      return self.executeWithConverse(modelInput, request, ctx);
     };
   }
 
@@ -334,150 +319,102 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     const self = this;
 
     return async function* (
-      this: AWSBedrockProvider,
       request: Request,
       ctx: AIContextAny,
       metadata?: AIMetadataAny
     ): AsyncGenerator<Chunk> {
-      const model = getModel(request.model || ctx.metadata?.model || metadata?.model || effectiveConfig.defaultModels?.chat);
-      if (!model) {
+      const modelInput = request.model || ctx.metadata?.model || metadata?.model || effectiveConfig.defaultModels?.chat;
+      if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-
-      const family = detectAWSFamily(model.id);
-      
-      // Route to appropriate model handler
-      if (family === 'anthropic') {
-        return yield* self.streamAnthropicModel(model.id, request, ctx);
-      } else if (family === 'meta' || family === 'mistral') {
-        return yield* self.streamLlamaStyleModel(model.id, request, ctx);
-      } else if (family === 'cohere') {
-        return yield* self.streamCohereModel(model.id, request, ctx);
-      } else {
-        throw new AWSError(`Unsupported model family for streaming: ${family}`);
-      }
+      yield* self.streamWithConverse(modelInput, request, ctx);
     };
   }
 
   // ============================================================================
-  // Anthropic (Claude) Model Implementation
+  // Unified Converse API Implementation
   // ============================================================================
 
   /**
-   * Convert tools to Anthropic format
+   * Build a ConverseCommandInput from a generic @aeye/core Request.
    */
-  private convertToolsToAnthropic(request: Request): Anthropic.Tool[] | undefined {
-    if (!request.tools || request.tools.length === 0) return undefined;
-
-    return request.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: toJSONSchema(tool.parameters, tool.strict ?? true) as Anthropic.Tool.InputSchema,
-    }));
-  }
-
-  /**
-   * Convert tool choice to Anthropic format
-   */
-  private convertToolChoiceToAnthropic(request: Request): Anthropic.ToolChoice | undefined {
-    if (!request.toolChoice) return undefined;
-
-    if (request.toolChoice === 'auto') return { type: 'auto' };
-    if (request.toolChoice === 'required') return { type: 'any' };
-    if (request.toolChoice === 'none') return undefined;
-    if (typeof request.toolChoice === 'object') {
-      return { type: 'tool', name: request.toolChoice.tool };
-    }
-
-    return undefined;
-  }
-
-  private convertRequestToAnthropic(model: ModelInput, request: Request): AnthropicRequest {
-    const messages = this.convertMessagesToAnthropic(request);
-    const tools = this.convertToolsToAnthropic(request);
-    const tool_choice = tools ? this.convertToolChoiceToAnthropic(request) : undefined;
-    const systemMessages = request.messages.filter(m => m.role === 'system');
-    const system = systemMessages.length > 0
-      ? systemMessages.map((m): Anthropic.TextBlockParam => ({
-          type: 'text', 
-          text: typeof m.content === 'string' ? m.content : m.content.map(m => m.content).join('\n'),
-        }))
-      : undefined;
-
-    const modelMax = isModelInfo(model) ? model.maxOutputTokens : undefined;
+  private convertRequestToConverse(modelId: string, request: Request): ConverseCommandInput {
+    const messages = this.convertMessagesToConverse(request);
+    const system = this.convertSystemToConverse(request);
+    const toolConfig = this.convertToolsToConverse(request);
+    const model = getModel(request.model);
+    const maxTokens = request.maxTokens ?? (typeof model !== 'string' && model?.maxOutputTokens ? model.maxOutputTokens : undefined);
 
     return {
-      anthropic_version: this.config.anthropic?.version ?? 'bedrock-2023-05-31',
-      anthropic_beta: this.config.anthropic?.beta,
-      max_tokens: modelMax || 4096,
+      modelId,
       messages,
       system,
-      temperature: request.temperature,
-      top_p: request.topP,
-      stop_sequences: request.stop ? Array.isArray(request.stop) ? request.stop : [request.stop] : undefined,
-      tools,
-      tool_choice,
-      metadata: {
-        user_id: request.userKey || undefined,
+      inferenceConfig: {
+        maxTokens,
+        temperature: request.temperature,
+        topP: request.topP,
+        stopSequences: request.stop
+          ? Array.isArray(request.stop) ? request.stop : [request.stop]
+          : undefined,
       },
-      ...request.extra,
+      toolConfig,
+      additionalModelRequestFields: request.extra,
     };
   }
 
-  private async executeAnthropicModel(model: ModelInput, request: Request, ctx: AIContextAny): Promise<Response> {
-    const body = this.convertRequestToAnthropic(model, request);
-    const modelId = this.applyModelPrefix(getModel(model)?.id || '');
-    
-    try {
-      const command = new InvokeModelCommand({
-        modelId,
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
+  /**
+   * Execute a non-streaming chat completion using the Converse API.
+   */
+  private async executeWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): Promise<Response> {
+    const model = getModel(modelInput);
+    const modelId = this.applyModelPrefix(model.id);
+    const params = this.convertRequestToConverse(modelId, request);
 
-      // Call pre-request hook with command
+    try {
+      const command = new ConverseCommand(params);
+
       await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
 
       const response = await this.bedrockRuntimeClient.send(command);
-      const responseBody: Anthropic.Message = JSON.parse(new TextDecoder().decode(response.body));
 
-      // Extract text content and tool calls
       let content = '';
-      let reasoning = undefined as string | undefined;
+      let reasoning: string | undefined;
       const toolCalls: ToolCall[] = [];
 
-      if (responseBody.content) {
-        for (const block of responseBody.content) {
-          if (block.type === 'text') {
+      const outputMessage = response.output?.message;
+      if (outputMessage?.content) {
+        for (const block of outputMessage.content) {
+          if ('text' in block && block.text !== undefined) {
             content += block.text;
-          } else if (block.type === 'tool_use') {
+          } else if ('toolUse' in block && block.toolUse) {
             toolCalls.push({
-              id: block.id,
-              name: block.name,
-              arguments: JSON.stringify(block.input),
+              id: block.toolUse.toolUseId!,
+              name: block.toolUse.name!,
+              arguments: JSON.stringify(block.toolUse.input ?? {}),
             });
-          } else if (block.type === 'thinking') {
-            reasoning = (reasoning || '') + block.thinking;
+          } else if ('reasoningContent' in block && block.reasoningContent) {
+            const rc = block.reasoningContent;
+            if ('reasoningText' in rc && rc.reasoningText) {
+              reasoning = (reasoning ?? '') + rc.reasoningText.text;
+            }
           }
         }
       }
 
       const result: Response = {
         content,
-        reasoning: { content: reasoning },
+        reasoning: reasoning !== undefined ? { content: reasoning } : undefined,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        finishReason: this.mapAnthropicStopReason(responseBody.stop_reason),
-        model,
+        finishReason: this.mapStopReason(response.stopReason),
+        model: modelInput,
         usage: {
           text: {
-            input: responseBody.usage?.input_tokens ?? -1,
-            output: responseBody.usage?.output_tokens ?? -1,
+            input: response.usage?.inputTokens ?? -1,
+            output: response.usage?.outputTokens ?? -1,
           },
         },
       };
 
-      // Call post-request hook with command
       await this.config.hooks?.chat?.afterRequest?.(request, command, result, ctx);
 
       return result;
@@ -487,136 +424,110 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     }
   }
 
-  private async* streamAnthropicModel(model: ModelInput, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
-    const body = this.convertRequestToAnthropic(model, request);
-    const modelId = this.applyModelPrefix(getModel(model)?.id || '');
-    
-    try {
-      const command = new InvokeModelWithResponseStreamCommand({
-        modelId,
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
+  /**
+   * Execute a streaming chat completion using the Converse Stream API.
+   */
+  private async* streamWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
+    const model = getModel(modelInput);
+    const modelId = this.applyModelPrefix(model.id);
+    const params = this.convertRequestToConverse(modelId, request) as ConverseStreamCommandInput;
 
-      // Call pre-request hook with command
+    try {
+      const command = new ConverseStreamCommand(params);
+
       await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
 
       const response = await this.bedrockRuntimeClient.send(command);
-      
-      if (!response.body) {
-        throw new AWSError('No response body in streaming response');
+
+      if (!response.stream) {
+        throw new AWSError('No stream in streaming response');
       }
 
       let inputTokens = 0;
       let outputTokens = 0;
       let accumulatedContent = '';
-      let accumulatedReasoning = '';
-      let finishReason: any = undefined;
-      
-      // Track tool calls similar to OpenAI implementation
-      type ToolCallItem = { id: string; name: string; arguments: string; named: boolean; finished: boolean };
+      let finishReason: FinishReason = 'stop';
+
+      type ToolCallItem = { id: string; name: string; arguments: string; finished: boolean };
       const toolCallsMap = new Map<number, ToolCallItem>();
-      
+
       try {
-        for await (const event of response.body) {
-          if (event.chunk) {
-            const chunk: Anthropic.MessageStreamEvent = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
-            
-            if (chunk.type === 'content_block_delta' && chunk.delta) {
-              switch (chunk.delta.type) {
-              case 'text_delta':
-                accumulatedContent += chunk.delta.text;
-                yield {
-                  content: chunk.delta.text,
-                  finishReason: undefined,
-                };
-                break;
-              case 'thinking_delta':
-                accumulatedReasoning += chunk.delta.thinking;
-                yield {
-                  reasoning: { content: chunk.delta.thinking },
-                };
-                break;
-              case 'input_json_delta':
-                // Tool input accumulation
-                const index = chunk.index;
-                const toolCall = toolCallsMap.get(index);
-                if (toolCall && chunk.delta.partial_json) {
-                  if (toolCall.arguments === '{}') {
-                    toolCall.arguments = '';
-                  }
-                  toolCall.arguments += chunk.delta.partial_json;
-                  
-                  // Yield toolCallArguments event
-                  yield {
-                    toolCallArguments: {
-                      id: toolCall.id,
-                      name: toolCall.name,
-                      arguments: toolCall.arguments,
-                    },
-                  };
-                }
-                break;
-              }
-            } else if (chunk.type === 'content_block_start' && chunk.content_block?.type === 'tool_use') {
-              // Start of a tool use block
-              const index = chunk.index;
-              const toolCall: ToolCallItem = {
-                id: chunk.content_block.id,
-                name: chunk.content_block.name,
-                arguments: chunk.content_block.input ? JSON.stringify(chunk.content_block.input) : '',
-                named: true,
-                finished: false,
-              };
-              toolCallsMap.set(index, toolCall);
-              
-              // Yield toolCallNamed event
-              yield {
-                toolCallNamed: {
-                  id: toolCall.id,
-                  name: toolCall.name,
-                  arguments: toolCall.arguments,
-                },
-              };
-            } else if (chunk.type === 'content_block_stop') {
-              // Tool use block completed
-              const index = chunk.index;
+        for await (const event of response.stream) {
+          if (event.contentBlockDelta?.delta) {
+            const delta = event.contentBlockDelta.delta;
+            const index = event.contentBlockDelta.contentBlockIndex ?? 0;
+
+            if ('text' in delta && delta.text !== undefined) {
+              accumulatedContent += delta.text;
+              yield { content: delta.text };
+            } else if ('toolUse' in delta && delta.toolUse?.input !== undefined) {
               const toolCall = toolCallsMap.get(index);
-              if (toolCall && !toolCall.finished) {
-                toolCall.finished = true;
-                
-                // Yield toolCall event
+              if (toolCall) {
+                toolCall.arguments += delta.toolUse.input;
                 yield {
-                  toolCall: {
+                  toolCallArguments: {
                     id: toolCall.id,
                     name: toolCall.name,
                     arguments: toolCall.arguments,
                   },
                 };
               }
-            } else if (chunk.type === 'message_start' && chunk.message?.usage) {
-              inputTokens = chunk.message.usage.input_tokens || 0;
-            } else if (chunk.type === 'message_delta') {
-              if (chunk.delta?.stop_reason) {
-                finishReason = this.mapAnthropicStopReason(chunk.delta.stop_reason);
-                
-                yield {
-                  finishReason,
-                  usage: {
-                    text: {
-                      input: chunk.usage.input_tokens || inputTokens || undefined,
-                      output: chunk.usage.output_tokens || undefined,
-                      cached: chunk.usage.cache_read_input_tokens || undefined,
-                    },
-                  },
-                };
+            } else if ('reasoningContent' in delta && delta.reasoningContent) {
+              const rc = delta.reasoningContent;
+              if ('text' in rc && rc.text !== undefined) {
+                yield { reasoning: { content: rc.text } };
               }
             }
+          } else if (event.contentBlockStart?.start) {
+            const start = event.contentBlockStart.start;
+            const index = event.contentBlockStart.contentBlockIndex ?? 0;
+
+            if ('toolUse' in start && start.toolUse) {
+              const toolCall: ToolCallItem = {
+                id: start.toolUse.toolUseId!,
+                name: start.toolUse.name!,
+                arguments: '',
+                finished: false,
+              };
+              toolCallsMap.set(index, toolCall);
+              yield {
+                toolCallNamed: {
+                  id: toolCall.id,
+                  name: toolCall.name,
+                  arguments: '',
+                },
+              };
+            }
+          } else if (event.contentBlockStop) {
+            const index = event.contentBlockStop.contentBlockIndex ?? 0;
+            const toolCall = toolCallsMap.get(index);
+            if (toolCall && !toolCall.finished) {
+              toolCall.finished = true;
+              yield {
+                toolCall: {
+                  id: toolCall.id,
+                  name: toolCall.name,
+                  arguments: toolCall.arguments,
+                },
+              };
+            }
+          } else if (event.messageStop) {
+            finishReason = this.mapStopReason(event.messageStop.stopReason);
+            yield { finishReason };
+          } else if (event.metadata?.usage) {
+            inputTokens = event.metadata.usage.inputTokens ?? 0;
+            outputTokens = event.metadata.usage.outputTokens ?? 0;
+            yield {
+              usage: {
+                text: {
+                  input: inputTokens,
+                  output: outputTokens,
+                },
+              },
+            };
           }
         }
       } finally {
-        // Call post-request hook with accumulated response
         const toolCalls = Array.from(toolCallsMap.values()).map(tc => ({
           id: tc.id,
           name: tc.name,
@@ -627,7 +538,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
           content: accumulatedContent,
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           finishReason,
-          model,
+          model: modelInput,
           usage: {
             text: {
               input: inputTokens,
@@ -635,7 +546,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
             },
           },
         };
-        
+
         await this.config.hooks?.chat?.afterRequest?.(request, command, accumulatedResponse, ctx);
       }
     } catch (error: any) {
@@ -644,398 +555,196 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     }
   }
 
-  private convertMessagesToAnthropic(request: Request): Anthropic.MessageParam[] {
-    const toContent = (part: string | Anthropic.ContentBlockParam[]): Anthropic.ContentBlockParam[] => {
-      if (typeof part === 'string') {
-        return [{ type: 'text', text: part }];
-      } else {
-        return part;
-      }
-    };
+  /**
+   * Convert system messages to the Converse API system format.
+   */
+  private convertSystemToConverse(request: Request): SystemContentBlock[] | undefined {
+    const systemMessages = request.messages.filter(m => m.role === 'system');
+    if (systemMessages.length === 0) return undefined;
 
-    const messages = request.messages
-      .filter(m => m.role !== 'system')
-      .map((msg): Anthropic.MessageParam => {
-        if (msg.role === 'assistant') {
-          // Handle assistant messages with tool calls
-          if (msg.toolCalls && msg.toolCalls.length > 0) {
-            const content: Anthropic.ContentBlockParam[] = [];
-            
-            // Add text content if present
-            if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
-              content.push({ type: 'text', text: msg.content });
-            }
-            
-            // Add tool use blocks
-            for (const toolCall of msg.toolCalls) {
-              content.push({
-                type: 'tool_use',
-                id: toolCall.id,
-                name: toolCall.name,
-                input: (() => {
-                  try {
-                    return JSON.parse(toolCall.arguments);
-                  } catch (e) {
-                    return { badArguments: toolCall.arguments };
-                  }
-                })(),
-              });
-            }
-            
-            return {
-              role: 'assistant',
-              content,
-            };
+    return systemMessages.map((m): SystemContentBlock => ({
+      text: typeof m.content === 'string'
+        ? m.content
+        : m.content.map(c => String(c.content)).join('\n'),
+    }));
+  }
+
+  /**
+   * Convert @aeye/core messages to AWS Bedrock Converse API message format.
+   * Filters out system messages (handled via convertSystemToConverse).
+   * Merges consecutive messages with the same role as required by the API.
+   */
+  private convertMessagesToConverse(request: Request): BedrockMessage[] {
+    const rawMessages: BedrockMessage[] = [];
+
+    for (const msg of request.messages) {
+      if (msg.role === 'system') continue;
+
+      if (msg.role === 'user') {
+        const content: ContentBlock[] = [];
+        if (typeof msg.content === 'string') {
+          if (msg.content.trim()) {
+            content.push({ text: msg.content });
           }
-          
-          return {
-            role: 'assistant',
-            content: typeof msg.content === 'string' ? msg.content : msg.content.map(m => m.content).join('\n\n'),
-          };
-        } else if (msg.role === 'tool') {
-          // Handle tool result messages
-          return {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: msg.toolCallId!,
-                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-              },
-            ],
-          };
-        } else if (msg.role === 'user') {
-          // Handle text and image content
-          if (typeof msg.content === 'string') {
-            return {
-              role: 'user',
-              content: msg.content,
-            };
-          } else if (Array.isArray(msg.content)) {
-            const content = msg.content.map((part): Anthropic.ContentBlockParam => {
-              if (part.type === 'text') {
-                return { type: 'text', text: String(part.content) };
-              } else if (part.type === 'image') {
-                // Convert image to base64 if needed
-                let source: Base64ImageSource | URLImageSource | undefined;
-                if (typeof part.content === 'string') {
-                  if (part.content.startsWith('data:')) {
-                    const match = part.content.match(/^data:([^;]+);base64,(.+)$/);
-                    if (match) {
-                      source = {
-                        type: 'base64',
-                        media_type: match[1] as Base64ImageSource['media_type'],
-                        data: match[2],
-                      };
-                    } else if (part.content.startsWith('http')) {
-                      source = {
-                        type: 'url',
-                        url: part.content,
-                      };
-                    }
-                  } else {
-                    source = {
-                      type: 'url',
-                      url: part.content,
-                    };
-                  }
-                } else if (part.content instanceof URL) {
-                  source = {
-                    type: 'url',
-                    url: part.content.toString(),
-                  };
-                }
-                if (source) {
-                  return { type: 'image', source };
-                }
+        } else {
+          for (const part of msg.content) {
+            if (part.type === 'text') {
+              if (String(part.content).trim()) {
+                content.push({ text: String(part.content) });
               }
-              return { type: 'text', text: '[Unsupported content type]' };
-            });
-
-            return {
-              role: 'user',
-              content,
-            };
+            } else if (part.type === 'image') {
+              const imageBlock = this.convertImageContent(part.content);
+              if (imageBlock) {
+                content.push(imageBlock);
+              }
+            }
           }
         }
-
-        return {
-          role: 'user',
-          content: '<unsupported role>',
-        };
-      });
-
-    // Filter out empty messages
-    const nonEmptyMessages = messages.filter(m => {
-      const contentArray = toContent(m.content);
-      return contentArray.some(c => c.type === 'text' ? c.text.trim().length > 0 : true);
-    });
-
-    // Join up consecutive messages with the same role
-    const joinedMessages: Anthropic.MessageParam[] = [];
-    let lastMessage: Anthropic.MessageParam | null = null;
-
-    for (const msg of nonEmptyMessages) {
-      if (lastMessage && lastMessage.role === msg.role) {
-        const lastContent = toContent(lastMessage.content);
-        const newContent = toContent(msg.content);
-        const allContent = lastContent.concat(newContent);
-
-        lastMessage.content = allContent;
-      } else {
-        if (lastMessage) {
-          joinedMessages.push(lastMessage);
+        if (content.length > 0) {
+          rawMessages.push({ role: 'user', content });
         }
-        lastMessage = msg;
-      }
-    }
-    if (lastMessage) {
-      joinedMessages.push(lastMessage);
-    }
-
-    // Simplify content if single text block
-    for (const msg of joinedMessages) {
-      const contentArray = toContent(msg.content);
-      if (contentArray.every(c => c.type === 'text')) {
-        msg.content = contentArray.map(c => c.text).join('\n\n');
-      }
-    }
-
-    if (joinedMessages.length === 0) {
-      if (this.config.anthropic?.emptyMessage) {
-        joinedMessages.push(this.config.anthropic.emptyMessage);
-      } else {
-        joinedMessages.push({
+      } else if (msg.role === 'assistant') {
+        const content: ContentBlock[] = [];
+        if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
+          content.push({ text: msg.content });
+        }
+        if (msg.toolCalls && msg.toolCalls.length > 0) {
+          for (const tc of msg.toolCalls) {
+            let input: Record<string, unknown> = {};
+            try {
+              input = JSON.parse(tc.arguments);
+            } catch {
+              input = { _raw: tc.arguments };
+            }
+            content.push({
+              toolUse: {
+                toolUseId: tc.id,
+                name: tc.name,
+                input: input as unknown as JsonDocument,
+              },
+            });
+          }
+        }
+        if (content.length > 0) {
+          rawMessages.push({ role: 'assistant', content });
+        }
+      } else if (msg.role === 'tool') {
+        rawMessages.push({
           role: 'user',
-          content: 'Perform the requested operation.',
+          content: [
+            {
+              toolResult: {
+                toolUseId: msg.toolCallId!,
+                content: [
+                  {
+                    text: typeof msg.content === 'string'
+                      ? msg.content
+                      : JSON.stringify(msg.content),
+                  },
+                ],
+              },
+            },
+          ],
         });
       }
     }
 
-    return joinedMessages;
+    // Merge consecutive messages with the same role (required by Converse API)
+    const merged: BedrockMessage[] = [];
+    for (const msg of rawMessages) {
+      const last = merged[merged.length - 1];
+      if (last && last.role === msg.role) {
+        last.content = [...(last.content ?? []), ...(msg.content ?? [])];
+      } else {
+        merged.push({ role: msg.role, content: [...(msg.content ?? [])] });
+      }
+    }
+
+    // Ensure there is at least one user message
+    if (merged.length === 0) {
+      merged.push({ role: 'user', content: [{ text: 'Perform the requested operation.' }] });
+    }
+
+    return merged;
   }
 
-  private mapAnthropicStopReason(reason: Anthropic.StopReason | null): FinishReason {
-    if (!reason) return 'stop';
-    switch (reason) {
+  /**
+   * Convert an image content value to a Converse API ContentBlock.
+   * Only base64 data URIs are natively supported; URL images are not supported
+   * by the Converse API without fetching the bytes first.
+   */
+  private convertImageContent(content: string | URL | unknown): ContentBlock | null {
+    const src = content instanceof URL ? content.href : typeof content === 'string' ? content : null;
+    if (!src) return null;
+
+    // data URI: data:<mediaType>;base64,<data>
+    const match = src.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      const mediaType = match[1].toLowerCase();
+      const format = (
+        mediaType.includes('png') ? 'png' :
+        mediaType.includes('jpeg') || mediaType.includes('jpg') ? 'jpeg' :
+        mediaType.includes('gif') ? 'gif' :
+        mediaType.includes('webp') ? 'webp' : null
+      ) as ImageFormat | null;
+
+      if (format) {
+        const bytes = Buffer.from(match[2], 'base64');
+        return { image: { format, source: { bytes } } };
+      }
+    }
+
+    // URL images are not natively supported by the Converse API
+    return null;
+  }
+
+  /**
+   * Convert @aeye/core tool definitions to AWS Bedrock Converse API tool format.
+   */
+  private convertToolsToConverse(request: Request): ConverseCommandInput['toolConfig'] {
+    if (!request.tools || request.tools.length === 0) return undefined;
+
+    const tools = request.tools.map(tool => ({
+      toolSpec: {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: {
+          json: toJSONSchema(tool.parameters, tool.strict ?? true) as unknown as JsonDocument,
+        },
+      },
+    })) as BedrockTool[];
+
+    let toolChoice: BedrockToolChoice | undefined;
+    if (request.toolChoice === 'auto') {
+      toolChoice = { auto: {} };
+    } else if (request.toolChoice === 'required') {
+      toolChoice = { any: {} };
+    } else if (typeof request.toolChoice === 'object' && request.toolChoice !== null) {
+      toolChoice = { tool: { name: request.toolChoice.tool } };
+    }
+
+    return { tools, toolChoice };
+  }
+
+  /**
+   * Map a Bedrock Converse API stop reason to the @aeye/core FinishReason type.
+   */
+  private mapStopReason(stopReason: string | undefined): FinishReason {
+    switch (stopReason) {
       case 'end_turn':
         return 'stop';
       case 'max_tokens':
+      case 'model_context_window_exceeded':
         return 'length';
       case 'stop_sequence':
         return 'stop';
       case 'tool_use':
         return 'tool_calls';
+      case 'content_filtered':
+        return 'content_filter';
       default:
         return 'stop';
     }
-  }
-
-  // ============================================================================
-  // Llama/Mistral Model Implementation
-  // ============================================================================
-
-  private async executeLlamaStyleModel(modelId: string, request: Request, ctx: AIContextAny): Promise<Response> {
-    const prompt = this.convertMessagesToLlamaPrompt(request);
-
-    const body = {
-      prompt,
-      max_gen_len: request.maxTokens || 2048,
-      temperature: request.temperature,
-      top_p: request.topP,
-    };
-
-    try {
-      const command = new InvokeModelCommand({
-        modelId: this.applyModelPrefix(modelId),
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
-
-      // Call pre-request hook with command
-      await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
-
-      const response = await this.bedrockRuntimeClient.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-
-      const result: Response = {
-        content: responseBody.generation || '',
-        toolCalls: [],
-        finishReason: responseBody.stop_reason === 'stop' ? 'stop' : 'length',
-        model: { id: modelId },
-        usage: {
-          text: {
-            input: responseBody.prompt_token_count ?? -1,
-            output: responseBody.generation_token_count ?? -1,
-          },
-        },
-      };
-
-      // Call post-request hook with command
-      await this.config.hooks?.chat?.afterRequest?.(request, command, result, ctx);
-
-      return result;
-    } catch (error: any) {
-      this.handleAWSError(error);
-      throw error;
-    }
-  }
-
-  private async* streamLlamaStyleModel(modelId: string, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
-    const prompt = this.convertMessagesToLlamaPrompt(request);
-
-    const body = {
-      prompt,
-      max_gen_len: request.maxTokens || 2048,
-      temperature: request.temperature,
-      top_p: request.topP,
-    };
-
-    try {
-      const command = new InvokeModelWithResponseStreamCommand({
-        modelId: this.applyModelPrefix(modelId),
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
-
-      const response = await this.bedrockRuntimeClient.send(command);
-      
-      if (!response.body) {
-        throw new AWSError('No response body in streaming response');
-      }
-
-      for await (const event of response.body) {
-        if (event.chunk) {
-          const chunk = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
-          
-          if (chunk.generation) {
-            yield {
-              content: chunk.generation,
-              finishReason: chunk.stop_reason === 'stop' ? 'stop' : undefined,
-            };
-          }
-        }
-      }
-    } catch (error: any) {
-      this.handleAWSError(error);
-      throw error;
-    }
-  }
-
-  private convertMessagesToLlamaPrompt(request: Request): string {
-    // Simple prompt construction for Llama-style models
-    const messages = request.messages.map(msg => {
-      const role = msg.role === 'assistant' ? 'Assistant' : msg.role === 'system' ? 'System' : 'User';
-      const content = typeof msg.content === 'string' ? msg.content : '[Complex content]';
-      return `${role}: ${content}`;
-    });
-    return messages.join('\n\n') + '\n\nAssistant:';
-  }
-
-  // ============================================================================
-  // Cohere Model Implementation
-  // ============================================================================
-
-  private async executeCohereModel(modelId: string, request: Request, ctx: AIContextAny): Promise<Response> {
-    const prompt = this.convertMessagesToCoherePrompt(request);
-
-    const body = {
-      prompt,
-      max_tokens: request.maxTokens || 2048,
-      temperature: request.temperature,
-      p: request.topP,
-      stop_sequences: request.stop,
-    };
-
-    try {
-      const command = new InvokeModelCommand({
-        modelId: this.applyModelPrefix(modelId),
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
-
-      // Call pre-request hook with command
-      await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
-
-      const response = await this.bedrockRuntimeClient.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-
-      const result: Response = {
-        content: responseBody.generations?.[0]?.text || '',
-        toolCalls: [],
-        finishReason: responseBody.generations?.[0]?.finish_reason === 'COMPLETE' ? 'stop' : 'length',
-        model: { id: modelId },
-        usage: {
-          text: {
-            input: -1,
-            output: -1,
-          },
-        },
-      };
-
-      // Call post-request hook with command
-      await this.config.hooks?.chat?.afterRequest?.(request, command, result, ctx);
-
-      return result;
-    } catch (error: any) {
-      this.handleAWSError(error);
-      throw error;
-    }
-  }
-
-  private async* streamCohereModel(modelId: string, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
-    const prompt = this.convertMessagesToCoherePrompt(request);
-
-    const body = {
-      prompt,
-      max_tokens: request.maxTokens || 2048,
-      temperature: request.temperature,
-      p: request.topP,
-      stop_sequences: request.stop,
-      stream: true,
-    };
-
-    try {
-      const command = new InvokeModelWithResponseStreamCommand({
-        modelId: this.applyModelPrefix(modelId),
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
-
-      const response = await this.bedrockRuntimeClient.send(command);
-      
-      if (!response.body) {
-        throw new AWSError('No response body in streaming response');
-      }
-
-      for await (const event of response.body) {
-        if (event.chunk) {
-          const chunk = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
-          
-          if (chunk.text) {
-            yield {
-              content: chunk.text,
-              finishReason: chunk.finish_reason === 'COMPLETE' ? 'stop' : undefined,
-            };
-          }
-        }
-      }
-    } catch (error: any) {
-      this.handleAWSError(error);
-      throw error;
-    }
-  }
-
-  private convertMessagesToCoherePrompt(request: Request): string {
-    const messages = request.messages.map(msg => {
-      const content = typeof msg.content === 'string' ? msg.content : '[Complex content]';
-      return content;
-    });
-    return messages.join('\n\n');
   }
 
   // ============================================================================
