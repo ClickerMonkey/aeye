@@ -84,6 +84,37 @@ export class ToolInterrupt extends Error {
 }
 
 /**
+ * Error class used to indicate that a prompt should be suspended at the current tool call point.
+ * 
+ * When a tool throws `PromptSuspend`, the prompt loop stops without adding tool results to the
+ * message history. The caller receives a `suspend` event containing the messages up to (and 
+ * including) the assistant message with tool calls. This allows the caller to save the prompt
+ * state, process the tool call externally (e.g. await user approval), and later resume by
+ * providing the saved messages plus the tool results back into the prompt as `ctx.messages`.
+ * 
+ * @example
+ * // In a tool that needs approval before continuing:
+ * call: async (input, _, ctx) => {
+ *   const needsApproval = await checkApproval(input);
+ *   if (needsApproval) {
+ *     throw new PromptSuspend('Waiting for user approval');
+ *   }
+ *   return performAction(input);
+ * }
+ * 
+ * // Resuming after approval:
+ * // 1. Catch the `suspend` event and save `event.messages`
+ * // 2. When ready, append tool result messages to the saved messages
+ * // 3. Re-run the prompt with the saved + result messages as `ctx.messages`
+ */
+export class PromptSuspend extends Error {
+  constructor(message: string = 'Prompt execution suspended') {
+    super(message);
+    this.name = 'PromptSuspend';
+  }
+}
+
+/**
  * A Tool component that performs specific functions, often interacting with external systems or APIs.
  * Tools can be called by AI models to extend their capabilities beyond text generation.
  *
