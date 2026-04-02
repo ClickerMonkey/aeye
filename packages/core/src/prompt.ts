@@ -207,7 +207,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'message', message: Message, request: Request } |
   { type: 'textComplete', content: string, request: Request } |
   { type: 'complete', output: TOutput, request: Request } |
-  { type: 'suspend', messages: Message[], request: Request } |
+  { type: 'suspend', request: Request } |
   { type: 'textReset', reason?: string, request: Request } |
   { type: 'requestUsage', usage: Usage, request: Request } |
   { type: 'responseTokens', tokens: number, request: Request } |
@@ -857,11 +857,36 @@ export class Prompt<
             break;
         }
 
-        // If any tool suspended, stop the loop without adding tool results.
-        // The request.messages at this point ends with the assistant message containing tool calls,
-        // which is exactly the state needed for the caller to save and later resume from.
+        // If any tool suspended, add results for all completed (non-suspended) tools so they are
+        // preserved in request.messages, then break without adding results for suspended tools.
+        // request.messages ends with: [...history, assistantMsg(toolCalls), toolResult(completed)...]
+        // The caller saves this state; once the suspended tool result is available they append it and resume.
         const anySuspended = toolExecutors.some(toolExecutor => toolExecutor.status === 'suspended');
         if (anySuspended) {
+          for (const toolExecutor of toolExecutors) {
+            if (toolExecutor.status === 'suspended') {
+              continue; // Omit result — the pending result will be supplied on resume
+            }
+            const content = toolExecutor.error
+              ? toolExecutor.error
+              : toolExecutor.result
+                ? typeof toolExecutor.result === 'string'
+                  ? toolExecutor.result
+                  : JSON.stringify(toolExecutor.result)
+                : '';
+            yield emitMessage({
+              role: 'tool',
+              content,
+              toolCallId: toolExecutor.toolCall.id,
+            });
+            if (toolExecutor.status === 'invalid') {
+              toolParseErrors++;
+            } else if (toolExecutor.status === 'error') {
+              toolCallErrors++;
+            } else if (toolExecutor.status === 'success') {
+              toolSuccesses++;
+            }
+          }
           suspended = true;
           break;
         }
@@ -1096,13 +1121,13 @@ export class Prompt<
 
     yield emit({ type: 'usage', usage: accumulatedUsage, request });
 
-    // If the prompt was suspended by a tool, emit a suspend event with the current messages
-    // (ending with the assistant message containing tool calls but without tool results).
-    // The caller can save these messages and resume later by providing them back as ctx.messages
-    // alongside the tool result messages.
+    // If the prompt was suspended by a tool, emit a suspend event.
+    // request.messages at this point ends with the assistant tool-call message and any
+    // completed tool results; the suspended tool's result is absent and must be supplied on resume.
+    // The caller can save request.messages, append the pending tool result, and re-run.
     // Returns undefined (not TOutput) — the prompt has not produced a final result yet.
     if (suspended) {
-      yield emit({ type: 'suspend', messages: request.messages, request });
+      yield emit({ type: 'suspend', request });
       return undefined;
     }
 

@@ -176,16 +176,16 @@ describe('Prompt Suspend/Resume', () => {
       const suspendEvent = events.find(e => e.type === 'suspend');
       expect(suspendEvent).toBeDefined();
 
-      const { messages } = suspendEvent as { type: 'suspend'; messages: Message[]; request: any };
+      const { request: suspendRequest } = suspendEvent as { type: 'suspend'; request: any };
 
       // The last message should be the assistant message with tool calls
-      const lastMsg = messages[messages.length - 1];
+      const lastMsg = suspendRequest.messages[suspendRequest.messages.length - 1];
       expect(lastMsg.role).toBe('assistant');
       expect(lastMsg.toolCalls).toBeDefined();
-      expect(lastMsg.toolCalls!.some(tc => tc.id === 'call_99')).toBe(true);
+      expect(lastMsg.toolCalls!.some((tc: any) => tc.id === 'call_99')).toBe(true);
 
-      // No 'tool' role messages should be present (no results added)
-      const toolResultMessages = messages.filter(m => m.role === 'tool');
+      // No 'tool' role messages should be present (no results added for the suspended tool)
+      const toolResultMessages = suspendRequest.messages.filter((m: any) => m.role === 'tool');
       expect(toolResultMessages).toHaveLength(0);
     });
 
@@ -238,6 +238,72 @@ describe('Prompt Suspend/Resume', () => {
     });
   });
 
+  describe('Mixed tool completion: non-suspended results preserved', () => {
+    it('should add completed tool results to request.messages before suspending', async () => {
+      const completingTool = new Tool({
+        name: 'completing-tool',
+        description: 'Completes successfully',
+        instructions: 'Completes',
+        schema: z.object({ value: z.string() }),
+        call: (input) => `done: ${input.value}`,
+      });
+
+      const suspendingTool = new Tool({
+        name: 'suspend-tool',
+        description: 'Needs approval',
+        instructions: 'Approval',
+        schema: z.object({ id: z.number() }),
+        call: () => { throw new PromptSuspend('Awaiting approval'); },
+      });
+
+      const prompt = new Prompt({
+        name: 'mixed-prompt',
+        description: 'Mixed tools',
+        content: 'Do both',
+        tools: [completingTool, suspendingTool],
+        toolExecution: 'sequential',
+      });
+
+      const executor = createMockExecutor({
+        responses: [
+          {
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [
+              { id: 'call_a', name: 'completing-tool', arguments: '{"value":"hello"}' },
+              { id: 'call_b', name: 'suspend-tool', arguments: '{"id":7}' },
+            ]
+          }
+        ]
+      });
+
+      const ctx: Context<{}, {}> = {
+        execute: executor,
+        messages: []
+      };
+
+      const events: PromptEvent<string, [AnyTool, AnyTool]>[] = [];
+      for await (const event of prompt.run({}, ctx)) {
+        events.push(event);
+      }
+
+      const suspendEvent = events.find(e => e.type === 'suspend') as { type: 'suspend'; request: any } | undefined;
+      expect(suspendEvent).toBeDefined();
+
+      const msgs: Message[] = suspendEvent!.request.messages;
+
+      // The completed tool result should be present
+      const toolResults = msgs.filter((m: any) => m.role === 'tool');
+      expect(toolResults).toHaveLength(1);
+      expect(toolResults[0].toolCallId).toBe('call_a');
+      expect(toolResults[0].content).toContain('done: hello');
+
+      // The suspended tool (call_b) should have NO result message
+      const suspendedResult = msgs.find((m: any) => m.role === 'tool' && m.toolCallId === 'call_b');
+      expect(suspendedResult).toBeUndefined();
+    });
+  });
+
   describe('Resume behavior after suspension', () => {
     it('should allow resuming by providing saved messages with tool results', async () => {
       const suspendingTool = new Tool({
@@ -276,7 +342,7 @@ describe('Prompt Suspend/Resume', () => {
       let savedMessages: Message[] = [];
       for await (const event of prompt.run({}, firstCtx)) {
         if (event.type === 'suspend') {
-          savedMessages = event.messages;
+          savedMessages = event.request.messages;
         }
       }
 
@@ -421,10 +487,10 @@ describe('Prompt Suspend/Resume', () => {
       const suspendEvents = await runPrompt(suspendTool);
       const interruptEvents = await runPrompt(interruptTool);
 
-      // Suspend: no tool result messages in suspend event messages
-      const suspendEvent = suspendEvents.find(e => e.type === 'suspend') as { type: 'suspend'; messages: Message[]; request: any } | undefined;
+      // Suspend: no tool result messages in request.messages for the suspended tool
+      const suspendEvent = suspendEvents.find(e => e.type === 'suspend') as { type: 'suspend'; request: any } | undefined;
       expect(suspendEvent).toBeDefined();
-      const suspendToolResults = suspendEvent!.messages.filter(m => m.role === 'tool');
+      const suspendToolResults = suspendEvent!.request.messages.filter((m: any) => m.role === 'tool');
       expect(suspendToolResults).toHaveLength(0);
 
       // Interrupt: tool result messages ARE added (with empty content)
