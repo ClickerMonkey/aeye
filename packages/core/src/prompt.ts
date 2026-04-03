@@ -2,7 +2,7 @@ import Handlebars from "handlebars";
 import { ZodString, ZodType } from 'zod';
 
 import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
-import { AnyTool, Tool, ToolCompatible, ToolInterrupt } from "./tool";
+import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { strictify, toJSONSchema } from "./schema";
 
@@ -186,6 +186,7 @@ export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
       ? { type: 'toolStart', tool: TTool, args: any, request: Request }
       | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, request: Request }
       | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
+      | { type: 'toolSuspend', tool: TTool, args: any, request: Request }
       | { type: 'toolError', tool: TTool, args: any, error: string, request: Request }
       : never
     : never;
@@ -206,6 +207,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'message', message: Message, request: Request } |
   { type: 'textComplete', content: string, request: Request } |
   { type: 'complete', output: TOutput, request: Request } |
+  { type: 'suspend', request: Request } |
   { type: 'textReset', reason?: string, request: Request } |
   { type: 'requestUsage', usage: Usage, request: Request } |
   { type: 'responseTokens', tokens: number, request: Request } |
@@ -591,6 +593,7 @@ export class Prompt<
     let usage: Usage | undefined = undefined;
     let iterations = 0;
     let accumulatedUsage: Usage = {};
+    let suspended = false;
 
     // Track stats for reconfig
     let toolParseErrors = 0;
@@ -723,6 +726,9 @@ export class Prompt<
             if (toolCall.emitInterrupt()) {
               yield emitTool({ type: 'toolInterrupt', tool: toolCall.tool!, args: toolCall.args, request });
             }
+            if (toolCall.emitSuspend()) {
+              yield emitTool({ type: 'toolSuspend', tool: toolCall.tool!, args: toolCall.args, request });
+            }
             if (toolCall.emitError()) {
               yield emitTool({ type: 'toolError', tool: toolCall.tool!, args: toolCall.args, error: toolCall.error!, request })
             }
@@ -819,6 +825,9 @@ export class Prompt<
               if (toolExecutor.emitInterrupt()) {
                 yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
+              if (toolExecutor.emitSuspend()) {
+                yield emitTool({ type: 'toolSuspend', tool: toolExecutor.tool!, args: toolExecutor.args, request });
+              }
               if (toolExecutor.emitError()) {
                 yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, request })
               }
@@ -838,6 +847,9 @@ export class Prompt<
               if (toolExecutor.emitInterrupt()) {
                 yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
+              if (toolExecutor.emitSuspend()) {
+                yield emitTool({ type: 'toolSuspend', tool: toolExecutor.tool!, args: toolExecutor.args, request });
+              }
               if (toolExecutor.emitError()) {
                 yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, request })
               }
@@ -845,7 +857,15 @@ export class Prompt<
             break;
         }
 
+        // Emit tool results for all completed tools. If any tool suspended, skip its result
+        // (the caller will supply it on resume) and break after processing the rest.
+        // request.messages ends with: [...history, assistantMsg(toolCalls), toolResult(completed)...]
+        let anySuspended = false;
         for (const toolExecutor of toolExecutors) {
+          if (toolExecutor.status === 'suspended') {
+            anySuspended = true;
+            continue; // Omit result — the pending result will be supplied on resume
+          }
           const content = toolExecutor.error
             ? toolExecutor.error
             : toolExecutor.result
@@ -867,6 +887,11 @@ export class Prompt<
           } else if (toolExecutor.status === 'success') {
             toolSuccesses++;
           }
+        }
+
+        if (anySuspended) {
+          suspended = true;
+          break;
         }
 
         if ((toolCallErrors + toolParseErrors) > toolErrorsPrevious) {
@@ -1074,6 +1099,16 @@ export class Prompt<
     }
 
     yield emit({ type: 'usage', usage: accumulatedUsage, request });
+
+    // If the prompt was suspended by a tool, emit a suspend event.
+    // request.messages at this point ends with the assistant tool-call message and any
+    // completed tool results; the suspended tool's result is absent and must be supplied on resume.
+    // The caller can save request.messages, append the pending tool result, and re-run.
+    // Returns undefined (not TOutput) — the prompt has not produced a final result yet.
+    if (suspended) {
+      yield emit({ type: 'suspend', request });
+      return undefined;
+    }
 
     // We don't emit complete without a valid result unless toolsOnly is set
     if (result === undefined && !onlyTools) {
@@ -1334,7 +1369,7 @@ export class Prompt<
   }
 }
 
-type ToolStatus = 'ready' | 'parsed' | 'invalid' | 'executing' | 'success' | 'error' | 'interrupted';
+type ToolStatus = 'ready' | 'parsed' | 'invalid' | 'executing' | 'success' | 'error' | 'interrupted' | 'suspended';
 
 type ToolExecution<T> = {
   toolCall: ToolCall;
@@ -1345,6 +1380,7 @@ type ToolExecution<T> = {
   emitOutput(): boolean;
   emitError(): boolean;
   emitInterrupt(): boolean;
+  emitSuspend(): boolean;
   parse: () => Promise<ToolExecution<T>>;
   run: () => Promise<ToolExecution<T>>;
   args?: any;
@@ -1382,6 +1418,7 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
   const output = emitter();
   const error = emitter();
   const interrupt = emitter();
+  const suspend = emitter();
 
   if (!toolInfo) {
     error.ready = true;
@@ -1397,6 +1434,7 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
     emitOutput: output.emit,
     emitError: error.emit,
     emitInterrupt: interrupt.emit,
+    emitSuspend: suspend.emit,
     parse: once(async () => {
       // Already ran or failed earlier?
       if (execution.status !== 'ready') {
@@ -1422,11 +1460,14 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
       }
       try {
         execution.status = 'executing';
-        execution.result = await resolve(toolInfo!.tool.run(execution.args, ctx));
+        execution.result = await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }));
         execution.status = 'success';
         output.ready = true;
       } catch (e: any) {
-        if (e instanceof ToolInterrupt) {
+        if (e instanceof PromptSuspend) {
+          execution.status = 'suspended';
+          suspend.ready = true;
+        } else if (e instanceof ToolInterrupt) {
           execution.status = 'interrupted';
           interrupt.ready = true;
         } else {
