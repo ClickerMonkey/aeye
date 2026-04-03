@@ -2,7 +2,7 @@
 
 > **Multi-provider AI library with intelligent model selection, type-safe context management, and comprehensive provider support.**
 
-@aeye (AI TypeScript) is a modern, type-safe AI library for Node.js and TypeScript applications. It provides a unified interface for working with multiple AI providers (OpenAI, OpenRouter, Replicate, etc.) with automatic model selection, cost tracking, streaming support, and extensible architecture.
+@aeye (AI TypeScript) is a modern, type-safe AI library for Node.js and TypeScript applications. It provides a unified interface for working with multiple AI providers (OpenAI, OpenRouter, Replicate, AWS Bedrock, and more) with automatic model selection, cost tracking, streaming support, and extensible architecture.
 
 To see a complex example of a CLI agent built with aeye - `npm i -g @aeye/cletus` and run `cletus`!
 
@@ -10,31 +10,34 @@ To see a complex example of a CLI agent built with aeye - `npm i -g @aeye/cletus
 import { AI } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 
-const openai = new OpenAIProvider({});
-const ai = AI.with<MyContext>().providers({ openai }).create({ /* config */ })
+const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = AI.with<MyContext>().providers({ openai }).create({ /* config */ });
 
 const myTool = ai.tool({ /* name, description, instructions, schema, call, + */ });
 const myPrompt = ai.prompt({ /* name, description, content, schema?, config, tools, metadata, + */ });
 const myAgent = ai.agent({ /* name, description, refs, call, + */ });
 
-myTool.run(input, ctx?); // same signature with myPrompt & myAgent
-myPrompt.get('tools', input, ctx?); // prompts can have tool results, results, streaming, etc through get
+myTool.run(input, ctx?);          // run a tool
+myPrompt.run(input, ctx?);        // run a prompt (streaming generator)
+myPrompt.get('result', input, ctx?); // get structured result
+myPrompt.get('stream', input, ctx?); // stream all events
+myAgent.run(input, ctx?);         // run an agent
 
-ai.chat.get(request, ctx?) // or stream
-ai.image.generate.get(request, ctx?) // or stream
-ai.image.edit.get(request, ctx?) // or stream
-ai.image.analyze.get(request, ctx?) // or stream
-ai.speech.get(request, ctx?) // or stream
-ai.transcribe.get(request, ctx?) // or stream
-ai.embed.get(request, ctx?)
-ai.models.list() // get(id), search(criteria), select(criteria), refresh()
+ai.chat.get(request, ctx?);          // or .stream(request, ctx?)
+ai.image.generate.get(request, ctx?); // or .stream(request, ctx?)
+ai.image.edit.get(request, ctx?);     // or .stream(request, ctx?)
+ai.image.analyze.get(request, ctx?);  // or .stream(request, ctx?)
+ai.speech.get(request, ctx?);         // or .stream(request, ctx?)
+ai.transcribe.get(request, ctx?);     // or .stream(request, ctx?)
+ai.embed.get(request, ctx?);
+ai.models.list(); // .get(id), .search(criteria), .select(criteria), .refresh()
 ```
 
 ## Features
 
 ### Core Features
 
-- 🎯 **Multi-Provider Support** - Single interface for OpenAI, OpenRouter, Replicate, and custom providers
+- 🎯 **Multi-Provider Support** - Single interface for OpenAI, OpenRouter, Replicate, AWS Bedrock, and custom providers
 - 🤖 **Intelligent Model Selection** - Automatic model selection based on capabilities, cost, speed, and quality
 - 💰 **Cost Tracking** - Built-in token usage and cost calculation with provider-reported costs
 - 🔄 **Streaming Support** - Full streaming support across all compatible capabilities
@@ -45,7 +48,7 @@ ai.models.list() // get(id), search(criteria), select(criteria), refresh()
 
 ### Advanced Features
 
-- ⚡ **Provider Capability Detection** - Automatic detection and validation of provider capabilities
+- 🤖 **Tools, Prompts & Agents** - Composable components for building sophisticated AI workflows
 - 🎣 **Lifecycle Hooks** - Intercept and modify operations at every stage
 - 🔧 **Model Overrides** - Customize model properties without modifying providers
 - 📦 **Model Sources** - External model sources (OpenRouter, custom APIs)
@@ -84,15 +87,15 @@ const ai = AI.with()
   .create();
 
 // Chat completion
-const response = await ai.chat.get([
-  { role: 'user', content: 'What is TypeScript?' }
-]);
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'What is TypeScript?' }]
+});
 console.log(response.content);
 
 // Streaming
-for await (const chunk of ai.chat.stream([
-  { role: 'user', content: 'Write a poem about AI' }
-])) {
+for await (const chunk of ai.chat.stream({
+  messages: [{ role: 'user', content: 'Write a poem about AI' }]
+})) {
   if (chunk.content) {
     process.stdout.write(chunk.content);
   }
@@ -105,70 +108,58 @@ for await (const chunk of ai.chat.stream([
 import { AI } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
+import { ReplicateProvider } from '@aeye/replicate';
+import { AWSBedrockProvider } from '@aeye/aws';
 
 const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
 const openrouter = new OpenRouterProvider({ apiKey: process.env.OPENROUTER_API_KEY! });
+const replicate = new ReplicateProvider({ apiKey: process.env.REPLICATE_API_KEY! });
+const aws = new AWSBedrockProvider({ region: 'us-east-1' });
 
 const ai = AI.with()
-  .providers({ openai, openrouter })
+  .providers({ openai, openrouter, replicate, aws })
   .create({
-    // Automatic model selection criteria
-    defaultMetadata: {
-      weights: {
-        cost: 0.4,
-        speed: 0.3,
-        quality: 0.3,
-      }
+    // Default scoring weights for automatic model selection
+    defaultWeights: {
+      cost: 0.4,
+      speed: 0.3,
+      accuracy: 0.3,
     }
   });
 
 // AI automatically selects the best provider/model
-const response = await ai.chat.get([
-  { role: 'user', content: 'Explain quantum computing' }
-]);
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'Explain quantum computing' }]
+});
 ```
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                        AI Class                         │
-│  - Context Management                                   │
-│  - Model Registry                                       │
-│  - Lifecycle Hooks                                      │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-         ┌────────┴─────────┐
-         │                  │
-    ┌────▼────┐      ┌─────▼──────┐
-    │  APIs   │      │  Registry  │
-    │         │      │            │
-    │ • Chat  │      │ • Models   │
-    │ • Image │      │ • Search   │
-    │ • Speech│      │ • Select   │
-    │ • Embed │      └────┬───────┘
-    └────┬────┘           │
-         │         ┌──────▼──────┐
-         │         │  Providers  │
-         │         │             │
-         │         │ • OpenAI    │
-         │         │ • OpenRouter│
-         │         │ • Replicate │
-         └─────────┴─────────────┘
+```mermaid
+graph TD
+    AI["<b>AI Class</b><br/>Context Management<br/>Model Registry<br/>Lifecycle Hooks"]
+    APIs["<b>APIs</b><br/>Chat · Image<br/>Speech · Embed"]
+    Registry["<b>Registry</b><br/>Models · Search · Select"]
+    Providers["<b>Providers</b><br/>OpenAI · OpenRouter<br/>Replicate · AWS · Custom"]
+
+    AI --> APIs
+    AI --> Registry
+    Registry --> Providers
+    APIs --> Providers
 ```
 
 ## Packages
 
 ### Core Packages
 
-#### [@aeye/core](./packages/core)
-Core types and interfaces for the @aeye framework. Defines the foundational types for requests, responses, providers, and streaming.
+#### [@aeye/core](./packages/core/README.md)
+Core primitives for building AI agents, tools, and prompts with TypeScript. Provides the foundational `Tool`, `Prompt`, and `Agent` classes along with all shared types.
 
 ```bash
 npm install @aeye/core
 ```
 
-#### [@aeye/ai](./packages/ai)
+#### [@aeye/ai](./packages/ai/README.md)
 Main AI library with intelligent model selection, context management, and comprehensive APIs. Built on top of @aeye/core.
 
 ```bash
@@ -178,32 +169,31 @@ npm install @aeye/ai @aeye/core
 ### Provider Packages
 
 #### [@aeye/openai](./packages/openai)
-OpenAI provider supporting GPT-4, GPT-3.5, DALL-E, Whisper, TTS, and embeddings. Serves as base class for OpenAI-compatible providers.
+OpenAI provider supporting chat completions, image generation, speech synthesis, transcription, and embeddings. Also serves as a base class for OpenAI-compatible providers.
 
 ```bash
 npm install @aeye/openai openai
 ```
 
 **Features:**
-- Chat completions (GPT-4, GPT-3.5 Turbo)
-- Vision (GPT-4V)
-- Reasoning models (o1, o3-mini)
-- Image generation (DALL-E 2, DALL-E 3)
-- Speech-to-text (Whisper)
-- Text-to-speech (TTS)
+- Chat completions with vision support
+- Reasoning models
+- Image generation and editing
+- Speech-to-text (transcription)
+- Text-to-speech
 - Embeddings
-- Function calling
+- Tool/function calling
 - Structured outputs
 
 #### [@aeye/openrouter](./packages/openrouter)
-OpenRouter provider for unified access to multiple AI providers with automatic fallbacks and competitive pricing.
+OpenRouter provider for unified access to hundreds of AI models from multiple providers with competitive pricing.
 
 ```bash
 npm install @aeye/openrouter
 ```
 
 **Features:**
-- Multi-provider access (OpenAI, Anthropic, Google, Meta, etc.)
+- Access to models from OpenAI, Anthropic, Google, Meta, and more
 - Automatic fallbacks
 - Built-in cost tracking
 - Zero Data Retention (ZDR) support
@@ -222,71 +212,396 @@ npm install @aeye/replicate replicate
 - Image generation, transcription, embeddings
 - Custom model support
 
+#### [@aeye/aws](./packages/aws)
+AWS Bedrock provider supporting a wide range of foundation models via the Converse API.
+
+```bash
+npm install @aeye/aws
+```
+
+**Features:**
+- Chat completions with models from Anthropic, Meta, Mistral, Amazon, and more
+- Image generation (Stability AI)
+- Text embeddings (Amazon Titan)
+- Automatic AWS credential discovery
+
 ## Usage Examples
 
-### Image Generation
+### Chat Completion
 
 ```typescript
 import { AI } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 
 const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = AI.with().providers({ openai }).create();
 
-const ai = AI.with()
-  .providers({ openai })
-  .create();
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'What is TypeScript?' }]
+});
+console.log(response.content);
+```
 
+### Image Generation
+
+```typescript
 const imageResponse = await ai.image.generate.get({
   prompt: 'A serene mountain landscape at sunset',
-  model: 'dall-e-3',
   size: '1024x1024',
-  quality: 'hd'
+  quality: 'high'
 });
 
 console.log('Image URL:', imageResponse.images[0].url);
 ```
 
-### Function Calling
+### Tool Calling with `ai.tool()` and `ai.prompt()`
+
+The recommended way to use tools is through the `ai.tool()` and `ai.prompt()` factories, which bind your components to the AI instance:
 
 ```typescript
+import { AI } from '@aeye/ai';
+import { OpenAIProvider } from '@aeye/openai';
 import z from 'zod';
 
-const response = await ai.chat.get([
-  { role: 'user', content: 'What is the weather in San Francisco?' }
-], {
-  tools: [
-    {
-      name: 'get_weather',
-      description: 'Get current weather for a location',
-      parameters: z.object({
-        location: z.string(),
-        unit: z.enum(['celsius', 'fahrenheit']).optional(),
-      }),
-    }
-  ],
-  toolChoice: 'auto',
+const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = AI.with().providers({ openai }).create();
+
+// Define a tool
+const getWeather = ai.tool({
+  name: 'getWeather',
+  description: 'Get current weather for a city',
+  instructions: 'Use this tool to fetch current weather data for {{location}}.',
+  schema: z.object({
+    location: z.string().describe('City name, e.g. "San Francisco"'),
+    units: z.enum(['celsius', 'fahrenheit']).default('celsius'),
+  }),
+  call: async ({ location, units }) => {
+    // In a real app, call a weather API here
+    return { temperature: 18, condition: 'sunny', units };
+  },
 });
 
-if (response.toolCalls) {
-  for (const toolCall of response.toolCalls) {
-    console.log('Tool:', toolCall.name);
-    console.log('Arguments:', JSON.parse(toolCall.arguments));
-  }
+// Create a prompt that uses the tool
+const weatherAdvisor = ai.prompt({
+  name: 'weatherAdvisor',
+  description: 'Gives travel clothing advice based on weather',
+  content: 'You are a helpful travel advisor. The user is visiting {{destination}}. Check the weather and suggest what to wear.',
+  input: (input: { destination: string }) => ({ destination: input.destination }),
+  tools: [getWeather],
+  schema: z.object({
+    suggestion: z.string().describe('Clothing and packing suggestion'),
+    temperature: z.number().describe('Current temperature'),
+    condition: z.string().describe('Weather condition'),
+  }),
+});
+
+// The prompt automatically calls the weather tool and returns structured output
+const advice = await weatherAdvisor.get('result', { destination: 'Paris' });
+console.log(advice?.suggestion);  // "Bring a light jacket, it's 18°C and sunny."
+```
+
+### Agent Orchestration
+
+Agents coordinate multiple tools and prompts to accomplish complex goals:
+
+```typescript
+import { AI } from '@aeye/ai';
+import { OpenAIProvider } from '@aeye/openai';
+import z from 'zod';
+
+const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = AI.with().providers({ openai }).create();
+
+// Define individual tools
+const searchFiles = ai.tool({
+  name: 'searchFiles',
+  description: 'Search for files matching a glob pattern',
+  schema: z.object({
+    pattern: z.string().describe('Glob pattern, e.g. "**/*.ts"'),
+  }),
+  call: async ({ pattern }) => {
+    // Return matching file paths
+    return { files: [`src/index.ts`, `src/app.ts`] };
+  },
+});
+
+const readFile = ai.tool({
+  name: 'readFile',
+  description: 'Read the contents of a file',
+  schema: z.object({
+    path: z.string().describe('File path to read'),
+  }),
+  call: async ({ path }) => {
+    // Return file contents
+    return { content: `// Contents of ${path}` };
+  },
+});
+
+const summarizeCode = ai.prompt({
+  name: 'summarizeCode',
+  description: 'Summarizes TypeScript code',
+  content: 'Summarize the following TypeScript code:\n\n{{code}}',
+  input: (input: { code: string }) => ({ code: input.code }),
+  schema: z.object({
+    summary: z.string(),
+    exports: z.array(z.string()),
+  }),
+});
+
+// Agent that finds, reads, and summarizes code files
+const codeReviewer = ai.agent({
+  name: 'codeReviewer',
+  description: 'Reviews TypeScript files and produces summaries',
+  refs: [searchFiles, readFile, summarizeCode] as const,
+  call: async ({ pattern }: { pattern: string }, [search, read, summarize], ctx) => {
+    const { files } = await search.run({ pattern }, ctx);
+    const summaries: Array<{ file: string; summary: string; exports: string[] }> = [];
+
+    for (const file of files) {
+      const { content } = await read.run({ path: file }, ctx);
+      const result = await summarize.get('result', { code: content }, ctx);
+      summaries.push({ file, summary: result?.summary ?? '', exports: result?.exports ?? [] });
+    }
+
+    return summaries;
+  },
+});
+
+const results = await codeReviewer.run({ pattern: 'src/**/*.ts' });
+results.forEach(({ file, summary }) => console.log(`${file}: ${summary}`));
+```
+
+### Fun Examples Inspired by Cletus
+
+Here are some examples inspired by the [Cletus](./packages/cletus/README.md) CLI agent to show how Tools, Agents, and Prompts work together:
+
+#### To-Do Manager Tools
+
+```typescript
+import { AI } from '@aeye/ai';
+import { OpenAIProvider } from '@aeye/openai';
+import z from 'zod';
+
+interface AppContext {
+  userId: string;
+  db: { todos: Map<string, { id: string; name: string; done: boolean }> };
 }
+
+const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = AI.with<AppContext>().providers({ openai }).create();
+
+const addTodo = ai.tool({
+  name: 'addTodo',
+  description: 'Add a new to-do item',
+  schema: z.object({
+    name: z.string().describe('The to-do item description'),
+  }),
+  call: async ({ name }, _refs, ctx) => {
+    const id = crypto.randomUUID();
+    ctx.db.todos.set(id, { id, name, done: false });
+    return { id, name, done: false };
+  },
+});
+
+const listTodos = ai.tool({
+  name: 'listTodos',
+  description: 'List all to-do items',
+  schema: z.object({}),
+  call: async (_input, _refs, ctx) => {
+    return { todos: Array.from(ctx.db.todos.values()) };
+  },
+});
+
+const markDone = ai.tool({
+  name: 'markDone',
+  description: 'Mark a to-do item as complete',
+  schema: z.object({
+    id: z.string().describe('The to-do item ID'),
+  }),
+  call: async ({ id }, _refs, ctx) => {
+    const todo = ctx.db.todos.get(id);
+    if (!todo) throw new Error(`Todo ${id} not found`);
+    todo.done = true;
+    return { success: true, todo };
+  },
+});
+
+// A prompt that uses all three tools
+const taskManager = ai.prompt({
+  name: 'taskManager',
+  description: 'Manages to-do items via natural language',
+  content: `You are a helpful task manager assistant. Help the user manage their to-do list.
+
+User request: {{request}}`,
+  input: (input: { request: string }) => ({ request: input.request }),
+  tools: [addTodo, listTodos, markDone],
+});
+
+// Usage
+const db = { todos: new Map() };
+await taskManager.get('result', { request: 'Add a todo to finish the report' }, { userId: 'user1', db });
+```
+
+#### Knowledge Base with Semantic Search
+
+```typescript
+import { AI } from '@aeye/ai';
+import { OpenAIProvider } from '@aeye/openai';
+import z from 'zod';
+
+const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+const ai = AI.with().providers({ openai }).create();
+
+const searchKnowledge = ai.tool({
+  name: 'searchKnowledge',
+  description: 'Semantically search the knowledge base',
+  instructions: 'Use this to find relevant information in the knowledge base for the query: "{{query}}"',
+  schema: z.object({
+    query: z.string().describe('Search query'),
+    limit: z.number().optional().describe('Max results (default 5)'),
+  }),
+  input: (ctx) => ({ query: '' }), // template variable for instructions
+  call: async ({ query, limit = 5 }) => {
+    // In a real app, use vector embeddings and similarity search
+    return { results: [{ source: 'docs/api.md', text: 'API documentation...' }] };
+  },
+});
+
+const knowledgeAssistant = ai.prompt({
+  name: 'knowledgeAssistant',
+  description: 'Answers questions using the knowledge base',
+  content: `You are a helpful assistant. Use the searchKnowledge tool to find relevant information, then answer the user's question.
+
+Question: {{question}}`,
+  input: (input: { question: string }) => ({ question: input.question }),
+  tools: [searchKnowledge],
+});
+
+const answer = await knowledgeAssistant.get('result', {
+  question: 'How do I configure the API timeout?'
+});
+console.log(answer);
+```
+
+### AI Hooks — Budget Control
+
+Hooks let you intercept every AI call. Here's how to check estimated cost before running and record actual cost after, using a user budget from context:
+
+```typescript
+import { AI } from '@aeye/ai';
+import { OpenAIProvider } from '@aeye/openai';
+
+interface User {
+  id: string;
+  budgetRemaining: number;  // in dollars
+  totalSpent: number;
+  save: () => Promise<void>;
+}
+
+interface AppContext {
+  user: User;
+}
+
+const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
+
+const ai = AI.with<AppContext>()
+  .providers({ openai })
+  .create({
+    hooks: {
+      beforeRequest: async (ctx, request, selected, estimatedUsage, estimatedCost) => {
+        // Throw to cancel the request if the estimated cost exceeds the user's budget
+        if (estimatedCost > ctx.user.budgetRemaining) {
+          throw new Error(
+            `Request cancelled: estimated cost $${estimatedCost.toFixed(4)} exceeds ` +
+            `remaining budget $${ctx.user.budgetRemaining.toFixed(4)}`
+          );
+        }
+        console.log(
+          `[${ctx.user.id}] Using ${selected.model.id}, ` +
+          `estimated cost: $${estimatedCost.toFixed(4)}`
+        );
+      },
+
+      afterRequest: async (ctx, request, response, responseComplete, selected, usage, cost) => {
+        // Deduct actual cost from user's budget and record spending
+        ctx.user.budgetRemaining -= cost;
+        ctx.user.totalSpent += cost;
+        await ctx.user.save();
+        console.log(
+          `[${ctx.user.id}] Used ${usage.text?.input ?? 0} in / ${usage.text?.output ?? 0} out tokens, ` +
+          `cost: $${cost.toFixed(4)}, budget remaining: $${ctx.user.budgetRemaining.toFixed(4)}`
+        );
+      },
+
+      onError: (errorType, message, error, ctx) => {
+        console.error(`[AI Error] ${errorType}: ${message}`, error?.message);
+      },
+    }
+  });
+
+// Chat with budget enforcement
+const user: User = {
+  id: 'user123',
+  budgetRemaining: 0.05,
+  totalSpent: 0,
+  save: async () => { /* persist to database */ },
+};
+
+const response = await ai.chat.get(
+  { messages: [{ role: 'user', content: 'Explain monads in simple terms' }] },
+  { user }
+);
+console.log(response.content);
+```
+
+### Model Selection
+
+```typescript
+// Explicit model selection via metadata
+const response = await ai.chat.get(
+  { messages: [{ role: 'user', content: 'Hello' }] },
+  { metadata: { model: 'openai/gpt-4o' } }
+);
+
+// Automatic selection with scoring weights
+const precise = await ai.chat.get(
+  { messages: [{ role: 'user', content: 'Analyze this code' }] },
+  {
+    metadata: {
+      weights: { cost: 0.2, speed: 0.3, accuracy: 0.5 },
+      contextWindow: { min: 32000 },
+    }
+  }
+);
+
+// Provider filtering
+const costEfficient = await ai.chat.get(
+  { messages: [{ role: 'user', content: 'Summarize this' }] },
+  {
+    metadata: {
+      providers: {
+        allow: ['openai', 'openrouter'],
+        deny: ['replicate'],
+      }
+    }
+  }
+);
 ```
 
 ### Speech Synthesis
 
 ```typescript
 import fs from 'fs';
+import { Readable } from 'stream';
 
-const speechResponse = await ai.speech.get({
+const response = await ai.speech.get({
   text: 'Hello! This is a text-to-speech example.',
-  model: 'tts-1',
   voice: 'alloy',
 });
 
-fs.writeFileSync('output.mp3', speechResponse.audioBuffer);
+// Pipe the audio stream to a file
+const fileStream = fs.createWriteStream('output.mp3');
+Readable.fromWeb(response.audio).pipe(fileStream);
 ```
 
 ### Audio Transcription
@@ -298,7 +613,6 @@ const audioBuffer = fs.readFileSync('audio.mp3');
 
 const transcription = await ai.transcribe.get({
   audio: audioBuffer,
-  model: 'whisper-1',
   language: 'en',
 });
 
@@ -313,7 +627,6 @@ const embeddingResponse = await ai.embed.get({
     'The quick brown fox jumps over the lazy dog',
     'Machine learning is a subset of artificial intelligence',
   ],
-  model: 'text-embedding-3-small',
 });
 
 embeddingResponse.embeddings.forEach((item, i) => {
@@ -327,82 +640,28 @@ embeddingResponse.embeddings.forEach((item, i) => {
 interface AppContext {
   userId: string;
   sessionId: string;
-  timestamp: Date;
 }
 
 const ai = AI.with<AppContext>()
   .providers({ openai })
   .create({
-    defaultContext: {
-      timestamp: new Date(),
-    }
+    providedContext: async (ctx) => ({
+      // Automatically enrich context from the database
+      // (user and session data are fetched here and available in hooks/tools)
+    }),
   });
 
-const response = await ai.chat.get([
-  { role: 'user', content: 'Hello!' }
-], {
-  userId: 'user123',
-  sessionId: 'session456',
-});
-```
-
-### Lifecycle Hooks
-
-```typescript
-const ai = AI.with()
-  .providers({ openai })
-  .create({
-    hooks: {
-      beforeRequest: async (ctx, request, selected, estimatedTokens, estimatedCost) => {
-        console.log(`Using model: ${selected.model.id}`);
-        console.log(`Estimated tokens: ${estimatedTokens}`);
-      },
-      afterRequest: async (ctx, request, response, responseComplete, selected, usage, cost) => {
-        console.log(`Tokens used: ${usage.totalTokens}`);
-        console.log(`Cost: $${cost}`);
-      },
-    }
-  });
-```
-
-### Model Selection
-
-```typescript
-// Explicit model selection
-const response = await ai.chat.get(messages, {
-  metadata: { model: 'gpt-4-turbo' }
-});
-
-// Automatic selection with criteria
-const response = await ai.chat.get(messages, {
-  metadata: {
-    required: ['chat', 'streaming', 'vision'],
-    optional: ['tools'],
-    weights: {
-      cost: 0.3,
-      speed: 0.4,
-      quality: 0.3,
-    },
-    minContextWindow: 32000,
-  }
-});
-
-// Provider filtering
-const response = await ai.chat.get(messages, {
-  metadata: {
-    providers: {
-      allow: ['openai', 'anthropic'],
-      deny: ['low-quality-provider'],
-    }
-  }
-});
+const response = await ai.chat.get(
+  { messages: [{ role: 'user', content: 'Hello!' }] },
+  { userId: 'user123', sessionId: 'session456' }
+);
 ```
 
 ## Advanced Features
 
 ### Custom Providers
 
-Create custom providers by implementing the `Provider` interface or extending existing providers:
+Create custom providers by extending existing providers:
 
 ```typescript
 import { OpenAIProvider, OpenAIConfig } from '@aeye/openai';
@@ -427,18 +686,15 @@ Fetch models from external sources:
 ```typescript
 import { OpenRouterModelSource } from '@aeye/openrouter';
 
-const ai = AI.with()
-  .providers({ openai })
-  .create({
-    fetchOpenRouterModels: true, // Auto-fetch all OpenRouter models
-  });
-
-// Or manually
 const source = new OpenRouterModelSource({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const models = await source.fetchModels();
+const ai = AI.with()
+  .providers({ openrouter })
+  .create({
+    modelSources: [source],
+  });
 ```
 
 ### Model Overrides
@@ -451,7 +707,7 @@ const ai = AI.with()
   .create({
     modelOverrides: [
       {
-        modelId: 'gpt-4',
+        modelPattern: /gpt-4/,
         overrides: {
           pricing: {
             text: { input: 30, output: 60 },
@@ -462,140 +718,22 @@ const ai = AI.with()
   });
 ```
 
-### Provider Capability Detection
-
-```typescript
-import { getProviderCapabilities } from '@aeye/ai';
-
-const openai = new OpenAIProvider({ apiKey: '...' });
-const caps = getProviderCapabilities(openai);
-console.log(caps);
-// Set(['chat', 'streaming', 'image', 'audio', 'hearing', 'embedding'])
-
-const openrouter = new OpenRouterProvider({ apiKey: '...' });
-const caps = getProviderCapabilities(openrouter);
-console.log(caps.has('image')); // false - OpenRouter doesn't support image generation
-```
-
-## Configuration
-
-### AI Instance Configuration
-
-```typescript
-interface AIConfig<T> {
-  // Default context values
-  defaultContext?: Partial<T>;
-
-  // Provider to context loader
-  provideContext?: (required: T) => Promise<Partial<T>>;
-
-  // Default metadata for all requests
-  defaultMetadata?: Partial<AIBaseMetadata>;
-
-  // Model overrides
-  modelOverrides?: ModelOverride[];
-
-  // Default cost per million tokens
-  defaultCostPerMillionTokens?: number;
-
-  // External model sources
-  modelSources?: ModelSource[];
-
-  // Lifecycle hooks
-  hooks?: AIHooks<T>;
-}
-```
-
-### Provider Configurations
-
-Each provider has its own configuration:
-
-```typescript
-// OpenAI
-interface OpenAIConfig {
-  apiKey: string;
-  baseURL?: string;
-  organization?: string;
-}
-
-// OpenRouter
-interface OpenRouterConfig extends OpenAIConfig {
-  defaultParams?: {
-    siteUrl?: string;
-    appName?: string;
-    allowFallbacks?: boolean;
-    providers?: {
-      prefer?: string[];
-      allow?: string[];
-      deny?: string[];
-    };
-  };
-}
-
-// Replicate
-interface ReplicateConfig {
-  apiKey: string;
-  baseUrl?: string;
-  transformers?: Record<string, ModelTransformer>;
-}
-```
-
 ## Cost Tracking
 
 @aeye provides comprehensive cost tracking:
 
 ```typescript
-const response = await ai.chat.get(messages);
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'Hello' }]
+});
 
 // Token usage
-console.log('Input tokens:', response.usage.text.input);
-console.log('Output tokens:', response.usage.text.output);
+console.log('Input tokens:', response.usage?.text?.input);
+console.log('Output tokens:', response.usage?.text?.output);
 
-// Cost (calculated or provider-reported)
-console.log('Cost: $', response.usage.cost);
-
-// For providers like OpenRouter, cost is provided by the API
-// For others, it's calculated based on model pricing
+// Cost (calculated from model pricing, or provider-reported when available)
+console.log('Cost: $', response.usage?.cost);
 ```
-
-## Error Handling
-
-```typescript
-import { ProviderError, RateLimitError } from '@aeye/openai';
-
-try {
-  const response = await ai.chat.get(messages);
-} catch (error) {
-  if (error instanceof RateLimitError) {
-    console.error('Rate limit exceeded');
-    console.log(`Retry after ${error.retryAfter} seconds`);
-  } else if (error instanceof ProviderError) {
-    console.error(`Provider error: ${error.message}`);
-    console.error('Cause:', error.cause);
-  } else {
-    console.error('Unknown error:', error);
-  }
-}
-```
-
-## Model Capabilities
-
-@aeye uses a capability system for model selection:
-
-| Capability | Description | Example Providers |
-|------------|-------------|-------------------|
-| `chat` | Basic text completion | OpenAI, OpenRouter |
-| `streaming` | Real-time response streaming | OpenAI, OpenRouter |
-| `image` | Image generation | OpenAI (DALL-E), Replicate |
-| `vision` | Image understanding | OpenAI (GPT-4V) |
-| `audio` | Text-to-speech | OpenAI (TTS) |
-| `hearing` | Speech-to-text | OpenAI (Whisper), Replicate |
-| `embedding` | Text embeddings | OpenAI, Replicate |
-| `tools` | Function/tool calling | OpenAI, OpenRouter |
-| `json` | JSON output mode | OpenAI, OpenRouter |
-| `structured` | Structured outputs | OpenAI |
-| `reasoning` | Extended reasoning | OpenAI (o1 models) |
-| `zdr` | Zero data retention | OpenRouter |
 
 ## Development
 
@@ -620,11 +758,13 @@ npm run clean
 ```
 aeye/
 ├── packages/
-│   ├── core/          # Core types and interfaces
+│   ├── core/          # Core types, Tool, Prompt, Agent
 │   ├── ai/            # Main AI library
 │   ├── openai/        # OpenAI provider
 │   ├── openrouter/    # OpenRouter provider
 │   ├── replicate/     # Replicate provider
+│   ├── aws/           # AWS Bedrock provider
+│   └── cletus/        # Example CLI agent
 ├── package.json       # Root package configuration
 └── tsconfig.json      # TypeScript configuration
 ```
@@ -633,20 +773,15 @@ aeye/
 
 1. **API Key Security** - Never hardcode API keys, use environment variables
 
-2. **Error Handling** - Always wrap AI calls in try-catch blocks
+2. **Streaming** - Use streaming for better UX with lengthy responses
 
-3. **Streaming** - Use streaming for better UX with lengthy responses
+3. **Cost Monitoring** - Use `afterRequest` hooks to track expenses per user
 
-4. **Cost Monitoring** - Monitor `response.usage.cost` to track expenses
+4. **Budget Enforcement** - Throw from `beforeRequest` to cancel overbudget requests
 
-5. **Model Selection** - Use appropriate models for your use case
-   - GPT-4 for complex tasks
-   - GPT-3.5 for simple/fast tasks
-   - Specialized models (DALL-E, Whisper) for specific tasks
+5. **Context Management** - Use `providedContext` to enrich context from databases
 
-6. **Context Management** - Use context to thread data through operations
-
-7. **Provider Selection** - Choose providers based on:
+6. **Provider Selection** - Choose providers based on:
    - Cost efficiency
    - Feature availability
    - Reliability/uptime
@@ -654,30 +789,20 @@ aeye/
 
 ## Roadmap
 
-- [ ] Anthropic Claude provider
 - [ ] Built-in retry logic with exponential backoff
 - [ ] Rate limiting utilities
-- [ ] Caching layer
 
 ## Contributing
 
 Contributions are welcome! Areas where we'd especially appreciate help:
 
-- **New Providers** - Anthropic, Google, Cohere, etc.
+- **New Providers** - Google, Cohere, etc.
 - **Model Adapters** - For Replicate and other platforms
 - **Documentation** - Examples, tutorials, guides
 - **Testing** - Unit tests, integration tests
 - **Bug Fixes** - Issue reports and fixes
 
 Please see the main [@aeye repository](https://github.com/ClickerMonkey/aeye) for contribution guidelines.
-
-## Related Projects
-
-- [OpenAI Node SDK](https://github.com/openai/openai-node)
-- [Anthropic SDK](https://github.com/anthropics/anthropic-sdk-typescript)
-- [Replicate SDK](https://github.com/replicate/replicate-javascript)
-- [LangChain](https://github.com/langchain-ai/langchainjs)
-- [Vercel AI SDK](https://github.com/vercel/ai)
 
 ## License
 
@@ -689,17 +814,6 @@ See [LICENSE](./LICENSE) for details.
 
 - **GitHub Issues**: https://github.com/ClickerMonkey/aeye/issues
 - **Documentation**: https://github.com/ClickerMonkey/aeye
-- **Examples**: See `/examples` directory (coming soon)
-
-## Acknowledgments
-
-Built with ❤️ by [ClickerMonkey](https://github.com/ClickerMonkey) and contributors.
-
-Special thanks to:
-- OpenAI for the OpenAI API
-- OpenRouter for multi-provider access
-- All the open-source AI model creators
-- The TypeScript community
 
 ---
 
