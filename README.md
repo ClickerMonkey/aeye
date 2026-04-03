@@ -135,32 +135,17 @@ const response = await ai.chat.get({
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                        AI Class                         │
-│  - Context Management                                   │
-│  - Model Registry                                       │
-│  - Lifecycle Hooks                                      │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-         ┌────────┴─────────┐
-         │                  │
-    ┌────▼────┐      ┌─────▼──────┐
-    │  APIs   │      │  Registry  │
-    │         │      │            │
-    │ • Chat  │      │ • Models   │
-    │ • Image │      │ • Search   │
-    │ • Speech│      │ • Select   │
-    │ • Embed │      └────┬───────┘
-    └────┬────┘           │
-         │         ┌──────▼──────┐
-         │         │  Providers  │
-         │         │             │
-         │         │ • OpenAI    │
-         │         │ • OpenRouter│
-         │         │ • Replicate │
-         │         │ • AWS       │
-         └─────────┴─────────────┘
+```mermaid
+graph TD
+    AI["<b>AI Class</b><br/>Context Management<br/>Model Registry<br/>Lifecycle Hooks"]
+    APIs["<b>APIs</b><br/>Chat · Image<br/>Speech · Embed"]
+    Registry["<b>Registry</b><br/>Models · Search · Select"]
+    Providers["<b>Providers</b><br/>OpenAI · OpenRouter<br/>Replicate · AWS · Custom"]
+
+    AI --> APIs
+    AI --> Registry
+    Registry --> Providers
+    APIs --> Providers
 ```
 
 ## Packages
