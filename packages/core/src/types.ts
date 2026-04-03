@@ -312,6 +312,13 @@ export type Context<TContext, TMetadata> = TContext &
    * A custom component runner that can override how components are executed.
    */
   runner?: Runner;
+
+  /**
+   * The tool call ID of the currently executing tool, if any.
+   * This is set automatically by the prompt loop before invoking a tool's call function,
+   * allowing the tool to reference its own ID (e.g. when throwing PromptSuspend).
+   */
+  toolCallId?: string;
 }
 
 /**

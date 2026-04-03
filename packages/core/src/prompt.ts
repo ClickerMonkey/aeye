@@ -1481,7 +1481,7 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
       }
       try {
         execution.status = 'executing';
-        execution.result = await resolve(toolInfo!.tool.run(execution.args, ctx));
+        execution.result = await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }));
         execution.status = 'success';
         output.ready = true;
       } catch (e: any) {
