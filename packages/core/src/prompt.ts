@@ -857,41 +857,15 @@ export class Prompt<
             break;
         }
 
-        // If any tool suspended, add results for all completed (non-suspended) tools so they are
-        // preserved in request.messages, then break without adding results for suspended tools.
+        // Emit tool results for all completed tools. If any tool suspended, skip its result
+        // (the caller will supply it on resume) and break after processing the rest.
         // request.messages ends with: [...history, assistantMsg(toolCalls), toolResult(completed)...]
-        // The caller saves this state; once the suspended tool result is available they append it and resume.
-        const anySuspended = toolExecutors.some(toolExecutor => toolExecutor.status === 'suspended');
-        if (anySuspended) {
-          for (const toolExecutor of toolExecutors) {
-            if (toolExecutor.status === 'suspended') {
-              continue; // Omit result — the pending result will be supplied on resume
-            }
-            const content = toolExecutor.error
-              ? toolExecutor.error
-              : toolExecutor.result
-                ? typeof toolExecutor.result === 'string'
-                  ? toolExecutor.result
-                  : JSON.stringify(toolExecutor.result)
-                : '';
-            yield emitMessage({
-              role: 'tool',
-              content,
-              toolCallId: toolExecutor.toolCall.id,
-            });
-            if (toolExecutor.status === 'invalid') {
-              toolParseErrors++;
-            } else if (toolExecutor.status === 'error') {
-              toolCallErrors++;
-            } else if (toolExecutor.status === 'success') {
-              toolSuccesses++;
-            }
-          }
-          suspended = true;
-          break;
-        }
-
+        let anySuspended = false;
         for (const toolExecutor of toolExecutors) {
+          if (toolExecutor.status === 'suspended') {
+            anySuspended = true;
+            continue; // Omit result — the pending result will be supplied on resume
+          }
           const content = toolExecutor.error
             ? toolExecutor.error
             : toolExecutor.result
@@ -913,6 +887,11 @@ export class Prompt<
           } else if (toolExecutor.status === 'success') {
             toolSuccesses++;
           }
+        }
+
+        if (anySuspended) {
+          suspended = true;
+          break;
         }
 
         if ((toolCallErrors + toolParseErrors) > toolErrorsPrevious) {
