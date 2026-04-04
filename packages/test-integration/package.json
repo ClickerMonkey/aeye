@@ -1,6 +1,6 @@
 {
   "name": "@aeye/test-integration",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Integration tests for @aeye multi-provider functionality",
   "type": "module",
   "private": true,
@@ -12,11 +12,11 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
-    "@aeye/core": "0.3.7",
-    "@aeye/ai": "0.3.7",
-    "@aeye/openai": "0.3.7",
-    "@aeye/openrouter": "0.3.7",
-    "@aeye/replicate": "0.3.7"
+    "@aeye/core": "0.3.8",
+    "@aeye/ai": "0.3.8",
+    "@aeye/openai": "0.3.8",
+    "@aeye/openrouter": "0.3.8",
+    "@aeye/replicate": "0.3.8"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

@@ -1,6 +1,6 @@
 {
   "name": "@aeye/openrouter",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "@aeye OpenRouter - OpenRouter integration for @aeye",
   "type": "module",
   "main": "dist/index.js",
@@ -46,9 +46,9 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@aeye/ai": "^0.3.7",
-    "@aeye/core": "^0.3.7",
-    "@aeye/openai": "^0.3.7",
+    "@aeye/ai": "^0.3.8",
+    "@aeye/core": "^0.3.8",
+    "@aeye/openai": "^0.3.8",
     "openai": "^6.6.0"
   },
   "devDependencies": {
