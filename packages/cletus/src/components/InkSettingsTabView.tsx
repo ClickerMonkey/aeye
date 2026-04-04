@@ -89,6 +89,13 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
     }
   }, []);
 
+  // Initialize AWS test when entering AWS configuration
+  useEffect(() => {
+    if (subView === 'configure-aws' && providerKey === 'aws' && awsTestStatus === 'idle') {
+      testAWSCredentials();
+    }
+  }, [subView, providerKey, awsTestStatus, testAWSCredentials]);
+
   useInput((input, key) => {
     if (key.tab && !editing && !subView) {
       setFocusMode((prev) => (prev === 'tabs' ? 'content' : 'tabs'));
@@ -230,7 +237,12 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
     } else if (editField === 'addApiKey') {
       if (editValue.trim() && providerKey) {
         await config.save((data) => {
-          data.providers[providerKey!] = { apiKey: editValue } as any;
+          const existing = data.providers[providerKey!];
+          if (existing) {
+            (existing as any).apiKey = editValue;
+          } else {
+            data.providers[providerKey!] = { apiKey: editValue } as any;
+          }
         });
         setMessage(`✓ ${providerKey} configured!`);
         setSubView(null);
@@ -1392,13 +1404,6 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
       }
 
       if (subView === 'configure-aws' && providerKey === 'aws') {
-        // Initialize AWS test on first render
-        React.useEffect(() => {
-          if (awsTestStatus === 'idle') {
-            testAWSCredentials();
-          }
-        }, []);
-
         return (
           <Box flexDirection="column">
             <Box marginBottom={1}>
@@ -1456,7 +1461,9 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
                     if (item.value === 'auto') {
                       await config.save((data) => {
                         data.providers.aws = {
+                          ...data.providers.aws,
                           region: process.env.AWS_REGION,
+                          credentials: undefined,
                         };
                       });
                       setMessage('✓ AWS configured with auto-detected credentials!');
@@ -1474,6 +1481,7 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
                       if (awsAccessKeyId && awsSecretAccessKey) {
                         await config.save((data) => {
                           data.providers.aws = {
+                            ...data.providers.aws,
                             region: awsRegion,
                             credentials: {
                               accessKeyId: awsAccessKeyId,
@@ -1500,10 +1508,13 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
 
       if (subView === 'provider-action' && providerKey) {
         const providers = config.getData().providers;
-        const isConfigured = providers[providerKey] !== null;
+        const providerConfig = providers[providerKey];
+        const isConfigured = providerConfig !== null;
+        const isDisabled = isConfigured && providerConfig.enabled === false;
 
         const items = isConfigured
           ? [
+              { label: isDisabled ? '▶ Enable provider' : '⏸️ Disable provider', value: 'toggle-enabled' },
               { label: 'Update API key', value: 'update' },
               ...(providerKey === 'openrouter' ? [{ label: '⚙️ Configure settings', value: 'configure' }] : []),
               ...(providerKey === 'aws' ? [{ label: '⚙️ Configure settings', value: 'configure' }] : []),
@@ -1516,24 +1527,37 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
               { label: '← Back', value: '__back__' },
             ];
 
+        const statusLabel = !isConfigured ? 'Not configured' : isDisabled ? 'Disabled' : 'Enabled';
+
         return (
           <Box flexDirection="column">
             <Box marginBottom={1}>
               <Text bold color="cyan">
-                {providerKey} - {isConfigured ? 'Configured' : 'Not configured'}
+                {providerKey} - {statusLabel}
               </Text>
             </Box>
             <SelectInput
               items={items}
               isFocused={focusMode === 'content'}
-              onSelect={(item) => {
+              onSelect={async (item) => {
                 if (item.value === '__back__') {
                   setSubView(null);
                   setProviderKey(null);
                   return;
                 }
+                if (item.value === 'toggle-enabled') {
+                  const current = config.getData().providers[providerKey!];
+                  if (current) {
+                    const newEnabled = current.enabled === false;
+                    await config.save((data) => {
+                      (data.providers[providerKey!] as any).enabled = newEnabled ? undefined : false;
+                    });
+                    setMessage(`✓ ${providerKey} ${newEnabled ? 'enabled' : 'disabled'}`);
+                  }
+                  return;
+                }
                 if (item.value === 'remove') {
-                  showConfirm(`Remove ${providerKey}?`, async () => {
+                  showConfirm(`Remove ${providerKey} and clear all settings?`, async () => {
                     await config.save((data) => {
                       data.providers[providerKey!] = null;
                     });
@@ -1571,25 +1595,27 @@ export const InkSettingsTabView: React.FC<InkSettingsTabViewProps> = ({ config, 
       }
 
       const providers = config.getData().providers;
+      const providerStatus = (p: { enabled?: boolean } | null) =>
+        p == null ? '❌' : p.enabled === false ? '⏸️' : '✅';
       const items = [
         {
-          label: `OpenAI ${providers.openai ? '✅' : '❌'}`,
+          label: `OpenAI ${providerStatus(providers.openai)}`,
           value: 'openai',
         },
         {
-          label: `OpenRouter ${providers.openrouter ? '✅' : '❌'}`,
+          label: `OpenRouter ${providerStatus(providers.openrouter)}`,
           value: 'openrouter',
         },
         {
-          label: `Replicate ${providers.replicate ? '✅' : '❌'}`,
+          label: `Replicate ${providerStatus(providers.replicate)}`,
           value: 'replicate',
         },
         {
-          label: `AWS Bedrock ${providers.aws ? '✅' : '❌'}`,
+          label: `AWS Bedrock ${providerStatus(providers.aws)}`,
           value: 'aws',
         },
         {
-          label: `Custom ${providers.custom ? '✅' : '❌'}`,
+          label: `Custom ${providerStatus(providers.custom)}`,
           value: 'custom',
         },
       ];

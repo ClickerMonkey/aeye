@@ -80,10 +80,13 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
     },
   };
 
+  // Helper: provider is usable if configured (non-null) and not explicitly disabled
+  const isEnabled = <C extends { enabled?: boolean }>(p: C | null | undefined): p is C => p != null && p.enabled !== false;
+
   // Initialize providers based on config
   const providers = {
     // OpenAI
-    ...(config.providers.openai ? { openai: new OpenAIProvider({
+    ...(isEnabled(config.providers.openai) ? { openai: new OpenAIProvider({
       ...config.providers.openai,
       retryEvents,
       hooks: {
@@ -102,7 +105,7 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
     })} : {}),
 
     // OpenRouter
-    ...(config.providers.openrouter ? { openrouter: new OpenRouterProvider({
+    ...(isEnabled(config.providers.openrouter) ? { openrouter: new OpenRouterProvider({
       ...config.providers.openrouter,
       retryEvents,
       defaultParams: {
@@ -126,7 +129,7 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
     })} : {}),
 
     // Replicate
-    ...(config.providers.replicate ? { replicate: new ReplicateProvider({
+    ...(isEnabled(config.providers.replicate) ? { replicate: new ReplicateProvider({
       ...config.providers.replicate,
       transformers: replicateTransformers,
       hooks: {
@@ -145,7 +148,7 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
     })} : {}),
 
     // AWS Bedrock
-    ...(config.providers.aws ? { aws: new AWSBedrockProvider({
+    ...(isEnabled(config.providers.aws) ? { aws: new AWSBedrockProvider({
       ...config.providers.aws,
       hooks: {
         chat: {
@@ -160,7 +163,7 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
     })} : {}),
 
     // Custom Provider (OpenAI-compatible)
-    ...(config.providers.custom ? { custom: new OpenAIProvider({
+    ...(isEnabled(config.providers.custom) ? { custom: new OpenAIProvider({
       apiKey: config.providers.custom.apiKey,
       baseURL: config.providers.custom.baseUrl,
       retry: config.providers.custom.retry,
@@ -186,7 +189,7 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
   // Create a Map for O(1) lookup performance
   const modelsMap = new Map(models.map(m => [m.id, m]));
   
-  const customModels: typeof models = config.providers.custom?.selectedModels
+  const customModels: typeof models = isEnabled(config.providers.custom) && config.providers.custom?.selectedModels
     ?.map((modelId) => {
       const sourceModel = modelsMap.get(modelId);
       if (!sourceModel) {

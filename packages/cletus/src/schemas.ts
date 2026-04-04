@@ -49,6 +49,7 @@ export const UserSchema = z.object({
 // ============================================================================
 
 export const OpenAIConfigSchema = z.object({
+  enabled: z.boolean().optional(),
   apiKey: z.string(),
   baseUrl: z.string().optional(),
   organization: z.string().optional(),
@@ -99,11 +100,13 @@ export const OpenRouterConfigSchema = OpenAIConfigSchema.extend({
 });
 
 export const ReplicateConfigSchema = z.object({
+  enabled: z.boolean().optional(),
   apiKey: z.string(),
   baseUrl: z.string().optional(),
 });
 
 export const AWSBedrockConfigSchema = z.object({
+  enabled: z.boolean().optional(),
   region: z.string().optional(),
   credentials: z.object({
     accessKeyId: z.string().optional(),
@@ -127,6 +130,7 @@ export const TavilyConfigSchema = z.object({
 });
 
 export const CustomProviderConfigSchema = z.object({
+  enabled: z.boolean().optional(),
   apiKey: z.string(),
   baseUrl: z.string(),
   name: z.string().optional(),

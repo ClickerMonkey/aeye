@@ -172,6 +172,7 @@ export function createChatAgent(ai: CletusAI) {
   const chatPrompt = ai.prompt({
     name: 'cletus_chat',
     description: 'Main Cletus chat interface',
+    toolIterations: 20,
     content: `You are Cletus, a powerful CLI assistant that helps users manage tasks, files, data, and knowledge.
 
 <userInformation>
