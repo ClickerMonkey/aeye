@@ -18,6 +18,7 @@ export default defineConfig({
     ['meta', { name: 'twitter:title', content: '@aeye — Multi-Provider AI Library for TypeScript' }],
     ['meta', { name: 'twitter:description', content: 'Type-safe AI library with intelligent model selection for OpenAI, OpenRouter, Replicate, and AWS Bedrock.' }],
     ['meta', { name: 'keywords', content: 'typescript, ai, openai, anthropic, claude, gpt, llm, aws bedrock, openrouter, replicate, tool calling, structured output, streaming, embeddings, multi-provider' }],
+    ['meta', { name: 'google-site-verification', content: 'PoQ8UdU4D1j-Lr4iawc9mZaJLv7n4hoqGfta-BL9XYI' }],
   ],
   themeConfig: {
     logo: '/logo.svg',
