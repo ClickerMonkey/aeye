@@ -1,0 +1,165 @@
+# Tool Calling
+
+Tool calling lets AI models invoke functions in your application. @aeye handles the full lifecycle: schema compilation, argument parsing, execution, and result injection.
+
+## Quick Example
+
+```typescript
+import z from 'zod';
+
+const calculator = ai.tool({
+  name: 'calculate',
+  description: 'Perform a math calculation',
+  schema: z.object({
+    expression: z.string().describe('Math expression, e.g. "2 + 3 * 4"'),
+  }),
+  call: async ({ expression }) => {
+    return { result: eval(expression) };
+  },
+});
+
+const mathBot = ai.prompt({
+  name: 'mathBot',
+  content: 'You are a math tutor. Use the calculator to verify your work.',
+  tools: [calculator],
+});
+
+const result = await mathBot.get('result', {});
+```
+
+## How It Works
+
+1. The prompt compiles tool schemas and sends them to the AI model
+2. The model decides to call tools and returns `ToolCall` objects
+3. @aeye parses and validates arguments against the Zod schema
+4. The tool's `call()` function is executed
+5. Results are sent back to the model as tool result messages
+6. The model generates its final response (or calls more tools)
+
+## Tool Choice
+
+Control whether and how the model uses tools:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [tool1, tool2],
+  config: {
+    toolChoice: 'auto',              // model decides (default)
+    // toolChoice: 'required',       // must call at least one tool
+    // toolChoice: 'none',           // don't call any tools
+    // toolChoice: { tool: 'tool1' }, // must call this specific tool
+  },
+});
+```
+
+## Execution Modes
+
+### Immediate (Default)
+
+Tools execute as soon as their arguments are parsed:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [tool1, tool2],
+  toolExecution: 'immediate',
+});
+```
+
+### Sequential
+
+Tools execute one at a time, in order:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [tool1, tool2],
+  toolExecution: 'sequential',
+});
+```
+
+### Parallel
+
+All tool calls in a batch are collected, then executed concurrently:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [tool1, tool2],
+  toolExecution: 'parallel',
+});
+```
+
+## Tool Iterations
+
+By default, prompts allow 3 rounds of tool calls. Increase for complex workflows:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [/* many tools */],
+  toolIterations: 20,  // allow up to 20 rounds
+  toolRetries: 3,      // retry failed tool calls up to 3 times
+});
+```
+
+## Limiting Tool Calls
+
+Cap the total number of successful tool calls:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [search, read],
+  toolsMax: 5, // stop after 5 successful tool calls
+});
+```
+
+## Tool-Only Mode
+
+Generate only tool calls, no text output:
+
+```typescript
+const prompt = ai.prompt({
+  tools: [extractEntity],
+  toolsOnly: true,
+});
+
+const tools = await prompt.get('tools', input);
+// tools is an array of { tool, result } objects
+```
+
+## Error Handling
+
+Tool errors are caught and reported back to the model, which can retry or adjust:
+
+```typescript
+const riskyTool = ai.tool({
+  name: 'riskyOp',
+  schema: z.object({ id: z.string() }),
+  call: async ({ id }) => {
+    const item = await db.find(id);
+    if (!item) throw new Error(`Item ${id} not found`);
+    return item;
+  },
+});
+
+// The error message is sent to the model as a tool error result
+// The model can try again with a different ID
+```
+
+## Raw Tool Call API
+
+Use tool calling at the Chat API level without prompts:
+
+```typescript
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'What is the weather in Paris?' }],
+  tools: [{
+    name: 'getWeather',
+    description: 'Get weather for a city',
+    parameters: z.object({ city: z.string() }),
+  }],
+});
+
+if (response.toolCalls) {
+  for (const call of response.toolCalls) {
+    console.log(call.name, JSON.parse(call.arguments));
+  }
+}
+```

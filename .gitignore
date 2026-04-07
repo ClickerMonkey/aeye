@@ -12,6 +12,7 @@ packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts.map
 !packages/*/src/**/*.test.js
 !packages/*/src/**/__tests__/**/*.js
+.vitepress/cache
 
 # IDE
 .vscode/

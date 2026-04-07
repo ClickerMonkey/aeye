@@ -1,0 +1,902 @@
+# @aeye — Multi-Provider AI Library for TypeScript
+
+> A modern, type-safe AI library for Node.js and TypeScript. Unified interface for OpenAI, OpenRouter, Replicate, AWS Bedrock, and custom providers with automatic model selection, cost tracking, streaming, and composable AI components.
+
+## Packages
+
+- @aeye/core: Core primitives — Tool, Prompt, Agent classes and shared types
+- @aeye/ai: Main library — AI class, model registry, APIs, lifecycle hooks, cost tracking
+- @aeye/openai: OpenAI provider — chat, vision, images, speech, transcription, embeddings, reasoning
+- @aeye/openrouter: OpenRouter provider — multi-provider gateway, routing, ZDR, model source
+- @aeye/replicate: Replicate provider — open-source models with adapter/transformer system
+- @aeye/aws: AWS Bedrock provider — Converse API for Claude, Llama, Mistral, Titan, Stability AI
+- @aeye/models: Auto-generated model registry with pricing, capabilities, and Replicate transformers
+
+## Quick Start
+
+```typescript
+import { AI } from '@aeye/ai';
+import { OpenAIProvider } from '@aeye/openai';
+import z from 'zod';
+
+const ai = AI.with<MyContext>()
+  .providers({ openai: new OpenAIProvider({ apiKey: '...' }) })
+  .create();
+
+const myTool = ai.tool({ name: 'getWeather', description: '...', schema: z.object({ city: z.string() }), call: async ({ city }) => ({ temp: 72 }) });
+const myPrompt = ai.prompt({ name: 'advisor', content: 'Check weather in {{city}}.', input: (i: { city: string }) => i, tools: [myTool], schema: z.object({ suggestion: z.string() }) });
+const myAgent = ai.agent({ name: 'reviewer', refs: [myTool, myPrompt] as const, call: async (input, [tool, prompt], ctx) => { /* orchestrate */ } });
+```
+
+## API Surface
+
+```
+ai.chat.get(request, ctx?) → Response
+ai.chat.stream(request, ctx?) → AsyncGenerator<Chunk>
+ai.image.generate.get(request, ctx?) → ImageGenerationResponse
+ai.image.edit.get(request, ctx?) → ImageGenerationResponse
+ai.image.analyze.get(request, ctx?) → Response
+ai.speech.get(request, ctx?) → SpeechResponse
+ai.transcribe.get(request, ctx?) → TranscriptionResponse
+ai.embed.get(request, ctx?) → EmbeddingResponse
+ai.models.list() / .get(id) / .search(criteria) / .select(criteria) / .refresh()
+ai.tool({...}) / ai.prompt({...}) / ai.agent({...})
+```
+
+---
+
+## @aeye/core — Types
+
+### Message Types
+
+```typescript
+type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+type MessageContentType = 'text' | 'image' | 'file' | 'audio';
+
+type Resource =
+  | string | AsyncIterable<Uint8Array> | Blob | Uint8Array | URL
+  | ArrayBuffer | DataView | Buffer
+  | { blob(): Promise<Blob> | Blob }
+  | { url(): string }
+  | { read(): Promise<ReadableStream> | ReadableStream };
+
+interface MessageContent {
+  type: MessageContentType;
+  content: Resource;
+  format?: string;
+}
+
+interface Message {
+  role: MessageRole;
+  content: string | MessageContent[];
+  tokens?: number;
+  name?: string;
+  toolCallId?: string;
+  toolCalls?: ToolCall[];
+  refusal?: string;
+  reasoning?: Reasoning;
+  cache?: Record<string, any>;
+}
+```
+
+### Tool Types
+
+```typescript
+interface ToolDefinition {
+  name: string;
+  description?: string;
+  parameters: z.ZodType<object>;
+  strict?: boolean;
+}
+
+interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+type ToolChoice = 'auto' | 'none' | 'required' | { tool: string };
+```
+
+### Request / Response
+
+```typescript
+type ReasoningEffort = 'low' | 'medium' | 'high';
+type FinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'refusal';
+type ResponseFormat = 'text' | 'json' | { type: z.ZodType<object, object>; strict: boolean };
+type ModelInput = string | Model;
+
+interface Model {
+  id: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+}
+
+interface Request {
+  model?: ModelInput;
+  name?: string;
+  messages: Message[];
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  stop?: string | string[];
+  logProbabilities?: boolean;
+  logitBias?: Record<string, number>;
+  tools?: ToolDefinition[];
+  toolsOneAtATime?: boolean;
+  toolChoice?: ToolChoice;
+  responseFormat?: ResponseFormat;
+  reason?: { effort?: ReasoningEffort; maxTokens?: number };
+  cacheKey?: string;
+  userKey?: string;
+  extra?: Record<string, any>;
+}
+
+interface Response {
+  content: string;
+  toolCalls?: ToolCall[];
+  finishReason: FinishReason;
+  refusal?: string;
+  reasoning?: Reasoning;
+  usage?: Usage;
+  model: ModelInput;
+}
+
+interface Chunk {
+  content?: string;
+  toolCallNamed?: ToolCall;
+  toolCallArguments?: ToolCall;
+  toolCall?: ToolCall;
+  finishReason?: FinishReason;
+  refusal?: string;
+  reasoning?: Reasoning;
+  usage?: Usage;
+  model?: ModelInput;
+}
+```
+
+### Usage
+
+```typescript
+interface Usage {
+  text?: { input?: number; output?: number; cached?: number };
+  audio?: { input?: number; output?: number; seconds?: number };
+  image?: { input?: number; output?: Array<{ quality: string; size: { width: number; height: number }; count: number }> };
+  reasoning?: { input?: number; output?: number; cached?: number };
+  embeddings?: { count?: number; tokens?: number };
+  cost?: number;
+}
+```
+
+### Reasoning
+
+```typescript
+interface ReasoningDetail {
+  id?: string | null;
+  type: string;
+  format: string;
+  index?: number;
+  summary?: string;
+  text?: string;
+  signature?: string;
+  data?: string;
+}
+
+interface Reasoning {
+  content?: string | null;
+  details?: ReasoningDetail[];
+}
+```
+
+### Execution Types
+
+```typescript
+type Executor<TContext, TMetadata> = (request: Request, context: TContext, metadata?: TMetadata, signal?: AbortSignal) => Promise<Response>;
+type Streamer<TContext, TMetadata> = (request: Request, context: TContext, metadata?: TMetadata, signal?: AbortSignal) => AsyncGenerator<Chunk, Response>;
+
+type Context<TContext, TMetadata> = TContext & {
+  messages?: Message[];
+  execute?: Executor<TContext, TMetadata>;
+  stream?: Streamer<TContext, TMetadata>;
+  signal?: AbortSignal;
+  estimateUsage?: (message: Message) => Usage | undefined;
+  maxOutputTokens?: number;
+  contextWindow?: number;
+  outputRetries?: number;
+  forgetRetries?: number;
+  toolRetries?: number;
+  instance?: Instance<any>;
+  runner?: Runner;
+  toolCallId?: string;
+};
+```
+
+### Component Types
+
+```typescript
+type AnyComponent = Component<any, any, any, any, any, any>;
+type ComponentContext<C extends AnyComponent> = /* extracts TContext from C */;
+type ComponentMetadata<C extends AnyComponent> = /* extracts TMetadata from C */;
+type ComponentInput<C extends AnyComponent> = /* extracts TInput from C */;
+type ComponentOutput<C extends AnyComponent> = /* extracts TOutput from C */;
+type ComponentRefs<C extends AnyComponent> = /* extracts TRefs from C */;
+
+interface Component<TContext, TMetadata, TName extends string, TInput extends object, TOutput, TRefs> {
+  kind: string;
+  name: TName;
+  description: string;
+  refs: TRefs;
+  run(...[input, ctx]): TOutput;
+  applicable(...[ctx]): Promise<boolean>;
+  metadata(input?, ctx?): TMetadata | Promise<TMetadata>;
+}
+```
+
+### Instance & Events
+
+```typescript
+type InstanceStatus = 'pending' | 'running' | 'completed' | 'failed' | 'interrupted';
+
+interface Instance<C extends AnyComponent> {
+  parent?: Instance<AnyComponent>;
+  id: string;
+  component: C;
+  context: ComponentContext<C>;
+  input: ComponentInput<C>;
+  status: InstanceStatus;
+  started?: number;
+  running?: number;
+  completed?: number;
+  error?: any;
+  output?: ComponentOutput<C>;
+  children?: Instance<any>[];
+}
+
+interface Events<TRoot extends AnyComponent> {
+  onStatus?: (node: Instance<any>) => void;
+  onChild?: (node: Instance<any>, child: Instance<any>) => void;
+  onPromptEvent?: (instance: Instance<any>, event: PromptEvent) => void;
+}
+```
+
+---
+
+## @aeye/core — Tool
+
+```typescript
+interface ToolInput<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs> {
+  name: TName;
+  description: string;
+  descriptionFn?: (ctx: Context<TContext, TMetadata>) => string;
+  instructions?: string;
+  instructionsFn?: (ctx: Context<TContext, TMetadata>) => string;
+  input?: (ctx: Context<TContext, TMetadata>) => Record<string, any>;
+  schema: z.ZodType<TParams> | ((ctx: Context<TContext, TMetadata>) => z.ZodType<TParams> | undefined);
+  strict?: boolean;
+  refs?: TRefs;
+  call: (input: TParams, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
+  validate?: (input: TParams, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
+  metadata?: TMetadata;
+  metadataFn?: (input: TParams, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
+}
+
+class ToolInterrupt extends Error {
+  constructor(message?: string);
+}
+
+class PromptSuspend extends Error {
+  constructor(message?: string);
+}
+
+class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs> implements Component {
+  constructor(input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs>);
+  get kind(): 'tool';
+  get name(): TName;
+  get description(): string;
+  get refs(): TRefs;
+  run(...[input, ctx]): TOutput;
+  applicable(...[ctx]): Promise<boolean>;
+  metadata(input?, ctx?): TMetadata | Promise<TMetadata>;
+  parse(ctx: Context<TContext, TMetadata>, args: string, schema?: z.ZodType<TParams>): Promise<TParams>;
+  compile(ctx: Context<TContext, TMetadata>): Promise<readonly [string, ToolDefinition] | undefined>;
+  static compileInstructions(instructions: string, hasInput: boolean): Function;
+}
+```
+
+---
+
+## @aeye/core — Prompt
+
+```typescript
+interface PromptReconfigInput {
+  iterations: number;
+  outputRetries: number;
+  forgetRetries: number;
+  toolRetries: number;
+}
+
+interface PromptReconfig {
+  config?: Partial<Request>;
+  maxIterations?: number;
+  toolRetries?: number;
+  outputRetries?: number;
+  forgetRetries?: number;
+}
+
+interface PromptInput<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools> {
+  name: TName;
+  description: string;
+  content: string;
+  input?: (input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Record<string, any>;
+  schema?: z.ZodType<TOutput> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => z.ZodType<TOutput> | false);
+  strict?: boolean;
+  config?: Partial<Request> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Partial<Request> | false);
+  reconfig?: (stats: PromptReconfigInput, ctx: Context<TContext, TMetadata>) => PromptReconfig | Promise<PromptReconfig>;
+  tools?: TTools;
+  toolExecution?: 'sequential' | 'parallel' | 'immediate';
+  toolIterations?: number;
+  toolRetries?: number;
+  toolsOnly?: boolean;
+  toolsMax?: number;
+  outputRetries?: number;
+  forgetRetries?: number;
+  retool?: (input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Tool[] | false;
+  dynamic?: boolean;
+  excludeMessages?: boolean;
+  validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
+  metadata?: TMetadata;
+  metadataFn?: (input: TInput, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
+}
+
+type PromptGetType = 'result' | 'tools' | 'stream' | 'streamTools' | 'streamContent';
+
+type PromptEvent<TOutput, TTools> =
+  | { type: 'request'; request: Request; iterations: number }
+  | { type: 'textPartial'; content: string; request: Request }
+  | { type: 'text'; content: string; request: Request }
+  | { type: 'textComplete'; content: string; request: Request }
+  | { type: 'textReset'; reason?: string; request: Request }
+  | { type: 'refusal'; content: string; request: Request }
+  | { type: 'reason'; reasoning: Reasoning; request: Request }
+  | { type: 'reasonPartial'; reasoning: Reasoning; request: Request }
+  | { type: 'toolParseName'; tool: Tool; request: Request }
+  | { type: 'toolParseArguments'; tool: Tool; args: string; request: Request }
+  | { type: 'toolStart'; tool: Tool; args: any; request: Request }
+  | { type: 'toolOutput'; tool: Tool; args: any; result: any; request: Request }
+  | { type: 'toolInterrupt'; tool: Tool; args: any; request: Request }
+  | { type: 'toolSuspend'; tool: Tool; args: any; request: Request }
+  | { type: 'toolError'; tool: Tool; args: any; error: string; request: Request }
+  | { type: 'message'; message: Message; request: Request }
+  | { type: 'complete'; output: TOutput; request: Request }
+  | { type: 'suspend'; request: Request }
+  | { type: 'requestUsage'; usage: Usage; request: Request }
+  | { type: 'responseTokens'; tokens: number; request: Request }
+  | { type: 'usage'; usage: Usage; request: Request };
+
+class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools> implements Component {
+  constructor(input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>);
+  get kind(): 'prompt';
+  get name(): TName;
+  get description(): string;
+  get refs(): TTools;
+  get<TGetType extends PromptGetType>(mode?: TGetType, ...[input, ctx]): PromptGet<TGetType, TOutput, TTools>;
+  run(...[input, ctx]): AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined>;
+  applicable(...[ctx]): Promise<boolean>;
+  metadata(input?, ctx?): TMetadata | Promise<TMetadata>;
+  static compileContent(content: string, hasTools: boolean): Function;
+}
+```
+
+---
+
+## @aeye/core — Agent
+
+```typescript
+interface AgentInput<TContext, TMetadata, TName extends string, TInput extends object, TOutput, TRefs> {
+  name: TName;
+  description: string;
+  refs: TRefs;
+  call: (input: TInput, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
+  applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
+  metadata?: TMetadata;
+  metadataFn?: (input: TInput, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
+}
+
+class Agent<TContext, TMetadata, TName extends string, TInput extends object, TOutput, TRefs> implements Component {
+  constructor(input: AgentInput<TContext, TMetadata, TName, TInput, TOutput, TRefs>);
+  get kind(): 'agent';
+  get name(): TName;
+  get description(): string;
+  get refs(): TRefs;
+  run(...[input, ctx]): TOutput;
+  applicable(...[ctx]): Promise<boolean>;
+  metadata(input?, ctx?): TMetadata | Promise<TMetadata>;
+}
+```
+
+---
+
+## @aeye/core — Utility Functions
+
+```typescript
+function accumulateUsage(target: Usage, add?: Usage): void;
+function getInputTokens(usage?: Usage): number;
+function getOutputTokens(usage?: Usage): number;
+function getTotalTokens(usage?: Usage): number;
+function getResponseFromChunks(chunks: Chunk[], model?: ModelInput): Response;
+function getChunksFromResponse(response: Response): Chunk[];
+function getModel(input: ModelInput): Model | undefined;
+function getReasoningText(reasoning?: Reasoning): string;
+function accumulateReasoning(target?: Reasoning, add?: Reasoning): Reasoning | undefined;
+function withEvents<TRoot extends AnyComponent>(events: Events<TRoot>): Runner;
+function toURL(input: Resource, mimeType?: string, fallback?: string): Promise<string>;
+function toBase64(input: Resource, mimeType?: string, fallback?: string): Promise<string>;
+function toText(input: Resource, fallback?: string): Promise<string>;
+function toStream(input: Resource, fallback?: string): Promise<Readable>;
+function toReadableStream(input: Resource, fallback?: string): Promise<ReadableStream>;
+function toFile(input: Resource, mimeType?: string, filename?: string): Promise<File>;
+function getResourceFormat(resource: Resource): 'url' | 'base64' | 'stream';
+function toJSONSchema(schema: z.ZodType, options?: { format?: 'openai' } | boolean): JSONSchema;
+function strictify<S extends z.ZodType>(schema: S): S;
+function isPromise<T>(value: any): value is Promise<T>;
+function isAsyncGenerator(value: any): value is AsyncGenerator;
+```
+
+---
+
+## @aeye/ai — Types
+
+### Model Types
+
+```typescript
+type ModelCapability = 'chat' | 'tools' | 'vision' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'zdr';
+type ModelTier = 'flagship' | 'efficient' | 'experimental';
+type ModelTokenizer = 'gpt3' | 'gpt35turbo' | 'gpt4' | 'cl100k' | 'claude' | 'llama2' | 'mistral' | 'other';
+
+type ModelParameter =
+  | 'maxTokens' | 'temperature' | 'topP' | 'frequencyPenalty' | 'presencePenalty'
+  | 'stop' | 'seed' | 'responseFormat' | 'structuredOutput' | 'tools' | 'toolChoice'
+  | 'logitBias' | 'logProbabilities' | 'reason';
+
+interface ModelPricing {
+  text?: { input: number; output: number; cached?: number };
+  audio?: { input?: number; output?: number; perSecond?: number };
+  image?: { input?: number; output?: Array<{ quality: string; sizes: Array<{ width: number; height: number; cost: number }> }> };
+  reasoning?: { input: number; output: number; cached?: number };
+  embeddings?: { cost: number };
+  perRequest?: number;
+}
+
+interface ModelInfo<TProvider extends string = string> {
+  id: string;
+  provider: TProvider;
+  name: string;
+  capabilities: Set<ModelCapability>;
+  tier: ModelTier;
+  pricing: ModelPricing;
+  contextWindow: number;
+  maxOutputTokens?: number;
+  tokenizer: ModelTokenizer;
+  supportedParameters: Set<ModelParameter>;
+  metrics?: { timeToFirstToken?: number; tokensPerSecond?: number };
+  metadata?: Record<string, any>;
+}
+
+interface ModelSelectionWeights {
+  cost: number;
+  speed: number;
+  accuracy: number;
+  contextWindow?: number;
+}
+
+interface RangeConstraint<T> {
+  min?: Partial<T>;
+  max?: Partial<T>;
+  target?: Partial<T>;
+}
+
+interface ModelOverride<TProvider extends string = string> {
+  provider?: TProvider;
+  modelId?: string;
+  modelPattern?: RegExp;
+  overrides: Partial<Omit<ModelInfo, 'id' | 'provider'>>;
+}
+
+interface ModelSource {
+  name: string;
+  fetchModels(config?: any): Promise<ModelInfo[]>;
+}
+
+interface ScoredModel<TProvider extends string = string> {
+  model: ModelInfo<TProvider>;
+  score: number;
+  provider?: Provider;
+}
+
+interface SelectedModel {
+  model: ModelInfo;
+  provider: Provider;
+  config?: Partial<Request>;
+}
+```
+
+### Provider Interface
+
+```typescript
+interface Provider<TConfig = any> {
+  name: string;
+  config: TConfig;
+  priority?: number;
+  defaultMetadata?: Partial<AIBaseMetadata<any>>;
+  listModels?(config?: TConfig): Promise<ModelInfo[]>;
+  checkHealth(config?: TConfig): Promise<boolean>;
+  createExecutor?(config?: TConfig): Executor<any, any>;
+  createStreamer?(config?: TConfig): Streamer<any, any>;
+  generateImage?(request: ImageGenerationRequest, ctx: any, config?: TConfig): Promise<ImageGenerationResponse>;
+  generateImageStream?(request: ImageGenerationRequest, ctx: any, config?: TConfig): AsyncIterable<ImageGenerationChunk>;
+  editImage?(request: ImageEditRequest, ctx: any, config?: TConfig): Promise<ImageGenerationResponse>;
+  analyzeImage?(request: ImageAnalyzeRequest, ctx: any, config?: TConfig): Promise<Response>;
+  analyzeImageStream?(request: ImageAnalyzeRequest, ctx: any, config?: TConfig): AsyncIterable<Chunk>;
+  transcribe?(request: TranscriptionRequest, ctx: any, config?: TConfig): Promise<TranscriptionResponse>;
+  transcribeStream?(request: TranscriptionRequest, ctx: any, config?: TConfig): AsyncIterable<TranscriptionChunk>;
+  speech?(request: SpeechRequest, ctx: any, config?: TConfig): Promise<SpeechResponse>;
+  embed?(request: EmbeddingRequest, ctx: any, config?: TConfig): Promise<EmbeddingResponse>;
+}
+```
+
+### API Request/Response Types
+
+```typescript
+interface ImageGenerationRequest {
+  model?: ModelInput;
+  prompt: string;
+  n?: number;
+  size?: string;
+  quality?: 'low' | 'medium' | 'high';
+  style?: 'vivid' | 'natural';
+  responseFormat?: 'url' | 'b64_json';
+  seed?: number;
+}
+
+interface ImageGenerationResponse {
+  images: Array<{ url?: string; b64_json?: string; revisedPrompt?: string }>;
+  usage?: Usage;
+  model: ModelInput;
+}
+
+interface ImageEditRequest {
+  model?: ModelInput;
+  prompt: string;
+  image: Resource;
+  mask?: Resource;
+  n?: number;
+  size?: string;
+}
+
+interface ImageAnalyzeRequest {
+  model?: ModelInput;
+  prompt: string;
+  images: string[];
+  temperature?: number;
+  maxTokens?: number;
+}
+
+interface TranscriptionRequest {
+  model?: ModelInput;
+  audio: Resource;
+  language?: string;
+  prompt?: string;
+  temperature?: number;
+  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json';
+}
+
+interface TranscriptionResponse {
+  text: string;
+  usage?: Usage;
+  model: ModelInput;
+}
+
+interface SpeechRequest {
+  model?: ModelInput;
+  text: string;
+  instructions?: string;
+  voice?: string;
+  speed?: number;
+  responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+}
+
+interface SpeechResponse {
+  audio: ReadableStream<any>;
+  usage?: Usage;
+  model: ModelInput;
+}
+
+interface EmbeddingRequest {
+  model?: ModelInput;
+  texts: string[];
+  dimensions?: number;
+  encodingFormat?: 'float' | 'base64';
+}
+
+interface EmbeddingResponse {
+  embeddings: Array<{ embedding: number[]; index: number }>;
+  usage?: Usage;
+  model: ModelInput;
+}
+```
+
+### Metadata & Context
+
+```typescript
+interface AIBaseMetadata<TProviders> {
+  model?: ModelInput;
+  required?: ModelCapability[];
+  optional?: ModelCapability[];
+  requiredParameters?: ModelParameter[];
+  optionalParameters?: ModelParameter[];
+  providers?: { allow?: TProviders[]; deny?: TProviders[] };
+  pricing?: RangeConstraint<ModelPricing>;
+  contextWindow?: RangeConstraint<number>;
+  outputTokens?: RangeConstraint<number>;
+  metrics?: RangeConstraint<{ tokensPerSecond?: number; timeToFirstToken?: number }>;
+  weights?: ModelSelectionWeights;
+  weightProfile?: string;
+  tier?: ModelTier;
+}
+
+interface AIBaseContext<T> {
+  ai: AI<T>;
+  metadata?: AIMetadata<T>;
+  signal?: AbortSignal;
+}
+```
+
+### Hooks
+
+```typescript
+interface AIHooks<T> {
+  beforeModelSelection?(ctx: AIContext<T>, request: Request, metadata: AIMetadata<T>): Promise<AIMetadata<T>> | AIMetadata<T>;
+  onModelSelected?(ctx: AIContext<T>, selected: SelectedModel, request: Request, metadata: AIMetadata<T>): Promise<SelectedModel | void> | SelectedModel | void;
+  beforeRequest?(type: string, ctx: AIContext<T>, request: Request, selected: SelectedModel, metadata: AIMetadata<T>): Promise<void> | void;
+  afterRequest?(type: string, ctx: AIContext<T>, selected: SelectedModel, usage: Usage, cost?: number): Promise<void> | void;
+  onError?(type: string, message: string, error: Error, ctx: AIContext<T>): void;
+}
+```
+
+### Configuration
+
+```typescript
+interface AIConfig<TContext, TMetadata, TProviders> {
+  providers: TProviders;
+  defaultContext?: Partial<TContext>;
+  providedContext?: (ctx: Partial<TContext>) => Promise<Partial<TContext>>;
+  defaultMetadata?: Partial<TMetadata & AIBaseMetadata<TProviders>>;
+  providedMetadata?: (metadata: Partial<TMetadata & AIBaseMetadata<TProviders>>) => Promise<Partial<TMetadata> & AIBaseMetadata<TProviders>>;
+  models?: ModelInfo[];
+  modelOverrides?: ModelOverride[];
+  modelHandlers?: ModelHandler[];
+  modelSources?: ModelSource[];
+  defaultWeights?: ModelSelectionWeights;
+  weightProfiles?: Record<string, ModelSelectionWeights>;
+  hooks?: AIHooks<any>;
+  tokens?: {
+    textDivisor?: number; textBase64Divisor?: number; textFallback?: number; textMax?: number;
+    imageDivisor?: number; imageBase64Divisor?: number; imageFallback?: number; imageMax?: number;
+    fileDivisor?: number; fileBase64Divisor?: number; fileFallback?: number; fileMax?: number;
+    audioDivisor?: number; audioBase64Divisor?: number; audioFallback?: number; audioMax?: number;
+  };
+  defaultCostPerMillionTokens?: number;
+}
+
+interface LibraryStats {
+  totalModels: number;
+  modelsByProvider: Record<string, number>;
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  averageCost: number;
+  averageLatency: number;
+}
+```
+
+---
+
+## @aeye/ai — AI Class
+
+```typescript
+class AI<T> {
+  readonly config: AIConfig;
+  readonly registry: ModelRegistry;
+  readonly chat: ChatAPI;
+  readonly image: ImageAPI;
+  readonly speech: SpeechAPI;
+  readonly transcribe: TranscribeAPI;
+  readonly embed: EmbedAPI;
+  readonly models: ModelsAPI;
+  readonly providers: Record<string, Provider>;
+  readonly components: Component[];
+  hooks: AIHooks<T>;
+  readonly tokens: Record<MessageContentType, { divisor: number; base64Divisor: number; fallback: number; max?: number }>;
+
+  static with<TContext, TMetadata>(): { providers: (p) => { create: (config?) => AI } };
+  withHooks(hooks: AIHooks<T>): this;
+  buildContext(requiredCtx: Partial<TContext>): Promise<AIContext<T>>;
+  buildCoreContext(requiredCtx: Partial<TContext>): Promise<Context<T>>;
+  buildMetadata(requiredMetadata: Partial<TMetadata>): Promise<AIMetadata<T>>;
+  mergeMetadata(...metadatas: Array<Partial<AIMetadata<T>>>): AIMetadata<T>;
+  selectModel(metadata: AIMetadata<T>): SelectedModel | undefined;
+  estimateMessageUsage(message: Message): Usage;
+  estimateRequestUsage(request: Request): Usage;
+  calculateCost(model: ModelInfo, usage: Usage): number;
+  matchesOverride(model: ModelInfo, override: ModelOverride): boolean;
+  run<C extends Component>(component: C, input: ComponentInput<C>, ...[ctx]): Promise<ComponentOutput<C>>;
+  prompt<TName, TInput, TOutput, TTools>(options: PromptInput): Prompt;
+  tool<TName, TParams, TOutput, TRefs>(options: ToolInput): Tool;
+  agent<TName, TInput, TOutput, TRefs>(options: AgentInput): Agent;
+  extend<TExtendedContext, TExtendedMetadata>(config?): AI;
+  trackRequest(cost: number, latency: number): void;
+  stats(): LibraryStats;
+}
+```
+
+---
+
+## @aeye/ai — ModelsAPI
+
+```typescript
+class ModelsAPI {
+  list(providedOnly?: boolean): ModelInfo[];
+  get(id: string): ModelInfo | undefined;
+  search(criteria: AIBaseMetadata<any>): ScoredModel[];
+  select(criteria: AIBaseMetadata<any>): SelectedModel;
+  refresh(): Promise<void>;
+}
+```
+
+---
+
+## @aeye/ai — ModelRegistry
+
+```typescript
+class ModelRegistry {
+  registerModel(model: ModelInfo): void;
+  registerModels(models: ModelInfo[]): void;
+  getModel(id: string): ModelInfo | undefined;
+  getProviderFor(id: string): Provider | undefined;
+  listModels(): ModelInfo[];
+  providedModels(): Array<{ model: ModelInfo; provider: Provider }>;
+  searchModels(metadata: AIBaseMetadata<any>): ScoredModel[];
+  selectModel(criteria: AIBaseMetadata<any>): SelectedModel | undefined;
+  registerHandler(handler: ModelHandler): void;
+  getHandler(provider: string, model: string): ModelHandler | undefined;
+  refresh(): Promise<void>;
+}
+```
+
+---
+
+## @aeye/openai — Config
+
+```typescript
+interface OpenAIConfig {
+  apiKey: string;
+  baseURL?: string;
+  organization?: string;
+  project?: string;
+  store?: boolean;
+  retry?: {
+    maxRetries?: number;
+    initialDelay?: number;
+    maxDelay?: number;
+    backoffMultiplier?: number;
+    jitter?: boolean;
+    retryableStatuses?: number[];
+    timeout?: number;
+  };
+  retryEvents?: RetryEvents;
+  hooks?: {
+    chat?: { beforeRequest?; afterRequest?; onError? };
+    imageGenerate?: { beforeRequest?; afterRequest?; onError? };
+    imageEdit?: { beforeRequest?; afterRequest?; onError? };
+    speech?: { beforeRequest?; afterRequest?; onError? };
+    transcribe?: { beforeRequest?; afterRequest?; onError? };
+    embed?: { beforeRequest?; afterRequest?; onError? };
+  };
+  defaultModels?: {
+    chat?: ModelInput;
+    imageGenerate?: ModelInput;
+    imageEdit?: ModelInput;
+    imageAnalyze?: ModelInput;
+    transcription?: ModelInput;
+    speech?: ModelInput;
+    embedding?: ModelInput;
+  };
+}
+```
+
+---
+
+## @aeye/openrouter — Config
+
+```typescript
+interface OpenRouterConfig extends OpenAIConfig {
+  defaultParams?: {
+    siteUrl?: string;
+    appName?: string;
+    providers?: {
+      order?: string[];
+      allowFallbacks?: boolean;
+      requireParameters?: boolean;
+      dataCollection?: 'deny' | 'allow';
+      zdr?: boolean;
+      only?: string[];
+      ignore?: string[];
+      quantizations?: ('int4' | 'int8' | 'fp4' | 'fp6' | 'fp8' | 'fp16' | 'bf16' | 'fp32' | 'unknown')[];
+      sort?: 'price' | 'throughput' | 'latency';
+      maxPrice?: { prompt?: number; completion?: number; image?: number };
+    };
+    transforms?: string[];
+  };
+}
+```
+
+---
+
+## @aeye/replicate — Config
+
+```typescript
+interface ReplicateConfig {
+  apiKey: string;
+  baseUrl?: string;
+  transformers?: Record<string, ReplicateTransformer>;
+  hooks?: {
+    chat?: { beforeRequest?; afterRequest?; onError? };
+    imageGenerate?: { beforeRequest?; afterRequest?; onError? };
+    imageEdit?: { beforeRequest?; afterRequest?; onError? };
+    imageAnalyze?: { beforeRequest?; afterRequest?; onError? };
+    transcribe?: { beforeRequest?; afterRequest?; onError? };
+    speech?: { beforeRequest?; afterRequest?; onError? };
+    embed?: { beforeRequest?; afterRequest?; onError? };
+  };
+}
+```
+
+---
+
+## @aeye/aws — Config
+
+```typescript
+interface AWSBedrockConfig {
+  region?: string;
+  credentials?: {
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    sessionToken?: string;
+  };
+  modelPrefix?: string;
+  modelFamilies?: Record<string, { enabled?: boolean; modelIdMap?: Record<string, string> }>;
+  defaultModels?: {
+    chat?: ModelInput;
+    imageGenerate?: ModelInput;
+    embedding?: ModelInput;
+  };
+  hooks?: {
+    chat?: { beforeRequest?; afterRequest? };
+    imageGenerate?: { beforeRequest?; afterRequest? };
+    embed?: { beforeRequest?; afterRequest? };
+  };
+}
+```
+
+---
+
+## Links
+
+- Documentation: https://clickermonkey.github.io/aeye/
+- Repository: https://github.com/ClickerMonkey/aeye
+- npm: https://www.npmjs.com/org/aeye
+- License: GPL-3.0
