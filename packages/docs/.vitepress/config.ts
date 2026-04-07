@@ -2,10 +2,22 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: '@aeye',
-  description: 'Multi-provider AI library for TypeScript',
+  description: 'Multi-provider AI library for TypeScript with intelligent model selection, type-safe context management, and comprehensive provider support for OpenAI, OpenRouter, Replicate, and AWS Bedrock.',
   base: '/aeye/',
+  lang: 'en-US',
+  sitemap: {
+    hostname: 'https://clickermonkey.github.io/aeye/',
+  },
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/aeye/logo.svg' }],
+    ['meta', { name: 'og:type', content: 'website' }],
+    ['meta', { name: 'og:title', content: '@aeye — Multi-Provider AI Library for TypeScript' }],
+    ['meta', { name: 'og:description', content: 'Type-safe AI library with intelligent model selection for OpenAI, OpenRouter, Replicate, and AWS Bedrock. Tools, Prompts, Agents, streaming, cost tracking.' }],
+    ['meta', { name: 'og:url', content: 'https://clickermonkey.github.io/aeye/' }],
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'twitter:title', content: '@aeye — Multi-Provider AI Library for TypeScript' }],
+    ['meta', { name: 'twitter:description', content: 'Type-safe AI library with intelligent model selection for OpenAI, OpenRouter, Replicate, and AWS Bedrock.' }],
+    ['meta', { name: 'keywords', content: 'typescript, ai, openai, anthropic, claude, gpt, llm, aws bedrock, openrouter, replicate, tool calling, structured output, streaming, embeddings, multi-provider' }],
   ],
   themeConfig: {
     logo: '/logo.svg',
