@@ -1,0 +1,27 @@
+{
+  "name": "@aeye/gin",
+  "version": "0.1.0",
+  "description": "Gin - A type & expression system for LLM agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "vitest": "^3.0.0",
+    "typescript": "^5.9.3"
+  },
+  "files": ["dist"],
+  "license": "GPL-3.0"
+}

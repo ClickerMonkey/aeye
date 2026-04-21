@@ -1,0 +1,616 @@
+import type { Registry } from './registry';
+import type { ExprDef, TypeDef, PathDef, PathStepDef } from './schema';
+import { Value, val } from './value';
+import { substituteChildren } from './spec';
+import type { Node, CodeOptions } from './node';
+import type { Engine } from './engine';
+import { Problems } from './problem';
+import type { Scope } from './scope';
+import type { JSONOf, RuntimeOf } from './json-type';
+import { z } from 'zod';
+import type { SchemaOptions } from './node';
+
+// ============================================================================
+// RUNTIME SPEC SHAPES
+// ============================================================================
+
+/**
+ * Runtime Prop — a named capability on a Type. Holds the prop's static
+ * type, optional get/set Exprs, optional default, and a docstring.
+ *
+ * Behavior methods (runGet/runSet/invokeMethod/invokeMethodSet) live on
+ * the Prop itself — moved here from path.ts so the logic is co-located
+ * with the data.
+ */
+/**
+ * Plain-object shape accepted anywhere a Prop is required. The matching
+ * normalizer (`Prop.from`) wraps these into Prop instances. Used at call
+ * sites that don't want to `new Prop(...)` just to pass a type.
+ */
+export interface PropSpec {
+  type: Type;
+  get?: ExprDef;
+  set?: ExprDef;
+  default?: ExprDef;
+  docs?: string;
+}
+
+export class Prop {
+  readonly type: Type;
+  readonly get?: ExprDef;
+  readonly set?: ExprDef;
+  readonly default?: ExprDef;
+  readonly docs?: string;
+
+  constructor(spec: PropSpec) {
+    this.type = spec.type;
+    this.get = spec.get;
+    this.set = spec.set;
+    this.default = spec.default;
+    this.docs = spec.docs;
+  }
+
+  /** Idempotent normalizer: Prop stays, PropSpec becomes a new Prop. */
+  static from(x: Prop | PropSpec): Prop {
+    return x instanceof Prop ? x : new Prop(x);
+  }
+
+  // ─── runtime ops (called by Path.walk) ─────────────────────────────────
+
+  /** Read this prop on `self`: evaluate get Expr with {this, super?}, or
+   *  fall back to direct object-field lookup. */
+  async read(self: Value, name: string, scope: Scope, engine: Engine): Promise<Value> {
+    if (this.get) {
+      const bindings: Record<string, Value> = { this: self };
+      const sup = self.type.propSuperFor(self, name, 'get', scope, engine);
+      if (sup) bindings.super = sup;
+      return engine.evaluate(this.get, scope.child(bindings));
+    }
+    const raw = (self.raw as Record<string, unknown> | null | undefined)?.[name];
+    if (raw instanceof Value) return raw;
+    return val(this.type, raw);
+  }
+
+  /** Write this prop on `self` with the given value. */
+  async write(self: Value, name: string, value: Value, scope: Scope, engine: Engine): Promise<void> {
+    if (!this.set) throw new Error(`path: prop '${name}' has no set expression`);
+    const bindings: Record<string, Value> = { this: self, value };
+    const sup = self.type.propSuperFor(self, name, 'set', scope, engine);
+    if (sup) bindings.super = sup;
+    await engine.evaluate(this.set, scope.child(bindings));
+  }
+
+  /**
+   * Invoke this prop as a method: runs get Expr with {this, args, super?, recurse}.
+   * `fnType` is the effective (possibly generic-bound) Fn type used for the
+   * recurse Value's type; defaults to this.type.
+   */
+  async invokeMethod(
+    self: Value,
+    name: string,
+    argsValue: Value,
+    scope: Scope,
+    engine: Engine,
+    fnType?: Type,
+  ): Promise<Value> {
+    if (!this.get) throw new Error(`path: callable prop '${name}' has no get expression`);
+    const effectiveType = fnType ?? this.type;
+    const getExpr = this.get;
+    const callable = async (newArgs: Value): Promise<Value> => {
+      const recurseValue = new Value(effectiveType, callable);
+      const bindings: Record<string, Value> = { this: self, args: newArgs, recurse: recurseValue };
+      const sup = self.type.propSuperFor(self, name, 'get', scope, engine);
+      if (sup) bindings.super = sup;
+      return engine.evaluate(getExpr, scope.child(bindings));
+    };
+    return callable(argsValue);
+  }
+
+  /**
+   * Invoke this prop as a method-set target: runs CallDef.set with
+   * {this, args, value, super?, recurse}.
+   */
+  async invokeMethodSet(
+    self: Value,
+    name: string,
+    argsValue: Value,
+    setValue: Value,
+    scope: Scope,
+    engine: Engine,
+    fnType?: Type,
+  ): Promise<void> {
+    const effectiveType = fnType ?? this.type;
+    const callSpec = effectiveType.call?.();
+    if (!callSpec?.set) throw new Error(`path: method '${name}' has no call.set`);
+    const setter = async (newArgs: Value): Promise<Value> => {
+      const recurseValue = new Value(effectiveType, setter);
+      const bindings: Record<string, Value> = {
+        this: self, args: newArgs, value: setValue, recurse: recurseValue,
+      };
+      const sup = self.type.propSuperFor(self, name, 'callSet', scope, engine);
+      if (sup) bindings.super = sup;
+      await engine.evaluate(callSpec.set!, scope.child(bindings));
+      return val(engine.registry.void(), undefined);
+    };
+    await setter(argsValue);
+  }
+}
+
+/**
+ * Runtime GetSet — indexed-access spec, with key/value Types resolved and
+ * optional get/set/loop Exprs.
+ */
+export class GetSet<K = any, V = any> {
+  readonly key: Type<K>;
+  readonly value: Type<V>;
+  readonly get?: ExprDef;
+  readonly set?: ExprDef;
+  readonly loop?: ExprDef;
+  readonly docs?: string;
+
+  constructor(spec: {
+    key: Type<K>;
+    value: Type<V>;
+    get?: ExprDef;
+    set?: ExprDef;
+    loop?: ExprDef;
+    docs?: string;
+  }) {
+    this.key = spec.key;
+    this.value = spec.value;
+    this.get = spec.get;
+    this.set = spec.set;
+    this.loop = spec.loop;
+    this.docs = spec.docs;
+  }
+
+  /** Read this[key]: runs get Expr with {this, key, super?}. */
+  async indexRead(self: Value, keyValue: Value, scope: Scope, engine: Engine): Promise<Value> {
+    if (!this.get) throw new Error(`path: type '${self.type.name}' has no index get`);
+    const bindings: Record<string, Value> = { this: self, key: keyValue };
+    const sup = self.type.indexSuperFor(self, 'get', scope, engine);
+    if (sup) bindings.super = sup;
+    return engine.evaluate(this.get, scope.child(bindings));
+  }
+
+  /** Write this[key] = value: runs set Expr with {this, key, value, super?}. */
+  async indexWrite(self: Value, keyValue: Value, value: Value, scope: Scope, engine: Engine): Promise<void> {
+    if (!this.set) throw new Error(`path: type '${self.type.name}' has no index set`);
+    const bindings: Record<string, Value> = { this: self, key: keyValue, value };
+    const sup = self.type.indexSuperFor(self, 'set', scope, engine);
+    if (sup) bindings.super = sup;
+    await engine.evaluate(this.set, scope.child(bindings));
+  }
+}
+
+/**
+ * Runtime Call — callable spec, with arg/return/throws Types resolved.
+ */
+export class Call<TArgs extends object = any, TResult = any, TError = any> {
+  readonly args: Type<TArgs>;
+  readonly returns?: Type<TResult>;
+  readonly throws?: Type<TError>;
+  readonly get?: ExprDef;
+  readonly set?: ExprDef;
+  readonly docs?: string;
+
+  constructor(spec: {
+    args: Type<TArgs>;
+    returns?: Type<TResult>;
+    throws?: Type<TError>;
+    get?: ExprDef;
+    set?: ExprDef;
+    docs?: string;
+  }) {
+    this.args = spec.args;
+    this.returns = spec.returns;
+    this.throws = spec.throws;
+    this.get = spec.get;
+    this.set = spec.set;
+    this.docs = spec.docs;
+  }
+}
+
+/**
+ * Runtime Init — constructor spec for `{ kind: 'new' }` with args.
+ */
+export class Init<TArgs extends object = any> {
+  readonly args: Type<TArgs>;
+  readonly run: ExprDef;
+  readonly docs?: string;
+
+  constructor(spec: { args: Type<TArgs>; run: ExprDef; docs?: string }) {
+    this.args = spec.args;
+    this.run = spec.run;
+    this.docs = spec.docs;
+  }
+}
+
+// ============================================================================
+// COMPATIBILITY OPTIONS
+// ============================================================================
+
+export interface CompatOptions {
+  /** Require same class (no cross-class structural match). */
+  strict?: boolean;
+  /** Enforce options constraints (ranges, regex, bounds). */
+  value?: boolean;
+  /** No unwrapping — Optional<T> is not compatible with T. */
+  exact?: boolean;
+}
+
+// ============================================================================
+// RANDOM VALUE GENERATOR
+// ============================================================================
+
+export type Rnd = (min: number, max: number, whole: boolean) => number;
+
+// ============================================================================
+// TYPE
+// ============================================================================
+
+/**
+ * The abstract runtime Type class for gin.
+ *
+ * Every concrete type (num, text, list, or, extension, …) extends this.
+ * The surface is intentionally small — see poc.ts for the full design.
+ *
+ * Key invariants:
+ *  - Values in gin are (type, raw) pairs. This class defines behavior
+ *    for the TYPE side; raw-value operations are minimal (valid, parse,
+ *    dump, create, random). Everything else (eq, compare, add, map, …)
+ *    lives on props() / get() / call() and is evaluated by the engine.
+ *  - Nothing in this class or its subclasses inspects other types by
+ *    name. Composite types (or, and, extension) receive their
+ *    constituents and delegate to them polymorphically.
+ *  - Every method returns new instances where applicable (no mutation).
+ */
+export abstract class Type<T = any, O = any> implements Node {
+  constructor(
+    readonly registry: Registry,
+    readonly options: O,
+    /**
+     * Generic parameter bindings (e.g. list<V> stores V here). Empty for
+     * types that aren't generic-parameterized. The engine uses this map
+     * when resolving Generic placeholders in props()/get()/call()/init().
+     */
+    readonly generic: Record<string, Type> = {},
+  ) {}
+
+  /** Identifier of this type (e.g. 'num', 'text', 'list'). */
+  abstract readonly name: string;
+
+  /** describe() tiebreak — higher wins when inferring from sample data. */
+  readonly priority: number = 0;
+
+  readonly docs?: string;
+
+  // ─── VALUE OPERATIONS ────────────────────────────────────────────────────
+  //
+  // Type parameter `T` is the LOGICAL type (e.g. `number[]` for list<num>).
+  // `RuntimeOf<T>` derives the actual `.raw` storage shape (e.g. `Value<number>[]`
+  // for list<num>, so per-element concrete types are preserved). `JSONOf<T>`
+  // derives the dumped JSON shape, where each composite slot is wrapped as
+  // `{type: TypeDef, value: ...}` so subtype info round-trips through JSON.
+
+  /**
+   * Runtime type guard over the raw (runtime-shaped) value. Returns plain
+   * `boolean` (not a predicate) to keep TS's bidirectional inference from
+   * solving `T` backwards through the refinement. Narrowing still works
+   * — callers that need `Value<T>.raw` typed simply rely on the Value's
+   * constructor contract.
+   */
+  abstract valid(raw: unknown): boolean;
+
+  /**
+   * Parse a JSON-shape input into a Value of this type.
+   * Throws if the input cannot be coerced to a valid raw value.
+   */
+  abstract parse(json: unknown): Value<T>;
+
+  /**
+   * Serialize a runtime raw value to its JSON shape.
+   *
+   * Composites (list/map/tuple/obj) recursively wrap each nested slot as
+   * a `JSONValue` envelope so per-element concrete types survive JSON
+   * round-trip. Primitives/leaf types just produce their JSON form.
+   *
+   * Called by `Value.toJSON()` to build the outer `{type, value}` wire
+   * envelope. For logical primitive output (no type info) callers can
+   * walk `.raw` and read the underlying Value contents directly.
+   */
+  abstract encode(raw: RuntimeOf<T>): JSONOf<T>;
+
+  /** Default / zero raw value — used by { kind: 'new' } with no args. */
+  abstract create(): RuntimeOf<T>;
+
+  /** Random raw value respecting this type's options. */
+  abstract random(rnd: Rnd): RuntimeOf<T>;
+
+  // ─── TYPE RELATIONS ──────────────────────────────────────────────────────
+
+  /**
+   * Structural + (optional) strict compatibility check.
+   * Concrete types implement this — the default impls below (accepts,
+   * exact) compose it with pre-set option flags.
+   */
+  abstract compatible(other: Type, opts?: CompatOptions): boolean;
+
+  /** Strict: another instance of the same class must match structurally. */
+  accepts(other: Type): boolean {
+    return this.compatible(other, { strict: true });
+  }
+
+  /** Strict + exact: no wrapper unwrapping, no value-mode. */
+  exact(other: Type): boolean {
+    return this.compatible(other, { strict: true, exact: true });
+  }
+
+  /** True if this type accepts instances of other classes structurally. */
+  flexible(): boolean {
+    return false;
+  }
+
+  // ─── TYPE ALGEBRA ────────────────────────────────────────────────────────
+
+  /**
+   * Widen / merge same-class: fold another instance's options into this one.
+   * Returns a new instance. Called during describe() when samples fold.
+   */
+  abstract or(other: Type<T>): Type<T>;
+
+  /** Canonical form — collapse trivial wrappers. */
+  simplify(): Type {
+    return this;
+  }
+
+  /** Strip Optional / Nullable layers, revealing the required inner type. */
+  required(): Type {
+    return this;
+  }
+
+  /**
+   * True when this type represents an undefined-bearing slot. Used by
+   * toCode() for `name?` syntax on struct fields.
+   * OptionalType overrides to true; everything else is false.
+   */
+  isOptional(): boolean {
+    return false;
+  }
+
+  // ─── OPTIONS NARROWING (for Extension) ──────────────────────────────────
+
+  /**
+   * Merge `local` options on top of this.options, enforcing per-type
+   * directional rules (Num.min ≥, Num.max ≤, regex ⊂, length bounds,
+   * etc.). Throws TypeError on a widening attempt. Returns the merged,
+   * narrower options — the invariant "every narrowed value is also a
+   * valid base value" must hold.
+   */
+  abstract narrow(local: Partial<O>): O;
+
+  // ─── EFFECTIVE ACCESS SPECS ──────────────────────────────────────────────
+
+  /**
+   * Effective props map — names available via .prop access. Implementations
+   * may return raw PropSpec values; `prop(name)` normalizes to Prop.
+   * Composite types (or, and, optional, extension) override to derive.
+   */
+  props(): Record<string, Prop | PropSpec> {
+    return {};
+  }
+
+  /** Effective GetSet — present iff this type supports [key] access. */
+  get(): GetSet | undefined {
+    return undefined;
+  }
+
+  /** Effective Call — present iff this type is invocable. */
+  call(): Call | undefined {
+    return undefined;
+  }
+
+  /** Effective Init — present iff this type has a custom constructor. */
+  init(): Init | undefined {
+    return undefined;
+  }
+
+  /** Convenience over props() — single-name lookup, normalized to Prop. */
+  prop(name: string): Prop | undefined {
+    const raw = this.props()[name];
+    return raw ? Prop.from(raw) : undefined;
+  }
+
+  // ─── PATH WALKING ────────────────────────────────────────────────────────
+
+  /**
+   * Resolve a single PathStep against this type, returning the sub-type
+   * reached by that step (or undefined if the step doesn't apply here).
+   * Concrete types with positional semantics (Tuple) may override.
+   */
+  follow(step: PathStepDef): Type | undefined {
+    if ('prop' in step) {
+      return this.prop(step.prop)?.type;
+    }
+    if ('args' in step) {
+      return this.call()?.returns;
+    }
+    if ('key' in step) {
+      return this.get()?.value;
+    }
+    return undefined;
+  }
+
+  /** Fold follow() over a whole Path. */
+  at(path: PathDef): Type | undefined {
+    let current: Type | undefined = this;
+    for (const step of path) {
+      if (!current) return undefined;
+      current = current.follow(step);
+    }
+    return current;
+  }
+
+  // ─── GENERIC BINDING ─────────────────────────────────────────────────────
+
+  /**
+   * Substitute generic placeholders in this type using the given bindings.
+   * Delegates to `substitute(bindings)` — each Type class chooses its own
+   * substitution semantics polymorphically.
+   */
+  bind(bindings: Record<string, Type>): Type {
+    if (Object.keys(bindings).length === 0) return this;
+    return this.substitute(bindings);
+  }
+
+  /**
+   * Default substitution: walk the common child-type fields via the
+   * JSON-shape helper. GenericType overrides to return its binding.
+   * Other types with no generic placeholders just return this.
+   */
+  substitute(bindings: Record<string, Type>): Type {
+    if (Object.keys(bindings).length === 0) return this;
+    return this.registry.parse(substituteChildren(this.toJSON(), bindings, this.registry));
+  }
+
+  // ─── SCHEMA ROUND-TRIP ───────────────────────────────────────────────────
+
+  /**
+   * Emit the JSON schema (TypeDef) for this Type. Inverse of the registry's
+   * parse(): registry.parse(someType.toJSON()) should yield an equivalent
+   * Type instance.
+   */
+  abstract toJSON(): TypeDef;
+
+  /** Deep copy this Type (NOT a raw value). */
+  abstract clone(): Type<T, O>;
+
+  // ─── VALUE SCHEMA (Zod) ──────────────────────────────────────────────────
+
+  /**
+   * Produce a Zod schema for a PRIMITIVE JSON value that conforms to
+   * this type — i.e., the shape an LLM should produce when asked for a
+   * value of this type. Options on the type are folded in (num.min →
+   * `.min()`, text.pattern → `.regex()`, list.maxLength → `.max()`, etc.).
+   *
+   * Composites emit LLM-friendly shapes: `list<V>` → `z.array(V)`,
+   * `map<K,V>` → `z.array(z.object({ key, value }))` (NOT a `[K, V]`
+   * tuple — LLMs handle object keys more reliably than positional pairs),
+   * `obj` → `z.object({ per-field schemas })`, and so on.
+   *
+   * Distinct from `toSchema(opts)` (which schemas the TypeDef JSON for
+   * registry round-trip). `toValueSchema()` schemas the RUNTIME DATA.
+   */
+  abstract toValueSchema(): z.ZodTypeAny;
+
+  /**
+   * Produce a Zod schema for the VALUE side of a `{ kind: 'new' }` Expr
+   * of this type. Same as `toValueSchema()` for primitives (e.g. `new num`
+   * takes a bare number). Composites differ: each nested slot is the
+   * `toNewExprSchema()` of the inner type — i.e. a `{ kind: 'new', type,
+   * value }` Expr targeting the slot's declared type. So `new obj { x: text,
+   * y: num }` accepts `{ x: <new text expr>, y: <new num expr> }`.
+   *
+   * Default = `toValueSchema()`; composites override.
+   */
+  toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return this.toValueSchema();
+  }
+
+  /**
+   * Produce a Zod schema for a `{ kind: 'new' }` Expr that constructs a
+   * value of THIS specific type — `{ kind: 'new', type: <this type's
+   * literal>, value: <this type's new schema> }`. Used by composite
+   * `toNewSchema` overrides to recursively constrain nested slots, and by
+   * `NewExpr.toSchema` in strict mode.
+   */
+  toNewExprSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({
+      kind: z.literal('new'),
+      type: this.toInstanceSchema(),
+      value: this.toNewSchema(opts).optional(),
+    });
+  }
+
+  /**
+   * Produce a Zod schema that matches ONLY this specific Type instance's
+   * encoded TypeDef — used by NewExpr's strict schema to lock the `type`
+   * field to a pre-chosen instance. Implementation: deep-JSON equality
+   * against `this.toJSON()`.
+   */
+  toInstanceSchema(): z.ZodTypeAny {
+    const expected = JSON.stringify(this.toJSON());
+    const typeName = this.name;
+    return z.custom<unknown>(
+      (val) => JSON.stringify(val) === expected,
+      { message: `must match type '${typeName}'` },
+    );
+  }
+
+  // ─── CODE EMISSION ───────────────────────────────────────────────────────
+
+  /**
+   * Emit a TypeScript-like textual representation of this type. Intended
+   * for docs, error messages, and LLM prompting — not for parse round-trip
+   * (use encode() for that).
+   *
+   * Accepts optional Registry + CodeOptions for uniformity with Expr.toCode;
+   * most Types ignore both (a type is always a single expression).
+   */
+  abstract toCode(registry?: Registry, options?: CodeOptions): string;
+
+  // ─── SUPER HOOKS (for Extension overrides) ───────────────────────────────
+
+  /**
+   * If `self`'s type is an Extension whose local override covers prop `name`,
+   * build a Fn Value that delegates to the base impl for the given
+   * direction ('get' | 'set' | 'callSet'). Non-Extension types return
+   * undefined. Moved here so Prop's runtime methods can call it
+   * polymorphically without instanceof checks.
+   */
+  propSuperFor(
+    _self: Value,
+    _name: string,
+    _direction: 'get' | 'set' | 'callSet',
+    _scope: Scope,
+    _engine: Engine,
+  ): Value | undefined {
+    return undefined;
+  }
+
+  /** Analogous hook for indexed-access overrides. */
+  indexSuperFor(
+    _self: Value,
+    _direction: 'get' | 'set',
+    _scope: Scope,
+    _engine: Engine,
+  ): Value | undefined {
+    return undefined;
+  }
+
+  // ─── VALIDATE ────────────────────────────────────────────────────────────
+
+  /**
+   * Walk this Type collecting structural problems (round-trip encode/parse
+   * as a minimum sanity check). Types may override to add deeper checks.
+   * Matches the Node interface shared with Expr.
+   */
+  validate(_engine: Engine): Problems {
+    const p = new Problems();
+    try {
+      this.registry.parse(this.toJSON());
+    } catch (err) {
+      p.error('type.invalid', (err as Error).message);
+    }
+    return p;
+  }
+
+  // ─── DESCRIBE (optional) ─────────────────────────────────────────────────
+
+  /**
+   * Optionally infer a Type from sample data. Returns undefined if this
+   * type class cannot represent the sample. describe() tiebreaks use
+   * priority — higher priority = tried first.
+   */
+  describe?(data: unknown, cache?: Map<unknown, Type>): Type | undefined;
+}

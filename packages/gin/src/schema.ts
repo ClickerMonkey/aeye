@@ -1,0 +1,160 @@
+/**
+ * Gin JSON Schema — the shape of serialized types and expressions.
+ * All data types are JSON-compatible. Runtime classes parse these into executable objects.
+ */
+
+// ============================================================================
+// TYPE SCHEMA
+// ============================================================================
+
+export interface TypeDef<TOptions = any> {
+  name: string;
+  docs?: string;
+  extends?: string;
+  satisfies?: string[];
+  generic?: Record<string, TypeDef>;
+  options?: TOptions;
+  init?: { docs?: string; args: TypeDef; run: ExprDef };
+  props?: Record<string, PropDef>;
+  get?: GetSetDef;
+  call?: CallDef;
+}
+
+export interface PropDef {
+  docs?: string;
+  type: TypeDef;
+  get?: ExprDef;
+  default?: ExprDef;
+  set?: ExprDef;
+}
+
+export interface GetSetDef {
+  docs?: string;
+  key: TypeDef;
+  value: TypeDef;
+  get?: ExprDef;
+  set?: ExprDef;
+  loop?: ExprDef;
+}
+
+export interface CallDef {
+  docs?: string;
+  args: TypeDef;
+  returns?: TypeDef;
+  throws?: TypeDef;
+  get?: ExprDef;
+  set?: ExprDef;
+}
+
+// ============================================================================
+// EXPRESSION SCHEMA
+// ============================================================================
+
+export interface ExprDef {
+  kind: string;
+  comment?: string;
+  [key: string]: any;
+}
+
+export type PathStepDef = PathPropDef | PathCallDef | PathIndexDef;
+export type PathDef = PathStepDef[];
+
+export interface PathPropDef {
+  prop: string;
+}
+
+export interface PathCallDef {
+  args: Record<string, ExprDef>;
+  generic?: Record<string, TypeDef>;
+  catch?: ExprDef;
+}
+
+export interface PathIndexDef {
+  key: ExprDef;
+}
+
+// Expression shapes
+export interface NewExprDef extends ExprDef {
+  kind: 'new';
+  type: TypeDef;
+  value?: any;
+}
+
+export interface GetExprDef extends ExprDef {
+  kind: 'get';
+  path: PathDef;
+}
+
+export interface SetExprDef extends ExprDef {
+  kind: 'set';
+  path: PathDef;
+  value: ExprDef;
+}
+
+export interface DefineExprDef extends ExprDef {
+  kind: 'define';
+  vars: { name: string; type?: TypeDef; value: ExprDef }[];
+  body: ExprDef;
+}
+
+export interface BlockExprDef extends ExprDef {
+  kind: 'block';
+  lines: ExprDef[];
+}
+
+export interface IfExprDef extends ExprDef {
+  kind: 'if';
+  ifs: { condition: ExprDef; body: ExprDef }[];
+  else?: ExprDef;
+}
+
+export interface SwitchExprDef extends ExprDef {
+  kind: 'switch';
+  value: ExprDef;
+  cases: { equals: ExprDef[]; body: ExprDef }[];
+  else?: ExprDef;
+}
+
+export interface LoopExprDef extends ExprDef {
+  kind: 'loop';
+  over: ExprDef;
+  body: ExprDef;
+  key?: string;
+  value?: string;
+  parallel?: { concurrent?: ExprDef; rate?: ExprDef };
+}
+
+export interface LambdaExprDef extends ExprDef {
+  kind: 'lambda';
+  type: TypeDef;
+  body: ExprDef;
+}
+
+export interface TemplateExprDef extends ExprDef {
+  kind: 'template';
+  template: string;
+  params: ExprDef;  // expression that evaluates to an object with param values
+}
+
+export interface FlowExprDef extends ExprDef {
+  kind: 'flow';
+  action: 'break' | 'return' | 'continue' | 'exit' | 'throw';
+  value?: ExprDef;
+  error?: ExprDef;
+}
+
+export interface NativeExprDef extends ExprDef {
+  kind: 'native';
+  id: string;
+  type?: TypeDef;
+}
+
+// ============================================================================
+// GLOBAL
+// ============================================================================
+
+export interface GlobalDef {
+  docs?: string;
+  type: TypeDef;
+  value?: any;
+}
