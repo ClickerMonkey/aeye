@@ -296,10 +296,16 @@ export class Registry implements TypeBuilder {
 
   /** Decode all customization fields from a TypeDef into an ExtensionLocal. */
   private buildLocal(def: TypeDef): ExtensionLocal {
+    const generic = def.generic
+      ? Object.fromEntries(
+          Object.entries(def.generic).map(([k, v]) => [k, this.parse(v)]),
+        )
+      : undefined;
     return {
       name: def.name,
       docs: def.docs,
       options: def.options,
+      generic,
       props: def.props ? decodeProps(def.props, this) : undefined,
       get: def.get ? decodeGetSet(def.get, this) : undefined,
       call: def.call ? decodeCall(def.call, this) : undefined,

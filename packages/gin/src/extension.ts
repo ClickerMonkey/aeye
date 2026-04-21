@@ -26,11 +26,25 @@ import type { SchemaOptions } from './node';
 /**
  * What an Extension adds on top of its base. All fields except `name` are
  * optional — an Extension can add props alone, or narrow options alone, etc.
+ *
+ * `generic` declares the Extension's OWN type parameters (independent of
+ * any generics the base already has). Each key is the parameter name; the
+ * value is the current binding (use `registry.any()` as a default, or a
+ * concrete Type for a bound instance). Placeholders elsewhere in the
+ * local spec use `registry.generic('T')` — those get substituted by
+ * `.bind({T: …})` via the standard substitute walk.
+ *
+ *   registry.extend('object', {
+ *     name: 'Box',
+ *     generic: { T: registry.any() },
+ *     props: { value: { type: registry.generic('T') } },
+ *   })
  */
 export interface ExtensionLocal<T = any, O = any> {
   name: string;
   docs?: string;
   options?: Partial<O>;
+  generic?: Record<string, Type>;
   props?: Record<string, Prop | PropSpec>;
   get?: GetSet;
   call?: Call;
@@ -99,7 +113,11 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       ? (registry.parse({ ...original.toJSON(), options: narrowedOptions as any }) as Type<T>)
       : original;
 
-    super(registry, narrowedOptions);
+    // Thread local generic declarations up to the base Type so `this.generic`
+    // reflects the Extension's own parameters. Binding via `.bind(bindings)`
+    // walks through substituteChildren, which rebuilds the Extension with
+    // substituted placeholders.
+    super(registry, narrowedOptions, local.generic ?? {});
     this.original = original;
     this.base = effectiveBase;
     this.local = normalizeLocal(local);
@@ -210,11 +228,19 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     const mergedOptions = crossExtend
       ? (this.local.options as any)
       : { ...(baseDef.options as Record<string, unknown> | undefined), ...(this.local.options as Record<string, unknown> | undefined) };
+    // Merge base's generics with Extension's own. Extension names win on
+    // conflict (which is a user error — don't shadow base parameter names).
+    const mergedGeneric: Record<string, TypeDef> = { ...(baseDef.generic ?? {}) };
+    if (this.local.generic) {
+      for (const [k, t] of Object.entries(this.local.generic)) {
+        mergedGeneric[k] = t.toJSON();
+      }
+    }
     return {
       name: this.name,
       extends: crossExtend ? this.original.name : undefined,
       docs: this.docs,
-      generic: baseDef.generic,
+      generic: Object.keys(mergedGeneric).length > 0 ? mergedGeneric : undefined,
       options: mergedOptions && Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
       props: this.local.props ? encodeProps(this.local.props) : undefined,
       get: this.local.get ? encodeGetSet(this.local.get) : undefined,
@@ -224,10 +250,16 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   }
 
   clone(): Extension<T, O> {
+    const clonedGeneric = this.local.generic
+      ? Object.fromEntries(
+          Object.entries(this.local.generic).map(([k, t]) => [k, t.clone()]),
+        )
+      : undefined;
     return new Extension(this.registry, this.original.clone(), {
       name: this.local.name,
       docs: this.local.docs,
       options: this.local.options ? { ...this.local.options } : undefined,
+      generic: clonedGeneric,
       props: this.local.props ? { ...this.local.props } : undefined,
       get: this.local.get,
       call: this.local.call,
