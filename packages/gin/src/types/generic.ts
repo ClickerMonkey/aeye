@@ -97,9 +97,9 @@ export class GenericType extends Type<any, GenericOptions> {
 
   toCode(): string { return this.options.name; }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Unbound placeholder — no concrete shape constraint. Callers that
     // need tight schemas should `.bind()` the generic first.
-    return z.any();
+    return this.describeType(z.any(), opts);
   }
 }

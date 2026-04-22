@@ -117,11 +117,11 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
     return needsParens ? `(${inner}) | null` : `${inner} | null`;
   }
 
-  toValueSchema(): z.ZodTypeAny {
-    return this.inner.toValueSchema().nullable();
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    return this.describeType(this.inner.toValueSchema(opts).nullable(), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.inner.toNewSchema(opts).nullable();
+    return this.describeType(this.inner.toNewSchema(opts).nullable(), opts);
   }
 }

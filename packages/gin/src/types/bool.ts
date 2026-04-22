@@ -99,7 +99,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
 
   toCode(): string { return 'boolean'; }
 
-  toValueSchema(): z.ZodTypeAny { return z.boolean(); }
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
 
   describe(data: unknown): Type | undefined {
     return typeof data === 'boolean' ? this : undefined;

@@ -232,11 +232,11 @@ export class NumType extends Type<number, NumOptions> {
 
   toCode(): string { return 'number'; }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     let s = this.options.whole ? z.number().int() : z.number();
     if (this.options.min !== undefined) s = s.min(this.options.min);
     if (this.options.max !== undefined) s = s.max(this.options.max);
-    return s;
+    return this.describeType(s, opts);
   }
 
   describe(data: unknown): Type | undefined {

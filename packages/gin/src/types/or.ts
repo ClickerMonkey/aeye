@@ -169,17 +169,17 @@ export class OrType extends Type<any, OrOptions> {
     }).join(' | ');
   }
 
-  toValueSchema(): z.ZodTypeAny {
-    if (this.variants.length === 0) return z.never();
-    if (this.variants.length === 1) return this.variants[0]!.toValueSchema();
-    const schemas = this.variants.map((v) => v.toValueSchema()) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-    return z.union(schemas);
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    if (this.variants.length === 0) return this.describeType(z.never(), opts);
+    if (this.variants.length === 1) return this.describeType(this.variants[0]!.toValueSchema(opts), opts);
+    const schemas = this.variants.map((v) => v.toValueSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
+    return this.describeType(z.union(schemas), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    if (this.variants.length === 0) return z.never();
-    if (this.variants.length === 1) return this.variants[0]!.toNewSchema(opts);
+    if (this.variants.length === 0) return this.describeType(z.never(), opts);
+    if (this.variants.length === 1) return this.describeType(this.variants[0]!.toNewSchema(opts), opts);
     const schemas = this.variants.map((v) => v.toNewSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-    return z.union(schemas);
+    return this.describeType(z.union(schemas), opts);
   }
 }

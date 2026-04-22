@@ -85,5 +85,5 @@ export class VoidType extends Type<void, Record<string, never>> {
 
   toCode(): string { return 'void'; }
 
-  toValueSchema(): z.ZodTypeAny { return z.null(); }
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 }

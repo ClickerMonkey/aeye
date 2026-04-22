@@ -310,6 +310,7 @@ export class Registry implements TypeBuilder {
       get: def.get ? decodeGetSet(def.get, this) : undefined,
       call: def.call ? decodeCall(def.call, this) : undefined,
       init: def.init ? decodeInit(def.init, this) : undefined,
+      constraint: def.constraint ? this.parseExpr(def.constraint) : undefined,
     };
   }
 

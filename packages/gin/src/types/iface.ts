@@ -177,20 +177,26 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return parts.length === 0 ? '{}' : `{ ${parts.join('; ')} }`;
   }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    const mode = opts?.includeDocs ?? 'none';
     // Structural: any object carrying the declared props is acceptable.
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this._props)) {
-      shape[name] = prop.type.toValueSchema();
+      let field = prop.type.toValueSchema(opts);
+      if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
+      shape[name] = field;
     }
-    return z.object(shape).passthrough();
+    return this.describeType(z.object(shape).passthrough(), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    const mode = opts.includeDocs ?? 'none';
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this._props)) {
-      shape[name] = prop.type.toNewExprSchema(opts);
+      let slot = prop.type.toNewExprSchema(opts);
+      if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
+      shape[name] = slot;
     }
-    return z.object(shape).passthrough();
+    return this.describeType(z.object(shape).passthrough(), opts);
   }
 }

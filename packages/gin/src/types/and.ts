@@ -153,19 +153,21 @@ export class AndType extends Type<any, AndOptions> {
     }).join(' & ');
   }
 
-  toValueSchema(): z.ZodTypeAny {
-    if (this.parts.length === 0) return z.unknown();
-    if (this.parts.length === 1) return this.parts[0]!.toValueSchema();
-    return this.parts
-      .map((p) => p.toValueSchema())
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    if (this.parts.length === 0) return this.describeType(z.unknown(), opts);
+    if (this.parts.length === 1) return this.describeType(this.parts[0]!.toValueSchema(opts), opts);
+    const s = this.parts
+      .map((p) => p.toValueSchema(opts))
       .reduce((a, b) => z.intersection(a, b));
+    return this.describeType(s, opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    if (this.parts.length === 0) return z.unknown();
-    if (this.parts.length === 1) return this.parts[0]!.toNewSchema(opts);
-    return this.parts
+    if (this.parts.length === 0) return this.describeType(z.unknown(), opts);
+    if (this.parts.length === 1) return this.describeType(this.parts[0]!.toNewSchema(opts), opts);
+    const s = this.parts
       .map((p) => p.toNewSchema(opts))
       .reduce((a, b) => z.intersection(a, b));
+    return this.describeType(s, opts);
   }
 }

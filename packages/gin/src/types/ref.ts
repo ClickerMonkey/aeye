@@ -133,12 +133,12 @@ export class RefType extends Type<any, RefOptions> {
 
   toCode(): string { return this.options.name; }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Lazy so recursive named types (A → list<A>) don't blow the stack.
-    return z.lazy(() => this.resolve().toValueSchema());
+    return this.describeType(z.lazy(() => this.resolve().toValueSchema(opts)), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.lazy(() => this.resolve().toNewSchema(opts));
+    return this.describeType(z.lazy(() => this.resolve().toNewSchema(opts)), opts);
   }
 }

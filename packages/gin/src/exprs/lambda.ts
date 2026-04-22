@@ -15,18 +15,30 @@ import { baseExprFields } from '../schemas';
 
 /**
  * LambdaExpr — a callable value that closes over the lexical scope.
+ *
+ * Optional `constraint` is evaluated BEFORE the body on every call, with
+ * `args` in scope; must return bool. Violations throw a typed Error so
+ * the calling path unwinds cleanly.
  */
 export class LambdaExpr extends Expr {
   static readonly KIND = 'lambda';
   readonly kind = LambdaExpr.KIND;
 
-  constructor(readonly fnType: Type, readonly body: Expr) {
+  constructor(
+    readonly fnType: Type,
+    readonly body: Expr,
+    readonly constraint?: Expr,
+  ) {
     super();
   }
 
   static from(json: LambdaExprDef, registry: Registry): LambdaExpr {
-    return new LambdaExpr(registry.parse(json.type), registry.parseExpr(json.body))
-      .withComment(json.comment);
+    const constraint = json.constraint ? registry.parseExpr(json.constraint) : undefined;
+    return new LambdaExpr(
+      registry.parse(json.type),
+      registry.parseExpr(json.body),
+      constraint,
+    ).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -35,6 +47,7 @@ export class LambdaExpr extends Expr {
       ...baseExprFields,
       type: opts.Type,
       body: opts.Expr,
+      constraint: opts.Expr.optional(),
     });
   }
 
@@ -42,10 +55,19 @@ export class LambdaExpr extends Expr {
     const fnType = this.fnType;
     const body = this.body;
     const lexical = scope;
+    const constraint = this.constraint;
 
     const callable = async (args: Value): Promise<Value> => {
       const recurseValue = new Value(fnType, callable);
       const child = lexical.child({ args, recurse: recurseValue });
+      if (constraint) {
+        const ok = await constraint.evaluate(engine, child);
+        if (ok.raw !== true) {
+          throw new Error(
+            `lambda constraint failed: ${constraint.toCode(engine.registry, { expectsValue: true })}`,
+          );
+        }
+      }
       try {
         return await body.evaluate(engine, child);
       } catch (sig) {
@@ -75,25 +97,52 @@ export class LambdaExpr extends Expr {
       p.at('body', () => p.warn('lambda.returns.type',
         `body type '${bodyT.name}' not compatible with declared returns '${call.returns!.name}'`));
     }
+    // The constraint must also type-check against the same args-bound scope.
+    if (this.constraint) {
+      const boolT = engine.registry.bool();
+      const cT = p.at('constraint', () =>
+        walkValidate(engine, this.constraint!, child, p, { ...ctx, inLambda: true }));
+      if (!boolT.compatible(cT)) {
+        p.at('constraint', () => p.warn('lambda.constraint.type',
+          `constraint must return bool, got '${cT.name}'`));
+      }
+    }
     return this.fnType;
   }
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     const call = this.fnType.call();
     const argsType = call?.args?.toCode() ?? 'any';
-    return this.commentPrefix(options)
-      + `(args: ${argsType}) => ${this.body.toCode(registry, { expectsValue: true })}`;
+    const prefix = this.commentPrefix(options);
+    if (!this.constraint) {
+      return prefix + `(args: ${argsType}) => ${this.body.toCode(registry, { expectsValue: true })}`;
+    }
+    const c = this.constraint.toCode(registry, { expectsValue: true });
+    // Render the constraint as an inline guard so readers see both the
+    // precondition and the body.
+    return prefix
+      + `(args: ${argsType}) => { if (!(${c})) throw new Error('constraint'); return ${this.body.toCode(registry, { expectsValue: true })}; }`;
   }
 
   toJSON(): LambdaExprDef {
-    return this.withCommentOn({ kind: 'lambda', type: this.fnType.toJSON(), body: this.body.toJSON() });
+    return this.withCommentOn({
+      kind: 'lambda',
+      type: this.fnType.toJSON(),
+      body: this.body.toJSON(),
+      constraint: this.constraint?.toJSON(),
+    });
   }
 
   clone(): LambdaExpr {
-    return new LambdaExpr(this.fnType.clone(), this.body.clone()).withComment(this.comment);
+    return new LambdaExpr(
+      this.fnType.clone(),
+      this.body.clone(),
+      this.constraint?.clone(),
+    ).withComment(this.comment);
   }
 
   forEachChild(visit: ChildVisitor): void {
     visit(this.body, 'lambda');
+    if (this.constraint) visit(this.constraint, 'lambda');
   }
 }

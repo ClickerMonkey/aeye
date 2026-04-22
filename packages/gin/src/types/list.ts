@@ -217,11 +217,11 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return needsParens ? `(${inner})[]` : `${inner}[]`;
   }
 
-  toValueSchema(): z.ZodTypeAny {
-    let s = z.array(this.item.toValueSchema());
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    let s = z.array(this.item.toValueSchema(opts));
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
-    return s;
+    return this.describeType(s, opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -229,7 +229,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     let s = z.array(this.item.toNewExprSchema(opts));
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
-    return s;
+    return this.describeType(s, opts);
   }
 
   describe(data: unknown): Type | undefined {

@@ -88,5 +88,5 @@ export class AnyType extends Type<any, Record<string, never>> {
 
   toCode(): string { return 'any'; }
 
-  toValueSchema(): z.ZodTypeAny { return z.any(); }
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.any(), opts); }
 }

@@ -116,13 +116,13 @@ export class TimestampType extends Type<Date, TimestampOptions> {
 
   toCode(): string { return 'Date'; }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Dump form is ISO 8601 datetime with a REQUIRED time component:
     //   YYYY-MM-DD[T or space]HH:MM[:SS[.fff]][Z|±HH:MM]
-    return z.string().regex(
+    return this.describeType(z.string().regex(
       /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/,
       'expected ISO 8601 timestamp',
-    );
+    ), opts);
   }
 
   describe(data: unknown): Type | undefined {

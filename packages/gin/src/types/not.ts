@@ -108,11 +108,11 @@ export class NotType extends Type<any, NotOptions> {
 
   toCode(): string { return `Exclude<any, ${this.excluded.toCode()}>`; }
 
-  toValueSchema(): z.ZodTypeAny {
-    const excluded = this.excluded.toValueSchema();
-    return z.any().refine(
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    const excluded = this.excluded.toValueSchema(opts);
+    return this.describeType(z.any().refine(
       (v) => !excluded.safeParse(v).success,
       { message: `must not match excluded type '${this.excluded.name}'` },
-    );
+    ), opts);
   }
 }

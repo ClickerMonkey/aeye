@@ -18,6 +18,13 @@ export interface TypeDef<TOptions = any> {
   props?: Record<string, PropDef>;
   get?: GetSetDef;
   call?: CallDef;
+  /**
+   * Optional runtime predicate that every value of this type must satisfy.
+   * Evaluated with `this` bound to the value; must return bool. Consumed
+   * by Extension (base types carry their invariants in `options`). Use for
+   * logic that options can't express, e.g. `this.startsWith('user-')`.
+   */
+  constraint?: ExprDef;
 }
 
 export interface PropDef {
@@ -128,6 +135,12 @@ export interface LambdaExprDef extends ExprDef {
   kind: 'lambda';
   type: TypeDef;
   body: ExprDef;
+  /**
+   * Pre-call predicate. Evaluated BEFORE the body with `args` in scope;
+   * must return bool. On false, the call fails. Runtime enforcement lives
+   * in `LambdaExpr.evaluate`; also appears in the fn's Zod description.
+   */
+  constraint?: ExprDef;
 }
 
 export interface TemplateExprDef extends ExprDef {

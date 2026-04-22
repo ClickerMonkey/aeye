@@ -10,7 +10,7 @@ import type { CodeOptions } from './node';
 
 import { ExitSignal } from './flow-control';
 import { typeOf as typeOfAnalysis, validate as validateAnalysis, type TypeScope } from './analysis';
-import type { Problems } from './problem';
+import { Problems } from './problem';
 
 /**
  * Global — a named value available in every root scope. Types are registered
@@ -120,6 +120,40 @@ export class Engine {
   async evaluate(expr: ExprDef | Expr, scope: Scope): Promise<Value> {
     const e = expr instanceof Expr ? expr : this.registry.parseExpr(expr);
     return e.evaluate(this, scope);
+  }
+
+  /**
+   * Run a Value through its type's constraint chain. Each constraint
+   * Expr evaluates with `this` bound to the Value; must return bool.
+   * Returns a `Problems` bag of any violations (never throws).
+   *
+   *   const probs = await engine.validateValue(userValue);
+   *   if (probs.hasErrors) // reject or re-prompt
+   */
+  async validateValue(value: Value, scope?: Scope): Promise<Problems> {
+    const p = new Problems();
+    const cs = value.type.constraints();
+    if (cs.length === 0) return p;
+    const base = scope ?? this.createRootScope();
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i]!;
+      const child = base.child({ this: value });
+      try {
+        const result = await c.evaluate(this, child);
+        if (result.raw !== true) {
+          p.at(`constraint[${i}]`, () => p.error(
+            'constraint.failed',
+            `value failed constraint: ${c.toCode(this.registry, { expectsValue: true })}`,
+          ));
+        }
+      } catch (err) {
+        p.at(`constraint[${i}]`, () => p.error(
+          'constraint.threw',
+          `constraint threw: ${(err as Error).message}`,
+        ));
+      }
+    }
+    return p;
   }
 }
 

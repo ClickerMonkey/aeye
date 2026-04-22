@@ -149,18 +149,18 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return `[${this.elements.map((e) => e.toCode()).join(', ')}]`;
   }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Tuples ARE positional by nature — emit z.tuple for fidelity. LLM
     // consumers that struggle with positional arrays should use a different
     // shape (obj with named fields); tuple type preserves the position
     // contract.
-    const elems = this.elements.map((e) => e.toValueSchema());
-    return z.tuple(elems as [z.ZodTypeAny, ...z.ZodTypeAny[]]);
+    const elems = this.elements.map((e) => e.toValueSchema(opts));
+    return this.describeType(z.tuple(elems as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     // Each position requires a New of the declared positional type.
     const slots = this.elements.map((e) => e.toNewExprSchema(opts));
-    return z.tuple(slots as [z.ZodTypeAny, ...z.ZodTypeAny[]]);
+    return this.describeType(z.tuple(slots as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts);
   }
 }

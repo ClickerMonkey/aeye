@@ -142,9 +142,12 @@ export class DateType extends Type<Date, DateOptions> {
 
   toCode(): string { return 'Date'; }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Dump form is an ISO date string (YYYY-MM-DD).
-    return z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date');
+    return this.describeType(
+      z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date'),
+      opts,
+    );
   }
 
   describe(data: unknown): Type | undefined {

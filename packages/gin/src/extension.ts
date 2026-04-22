@@ -22,6 +22,7 @@ import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
 import type { z } from 'zod';
 import type { SchemaOptions } from './node';
+import type { Expr } from './expr';
 
 /**
  * What an Extension adds on top of its base. All fields except `name` are
@@ -49,6 +50,14 @@ export interface ExtensionLocal<T = any, O = any> {
   get?: GetSet;
   call?: Call;
   init?: Init;
+  /**
+   * Runtime predicate every value of this Extension must satisfy.
+   * Evaluated with `this` bound to the value being validated; must return
+   * bool. Runs via `Engine.validateValue(value)` — not from `Type.valid()`
+   * (which has no engine access). Also described in the Zod schema so
+   * LLMs see the constraint as part of the type's description.
+   */
+  constraint?: Expr;
 }
 
 /**
@@ -246,6 +255,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       get: this.local.get ? encodeGetSet(this.local.get) : undefined,
       call: this.local.call ? encodeCall(this.local.call) : undefined,
       init: this.local.init ? encodeInit(this.local.init) : undefined,
+      constraint: this.local.constraint ? this.local.constraint.toJSON() : undefined,
     };
   }
 
@@ -264,18 +274,30 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       get: this.local.get,
       call: this.local.call,
       init: this.local.init,
+      constraint: this.local.constraint?.clone(),
     });
   }
 
   toCode(): string { return this.name; }
 
-  toValueSchema(): z.ZodTypeAny {
+  /**
+   * Collected constraints: this Extension's local constraint (if any)
+   * prepended to the base's chain. Consumers (`Engine.validateValue`,
+   * `describeType`) evaluate/display them in that order.
+   */
+  constraints(): Expr[] {
+    const base = this.base.constraints();
+    return this.local.constraint ? [this.local.constraint, ...base] : base;
+  }
+
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Extensions add props/methods, not new data shape — delegate.
-    return this.base.toValueSchema();
+    // Wrap with the Extension's own docs if opts ask for it.
+    return this.describeType(this.base.toValueSchema(opts), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.base.toNewSchema(opts);
+    return this.describeType(this.base.toNewSchema(opts), opts);
   }
 
   // ─── SUPER HOOKS (called polymorphically via Type.propSuperFor) ────────

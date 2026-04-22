@@ -27,6 +27,24 @@ export interface SchemaOptions {
   types: Type[];
   exprs: Expr[];
   newStrict?: boolean;
+  /**
+   * Control whether Type docstrings are attached to generated Zod schemas
+   * via `.describe(...)`. Useful for LLM prompting — docs become part of
+   * the schema description the model sees.
+   *
+   *  - `'none'`  (default): ignore all docs.
+   *  - `'type'`: describe each Type's own schema with `type.docs`.
+   *  - `'all'`:  also describe each field / prop / get / call / init
+   *              with its own `docs`.
+   */
+  includeDocs?: 'none' | 'type' | 'all';
+  /**
+   * Control whether Expr comments are attached via `.describe(...)`.
+   *  - `'none'` (default): ignore.
+   *  - `'all'`: describe an Expr instance's schema with its `comment`
+   *             field where a per-instance schema is produced.
+   */
+  includeComments?: 'none' | 'all';
 }
 
 /**

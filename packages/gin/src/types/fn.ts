@@ -139,13 +139,13 @@ export class FnType extends Type<any, Record<string, never>> {
     return `(args: ${args}) => ${ret}`;
   }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Functions aren't JSON-serializable. Accept a native id (string) or
     // an inline lambda ExprDef (object with `kind`). LLMs shouldn't be
     // generating raw function values — use native id strings.
-    return z.union([
+    return this.describeType(z.union([
       z.string(),
       z.object({ kind: z.string() }).passthrough(),
-    ]);
+    ]), opts);
   }
 }

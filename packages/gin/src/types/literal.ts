@@ -136,7 +136,10 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return JSON.stringify(v);
   }
 
-  toValueSchema(): z.ZodTypeAny {
-    return z.literal(this.literal as string | number | boolean | null);
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    return this.describeType(
+      z.literal(this.literal as string | number | boolean | null),
+      opts,
+    );
   }
 }

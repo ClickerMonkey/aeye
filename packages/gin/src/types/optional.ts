@@ -122,11 +122,11 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return needsParens ? `(${inner}) | undefined` : `${inner} | undefined`;
   }
 
-  toValueSchema(): z.ZodTypeAny {
-    return this.inner.toValueSchema().optional();
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    return this.describeType(this.inner.toValueSchema(opts).optional(), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.inner.toNewSchema(opts).optional();
+    return this.describeType(this.inner.toNewSchema(opts).optional(), opts);
   }
 }

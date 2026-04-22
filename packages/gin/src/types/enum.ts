@@ -145,8 +145,11 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     return vals.map((v) => typeof v === 'string' ? JSON.stringify(v) : String(v)).join(' | ');
   }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Zod v4's z.enum accepts a Record — same shape as EnumOptions.values.
-    return z.enum(this.options.values as Record<string, string | number>);
+    return this.describeType(
+      z.enum(this.options.values as Record<string, string | number>),
+      opts,
+    );
   }
 }

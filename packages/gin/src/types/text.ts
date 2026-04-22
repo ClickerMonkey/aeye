@@ -206,12 +206,12 @@ export class TextType extends Type<string, TextOptions> {
 
   toCode(): string { return 'string'; }
 
-  toValueSchema(): z.ZodTypeAny {
+  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     let s = z.string();
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
     if (this.options.pattern) s = s.regex(new RegExp(this.options.pattern, this.options.flags));
-    return s;
+    return this.describeType(s, opts);
   }
 
   describe(data: unknown): Type | undefined {

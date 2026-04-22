@@ -1,5 +1,6 @@
 import type { Registry } from './registry';
 import type { ExprDef, TypeDef, PathDef, PathStepDef } from './schema';
+import type { Expr } from './expr';
 import { Value, val } from './value';
 import { substituteChildren } from './spec';
 import type { Node, CodeOptions } from './node';
@@ -400,6 +401,17 @@ export abstract class Type<T = any, O = any> implements Node {
     return {};
   }
 
+  /**
+   * Runtime constraint predicates that every value of this type must
+   * satisfy, evaluated with `this` bound to the value. Base types have no
+   * constraints (invariants live in `options`); `Extension` overrides to
+   * include its local constraint and chain to the base. Consumed by
+   * `Engine.validateValue` and `describeType` (LLM schema description).
+   */
+  constraints(): Expr[] {
+    return [];
+  }
+
   /** Effective GetSet — present iff this type supports [key] access. */
   get(): GetSet | undefined {
     return undefined;
@@ -500,8 +512,12 @@ export abstract class Type<T = any, O = any> implements Node {
    *
    * Distinct from `toSchema(opts)` (which schemas the TypeDef JSON for
    * registry round-trip). `toValueSchema()` schemas the RUNTIME DATA.
+   *
+   * Opts honored:
+   *  - `includeDocs: 'type' | 'all'` — attach `.describe(this.docs)` if
+   *    set. 'all' also describes individual props / fields / get / call.
    */
-  abstract toValueSchema(): z.ZodTypeAny;
+  abstract toValueSchema(opts?: SchemaOptions): z.ZodTypeAny;
 
   /**
    * Produce a Zod schema for the VALUE side of a `{ kind: 'new' }` Expr
@@ -511,10 +527,32 @@ export abstract class Type<T = any, O = any> implements Node {
    * value }` Expr targeting the slot's declared type. So `new obj { x: text,
    * y: num }` accepts `{ x: <new text expr>, y: <new num expr> }`.
    *
-   * Default = `toValueSchema()`; composites override.
+   * Default = `toValueSchema(opts)`; composites override.
    */
-  toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return this.toValueSchema();
+  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return this.toValueSchema(opts);
+  }
+
+  /**
+   * Attach the Type's own `.docs` as a Zod `.describe()` when opts
+   * ask for it. Subclasses call this at the end of their toValueSchema /
+   * toNewSchema implementations to centralize the doc-wrapping rule.
+   */
+  protected describeType(schema: z.ZodTypeAny, opts?: SchemaOptions): z.ZodTypeAny {
+    const mode = opts?.includeDocs ?? 'none';
+    const parts: string[] = [];
+    if (mode !== 'none' && this.docs) parts.push(this.docs);
+    // Constraints always describe — they're runtime invariants the LLM
+    // must satisfy, separate from cosmetic docs.
+    const cs = this.constraints();
+    if (cs.length > 0) {
+      const text = cs
+        .map((c) => `must satisfy ${c.toCode(this.registry, { expectsValue: true })}`)
+        .join('; ');
+      parts.push(text);
+    }
+    if (parts.length === 0) return schema;
+    return schema.describe(parts.join(' — '));
   }
 
   /**
