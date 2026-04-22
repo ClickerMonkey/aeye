@@ -21,8 +21,11 @@ export class NullType extends Type<null, Record<string, never>> {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('null'), ...baseTypeFields(opts) });
+    return z.object({ name: z.literal('null'), ...baseTypeFields(opts) })
+      .meta({ aid: 'Type_null' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.null(); }
 
   valid(raw: unknown): raw is null {
     return raw === null;

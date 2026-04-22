@@ -45,7 +45,7 @@ export class FlowExpr extends Expr {
       action: z.enum(['break', 'continue', 'return', 'exit', 'throw']),
       value: opts.Expr.optional(),
       error: opts.Expr.optional(),
-    });
+    }).meta({ aid: 'Expr_flow' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

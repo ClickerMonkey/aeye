@@ -39,8 +39,10 @@ export class NumType extends Type<number, NumOptions> {
         prefix: z.string().optional(),
         suffix: z.string().optional(),
       }).optional(),
-    });
+    }).meta({ aid: 'Type_num' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.number(); }
 
   valid(raw: unknown): raw is number {
     if (typeof raw !== 'number' || Number.isNaN(raw)) return false;

@@ -62,7 +62,7 @@ export class LoopExpr extends Expr {
         concurrent: opts.Expr.optional(),
         rate: opts.Expr.optional(),
       }).optional(),
-    });
+    }).meta({ aid: 'Expr_loop' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

@@ -45,7 +45,7 @@ export class TemplateExpr extends Expr {
       ...baseExprFields,
       template: z.union([opts.Expr, z.string()]),
       params: opts.Expr,
-    });
+    }).meta({ aid: 'Expr_template' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

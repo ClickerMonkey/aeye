@@ -33,7 +33,7 @@ export class NativeExpr extends Expr {
       ...baseExprFields,
       id: z.string(),
       type: opts.Type.optional(),
-    });
+    }).meta({ aid: 'Expr_native' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

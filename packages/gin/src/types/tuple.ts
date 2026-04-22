@@ -34,7 +34,14 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
       name: z.literal('tuple'),
       ...baseTypeFields(opts),
       options: z.object({ elements: z.array(opts.Type) }),
-    });
+    }).meta({ aid: 'Type_tuple' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Class-level: generic positional array of Exprs. LLM producing a
+    // tuple via the class branch specifies its positions in `options.elements`;
+    // per-position type checking lives on the registered named-instance branch.
+    return z.array(opts.Expr);
   }
 
   constructor(registry: Registry, elements: Type[]) {
@@ -89,8 +96,13 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     );
   }
 
-  narrow(_local: Partial<TupleOptions>): TupleOptions {
-    return this.options;
+  narrow(local: Partial<TupleOptions>): TupleOptions {
+    // A tuple's identity lives in `elements`. If the local ExtensionLocal
+    // specifies elements, use them verbatim (needed for named-tuple
+    // round-trip: a `Pair = [text, num]` cross-extending the bare `tuple`
+    // class re-specifies its elements on reparse). Otherwise keep base.
+    if (local.elements === undefined) return this.options;
+    return { elements: local.elements };
   }
 
   get(): GetSet {

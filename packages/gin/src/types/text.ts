@@ -37,8 +37,10 @@ export class TextType extends Type<string, TextOptions> {
         pattern: z.string().optional(),
         flags: z.string().optional(),
       }).optional(),
-    });
+    }).meta({ aid: 'Type_text' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.string(); }
 
   private regex(): RegExp | undefined {
     if (this._regex) return this._regex;

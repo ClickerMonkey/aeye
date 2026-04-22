@@ -27,8 +27,10 @@ export class BoolType extends Type<boolean, BoolOptions> {
         trueText: z.string().optional(),
         falseText: z.string().optional(),
       }).optional(),
-    });
+    }).meta({ aid: 'Type_bool' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.boolean(); }
 
   valid(raw: unknown): raw is boolean {
     return typeof raw === 'boolean';

@@ -49,7 +49,11 @@ export class IfaceType extends Type<any, Record<string, never>> {
       props: z.record(z.string(), propDefSchema(opts)).optional(),
       get: getSetDefSchema(opts).optional(),
       call: callDefSchema(opts).optional(),
-    });
+    }).meta({ aid: 'Type_interface' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return z.record(z.string(), opts.Expr);
   }
 
   constructor(

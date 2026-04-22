@@ -55,7 +55,7 @@ export class SwitchExpr extends Expr {
         body: opts.Expr,
       })),
       else: opts.Expr.optional(),
-    });
+    }).meta({ aid: 'Expr_switch' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

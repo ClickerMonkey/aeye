@@ -31,8 +31,10 @@ export class NotType extends Type<any, NotOptions> {
       name: z.literal('not'),
       ...baseTypeFields(opts),
       options: z.object({ excluded: opts.Type }),
-    });
+    }).meta({ aid: 'Type_not' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.any(); }
 
   constructor(registry: Registry, readonly excluded: Type) {
     super(registry, { excluded: excluded.toJSON() });

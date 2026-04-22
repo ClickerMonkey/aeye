@@ -48,7 +48,7 @@ export class LambdaExpr extends Expr {
       type: opts.Type,
       body: opts.Expr,
       constraint: opts.Expr.optional(),
-    });
+    }).meta({ aid: 'Expr_lambda' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

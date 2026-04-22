@@ -534,11 +534,19 @@ export abstract class Type<T = any, O = any> implements Node {
   }
 
   /**
-   * Attach the Type's own `.docs` as a Zod `.describe()` when opts
-   * ask for it. Subclasses call this at the end of their toValueSchema /
-   * toNewSchema implementations to centralize the doc-wrapping rule.
+   * Attach the Type's own `.docs` as a Zod `.describe()` when opts ask for
+   * it, and optionally a stable `aid` so the schema lands in `$defs` under
+   * a readable name. `aidPrefix` distinguishes the value-schema aid
+   * (`Value_<name>`) from the new-schema aid (`NewValue_<name>`) — both
+   * call this helper, so without the prefix they collide. Anonymous class
+   * instances (e.g. `num({min:0})` without a name) skip the aid so
+   * differently-optioned instances don't collide.
    */
-  protected describeType(schema: z.ZodTypeAny, opts?: SchemaOptions): z.ZodTypeAny {
+  protected describeType(
+    schema: z.ZodTypeAny,
+    opts?: SchemaOptions,
+    aidPrefix: 'Value_' | 'NewValue_' | null = 'Value_',
+  ): z.ZodTypeAny {
     const mode = opts?.includeDocs ?? 'none';
     const parts: string[] = [];
     if (mode !== 'none' && this.docs) parts.push(this.docs);
@@ -551,8 +559,12 @@ export abstract class Type<T = any, O = any> implements Node {
         .join('; ');
       parts.push(text);
     }
-    if (parts.length === 0) return schema;
-    return schema.describe(parts.join(' — '));
+    let out = parts.length > 0 ? schema.describe(parts.join(' — ')) : schema;
+    if (aidPrefix) {
+      const isRegistered = this.registry.namedTypeList().some((t) => t.name === this.name);
+      if (isRegistered) out = out.meta({ aid: `${aidPrefix}${this.name}` });
+    }
+    return out;
   }
 
   /**
@@ -563,9 +575,12 @@ export abstract class Type<T = any, O = any> implements Node {
    * `NewExpr.toSchema` in strict mode.
    */
   toNewExprSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Match the type by NAME only (same matcher used by `opts.Type` and
+    // `NewExpr.toSchema` strict branches). Callers that need a strict
+    // deep-equal match should use `toInstanceSchema()` directly.
     return z.object({
       kind: z.literal('new'),
-      type: this.toInstanceSchema(),
+      type: z.object({ name: z.literal(this.name) }).passthrough(),
       value: this.toNewSchema(opts).optional(),
     });
   }

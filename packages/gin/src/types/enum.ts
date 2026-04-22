@@ -33,7 +33,12 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
       ...baseTypeFields(opts),
       generic: z.object({ V: opts.Type }).optional(),
       options: z.object({ values: z.record(z.string(), z.any()) }),
-    });
+    }).meta({ aid: 'Type_enum' });
+  }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    // Class-level: member value of any supported enum primitive.
+    return z.union([z.string(), z.number()]);
   }
 
   constructor(registry: Registry, value: Type<V>, options: EnumOptions<V>) {

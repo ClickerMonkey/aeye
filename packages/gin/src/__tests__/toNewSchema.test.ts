@@ -90,77 +90,76 @@ describe('NewExpr.toSchema strict mode', () => {
     }).success).toBe(true);
   });
 
-  test('strict: only listed types are accepted', () => {
+  test('strict: union = built-in class branches + named-instance branches', () => {
+    // The strict schema enumerates ALL built-in Type classes (value: any)
+    // plus every registered named type / opts.types entry (value: specific).
+    // Bool is a built-in class → its branch is always present.
     const numT = r.num();
     const textT = r.text();
     const opts = buildSchemas(r, { types: [numT, textT], newStrict: true });
     const newSchema = r.exprClass('new')!.toSchema(opts);
 
-    // num in the list — accepted.
+    // num (named instance branch OR num class branch) — accepted.
     expect(newSchema.safeParse({
-      kind: 'new', type: numT.toJSON(), value: 7,
+      kind: 'new', type: { name: 'num' }, value: 7,
     }).success).toBe(true);
 
-    // text in the list — accepted.
+    // text (same) — accepted.
     expect(newSchema.safeParse({
-      kind: 'new', type: textT.toJSON(), value: 'hi',
+      kind: 'new', type: { name: 'text' }, value: 'hi',
     }).success).toBe(true);
 
-    // bool NOT in the list — rejected.
+    // bool — built-in class branch accepts it even if not in opts.types.
     expect(newSchema.safeParse({
-      kind: 'new', type: r.bool().toJSON(), value: true,
-    }).success).toBe(false);
+      kind: 'new', type: { name: 'bool' }, value: true,
+    }).success).toBe(true);
 
-    // Wrong inner-value shape for the chosen type — rejected.
+    // Completely unknown name — no branch matches.
     expect(newSchema.safeParse({
-      kind: 'new', type: numT.toJSON(), value: 'not-a-number',
+      kind: 'new', type: { name: 'NotAType' }, value: 1,
     }).success).toBe(false);
   });
 
-  test('strict: composite types require News of FIELD types in inner slots', () => {
+  test('strict: named-instance branch enforces specific value shape', () => {
+    // A named instance branch pairs a name-only type with a SPECIFIC value
+    // schema derived from that instance's `toNewSchema`. That's where the
+    // LLM gets tight guidance for complex composites (obj fields, tuple
+    // positions, etc.).
     const nameT = r.text();
     const ageT = r.num({ min: 0, whole: true });
-    const personT = r.obj({
+    const personT = r.extend(r.obj({
       name: { type: nameT },
       age: { type: ageT },
-    });
-    const opts = buildSchemas(r, { types: [personT], newStrict: true });
+    }), { name: 'Person' });
+    r.register(personT);
+
+    const opts = buildSchemas(r, { newStrict: true });
     const newSchema = r.exprClass('new')!.toSchema(opts);
 
-    // Each field's value is a New Expr targeting the FIELD's exact type.
+    // Correctly-shaped Person — each field is a New Expr of the field type.
     expect(newSchema.safeParse({
       kind: 'new',
-      type: personT.toJSON(),
+      type: { name: 'Person' },
       value: {
-        name: { kind: 'new', type: nameT.toJSON(), value: 'Alice' },
-        age:  { kind: 'new', type: ageT.toJSON(),  value: 30 },
+        name: { kind: 'new', type: { name: 'text' }, value: 'Alice' },
+        age:  { kind: 'new', type: { name: 'num'  }, value: 30      },
       },
     }).success).toBe(true);
 
-    // Wrong inner type (text where num expected) — rejected.
+    // Missing required field — the Person's value schema is an z.object
+    // with `name` and `age`; a missing key fails schema validation.
     expect(newSchema.safeParse({
       kind: 'new',
-      type: personT.toJSON(),
+      type: { name: 'Person' },
       value: {
-        name: { kind: 'new', type: nameT.toJSON(), value: 'Alice' },
-        age:  { kind: 'new', type: nameT.toJSON(), value: 'thirty' },
+        name: { kind: 'new', type: { name: 'text' }, value: 'Alice' },
       },
     }).success).toBe(false);
 
-    // Inner option mismatch (num without min/whole) — rejected (toInstanceSchema is strict).
+    // Bare primitive values where Expr is expected — rejected.
     expect(newSchema.safeParse({
       kind: 'new',
-      type: personT.toJSON(),
-      value: {
-        name: { kind: 'new', type: nameT.toJSON(), value: 'Alice' },
-        age:  { kind: 'new', type: { name: 'num' }, value: 30 },
-      },
-    }).success).toBe(false);
-
-    // Bare values in inner slots — rejected by strict-new schema.
-    expect(newSchema.safeParse({
-      kind: 'new',
-      type: personT.toJSON(),
+      type: { name: 'Person' },
       value: { name: 'Alice', age: 30 },
     }).success).toBe(false);
   });

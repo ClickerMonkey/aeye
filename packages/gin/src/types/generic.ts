@@ -34,8 +34,10 @@ export class GenericType extends Type<any, GenericOptions> {
       name: z.literal('generic'),
       ...baseTypeFields(opts),
       options: z.object({ name: z.string() }),
-    });
+    }).meta({ aid: 'Type_generic' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.any(); }
 
   valid(_raw: unknown): _raw is any {
     return true;

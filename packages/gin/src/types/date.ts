@@ -29,7 +29,11 @@ export class DateType extends Type<Date, DateOptions> {
         max: z.string().optional(),
         utc: z.boolean().optional(),
       }).optional(),
-    });
+    }).meta({ aid: 'Type_date' });
+  }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date');
   }
 
   private boundDate(s: string | undefined): Date | undefined {

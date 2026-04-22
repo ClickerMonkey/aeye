@@ -33,7 +33,7 @@ export class GetExpr extends Expr {
       kind: z.literal('get'),
       ...baseExprFields,
       path: z.array(pathStepSchema(opts)),
-    });
+    }).meta({ aid: 'Expr_get' });
   }
 
   async evaluate(_engine: Engine, scope: Scope): Promise<Value> {

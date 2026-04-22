@@ -33,7 +33,13 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
       name: z.literal('map'),
       ...baseTypeFields(opts),
       generic: z.object({ K: opts.Type, V: opts.Type }).optional(),
-    });
+    }).meta({ aid: 'Type_map' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Class-level: each entry is `{key: Expr, value: Expr}` — LLM-friendly
+    // shape that mirrors the instance method.
+    return z.array(z.object({ key: opts.Expr, value: opts.Expr }));
   }
 
   constructor(registry: Registry, key: Type<K>, value: Type<V>) {

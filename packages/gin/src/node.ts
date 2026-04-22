@@ -26,6 +26,12 @@ export interface SchemaOptions {
   Expr: z.ZodTypeAny;
   types: Type[];
   exprs: Expr[];
+  /**
+   * Registry reference so schema builders can enumerate classes and
+   * registered named types (e.g. `NewExpr.toSchema` strict mode builds a
+   * union with branches per built-in class + per named instance).
+   */
+  registry: Registry;
   newStrict?: boolean;
   /**
    * Control whether Type docstrings are attached to generated Zod schemas

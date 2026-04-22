@@ -20,8 +20,11 @@ export class VoidType extends Type<void, Record<string, never>> {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('void'), ...baseTypeFields(opts) });
+    return z.object({ name: z.literal('void'), ...baseTypeFields(opts) })
+      .meta({ aid: 'Type_void' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.null(); }
 
   valid(raw: unknown): raw is void {
     return raw === undefined;

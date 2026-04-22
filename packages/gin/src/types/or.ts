@@ -36,7 +36,11 @@ export class OrType extends Type<any, OrOptions> {
       name: z.literal('or'),
       ...baseTypeFields(opts),
       options: z.object({ types: z.array(opts.Type) }),
-    });
+    }).meta({ aid: 'Type_or' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return opts.Expr;
   }
 
   constructor(registry: Registry, variants: Type[]) {
@@ -177,9 +181,9 @@ export class OrType extends Type<any, OrOptions> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    if (this.variants.length === 0) return this.describeType(z.never(), opts);
-    if (this.variants.length === 1) return this.describeType(this.variants[0]!.toNewSchema(opts), opts);
+    if (this.variants.length === 0) return this.describeType(z.never(), opts, 'NewValue_');
+    if (this.variants.length === 1) return this.describeType(this.variants[0]!.toNewSchema(opts), opts, 'NewValue_');
     const schemas = this.variants.map((v) => v.toNewSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-    return this.describeType(z.union(schemas), opts);
+    return this.describeType(z.union(schemas), opts, 'NewValue_');
   }
 }

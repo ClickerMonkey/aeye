@@ -20,7 +20,7 @@ import {
 import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { SchemaOptions } from './node';
 import type { Expr } from './expr';
 
@@ -234,9 +234,15 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   toJSON(): TypeDef {
     const baseDef = this.original.toJSON();
     const crossExtend = this.original.name !== this.name;
-    const mergedOptions = crossExtend
-      ? (this.local.options as any)
-      : { ...(baseDef.options as Record<string, unknown> | undefined), ...(this.local.options as Record<string, unknown> | undefined) };
+    // Always merge base options with local — even on cross-extend. For
+    // types like TupleType whose identity lives entirely in options
+    // (`elements`), dropping base options on cross-extend loses the
+    // structure. Local options still win on per-key conflict, so narrowing
+    // behaves as before.
+    const mergedOptions = {
+      ...(baseDef.options as Record<string, unknown> | undefined),
+      ...(this.local.options as Record<string, unknown> | undefined),
+    };
     // Merge base's generics with Extension's own. Extension names win on
     // conflict (which is a user error — don't shadow base parameter names).
     const mergedGeneric: Record<string, TypeDef> = { ...(baseDef.generic ?? {}) };
@@ -291,13 +297,39 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
-    // Extensions add props/methods, not new data shape — delegate.
-    // Wrap with the Extension's own docs if opts ask for it.
-    return this.describeType(this.base.toValueSchema(opts), opts);
+    // Extensions normally delegate to base — but when `local.props` adds
+    // data fields atop an object-shaped base (obj/iface), those fields need
+    // to land in the value schema too. Nothing else in the pipeline pushes
+    // them down into base.fields.
+    let schema = this.base.toValueSchema(opts);
+    schema = this.mergeLocalPropsInto(schema, opts, (p) => p.type.toValueSchema(opts));
+    return this.describeType(schema, opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(this.base.toNewSchema(opts), opts);
+    let schema = this.base.toNewSchema(opts);
+    schema = this.mergeLocalPropsInto(schema, opts, (p) => p.type.toNewExprSchema(opts));
+    return this.describeType(schema, opts, 'NewValue_');
+  }
+
+  private mergeLocalPropsInto(
+    schema: z.ZodTypeAny,
+    opts: SchemaOptions | undefined,
+    slotFor: (prop: Prop) => z.ZodTypeAny,
+  ): z.ZodTypeAny {
+    const props = this.local.props;
+    if (!props || !(schema instanceof z.ZodObject)) return schema;
+    const mode = opts?.includeDocs ?? 'none';
+    const extra: Record<string, z.ZodTypeAny> = {};
+    for (const [name, raw] of Object.entries(props)) {
+      const p = raw instanceof Prop ? raw : Prop.from(raw);
+      if (!p.type) continue;
+      let slot = slotFor(p);
+      if (mode === 'all' && p.docs) slot = slot.describe(p.docs);
+      extra[name] = p.type.isOptional() ? slot.optional() : slot;
+    }
+    if (Object.keys(extra).length === 0) return schema;
+    return (schema as z.ZodObject<z.ZodRawShape>).extend(extra);
   }
 
   // ─── SUPER HOOKS (called polymorphically via Type.propSuperFor) ────────

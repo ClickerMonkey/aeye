@@ -46,7 +46,13 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
       ...baseTypeFields(opts),
       generic: z.object({ T: opts.Type }).optional(),
       options: z.object({ value: z.any() }),
-    });
+    }).meta({ aid: 'Type_literal' });
+  }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    // The exact literal lives in the instance — at class level we accept
+    // any primitive and let runtime parse reject mismatches.
+    return z.any();
   }
 
   constructor(registry: Registry, inner: Type<T>, value: T) {

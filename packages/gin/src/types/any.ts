@@ -20,8 +20,11 @@ export class AnyType extends Type<any, Record<string, never>> {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('any'), ...baseTypeFields(opts) });
+    return z.object({ name: z.literal('any'), ...baseTypeFields(opts) })
+      .meta({ aid: 'Type_any' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.any(); }
 
   valid(_raw: unknown): _raw is any {
     return true;

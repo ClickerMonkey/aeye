@@ -42,22 +42,59 @@ export class NewExpr extends Expr {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Strict mode: enumerate the available types so the LLM can ONLY
-    // produce a New expr targeting one of them. Composite slots inside
-    // recursively constrain to the FIELD types via toNewExprSchema.
-    if (opts.newStrict && opts.types.length > 0) {
-      const variants = opts.types.map((t) => t.toNewExprSchema(opts));
-      return variants.length === 1
-        ? variants[0]!
-        : z.union(variants as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]);
+    // Strict mode: emit a discriminated union over every Type the LLM
+    // could legitimately `new`:
+    //   - One branch per built-in Type class: `type` is that class's full
+    //     TypeDef Zod (with options), `value` is any.
+    //   - One branch per registered named Type instance (or opts.types):
+    //     `type` is a name-only reference, `value` is that instance's
+    //     specific `toNewSchema(opts)`.
+    //
+    // Example for `{name:'Pair'}` (registered) vs `{name:'num', options}`:
+    //   ({ kind:'new', type:{name:'Pair'},                value:[…pair value…] }
+    //  | { kind:'new', type:{name:'num',  options:{min?, max?, …}}, value:number }
+    //  | …)
+    if (opts.newStrict) {
+      // Per-named-instance branches — specific value schemas.
+      const byName = new Map<string, Type>();
+      for (const t of opts.types) byName.set(t.name, t);
+      for (const t of opts.registry.namedTypeList()) {
+        if (!byName.has(t.name)) byName.set(t.name, t);
+      }
+      const instanceBranches = Array.from(byName.values()).map((t) =>
+        z.object({
+          kind: z.literal('new'),
+          ...baseExprFields,
+          type: z.object({ name: z.literal(t.name) }).passthrough(),
+          value: t.toNewSchema(opts).optional(),
+        }).meta({ aid: `New_${t.name}` }),
+      );
+      // Per-built-in-class branches — full TypeDef shape + the class's
+      // static `toNewSchema(opts)` for the value slot. Each class declares
+      // its own class-level value shape (num → number, list → Expr[],
+      // map → {key:Expr,value:Expr}[], etc.). Instance-specific narrowing
+      // (num with min, obj with declared fields) belongs on a named
+      // registered type branch.
+      const classBranches = opts.registry.typeClasses().map((cls) =>
+        z.object({
+          kind: z.literal('new'),
+          ...baseExprFields,
+          type: cls.toSchema(opts),
+          value: cls.toNewSchema(opts).optional(),
+        }).meta({ aid: `New_${cls.NAME}` }),
+      );
+      const all = [...instanceBranches, ...classBranches];
+      if (all.length === 1) return all[0]!;
+      return z.union(all as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]])
+        .meta({ aid: 'Expr_new' });
     }
-    // Default: any TypeDef + any value.
+    // Default (non-strict): any TypeDef + any value.
     return z.object({
       kind: z.literal('new'),
       ...baseExprFields,
       type: opts.Type,
       value: z.any().optional(),
-    });
+    }).meta({ aid: 'Expr_new' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

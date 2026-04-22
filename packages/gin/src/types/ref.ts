@@ -39,8 +39,10 @@ export class RefType extends Type<any, RefOptions> {
       name: z.literal('ref'),
       ...baseTypeFields(opts),
       options: z.object({ name: z.string() }),
-    });
+    }).meta({ aid: 'Type_ref' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.any(); }
 
   private resolve(): Type {
     const target = this.registry.lookup(this.options.name);
@@ -139,6 +141,6 @@ export class RefType extends Type<any, RefOptions> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(z.lazy(() => this.resolve().toNewSchema(opts)), opts);
+    return this.describeType(z.lazy(() => this.resolve().toNewSchema(opts)), opts, 'NewValue_');
   }
 }

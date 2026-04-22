@@ -44,7 +44,7 @@ export class IfExpr extends Expr {
       ...baseExprFields,
       ifs: z.array(z.object({ condition: opts.Expr, body: opts.Expr })),
       else: opts.Expr.optional(),
-    });
+    }).meta({ aid: 'Expr_if' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

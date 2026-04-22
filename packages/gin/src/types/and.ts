@@ -36,7 +36,11 @@ export class AndType extends Type<any, AndOptions> {
       name: z.literal('and'),
       ...baseTypeFields(opts),
       options: z.object({ types: z.array(opts.Type) }),
-    });
+    }).meta({ aid: 'Type_and' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return opts.Expr;
   }
 
   constructor(registry: Registry, parts: Type[]) {
@@ -163,11 +167,11 @@ export class AndType extends Type<any, AndOptions> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    if (this.parts.length === 0) return this.describeType(z.unknown(), opts);
-    if (this.parts.length === 1) return this.describeType(this.parts[0]!.toNewSchema(opts), opts);
+    if (this.parts.length === 0) return this.describeType(z.unknown(), opts, 'NewValue_');
+    if (this.parts.length === 1) return this.describeType(this.parts[0]!.toNewSchema(opts), opts, 'NewValue_');
     const s = this.parts
       .map((p) => p.toNewSchema(opts))
       .reduce((a, b) => z.intersection(a, b));
-    return this.describeType(s, opts);
+    return this.describeType(s, opts, 'NewValue_');
   }
 }

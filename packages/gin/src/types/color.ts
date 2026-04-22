@@ -26,7 +26,11 @@ export class ColorType extends Type<number, ColorOptions> {
       name: z.literal('color'),
       ...baseTypeFields(opts),
       options: z.object({ hasAlpha: z.boolean().optional() }).optional(),
-    });
+    }).meta({ aid: 'Type_color' });
+  }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.number().int().min(0).max(0xffffffff);
   }
 
   valid(raw: unknown): raw is number {

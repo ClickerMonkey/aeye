@@ -69,6 +69,18 @@ export interface TypeClass {
   from(json: TypeDef, registry: Registry): Type;
   /** JSON-shape Zod schema for this Type's TypeDef. */
   toSchema(opts: SchemaOptions): z.ZodTypeAny;
+  /**
+   * CLASS-level value schema used by `NewExpr.toSchema` strict mode when
+   * the LLM references this type's class (e.g. `{name:'num'}` or
+   * `{name:'list', generic: {...}}`). Represents the most-permissive
+   * value shape for ANY instance of the class:
+   *  - Primitives emit their concrete Zod (num → number, text → string).
+   *  - Composites emit `opts.Expr`-based shapes (list → `Expr[]`, map →
+   *    `{key:Expr, value:Expr}[]`, obj → `Record<string, Expr>`).
+   * Instance-specific tightenings (num with min/max, obj with declared
+   * fields) go through a named-instance branch instead.
+   */
+  toNewSchema(opts: SchemaOptions): z.ZodTypeAny;
 }
 
 /** TypeDef fields that, unless `consumes`-d by the class, force Extension. */
@@ -148,6 +160,14 @@ export class Registry implements TypeBuilder {
   /** Enumerate every registered Type class (used by schema builders). */
   typeClasses(): TypeClass[] {
     return Array.from(this.classes.values());
+  }
+
+  /** Enumerate every programmatically-registered named Type instance
+   *  (typically Extensions created via `registry.register(ext)`). Used by
+   *  `buildSchemas` so named user types appear as first-class branches in
+   *  the Type union the LLM sees. */
+  namedTypeList(): Type[] {
+    return Array.from(this.namedTypes.values());
   }
 
   /** Enumerate every registered Expr class (used by schema builders). */

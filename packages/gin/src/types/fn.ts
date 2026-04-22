@@ -39,7 +39,14 @@ export class FnType extends Type<any, Record<string, never>> {
       name: z.literal('function'),
       ...baseTypeFields(opts),
       call: callDefSchema(opts).optional(),
-    });
+    }).meta({ aid: 'Type_function' });
+  }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.union([
+      z.string(),
+      z.object({ kind: z.string() }).passthrough(),
+    ]);
   }
 
   constructor(registry: Registry, call: Call | ConstructorParameters<typeof Call>[0]) {

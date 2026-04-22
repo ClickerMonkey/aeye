@@ -29,7 +29,11 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
       name: z.literal('nullable'),
       ...baseTypeFields(opts),
       generic: z.object({ T: opts.Type }).optional(),
-    });
+    }).meta({ aid: 'Type_nullable' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return opts.Expr.nullable();
   }
 
   constructor(registry: Registry, readonly inner: Type<T>) {
@@ -122,6 +126,6 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(this.inner.toNewSchema(opts).nullable(), opts);
+    return this.describeType(this.inner.toNewSchema(opts).nullable(), opts, 'NewValue_');
   }
 }

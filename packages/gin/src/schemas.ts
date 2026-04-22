@@ -28,7 +28,7 @@ export function baseTypeFields(opts: SchemaOptions): z.ZodRawShape {
 
 /** Shared ExprDef fields (just `comment`). */
 export const baseExprFields: z.ZodRawShape = {
-  comment: z.string().optional(),
+  comment: z.string().optional().meta({ aid: 'Comment' }),
 };
 
 /** Shared PathStep union used by GetExpr/SetExpr. */
@@ -110,19 +110,36 @@ export function buildSchemas(registry: Registry, overrides: BuildSchemasOverride
     Expr: null as unknown as z.ZodTypeAny,
     types: overrides.types ?? [],
     exprs: overrides.exprs ?? [],
+    registry,
     newStrict: overrides.newStrict,
   };
   opts.Type = z.lazy(() => {
-    const schemas = registry.typeClasses().map((c) => c.toSchema(opts));
-    return schemas.length > 1
-      ? (z.union(schemas as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
-      : (schemas[0] ?? z.never());
-  });
+    // Named-instance branches come first so the LLM sees registered user
+    // types (e.g. `Task`) as first-class choices. Dedup by name — explicit
+    // `opts.types` wins over the registry's registered list.
+    const byName = new Map<string, Type>();
+    for (const t of opts.types) byName.set(t.name, t);
+    for (const t of registry.namedTypeList()) {
+      if (!byName.has(t.name)) byName.set(t.name, t);
+    }
+    const instanceBranches = Array.from(byName.values()).map((t) =>
+      z.object({ name: z.literal(t.name) }).passthrough()
+        .meta({ aid: t.name }),
+    );
+    // Class-level fallback branches keep built-in structural types working
+    // (num, object, list, etc.). Each class's `toSchema` already attaches
+    // its own `aid` — we don't wrap here.
+    const classBranches = registry.typeClasses().map((c) => c.toSchema(opts));
+    const all = [...instanceBranches, ...classBranches];
+    return all.length > 1
+      ? (z.union(all as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
+      : (all[0] ?? z.never());
+  }).meta({ aid: 'Type' });
   opts.Expr = z.lazy(() => {
     const schemas = registry.exprClassList().map((c) => c.toSchema(opts));
     return schemas.length > 1
       ? (z.union(schemas as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
       : (schemas[0] ?? z.never());
-  });
+  }).meta({ aid: 'Expr' });
   return opts;
 }

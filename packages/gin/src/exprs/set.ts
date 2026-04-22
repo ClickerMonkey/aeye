@@ -36,7 +36,7 @@ export class SetExpr extends Expr {
       ...baseExprFields,
       path: z.array(pathStepSchema(opts)),
       value: opts.Expr,
-    });
+    }).meta({ aid: 'Expr_set' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

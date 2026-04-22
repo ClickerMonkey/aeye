@@ -34,7 +34,13 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       name: z.literal('object'),
       ...baseTypeFields(opts),
       props: z.record(z.string(), propDefSchema(opts)).optional(),
-    });
+    }).meta({ aid: 'Type_object' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Class-level: `Record<string, Expr>` — any field name / Expr value.
+    // Registered named objs narrow to a `z.object({per-field})` shape.
+    return z.record(z.string(), opts.Expr);
   }
 
   constructor(registry: Registry, fields: Record<string, Prop | PropSpec>) {

@@ -30,7 +30,11 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
       name: z.literal('optional'),
       ...baseTypeFields(opts),
       generic: z.object({ T: opts.Type }).optional(),
-    });
+    }).meta({ aid: 'Type_optional' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return opts.Expr.optional();
   }
 
   constructor(registry: Registry, readonly inner: Type<T>) {
@@ -127,6 +131,6 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(this.inner.toNewSchema(opts).optional(), opts);
+    return this.describeType(this.inner.toNewSchema(opts).optional(), opts, 'NewValue_');
   }
 }

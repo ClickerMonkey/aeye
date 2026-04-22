@@ -21,8 +21,11 @@ export class DurationType extends Type<number, Record<string, never>> {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('duration'), ...baseTypeFields(opts) });
+    return z.object({ name: z.literal('duration'), ...baseTypeFields(opts) })
+      .meta({ aid: 'Type_duration' });
   }
+
+  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.number(); }
 
   valid(raw: unknown): raw is number {
     return typeof raw === 'number' && !Number.isNaN(raw);

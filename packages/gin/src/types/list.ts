@@ -37,7 +37,12 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
         minLength: z.number().optional(),
         maxLength: z.number().optional(),
       }).optional(),
-    });
+    }).meta({ aid: 'Type_list' });
+  }
+
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Class-level: `value: Expr[]`. Element type narrows per-instance.
+    return z.array(opts.Expr);
   }
 
   constructor(registry: Registry, item: Type<V>, options: ListOptions = {}) {

@@ -33,7 +33,7 @@ export class BlockExpr extends Expr {
       kind: z.literal('block'),
       ...baseExprFields,
       lines: z.array(opts.Expr),
-    });
+    }).meta({ aid: 'Expr_block' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

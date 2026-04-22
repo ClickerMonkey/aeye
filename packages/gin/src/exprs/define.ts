@@ -51,7 +51,7 @@ export class DefineExpr extends Expr {
         value: opts.Expr,
       })),
       body: opts.Expr,
-    });
+    }).meta({ aid: 'Expr_define' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {
