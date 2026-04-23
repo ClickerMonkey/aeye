@@ -6,7 +6,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * NullableType<T> — allows `null` in addition to the inner type T.
@@ -27,7 +27,6 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('nullable'),
-      ...baseTypeFields(opts),
       generic: z.object({ T: opts.Type }).optional(),
     }).meta({ aid: 'Type_nullable' });
   }

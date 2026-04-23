@@ -6,7 +6,7 @@ import type { DateOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * DateType — calendar date (year/month/day). Runtime is a JS Date.
@@ -23,7 +23,6 @@ export class DateType extends Type<Date, DateOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('date'),
-      ...baseTypeFields(opts),
       options: z.object({
         min: z.string().optional(),
         max: z.string().optional(),

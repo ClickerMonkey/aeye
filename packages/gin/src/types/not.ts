@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 export interface NotOptions {
   excluded: TypeDef;
@@ -29,7 +29,6 @@ export class NotType extends Type<any, NotOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('not'),
-      ...baseTypeFields(opts),
       options: z.object({ excluded: opts.Type }),
     }).meta({ aid: 'Type_not' });
   }

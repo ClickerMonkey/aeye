@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * AnyType — the top type. Accepts any value and is compatible with every
@@ -19,8 +19,8 @@ export class AnyType extends Type<any, Record<string, never>> {
     return new AnyType(registry, {});
   }
 
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('any'), ...baseTypeFields(opts) })
+  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({ name: z.literal('any') })
       .meta({ aid: 'Type_any' });
   }
 

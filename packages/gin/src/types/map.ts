@@ -6,7 +6,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, JSONValue } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * MapType<K, V> — keyed collection with generic key/value types.
@@ -31,7 +31,6 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('map'),
-      ...baseTypeFields(opts),
       generic: z.object({ K: opts.Type, V: opts.Type }).optional(),
     }).meta({ aid: 'Type_map' });
   }
@@ -186,11 +185,12 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Each entry's key and value are News of the declared key/value types.
+    // Each entry's key and value accept any Expr; per-slot type-compat is
+    // enforced at evaluate/validate time.
     return this.describeType(z.array(z.object({
-      key: this.key.toNewExprSchema(opts),
-      value: this.value.toNewExprSchema(opts),
-    })), opts);
+      key: opts.Expr,
+      value: opts.Expr,
+    })), opts, 'NewValue_');
   }
 
   describe(data: unknown): Type | undefined {

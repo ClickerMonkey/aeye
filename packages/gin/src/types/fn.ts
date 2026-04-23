@@ -5,7 +5,7 @@ import { Call, type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { decodeCall, encodeCall } from '../spec';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields, callDefSchema } from '../schemas';
+import { callDefSchema } from '../schemas';
 
 /**
  * FnType — the universal callable. Its shape lives on the `_call` field
@@ -37,7 +37,6 @@ export class FnType extends Type<any, Record<string, never>> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('function'),
-      ...baseTypeFields(opts),
       call: callDefSchema(opts).optional(),
     }).meta({ aid: 'Type_function' });
   }

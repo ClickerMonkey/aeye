@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import type { BoolOptions } from '../builder';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * BoolType — boolean primitive. Options carry optional text aliases
@@ -22,7 +22,6 @@ export class BoolType extends Type<boolean, BoolOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('bool'),
-      ...baseTypeFields(opts),
       options: z.object({
         trueText: z.string().optional(),
         falseText: z.string().optional(),

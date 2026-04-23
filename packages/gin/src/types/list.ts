@@ -7,7 +7,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, JSONValue } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * ListType<V> — ordered collection with generic element type V and
@@ -31,7 +31,6 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('list'),
-      ...baseTypeFields(opts),
       generic: z.object({ V: opts.Type }).optional(),
       options: z.object({
         minLength: z.number().optional(),
@@ -230,11 +229,12 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Each element is a New of the declared item type (recursive strictness).
-    let s = z.array(this.item.toNewExprSchema(opts));
+    // Each element accepts any Expr; per-element type is enforced at
+    // evaluate/validate time.
+    let s = z.array(opts.Expr);
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
-    return this.describeType(s, opts);
+    return this.describeType(s, opts, 'NewValue_');
   }
 
   describe(data: unknown): Type | undefined {

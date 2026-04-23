@@ -6,7 +6,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * OptionalType<T> — allows `undefined` in addition to the inner type T.
@@ -28,7 +28,6 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('optional'),
-      ...baseTypeFields(opts),
       generic: z.object({ T: opts.Type }).optional(),
     }).meta({ aid: 'Type_optional' });
   }

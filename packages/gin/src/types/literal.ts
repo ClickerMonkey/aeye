@@ -6,7 +6,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 export interface LiteralOptions<T = unknown> {
   value: T;
@@ -43,7 +43,6 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('literal'),
-      ...baseTypeFields(opts),
       generic: z.object({ T: opts.Type }).optional(),
       options: z.object({ value: z.any() }),
     }).meta({ aid: 'Type_literal' });

@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 export interface GenericOptions {
   name: string;
@@ -32,7 +32,6 @@ export class GenericType extends Type<any, GenericOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('generic'),
-      ...baseTypeFields(opts),
       options: z.object({ name: z.string() }),
     }).meta({ aid: 'Type_generic' });
   }

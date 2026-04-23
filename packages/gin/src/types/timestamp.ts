@@ -6,7 +6,7 @@ import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * TimestampType — a precise point in time. Runtime is a JS Date;
@@ -27,7 +27,6 @@ export class TimestampType extends Type<Date, TimestampOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('timestamp'),
-      ...baseTypeFields(opts),
       options: z.object({
         min: z.string().optional(),
         max: z.string().optional(),

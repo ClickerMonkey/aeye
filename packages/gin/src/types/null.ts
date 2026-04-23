@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * NullType — the unit type whose only value is `null`.
@@ -20,8 +20,8 @@ export class NullType extends Type<null, Record<string, never>> {
     return new NullType(registry, {});
   }
 
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('null'), ...baseTypeFields(opts) })
+  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({ name: z.literal('null') })
       .meta({ aid: 'Type_null' });
   }
 

@@ -14,7 +14,7 @@ import {
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 export interface RefOptions {
   name: string;
@@ -37,7 +37,6 @@ export class RefType extends Type<any, RefOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('ref'),
-      ...baseTypeFields(opts),
       options: z.object({ name: z.string() }),
     }).meta({ aid: 'Type_ref' });
   }

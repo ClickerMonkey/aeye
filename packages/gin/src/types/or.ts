@@ -5,7 +5,7 @@ import { Call, type CompatOptions, GetSet, type Prop, type PropSpec, type Rnd, T
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 export interface OrOptions {
   variants: Type[];
@@ -34,7 +34,6 @@ export class OrType extends Type<any, OrOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('or'),
-      ...baseTypeFields(opts),
       options: z.object({ types: z.array(opts.Type) }),
     }).meta({ aid: 'Type_or' });
   }

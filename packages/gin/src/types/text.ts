@@ -6,7 +6,7 @@ import type { TextOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * TextType — string primitive with optional length bounds and regex pattern.
@@ -30,7 +30,6 @@ export class TextType extends Type<string, TextOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('text'),
-      ...baseTypeFields(opts),
       options: z.object({
         minLength: z.number().optional(),
         maxLength: z.number().optional(),

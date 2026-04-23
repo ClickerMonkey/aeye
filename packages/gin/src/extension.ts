@@ -307,8 +307,9 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Fields atop an object-shaped base accept any Expr.
     let schema = this.base.toNewSchema(opts);
-    schema = this.mergeLocalPropsInto(schema, opts, (p) => p.type.toNewExprSchema(opts));
+    schema = this.mergeLocalPropsInto(schema, opts, () => opts.Expr);
     return this.describeType(schema, opts, 'NewValue_');
   }
 

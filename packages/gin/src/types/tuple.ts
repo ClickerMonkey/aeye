@@ -6,7 +6,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONValue } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 export interface TupleOptions {
   elements: TypeDef[];
@@ -32,7 +32,6 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('tuple'),
-      ...baseTypeFields(opts),
       options: z.object({ elements: z.array(opts.Type) }),
     }).meta({ aid: 'Type_tuple' });
   }
@@ -171,8 +170,9 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Each position requires a New of the declared positional type.
-    const slots = this.elements.map((e) => e.toNewExprSchema(opts));
-    return this.describeType(z.tuple(slots as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts);
+    // Each position accepts any Expr. Per-position type-compat is enforced
+    // at evaluate/validate time.
+    const slots = this.elements.map(() => opts.Expr as z.ZodTypeAny);
+    return this.describeType(z.tuple(slots as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts, 'NewValue_');
   }
 }

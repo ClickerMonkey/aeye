@@ -6,7 +6,7 @@ import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * NumType — numeric primitive with optional min/max/whole bounds and
@@ -29,7 +29,6 @@ export class NumType extends Type<number, NumOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('num'),
-      ...baseTypeFields(opts),
       options: z.object({
         min: z.number().optional(),
         max: z.number().optional(),

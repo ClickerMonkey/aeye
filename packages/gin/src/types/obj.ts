@@ -7,7 +7,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
-import { baseTypeFields, propDefSchema } from '../schemas';
+import { propDefSchema } from '../schemas';
 
 /**
  * ObjType — structural object with named fields (props). Unlike other
@@ -32,7 +32,6 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('object'),
-      ...baseTypeFields(opts),
       props: z.record(z.string(), propDefSchema(opts)).optional(),
     }).meta({ aid: 'Type_object' });
   }
@@ -214,14 +213,15 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     const mode = opts.includeDocs ?? 'none';
-    // Each field requires a New of its declared type.
+    // Each field accepts any Expr — Get, NewExpr, function-call path, etc.
+    // Per-field type correctness is enforced at evaluate/validate time.
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this.fields)) {
-      let slot = prop.type.toNewExprSchema(opts);
+      let slot: z.ZodTypeAny = opts.Expr;
       if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
       shape[name] = prop.type.isOptional() ? slot.optional() : slot;
     }
-    return this.describeType(z.object(shape), opts);
+    return this.describeType(z.object(shape), opts, 'NewValue_');
   }
 
   describe(data: unknown): Type | undefined {

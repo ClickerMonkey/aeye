@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * VoidType — the unit type used as the return of side-effecting functions.
@@ -19,8 +19,8 @@ export class VoidType extends Type<void, Record<string, never>> {
     return new VoidType(registry, {});
   }
 
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('void'), ...baseTypeFields(opts) })
+  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({ name: z.literal('void') })
       .meta({ aid: 'Type_void' });
   }
 

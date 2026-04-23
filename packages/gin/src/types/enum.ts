@@ -6,7 +6,7 @@ import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
-import { baseTypeFields } from '../schemas';
+
 
 export interface EnumOptions<V = unknown> {
   values: Record<string, V>;
@@ -30,7 +30,6 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('enum'),
-      ...baseTypeFields(opts),
       generic: z.object({ V: opts.Type }).optional(),
       options: z.object({ values: z.record(z.string(), z.any()) }),
     }).meta({ aid: 'Type_enum' });

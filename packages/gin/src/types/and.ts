@@ -5,7 +5,7 @@ import { Call, type CompatOptions, GetSet, type Prop, PropSpec, type Rnd, Type }
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 export interface AndOptions {
   parts: Type[];
@@ -34,7 +34,6 @@ export class AndType extends Type<any, AndOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('and'),
-      ...baseTypeFields(opts),
       options: z.object({ types: z.array(opts.Type) }),
     }).meta({ aid: 'Type_and' });
   }

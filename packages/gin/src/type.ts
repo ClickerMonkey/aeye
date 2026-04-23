@@ -520,12 +520,13 @@ export abstract class Type<T = any, O = any> implements Node {
   abstract toValueSchema(opts?: SchemaOptions): z.ZodTypeAny;
 
   /**
-   * Produce a Zod schema for the VALUE side of a `{ kind: 'new' }` Expr
-   * of this type. Same as `toValueSchema()` for primitives (e.g. `new num`
-   * takes a bare number). Composites differ: each nested slot is the
-   * `toNewExprSchema()` of the inner type — i.e. a `{ kind: 'new', type,
-   * value }` Expr targeting the slot's declared type. So `new obj { x: text,
-   * y: num }` accepts `{ x: <new text expr>, y: <new num expr> }`.
+   * Produce a Zod schema for the VALUE side of a `{ kind: 'new' }` Expr of
+   * this type. Same as `toValueSchema()` for primitives (e.g. `new num`
+   * takes a bare number). Composites differ: each nested slot is any Expr
+   * (`opts.Expr`) — Get, NewExpr, function-call path, etc. — and per-slot
+   * type correctness is enforced at evaluate/validate time rather than in
+   * the Zod shape. So `new obj { x: text, y: num }` accepts
+   * `{ x: <any expr>, y: <any expr> }`.
    *
    * Default = `toValueSchema(opts)`; composites override.
    */

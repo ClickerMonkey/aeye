@@ -13,7 +13,7 @@ import {
 import { decodeCall, decodeGetSet, decodeProps, encodeCall, encodeGetSet, encodeProps } from '../spec';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields, callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
+import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
 
 /**
  * IfaceType — a structural contract. A type T satisfies this interface
@@ -45,7 +45,6 @@ export class IfaceType extends Type<any, Record<string, never>> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('interface'),
-      ...baseTypeFields(opts),
       props: z.record(z.string(), propDefSchema(opts)).optional(),
       get: getSetDefSchema(opts).optional(),
       call: callDefSchema(opts).optional(),
@@ -197,10 +196,10 @@ export class IfaceType extends Type<any, Record<string, never>> {
     const mode = opts.includeDocs ?? 'none';
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this._props)) {
-      let slot = prop.type.toNewExprSchema(opts);
+      let slot: z.ZodTypeAny = opts.Expr;
       if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
       shape[name] = slot;
     }
-    return this.describeType(z.object(shape).passthrough(), opts);
+    return this.describeType(z.object(shape).passthrough(), opts, 'NewValue_');
   }
 }

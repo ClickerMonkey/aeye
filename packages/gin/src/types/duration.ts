@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * DurationType — a span of time stored as milliseconds.
@@ -20,8 +20,8 @@ export class DurationType extends Type<number, Record<string, never>> {
     return new DurationType(registry, {});
   }
 
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('duration'), ...baseTypeFields(opts) })
+  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({ name: z.literal('duration') })
       .meta({ aid: 'Type_duration' });
   }
 

@@ -6,7 +6,7 @@ import type { ColorOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
-import { baseTypeFields } from '../schemas';
+
 
 /**
  * ColorType — RGBA color stored as a 32-bit integer (0xRRGGBBAA).
@@ -24,7 +24,6 @@ export class ColorType extends Type<number, ColorOptions> {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('color'),
-      ...baseTypeFields(opts),
       options: z.object({ hasAlpha: z.boolean().optional() }).optional(),
     }).meta({ aid: 'Type_color' });
   }

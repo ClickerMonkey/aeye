@@ -15,21 +15,17 @@ import type { Type } from './type';
 
 export type { SchemaOptions } from './node';
 
-/** Shared TypeDef fields common to every Type (docs, extends, satisfies,
- *  generic). Concrete types mix this in via `.extend(...)`. */
-export function baseTypeFields(opts: SchemaOptions): z.ZodRawShape {
-  return {
-    docs: z.string().optional(),
-    extends: z.string().optional(),
-    satisfies: z.array(z.string()).optional(),
-    generic: z.record(z.string(), opts.Type).optional(),
-  };
-}
-
 /** Shared ExprDef fields (just `comment`). */
 export const baseExprFields: z.ZodRawShape = {
   comment: z.string().optional().meta({ aid: 'Comment' }),
 };
+
+/** Shared generic-parameter map (`{ [name]: Type }`). Used inline by
+ *  list/map/optional/etc. for their specific shapes, and by the Extension
+ *  schema for user-declared type parameters. */
+export function genericSchema(opts: SchemaOptions): z.ZodTypeAny {
+  return z.record(z.string(), opts.Type).meta({ aid: 'Generic' });
+}
 
 /** Shared PathStep union used by GetExpr/SetExpr. */
 export function pathStepSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -37,11 +33,11 @@ export function pathStepSchema(opts: SchemaOptions): z.ZodTypeAny {
     z.object({ prop: z.string() }),
     z.object({
       args: z.record(z.string(), opts.Expr),
-      generic: z.record(z.string(), opts.Type).optional(),
+      generic: genericSchema(opts).optional(),
       catch: opts.Expr.optional(),
     }),
     z.object({ key: opts.Expr }),
-  ]);
+  ]).meta({ aid: 'PathStep' });
 }
 
 /** Shared PropDef schema. */
@@ -52,7 +48,7 @@ export function propDefSchema(opts: SchemaOptions): z.ZodTypeAny {
     get: opts.Expr.optional(),
     default: opts.Expr.optional(),
     set: opts.Expr.optional(),
-  });
+  }).meta({ aid: 'PropDef' });
 }
 
 /** Shared GetSetDef schema (for TypeDef.get). */
@@ -64,7 +60,7 @@ export function getSetDefSchema(opts: SchemaOptions): z.ZodTypeAny {
     get: opts.Expr.optional(),
     set: opts.Expr.optional(),
     loop: opts.Expr.optional(),
-  });
+  }).meta({ aid: 'GetSetDef' });
 }
 
 /** Shared CallDef schema (for TypeDef.call). */
@@ -76,7 +72,7 @@ export function callDefSchema(opts: SchemaOptions): z.ZodTypeAny {
     throws: opts.Type.optional(),
     get: opts.Expr.optional(),
     set: opts.Expr.optional(),
-  });
+  }).meta({ aid: 'CallDef' });
 }
 
 /** Shared init schema (for TypeDef.init). */
@@ -85,7 +81,43 @@ export function initDefSchema(opts: SchemaOptions): z.ZodTypeAny {
     docs: z.string().optional(),
     args: opts.Type,
     run: opts.Expr,
-  });
+  }).meta({ aid: 'InitDef' });
+}
+
+/**
+ * Extension TypeDef — defines a NEW named type atop an existing one.
+ * `extends` is an enum of every known base type (class names + registered
+ * named types) so the LLM can't reference a name that doesn't exist.
+ *
+ * Shape:
+ *   {
+ *     name: <user-chosen>,
+ *     extends: <one of the registry's known type names>,
+ *     satisfies?, docs?, generic?, options?,
+ *     props?, get?, call?, init?, constraint?,
+ *   }
+ */
+function extensionSchema(registry: Registry, opts: SchemaOptions): z.ZodTypeAny {
+  const baseNames = new Set<string>();
+  for (const c of registry.typeClasses()) baseNames.add(c.NAME);
+  for (const t of registry.namedTypeList()) baseNames.add(t.name);
+  const names = Array.from(baseNames);
+  const extendsEnum = names.length > 0
+    ? z.enum(names as [string, ...string[]])
+    : z.string();
+  return z.object({
+    name: z.string(),
+    extends: extendsEnum,
+    docs: z.string().optional(),
+    satisfies: z.array(z.string()).optional(),
+    generic: genericSchema(opts).optional(),
+    options: z.record(z.string(), z.any()).optional(),
+    props: z.record(z.string(), propDefSchema(opts)).optional(),
+    get: getSetDefSchema(opts).optional(),
+    call: callDefSchema(opts).optional(),
+    init: initDefSchema(opts).optional(),
+    constraint: opts.Expr.optional(),
+  }).meta({ aid: 'Type_Extension' });
 }
 
 /**
@@ -130,7 +162,8 @@ export function buildSchemas(registry: Registry, overrides: BuildSchemasOverride
     // (num, object, list, etc.). Each class's `toSchema` already attaches
     // its own `aid` — we don't wrap here.
     const classBranches = registry.typeClasses().map((c) => c.toSchema(opts));
-    const all = [...instanceBranches, ...classBranches];
+    // Extension branch — for the LLM to declare a NEW named type inline.
+    const all = [...instanceBranches, ...classBranches, extensionSchema(registry, opts)];
     return all.length > 1
       ? (z.union(all as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
       : (all[0] ?? z.never());
