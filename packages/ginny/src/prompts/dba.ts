@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { buildSchemas } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
+import { modelFor } from '../model-selection';
 import type { FullCtx } from '../context';
 import { refreshVarsGlobal } from '../vars-global';
 
@@ -63,11 +64,14 @@ const createVar = ai.tool({
   },
 });
 
-export const varsManager = ai.prompt({
-  name: 'vars_manager',
-  description: 'Find or create vars for a program.',
-  content: `You are a vars manager. Vars are named typed values persisted to disk.
-Find existing vars or create new ones as needed.
+export const dba = ai.prompt({
+  name: 'dba',
+  description: 'Curate the catalog of named typed values (vars.*).',
+  metadata: modelFor('dba') as any,
+  content: `You are the dba — keeper of the catalog of named typed values
+(\`vars.*\`) persisted to disk. Each entry is a typed datum any gin program
+can read from \`vars.<name>\`. Find an existing entry that matches the
+request, or create a new one.
 
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),

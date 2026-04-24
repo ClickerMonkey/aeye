@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import { modelFor } from '../model-selection';
 import type { FullCtx } from '../context';
 
 const searchFns = ai.tool({
@@ -49,11 +50,13 @@ const createNewFn = ai.tool({
   },
 });
 
-export const fnDesigner = ai.prompt({
-  name: 'fn_designer',
-  description: 'Find or create gin functions.',
-  content: `You are a function designer for a gin program.
-Find existing functions or create new ones as needed.
+export const engineer = ai.prompt({
+  name: 'engineer',
+  description: 'Design or reuse gin functions — the reusable building blocks of programs.',
+  metadata: modelFor('engineer') as any,
+  content: `You are the engineer — responsible for designing and curating
+reusable gin functions. Find an existing function that matches the
+request or spin up a programmer to author a new one.
 
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),

@@ -2,13 +2,65 @@
 import * as readline from 'readline';
 import { programmer } from './prompts/programmer';
 
-async function runRequest(request: string) {
+/**
+ * A tiny spinner that animates on stderr while we wait for the first
+ * streamed chunk from the LLM. Clears itself when stopped.
+ */
+function startSpinner(label: string): () => void {
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let i = 0;
+  const isTTY = process.stderr.isTTY;
+  if (!isTTY) {
+    process.stderr.write(`${label}\n`);
+    return () => {};
+  }
+  process.stderr.write(`${frames[0]} ${label}`);
+  const id = setInterval(() => {
+    i = (i + 1) % frames.length;
+    process.stderr.write(`\r${frames[i]} ${label}`);
+  }, 80);
+  return () => {
+    clearInterval(id);
+    process.stderr.write('\r\x1b[K'); // carriage return + clear to end of line
+  };
+}
+
+async function runRequest(request: string): Promise<void> {
+  const stopSpinner = startSpinner('ginny is thinking…');
+  let firstChunk = true;
+
+  // Wire Ctrl+C during a request so we can abort the stream cleanly
+  // without tearing down the whole REPL.
+  const abort = new AbortController();
+  const onSigint = () => abort.abort();
+  process.on('SIGINT', onSigint);
+
   try {
-    const result = await programmer.get('result', { request }, {});
-    console.log('\n' + (result ?? '(no output)'));
-  } catch (e: any) {
-    console.error('Error:', e?.message ?? e);
-    if (e?.stack) console.error(e.stack);
+    const stream = programmer.get('streamContent', { request }, { signal: abort.signal });
+    for await (const chunk of stream) {
+      if (firstChunk) {
+        stopSpinner();
+        firstChunk = false;
+      }
+      process.stdout.write(chunk);
+    }
+    if (firstChunk) {
+      // Stream produced no text (pure tool-only run, or empty response).
+      stopSpinner();
+      process.stdout.write('(no output)');
+    }
+    process.stdout.write('\n');
+  } catch (e: unknown) {
+    stopSpinner();
+    const err = e as { message?: string; stack?: string; name?: string };
+    if (abort.signal.aborted) {
+      process.stderr.write('\n(cancelled)\n');
+    } else {
+      console.error('\nError:', err.message ?? String(e));
+      if (err.stack) console.error(err.stack);
+    }
+  } finally {
+    process.off('SIGINT', onSigint);
   }
 }
 
@@ -26,7 +78,7 @@ async function main() {
     terminal: true,
   });
 
-  console.log('Gin CLI ready. Type your request (Ctrl+C to exit).\n');
+  console.log('ginny ready. Type a request (Ctrl+C to exit).\n');
 
   const prompt = () => {
     rl.question('> ', async (line) => {

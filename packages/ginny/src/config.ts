@@ -4,6 +4,9 @@ import path from 'path';
 export interface GinConfig {
   OPENAI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
+  // AWS creds normally come from the SDK's credential chain (env, SSO, IAM
+  // role, ~/.aws/credentials, etc.) — these are here for users who prefer
+  // to pin them in config.json instead.
   AWS_ACCESS_KEY_ID?: string;
   AWS_SECRET_ACCESS_KEY?: string;
   AWS_REGION?: string;
@@ -16,8 +19,6 @@ export interface GinConfig {
 const TEMPLATE: GinConfig = {
   OPENAI_API_KEY: '',
   OPENROUTER_API_KEY: '',
-  AWS_ACCESS_KEY_ID: '',
-  AWS_SECRET_ACCESS_KEY: '',
   AWS_REGION: 'us-east-1',
   TAVILY_API_KEY: '',
   GIN_MODEL: '',
@@ -27,17 +28,22 @@ const TEMPLATE: GinConfig = {
 
 function ensureGitignore(cwd: string): void {
   const gitignorePath = path.join(cwd, '.gitignore');
-  const entry = 'config.json';
+  const entries = ['config.json', 'ginny.log'];
 
   let content = '';
   if (fs.existsSync(gitignorePath)) {
     content = fs.readFileSync(gitignorePath, 'utf-8');
-    const listed = content.split(/\r?\n/).some((line) => line.trim() === entry);
-    if (listed) return;
   }
+  const existing = new Set(content.split(/\r?\n/).map((l) => l.trim()));
+  const missing = entries.filter((e) => !existing.has(e));
+  if (missing.length === 0) return;
 
   const suffix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-  fs.writeFileSync(gitignorePath, `${content}${suffix}${entry}\n`, 'utf-8');
+  fs.writeFileSync(
+    gitignorePath,
+    `${content}${suffix}${missing.join('\n')}\n`,
+    'utf-8',
+  );
 }
 
 /**
@@ -54,10 +60,15 @@ export function loadConfig(cwd: string): void {
     ensureGitignore(cwd);
 
     console.log(`Created ${configPath}`);
-    console.log('Added config.json to .gitignore');
+    console.log('Added config.json + ginny.log to .gitignore');
     console.log('');
     console.log('Populate the file before re-running:');
-    console.log('  OPENAI_API_KEY / OPENROUTER_API_KEY / AWS_ACCESS_KEY_ID — at least one required');
+    console.log('  At least one AI provider:');
+    console.log('    - OPENAI_API_KEY (openai)');
+    console.log('    - OPENROUTER_API_KEY (openrouter)');
+    console.log('    - AWS Bedrock — any valid AWS credential source works (env vars,');
+    console.log('      `aws sso login`, IAM role, ~/.aws/credentials, etc.). Ginny');
+    console.log('      probes the credential chain at startup; AWS_REGION optional.');
     console.log('  TAVILY_API_KEY — optional, enables web_search tool');
     console.log('  GIN_PROVIDER — optional, preferred provider (openai | openrouter | aws)');
     console.log('  GIN_MODEL — optional, specific model id');

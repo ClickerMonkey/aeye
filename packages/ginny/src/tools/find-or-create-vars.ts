@@ -3,7 +3,7 @@ import { ai } from '../ai';
 import type { FullCtx } from '../context';
 import { loadVarInto, refreshVarsGlobal } from '../vars-global';
 
-interface VarsManagerResult {
+interface DbaResult {
   use: string[];
   created: string[];
 }
@@ -11,16 +11,16 @@ interface VarsManagerResult {
 export const findOrCreateVars = ai.tool({
   name: 'find_or_create_vars',
   description: 'Locate or create named typed vars. Returns their type signatures.',
-  instructions: 'Delegates to the vars manager. Provide a description of the vars needed.',
+  instructions: 'Delegates to the dba. Provide a description of the vars needed.',
   schema: z.object({
     description: z.string().describe('What vars are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx: FullCtx) => {
-    const { varsManager } = await import('../prompts/vars-manager');
-    const result = (await varsManager.get('result', { description: input.description }, ctx)) as
-      | VarsManagerResult
+    const { dba } = await import('../prompts/dba');
+    const result = (await dba.get('result', { description: input.description }, ctx)) as
+      | DbaResult
       | undefined;
-    if (!result) return 'Vars manager returned no result.';
+    if (!result) return 'DBA returned no result.';
 
     const { use = [], created = [] } = result;
     const lines: string[] = [];

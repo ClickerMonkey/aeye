@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { buildSchemas } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
+import { modelFor } from '../model-selection';
 import type { FullCtx } from '../context';
 
 const searchTypes = ai.tool({
@@ -35,10 +36,12 @@ const getType = ai.tool({
   },
 });
 
-export const typeDesigner = ai.prompt({
-  name: 'type_designer',
-  description: 'Find or create gin types to satisfy a request.',
-  content: `You are a type designer for a gin program.
+export const architect = ai.prompt({
+  name: 'architect',
+  description: 'Design or pick gin types that satisfy a shape request.',
+  metadata: modelFor('architect') as any,
+  content: `You are the architect for a gin program — responsible for picking
+or designing the gin types a request needs.
 Given a description, find existing types or define new ones.
 
 Built-ins: any, void, null, bool, num, text, list<V>, map<K,V>, obj{...props}, optional<T>, fn<args,R>, enum<...>

@@ -1,6 +1,7 @@
 import type { Registry, Value, Type } from '@aeye/gin';
 import { val } from '@aeye/gin';
 import type { AI } from '@aeye/ai';
+import { modelFor } from '../model-selection';
 
 export function createLlmImpl(registry: Registry, ai: AI<any>) {
   return async (argsValue: Value): Promise<Value> => {
@@ -15,6 +16,7 @@ export function createLlmImpl(registry: Registry, ai: AI<any>) {
       description: 'LLM invocation from gin program',
       content: '{{userPrompt}}',
       input: (input: { prompt: string }) => ({ userPrompt: input.prompt }),
+      metadata: modelFor('llm') as any,
       schema: schema as any,
     });
 

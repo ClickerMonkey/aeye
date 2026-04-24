@@ -34,7 +34,12 @@ Created /path/to/my-new-project/config.json
 Added config.json to .gitignore
 
 Populate the file before re-running:
-  OPENAI_API_KEY / OPENROUTER_API_KEY / AWS_ACCESS_KEY_ID — at least one required
+  At least one AI provider:
+    - OPENAI_API_KEY (openai)
+    - OPENROUTER_API_KEY (openrouter)
+    - AWS Bedrock — any valid AWS credential source works (env vars,
+      `aws sso login`, IAM role, ~/.aws/credentials, etc.). Ginny
+      probes the credential chain at startup; AWS_REGION optional.
   TAVILY_API_KEY — optional, enables web_search tool
   GIN_PROVIDER — optional, preferred provider (openai | openrouter | aws)
   GIN_MODEL — optional, specific model id
@@ -64,11 +69,11 @@ ginny is a small council of sub-agents, each specialized:
                           └──────┬──────┘
          ┌────────────────┬──────┴──────┬────────────────┐
          ▼                ▼             ▼                ▼
-  ┌─────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐
-  │    type     │ │   function   │ │     vars     │ │   web    │
-  │  designer   │ │   designer   │ │    manager   │ │ (search, │
-  │             │ │              │ │              │ │   page)  │
-  └─────────────┘ └──────┬───────┘ └──────────────┘ └──────────┘
+  ┌─────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+  │  architect  │ │   engineer   │ │     dba      │ │  researcher  │
+  │   (types)   │ │    (fns)     │ │    (vars)    │ │  (web search │
+  │             │ │              │ │              │ │   + pages)   │
+  └─────────────┘ └──────┬───────┘ └──────────────┘ └──────────────┘
                          │
                          ▼ (recursive spin-up)
                     programmer
@@ -76,16 +81,17 @@ ginny is a small council of sub-agents, each specialized:
 
 - **programmer** — writes a gin `ExprDef`, calls `test()` against it,
   and calls `finish()` when a test passes. Has `write / test / finish`
-  build tools plus the three find-or-create tools for pulling in
-  catalog items.
-- **type designer** — searches `./types/*.json` by keyword (top-10
-  above a configurable threshold, or all entries below); returns
-  existing types or authors new ones.
-- **function designer** — same pattern over `./fns/*.json`; can
-  recursively spin up the programmer to implement a brand-new function
-  body.
-- **vars manager** — same pattern over `./vars/*.json` (typed named
-  values the user or agent can read/write).
+  build tools plus the find-or-create tools for pulling in catalog
+  items, and a `research` tool for factual lookups.
+- **architect** — searches `./types/*.json` by keyword (top-10 above a
+  configurable threshold, or all entries below); returns existing
+  types or designs new ones.
+- **engineer** — same pattern over `./fns/*.json`; can recursively
+  spin up the programmer to implement a brand-new function body.
+- **dba** — same pattern over `./vars/*.json` (typed named values the
+  user or agent can read/write).
+- **researcher** — wraps `web_search` + `web_get_page`; answers a
+  natural-language question iteratively and returns `{ answer, sources }`.
 
 ## Persistence
 
@@ -167,14 +173,34 @@ directory, or from environment variables (env wins on conflict):
 |---|---|
 | `OPENAI_API_KEY` | enables OpenAI provider |
 | `OPENROUTER_API_KEY` | enables OpenRouter provider |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | enables AWS Bedrock |
+| `AWS_REGION` | region for AWS Bedrock (default `us-east-1`) |
 | `TAVILY_API_KEY` | enables the `web_search` tool |
 | `GIN_PROVIDER` | preferred provider (openai \| openrouter \| aws) |
 | `GIN_MODEL` | pin a specific model id |
 | `GIN_SEARCH_THRESHOLD` | corpus size below which catalog search returns all entries (default 20) |
 
-At least one provider must be configured. Tavily is optional — without
-it the programmer still has `web_get_page` (fetch + strip HTML).
+### AWS Bedrock
+
+AWS isn't behind a single env var. Ginny probes the AWS SDK's standard
+credential chain at startup — if it can call `ListFoundationModels`,
+Bedrock is added as a provider. That means **any** of these work
+without extra config:
+
+- `aws sso login` (SSO profile active in the current shell)
+- `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` env vars
+- IAM role attached to the EC2/ECS/Lambda/etc. instance
+- `~/.aws/credentials` with a default profile
+- Container credential provider
+
+At startup ginny prints a line like:
+
+```
+ginny: providers enabled → openai, aws + web_search (tavily)
+       skipped → openrouter (OPENROUTER_API_KEY unset)
+```
+
+At least one provider must resolve. Tavily is optional — without it
+the programmer still has `web_get_page` (fetch + strip HTML).
 
 ## Example sessions
 

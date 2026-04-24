@@ -3,7 +3,7 @@ import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
 import type { FullCtx } from '../context';
 
-interface TypeDesignerResult {
+interface ArchitectResult {
   use: string[];
   create: TypeDef[];
 }
@@ -11,16 +11,16 @@ interface TypeDesignerResult {
 export const findOrCreateTypes = ai.tool({
   name: 'find_or_create_types',
   description: 'Locate or author the types needed for the program. Returns their code definitions.',
-  instructions: 'Delegates to the type designer. Provide a description of the types needed.',
+  instructions: 'Delegates to the architect. Provide a description of the types needed.',
   schema: z.object({
     description: z.string().describe('What types are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx: FullCtx) => {
-    const { typeDesigner } = await import('../prompts/type-designer');
-    const result = (await typeDesigner.get('result', { description: input.description }, ctx)) as
-      | TypeDesignerResult
+    const { architect } = await import('../prompts/architect');
+    const result = (await architect.get('result', { description: input.description }, ctx)) as
+      | ArchitectResult
       | undefined;
-    if (!result) return 'Type designer returned no result.';
+    if (!result) return 'Architect returned no result.';
 
     const { use = [], create = [] } = result;
     const lines: string[] = [];

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ai } from '../ai';
 import type { FullCtx } from '../context';
 
-interface FnDesignerResult {
+interface EngineerResult {
   use: string[];
   created: string[];
 }
@@ -10,16 +10,16 @@ interface FnDesignerResult {
 export const findOrCreateFunctions = ai.tool({
   name: 'find_or_create_functions',
   description: 'Locate or author reusable functions. Returns their signatures.',
-  instructions: 'Delegates to the function designer. Provide a description of what is needed.',
+  instructions: 'Delegates to the engineer. Provide a description of what is needed.',
   schema: z.object({
     description: z.string().describe('What functions are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx: FullCtx) => {
-    const { fnDesigner } = await import('../prompts/fn-designer');
-    const result = (await fnDesigner.get('result', { description: input.description }, ctx)) as
-      | FnDesignerResult
+    const { engineer } = await import('../prompts/engineer');
+    const result = (await engineer.get('result', { description: input.description }, ctx)) as
+      | EngineerResult
       | undefined;
-    if (!result) return 'Function designer returned no result.';
+    if (!result) return 'Engineer returned no result.';
 
     const { use = [], created = [] } = result;
     const lines: string[] = [];

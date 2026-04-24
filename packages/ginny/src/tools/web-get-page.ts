@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import type { FullCtx } from '../context';
 
 export const webGetPage = ai.tool({
   name: 'web_get_page',
@@ -8,6 +9,9 @@ export const webGetPage = ai.tool({
   schema: z.object({
     url: z.string().describe('URL to fetch'),
   }),
+  // Paired with web_search — only useful when research has a way to find
+  // URLs in the first place. Same gate as webSearch keeps the surface tight.
+  applicable: (ctx: FullCtx) => !!ctx.features?.webSearch,
   call: async (input: { url: string }) => {
     try {
       const resp = await globalThis.fetch(input.url, {
