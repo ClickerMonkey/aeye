@@ -103,6 +103,10 @@ export class BoolType extends Type<boolean, BoolOptions> {
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
 
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.literal('bool') }).passthrough();
+  }
+
   describe(data: unknown): Type | undefined {
     return typeof data === 'boolean' ? this : undefined;
   }

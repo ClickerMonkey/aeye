@@ -106,6 +106,14 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return m;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof MapType)) return this;
+    const key = this.registry.like(other.key);
+    const value = this.registry.like(other.value);
+    if (key.name === 'null' || value.name === 'null') return this.registry.null();
+    return this.registry.map(key, value);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof MapType)) return false;
     return this.key.compatible(other.key, opts) && this.value.compatible(other.value, opts);
@@ -192,6 +200,16 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
       key: opts.Expr,
       value: opts.Expr,
     })), opts, 'NewValue_');
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('map'),
+      generic: z.object({
+        K: this.key.toInstanceSchema(),
+        V: this.value.toInstanceSchema(),
+      }).optional(),
+    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

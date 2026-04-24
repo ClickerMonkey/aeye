@@ -82,9 +82,24 @@ export class AndType extends Type<any, AndOptions> {
     return this.parts[0]?.random(rnd) ?? null;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof AndType)) return this;
+    const narrowed = other.parts
+      .map((p) => this.registry.like(p))
+      .filter((t) => t.name !== 'null');
+    if (narrowed.length === 0) return this.registry.null();
+    if (narrowed.length === 1) return narrowed[0]!;
+    return this.registry.and(narrowed);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     // other assignable to And iff assignable to every part.
     return this.parts.every((p) => p.compatible(other, opts));
+  }
+
+  /** Empty And vacuously matches anything — too broad for Registry.compatible. */
+  isUniversal(): boolean {
+    return this.parts.length === 0 || this.parts.every((p) => p.isUniversal());
   }
 
   or(other: Type<any>): Type<any> {
@@ -159,6 +174,15 @@ export class AndType extends Type<any, AndOptions> {
       .map((p) => p.toValueSchema(opts))
       .reduce((a, b) => z.intersection(a, b));
     return this.describeType(s, opts);
+  }
+
+  /** And's instance schema = intersection of each part's instance schema. */
+  toInstanceSchema(): z.ZodTypeAny {
+    if (this.parts.length === 0) return z.unknown();
+    if (this.parts.length === 1) return this.parts[0]!.toInstanceSchema();
+    return this.parts
+      .map((p) => p.toInstanceSchema())
+      .reduce((a, b) => z.intersection(a, b));
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

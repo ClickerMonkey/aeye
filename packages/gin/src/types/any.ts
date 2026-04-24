@@ -54,6 +54,10 @@ export class AnyType extends Type<any, Record<string, never>> {
     return true;
   }
 
+  isUniversal(): boolean {
+    return true;
+  }
+
   or(_other: Type<any>): Type<any> {
     return this;
   }
@@ -97,4 +101,9 @@ export class AnyType extends Type<any, Record<string, never>> {
   toCode(): string { return this.docsPrefix() + 'any'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.any(), opts); }
+
+  /** An instance of `any` is any TypeDef — only requires a `name: string`. */
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.string() }).passthrough();
+  }
 }

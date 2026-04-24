@@ -1,4 +1,5 @@
 import type { TypeDef } from './schema';
+import type { Type } from './type';
 import type { Value } from './value';
 
 /**
@@ -20,6 +21,8 @@ export interface JSONValue<T = unknown> {
  * Order matters:
  *  - `Value` itself passes through (it's already a runtime-shaped cell —
  *    don't re-wrap it in another Value).
+ *  - `Type` passes through too: types-as-values (the `typ` type) store the
+ *    Type instance directly rather than deep-mapping its properties.
  *  - Tuples (`[a, ...b[]]`) are matched BEFORE plain arrays so per-position
  *    shape is preserved: `[number, string]` → `[Value<number>, Value<string>]`.
  *    (TupleType declares T as `[any, ...any[]]` so this branch fires.)
@@ -28,6 +31,7 @@ export interface JSONValue<T = unknown> {
  */
 export type RuntimeOf<T> =
   T extends Value<any> ? T
+  : T extends Type<any, any> ? T
   : T extends readonly [any, ...any[]] ? { [K in keyof T]: Value<T[K]> }
   : T extends (infer E)[] ? Value<E>[]
   : T extends ReadonlyArray<infer E> ? ReadonlyArray<Value<E>>
@@ -43,9 +47,13 @@ export type RuntimeOf<T> =
  * `Type.encode(raw)`. Every nested composite slot is a `JSONValue`, so
  * element-level concrete types survive JSON round-trip (a Dog in a
  * `list<Animal>` comes back as Dog, not Animal).
+ *
+ * `Type` encodes to its `TypeDef` descriptor (what `typ` values serialize
+ * as on the wire).
  */
 export type JSONOf<T> =
   T extends Value<infer U> ? JSONValue<U>
+  : T extends Type<any, any> ? TypeDef
   : T extends readonly [any, ...any[]] ? { [K in keyof T]: JSONValue<T[K]> }
   : T extends (infer E)[] ? JSONValue<E>[]
   : T extends ReadonlyArray<infer E> ? ReadonlyArray<JSONValue<E>>

@@ -241,6 +241,30 @@ export class NumType extends Type<number, NumOptions> {
     return this.describeType(s, opts);
   }
 
+  /** Narrow-match: accept a num TypeDef whose options are strictly tighter
+   *  than this one's (higher min, lower max, whole if this demands whole).
+   *  When `this` has any narrowing set, the incoming TypeDef MUST carry
+   *  options satisfying those narrowings — a plain `{name:'num'}` is looser,
+   *  so it's rejected. */
+  toInstanceSchema(): z.ZodTypeAny {
+    const { min, max, whole } = this.options;
+    const hasNarrowing = min !== undefined || max !== undefined || whole === true;
+    const optionsShape: Record<string, z.ZodTypeAny> = {
+      min:          min === undefined   ? z.number().optional()  : z.number().gte(min),
+      max:          max === undefined   ? z.number().optional()  : z.number().lte(max),
+      whole:        whole ? z.literal(true) : z.boolean().optional(),
+      minPrecision: z.number().optional(),
+      maxPrecision: z.number().optional(),
+      prefix:       z.string().optional(),
+      suffix:       z.string().optional(),
+    };
+    const optionsSchema = z.object(optionsShape);
+    return z.object({
+      name: z.literal('num'),
+      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
+    }).passthrough();
+  }
+
   describe(data: unknown): Type | undefined {
     if (typeof data !== 'number' || Number.isNaN(data)) return undefined;
     return new NumType(this.registry, { whole: Number.isInteger(data) });

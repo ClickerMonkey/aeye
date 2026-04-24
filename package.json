@@ -11,6 +11,8 @@
     "packages/replicate",
     "packages/aws",
     "packages/models",
+    "packages/gin",
+    "packages/ginny",
     "packages/cletus",
     "packages/test-integration"
   ],

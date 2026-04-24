@@ -107,6 +107,17 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return out as RuntimeOf<T>;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof ObjType)) return this;
+    const narrowed: Record<string, PropSpec> = {};
+    for (const [name, prop] of Object.entries(other.fields)) {
+      const t = this.registry.like(prop.type);
+      if (t.name === 'null') return this.registry.null();
+      narrowed[name] = { type: t };
+    }
+    return this.registry.obj(narrowed);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof ObjType)) return false;
     // Structural: every field in this must appear compatibly in other.
@@ -229,6 +240,17 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       shape[name] = prop.type.isOptional() ? slot.optional() : slot;
     }
     return this.describeType(z.object(shape), opts, 'NewValue_');
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    const propShape: Record<string, z.ZodTypeAny> = {};
+    for (const [name, prop] of Object.entries(this.fields)) {
+      propShape[name] = z.object({ type: prop.type.toInstanceSchema() }).passthrough();
+    }
+    return z.object({
+      name: z.literal('object'),
+      props: z.object(propShape).optional(),
+    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

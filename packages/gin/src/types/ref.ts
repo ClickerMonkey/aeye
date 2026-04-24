@@ -149,4 +149,10 @@ export class RefType extends Type<any, RefOptions> {
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(z.lazy(() => this.resolve().toNewSchema(opts)), opts, 'NewValue_');
   }
+
+  /** A ref IS a name — the instance schema is just `{name: <target>}`. Lazy
+   *  so self-referential named types (A → list<A>) don't infinite-recurse. */
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.lazy(() => this.resolve().toInstanceSchema());
+  }
 }

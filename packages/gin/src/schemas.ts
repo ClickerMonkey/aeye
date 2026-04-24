@@ -101,10 +101,25 @@ function extensionSchema(registry: Registry, opts: SchemaOptions): z.ZodTypeAny 
   const baseNames = new Set<string>();
   for (const c of registry.typeClasses()) baseNames.add(c.NAME);
   for (const t of registry.namedTypeList()) baseNames.add(t.name);
-  const names = Array.from(baseNames);
-  const extendsEnum = names.length > 0
-    ? z.enum(names as [string, ...string[]])
-    : z.string();
+  return extensionSchemaNarrowed(registry, opts, Array.from(baseNames));
+}
+
+/**
+ * Same as `extensionSchema` but restricts the `extends` enum to the given
+ * list of base names. Used by TypType's `toValueSchema` to only permit
+ * inline Extensions whose base is compatible with the constraint.
+ *
+ * If `allowedNames` is empty, the `extends` field becomes `z.never()` —
+ * effectively disabling the inline-Extension branch.
+ */
+export function extensionSchemaNarrowed(
+  _registry: Registry,
+  opts: SchemaOptions,
+  allowedNames: string[],
+): z.ZodTypeAny {
+  const extendsEnum = allowedNames.length > 0
+    ? z.enum(allowedNames as [string, ...string[]])
+    : z.never();
   return z.object({
     name: z.string(),
     extends: extendsEnum,

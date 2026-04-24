@@ -136,4 +136,14 @@ export class ColorType extends Type<number, ColorOptions> {
     // Dump form is a 32-bit integer (0xRRGGBBAA or 0xRRGGBB depending on hasAlpha).
     return this.describeType(z.number().int().min(0).max(0xffffffff), opts);
   }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    const hasAlpha = this.options.hasAlpha;
+    return z.object({
+      name: z.literal('color'),
+      options: z.object({
+        hasAlpha: hasAlpha ? z.literal(true).optional() : z.boolean().optional(),
+      }).optional(),
+    }).passthrough();
+  }
 }

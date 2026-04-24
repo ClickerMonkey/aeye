@@ -90,4 +90,8 @@ export class VoidType extends Type<void, Record<string, never>> {
   toCode(): string { return this.docsPrefix() + 'void'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.literal('void') }).passthrough();
+  }
 }

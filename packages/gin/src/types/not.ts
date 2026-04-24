@@ -65,6 +65,13 @@ export class NotType extends Type<any, NotOptions> {
     return null;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof NotType)) return this;
+    const excluded = this.registry.like(other.excluded);
+    if (excluded.name === 'null') return excluded;
+    return this.registry.not(excluded);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (opts?.exact) return other instanceof NotType && this.excluded.exact(other.excluded);
     // other must NOT be structurally compatible with excluded.
@@ -116,5 +123,12 @@ export class NotType extends Type<any, NotOptions> {
       (v) => !excluded.safeParse(v).success,
       { message: `must not match excluded type '${this.excluded.name}'` },
     ), opts);
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('not'),
+      options: z.object({ excluded: this.excluded.toInstanceSchema() }),
+    }).passthrough();
   }
 }

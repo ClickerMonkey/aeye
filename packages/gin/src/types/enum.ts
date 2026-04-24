@@ -80,6 +80,16 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     return vals[rnd(0, vals.length - 1, true)] as RuntimeOf<V>;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof EnumType)) return this;
+    const inner = this.registry.like(other.value);
+    if (inner.name === 'null') return this.registry.null();
+    return this.registry.enum(
+      other.options.values as Record<string, V>,
+      inner as Type<V>,
+    );
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof EnumType)) return false;
     if (!this.value.compatible(other.value, opts)) return false;
@@ -155,5 +165,13 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
       z.enum(this.options.values as Record<string, string | number>),
       opts,
     );
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('enum'),
+      generic: z.object({ V: this.value.toInstanceSchema() }).optional(),
+      options: z.object({ values: z.record(z.string(), z.any()) }),
+    }).passthrough();
   }
 }

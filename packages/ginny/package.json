@@ -1,0 +1,67 @@
+{
+  "name": "@aeye/ginny",
+  "version": "0.3.8",
+  "description": "Ginny — CLI that turns natural-language requests into executable gin programs",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ginny": "dist/index.js"
+  },
+  "scripts": {
+    "build": "npm run clean && node esbuild.config.cjs",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx --conditions=source src/index.ts",
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "postinstall": "echo '\nGinny installed! Run \"ginny\" in any project directory to start.\nOn first run, a config.json template will be created — populate it with your provider API keys.\n'"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "gin",
+    "agent",
+    "code-generation"
+  ],
+  "author": "ClickerMonkey",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ClickerMonkey/aeye.git",
+    "directory": "packages/ginny"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@tavily/core": "^0.5.13"
+  },
+  "devDependencies": {
+    "@aeye/ai": "0.3.8",
+    "@aeye/aws": "0.3.8",
+    "@aeye/core": "0.3.8",
+    "@aeye/gin": "0.1.0",
+    "@aeye/models": "0.3.8",
+    "@aeye/openai": "0.3.8",
+    "@aeye/openrouter": "0.3.8",
+    "@types/node": "^24.9.1",
+    "esbuild": "^0.26.0",
+    "rimraf": "^6.1.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "zod": "^4.1.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "homepage": "https://github.com/ClickerMonkey/aeye#readme",
+  "bugs": {
+    "url": "https://github.com/ClickerMonkey/aeye/issues"
+  }
+}

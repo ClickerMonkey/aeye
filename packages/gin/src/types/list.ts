@@ -95,6 +95,13 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return Array.from({ length: n }, () => new Value(this.item, this.item.random(rnd)));
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof ListType)) return this;
+    const item = this.registry.like(other.item);
+    if (item.name === 'null') return item;
+    return this.registry.list(item);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof ListType)) return false;
     if (!this.item.compatible(other.item, opts)) return false;
@@ -233,6 +240,18 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
     return this.describeType(s, opts, 'NewValue_');
+  }
+
+  /** Structural TypeDef match delegating the item's instance schema. */
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('list'),
+      generic: z.object({ V: this.item.toInstanceSchema() }).optional(),
+      options: z.object({
+        minLength: z.number().optional(),
+        maxLength: z.number().optional(),
+      }).optional(),
+    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

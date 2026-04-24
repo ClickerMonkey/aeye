@@ -66,6 +66,10 @@ export class GenericType extends Type<any, GenericOptions> {
     return true;
   }
 
+  isUniversal(): boolean {
+    return true;
+  }
+
   or(_other: Type<any>): Type<any> {
     return this;
   }
@@ -102,5 +106,10 @@ export class GenericType extends Type<any, GenericOptions> {
     // Unbound placeholder — no concrete shape constraint. Callers that
     // need tight schemas should `.bind()` the generic first.
     return this.describeType(z.any(), opts);
+  }
+
+  /** Unbound generic — its instance schema mirrors `any`: accepts any TypeDef. */
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.string() }).passthrough();
   }
 }

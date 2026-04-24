@@ -43,6 +43,7 @@ import { RefType } from './types/ref';
 import { TextType } from './types/text';
 import { TimestampType } from './types/timestamp';
 import { TupleType } from './types/tuple';
+import { TypType } from './types/typ';
 import { VoidType } from './types/void';
 import type { Scope } from './scope';
 import { Value } from './value';
@@ -398,6 +399,72 @@ export class Registry implements TypeBuilder {
   ref(name: string)     { return new RefType(this, { name }); }
   generic(name: string) { return new GenericType(this, { name }); }
 
+  typ<T = any>(constraint: Type<T>): TypType<T> {
+    return new TypType<T>(this, constraint);
+  }
+
+  // ─── COMPATIBILITY QUERIES ──────────────────────────────────────────────
+
+  /**
+   * Every Type known to the registry (native classes + named Extensions)
+   * whose `.compatible(t)` returns true. Class-level types are probed via
+   * a canonical instance built from `cls.from({name})` — classes whose
+   * `from` throws without options are skipped.
+   *
+   * Deduplicated by name.
+   */
+  compatible(t: Type): Type[] {
+    const out: Type[] = [];
+    const seen = new Set<string>();
+    const push = (x: Type) => {
+      if (seen.has(x.name)) return;
+      seen.add(x.name);
+      out.push(x);
+    };
+
+    // Native classes. A class's canonical form (from `{name}` alone) may
+    // be "universal" — i.e. its `.compatible(x)` is trivially true for
+    // almost any x (see Type.isUniversal). Those pollute the match set and
+    // only participate when the query IS for this class by name.
+    for (const cls of this.typeClasses()) {
+      let canonical: Type;
+      try {
+        canonical = cls.from({ name: cls.NAME } as TypeDef, this);
+      } catch {
+        continue;
+      }
+      if (canonical.isUniversal() && t.name !== cls.NAME) continue;
+      try {
+        if (canonical.compatible(t)) push(canonical);
+      } catch {
+        continue;
+      }
+    }
+
+    // Named types (Extensions, programmatically registered).
+    for (const named of this.namedTypeList()) {
+      try {
+        if (named.compatible(t)) push(named);
+      } catch {
+        continue;
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Or-wrap of `compatible(t)`, with each match narrowed by `.like(t)` so
+   * container classes recurse through their inner types. Zero matches →
+   * `null` type; one match → that type; many → `or<...>`.
+   */
+  like(t: Type): Type {
+    const narrowed = this.compatible(t).map((m) => m.like(t));
+    if (narrowed.length === 0) return this.null();
+    if (narrowed.length === 1) return narrowed[0]!;
+    return this.or(narrowed);
+  }
+
   extend<T, O>(base: Type<T> | string, local: ExtensionLocal<T, O>): Extension<T, O> {
     const baseType = typeof base === 'string'
       ? this.lookup(base) ?? (() => { throw new Error(`extend: unknown base '${base}'`); })()
@@ -452,6 +519,7 @@ export const BUILTIN_TYPES: TypeClass[] = [
   IfaceType,
   RefType,
   GenericType,
+  TypType,
   DateType,
   TimestampType,
   DurationType,

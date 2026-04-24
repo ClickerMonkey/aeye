@@ -154,6 +154,22 @@ export class DateType extends Type<Date, DateOptions> {
     );
   }
 
+  /** Narrow-match: accept date TypeDef whose bounds are strictly tighter. */
+  toInstanceSchema(): z.ZodTypeAny {
+    const { min, max } = this.options;
+    const hasNarrowing = min !== undefined || max !== undefined;
+    const optionsShape: Record<string, z.ZodTypeAny> = {
+      min: min === undefined ? z.string().optional() : z.string().refine((v) => v >= min, { message: `min must be >= ${min}` }),
+      max: max === undefined ? z.string().optional() : z.string().refine((v) => v <= max, { message: `max must be <= ${max}` }),
+      utc: z.boolean().optional(),
+    };
+    const optionsSchema = z.object(optionsShape);
+    return z.object({
+      name: z.literal('date'),
+      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
+    }).passthrough();
+  }
+
   describe(data: unknown): Type | undefined {
     return data instanceof Date ? this : undefined;
   }

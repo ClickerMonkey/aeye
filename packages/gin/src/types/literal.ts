@@ -100,6 +100,11 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return this.inner.compatible(other, opts);
   }
 
+  /** literal<any> (canonical with no declared value) delegates to any — too broad. */
+  isUniversal(): boolean {
+    return this.inner.isUniversal();
+  }
+
   or(other: Type<T>): Type<T> {
     if (other instanceof LiteralType && other.literal === this.literal) return this;
     // Different literal values would widen to an Or — callers explicitly
@@ -144,5 +149,15 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
       z.literal(this.literal as string | number | boolean | null),
       opts,
     );
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('literal'),
+      options: z.object({
+        value: z.literal(this.literal as string | number | boolean | null),
+      }),
+      generic: z.object({ T: this.inner.toInstanceSchema() }).optional(),
+    }).passthrough();
   }
 }

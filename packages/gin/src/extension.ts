@@ -334,6 +334,11 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     return this.describeType(schema, opts, 'NewValue_');
   }
 
+  /** By-name match — Extensions are identified uniquely by their name. */
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.literal(this.name) }).passthrough();
+  }
+
   private mergeLocalPropsInto(
     schema: z.ZodTypeAny,
     opts: SchemaOptions | undefined,

@@ -63,6 +63,13 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
     return this.inner.random(rnd) as RuntimeOf<T | null>;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof NullableType)) return this;
+    const inner = this.registry.like(other.inner);
+    if (inner.name === 'null') return inner;
+    return this.registry.nullable(inner);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (other instanceof NullableType) {
       return this.inner.compatible(other.inner, opts);
@@ -80,6 +87,10 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
 
   required(): Type {
     return this.inner;
+  }
+
+  isUniversal(): boolean {
+    return this.inner.isUniversal();
   }
 
   narrow(local: Partial<Record<string, never>>): Record<string, never> {
@@ -125,5 +136,12 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toNewSchema(opts).nullable(), opts, 'NewValue_');
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('nullable'),
+      generic: z.object({ T: this.inner.toInstanceSchema() }).optional(),
+    }).passthrough();
   }
 }

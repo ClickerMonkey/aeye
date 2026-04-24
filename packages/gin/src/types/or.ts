@@ -90,6 +90,16 @@ export class OrType extends Type<any, OrOptions> {
     return this.variants[i]?.random(rnd) ?? null;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof OrType)) return this;
+    const narrowed = other.variants
+      .map((v) => this.registry.like(v))
+      .filter((t) => t.name !== 'null');
+    if (narrowed.length === 0) return this.registry.null();
+    if (narrowed.length === 1) return narrowed[0]!;
+    return this.registry.or(narrowed);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     // other is assignable to Or iff it's assignable to at least one variant.
     if (other instanceof OrType) {
@@ -174,6 +184,16 @@ export class OrType extends Type<any, OrOptions> {
     if (this.variants.length === 1) return this.describeType(this.variants[0]!.toValueSchema(opts), opts);
     const schemas = this.variants.map((v) => v.toValueSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
     return this.describeType(z.union(schemas), opts);
+  }
+
+  /** Or's instance schema = union of each variant's instance schema. Makes
+   *  `typ<num>.toValueSchema()` (which runs `registry.like(num)` producing
+   *  `or<num, Positive>`) emit `{name:'num'} | {name:'Positive'}`. */
+  toInstanceSchema(): z.ZodTypeAny {
+    if (this.variants.length === 0) return z.never();
+    if (this.variants.length === 1) return this.variants[0]!.toInstanceSchema();
+    const schemas = this.variants.map((v) => v.toInstanceSchema()) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
+    return z.union(schemas);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

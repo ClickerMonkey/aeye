@@ -110,4 +110,8 @@ export class DurationType extends Type<number, Record<string, never>> {
     // Dump form is a number of milliseconds.
     return this.describeType(z.number(), opts);
   }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.literal('duration') }).passthrough();
+  }
 }

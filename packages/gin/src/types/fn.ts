@@ -94,6 +94,18 @@ export class FnType extends Type<any, Record<string, never>> {
     return null;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof FnType)) return this;
+    const r = this.registry;
+    const args = r.like(other._call.args);
+    if (args.name === 'null') return r.null();
+    const returns = other._call.returns ? r.like(other._call.returns) : undefined;
+    if (returns && returns.name === 'null') return r.null();
+    const throws = other._call.throws ? r.like(other._call.throws) : undefined;
+    if (throws && throws.name === 'null') return r.null();
+    return r.fn(args as Type<any>, returns, throws, this.generic);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof FnType)) return false;
     // args: contravariant — this.args must accept other.args
@@ -172,5 +184,17 @@ export class FnType extends Type<any, Record<string, never>> {
       z.string(),
       z.object({ kind: z.string() }).passthrough(),
     ]), opts);
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    const callShape: Record<string, z.ZodTypeAny> = {
+      args: this._call.args.toInstanceSchema(),
+    };
+    if (this._call.returns) callShape.returns = this._call.returns.toInstanceSchema();
+    if (this._call.throws) callShape.throws = this._call.throws.toInstanceSchema();
+    return z.object({
+      name: z.literal('fn'),
+      call: z.object(callShape).passthrough(),
+    }).passthrough();
   }
 }

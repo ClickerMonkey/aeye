@@ -64,6 +64,13 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return this.inner.random(rnd) as RuntimeOf<T | undefined>;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof OptionalType)) return this;
+    const inner = this.registry.like(other.inner);
+    if (inner.name === 'null') return inner;
+    return this.registry.optional(inner);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (other instanceof OptionalType) {
       return this.inner.compatible(other.inner, opts);
@@ -85,6 +92,11 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
 
   isOptional(): boolean {
     return true;
+  }
+
+  /** optional<any> (the canonical) delegates compat to `any` — too broad. */
+  isUniversal(): boolean {
+    return this.inner.isUniversal();
   }
 
   narrow(local: Partial<Record<string, never>>): Record<string, never> {
@@ -130,5 +142,12 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toNewSchema(opts).optional(), opts, 'NewValue_');
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('optional'),
+      generic: z.object({ T: this.inner.toInstanceSchema() }).optional(),
+    }).passthrough();
   }
 }

@@ -352,6 +352,34 @@ export abstract class Type<T = any, O = any> implements Node {
     return false;
   }
 
+  /**
+   * Given `other` is compatible with `this`, produce a version of `this`
+   * narrowed by `other`. Default: `this` — identity preserves the caller's
+   * refinements (e.g. `Positive.like(num)` keeps Positive).
+   *
+   * Container types override to recurse: `ListType.like(list<X>)` returns
+   * `list<registry.like(X)>`, pulling in every registry type compatible
+   * with X. When `other` is a different class, the default fallback returns
+   * `this` unchanged.
+   */
+  like(_other: Type): Type {
+    return this;
+  }
+
+  /**
+   * True when this type's `.compatible(other)` returns true for essentially
+   * every `other` — i.e., this is a "top type" whose canonical instance is
+   * too broad to participate usefully in `Registry.compatible(t)` unless the
+   * query is specifically for this class.
+   *
+   * Examples: `any`, an unbound `generic`, `and<>` with no parts,
+   * `iface<{}>` with no required contract, `optional<any>`/`nullable<any>`
+   * whose canonical wraps `any`. Default: false.
+   */
+  isUniversal(): boolean {
+    return false;
+  }
+
   // ─── TYPE ALGEBRA ────────────────────────────────────────────────────────
 
   /**

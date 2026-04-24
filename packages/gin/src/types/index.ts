@@ -22,4 +22,5 @@ export { RefType, type RefOptions } from './ref';
 export { TextType } from './text';
 export { TimestampType } from './timestamp';
 export { TupleType, type TupleOptions } from './tuple';
+export { TypType } from './typ';
 export { VoidType } from './void';

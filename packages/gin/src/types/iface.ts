@@ -2,9 +2,9 @@ import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import {
-  type Call,
+  Call,
   type CompatOptions,
-  type GetSet,
+  GetSet,
   Prop,
   type PropSpec,
   type Rnd,
@@ -91,6 +91,37 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return null;
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof IfaceType)) return this;
+    const r = this.registry;
+    const narrowedProps: Record<string, PropSpec> = {};
+    for (const [name, prop] of Object.entries(other._props)) {
+      const t = r.like(prop.type);
+      if (t.name === 'null') return r.null();
+      narrowedProps[name] = { type: t };
+    }
+    let narrowedGet: GetSet | undefined;
+    if (other._get) {
+      const key = r.like(other._get.key);
+      const value = r.like(other._get.value);
+      if (key.name === 'null' || value.name === 'null') return r.null();
+      narrowedGet = new GetSet({ key, value });
+    }
+    let narrowedCall: Call | undefined;
+    if (other._call) {
+      const args = r.like(other._call.args);
+      if (args.name === 'null') return r.null();
+      const returns = other._call.returns ? r.like(other._call.returns) : undefined;
+      if (returns && returns.name === 'null') return r.null();
+      narrowedCall = new Call({ args: args as Type<any>, returns });
+    }
+    return new IfaceType(r, {
+      props: narrowedProps,
+      get: narrowedGet,
+      call: narrowedCall,
+    });
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     // "other satisfies this interface" — structural.
     const theirProps = other.props();
@@ -118,6 +149,11 @@ export class IfaceType extends Type<any, Record<string, never>> {
 
   flexible(): boolean {
     return true;
+  }
+
+  /** Empty interface (no props / get / call) vacuously matches anything. */
+  isUniversal(): boolean {
+    return Object.keys(this._props).length === 0 && !this._get && !this._call;
   }
 
   or(other: Type<any>): Type<any> {
@@ -205,5 +241,30 @@ export class IfaceType extends Type<any, Record<string, never>> {
       shape[name] = slot;
     }
     return this.describeType(z.object(shape).passthrough(), opts, 'NewValue_');
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    const propShape: Record<string, z.ZodTypeAny> = {};
+    for (const [name, prop] of Object.entries(this._props)) {
+      propShape[name] = z.object({ type: prop.type.toInstanceSchema() }).passthrough();
+    }
+    const shape: Record<string, z.ZodTypeAny> = {
+      name: z.literal('iface'),
+    };
+    if (Object.keys(propShape).length > 0) {
+      shape.props = z.object(propShape).optional();
+    }
+    if (this._get) {
+      shape.get = z.object({
+        key: this._get.key.toInstanceSchema(),
+        value: this._get.value.toInstanceSchema(),
+      }).passthrough().optional();
+    }
+    if (this._call) {
+      const callShape: Record<string, z.ZodTypeAny> = { args: this._call.args.toInstanceSchema() };
+      if (this._call.returns) callShape.returns = this._call.returns.toInstanceSchema();
+      shape.call = z.object(callShape).passthrough().optional();
+    }
+    return z.object(shape).passthrough();
   }
 }

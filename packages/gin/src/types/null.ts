@@ -91,4 +91,8 @@ export class NullType extends Type<null, Record<string, never>> {
   toCode(): string { return this.docsPrefix() + 'null'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({ name: z.literal('null') }).passthrough();
+  }
 }

@@ -216,6 +216,23 @@ export class TextType extends Type<string, TextOptions> {
     return this.describeType(s, opts);
   }
 
+  /** Narrow-match: accept a text TypeDef whose options are strictly tighter. */
+  toInstanceSchema(): z.ZodTypeAny {
+    const { minLength: minLen, maxLength: maxLen, pattern } = this.options;
+    const hasNarrowing = minLen !== undefined || maxLen !== undefined || pattern !== undefined;
+    const optionsShape: Record<string, z.ZodTypeAny> = {
+      minLength: minLen === undefined ? z.number().optional() : z.number().gte(minLen),
+      maxLength: maxLen === undefined ? z.number().optional() : z.number().lte(maxLen),
+      pattern:   z.string().optional(),
+      flags:     z.string().optional(),
+    };
+    const optionsSchema = z.object(optionsShape);
+    return z.object({
+      name: z.literal('text'),
+      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
+    }).passthrough();
+  }
+
   describe(data: unknown): Type | undefined {
     return typeof data === 'string' ? this : undefined;
   }

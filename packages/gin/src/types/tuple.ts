@@ -79,6 +79,15 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return this.elements.map((e) => new Value(e, e.random(rnd))) as [Value, ...Value[]];
   }
 
+  like(other: Type): Type {
+    if (!(other instanceof TupleType) || other.elements.length !== this.elements.length) {
+      return this;
+    }
+    const narrowed = other.elements.map((e) => this.registry.like(e));
+    if (narrowed.some((t) => t.name === 'null')) return this.registry.null();
+    return this.registry.tuple(narrowed);
+  }
+
   compatible(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof TupleType)) return false;
     if (other.elements.length !== this.elements.length) return false;
@@ -175,5 +184,14 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     // at evaluate/validate time.
     const slots = this.elements.map(() => opts.Expr as z.ZodTypeAny);
     return this.describeType(z.tuple(slots as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts, 'NewValue_');
+  }
+
+  toInstanceSchema(): z.ZodTypeAny {
+    return z.object({
+      name: z.literal('tuple'),
+      options: z.object({
+        elements: z.tuple(this.elements.map((e) => e.toInstanceSchema()) as [z.ZodTypeAny, ...z.ZodTypeAny[]]),
+      }),
+    }).passthrough();
   }
 }
