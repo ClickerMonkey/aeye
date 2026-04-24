@@ -80,6 +80,7 @@ export class DurationType extends Type<number, Record<string, never>> {
     const num = r.num({ whole: true });
     const text = r.text();
     return {
+      ...super.props(),
       totalSeconds: r.prop(r.num(),     'duration.totalSeconds'),
       totalMinutes: r.prop(r.num(),     'duration.totalMinutes'),
       totalHours:   r.prop(r.num(),     'duration.totalHours'),
@@ -103,7 +104,7 @@ export class DurationType extends Type<number, Record<string, never>> {
     return new DurationType(this.registry, {});
   }
 
-  toCode(): string { return 'number'; }
+  toCode(): string { return this.docsPrefix() + 'duration'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Dump form is a number of milliseconds.

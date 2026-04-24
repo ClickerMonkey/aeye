@@ -96,10 +96,11 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
     const r = this.registry;
     const T = this.inner;
     return {
+      ...super.props(),
       value:  r.prop(T,                                  'nullable.value'),
       isNull: r.method({},                  r.bool(),    'nullable.isNull'),
       or:     r.method({ fallback: T },     T,           'nullable.or'),
-      map:    r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.any()) }, r.nullable(r.any()), 'nullable.map'),
+      map:    r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.generic('R')) }, r.nullable(r.generic('R')), 'nullable.map', { generic: { R: r.any() } }),
     };
   }
 
@@ -115,9 +116,7 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
   }
 
   toCode(): string {
-    const inner = this.inner.toCode();
-    const needsParens = /[\s|&]/.test(inner);
-    return needsParens ? `(${inner}) | null` : `${inner} | null`;
+    return this.docsPrefix() + `nullable<${this.inner.toCode()}>`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

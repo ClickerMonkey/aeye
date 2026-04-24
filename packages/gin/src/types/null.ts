@@ -74,8 +74,9 @@ export class NullType extends Type<null, Record<string, never>> {
   props(): Record<string, Prop> {
     const r = this.registry;
     return {
+      ...super.props(),
       toText:    r.method({}, r.text(), 'null.toText'),
-      toBoolean: r.method({}, r.bool(), 'null.toBoolean'),
+      toBool: r.method({}, r.bool(), 'null.toBool'),
     };
   }
 
@@ -87,7 +88,7 @@ export class NullType extends Type<null, Record<string, never>> {
     return new NullType(this.registry, {});
   }
 
-  toCode(): string { return 'null'; }
+  toCode(): string { return this.docsPrefix() + 'null'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 }

@@ -40,7 +40,7 @@ describe('NullableType', () => {
 
   test('props overlay: value/isNull/or/map', () => {
     const p = r.nullable(r.num()).props();
-    expect(Object.keys(p).sort()).toEqual(['isNull', 'map', 'or', 'value']);
+    expect(Object.keys(p).sort()).toEqual(['isNull', 'map', 'or', 'toAny', 'value']);
   });
 
   test('encode + parse roundtrip', () => {

@@ -52,9 +52,9 @@ describe('BoolType', () => {
     expect(o.trueText).toBe('y');
   });
 
-  test('props include and/or/not/xor/eq/toText/toNumber', () => {
+  test('props include and/or/not/xor/eq/toText/toNum', () => {
     const p = r.bool().props();
-    for (const n of ['and', 'or', 'not', 'xor', 'eq', 'neq', 'toText', 'toNumber']) {
+    for (const n of ['and', 'or', 'not', 'xor', 'eq', 'neq', 'toText', 'toNum']) {
       expect(p[n]).toBeDefined();
     }
   });

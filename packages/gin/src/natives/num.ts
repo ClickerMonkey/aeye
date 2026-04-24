@@ -49,7 +49,7 @@ export const numNatives: Record<string, NativeImpl> = {
     const s = precision != null ? self<number>(scope).toFixed(precision) : String(self<number>(scope));
     return val(reg.text(), s);
   },
-  'num.toBoolean': (scope, reg) => val(reg.bool(), self<number>(scope) !== 0),
+  'num.toBool': (scope, reg) => val(reg.bool(), self<number>(scope) !== 0),
 
   // loop: yields (key=0..|n|-1, value=0-toward-n)
   'num.loop': async (scope, reg) => {

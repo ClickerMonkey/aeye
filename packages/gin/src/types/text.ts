@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { TextOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -160,6 +160,7 @@ export class TextType extends Type<string, TextOptions> {
     const bool = r.bool();
     const optNum = r.optional(num);
     return {
+      ...super.props(),
       length: r.prop(num, 'text.length'),
 
       eq:         r.method({ other: text }, bool, 'text.eq'),
@@ -189,8 +190,8 @@ export class TextType extends Type<string, TextOptions> {
       isEmpty:    r.method({}, bool, 'text.isEmpty'),
       isNotEmpty: r.method({}, bool, 'text.isNotEmpty'),
 
-      toNumber:  r.method({}, num, 'text.toNumber'),
-      toBoolean: r.method({}, bool, 'text.toBoolean'),
+      toNum:  r.method({}, num, 'text.toNum'),
+      toBool: r.method({}, bool, 'text.toBool'),
     };
   }
 
@@ -205,7 +206,7 @@ export class TextType extends Type<string, TextOptions> {
     return new TextType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return 'string'; }
+  toCode(): string { return this.docsPrefix() + 'text' + optionsCode(this.options); }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     let s = z.string();

@@ -91,6 +91,7 @@ export class NotType extends Type<any, NotOptions> {
   props(): Record<string, Prop> {
     const r = this.registry;
     return {
+      ...super.props(),
       typeOf: r.method({}, r.text(), 'not.typeOf'),
       toText: r.method({}, r.text(), 'not.toText'),
     };
@@ -107,7 +108,7 @@ export class NotType extends Type<any, NotOptions> {
     return new NotType(this.registry, this.excluded.clone());
   }
 
-  toCode(): string { return `Exclude<any, ${this.excluded.toCode()}>`; }
+  toCode(): string { return this.docsPrefix() + `not<${this.excluded.toCode()}>`; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     const excluded = this.excluded.toValueSchema(opts);

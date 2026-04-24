@@ -382,8 +382,9 @@ export class Registry implements TypeBuilder {
     args: Type<A>,
     returns?: Type<R>,
     throws?: Type<E>,
+    generic?: Record<string, Type>,
   ) {
-    return new FnType(this, { args, returns, throws });
+    return new FnType(this, { args, returns, throws }, generic ?? {});
   }
 
   iface(spec: IfaceSpec) {
@@ -414,11 +415,15 @@ export class Registry implements TypeBuilder {
     args: A,
     returns: Type,
     nativeId: string,
-    docs?: string,
+    options?: { docs?: string; generic?: Record<string, Type> },
   ): Prop {
     const argFields: ObjPropsInput = {};
     for (const [k, t] of Object.entries(args)) argFields[k] = { type: t };
-    return this.prop(this.fn(this.obj(argFields), returns), nativeId, docs);
+    return new Prop({
+      type: this.fn(this.obj(argFields), returns, undefined, options?.generic),
+      get: { kind: 'native', id: nativeId } as ExprDef,
+      docs: options?.docs,
+    });
   }
 }
 

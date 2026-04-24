@@ -69,9 +69,9 @@ describe('TextType', () => {
     expect(g!.loop).toBeDefined();
   });
 
-  test('props include length/contains/slice/upper/toNumber', () => {
+  test('props include length/contains/slice/upper/toNum', () => {
     const p = r.text().props();
-    for (const n of ['length', 'contains', 'slice', 'upper', 'lower', 'toNumber', 'split']) {
+    for (const n of ['length', 'contains', 'slice', 'upper', 'lower', 'toNum', 'split']) {
       expect(p[n]).toBeDefined();
     }
   });

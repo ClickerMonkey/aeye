@@ -50,8 +50,8 @@ describe('num natives', () => {
 
   test('conversion', async () => {
     expect((await e.run(callOn({ name: 'num' }, 42, 'toText'))).raw).toBe('42');
-    expect((await e.run(callOn({ name: 'num' }, 0, 'toBoolean'))).raw).toBe(false);
-    expect((await e.run(callOn({ name: 'num' }, 5, 'toBoolean'))).raw).toBe(true);
+    expect((await e.run(callOn({ name: 'num' }, 0, 'toBool'))).raw).toBe(false);
+    expect((await e.run(callOn({ name: 'num' }, 5, 'toBool'))).raw).toBe(true);
   });
 });
 
@@ -85,8 +85,8 @@ describe('text natives', () => {
     expect((await e.run(callOn({ name: 'text' }, 'ab',    'repeat',  { count: 3 }))).raw).toBe('ababab');
   });
 
-  test('toNumber', async () => {
-    expect((await e.run(callOn({ name: 'text' }, '42.5', 'toNumber'))).raw).toBe(42.5);
+  test('toNum', async () => {
+    expect((await e.run(callOn({ name: 'text' }, '42.5', 'toNum'))).raw).toBe(42.5);
   });
 });
 

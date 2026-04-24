@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -174,6 +174,7 @@ export class NumType extends Type<number, NumOptions> {
     const text = r.text();
     const optNum = r.optional(num);
     return {
+      ...super.props(),
       // comparison
       eq:  r.method({ other: num, epsilon: optNum }, bool, 'num.eq'),
       neq: r.method({ other: num, epsilon: optNum }, bool, 'num.neq'),
@@ -216,7 +217,7 @@ export class NumType extends Type<number, NumOptions> {
 
       // conversion
       toText:    r.method({ precision: optNum }, text, 'num.toText'),
-      toBoolean: r.method({}, bool, 'num.toBoolean'),
+      toBool: r.method({}, bool, 'num.toBool'),
     };
   }
 
@@ -231,7 +232,7 @@ export class NumType extends Type<number, NumOptions> {
     return new NumType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return 'number'; }
+  toCode(): string { return this.docsPrefix() + 'num' + optionsCode(this.options); }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     let s = this.options.whole ? z.number().int() : z.number();

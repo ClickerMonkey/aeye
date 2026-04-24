@@ -71,11 +71,16 @@ export class AnyType extends Type<any, Record<string, never>> {
   props(): Record<string, Prop> {
     const r = this.registry;
     return {
-      typeOf:    r.method({},              r.text(), 'any.typeOf'),
-      is:        r.method({ type: r.text() }, r.bool(), 'any.is'),
-      as:        r.method({ type: r.text() }, r.any(),  'any.as'),
-      toText:    r.method({},              r.text(), 'any.toText'),
-      toBoolean: r.method({},              r.bool(), 'any.toBoolean'),
+      ...super.props(),
+      typeOf:    r.method({}, r.text(), 'any.typeOf'),
+      // Runtime-check against a target type T. Caller picks T via generic
+      // binding: `x.is<num>()` or `x.is<Task>()`.
+      is:        r.method({}, r.bool(), 'any.is', { generic: { T: r.any() } }),
+      // Cast to target type T. Returns optional<T> — null when the value
+      // doesn't satisfy T.
+      as:        r.method({}, r.optional(r.generic('T')), 'any.as', { generic: { T: r.any() } }),
+      toText:    r.method({},                 r.text(), 'any.toText'),
+      toBool:    r.method({},                 r.bool(), 'any.toBool'),
       eq:        r.method({ other: r.any() }, r.bool(), 'any.eq'),
       neq:       r.method({ other: r.any() }, r.bool(), 'any.neq'),
     };
@@ -89,7 +94,7 @@ export class AnyType extends Type<any, Record<string, never>> {
     return new AnyType(this.registry, {});
   }
 
-  toCode(): string { return 'any'; }
+  toCode(): string { return this.docsPrefix() + 'any'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.any(), opts); }
 }

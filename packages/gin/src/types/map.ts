@@ -140,6 +140,7 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     const num = r.num(), bool = r.bool(), voidT = r.void();
     const optV = r.optional(V);
     return {
+      ...super.props(),
       size:   r.prop(num, 'map.size'),
 
       at:     r.method({ key: K },           optV,            'map.at'),
@@ -172,7 +173,7 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   }
 
   toCode(): string {
-    return `Map<${this.key.toCode()}, ${this.value.toCode()}>`;
+    return this.docsPrefix() + `map<${this.key.toCode()}, ${this.value.toCode()}>`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

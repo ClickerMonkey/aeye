@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
@@ -119,6 +119,7 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     const r = this.registry;
     const V = this.value;
     return {
+      ...super.props(),
       name:   r.prop(r.text(), 'enum.name'),
       value:  r.prop(V,        'enum.value'),
       eq:     r.method({ other: V },     r.bool(), 'enum.eq'),
@@ -144,9 +145,8 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
   }
 
   toCode(): string {
-    const vals = Object.values(this.options.values);
-    if (vals.length === 0) return 'never';
-    return vals.map((v) => typeof v === 'string' ? JSON.stringify(v) : String(v)).join(' | ');
+    const body = `enum<${this.value.toCode()}>` + optionsCode(this.options.values as Record<string, unknown>);
+    return this.docsPrefix() + body;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

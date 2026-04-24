@@ -202,7 +202,11 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   }
 
   required(): Type {
-    return this;
+    return this.base.required();
+  }
+
+  isOptional(): boolean {
+    return this.base.isOptional();
   }
 
   narrow(local: Partial<O>): O {
@@ -284,7 +288,24 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     });
   }
 
-  toCode(): string { return this.name; }
+  toCode(): string { return this.docsPrefix() + this.name; }
+
+  /** Renders `type Email extends text{pattern="..."}` headers in
+   *  `toCodeDefinition`. Uses `base` (narrowed) rather than `original`
+   *  so the constraints the Extension sits atop are visible. */
+  protected extendsClause(): string {
+    return ` extends ${this.base.toCode()}`;
+  }
+
+  // Definition hooks — an Extension's rendered body shows only the
+  // additions it declares on top of its base. The base's surface lives
+  // under the `extends` clause, not duplicated inside the block.
+  protected definitionInit():  Init    | undefined { return this.local.init; }
+  protected definitionCall():  Call    | undefined { return this.local.call; }
+  protected definitionGet():   GetSet  | undefined { return this.local.get; }
+  protected definitionProps(): Record<string, Prop | PropSpec> {
+    return this.local.props ?? {};
+  }
 
   /**
    * Collected constraints: this Extension's local constraint (if any)

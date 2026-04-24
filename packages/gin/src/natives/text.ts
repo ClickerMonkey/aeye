@@ -60,8 +60,8 @@ export const textNatives: Record<string, NativeImpl> = {
   'text.isEmpty':    (scope, reg) => val(reg.bool(), self<string>(scope).length === 0),
   'text.isNotEmpty': (scope, reg) => val(reg.bool(), self<string>(scope).length > 0),
 
-  'text.toNumber':  (scope, reg) => val(reg.num(), Number(self<string>(scope))),
-  'text.toBoolean': (scope, reg) => val(reg.bool(), self<string>(scope).length > 0),
+  'text.toNum':  (scope, reg) => val(reg.num(), Number(self<string>(scope))),
+  'text.toBool': (scope, reg) => val(reg.bool(), self<string>(scope).length > 0),
 
   // indexed access + loop
   'text.charAt': (scope, reg) => {

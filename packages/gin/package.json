@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "dump-schema": "tsx scripts/dump-schema.ts",
+    "dump-code": "tsx scripts/dump-code.ts",
     "clean": "rimraf dist"
   },
 

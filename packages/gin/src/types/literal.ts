@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type } from '../type';
+import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
@@ -135,10 +135,8 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
   }
 
   toCode(): string {
-    const v = this.literal;
-    if (typeof v === 'string') return JSON.stringify(v);
-    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-    return JSON.stringify(v);
+    return this.docsPrefix() + `literal<${this.inner.toCode()}>`
+      + optionsCode({ value: this.literal });
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

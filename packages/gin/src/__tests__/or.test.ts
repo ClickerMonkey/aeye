@@ -44,12 +44,12 @@ describe('OrType', () => {
   });
 
   test('props intersects variant names (TS A|B semantics)', () => {
-    // both num and text expose `eq`, `neq`, and `toBoolean` — those survive
+    // both num and text expose `eq`, `neq`, and `toBool` — those survive
     const t = r.or([r.num(), r.text()]);
     const p = t.props();
     expect(p.eq).toBeDefined();
     expect(p.neq).toBeDefined();
-    expect(p.toBoolean).toBeDefined();
+    expect(p.toBool).toBeDefined();
     // `add` is num-only, `length` is text-only — both absent on Or<num|text>
     expect(p.add).toBeUndefined();
     expect(p.length).toBeUndefined();

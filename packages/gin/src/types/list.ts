@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -164,6 +164,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
       r.fn(r.obj({ value: { type: V }, index: { type: num } }), ret);
 
     return {
+      ...super.props(),
       length: r.prop(num, 'list.length'),
 
       at:      r.method({ index: num },              optV,  'list.at'),
@@ -186,10 +187,10 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
       unique:     r.method({},                       lstV,  'list.unique'),
       duplicates: r.method({},                       lstV,  'list.duplicates'),
 
-      map:    r.method({ fn: fnValueIndex(r.any()) }, r.list(r.any()), 'list.map'),
+      map:    r.method({ fn: fnValueIndex(r.generic('R')) }, r.list(r.generic('R')), 'list.map', { generic: { R: r.any() } }),
       filter: r.method({ fn: fnValueIndex(bool) },    lstV,            'list.filter'),
       find:   r.method({ fn: fnValueIndex(bool) },    optV,            'list.find'),
-      reduce: r.method({ fn: r.fn(r.obj({ acc: { type: r.any() }, value: { type: V }, index: { type: num } }), r.any()), initial: r.any() }, r.any(), 'list.reduce'),
+      reduce: r.method({ fn: r.fn(r.obj({ acc: { type: r.generic('R') }, value: { type: V }, index: { type: num } }), r.generic('R')), initial: r.generic('R') }, r.generic('R'), 'list.reduce', { generic: { R: r.any() } }),
       some:   r.method({ fn: fnValueIndex(bool) },    bool,            'list.some'),
       every:  r.method({ fn: fnValueIndex(bool) },    bool,            'list.every'),
       sort:   r.method({ fn: r.optional(r.fn(r.obj({ a: { type: V }, b: { type: V } }), num)) }, lstV, 'list.sort'),
@@ -215,10 +216,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   }
 
   toCode(): string {
-    const inner = this.item.toCode();
-    // Parenthesize if inner has spaces or unions — keeps `(A | B)[]` parsing.
-    const needsParens = /[\s|&]/.test(inner);
-    return needsParens ? `(${inner})[]` : `${inner}[]`;
+    return this.docsPrefix() + `list<${this.item.toCode()}>` + optionsCode(this.options);
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { ExprDef, TypeDef } from '../schema';
 import { Value } from '../value';
-import { Call, type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderGenerics } from '../type';
 import { decodeCall, encodeCall } from '../spec';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
@@ -25,13 +25,17 @@ export class FnType extends Type<any, Record<string, never>> {
   readonly _call: Call;
 
   static from(json: TypeDef, registry: Registry): FnType {
+    const generic: Record<string, Type> = {};
+    if (json.generic) {
+      for (const [k, def] of Object.entries(json.generic)) generic[k] = registry.parse(def);
+    }
     if (!json.call) {
       return new FnType(registry, new Call({
         args: registry.any() as Type<any>,
         returns: registry.any(),
-      }));
+      }), generic);
     }
-    return new FnType(registry, decodeCall(json.call, registry));
+    return new FnType(registry, decodeCall(json.call, registry), generic);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -48,8 +52,12 @@ export class FnType extends Type<any, Record<string, never>> {
     ]);
   }
 
-  constructor(registry: Registry, call: Call | ConstructorParameters<typeof Call>[0]) {
-    super(registry, {});
+  constructor(
+    registry: Registry,
+    call: Call | ConstructorParameters<typeof Call>[0],
+    generic: Record<string, Type> = {},
+  ) {
+    super(registry, {}, generic);
     this._call = call instanceof Call ? call : new Call(call);
   }
 
@@ -119,30 +127,41 @@ export class FnType extends Type<any, Record<string, never>> {
   }
 
   props(): Record<string, Prop> {
-    return {};
+    return super.props() as Record<string, Prop>;
   }
 
   toJSON(): TypeDef {
+    const genericKeys = Object.keys(this.generic);
+    const generic = genericKeys.length === 0
+      ? undefined
+      : Object.fromEntries(genericKeys.map((k) => [k, this.generic[k]!.toJSON()]));
     return {
       name: FnType.NAME,
       call: encodeCall(this._call),
+      generic,
     };
   }
 
   clone(): FnType {
-    return new FnType(this.registry, {
-      args: this._call.args.clone() as Type<any>,
-      returns: this._call.returns?.clone(),
-      throws: this._call.throws?.clone(),
-      get: this._call.get,
-      set: this._call.set,
-    });
+    const genericClone: Record<string, Type> = {};
+    for (const [k, t] of Object.entries(this.generic)) genericClone[k] = t.clone();
+    return new FnType(
+      this.registry,
+      {
+        args: this._call.args.clone() as Type<any>,
+        returns: this._call.returns?.clone(),
+        throws: this._call.throws?.clone(),
+        get: this._call.get,
+        set: this._call.set,
+      },
+      genericClone,
+    );
   }
 
   toCode(): string {
-    const args = this._call.args.toCode();
     const ret = this._call.returns?.toCode() ?? 'void';
-    return `(args: ${args}) => ${ret}`;
+    return this.docsPrefix()
+      + `${renderGenerics(this.generic)}(${formatParams(this._call.args)}): ${ret}`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

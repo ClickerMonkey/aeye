@@ -149,11 +149,7 @@ export class AndType extends Type<any, AndOptions> {
   }
 
   toCode(): string {
-    if (this.parts.length === 0) return 'unknown';
-    return this.parts.map((p) => {
-      const code = p.toCode();
-      return / \| /.test(code) ? `(${code})` : code;
-    }).join(' & ');
+    return this.docsPrefix() + `and<${this.parts.map((p) => p.toCode()).join(', ')}>`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

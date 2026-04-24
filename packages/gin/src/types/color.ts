@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, Init, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { ColorOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -90,6 +90,7 @@ export class ColorType extends Type<number, ColorOptions> {
     const r = this.registry;
     const num = r.num(), bool = r.bool(), text = r.text(), color = r.color();
     return {
+      ...super.props(),
       r: r.prop(num, 'color.r'),
       g: r.prop(num, 'color.g'),
       b: r.prop(num, 'color.b'),
@@ -129,7 +130,7 @@ export class ColorType extends Type<number, ColorOptions> {
     return new ColorType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return 'number'; }
+  toCode(): string { return this.docsPrefix() + 'color' + optionsCode(this.options); }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Dump form is a 32-bit integer (0xRRGGBBAA or 0xRRGGBB depending on hasAlpha).

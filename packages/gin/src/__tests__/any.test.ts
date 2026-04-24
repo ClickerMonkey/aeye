@@ -58,9 +58,9 @@ describe('AnyType', () => {
     expect(() => r.any().narrow({ foo: 1 } as any)).toThrow();
   });
 
-  test('props expose typeOf/is/as/toText/toBoolean/eq/neq', () => {
+  test('props expose typeOf/is/as/toText/toBool/eq/neq', () => {
     const p = r.any().props();
-    for (const n of ['typeOf', 'is', 'as', 'toText', 'toBoolean', 'eq', 'neq']) {
+    for (const n of ['typeOf', 'is', 'as', 'toText', 'toBool', 'eq', 'neq']) {
       expect(p[n]).toBeDefined();
     }
   });

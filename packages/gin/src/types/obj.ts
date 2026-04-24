@@ -142,17 +142,21 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   props(): Record<string, Prop | PropSpec> {
     const r = this.registry;
+    const fieldTypes = Object.values(this.fields).map((p) => p.type);
+    const V = fieldTypes.length === 0
+      ? r.any()
+      : fieldTypes.length === 1 ? fieldTypes[0]! : r.or(fieldTypes);
     const meta: Record<string, Prop> = {
-      keys:    r.method({}, r.list(r.text()), 'object.keys'),
-      values:  r.method({}, r.list(r.any()),  'object.values'),
-      entries: r.method({}, r.list(r.any()),  'object.entries'),
-      has:     r.method({ key: r.text() },    r.bool(), 'object.has'),
-      eq:      r.method({ other: r.any() },   r.bool(), 'object.eq'),
-      neq:     r.method({ other: r.any() },   r.bool(), 'object.neq'),
-      toText:  r.method({},                   r.text(), 'object.toText'),
+      keys:    r.method({}, r.list(r.text()),          'object.keys'),
+      values:  r.method({}, r.list(V),                 'object.values'),
+      entries: r.method({}, r.list(r.tuple([r.text(), V])), 'object.entries'),
+      has:     r.method({ key: r.text() },             r.bool(), 'object.has'),
+      eq:      r.method({ other: r.any() },            r.bool(), 'object.eq'),
+      neq:     r.method({ other: r.any() },            r.bool(), 'object.neq'),
+      toText:  r.method({},                            r.text(), 'object.toText'),
     };
     // Declared fields win over meta-methods if the names collide.
-    return { ...meta, ...this.fields };
+    return { ...super.props(), ...meta, ...this.fields };
   }
 
   get(): GetSet | undefined {
@@ -192,12 +196,15 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   toCode(): string {
     const entries = Object.entries(this.fields);
-    if (entries.length === 0) return '{}';
+    if (entries.length === 0) return this.docsPrefix() + 'obj';
     const parts = entries.map(([name, prop]) => {
-      const label = prop.type.isOptional() ? `${name}?` : name;
-      return `${label}: ${prop.type.toCode()}`;
+      const optional = prop.type.isOptional();
+      const t = optional ? prop.type.required() : prop.type;
+      const label = optional ? `${name}?` : name;
+      const propDocs = prop.docs ? `/* ${prop.docs} */ ` : '';
+      return `${propDocs}${label}: ${t.toCode()}`;
     });
-    return `{ ${parts.join('; ')} }`;
+    return this.docsPrefix() + `obj{${parts.join(', ')}}`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

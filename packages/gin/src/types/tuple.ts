@@ -136,6 +136,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     const firstT = this.elements[0] ?? r.any();
     const lastT = this.elements[this.elements.length - 1] ?? r.any();
     return {
+      ...super.props(),
       length: r.prop(r.num({ whole: true, min: this.elements.length, max: this.elements.length }),
                      'tuple.length'),
       first:  r.prop(firstT, 'tuple.first'),
@@ -157,7 +158,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
   }
 
   toCode(): string {
-    return `[${this.elements.map((e) => e.toCode()).join(', ')}]`;
+    return this.docsPrefix() + `tuple<${this.elements.map((e) => e.toCode()).join(', ')}>`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

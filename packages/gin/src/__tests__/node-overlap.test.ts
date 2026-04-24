@@ -92,9 +92,9 @@ describe('Type and Expr render to TypeScript uniformly', () => {
     const e = new Engine(r);
 
     const nodes: { node: Node; expected: string }[] = [
-      { node: r.num(),                           expected: 'number' },
-      { node: r.list(r.text()),                  expected: 'string[]' },
-      { node: r.obj({ x: { type: r.num() } }),   expected: '{ x: number }' },
+      { node: r.num(),                           expected: 'num' },
+      { node: r.list(r.text()),                  expected: 'list<text>' },
+      { node: r.obj({ x: { type: r.num() } }),   expected: 'obj{x: num}' },
       { node: r.parseExpr({ kind: 'new', type: { name: 'num' }, value: 5 }),             expected: '5' },
       { node: r.parseExpr({ kind: 'get', path: [{ prop: 'arr' }, { key: { kind: 'new', type: { name: 'num' }, value: 0 } }] }), expected: 'arr[0]' },
     ];

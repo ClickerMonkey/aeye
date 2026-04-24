@@ -102,19 +102,26 @@ export class RefType extends Type<any, RefOptions> {
   }
 
   props(): Record<string, Prop | PropSpec> {
-    return this.resolve().props();
+    // When the ref resolves, the target's props already include the
+    // universal `toAny` via base.Type.props. If it can't resolve yet
+    // (unregistered target), fall back to the universal-only set.
+    try {
+      return this.resolve().props();
+    } catch {
+      return super.props();
+    }
   }
 
   get(): GetSet | undefined {
-    return this.resolve().get();
+    try { return this.resolve().get(); } catch { return undefined; }
   }
 
   call(): Call | undefined {
-    return this.resolve().call();
+    try { return this.resolve().call(); } catch { return undefined; }
   }
 
   init(): Init | undefined {
-    return this.resolve().init();
+    try { return this.resolve().init(); } catch { return undefined; }
   }
 
   follow(step: PathStepDef): Type | undefined {
@@ -132,7 +139,7 @@ export class RefType extends Type<any, RefOptions> {
     return new RefType(this.registry, { name: this.options.name });
   }
 
-  toCode(): string { return this.options.name; }
+  toCode(): string { return this.docsPrefix() + this.options.name; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Lazy so recursive named types (A → list<A>) don't blow the stack.

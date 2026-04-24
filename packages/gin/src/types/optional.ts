@@ -101,10 +101,11 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     const r = this.registry;
     const T = this.inner;
     return {
+      ...super.props(),
       value: r.prop(T, 'optional.value'),
       has:   r.method({},                                r.bool(), 'optional.has'),
       or:    r.method({ fallback: T },                   T,        'optional.or'),
-      map:   r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.any()) }, r.optional(r.any()), 'optional.map'),
+      map:   r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.generic('R')) }, r.optional(r.generic('R')), 'optional.map', { generic: { R: r.any() } }),
     };
   }
 
@@ -120,9 +121,7 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   }
 
   toCode(): string {
-    const inner = this.inner.toCode();
-    const needsParens = /[\s|&]/.test(inner);
-    return needsParens ? `(${inner}) | undefined` : `${inner} | undefined`;
+    return this.docsPrefix() + `optional<${this.inner.toCode()}>`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

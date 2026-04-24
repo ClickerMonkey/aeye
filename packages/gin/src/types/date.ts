@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { DateOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -109,6 +109,7 @@ export class DateType extends Type<Date, DateOptions> {
     const r = this.registry;
     const num = r.num({ whole: true }), bool = r.bool(), text = r.text(), date = r.date();
     return {
+      ...super.props(),
       year:      r.prop(num, 'date.year'),
       month:     r.prop(num, 'date.month'),
       day:       r.prop(num, 'date.day'),
@@ -143,7 +144,7 @@ export class DateType extends Type<Date, DateOptions> {
     return new DateType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return 'Date'; }
+  toCode(): string { return this.docsPrefix() + 'date' + optionsCode(this.options); }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Dump form is an ISO date string (YYYY-MM-DD).

@@ -9,88 +9,104 @@ import { createRegistry, Engine } from '../index';
 
 describe('Type.toCode — primitives', () => {
   const r = createRegistry();
-  test('any → any',         () => expect(r.any().toCode()).toBe('any'));
-  test('void → void',       () => expect(r.void().toCode()).toBe('void'));
-  test('null → null',       () => expect(r.null().toCode()).toBe('null'));
-  test('bool → boolean',    () => expect(r.bool().toCode()).toBe('boolean'));
-  test('num → number',      () => expect(r.num().toCode()).toBe('number'));
-  test('text → string',     () => expect(r.text().toCode()).toBe('string'));
-  test('date → Date',       () => expect(r.date().toCode()).toBe('Date'));
-  test('timestamp → Date',  () => expect(r.timestamp().toCode()).toBe('Date'));
-  test('duration → number', () => expect(r.duration().toCode()).toBe('number'));
-  test('color → number',    () => expect(r.color().toCode()).toBe('number'));
+  test('any',       () => expect(r.any().toCode()).toBe('any'));
+  test('void',      () => expect(r.void().toCode()).toBe('void'));
+  test('null',      () => expect(r.null().toCode()).toBe('null'));
+  test('bool',      () => expect(r.bool().toCode()).toBe('bool'));
+  test('num',       () => expect(r.num().toCode()).toBe('num'));
+  test('text',      () => expect(r.text().toCode()).toBe('text'));
+  test('date',      () => expect(r.date().toCode()).toBe('date'));
+  test('timestamp', () => expect(r.timestamp().toCode()).toBe('timestamp'));
+  test('duration',  () => expect(r.duration().toCode()).toBe('duration'));
+  test('color',     () => expect(r.color().toCode()).toBe('color'));
+  test('num with options → num{min=0, max=100, whole=true}', () => {
+    expect(r.num({ min: 0, max: 100, whole: true }).toCode())
+      .toBe('num{min=0, max=100, whole=true}');
+  });
+  test('text with options → text{minLength=1, pattern="^a"}', () => {
+    expect(r.text({ minLength: 1, pattern: '^a' }).toCode())
+      .toBe('text{minLength=1, pattern="^a"}');
+  });
 });
 
 describe('Type.toCode — collections', () => {
   const r = createRegistry();
-  test('list<num> → number[]', () => {
-    expect(r.list(r.num()).toCode()).toBe('number[]');
+  test('list<num>', () => {
+    expect(r.list(r.num()).toCode()).toBe('list<num>');
   });
-  test('list<text> → string[]', () => {
-    expect(r.list(r.text()).toCode()).toBe('string[]');
+  test('list<text>', () => {
+    expect(r.list(r.text()).toCode()).toBe('list<text>');
   });
-  test('list<optional<num>> → parens-wrapped for union', () => {
-    expect(r.list(r.optional(r.num())).toCode()).toBe('(number | undefined)[]');
+  test('list<optional<num>>', () => {
+    expect(r.list(r.optional(r.num())).toCode()).toBe('list<optional<num>>');
   });
-  test('map<text, num> → Map<string, number>', () => {
-    expect(r.map(r.text(), r.num()).toCode()).toBe('Map<string, number>');
+  test('list with length options', () => {
+    expect(r.list(r.num(), { minLength: 1, maxLength: 5 }).toCode())
+      .toBe('list<num>{minLength=1, maxLength=5}');
   });
-  test('tuple → [A, B, C]', () => {
-    expect(r.tuple([r.num(), r.text(), r.bool()]).toCode()).toBe('[number, string, boolean]');
+  test('map<text, num>', () => {
+    expect(r.map(r.text(), r.num()).toCode()).toBe('map<text, num>');
   });
-  test('obj empty → {}', () => {
-    expect(r.obj({}).toCode()).toBe('{}');
+  test('tuple<num, text, bool>', () => {
+    expect(r.tuple([r.num(), r.text(), r.bool()]).toCode()).toBe('tuple<num, text, bool>');
   });
-  test('obj with fields → { name: T; ... }', () => {
+  test('obj empty → obj', () => {
+    expect(r.obj({}).toCode()).toBe('obj');
+  });
+  test('obj with fields → obj{name: text, age: num}', () => {
     const t = r.obj({ name: { type: r.text() }, age: { type: r.num() } });
-    expect(t.toCode()).toBe('{ name: string; age: number }');
+    expect(t.toCode()).toBe('obj{name: text, age: num}');
   });
   test('obj with Optional field → name? syntax', () => {
     const t = r.obj({ name: { type: r.text() }, middle: { type: r.optional(r.text()) } });
-    expect(t.toCode()).toBe('{ name: string; middle?: string | undefined }');
+    expect(t.toCode()).toBe('obj{name: text, middle?: text}');
   });
 });
 
 describe('Type.toCode — wrappers and combinators', () => {
   const r = createRegistry();
-  test('optional<T> → T | undefined', () => {
-    expect(r.optional(r.num()).toCode()).toBe('number | undefined');
+  test('optional<T>', () => {
+    expect(r.optional(r.num()).toCode()).toBe('optional<num>');
   });
-  test('nullable<T> → T | null', () => {
-    expect(r.nullable(r.text()).toCode()).toBe('string | null');
+  test('nullable<T>', () => {
+    expect(r.nullable(r.text()).toCode()).toBe('nullable<text>');
   });
-  test('or → union', () => {
-    expect(r.or([r.num(), r.text()]).toCode()).toBe('number | string');
+  test('or<A, B>', () => {
+    expect(r.or([r.num(), r.text()]).toCode()).toBe('or<num, text>');
   });
-  test('and → intersection', () => {
+  test('and<A, B>', () => {
     const a = r.obj({ a: { type: r.num() } });
     const b = r.obj({ b: { type: r.text() } });
-    expect(r.and([a, b]).toCode()).toBe('{ a: number } & { b: string }');
+    expect(r.and([a, b]).toCode()).toBe('and<obj{a: num}, obj{b: text}>');
   });
-  test('not → Exclude', () => {
-    expect(r.not(r.num()).toCode()).toBe('Exclude<any, number>');
+  test('not<T>', () => {
+    expect(r.not(r.num()).toCode()).toBe('not<num>');
   });
-  test('enum of strings → literal union', () => {
+  test('enum of strings → enum<text>{KEY="val", ...}', () => {
     const t = r.enum({ RED: 'red', GREEN: 'green', BLUE: 'blue' }, r.text());
-    expect(t.toCode()).toBe('"red" | "green" | "blue"');
+    expect(t.toCode()).toBe('enum<text>{RED="red", GREEN="green", BLUE="blue"}');
   });
-  test('literal(text) → "foo"', () => {
-    expect(r.literal(r.text(), 'foo').toCode()).toBe('"foo"');
+  test('literal(text) → literal<text>{value="foo"}', () => {
+    expect(r.literal(r.text(), 'foo').toCode()).toBe('literal<text>{value="foo"}');
   });
-  test('literal(num) → 42', () => {
-    expect(r.literal(r.num(), 42).toCode()).toBe('42');
+  test('literal(num) → literal<num>{value=42}', () => {
+    expect(r.literal(r.num(), 42).toCode()).toBe('literal<num>{value=42}');
   });
 });
 
 describe('Type.toCode — functions and references', () => {
   const r = createRegistry();
-  test('fn → (args: T) => R', () => {
+  test('fn → flattened signature', () => {
     const fn = r.fn(r.obj({ x: { type: r.num() } }), r.text());
-    expect(fn.toCode()).toBe('(args: { x: number }) => string');
+    expect(fn.toCode()).toBe('(x: num): text');
   });
   test('fn returning void', () => {
     const fn = r.fn(r.obj({}), r.void());
-    expect(fn.toCode()).toBe('(args: {}) => void');
+    expect(fn.toCode()).toBe('(): void');
+  });
+  test('fn with generics', () => {
+    const fn = r.fn(r.obj({ x: { type: r.generic('T') } }), r.generic('T'), undefined, { T: r.any() });
+    expect(fn.toCode()).toBe('<T>(x: T): T');
   });
   test('ref → bare name', () => {
     expect(r.ref('User').toCode()).toBe('User');
@@ -105,7 +121,7 @@ describe('Type.toCode — functions and references', () => {
         age:  { type: { name: 'num' } },
       },
     });
-    expect(t.toCode()).toBe('{ name: string; age: number }');
+    expect(t.toCode()).toBe('iface{name: text, age: num}');
   });
   test('extension → its declared name', () => {
     const t = r.extend('num', { name: 'Money', options: { min: 0 } });
@@ -124,7 +140,7 @@ describe('Engine.toCode — expressions', () => {
   });
 
   test('new on non-optional type with no value renders as new T()', () => {
-    expect(e.toCode({ kind: 'new', type: { name: 'num' } })).toBe('new number()');
+    expect(e.toCode({ kind: 'new', type: { name: 'num' } })).toBe('new num()');
   });
 
   test('new primitive literal', () => {
@@ -357,7 +373,7 @@ describe('Engine.toCode — expressions', () => {
         ],
       },
     });
-    expect(code).toBe('(args: { n: number }) => args.n.mul({ other: 2 })');
+    expect(code).toBe('(args: obj{n: num}) => args.n.mul({ other: 2 })');
   });
 
   test('template with static params inlines interpolations', () => {

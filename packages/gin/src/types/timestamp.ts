@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -87,6 +87,7 @@ export class TimestampType extends Type<Date, TimestampOptions> {
     const num = r.num({ whole: true }), bool = r.bool(), text = r.text();
     const ts = r.timestamp(), duration = r.duration();
     return {
+      ...super.props(),
       year:        r.prop(num, 'timestamp.year'),
       month:       r.prop(num, 'timestamp.month'),
       day:         r.prop(num, 'timestamp.day'),
@@ -120,7 +121,7 @@ export class TimestampType extends Type<Date, TimestampOptions> {
     return new TimestampType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return 'Date'; }
+  toCode(): string { return this.docsPrefix() + 'timestamp' + optionsCode(this.options); }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // Dump form is ISO 8601 datetime with a REQUIRED time component:

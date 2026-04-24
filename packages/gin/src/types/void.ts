@@ -73,8 +73,9 @@ export class VoidType extends Type<void, Record<string, never>> {
   props(): Record<string, Prop> {
     const r = this.registry;
     return {
+      ...super.props(),
       toText:    r.method({}, r.text(), 'void.toText'),
-      toBoolean: r.method({}, r.bool(), 'void.toBoolean'),
+      toBool: r.method({}, r.bool(), 'void.toBool'),
     };
   }
 
@@ -86,7 +87,7 @@ export class VoidType extends Type<void, Record<string, never>> {
     return new VoidType(this.registry, {});
   }
 
-  toCode(): string { return 'void'; }
+  toCode(): string { return this.docsPrefix() + 'void'; }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 }

@@ -16,7 +16,7 @@ export const boolNatives: Record<string, NativeImpl> = {
     const f = arg<string | undefined>(scope, 'falseText');
     return val(reg.text(), s ? (t ?? 'true') : (f ?? 'false'));
   },
-  'bool.toNumber': (scope, reg) => {
+  'bool.toNum': (scope, reg) => {
     const s = self<boolean>(scope);
     const t = arg<number | undefined>(scope, 'trueValue');
     const f = arg<number | undefined>(scope, 'falseValue');

@@ -48,9 +48,9 @@ describe('VoidType', () => {
     expect(r.parse({ name: 'void' })).toBeInstanceOf(VoidType);
   });
 
-  test('props expose toText/toBoolean', () => {
+  test('props expose toText/toBool', () => {
     const p = r.void().props();
     expect(p.toText).toBeDefined();
-    expect(p.toBoolean).toBeDefined();
+    expect(p.toBool).toBeDefined();
   });
 });

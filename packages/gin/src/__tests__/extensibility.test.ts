@@ -93,7 +93,7 @@ describe('extensibility: Type.isOptional is polymorphic', () => {
       maybe:    { type: r.optional(r.text()) },
       nullable: { type: r.nullable(r.num()) },
     });
-    expect(t.toCode()).toBe('{ required: number; maybe?: string | undefined; nullable: number | null }');
+    expect(t.toCode()).toBe('obj{required: num, maybe?: text, nullable: nullable<num>}');
   });
 });
 

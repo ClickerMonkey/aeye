@@ -396,10 +396,21 @@ export abstract class Type<T = any, O = any> implements Node {
    * Effective props map — names available via .prop access. Implementations
    * may return raw PropSpec values; `prop(name)` normalizes to Prop.
    * Composite types (or, and, optional, extension) override to derive.
+   *
+   * The base defines universal props that every type inherits — `toAny`
+   * is always available. Subclasses spread `super.props()` into their
+   * return to pick these up.
    */
   props(): Record<string, Prop | PropSpec> {
-    return {};
+    return {
+      toAny: this.registry.method({}, this.registry.any(), 'type.toAny'),
+    };
   }
+
+  /** Names of props defined universally on every Type (via base `props()`).
+   *  Consumers that treat callables as "pure" despite having these entries
+   *  (e.g. `toCodeDefinition`'s method-vs-field heuristic) filter by this. */
+  protected static readonly UNIVERSAL_PROP_NAMES: ReadonlySet<string> = new Set(['toAny']);
 
   /**
    * Runtime constraint predicates that every value of this type must
@@ -613,6 +624,105 @@ export abstract class Type<T = any, O = any> implements Node {
    */
   abstract toCode(registry?: Registry, options?: CodeOptions): string;
 
+  /**
+   * Inline `/* docs * /` prefix for `toCode` output when this type has docs.
+   * Mirrors `Expr.commentPrefix`. Subclasses that want docs rendered call
+   * `this.docsPrefix() + <body>` from their `toCode` implementation.
+   */
+  protected docsPrefix(): string {
+    return this.docs ? `/* ${this.docs} */ ` : '';
+  }
+
+  /** ` extends <base>` clause on the `type <name>` header — empty for
+   *  built-in classes; Extension overrides to show its base type. */
+  protected extendsClause(): string {
+    return '';
+  }
+
+  // ─── toCodeDefinition hooks (overridable in Extension) ─────────────
+  //
+  // An Extension's definition block shows ONLY its local additions —
+  // anything inherited from the base is left implicit under the
+  // `extends <base>` clause. Built-in types expose their full surface.
+
+  protected definitionInit():  Init    | undefined { return this.init(); }
+  protected definitionCall():  Call    | undefined { return this.call(); }
+  protected definitionGet():   GetSet  | undefined { return this.get(); }
+  protected definitionProps(): Record<string, Prop | PropSpec> { return this.props(); }
+
+  /**
+   * TypeScript-style definition block — surfaces this type's full public
+   * surface to an LLM: fields, methods (via props whose type is callable),
+   * index signature (via `get()`), and call signature (via `call()`).
+   *
+   *   type Task {
+   *     // short headline
+   *     title: string
+   *     // completed?
+   *     done: boolean
+   *     due?: Date | undefined
+   *     // object.has
+   *     has(key: string): boolean
+   *     [key: "title" | "done" | "due"]: string | boolean | Date | undefined
+   *   }
+   */
+  toCodeDefinition(): string {
+    const lines: string[] = [];
+
+    // Constructor — rendered first so the shape reads like a class.
+    const init = this.definitionInit();
+    if (init) {
+      if (init.docs) lines.push(`  // ${init.docs}`);
+      lines.push(`  new(${formatParams(init.args)})`);
+    }
+
+    // Call signature (`fn` / iface with call / Extension with call).
+    const call = this.definitionCall();
+    if (call) {
+      const ret = call.returns?.toCode() ?? 'void';
+      lines.push(`  (${formatParams(call.args)}): ${ret}`);
+    }
+
+    // Index signature.
+    const gs = this.definitionGet();
+    if (gs) lines.push(`  [key: ${gs.key.toCode()}]: ${gs.value.toCode()}`);
+
+    // Fields + methods.
+    const ownGenerics = new Set(Object.keys(this.generic));
+    for (const [name, raw] of Object.entries(this.definitionProps())) {
+      const prop = raw instanceof Prop ? raw : Prop.from(raw);
+      if (prop.docs) lines.push(`  // ${prop.docs}`);
+      const optional = prop.type.isOptional();
+      const t = optional ? prop.type.required() : prop.type;
+      const opt = optional ? '?' : '';
+      // "Method" shape = pure callable: has call() and nothing else. An
+      // Extension that adds get/props/fields atop a fn still has data;
+      // render it as a field so those surfaces aren't hidden.
+      const propCall = t.call();
+      const nonUniversalKeys = Object.keys(t.props())
+        .filter((k) => !Type.UNIVERSAL_PROP_NAMES.has(k));
+      const pureCallable = !!propCall
+        && !t.get()
+        && nonUniversalKeys.length === 0;
+      if (pureCallable) {
+        const ret = propCall!.returns?.toCode() ?? 'void';
+        // Method-level generics — declared on the fn's `.generic`, filtered
+        // to those NOT inherited from the outer type's own generics.
+        const methodGen = Object.fromEntries(
+          Object.entries(t.generic).filter(([k]) => !ownGenerics.has(k)),
+        );
+        const gParams = renderGenerics(methodGen);
+        lines.push(`  ${name}${opt}${gParams}(${formatParams(propCall!.args)}): ${ret}`);
+      } else {
+        lines.push(`  ${name}${opt}: ${t.toCode()}`);
+      }
+    }
+
+    const docLine = this.docs ? `// ${this.docs}\n` : '';
+    const header = `${docLine}type ${this.name}${renderGenerics(this.generic)}${this.extendsClause()}`;
+    return lines.length === 0 ? `${header} {}` : `${header} {\n${lines.join('\n')}\n}`;
+  }
+
   // ─── SUPER HOOKS (for Extension overrides) ───────────────────────────────
 
   /**
@@ -667,4 +777,65 @@ export abstract class Type<T = any, O = any> implements Node {
    * priority — higher priority = tried first.
    */
   describe?(data: unknown, cache?: Map<unknown, Type>): Type | undefined;
+}
+
+/**
+ * Serialize a type's `options` as gin's `{key=value, …}` suffix. Empty /
+ * all-undefined options render as the empty string, so primitives without
+ * narrowing (`num`, `text`) stay bare. Values use JSON encoding for
+ * strings / null / arrays / objects; numbers and booleans render literal.
+ */
+export function optionsCode(opts: object | undefined | null): string {
+  if (!opts) return '';
+  const entries = Object.entries(opts as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return '';
+  const parts = entries.map(([k, v]) => {
+    const encoded = typeof v === 'string'
+      ? JSON.stringify(v)
+      : typeof v === 'number' || typeof v === 'boolean'
+        ? String(v)
+        : v === null
+          ? 'null'
+          : JSON.stringify(v);
+    return `${k}=${encoded}`;
+  });
+  return `{${parts.join(', ')}}`;
+}
+
+/**
+ * Render a type's generic-parameter map as `<T, U: Bound>`. `T` when bound
+ * is `any` (unconstrained) or a self-referencing GenericType placeholder,
+ * `T: code` otherwise. Shared by type headers and fn signatures.
+ */
+export function renderGenerics(generic: Record<string, Type>): string {
+  const keys = Object.keys(generic);
+  if (keys.length === 0) return '';
+  const parts = keys.map((k) => {
+    const t = generic[k]!;
+    const selfRef = t.name === 'generic'
+      && (t.options as { name?: string } | undefined)?.name === k;
+    return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode()}`;
+  });
+  return `<${parts.join(', ')}>`;
+}
+
+/**
+ * Render a function-args type as a flattened param list for TS-ish
+ * signatures (`a: T, b?: U`). `r.method({...})` always builds an obj
+ * type for args, so duck-typing on `.fields` covers the common case;
+ * anything else falls back to a single `args: <code>` param.
+ */
+export function formatParams(args: Type): string {
+  const fields = (args as unknown as { fields?: Record<string, Prop> }).fields;
+  if (!fields) return args.name === 'void' || args.name === 'any'
+    ? ''
+    : `args: ${args.toCode()}`;
+  const parts = Object.entries(fields).map(([name, prop]) => {
+    const optional = prop.type.isOptional();
+    const t = optional ? prop.type.required() : prop.type;
+    const docs = prop.docs ? `/* ${prop.docs} */ ` : '';
+    return `${docs}${name}${optional ? '?' : ''}: ${t.toCode()}`;
+  });
+  return parts.join(', ');
 }

@@ -117,12 +117,13 @@ export class OrType extends Type<any, OrOptions> {
   }
 
   props(): Record<string, Prop | PropSpec> {
-    if (this.variants.length === 0) return {};
+    const base = super.props();
+    if (this.variants.length === 0) return base;
     const perVariant = this.variants.map((v) => v.props());
     const commonNames = Object.keys(perVariant[0]!).filter((n) =>
       perVariant.every((p) => n in p),
     );
-    const out: Record<string, PropSpec> = {};
+    const out: Record<string, Prop | PropSpec> = { ...base };
     for (const name of commonNames) {
       const types = perVariant.map((p) => p[name]!.type);
       out[name] = { type: this.registry.or(types) };
@@ -165,11 +166,7 @@ export class OrType extends Type<any, OrOptions> {
   }
 
   toCode(): string {
-    if (this.variants.length === 0) return 'never';
-    return this.variants.map((v) => {
-      const code = v.toCode();
-      return / & /.test(code) ? `(${code})` : code;
-    }).join(' | ');
+    return this.docsPrefix() + `or<${this.variants.map((v) => v.toCode()).join(', ')}>`;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {

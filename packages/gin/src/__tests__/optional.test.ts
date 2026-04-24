@@ -51,7 +51,7 @@ describe('OptionalType', () => {
 
   test('props are overlay: value/has/or/map only', () => {
     const p = r.optional(r.num()).props();
-    expect(Object.keys(p).sort()).toEqual(['has', 'map', 'or', 'value']);
+    expect(Object.keys(p).sort()).toEqual(['has', 'map', 'or', 'toAny', 'value']);
   });
 
   test('encode + parse roundtrip', () => {

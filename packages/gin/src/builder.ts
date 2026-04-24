@@ -155,11 +155,13 @@ export interface TypeBuilder {
   prop(type: Type, nativeId: string, docs?: string): Prop;
 
   /** Method-style Prop: its type is a Fn(args) → returns, and when called
-   *  the named native is invoked. Use for things like `eq`, `add`, `map`. */
+   *  the named native is invoked. Use for things like `eq`, `add`, `map`.
+   *  `options.generic` declares method-level type parameters (e.g. `map<R>`);
+   *  the values are the constraint Type (use `any` for unconstrained). */
   method<A extends Record<string, Type>>(
     args: A,
     returns: Type,
     nativeId: string,
-    docs?: string,
+    options?: { docs?: string; generic?: Record<string, Type> },
   ): Prop;
 }

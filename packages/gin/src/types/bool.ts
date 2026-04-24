@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { BoolOptions } from '../builder';
 import { z } from 'zod';
 import type { SchemaOptions } from '../node';
@@ -76,6 +76,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
   props(): Record<string, Prop> {
     const r = this.registry;
     return {
+      ...super.props(),
       eq:        r.method({ other: r.bool() }, r.bool(), 'bool.eq'),
       neq:       r.method({ other: r.bool() }, r.bool(), 'bool.neq'),
       and:       r.method({ other: r.bool() }, r.bool(), 'bool.and'),
@@ -83,7 +84,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
       xor:       r.method({ other: r.bool() }, r.bool(), 'bool.xor'),
       not:       r.method({},                  r.bool(), 'bool.not'),
       toText:    r.method({},                  r.text(), 'bool.toText'),
-      toNumber:  r.method({},                  r.num(),  'bool.toNumber'),
+      toNum:  r.method({},                  r.num(),  'bool.toNum'),
     };
   }
 
@@ -98,7 +99,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
     return new BoolType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return 'boolean'; }
+  toCode(): string { return this.docsPrefix() + 'bool' + optionsCode(this.options); }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
 

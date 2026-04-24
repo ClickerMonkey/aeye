@@ -136,7 +136,7 @@ export class IfaceType extends Type<any, Record<string, never>> {
   }
 
   props(): Record<string, Prop> {
-    return this._props;
+    return { ...(super.props() as Record<string, Prop>), ...this._props };
   }
 
   get(): GetSet | undefined {
@@ -167,17 +167,21 @@ export class IfaceType extends Type<any, Record<string, never>> {
   toCode(): string {
     const parts: string[] = [];
     for (const [name, prop] of Object.entries(this._props)) {
-      const label = prop.type.isOptional() ? `${name}?` : name;
-      parts.push(`${label}: ${prop.type.toCode()}`);
+      const optional = prop.type.isOptional();
+      const t = optional ? prop.type.required() : prop.type;
+      const label = optional ? `${name}?` : name;
+      const propDocs = prop.docs ? `/* ${prop.docs} */ ` : '';
+      parts.push(`${propDocs}${label}: ${t.toCode()}`);
     }
     if (this._get) {
       parts.push(`[key: ${this._get.key.toCode()}]: ${this._get.value.toCode()}`);
     }
     if (this._call) {
       const ret = this._call.returns?.toCode() ?? 'void';
-      parts.push(`(args: ${this._call.args.toCode()}): ${ret}`);
+      parts.push(`(${this._call.args.toCode()}): ${ret}`);
     }
-    return parts.length === 0 ? '{}' : `{ ${parts.join('; ')} }`;
+    const body = parts.length === 0 ? 'iface' : `iface{${parts.join(', ')}}`;
+    return this.docsPrefix() + body;
   }
 
   toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
