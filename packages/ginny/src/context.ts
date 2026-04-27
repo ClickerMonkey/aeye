@@ -11,12 +11,13 @@ export interface Ctx {
   loadedFns: Set<string>;
   loadedVars: Map<string, { type: Type; parsed: Value; docs?: string }>;
   features: { webSearch: boolean };
+  /**
+   * Pose a question to the human user and resolve with their typed answer.
+   * Wired in by the entry point (REPL or one-shot CLI) — sub-prompts
+   * inherit it through the standard ctx pass-through. May be undefined
+   * when no interactive frontend is attached (background runs, tests).
+   */
+  ask?: (question: string) => Promise<string>;
 }
 
 export interface Meta {}
-
-/** Full runtime context passed to tool.call and prompt schema/input functions.
- *  `metadata`/`ai` fields come from @aeye/ai's AIContext — widened to `any`
- *  here so this type can flow through sub-prompt `.get(...)` calls without
- *  fighting the generic gymnastics in AIContext<T>. */
-export type FullCtx = Ctx & { ai?: any; metadata?: any; signal?: AbortSignal };

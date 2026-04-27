@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import type { FullCtx } from '../context';
 
 export const webSearch = ai.tool({
   name: 'web_search',
@@ -14,15 +13,15 @@ export const webSearch = ai.tool({
     try {
       const { tavily } = await import('@tavily/core');
       const client = tavily({ apiKey: process.env['TAVILY_API_KEY']! });
-      const resp = await (client.search as (q: string, opts: unknown) => Promise<unknown>)(
+      const resp = await client.search(
         input.query,
         { maxResults: input.maxResults ?? 5 },
       );
-      const results = (resp as { results?: unknown }).results ?? resp;
+      const results = resp.results ?? resp;
       return JSON.stringify(results);
     } catch (e: unknown) {
       return `Search error: ${e instanceof Error ? e.message : String(e)}`;
     }
   },
-  applicable: (ctx: FullCtx) => !!ctx.features?.webSearch,
+  applicable: (ctx) => !!ctx.features?.webSearch,
 });

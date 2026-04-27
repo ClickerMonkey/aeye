@@ -3,6 +3,7 @@ import { ai } from '../ai';
 import { modelFor } from '../model-selection';
 import { webSearch } from '../tools/web-search';
 import { webGetPage } from '../tools/web-get-page';
+import { ask } from '../tools/ask';
 
 /**
  * Researcher — a sub-agent that answers factual questions by searching the
@@ -34,7 +35,7 @@ Keep answers concise and factual. Cite source URLs.
 
 Question: {{question}}`,
   input: (input: { question: string }) => ({ question: input.question }),
-  tools: [webSearch, webGetPage],
+  tools: [webSearch, webGetPage, ask],
   toolIterations: 10,
   schema: z.object({
     answer: z.string().describe('The researched answer, concise and factual.'),

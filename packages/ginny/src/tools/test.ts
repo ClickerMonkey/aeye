@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ToolInterrupt } from '@aeye/core';
 import { ai } from '../ai';
-import type { FullCtx } from '../context';
+import { flushDirtyVars } from '../vars-global';
 
 export const test = ai.tool({
   name: 'test',
@@ -11,10 +11,11 @@ export const test = ai.tool({
     args: z.record(z.string(), z.unknown()).optional().describe('Extra scope variables'),
     expectError: z.boolean().optional().describe('If true, a runtime error counts as success'),
   }),
+  applicable: (ctx) => !!ctx.runState.draft,
   call: async (
     input: { args?: Record<string, unknown>; expectError?: boolean },
     _refs,
-    ctx: FullCtx,
+    ctx,
   ) => {
     if (!ctx.runState.draft) {
       throw new ToolInterrupt('No draft written yet. Call write() first.');
@@ -29,8 +30,13 @@ export const test = ai.tool({
         return `FAIL (expected error but succeeded): ${JSON.stringify(rawResult)}`;
       }
 
+      // Program ran cleanly — persist any var mutations the dirty-tracking
+      // proxies caught (see `vars-global.ts`).
+      const persisted = flushDirtyVars(ctx);
+      const persistedNote = persisted.length ? ` (persisted vars: ${persisted.join(', ')})` : '';
+
       ctx.runState.lastTest = { success: true, value: rawResult };
-      return `SUCCESS: ${JSON.stringify(rawResult)}`;
+      return `SUCCESS: ${JSON.stringify(rawResult)}${persistedNote}`;
 
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);

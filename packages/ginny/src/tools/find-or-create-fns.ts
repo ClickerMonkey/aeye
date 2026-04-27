@@ -1,11 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import type { FullCtx } from '../context';
 
-interface EngineerResult {
-  use: string[];
-  created: string[];
-}
 
 export const findOrCreateFunctions = ai.tool({
   name: 'find_or_create_functions',
@@ -14,11 +9,9 @@ export const findOrCreateFunctions = ai.tool({
   schema: z.object({
     description: z.string().describe('What functions are needed and why'),
   }),
-  call: async (input: { description: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { description: string }, _refs, ctx) => {
     const { engineer } = await import('../prompts/engineer');
-    const result = (await engineer.get('result', { description: input.description }, ctx)) as
-      | EngineerResult
-      | undefined;
+    const result = await engineer.get('result', { description: input.description }, ctx);
     if (!result) return 'Engineer returned no result.';
 
     const { use = [], created = [] } = result;

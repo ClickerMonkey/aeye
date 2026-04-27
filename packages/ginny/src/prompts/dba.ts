@@ -3,8 +3,8 @@ import { buildSchemas } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
 import { modelFor } from '../model-selection';
-import type { FullCtx } from '../context';
 import { refreshVarsGlobal } from '../vars-global';
+import { ask } from '../tools/ask';
 
 const searchVars = ai.tool({
   name: 'search_vars',
@@ -14,7 +14,7 @@ const searchVars = ai.tool({
     keywords: z.array(z.string()),
     limit: z.number().optional().default(10),
   }),
-  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx: FullCtx) => {
+  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
     const results = ctx.store.searchVars({ keywords: input.keywords, limit: input.limit });
     if (results.length === 0) return 'No matching vars found.';
     return results.map((r) => `${r.name}: ${r.summary}`).join('\n');
@@ -26,7 +26,7 @@ const getVar = ai.tool({
   description: 'Get the full definition of a var by name.',
   instructions: 'Retrieve full var definition (type, value, docs).',
   schema: z.object({ name: z.string() }),
-  call: async (input: { name: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { name: string }, _refs, ctx) => {
     try {
       const def = ctx.store.readVar(input.name);
       return JSON.stringify(def, null, 2);
@@ -40,7 +40,7 @@ const createVar = ai.tool({
   name: 'create_var',
   description: 'Create a new persistent var.',
   instructions: 'Create a typed named var. Provide name, type (TypeDef JSON), value, optional docs.',
-  schema: (ctx: FullCtx) => {
+  schema: (ctx) => {
     const opts = buildSchemas(ctx.registry);
     return z.object({
       name: z.string().describe('Var name (camelCase)'),
@@ -52,7 +52,7 @@ const createVar = ai.tool({
   call: async (
     input: { name: string; type: TypeDef; value: unknown; docs?: string },
     _refs,
-    ctx: FullCtx,
+    ctx,
   ) => {
     const { name, type: typeDef, value, docs } = input;
     ctx.store.writeVar(name, { type: typeDef, value, docs });
@@ -75,7 +75,7 @@ request, or create a new one.
 
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
-  tools: [searchVars, getVar, createVar],
+  tools: [searchVars, getVar, createVar, ask],
   toolIterations: 5,
   schema: z.object({
     use: z.array(z.string()).default([]).describe('Names of existing vars to use'),

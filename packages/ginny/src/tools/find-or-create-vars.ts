@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import type { FullCtx } from '../context';
 import { loadVarInto, refreshVarsGlobal } from '../vars-global';
 
 interface DbaResult {
@@ -15,11 +14,9 @@ export const findOrCreateVars = ai.tool({
   schema: z.object({
     description: z.string().describe('What vars are needed and why'),
   }),
-  call: async (input: { description: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { description: string }, _refs, ctx) => {
     const { dba } = await import('../prompts/dba');
-    const result = (await dba.get('result', { description: input.description }, ctx)) as
-      | DbaResult
-      | undefined;
+    const result = await dba.get('result', { description: input.description }, ctx);
     if (!result) return 'DBA returned no result.';
 
     const { use = [], created = [] } = result;

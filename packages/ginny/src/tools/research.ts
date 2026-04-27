@@ -1,11 +1,5 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import type { FullCtx } from '../context';
-
-interface ResearchResult {
-  answer: string;
-  sources: string[];
-}
 
 /**
  * Thin wrapper that delegates the question to the researcher sub-agent and
@@ -21,16 +15,14 @@ export const research = ai.tool({
   schema: z.object({
     question: z.string().describe('The factual question to research'),
   }),
-  call: async (input: { question: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { question: string }, _refs, ctx) => {
     const { researcher } = await import('../prompts/researcher');
-    const result = (await researcher.get('result', { question: input.question }, ctx)) as
-      | ResearchResult
-      | undefined;
+    const result = await researcher.get('result', { question: input.question }, ctx)
     if (!result) return 'Researcher returned no result.';
 
     const { answer, sources = [] } = result;
     if (sources.length === 0) return answer;
     return `${answer}\n\nSources:\n${sources.map((s) => `  - ${s}`).join('\n')}`;
   },
-  applicable: (ctx: FullCtx) => !!ctx.features?.webSearch,
+  applicable: (ctx) => !!ctx.features?.webSearch,
 });

@@ -827,12 +827,22 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
     return { type: 'null' }; // Treat undefined as null in JSON
   }
 
-  if (schema instanceof z.ZodAny) {
-    return {}; // Any type has no constraints
-  }
-
-  if (schema instanceof z.ZodUnknown) {
-    return {}; // Unknown type has no constraints
+  if (schema instanceof z.ZodAny || schema instanceof z.ZodUnknown) {
+    // Bare `{}` would satisfy the meaning of "any" but OpenAI's strict
+    // structured-output mode rejects schemas without a `type` key. Instead,
+    // promote to a single shared `$defs/Any` definition that covers every
+    // JSON value in a strict-mode-compatible way, and return a `$ref` to it.
+    // Sharing via `$defs` also keeps the output compact when `z.any()`
+    // appears many times inside a big union (avoids schema explosion).
+    const id = 'Any';
+    if (!context.definitionSchemas.has(id)) {
+      // Seed a placeholder BEFORE building the body so recursive
+      // `$ref: '#/$defs/Any'` references don't infinite-loop during
+      // construction.
+      context.definitionSchemas.set(id, {});
+      context.definitionSchemas.set(id, buildAnyValueSchema(context.strict));
+    }
+    return { $ref: `#/$defs/${id}` };
   }
 
   if (schema instanceof z.ZodTransform) {
@@ -843,6 +853,48 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
   console.warn(`Unknown Zod schema type: ${schema.constructor.name}`);
 
   return {};
+}
+
+/**
+ * Builds the body of the shared `$defs/Any` schema — a self-recursive
+ * `anyOf` covering every JSON value in a strict-mode-compatible way.
+ *
+ * In strict mode, open-ended objects (`additionalProperties` anything
+ * other than `false`) are rejected by OpenAI's structured-output
+ * validator, so "arbitrary object" is represented as an array of
+ * `{key, value}` pairs — the same workaround already used for
+ * `ZodRecord` in strict mode. Non-strict mode gets the more intuitive
+ * open-record shape.
+ */
+function buildAnyValueSchema(strict: boolean): JSONSchema {
+  const selfRef: JSONSchema = { $ref: '#/$defs/Any' };
+  const branches: JSONSchema[] = [
+    { type: 'string' },
+    { type: 'number' },
+    { type: 'boolean' },
+    { type: 'null' },
+    { type: 'array', items: selfRef },
+  ];
+  if (strict) {
+    branches.push({
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          key: { type: 'string' },
+          value: selfRef,
+        },
+        required: ['key', 'value'],
+        additionalProperties: false,
+      },
+    });
+  } else {
+    branches.push({
+      type: 'object',
+      additionalProperties: selfRef,
+    });
+  }
+  return { anyOf: branches };
 }
 
 /**

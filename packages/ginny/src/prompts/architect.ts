@@ -3,7 +3,7 @@ import { buildSchemas } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
 import { modelFor } from '../model-selection';
-import type { FullCtx } from '../context';
+import { ask } from '../tools/ask';
 
 const searchTypes = ai.tool({
   name: 'search_types',
@@ -13,7 +13,7 @@ const searchTypes = ai.tool({
     keywords: z.array(z.string()).describe('Keywords to search for'),
     limit: z.number().optional().default(10),
   }),
-  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx: FullCtx) => {
+  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
     const results = ctx.store.searchTypes({ keywords: input.keywords, limit: input.limit });
     if (results.length === 0) return 'No matching types found.';
     return results.map((r) => `${r.name}: ${r.summary}`).join('\n');
@@ -25,7 +25,7 @@ const getType = ai.tool({
   description: 'Get the full definition of a type by name.',
   instructions: 'Retrieve full type code definition by name.',
   schema: z.object({ name: z.string() }),
-  call: async (input: { name: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { name: string }, _refs, ctx) => {
     try {
       const def = ctx.store.readType(input.name);
       const type = ctx.registry.parse(def);
@@ -51,9 +51,9 @@ Respond with valid JSON matching the output schema.
 
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
-  tools: [searchTypes, getType],
+  tools: [searchTypes, getType, ask],
   toolIterations: 5,
-  schema: (_input: { description: string } | undefined, ctx: FullCtx) => {
+  schema: (_input: { description: string } | undefined, ctx) => {
     const opts = buildSchemas(ctx.registry);
     return z.object({
       use: z.array(z.string()).default([]).describe('Names of existing types to use'),

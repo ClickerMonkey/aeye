@@ -1,12 +1,6 @@
 import { z } from 'zod';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
-import type { FullCtx } from '../context';
-
-interface ArchitectResult {
-  use: string[];
-  create: TypeDef[];
-}
 
 export const findOrCreateTypes = ai.tool({
   name: 'find_or_create_types',
@@ -15,11 +9,9 @@ export const findOrCreateTypes = ai.tool({
   schema: z.object({
     description: z.string().describe('What types are needed and why'),
   }),
-  call: async (input: { description: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { description: string }, _refs, ctx) => {
     const { architect } = await import('../prompts/architect');
-    const result = (await architect.get('result', { description: input.description }, ctx)) as
-      | ArchitectResult
-      | undefined;
+    const result = await architect.get('result', { description: input.description }, ctx);
     if (!result) return 'Architect returned no result.';
 
     const { use = [], create = [] } = result;

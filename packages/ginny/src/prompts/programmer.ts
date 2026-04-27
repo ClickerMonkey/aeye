@@ -8,6 +8,7 @@ import { research } from '../tools/research';
 import { findOrCreateTypes } from '../tools/find-or-create-types';
 import { findOrCreateFunctions } from '../tools/find-or-create-fns';
 import { findOrCreateVars } from '../tools/find-or-create-vars';
+import { ask } from '../tools/ask';
 
 /**
  * Rebuild a class's canonical instance with `generic` type-parameter
@@ -255,10 +256,11 @@ Use \`research\` (when available) to look up external facts — API
 response schemas, status codes, enum values, anything you can't
 reliably guess from one sample.
 
-User request: {{request}}`,
-  input: (input: { request: string }, ctx) => ({
-    request: input.request,
-    typeDocs: buildTypeDocs((ctx as any).registry as Registry),
+The user's request — and the running history of this conversation —
+arrive as conversation messages, not embedded in this system prompt.
+Respond to the most recent user message in light of the prior turns.`,
+  input: (_input: {}, ctx) => ({
+    typeDocs: buildTypeDocs(ctx.registry as Registry),
   }),
   tools: [
     findOrCreateTypes,
@@ -268,18 +270,8 @@ User request: {{request}}`,
     test,
     finish,
     research,
+    ask,
   ],
+  dynamic: true,
   toolIterations: 20,
-  retool: (_input: { request: string } | undefined, ctx) => {
-    const base: string[] = [
-      'find_or_create_types',
-      'find_or_create_functions',
-      'find_or_create_vars',
-      'write',
-      'test',
-      'finish',
-    ];
-    if (ctx?.features?.webSearch) base.push('research');
-    return base;
-  },
 });

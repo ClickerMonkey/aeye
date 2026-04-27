@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import type { Message } from '@aeye/core';
 import { ai } from '../ai';
 import { modelFor } from '../model-selection';
-import type { FullCtx } from '../context';
+import { ask } from '../tools/ask';
 
 const searchFns = ai.tool({
   name: 'search_fns',
@@ -11,7 +12,7 @@ const searchFns = ai.tool({
     keywords: z.array(z.string()),
     limit: z.number().optional().default(10),
   }),
-  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx: FullCtx) => {
+  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
     const results = ctx.store.searchFns({ keywords: input.keywords, limit: input.limit });
     if (results.length === 0) return 'No matching functions found.';
     return results.map((r) => `${r.name}: ${r.summary}`).join('\n');
@@ -23,7 +24,7 @@ const getFn = ai.tool({
   description: 'Get the full signature of a function by name.',
   instructions: 'Retrieve function signature by name.',
   schema: z.object({ name: z.string() }),
-  call: async (input: { name: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { name: string }, _refs, ctx) => {
     try {
       const def = ctx.store.readFn(input.name);
       const type = ctx.registry.parse(def.type);
@@ -42,10 +43,13 @@ const createNewFn = ai.tool({
     name: z.string().describe('Unique function name'),
     description: z.string().describe('What the function should do'),
   }),
-  call: async (input: { name: string; description: string }, _refs, ctx: FullCtx) => {
+  call: async (input: { name: string; description: string }, _refs, ctx) => {
     const { programmer } = await import('./programmer');
     const request = `Create a reusable gin function named '${input.name}': ${input.description}. Write it as a program, test it, and finish.`;
-    await programmer.get('result', { request }, ctx);
+    // Programmer reads its task from ctx.messages now — start a fresh
+    // sub-conversation so the engineer's own messages don't leak in.
+    const messages: Message[] = [{ role: 'user', content: request }];
+    await programmer.get('result', {}, { ...ctx, messages });
     return `Function '${input.name}' created.`;
   },
 });
@@ -60,7 +64,7 @@ request or spin up a programmer to author a new one.
 
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
-  tools: [searchFns, getFn, createNewFn],
+  tools: [searchFns, getFn, createNewFn, ask],
   toolIterations: 8,
   schema: z.object({
     use: z.array(z.string()).default([]).describe('Names of existing functions to use'),
