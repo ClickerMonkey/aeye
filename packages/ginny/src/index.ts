@@ -23,11 +23,32 @@ const rl = readline.createInterface({
  * as `ask`, surfacing the `ask` tool to the model. Writes the question
  * to stdout (rather than stderr) so it shares the readline echo path
  * and stays cleanly above the next prompt line.
+ *
+ * Honors `signal` so a Ctrl+C in the parent run aborts a hung prompt:
+ * the promise rejects with an Error and `rl.write('', { ctrl: true,
+ * name: 'u' })` clears any half-typed input.
  */
-function askUser(question: string): Promise<string> {
-  return new Promise((resolve) => {
+function askUser(question: string, signal?: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('aborted'));
+      return;
+    }
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      // Clear any half-typed line so the next prompt starts clean.
+      try { rl.write('', { ctrl: true, name: 'u' } as any); } catch { /* ignore */ }
+      reject(new Error('aborted'));
+    };
+    signal?.addEventListener('abort', onAbort);
     process.stdout.write('\n');
     rl.question(`? ${question}\n> `, (answer) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
       resolve(answer.trim());
     });
   });
@@ -91,7 +112,13 @@ async function runRequest(request: string): Promise<void> {
       { signal: abort.signal, messages: history, ask: askUser },
     );
     for await (const event of events) {
-      ensureSpinnerStopped();
+      // Keep the "ginny is thinking…" spinner alive until the model
+      // actually produces something. `request`/`requestUsage` fire at
+      // the start of an iteration, before any output, so they don't
+      // count — otherwise the spinner gets killed in milliseconds.
+      if (event.type !== 'request' && event.type !== 'requestUsage') {
+        ensureSpinnerStopped();
+      }
       if (event.type === 'message') {
         history.push(event.message);
       }

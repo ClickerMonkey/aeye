@@ -53,6 +53,12 @@ Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
   tools: [searchTypes, getType, ask],
   toolIterations: 5,
+  // Sub-prompt: takes its task via {{description}}, not via inherited
+  // messages. Skipping the parent's history avoids dragging in the
+  // in-flight tool_calls assistant message that triggered the
+  // delegation (which would arrive at the API without its matching
+  // tool result and 400 the request).
+  excludeMessages: true,
   schema: (_input: { description: string } | undefined, ctx) => {
     const opts = buildSchemas(ctx.registry);
     return z.object({

@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import { runSubagent } from '../progress';
+import { registerFnAsGlobal } from '../fns-global';
 
+interface EngineerResult {
+  use: string[];
+  created: string[];
+}
 
 export const findOrCreateFunctions = ai.tool({
   name: 'find_or_create_functions',
@@ -11,7 +17,11 @@ export const findOrCreateFunctions = ai.tool({
   }),
   call: async (input: { description: string }, _refs, ctx) => {
     const { engineer } = await import('../prompts/engineer');
-    const result = await engineer.get('result', { description: input.description }, ctx);
+    const result = await runSubagent(
+      `engineer: ${input.description}`,
+      () => engineer.get('stream', { description: input.description }, ctx),
+      ctx.signal,
+    );
     if (!result) return 'Engineer returned no result.';
 
     const { use = [], created = [] } = result;
@@ -23,6 +33,9 @@ export const findOrCreateFunctions = ai.tool({
           const def = ctx.store.readFn(name);
           const type = ctx.registry.parse(def.type);
           ctx.registry.register(type);
+          // Wire as a runtime callable so programs can invoke it.
+          // Without this the fn is only typed-known, not executable.
+          registerFnAsGlobal(ctx, name, type, def.body);
           ctx.loadedFns.add(name);
         } catch (e: unknown) {
           lines.push(`// Could not load fn '${name}': ${e instanceof Error ? e.message : String(e)}`);

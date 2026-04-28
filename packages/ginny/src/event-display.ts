@@ -19,7 +19,6 @@ const CYAN = `${ESC}36m`;
 const GREEN = `${ESC}32m`;
 const RED = `${ESC}31m`;
 const DIM = `${ESC}2m`;
-const BOLD = `${ESC}1m`;
 
 const PREVIEW_MAX = 120;
 
@@ -35,7 +34,7 @@ function preview(value: unknown): string {
   return s.length > PREVIEW_MAX ? `${s.slice(0, PREVIEW_MAX)}…` : s;
 }
 
-type LastEventKind = 'turn' | 'thinking' | 'text' | 'tool' | null;
+type LastEventKind = 'thinking' | 'text' | 'tool' | null;
 
 export class EventDisplay {
   private toolStarts = new WeakMap<object, number>();
@@ -61,14 +60,10 @@ export class EventDisplay {
   handle(event: { type: string; [k: string]: any }): void {
     switch (event.type) {
       case 'request': {
-        const turn = (event.iterations ?? 0) + 1;
-        if (event.iterations > 0) {
-          this.breakIfText();
-          process.stderr.write(`\n${this.c(BOLD, `── turn ${turn} ──`)}\n`);
-          this.last = 'turn';
-          this.thinkingShownThisTurn = false;
-          logger.log(`── turn ${turn} ──`);
-        }
+        // Reset the per-turn thinking cue so the next iteration can
+        // re-emit it; no visible separator between turns.
+        this.thinkingShownThisTurn = false;
+        if (event.iterations > 0) logger.log(`── turn ${(event.iterations ?? 0) + 1} ──`);
         break;
       }
 

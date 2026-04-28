@@ -22,8 +22,6 @@ export interface Store {
   searchVars(q: { keywords: string[]; limit?: number }): SearchResult[];
   readVar(name: string): { type: TypeDef; value: unknown; docs?: string };
   writeVar(name: string, v: { type: TypeDef; value: unknown; docs?: string }): string;
-
-  writeProgram(slug: string, expr: ExprDef): string;
 }
 
 function ensureDir(dir: string): void {
@@ -87,7 +85,6 @@ export function createStore(cwd: string): Store {
   const typesDir = path.join(cwd, 'types');
   const fnsDir = path.join(cwd, 'fns');
   const varsDir = path.join(cwd, 'vars');
-  const programsDir = path.join(cwd, 'programs');
 
   return {
     searchTypes(q) {
@@ -152,12 +149,6 @@ export function createStore(cwd: string): Store {
     writeVar(name, v) {
       const file = path.join(varsDir, `${name}.json`);
       writeJSON(file, v);
-      return file;
-    },
-
-    writeProgram(slug, expr) {
-      const file = path.join(programsDir, `${slug}.json`);
-      writeJSON(file, expr);
       return file;
     },
   };

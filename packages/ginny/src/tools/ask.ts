@@ -25,7 +25,9 @@ export const ask = ai.tool({
     if (typeof ctx.ask !== 'function') {
       return 'No interactive user available — proceed with your best assumption and note it.';
     }
-    const answer = await ctx.ask(input.question);
+    // Forward the abort signal so a Ctrl+C while the user is at the
+    // prompt unsticks the run instead of leaving the tool hanging.
+    const answer = await ctx.ask(input.question, ctx.signal);
     return answer.length > 0 ? answer : '(no answer)';
   },
 });

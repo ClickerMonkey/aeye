@@ -37,6 +37,7 @@ Question: {{question}}`,
   input: (input: { question: string }) => ({ question: input.question }),
   tools: [webSearch, webGetPage, ask],
   toolIterations: 10,
+  excludeMessages: true,
   schema: z.object({
     answer: z.string().describe('The researched answer, concise and factual.'),
     sources: z.array(z.string()).default([]).describe('URLs actually consulted.'),

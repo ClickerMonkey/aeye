@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
+import { runSubagent } from '../progress';
+
+interface ArchitectResult {
+  use: string[];
+  create: TypeDef[];
+}
 
 export const findOrCreateTypes = ai.tool({
   name: 'find_or_create_types',
@@ -11,7 +17,11 @@ export const findOrCreateTypes = ai.tool({
   }),
   call: async (input: { description: string }, _refs, ctx) => {
     const { architect } = await import('../prompts/architect');
-    const result = await architect.get('result', { description: input.description }, ctx);
+    const result = await runSubagent(
+      `architect: ${input.description}`,
+      () => architect.get('stream', { description: input.description }, ctx),
+      ctx.signal,
+    );
     if (!result) return 'Architect returned no result.';
 
     const { use = [], create = [] } = result;
@@ -33,6 +43,31 @@ export const findOrCreateTypes = ai.tool({
     for (const def of create) {
       const name = (def as { name?: string }).name;
       if (!name) continue;
+
+      // Reject a bare `{ name }` (or anything with no structural fields)
+      // — gin treats that as a reference to an existing named type, not
+      // a definition. The architect occasionally puts these in `create`
+      // when they belong in `use`, and writing one would clobber the
+      // real on-disk definition.
+      const d = def as TypeDef;
+      const hasBody = !!(d.extends || d.satisfies || d.generic ||
+                         d.options || d.init || d.props ||
+                         d.get || d.call || d.constraint);
+      if (!hasBody) {
+        // Treat as `use`: load existing if present, else skip.
+        if (!ctx.loadedTypes.has(name)) {
+          try {
+            const existing = ctx.store.readType(name);
+            const type = ctx.registry.parse(existing);
+            ctx.registry.register(type);
+            ctx.loadedTypes.add(name);
+          } catch { /* nothing on disk either — silently drop */ }
+        }
+        const t = ctx.registry.lookup(name);
+        if (t) lines.push(t.toCodeDefinition());
+        continue;
+      }
+
       try {
         ctx.store.writeType(def);
         const type = ctx.registry.parse(def);

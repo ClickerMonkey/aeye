@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ai } from '../ai';
 import { loadVarInto, refreshVarsGlobal } from '../vars-global';
+import { runSubagent } from '../progress';
 
 interface DbaResult {
   use: string[];
@@ -16,7 +17,11 @@ export const findOrCreateVars = ai.tool({
   }),
   call: async (input: { description: string }, _refs, ctx) => {
     const { dba } = await import('../prompts/dba');
-    const result = await dba.get('result', { description: input.description }, ctx);
+    const result = await runSubagent(
+      `dba: ${input.description}`,
+      () => dba.get('stream', input, ctx),
+      ctx.signal,
+    );
     if (!result) return 'DBA returned no result.';
 
     const { use = [], created = [] } = result;

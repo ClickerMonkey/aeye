@@ -3,6 +3,7 @@ import type { Message } from '@aeye/core';
 import { ai } from '../ai';
 import { modelFor } from '../model-selection';
 import { ask } from '../tools/ask';
+import { runSubagent } from '../progress';
 
 const searchFns = ai.tool({
   name: 'search_fns',
@@ -49,7 +50,11 @@ const createNewFn = ai.tool({
     // Programmer reads its task from ctx.messages now — start a fresh
     // sub-conversation so the engineer's own messages don't leak in.
     const messages: Message[] = [{ role: 'user', content: request }];
-    await programmer.get('result', {}, { ...ctx, messages });
+    await runSubagent(
+      `programmer: ${input.name}`,
+      () => programmer.get('stream', {}, { ...ctx, messages }),
+      ctx.signal,
+    );
     return `Function '${input.name}' created.`;
   },
 });
@@ -66,6 +71,7 @@ Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
   tools: [searchFns, getFn, createNewFn, ask],
   toolIterations: 8,
+  excludeMessages: true,
   schema: z.object({
     use: z.array(z.string()).default([]).describe('Names of existing functions to use'),
     created: z.array(z.string()).default([]).describe('Names of newly created functions'),

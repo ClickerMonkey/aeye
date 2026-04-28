@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import { runSubagent } from '../progress';
+
+interface ResearchResult {
+  answer: string;
+  sources?: string[];
+}
 
 /**
  * Thin wrapper that delegates the question to the researcher sub-agent and
@@ -17,7 +23,11 @@ export const research = ai.tool({
   }),
   call: async (input: { question: string }, _refs, ctx) => {
     const { researcher } = await import('../prompts/researcher');
-    const result = await researcher.get('result', { question: input.question }, ctx)
+    const result = await runSubagent(
+      `researcher: ${input.question}`,
+      () => researcher.get('stream', { question: input.question }, ctx),
+      ctx.signal,
+    );
     if (!result) return 'Researcher returned no result.';
 
     const { answer, sources = [] } = result;

@@ -73,10 +73,23 @@ export const dba = ai.prompt({
 can read from \`vars.<name>\`. Find an existing entry that matches the
 request, or create a new one.
 
+When the requested var is a credential or external parameter the user
+hasn't supplied yet (API key, secret, account id, base URL, etc.):
+- Create the var anyway with a placeholder value of the correct type
+  (empty text \`""\`, zero, etc.).
+- Put **clear setup instructions** in the var's \`docs\` field telling
+  the user EXACTLY where to obtain the value and how to populate it
+  — the dashboard URL, the menu path, scopes/permissions needed, any
+  format requirements. The docs are how the user knows what to do.
+
+Do not ask the user for these values; create the slot with good docs
+so the programmer can return a clear "set vars.X then re-run" message.
+
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
   tools: [searchVars, getVar, createVar, ask],
   toolIterations: 5,
+  excludeMessages: true,
   schema: z.object({
     use: z.array(z.string()).default([]).describe('Names of existing vars to use'),
     created: z.array(z.string()).default([]).describe('Names of newly created vars'),

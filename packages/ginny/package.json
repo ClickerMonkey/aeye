@@ -37,7 +37,12 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@tavily/core": "^0.5.13"
+    "@tavily/core": "^0.5.13",
+    "mammoth": "^1.8.0",
+    "node-html-markdown": "^1.3.0",
+    "pdf-parse": "^1.1.1",
+    "puppeteer": "^24.0.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@aeye/ai": "0.3.8",
@@ -48,6 +53,7 @@
     "@aeye/openai": "0.3.8",
     "@aeye/openrouter": "0.3.8",
     "@types/node": "^24.9.1",
+    "@types/pdf-parse": "^1.1.0",
     "esbuild": "^0.26.0",
     "rimraf": "^6.1.2",
     "tsx": "^4.20.6",
