@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -89,7 +89,7 @@ export class VoidType extends Type<void, Record<string, never>> {
 
   toCode(): string { return this.docsPrefix() + 'void'; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('void') }).passthrough();

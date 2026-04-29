@@ -13,7 +13,7 @@ import {
 } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface RefOptions {
@@ -141,7 +141,7 @@ export class RefType extends Type<any, RefOptions> {
 
   toCode(): string { return this.docsPrefix() + this.options.name; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Lazy so recursive named types (A → list<A>) don't blow the stack.
     return this.describeType(z.lazy(() => this.resolve().toValueSchema(opts)), opts);
   }

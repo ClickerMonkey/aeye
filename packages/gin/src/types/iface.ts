@@ -12,7 +12,7 @@ import {
 } from '../type';
 import { decodeCall, decodeGetSet, decodeProps, encodeCall, encodeGetSet, encodeProps } from '../spec';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
 
 /**
@@ -220,7 +220,7 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return this.docsPrefix() + body;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const mode = opts?.includeDocs ?? 'none';
     // Structural: any object carrying the declared props is acceptable.
     const shape: Record<string, z.ZodTypeAny> = {};

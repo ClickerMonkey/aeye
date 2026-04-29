@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -144,7 +144,7 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
       + optionsCode({ value: this.literal });
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     return this.describeType(
       z.literal(this.literal as string | number | boolean | null),
       opts,

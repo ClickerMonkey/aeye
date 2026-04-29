@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, PropSpec, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface AndOptions {
@@ -167,7 +167,7 @@ export class AndType extends Type<any, AndOptions> {
     return this.docsPrefix() + `and<${this.parts.map((p) => p.toCode()).join(', ')}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     if (this.parts.length === 0) return this.describeType(z.unknown(), opts);
     if (this.parts.length === 1) return this.describeType(this.parts[0]!.toValueSchema(opts), opts);
     const s = this.parts

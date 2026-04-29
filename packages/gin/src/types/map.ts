@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue } from '../json-type';
 
 
@@ -184,7 +184,7 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return this.docsPrefix() + `map<${this.key.toCode()}, ${this.value.toCode()}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // LLM-friendly shape: an array of { key, value } objects. Not a
     // positional tuple — LLMs handle object keys more reliably.
     return this.describeType(z.array(z.object({

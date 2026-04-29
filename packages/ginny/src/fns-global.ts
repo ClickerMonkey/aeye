@@ -1,5 +1,4 @@
-import type { ExprDef, Type, Value } from '@aeye/gin';
-import type { Ctx } from './context';
+import type { Engine, ExprDef, Type, Value } from '@aeye/gin';
 
 /**
  * Wire a saved gin function (`fns/<name>.json`) into the engine as a
@@ -12,19 +11,28 @@ import type { Ctx } from './context';
  * recursive, can reference other globals (`vars.*`, other saved fns),
  * and stay decoupled from the parent program's scope.
  *
- * Parts of `vars-global.ts` already use the same `engine.registerGlobal`
- * API — fns and vars share the global namespace, so a fn name can't
- * collide with a var name.
+ * Takes `engine` directly rather than the dynamic `ctx` so this helper
+ * doesn't need to import the (purposely loose) ctx type.
  */
 export function registerFnAsGlobal(
-  ctx: Ctx,
+  engine: Engine,
   name: string,
   type: Type,
   body: ExprDef,
 ): void {
   const callable = async (argsValue: Value): Promise<Value> => {
-    const args = (argsValue?.raw ?? {}) as Record<string, Value>;
-    return await ctx.engine.run(body, args);
+    // Gin's calling convention: a function's parameters are bound as a
+    // single `args` scope var (matches how `Lambda.evaluate` does it
+    // in @aeye/gin/exprs/lambda.ts). The body accesses individual
+    // params via `[{prop: 'args'}, {prop: '<name>'}]`.
+    //
+    // The single-namespace wrapping is deliberate: param names are
+    // controlled by the caller (engineer/programmer), but a function
+    // body also has globals (`fns`, `vars`, loaded fns), `recurse`,
+    // and lambda-context names (`this`, `super`, `key`, `value`) in
+    // scope. Putting params under `args.*` keeps any of those names
+    // free for use as parameters without collision risk.
+    return await engine.run(body, { args: argsValue });
   };
-  ctx.engine.registerGlobal(name, { type, value: callable });
+  engine.registerGlobal(name, { type, value: callable });
 }

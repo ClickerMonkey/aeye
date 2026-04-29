@@ -5,7 +5,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -234,7 +234,7 @@ export class NumType extends Type<number, NumOptions> {
 
   toCode(): string { return this.docsPrefix() + 'num' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     let s = this.options.whole ? z.number().int() : z.number();
     if (this.options.min !== undefined) s = s.min(this.options.min);
     if (this.options.max !== undefined) s = s.max(this.options.max);

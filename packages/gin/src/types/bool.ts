@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { BoolOptions } from '../builder';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -101,7 +101,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
 
   toCode(): string { return this.docsPrefix() + 'bool' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('bool') }).passthrough();

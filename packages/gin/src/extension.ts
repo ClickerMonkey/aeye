@@ -21,7 +21,7 @@ import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
-import type { SchemaOptions } from './node';
+import type { SchemaOptions, ValueSchemaOptions } from './node';
 import type { Expr } from './expr';
 
 /**
@@ -317,7 +317,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     return this.local.constraint ? [this.local.constraint, ...base] : base;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Extensions normally delegate to base — but when `local.props` adds
     // data fields atop an object-shaped base (obj/iface), those fields need
     // to land in the value schema too. Nothing else in the pipeline pushes
@@ -341,7 +341,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   private mergeLocalPropsInto(
     schema: z.ZodTypeAny,
-    opts: SchemaOptions | undefined,
+    opts: ValueSchemaOptions | undefined,
     slotFor: (prop: Prop) => z.ZodTypeAny,
   ): z.ZodTypeAny {
     const props = this.local.props;

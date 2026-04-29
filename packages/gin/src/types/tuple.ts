@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONValue } from '../json-type';
 
 
@@ -170,7 +170,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return this.docsPrefix() + `tuple<${this.elements.map((e) => e.toCode()).join(', ')}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Tuples ARE positional by nature — emit z.tuple for fidelity. LLM
     // consumers that struggle with positional arrays should use a different
     // shape (obj with named fields); tuple type preserves the position

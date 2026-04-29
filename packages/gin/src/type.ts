@@ -9,7 +9,7 @@ import { Problems } from './problem';
 import type { Scope } from './scope';
 import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
-import type { SchemaOptions } from './node';
+import type { SchemaOptions, ValueSchemaOptions } from './node';
 
 // ============================================================================
 // RUNTIME SPEC SHAPES
@@ -556,7 +556,7 @@ export abstract class Type<T = any, O = any> implements Node {
    *  - `includeDocs: 'type' | 'all'` — attach `.describe(this.docs)` if
    *    set. 'all' also describes individual props / fields / get / call.
    */
-  abstract toValueSchema(opts?: SchemaOptions): z.ZodTypeAny;
+  abstract toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny;
 
   /**
    * Produce a Zod schema for the VALUE side of a `{ kind: 'new' }` Expr of
@@ -584,7 +584,7 @@ export abstract class Type<T = any, O = any> implements Node {
    */
   protected describeType(
     schema: z.ZodTypeAny,
-    opts?: SchemaOptions,
+    opts?: ValueSchemaOptions,
     aidPrefix: 'Value_' | 'NewValue_' | null = 'Value_',
   ): z.ZodTypeAny {
     const mode = opts?.includeDocs ?? 'none';

@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface NotOptions {
@@ -117,7 +117,7 @@ export class NotType extends Type<any, NotOptions> {
 
   toCode(): string { return this.docsPrefix() + `not<${this.excluded.toCode()}>`; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const excluded = this.excluded.toValueSchema(opts);
     return this.describeType(z.any().refine(
       (v) => !excluded.safeParse(v).success,

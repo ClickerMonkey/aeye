@@ -21,18 +21,21 @@ import type { Type } from './type';
  *  - `newStrict` — when true, NewExpr.toSchema emits a discriminated
  *                union over `opts.types` instead of its generic shape.
  */
-export interface SchemaOptions {
-  Type: z.ZodTypeAny;
-  Expr: z.ZodTypeAny;
-  types: Type[];
-  exprs: Expr[];
-  /**
-   * Registry reference so schema builders can enumerate classes and
-   * registered named types (e.g. `NewExpr.toSchema` strict mode builds a
-   * union with branches per built-in class + per named instance).
-   */
-  registry: Registry;
-  newStrict?: boolean;
+/**
+ * Options consumed by `Type.toValueSchema` (and the helpers it delegates
+ * to like `describeType`). Deliberately narrower than `SchemaOptions`:
+ * value-side schema generation never references `Type` / `Expr` /
+ * `types` / `exprs` / `registry` / `newStrict`, so requiring them all
+ * just to pass `{ includeDocs: 'all' }` is overkill — and forces every
+ * caller to plumb the full meta-language schema bag through.
+ *
+ * Callers building a value-side schema for one Type (e.g. ginny's
+ * `test()` tool deriving its `args` schema from a function's params)
+ * can call `argsType.toValueSchema({ includeDocs: 'all' })` without
+ * holding onto the full `SchemaOptions`. `SchemaOptions` extends this,
+ * so existing call sites that already have the full bag still work.
+ */
+export interface ValueSchemaOptions {
   /**
    * Control whether Type docstrings are attached to generated Zod schemas
    * via `.describe(...)`. Useful for LLM prompting — docs become part of
@@ -44,6 +47,35 @@ export interface SchemaOptions {
    *              with its own `docs`.
    */
   includeDocs?: 'none' | 'type' | 'all';
+  /**
+   * Optional pass-through to the full meta-language schema bag. Most
+   * `toValueSchema` paths never touch these — they're declared here so
+   * a `SchemaOptions` (where these are required) is structurally
+   * assignable to `ValueSchemaOptions` without casts, and so the rare
+   * type that DOES need them (e.g. `TypType.toValueSchema` building an
+   * inline-Extension branch) can read them off `opts` directly when
+   * present and gracefully degrade when not.
+   */
+  Type?: z.ZodTypeAny;
+  Expr?: z.ZodTypeAny;
+  types?: Type[];
+  exprs?: Expr[];
+  registry?: Registry;
+  newStrict?: boolean;
+}
+
+export interface SchemaOptions extends ValueSchemaOptions {
+  Type: z.ZodTypeAny;
+  Expr: z.ZodTypeAny;
+  types: Type[];
+  exprs: Expr[];
+  /**
+   * Registry reference so schema builders can enumerate classes and
+   * registered named types (e.g. `NewExpr.toSchema` strict mode builds a
+   * union with branches per built-in class + per named instance).
+   */
+  registry: Registry;
+  newStrict?: boolean;
   /**
    * Control whether Expr comments are attached via `.describe(...)`.
    *  - `'none'` (default): ignore.

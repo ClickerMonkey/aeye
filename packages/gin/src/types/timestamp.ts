@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../t
 import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -123,7 +123,7 @@ export class TimestampType extends Type<Date, TimestampOptions> {
 
   toCode(): string { return this.docsPrefix() + 'timestamp' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is ISO 8601 datetime with a REQUIRED time component:
     //   YYYY-MM-DD[T or space]HH:MM[:SS[.fff]][Z|±HH:MM]
     return this.describeType(z.string().regex(

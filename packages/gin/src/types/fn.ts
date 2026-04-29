@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderGenerics } from '../type';
 import { decodeCall, encodeCall } from '../spec';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema } from '../schemas';
 
 /**
@@ -176,7 +176,7 @@ export class FnType extends Type<any, Record<string, never>> {
       + `${renderGenerics(this.generic)}(${formatParams(this._call.args)}): ${ret}`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Functions aren't JSON-serializable. Accept a native id (string) or
     // an inline lambda ExprDef (object with `kind`). LLMs shouldn't be
     // generating raw function values — use native id strings.

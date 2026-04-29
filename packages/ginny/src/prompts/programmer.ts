@@ -271,6 +271,26 @@ Saying *"I need an API key — please paste it"* is the wrong move.
 Saying *"I created \`vars.plaidSecret\`; populate it from your Plaid
 dashboard at https://… and I'll be ready"* is the right one.
 
+## When the user asks for "a function that does X"
+
+Treat that as a request to create a REUSABLE function. The user wants
+to invoke it later with different inputs — so any value the function
+operates on must be a PARAMETER, not a hardcoded constant inside the
+body. Examples:
+
+- "function that computes prime factors of a number" →
+  \`primeFactors(n: num): list<num>\`. The number is a parameter; the
+  body reads it via \`get('n')\`. Do NOT bake a sample like 56 into
+  the body.
+- "function that fetches a user from the API" →
+  \`fetchUser(id: text): User\`.
+- "compute 2 + 2" → that's a one-shot question, not a function. Just
+  test/finish without saving.
+
+When you delegate to \`find_or_create_functions\`, spell out which
+inputs are user-supplied (parameters) versus fixed in the description.
+The engineer uses your description verbatim to design the signature.
+
 ## Workflow
 
 1. If the task needs types / fns / vars not in scope, call

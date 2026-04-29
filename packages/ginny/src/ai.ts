@@ -161,6 +161,7 @@ export const ai = AI.with<Ctx, Meta>()
       loadedFns: sessionLoadedFns,
       loadedVars: sessionLoadedVars,
       runState: createRunState(),
+      programmerDepth: 0,
     },
     providedContext: async (ctx) => ({
       ...ctx,

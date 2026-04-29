@@ -3,7 +3,7 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface GenericOptions {
@@ -102,7 +102,7 @@ export class GenericType extends Type<any, GenericOptions> {
 
   toCode(): string { return this.docsPrefix() + this.options.name; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Unbound placeholder — no concrete shape constraint. Callers that
     // need tight schemas should `.bind()` the generic first.
     return this.describeType(z.any(), opts);

@@ -50,18 +50,23 @@ export const finish = ai.tool({
     if (input.saveAs) {
       const name = input.saveAs;
       const r = ctx.registry;
-      // Programs are nullary by default — wrap them as `fn({}, ResultType)`
-      // so they can be called as `name({})`. The engineer path is the
-      // place to author parameterized fns.
-      const argsType = r.obj({});
-      const returnType = ctx.engine.typeOf(draft);
+
+      // When the engineer set up this run via `create_new_fn`, the
+      // intended signature lives on `ctx.targetFn`. Use it so the saved
+      // type matches what the engineer designed instead of being
+      // inferred from the body — `engine.typeOf(draft)` of an if/elif
+      // chain lands on weird unions like `or<bool, bool>`, which is
+      // useless to callers expecting `(n: num) => list<num>`.
+      const useTarget = ctx.targetFn && ctx.targetFn.name === name;
+      const argsType = useTarget ? ctx.targetFn!.argsType : r.obj({});
+      const returnType = useTarget ? ctx.targetFn!.returnsType : ctx.engine.typeOf(draft);
       const fnType = r.fn(argsType, returnType);
       try {
         ctx.store.writeFn(name, { type: fnType.toJSON(), body: draft });
         // Register only as a runtime global — FnType.name is always
         // 'function', so calling registry.register(fnType) would clobber
         // the canonical FnType class, not create a named entry.
-        registerFnAsGlobal(ctx, name, fnType, draft);
+        registerFnAsGlobal(ctx.engine, name, fnType, draft);
         ctx.loadedFns.add(name);
         savedNote = ` (saved as fn '${name}': ${fnType.toCode()})`;
       } catch (e: unknown) {

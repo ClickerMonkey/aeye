@@ -5,7 +5,7 @@ import { type CompatOptions, GetSet, Prop, type PropSpec, type Rnd, Type } from 
 import { decodeProps, encodeProps } from '../spec';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
 
@@ -218,7 +218,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return this.docsPrefix() + `obj{${parts.join(', ')}}`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const mode = opts?.includeDocs ?? 'none';
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this.fields)) {

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { TypeDef, ExprDef } from '@aeye/gin';
+import type { TypeDef } from '@aeye/gin';
 
 const THRESHOLD = parseInt(process.env['GIN_SEARCH_THRESHOLD'] ?? '20', 10);
 
@@ -16,8 +16,15 @@ export interface Store {
   writeType(def: TypeDef): string;
 
   searchFns(q: { keywords: string[]; limit?: number }): SearchResult[];
-  readFn(name: string): { type: TypeDef; body: ExprDef };
-  writeFn(name: string, v: { type: TypeDef; body: ExprDef }): string;
+  /**
+   * Saved functions are stored as a single TypeDef (a `function`-typed
+   * `TypeDef` with the body in `call.get`). That's gin's native callable
+   * shape — see `gin/src/__tests__/recurse.test.ts:267` for the pattern.
+   * The path walker handles invocation, args binding, and recurse with
+   * no ginny-side wrapping.
+   */
+  readFn(name: string): TypeDef;
+  writeFn(name: string, def: TypeDef): string;
 
   searchVars(q: { keywords: string[]; limit?: number }): SearchResult[];
   readVar(name: string): { type: TypeDef; value: unknown; docs?: string };

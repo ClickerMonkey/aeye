@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
 
 
@@ -136,7 +136,7 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return this.docsPrefix() + `optional<${this.inner.toCode()}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toValueSchema(opts).optional(), opts);
   }
 

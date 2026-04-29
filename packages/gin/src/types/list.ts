@@ -5,7 +5,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue } from '../json-type';
 
 
@@ -226,7 +226,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return this.docsPrefix() + `list<${this.item.toCode()}>` + optionsCode(this.options);
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     let s = z.array(this.item.toValueSchema(opts));
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);

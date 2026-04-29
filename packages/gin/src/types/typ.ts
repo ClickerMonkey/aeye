@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
 import { extensionSchemaNarrowed } from '../schemas';
@@ -137,7 +137,7 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     return this.docsPrefix() + `typ<${this.constraint.toCode()}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const narrowed = this.registry.like(this.constraint);
     // If no registry type is compatible with the constraint, nothing can
     // pass — emit never so callers can't supply an arbitrary TypeDef.
@@ -150,8 +150,12 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     const compatibleNames = this.registry
       .compatible(this.constraint)
       .map((t) => t.name);
-    const inlineExt = opts && compatibleNames.length > 0
-      ? extensionSchemaNarrowed(this.registry, opts, compatibleNames)
+    // `extensionSchemaNarrowed` needs the full meta-language schema bag
+    // (`Type` + `Expr`). When toValueSchema is called with only the
+    // narrow ValueSchemaOptions, gracefully drop the inline-extension
+    // branch — the base instance schema is still correct.
+    const inlineExt = opts?.Type && opts?.Expr && compatibleNames.length > 0
+      ? extensionSchemaNarrowed(this.registry, opts as SchemaOptions, compatibleNames)
       : null;
 
     const schema = inlineExt

@@ -5,7 +5,7 @@ import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../t
 import type { DateOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -146,7 +146,7 @@ export class DateType extends Type<Date, DateOptions> {
 
   toCode(): string { return this.docsPrefix() + 'date' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is an ISO date string (YYYY-MM-DD).
     return this.describeType(
       z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date'),

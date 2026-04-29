@@ -5,7 +5,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { TextOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -208,7 +208,7 @@ export class TextType extends Type<string, TextOptions> {
 
   toCode(): string { return this.docsPrefix() + 'text' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     let s = z.string();
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);

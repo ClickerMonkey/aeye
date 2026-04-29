@@ -4,7 +4,7 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -159,7 +159,7 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     return this.docsPrefix() + body;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Zod v4's z.enum accepts a Record — same shape as EnumOptions.values.
     return this.describeType(
       z.enum(this.options.values as Record<string, string | number>),
