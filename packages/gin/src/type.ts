@@ -1,5 +1,5 @@
 import type { Registry } from './registry';
-import type { ExprDef, TypeDef, PathDef, PathStepDef } from './schema';
+import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
 import type { Expr } from './expr';
 import { Value, val } from './value';
 import { substituteChildren } from './spec';
@@ -54,6 +54,17 @@ export class Prop {
   /** Idempotent normalizer: Prop stays, PropSpec becomes a new Prop. */
   static from(x: Prop | PropSpec): Prop {
     return x instanceof Prop ? x : new Prop(x);
+  }
+
+  /** Serialize to PropDef JSON. Inverse of `decodeProp` in spec.ts. */
+  toJSON(): PropDef {
+    return {
+      docs: this.docs,
+      type: this.type.toJSON(),
+      get: this.get,
+      default: this.default,
+      set: this.set,
+    };
   }
 
   // ─── runtime ops (called by Path.walk) ─────────────────────────────────
@@ -147,6 +158,9 @@ export class GetSet<K = any, V = any> {
   readonly get?: ExprDef;
   readonly set?: ExprDef;
   readonly loop?: ExprDef;
+  /** When true, `LoopExpr` re-evaluates `over` each iteration and
+   *  exits on falsy `raw`. See `GetSetDef.loopDynamic`. */
+  readonly loopDynamic?: boolean;
   readonly docs?: string;
 
   constructor(spec: {
@@ -155,6 +169,7 @@ export class GetSet<K = any, V = any> {
     get?: ExprDef;
     set?: ExprDef;
     loop?: ExprDef;
+    loopDynamic?: boolean;
     docs?: string;
   }) {
     this.key = spec.key;
@@ -162,7 +177,21 @@ export class GetSet<K = any, V = any> {
     this.get = spec.get;
     this.set = spec.set;
     this.loop = spec.loop;
+    this.loopDynamic = spec.loopDynamic;
     this.docs = spec.docs;
+  }
+
+  /** Serialize to GetSetDef JSON. Inverse of `decodeGetSet` in spec.ts. */
+  toJSON(): GetSetDef {
+    return {
+      docs: this.docs,
+      key: this.key.toJSON(),
+      value: this.value.toJSON(),
+      get: this.get,
+      set: this.set,
+      loop: this.loop,
+      loopDynamic: this.loopDynamic,
+    };
   }
 
   /** Read this[key]: runs get Expr with {this, key, super?}. */
@@ -186,6 +215,21 @@ export class GetSet<K = any, V = any> {
 
 /**
  * Runtime Call — callable spec, with arg/return/throws Types resolved.
+ *
+ * The parsed `args` / `returns` / `throws` (and `get` / `set` ExprDefs
+ * that flow through to the engine) are the fully-inlined forms — the
+ * runtime / analysis layer never sees alias references.
+ *
+ * When the source `CallDef` declared `types` (call-local type aliases),
+ * the un-inlined source forms are preserved on private fields below
+ * so `toJSON()` can emit the compact aliased shape rather than the
+ * verbose inlined one. These fields are populated only when aliases
+ * were actually used; otherwise undefined.
+ *
+ * On `.bind()` substitution, gin's substitute pipeline drops the
+ * `types` and source fields so post-bind `toJSON()` doesn't emit a
+ * stale source map alongside an updated parsed call. The bound Call
+ * is therefore alias-free in both representations.
  */
 export class Call<TArgs extends object = any, TResult = any, TError = any> {
   readonly args: Type<TArgs>;
@@ -195,6 +239,20 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
   readonly set?: ExprDef;
   readonly docs?: string;
 
+  /** Call-local type aliases declared on `CallDef.types`. Public so
+   *  rendering (toCode / toCodeDefinition) can surface the alias
+   *  header. Populated only when aliases were used; undefined
+   *  otherwise. */
+  readonly types?: Record<string, TypeDef>;
+  // Un-inlined source forms for round-trip via `toJSON()`. Private —
+  // pure bookkeeping, no external consumer. Populated alongside
+  // `types`; undefined when no aliases were declared.
+  private readonly sourceArgs?: TypeDef;
+  private readonly sourceReturns?: TypeDef;
+  private readonly sourceThrows?: TypeDef;
+  private readonly sourceGet?: ExprDef;
+  private readonly sourceSet?: ExprDef;
+
   constructor(spec: {
     args: Type<TArgs>;
     returns?: Type<TResult>;
@@ -202,6 +260,12 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     get?: ExprDef;
     set?: ExprDef;
     docs?: string;
+    types?: Record<string, TypeDef>;
+    sourceArgs?: TypeDef;
+    sourceReturns?: TypeDef;
+    sourceThrows?: TypeDef;
+    sourceGet?: ExprDef;
+    sourceSet?: ExprDef;
   }) {
     this.args = spec.args;
     this.returns = spec.returns;
@@ -209,6 +273,37 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     this.get = spec.get;
     this.set = spec.set;
     this.docs = spec.docs;
+    this.types = spec.types;
+    this.sourceArgs = spec.sourceArgs;
+    this.sourceReturns = spec.sourceReturns;
+    this.sourceThrows = spec.sourceThrows;
+    this.sourceGet = spec.sourceGet;
+    this.sourceSet = spec.sourceSet;
+  }
+
+  /** Serialize to CallDef JSON. Inverse of `decodeCall` in spec.ts. */
+  toJSON(): CallDef {
+    if (this.types) {
+      // Source-form preservation: emit the un-inlined slots so the
+      // saved CallDef stays compact (alias names intact).
+      return {
+        docs: this.docs,
+        types: this.types,
+        args: this.sourceArgs ?? this.args.toJSON(),
+        returns: this.sourceReturns ?? this.returns?.toJSON(),
+        throws: this.sourceThrows ?? this.throws?.toJSON(),
+        get: this.sourceGet ?? this.get,
+        set: this.sourceSet ?? this.set,
+      };
+    }
+    return {
+      docs: this.docs,
+      args: this.args.toJSON(),
+      returns: this.returns?.toJSON(),
+      throws: this.throws?.toJSON(),
+      get: this.get,
+      set: this.set,
+    };
   }
 }
 
@@ -224,6 +319,15 @@ export class Init<TArgs extends object = any> {
     this.args = spec.args;
     this.run = spec.run;
     this.docs = spec.docs;
+  }
+
+  /** Serialize to InitDef JSON. Inverse of `decodeInit` in spec.ts. */
+  toJSON(): NonNullable<TypeDef['init']> {
+    return {
+      docs: this.docs,
+      args: this.args.toJSON(),
+      run: this.run,
+    };
   }
 }
 
@@ -697,6 +801,20 @@ export abstract class Type<T = any, O = any> implements Node {
   toCodeDefinition(): string {
     const lines: string[] = [];
 
+    // Call-local type aliases — rendered first so they read like
+    // class-level type-alias declarations and can be referenced when
+    // reading the constructor / call signature lines below.
+    const call = this.definitionCall();
+    if (call?.types) {
+      for (const [name, def] of Object.entries(call.types)) {
+        try {
+          lines.push(`  type ${name} = ${this.registry.parse(def).toCode()};`);
+        } catch {
+          lines.push(`  type ${name} = ${JSON.stringify(def)};`);
+        }
+      }
+    }
+
     // Constructor — rendered first so the shape reads like a class.
     const init = this.definitionInit();
     if (init) {
@@ -705,7 +823,6 @@ export abstract class Type<T = any, O = any> implements Node {
     }
 
     // Call signature (`fn` / iface with call / Extension with call).
-    const call = this.definitionCall();
     if (call) {
       const ret = call.returns?.toCode() ?? 'void';
       lines.push(`  (${formatParams(call.args)}): ${ret}`);
@@ -829,6 +946,27 @@ export function optionsCode(opts: object | undefined | null): string {
     return `${k}=${encoded}`;
   });
   return `{${parts.join(', ')}}`;
+}
+
+/**
+ * Render a Call's `types` (call-local type aliases) as a header block
+ * `{a: <code>; b: <code>}` immediately after the generic params and
+ * before the parameter list. Each alias is parsed in isolation so its
+ * generic-placeholder references render as `T` etc. Empty / missing
+ * map → empty string.
+ */
+export function renderCallTypes(
+  registry: { parse(def: TypeDef): Type },
+  types: Record<string, TypeDef> | undefined,
+): string {
+  if (!types) return '';
+  const keys = Object.keys(types);
+  if (keys.length === 0) return '';
+  const parts = keys.map((k) => {
+    try { return `${k}: ${registry.parse(types[k]!).toCode()}`; }
+    catch { return `${k}: ${JSON.stringify(types[k])}`; }
+  });
+  return `{${parts.join('; ')}}`;
 }
 
 /**

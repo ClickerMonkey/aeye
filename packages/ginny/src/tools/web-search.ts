@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { tavily } from '@tavily/core';
 import { ai } from '../ai';
 
 export const webSearch = ai.tool({
@@ -11,7 +12,6 @@ export const webSearch = ai.tool({
   }),
   call: async (input: { query: string; maxResults?: number }) => {
     try {
-      const { tavily } = await import('@tavily/core');
       const client = tavily({ apiKey: process.env['TAVILY_API_KEY']! });
       const resp = await client.search(
         input.query,

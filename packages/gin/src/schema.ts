@@ -42,10 +42,32 @@ export interface GetSetDef {
   get?: ExprDef;
   set?: ExprDef;
   loop?: ExprDef;
+  /**
+   * When true, `LoopExpr` re-evaluates `over` BEFORE every iteration
+   * and binds the resulting value to `value` (and the iteration index
+   * to `key`). The loop continues while `value.raw` is truthy and
+   * exits when it becomes falsy. With this flag the type does NOT
+   * need a `loop` native — gin's loop machinery iterates directly.
+   *
+   * Bool sets this to get while-loop semantics. Other types can opt
+   * in with whatever truthy semantic makes sense for their `raw`
+   * (optional → present, num → non-zero, etc.).
+   */
+  loopDynamic?: boolean;
 }
 
 export interface CallDef {
   docs?: string;
+  /**
+   * Local type aliases scoped to THIS call. Each entry is a TypeDef
+   * referenced inside `args` / `returns` / `throws` / `get` / `set` via
+   * a bare `{name: '<aliasName>'}` reference. Aliases process AFTER
+   * the parent type's generics (so they may reference generic
+   * placeholders) and BEFORE the call slots (so the slots resolve
+   * against them). Sequential — later aliases may reference earlier.
+   * Inlining happens at parse time inside `decodeCall`.
+   */
+  types?: Record<string, TypeDef>;
   args: TypeDef;
   returns?: TypeDef;
   throws?: TypeDef;

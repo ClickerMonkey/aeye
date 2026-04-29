@@ -10,7 +10,7 @@ import {
   type Rnd,
   Type,
 } from '../type';
-import { decodeCall, decodeGetSet, decodeProps, encodeCall, encodeGetSet, encodeProps } from '../spec';
+import { decodeCall, decodeGetSet, decodeProps, encodeProps } from '../spec';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
@@ -187,8 +187,8 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return {
       name: IfaceType.NAME,
       props: Object.keys(this._props).length > 0 ? encodeProps(this._props) : undefined,
-      get: this._get ? encodeGetSet(this._get) : undefined,
-      call: this._call ? encodeCall(this._call) : undefined,
+      get: this._get?.toJSON(),
+      call: this._call?.toJSON(),
     };
   }
 

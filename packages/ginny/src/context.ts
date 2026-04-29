@@ -1,4 +1,4 @@
-import type { Registry, Engine, Type, Value, ObjType } from '@aeye/gin';
+import type { Registry, Engine, Type, TypeDef, Value, ObjType } from '@aeye/gin';
 import type { Store } from './store';
 import type { RunState } from './run-state';
 
@@ -44,7 +44,25 @@ export interface Ctx {
    * narrowing checks, and forces `engineer.create_new_fn` to validate
    * the input up front.
    */
-  targetFn?: { name: string; argsType: ObjType; returnsType: Type };
+  targetFn?: {
+    name: string;
+    /** Parsed (and alias-inlined) args type — used by `test()` to wrap
+     *  raw scope args via `argsType.parse(rawArgs)` and by `write()`
+     *  to bind `args` in the validate scope. */
+    argsType: ObjType;
+    /** Parsed (and alias-inlined) returns type — used by validate /
+     *  static analysis. */
+    returnsType: Type;
+    /**
+     * Optional source forms for round-trip preservation when the
+     * engineer declared `call.types` aliases. `finish()` writes these
+     * back verbatim so the saved fn keeps its compact shape; without
+     * them, `argsType.toJSON()` would emit the verbose inlined form.
+     */
+    callTypes?: Record<string, TypeDef>;
+    sourceArgs?: TypeDef;
+    sourceReturns?: TypeDef;
+  };
 }
 
 /** Hard cap on programmer recursion. With 0-indexed depth, programmers

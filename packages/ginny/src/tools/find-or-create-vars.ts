@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import { dba } from '../prompts/dba';
 import { loadVarInto, refreshVarsGlobal } from '../vars-global';
 import { runSubagent } from '../progress';
 
@@ -16,7 +17,6 @@ export const findOrCreateVars = ai.tool({
     description: z.string().describe('What vars are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx) => {
-    const { dba } = await import('../prompts/dba');
     const result = await runSubagent(
       `dba: ${input.description}`,
       () => dba.get('stream', input, ctx),

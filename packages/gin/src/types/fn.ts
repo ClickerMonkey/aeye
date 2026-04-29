@@ -1,8 +1,8 @@
 import type { Registry } from '../registry';
 import type { ExprDef, TypeDef } from '../schema';
 import { Value } from '../value';
-import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderGenerics } from '../type';
-import { decodeCall, encodeCall } from '../spec';
+import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderCallTypes, renderGenerics } from '../type';
+import { decodeCall } from '../spec';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema } from '../schemas';
@@ -149,7 +149,7 @@ export class FnType extends Type<any, Record<string, never>> {
       : Object.fromEntries(genericKeys.map((k) => [k, this.generic[k]!.toJSON()]));
     return {
       name: FnType.NAME,
-      call: encodeCall(this._call),
+      call: this._call.toJSON(),
       generic,
     };
   }
@@ -173,7 +173,7 @@ export class FnType extends Type<any, Record<string, never>> {
   toCode(): string {
     const ret = this._call.returns?.toCode() ?? 'void';
     return this.docsPrefix()
-      + `${renderGenerics(this.generic)}(${formatParams(this._call.args)}): ${ret}`;
+      + `${renderGenerics(this.generic)}${renderCallTypes(this.registry, this._call.types)}(${formatParams(this._call.args)}): ${ret}`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

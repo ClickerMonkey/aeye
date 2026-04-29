@@ -55,7 +55,10 @@ export class LoopExpr extends Expr {
       kind: z.literal('loop'),
       ...baseExprFields,
       over: opts.Expr.describe(
-        'The iterable to walk — must evaluate to a value whose type defines `get().loop` (lists by index, maps by key, etc.). NOT a bool: gin has no while-loop; a finite iterable is required.',
+        'The iterable expression. Two evaluation modes: ' +
+        '(1) iterable types (list, map, etc. — anything whose `get().loop` is defined) iterate once; the expression is evaluated ONCE at the start. ' +
+        '(2) bool — while-loop semantics: the expression is RE-EVALUATED each iteration; the loop continues while the value is `true` and exits the moment it becomes `false`. ' +
+        'Use `flow:break` / `flow:continue` inside the body to control iteration regardless of mode.',
       ),
       body: opts.Expr.describe(
         "Evaluated once per iteration with the current `key` and `value` bound in scope. Use `{kind:'flow', action:'break'}` or `'continue'` for early-exit. The loop expression itself returns void.",
@@ -85,12 +88,51 @@ export class LoopExpr extends Expr {
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {
     const over = await this.over.evaluate(engine, scope);
     const gs = over.type.get();
-    if (!gs?.loop) {
-      throw new Error(`loop: type '${over.type.name}' has no loop defined on its GetSet`);
+    // A type is iterable iff its GetSet declares EITHER a `loop`
+    // ExprDef (static — e.g. list/map iterate via the native) OR
+    // `loopDynamic: true` (dynamic — e.g. bool while-loop).
+    const iterable = !!(gs?.loop || gs?.loopDynamic);
+    if (!iterable) {
+      throw new Error(`loop: type '${over.type.name}' has no loop or loopDynamic defined on its GetSet`);
     }
 
     const keyName = this.keyName ?? 'key';
     const valueName = this.valueName ?? 'value';
+
+    // Dynamic mode: re-evaluate `over` against the OUTER scope each
+    // iteration; continue while the value's `raw` is truthy. Body
+    // mutations (via `set`) on vars the expression reads drive the
+    // exit condition. `key` is the iteration index, `value` is the
+    // current re-evaluated value. Bool's GetSet sets this flag for
+    // while-loop semantics; other types can opt in similarly. Parallel
+    // options aren't meaningful in this mode (analyzer warns).
+    if (gs.loopDynamic) {
+      let current: Value = over;
+      let iteration = 0;
+      while (current.raw) {
+        const iter = scope.child({
+          [keyName]: val(engine.registry.num({ whole: true, min: 0 }), iteration),
+          [valueName]: current,
+        });
+        try {
+          await this.body.evaluate(engine, iter);
+        } catch (sig) {
+          if (sig instanceof BreakSignal) break;
+          if (!(sig instanceof ContinueSignal)) throw sig;
+        }
+        iteration++;
+        current = await this.over.evaluate(engine, scope);
+      }
+      return val(engine.registry.void(), undefined);
+    }
+
+    // Static (iterable) path — gs.loop is required here. The check
+    // at the top rules out the (no loop AND no loopDynamic) case, but
+    // TS can't narrow through the OR so we re-assert.
+    const loopExpr = gs.loop;
+    if (!loopExpr) {
+      throw new Error(`loop: type '${over.type.name}' has no loop ExprDef on its GetSet`);
+    }
 
     const concurrent = this.parallel?.concurrent
       ? Number((await this.parallel.concurrent.evaluate(engine, scope)).raw)
@@ -111,7 +153,7 @@ export class LoopExpr extends Expr {
           throw sig;
         }
       };
-      await runLoop(gs.loop, scope, engine, over, yieldFn);
+      await runLoop(loopExpr, scope, engine, over, yieldFn);
       return val(engine.registry.void(), undefined);
     }
 
@@ -158,8 +200,15 @@ export class LoopExpr extends Expr {
   validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
     const overT = p.at('over', () => walkValidate(engine, this.over, scope, p, ctx));
     const gs = overT.get();
-    if (!gs?.loop) {
+    // Iterable: type's GetSet defines either a `loop` ExprDef
+    // (static — iterated once) or `loopDynamic: true` (re-evaluated
+    // per iteration; bool uses this for while-loop semantics).
+    const iterable = !!(gs?.loop || gs?.loopDynamic);
+    if (!iterable) {
       p.error('loop.not-iterable', `type '${overT.name}' has no loop defined`);
+    }
+    if (gs?.loopDynamic && this.parallel) {
+      p.error('loop.parallel.dynamic', 'parallel options (concurrent / rate) are not meaningful for a dynamic (re-evaluated) loop');
     }
 
     // parallel.concurrent must be num; parallel.rate must be num or duration.
@@ -196,9 +245,11 @@ export class LoopExpr extends Expr {
       p.at('value', () => checkBindingName(this.valueName!, scope, p));
     }
 
-    // Bind key/value using the iterable's actual types (not any) so the
-    // body validates against correct inner types. Fall back to any only
-    // when the iterable surface was missing (already errored above).
+    // Bind key/value from the iterable's GetSet. Both static and
+    // dynamic modes share the same `gs.key` / `gs.value` types — for
+    // bool that's `num{whole,min:0}` / `bool`; for list it's
+    // `num{whole,min:0}` / `<element>`. Fall back to `any` only when
+    // the iterable surface was missing (already errored above).
     const keyType = gs?.key ?? engine.registry.any();
     const valueType = gs?.value ?? engine.registry.any();
     const child: TypeScope = new Map(scope);

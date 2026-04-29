@@ -1,7 +1,7 @@
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
+import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { BoolOptions } from '../builder';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
@@ -86,6 +86,24 @@ export class BoolType extends Type<boolean, BoolOptions> {
       toText:    r.method({},                  r.text(), 'bool.toText'),
       toNum:  r.method({},                  r.num(),  'bool.toNum'),
     };
+  }
+
+  /**
+   * Bool opts into `LoopExpr`'s while-loop semantics via
+   * `loopDynamic: true`. The loop's `over` expression is re-evaluated
+   * each iteration; iteration continues while the resulting bool is
+   * `true` and exits when it flips to `false`. The body sees `key`
+   * (iteration index, num) and `value` (current bool truth-value).
+   * No `loop` ExprDef is required — the engine drives iteration
+   * directly.
+   */
+  get(): GetSet {
+    const r = this.registry;
+    return new GetSet({
+      key: r.num({ whole: true, min: 0 }),
+      value: r.bool(),
+      loopDynamic: true,
+    });
   }
 
   toJSON(): TypeDef {

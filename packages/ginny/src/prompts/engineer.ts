@@ -8,6 +8,12 @@ import { ask } from '../tools/ask';
 import { runSubagent } from '../progress';
 import { MAX_PROGRAMMER_DEPTH } from '../context';
 import { createRunState } from '../run-state';
+// `programmer` and `engineer` form a circular import (programmer ↔
+// findOrCreateFunctions → engineer → createNewFn → programmer). The
+// reference here is only used inside `createNewFn`'s `call` async fn,
+// so by call-time both modules have finished initializing — ESM live
+// bindings make this safe.
+import { programmer } from './programmer';
 
 const searchFns = ai.tool({
   name: 'search_fns',
@@ -56,15 +62,26 @@ const createNewFn = ai.tool({
     return z.object({
       name: z.string().describe('Unique function name (camelCase)'),
       description: z.string().describe('What the function should do'),
+      types: z
+        .record(z.string(), opts.Type as z.ZodType<TypeDef>)
+        .optional()
+        .describe(
+          'Optional `call.types` aliases — declare reusable named types here ONCE and reference them inside `args` / `returns` as a bare `{name: "<alias>"}`. ' +
+          'Use whenever the same composite type would appear more than once in the signature. ' +
+          'Example: `{ "positiveInt": { "name": "num", "options": { "whole": true, "min": 1 } } }` lets you write `args: { name: "obj", props: { n: { type: { name: "positiveInt" } } } }` and `returns: { name: "list", generic: { V: { name: "positiveInt" } } }` — instead of repeating the full options block twice. ' +
+          'Sequential: later aliases may reference earlier. Forward / self references throw. Alias names cannot match a built-in type-class name (`num`, `list`, `obj`, etc.).',
+        ),
       args: (opts.Type as z.ZodType<TypeDef>).describe(
         'TypeDef of the function\'s parameter object. The PROPS of this obj ARE the function\'s parameters — ' +
         'each prop becomes a scope variable in the body when the function is called. ' +
         'Examples: function taking one number → `{ name: "obj", props: { n: { type: { name: "num" } } } }`; ' +
         'function taking text and a list → `{ name: "obj", props: { name: { type: { name: "text" } }, items: { type: { name: "list", generic: { V: { name: "any" } } } } } }`. ' +
-        'Only use `{ name: "obj" }` (empty obj, no props) for genuinely nullary functions — most useful functions have parameters, so default to listing them as props.',
+        'Only use `{ name: "obj" }` (empty obj, no props) for genuinely nullary functions — most useful functions have parameters, so default to listing them as props. ' +
+        'May reference any alias declared in `types` via `{name: "<alias>"}` (saves repetition).',
       ),
       returns: (opts.Type as z.ZodType<TypeDef>).describe(
-        'TypeDef of the function\'s return value — e.g. `{ name: "list", generic: { V: { name: "num" } } }` for `list<num>`.',
+        'TypeDef of the function\'s return value — e.g. `{ name: "list", generic: { V: { name: "num" } } }` for `list<num>`. ' +
+        'May reference any alias declared in `types` via `{name: "<alias>"}`.',
       ),
     });
   },
@@ -73,31 +90,48 @@ const createNewFn = ai.tool({
   // got us here.
   applicable: (ctx) => (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
   call: async (
-    input: { name: string; description: string; args: TypeDef; returns: TypeDef },
+    input: {
+      name: string;
+      description: string;
+      args: TypeDef;
+      returns: TypeDef;
+      types?: Record<string, TypeDef>;
+    },
     _refs,
     ctx,
   ) => {
-    const { programmer } = await import('./programmer');
-
-    // Parse the engineer-supplied signature into runtime Types — these
-    // are what `test()` uses to wrap raw scope args and what `finish()`
-    // saves as the function's persisted type.
+    // Parse the engineer-supplied signature into runtime Types. When
+    // the engineer declared `types` aliases, args/returns may
+    // reference them — we resolve those by parsing through a synthetic
+    // FnType TypeDef (which routes through `decodeCall`'s alias
+    // inliner). This makes the engineer's declared aliases live for
+    // both the targetFn pass-through AND the eventual saved fn.
     let argsType: ObjType;
     let returnsType: Type;
     try {
-      const parsedArgs = ctx.registry.parse(input.args);
-      if (!(parsedArgs instanceof ObjType)) {
-        throw new Error(`expected an obj type, got '${parsedArgs.name}'`);
+      const fnDef: TypeDef = {
+        name: 'function',
+        call: {
+          ...(input.types ? { types: input.types } : {}),
+          args: input.args,
+          returns: input.returns,
+        },
+      };
+      const parsedFn = ctx.registry.parse(fnDef);
+      const parsedCall = (parsedFn as { _call?: { args: Type; returns?: Type } })._call;
+      if (!parsedCall) throw new Error('parsed FnType has no call spec');
+      if (!(parsedCall.args instanceof ObjType)) {
+        throw new Error(`expected args to be an obj type, got '${parsedCall.args.name}'`);
       }
-      argsType = parsedArgs;
+      argsType = parsedCall.args;
+      if (!parsedCall.returns) throw new Error('returns is required');
+      returnsType = parsedCall.returns;
     } catch (e: unknown) {
       throw new ToolInterrupt(
-        `Could not parse args type for '${input.name}': ${e instanceof Error ? e.message : String(e)}. ` +
-        `args must be an obj type whose props are the function's parameters — e.g. \`{ name: "obj", props: { n: { type: { name: "num" } } } }\`.`,
+        `Could not parse signature for '${input.name}': ${e instanceof Error ? e.message : String(e)}. ` +
+        `args must be an obj type whose props are the function's parameters — e.g. \`{ name: "obj", props: { n: { type: { name: "num" } } } }\`. ` +
+        `If you declared \`types\` aliases, ensure each is declared before it's referenced and that referenced names are bare \`{name: "<alias>"}\`.`,
       );
-    }
-    try { returnsType = ctx.registry.parse(input.returns); } catch (e: unknown) {
-      throw new ToolInterrupt(`Could not parse returns type for '${input.name}': ${e instanceof Error ? e.message : String(e)}`);
     }
 
     const argsCode = (() => { try { return argsType.toCode(); } catch { return JSON.stringify(input.args); } })();
@@ -161,7 +195,18 @@ const createNewFn = ai.tool({
       messages,
       programmerDepth: childDepth,
       runState: innerRunState,
-      targetFn: { name: input.name, argsType, returnsType },
+      targetFn: {
+        name: input.name,
+        argsType,
+        returnsType,
+        ...(input.types
+          ? {
+            callTypes: input.types,
+            sourceArgs: input.args,
+            sourceReturns: input.returns,
+          }
+          : {}),
+      },
     };
 
     await runSubagent(

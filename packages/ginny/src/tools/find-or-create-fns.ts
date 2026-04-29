@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import { engineer } from '../prompts/engineer';
 import { runSubagent } from '../progress';
 import { MAX_PROGRAMMER_DEPTH } from '../context';
 
@@ -22,7 +23,6 @@ export const findOrCreateFunctions = ai.tool({
   // write/test/finish, which is what the user actually wants.
   applicable: (ctx) => (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
   call: async (input: { description: string }, _refs, ctx) => {
-    const { engineer } = await import('../prompts/engineer');
     const result = await runSubagent(
       `engineer: ${input.description}`,
       () => engineer.get('stream', { description: input.description }, ctx),
@@ -62,14 +62,24 @@ export const findOrCreateFunctions = ai.tool({
     }
 
     if (loaded.length === 0 && ghosts.length === 0) {
-      return 'No functions loaded.';
+      return [
+        '// FAILED: the engineer could not create or find any function for that description.',
+        '// Likely causes: the inner programmer never reached a passing test for the signature,',
+        '// or no existing saved fn matched the keywords.',
+        '//',
+        '// DO NOT inline-define the function in your draft (no `define myFn = lambda(...)` workaround).',
+        '// Instead: respond to the user that the function could not be created, briefly explain why',
+        '// it might have failed, and ask them to either (a) clarify the signature, (b) simplify the',
+        '// request, or (c) try a different approach. Then stop — do not call write/test.',
+      ].join('\n');
     }
     const parts: string[] = [];
     if (loaded.length > 0) parts.push(loaded.join('\n'));
     if (ghosts.length > 0) {
       parts.push(
         `// Engineer claimed these were created but no file was written: ${ghosts.join(', ')}.\n` +
-        `// Treat them as NOT available — write your program inline or retry find_or_create_functions with a clearer description.`,
+        `// Treat them as NOT available — DO NOT inline-define them. Either retry find_or_create_functions\n` +
+        `// with a clearer description, or report the failure to the user.`,
       );
     }
     return parts.join('\n\n');

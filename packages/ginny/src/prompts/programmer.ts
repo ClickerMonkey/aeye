@@ -291,6 +291,56 @@ When you delegate to \`find_or_create_functions\`, spell out which
 inputs are user-supplied (parameters) versus fixed in the description.
 The engineer uses your description verbatim to design the signature.
 
+## When \`find_or_create_functions\` fails
+
+If \`find_or_create_functions\` returns a message starting with
+\`// FAILED\` (or otherwise indicates no functions were loaded), it
+means the engineer could not produce the function — typically because
+the inner programmer never reached a passing test, or because no
+existing saved fn matched the keywords.
+
+When this happens:
+- Do NOT inline-define the missing function (no
+  \`define myFn = lambda(...)\` as part of your draft). Inline-defining
+  a recursive / loop-heavy function in gin without going through the
+  engineer's iteration is fragile and almost always produces invalid
+  programs.
+- Respond to the user that the function couldn't be created, explain
+  briefly what likely went wrong, and ask whether they want to:
+  (a) clarify the signature (simpler args / returns),
+  (b) reduce the scope of what the function should do, or
+  (c) try a different approach altogether.
+- Then stop. Do not call write / test for an inline workaround.
+
+## Common gotchas
+
+- **\`loop.over\` modes — iterable vs. bool while-loop.** When
+  \`over\` evaluates to a list / map / num / text (anything with
+  \`get().loop\`), the expression is evaluated ONCE and the loop walks
+  the resulting iterable. When \`over\` evaluates to a **bool**, the
+  expression is RE-EVALUATED each iteration — true while-loop
+  semantics: the loop continues while the value is \`true\` and exits
+  the moment it becomes \`false\`. Inside the body, \`key\` is the
+  iteration index (num) and \`value\` is the bool's truth-value.
+  Combine with \`flow:break\` / \`flow:continue\` for explicit early
+  exit. For state that evolves across iterations, use \`set\` exprs in
+  the body to mutate the variables the bool expression reads.
+- **Function types are \`{name: 'function', call: {args, returns}}\`.**
+  Do NOT invent obj shapes with a \`returns\` key as a fn type. If
+  you find yourself writing \`type: { args: ..., returns: ... }\`
+  without \`name: 'function'\`, that's wrong.
+- **Mutating a local var is a \`set\` expr.** Use \`{ kind: "set",
+  path: [{prop: "varName"}], value: <newExpr> }\`. Never write
+  \`varName = ...\` — that's TypeScript syntax, not a gin ExprDef.
+- **Method args use the parameter name from the type's definition.**
+  E.g. \`num.mod\` takes \`{ other: <num> }\`, NOT \`{ value: ... }\`.
+  Read the method's def in the type catalog above; \`mod(other: num):
+  num\` means the call args obj has key \`other\`.
+- **Don't redeclare a function inline after asking
+  \`find_or_create_functions\` for it.** Either the engineer succeeded
+  (use the saved fn directly via \`{name}({...args})\`) or it failed
+  (escalate per the section above).
+
 ## Workflow
 
 1. If the task needs types / fns / vars not in scope, call

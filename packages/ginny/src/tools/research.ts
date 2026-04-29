@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
+import { researcher } from '../prompts/researcher';
 import { runSubagent } from '../progress';
 
 interface ResearchResult {
@@ -22,7 +23,6 @@ export const research = ai.tool({
     question: z.string().describe('The factual question to research'),
   }),
   call: async (input: { question: string }, _refs, ctx) => {
-    const { researcher } = await import('../prompts/researcher');
     const result = await runSubagent(
       `researcher: ${input.question}`,
       () => researcher.get('stream', { question: input.question }, ctx),

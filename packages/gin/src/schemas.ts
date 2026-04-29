@@ -80,6 +80,12 @@ export function getSetDefSchema(opts: SchemaOptions): z.ZodTypeAny {
     get: opts.Expr.optional(),
     set: opts.Expr.optional(),
     loop: opts.Expr.optional(),
+    loopDynamic: z
+      .boolean()
+      .optional()
+      .describe(
+        'When true, `loop over: <this-typed value>` re-evaluates the expression each iteration and exits when the result\'s raw is falsy. Bool uses this for while-loop semantics. The type may have either `loop` (for static iterables) OR `loopDynamic` set; with loopDynamic, no `loop` ExprDef is required.',
+      ),
   }).meta({ aid: 'GetSetDef' });
 }
 
@@ -87,6 +93,14 @@ export function getSetDefSchema(opts: SchemaOptions): z.ZodTypeAny {
 export function callDefSchema(opts: SchemaOptions): z.ZodTypeAny {
   return z.object({
     docs: z.string().optional(),
+    types: z
+      .record(z.string(), opts.Type)
+      .optional()
+      .describe(
+        'Call-local type aliases. Declare reusable named types here ONCE and reference them inside `args` / `returns` / `throws` / `get` / `set` as a bare `{name: "<alias>"}`. ' +
+        'Aliases process AFTER any enclosing generics (so they may reference generic placeholders) and BEFORE the call slots — the call slots resolve them at parse time. ' +
+        'Sequential: later aliases may reference earlier ones; forward / self references throw. Use this whenever the same composite type appears more than once in a signature — instead of writing `num{whole:true, min:1}` four times, declare `{ counter: { name:"num", options:{whole:true,min:1} } }` once and reference `{name:"counter"}`.',
+      ),
     args: opts.Type,
     returns: opts.Type.optional(),
     throws: opts.Type.optional(),

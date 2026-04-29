@@ -11,12 +11,7 @@ import {
   type Rnd,
   Type,
 } from './type';
-import {
-  encodeCall,
-  encodeGetSet,
-  encodeInit,
-  encodeProps,
-} from './spec';
+import { encodeProps } from './spec';
 import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
@@ -262,9 +257,9 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       generic: Object.keys(mergedGeneric).length > 0 ? mergedGeneric : undefined,
       options: mergedOptions && Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
       props: this.local.props ? encodeProps(this.local.props) : undefined,
-      get: this.local.get ? encodeGetSet(this.local.get) : undefined,
-      call: this.local.call ? encodeCall(this.local.call) : undefined,
-      init: this.local.init ? encodeInit(this.local.init) : undefined,
+      get: this.local.get?.toJSON(),
+      call: this.local.call?.toJSON(),
+      init: this.local.init?.toJSON(),
       constraint: this.local.constraint ? this.local.constraint.toJSON() : undefined,
     };
   }

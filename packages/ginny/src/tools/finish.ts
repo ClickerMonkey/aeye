@@ -67,14 +67,29 @@ export const finish = ai.tool({
       // Build the TypeDef with the body baked into `call.get`. Gin's
       // path walker invokes this directly — no ginny-side callable
       // wrapping needed.
+      //
+      // When the engineer declared `call.types` aliases, the parsed
+      // argsType / returnsType have those aliases ALREADY INLINED.
+      // Emitting the inlined toJSON would defeat the verbosity-
+      // reduction point. Use `targetFn.sourceArgs` / `sourceReturns`
+      // (the engineer's original input) so the saved fn keeps the
+      // alias references intact.
+      const useAliases = useTarget && ctx.targetFn?.callTypes && ctx.targetFn?.sourceArgs && ctx.targetFn?.sourceReturns;
       const fnTypeDef: TypeDef = {
         name: 'function',
         ...(input.docs ? { docs: input.docs } : {}),
-        call: {
-          args: argsType.toJSON(),
-          returns: returnsType.toJSON(),
-          get: draft,
-        },
+        call: useAliases
+          ? {
+            types: ctx.targetFn!.callTypes,
+            args: ctx.targetFn!.sourceArgs!,
+            returns: ctx.targetFn!.sourceReturns!,
+            get: draft,
+          }
+          : {
+            args: argsType.toJSON(),
+            returns: returnsType.toJSON(),
+            get: draft,
+          },
       };
 
       try {

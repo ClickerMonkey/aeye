@@ -1,6 +1,6 @@
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
-import type { LambdaExprDef } from '../schema';
+import type { ExprDef, LambdaExprDef, TypeDef } from '../schema';
 import { Value } from '../value';
 import { ReturnSignal } from '../flow-control';
 import type { Registry } from '../registry';
@@ -12,6 +12,7 @@ import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import { buildAliasMap, inlineExprDef } from './inline-aliases';
 
 /**
  * LambdaExpr — a callable value that closes over the lexical scope.
@@ -28,16 +29,41 @@ export class LambdaExpr extends Expr {
     readonly fnType: Type,
     readonly body: Expr,
     readonly constraint?: Expr,
+    /** Source-form ExprDefs (with alias references intact) for
+     *  round-trip via `toJSON()` when `fnType.call.types` declared
+     *  call-local aliases. Without these the parsed body's `toJSON()`
+     *  would emit the inlined form, defeating the verbosity-reduction
+     *  point of aliases. */
+    readonly _sourceBody?: ExprDef,
+    readonly _sourceConstraint?: ExprDef,
   ) {
     super();
   }
 
   static from(json: LambdaExprDef, registry: Registry): LambdaExpr {
-    const constraint = json.constraint ? registry.parseExpr(json.constraint) : undefined;
+    // If the lambda's fnType declares `call.types`, those aliases must
+    // resolve in the body / constraint too — same convention as a
+    // saved fn's `call.get` / `call.set` (see `decodeCall`). Inline
+    // before parsing so referenced alias names don't trip
+    // `registry.parse`'s "unknown type" check.
+    const callTypes = (json.type as { call?: { types?: Record<string, TypeDef> } })
+      .call?.types;
+    const aliases = callTypes ? buildAliasMap(callTypes, registry) : undefined;
+    const hasAliases = !!aliases && Object.keys(aliases).length > 0;
+    const bodyDef = hasAliases ? inlineExprDef(json.body, aliases!) : json.body;
+    const constraintDef = json.constraint
+      ? (hasAliases ? inlineExprDef(json.constraint, aliases!) : json.constraint)
+      : undefined;
+
+    const fnType = registry.parse(json.type);
+    const body = registry.parseExpr(bodyDef);
+    const constraint = constraintDef ? registry.parseExpr(constraintDef) : undefined;
     return new LambdaExpr(
-      registry.parse(json.type),
-      registry.parseExpr(json.body),
+      fnType,
+      body,
       constraint,
+      hasAliases ? json.body : undefined,
+      hasAliases && json.constraint ? json.constraint : undefined,
     ).withComment(json.comment);
   }
 
@@ -134,8 +160,11 @@ export class LambdaExpr extends Expr {
     return this.withCommentOn({
       kind: 'lambda',
       type: this.fnType.toJSON(),
-      body: this.body.toJSON(),
-      constraint: this.constraint?.toJSON(),
+      // Prefer source forms when present so aliased bodies round-trip
+      // compact. The parsed body has already been inlined; emitting
+      // it would lose the alias references the user wrote.
+      body: this._sourceBody ?? this.body.toJSON(),
+      constraint: this._sourceConstraint ?? this.constraint?.toJSON(),
     });
   }
 
@@ -144,6 +173,8 @@ export class LambdaExpr extends Expr {
       this.fnType.clone(),
       this.body.clone(),
       this.constraint?.clone(),
+      this._sourceBody,
+      this._sourceConstraint,
     ).withComment(this.comment);
   }
 
