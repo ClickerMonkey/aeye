@@ -43,8 +43,12 @@ export class TemplateExpr extends Expr {
     return z.object({
       kind: z.literal('template'),
       ...baseExprFields,
-      template: z.union([opts.Expr, z.string()]),
-      params: opts.Expr,
+      template: z.union([opts.Expr, z.string()]).describe(
+        'The template string — either a literal string (auto-wrapped as `new text`) or an Expr that evaluates to text. Placeholders use `{name}` syntax; each `name` must appear as a key on `params`.',
+      ),
+      params: opts.Expr.describe(
+        'Expression evaluating to an obj whose props supply the placeholder values. Each `{name}` in the template is replaced with the stringified value of `params.name`.',
+      ),
     }).meta({ aid: 'Expr_template' });
   }
 

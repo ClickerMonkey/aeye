@@ -32,7 +32,11 @@ export class GetExpr extends Expr {
     return z.object({
       kind: z.literal('get'),
       ...baseExprFields,
-      path: z.array(pathStepSchema(opts)),
+      path: z
+        .array(pathStepSchema(opts))
+        .describe(
+          'Steps walked left-to-right starting from a scope variable. Step shapes: `{prop:"name"}` for prop/method access, `{args:{…}}` to call the previous step, `{key:Expr}` for index access. The first step MUST be a prop step (the scope-var name). Result is the final step\'s value.',
+        ),
     }).meta({ aid: 'Expr_get' });
   }
 

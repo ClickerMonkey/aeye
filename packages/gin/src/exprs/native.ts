@@ -31,8 +31,12 @@ export class NativeExpr extends Expr {
     return z.object({
       kind: z.literal('native'),
       ...baseExprFields,
-      id: z.string(),
-      type: opts.Type.optional(),
+      id: z.string().describe(
+        'Identifier of a native impl registered via `registry.setNative(id, fn)` (e.g. `list.push`, `num.add`). The model should NOT generate `native` expressions directly — methods on built-in types are reached via `get` paths, which gin resolves to natives internally.',
+      ),
+      type: opts.Type.optional().describe(
+        'Optional type to wrap the native\'s raw return value with when the impl returns a non-Value. Defaults to `any` if omitted.',
+      ),
     }).meta({ aid: 'Expr_native' });
   }
 

@@ -42,9 +42,19 @@ export class FlowExpr extends Expr {
     return z.object({
       kind: z.literal('flow'),
       ...baseExprFields,
-      action: z.enum(['break', 'continue', 'return', 'exit', 'throw']),
-      value: opts.Expr.optional(),
-      error: opts.Expr.optional(),
+      action: z.enum(['break', 'continue', 'return', 'exit', 'throw']).describe(
+        'Which control-flow signal to raise. ' +
+        '`break`/`continue` only valid inside a loop. ' +
+        '`return` only valid inside a fn body / lambda; unwinds to the enclosing call with `value`. ' +
+        '`exit` unwinds all the way to `engine.run`, returning `value` as the program result. ' +
+        '`throw` raises `error` (caught by a path step\'s `catch:` handler).',
+      ),
+      value: opts.Expr.optional().describe(
+        'Required for `return` and `exit` (the value being returned). Ignored by `break` / `continue` / `throw`.',
+      ),
+      error: opts.Expr.optional().describe(
+        'Required for `throw` — the value to raise. Ignored otherwise.',
+      ),
     }).meta({ aid: 'Expr_flow' });
   }
 

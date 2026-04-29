@@ -31,8 +31,9 @@ const getFn = ai.tool({
   schema: z.object({ name: z.string() }),
   call: async (input: { name: string }, _refs, ctx) => {
     try {
-      const def = ctx.store.readFn(input.name);
-      const type = ctx.registry.parse(def.type);
+      // `readFn` returns the TypeDef directly — `call.get` holds the body.
+      const typeDef = ctx.store.readFn(input.name);
+      const type = ctx.registry.parse(typeDef);
       return `${input.name}: ${type.toCode()}`;
     } catch {
       return `Function '${input.name}' not found.`;
@@ -128,6 +129,12 @@ const createNewFn = ai.tool({
       `- DO NOT read a bare \`n\` or \`obj\` from scope; those names aren't there.`,
       ``,
       `Parameters available: ${paramList}`,
+      ``,
+      `## Recursion via \`recurse\``,
+      ``,
+      `The function itself is bound as the scope variable \`recurse\` — call it to recurse. Path: \`{ kind: "get", path: [{ prop: "recurse" }, { args: { ...new args... } }] }\`.`,
+      `Example pattern (factorial-style descent): test \`args.n\`; base-case returns a literal; recursive case calls \`recurse({ n: args.n.sub({ other: 1 }) })\` and combines that with \`args.n\`.`,
+      `Use \`recurse\` for any self-calls — do NOT try to look up the function by its eventual saved name (\`${input.name}\`); that name is not yet bound during testing.`,
       ``,
       `## Inputs are PARAMETERS, not constants`,
       ``,

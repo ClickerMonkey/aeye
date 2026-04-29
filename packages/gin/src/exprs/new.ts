@@ -65,8 +65,12 @@ export class NewExpr extends Expr {
         z.object({
           kind: z.literal('new'),
           ...baseExprFields,
-          type: z.object({ name: z.literal(t.name) }).passthrough(),
-          value: t.toNewSchema(opts).optional(),
+          type: z.object({ name: z.literal(t.name) }).passthrough().describe(
+            `Reference to the registered named type \`${t.name}\` — name-only, the registry resolves it to its full definition.`,
+          ),
+          value: t.toNewSchema(opts).optional().describe(
+            `Initial value for the new \`${t.name}\` instance. Each composite slot accepts an Expr (Get, NewExpr, etc.); per-slot type correctness is enforced at runtime.`,
+          ),
         }).meta({ aid: `New_${t.name}` }),
       );
       // Per-built-in-class branches — full TypeDef shape + the class's
@@ -79,8 +83,12 @@ export class NewExpr extends Expr {
         z.object({
           kind: z.literal('new'),
           ...baseExprFields,
-          type: cls.toSchema(opts),
-          value: cls.toNewSchema(opts).optional(),
+          type: cls.toSchema(opts).describe(
+            `Full TypeDef for a \`${cls.NAME}\` instance (name + options + per-class fields).`,
+          ),
+          value: cls.toNewSchema(opts).optional().describe(
+            `Initial value matching this \`${cls.NAME}\` instance. Composites accept Expr slots; primitives accept their raw form.`,
+          ),
         }).meta({ aid: `New_${cls.NAME}` }),
       );
       const all = [...instanceBranches, ...classBranches];
@@ -92,8 +100,12 @@ export class NewExpr extends Expr {
     return z.object({
       kind: z.literal('new'),
       ...baseExprFields,
-      type: opts.Type,
-      value: z.any().optional(),
+      type: opts.Type.describe(
+        'TypeDef of the value being constructed. The `value` field is interpreted relative to this type — primitives take their raw form (`new num` → number), composites take Expr slots (`new list` → Expr[]).',
+      ),
+      value: z.any().optional().describe(
+        'Initial value matching `type`. Optional when the type has a defined `init` constructor or a sensible default (empty list, zero num with no constraints, etc.).',
+      ),
     }).meta({ aid: 'Expr_new' });
   }
 

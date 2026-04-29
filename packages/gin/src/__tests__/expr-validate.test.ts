@@ -149,7 +149,7 @@ describe('SetExpr validation', () => {
 });
 
 describe('DefineExpr validation', () => {
-  test('declared var type incompatible with value → warn', () => {
+  test('declared var type incompatible with value → error', () => {
     const probs = e.validate({
       kind: 'define',
       vars: [{
@@ -159,10 +159,12 @@ describe('DefineExpr validation', () => {
       }],
       body: { kind: 'get', path: [{ prop: 'x' }] },
     });
-    expect(probs.list.some((p) => p.code === 'define.var.type-mismatch')).toBe(true);
+    const mismatch = probs.list.find((p) => p.code === 'define.var.type-mismatch');
+    expect(mismatch).toBeDefined();
+    expect(mismatch!.severity).toBe('error');
   });
 
-  test('declared var type matches value → no warn', () => {
+  test('declared var type matches value → no error', () => {
     const probs = e.validate({
       kind: 'define',
       vars: [{

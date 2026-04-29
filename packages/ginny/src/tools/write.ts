@@ -31,13 +31,20 @@ export const write = ai.tool({
     }
 
     // Build the type-scope `engine.validate` walks against. Globals
-    // are always there; when the engineer is authoring a fn, bind the
-    // entire args obj as a single `args` scope var (matches gin's
-    // runtime calling convention — see `fns-global.ts`). The body
-    // accesses params via `args.<name>`.
+    // are always there; when the engineer is authoring a fn, also
+    // bind `args` (the parameter obj) and `recurse` (the function
+    // itself, for self-calls). Matches gin's runtime call binding —
+    // see `gin/src/path.ts:286-287` for the saved-fn path and
+    // `gin/src/exprs/lambda.ts:60-62` for the test path.
+    //
+    // Note: gin's `Lambda.validateWalk` (lambda.ts:90) only adds
+    // `args`, not `recurse` — that's a real upstream gap. Adding
+    // recurse here keeps ginny's static analysis aligned with what
+    // actually runs.
     const scope = new Map(ctx.engine.globalTypeScope());
     if (ctx.targetFn) {
       scope.set('args', ctx.targetFn.argsType);
+      scope.set('recurse', ctx.registry.fn(ctx.targetFn.argsType, ctx.targetFn.returnsType));
     }
 
     let problemsNote = '';

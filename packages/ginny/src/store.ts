@@ -120,8 +120,9 @@ export function createStore(cwd: string): Store {
     },
 
     searchFns(q) {
-      type T = { type?: TypeDef; body?: ExprDef; docs?: string };
-      return searchDir<T>(
+      // Saved fns are TypeDefs with the body in `call.get`. The
+      // top-level `docs` field is the function's description.
+      return searchDir<TypeDef>(
         fnsDir,
         (name, d) => `${name}${d.docs ? ` — ${d.docs}` : ''}`,
         (name, d) => `${name} ${d.docs ?? ''}`,
@@ -130,12 +131,12 @@ export function createStore(cwd: string): Store {
     },
 
     readFn(name) {
-      return readJSON<{ type: TypeDef; body: ExprDef }>(path.join(fnsDir, `${name}.json`));
+      return readJSON<TypeDef>(path.join(fnsDir, `${name}.json`));
     },
 
-    writeFn(name, v) {
+    writeFn(name, def) {
       const file = path.join(fnsDir, `${name}.json`);
-      writeJSON(file, v);
+      writeJSON(file, def);
       return file;
     },
 

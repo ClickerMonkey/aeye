@@ -42,8 +42,17 @@ export class IfExpr extends Expr {
     return z.object({
       kind: z.literal('if'),
       ...baseExprFields,
-      ifs: z.array(z.object({ condition: opts.Expr, body: opts.Expr })),
-      else: opts.Expr.optional(),
+      ifs: z
+        .array(z.object({
+          condition: opts.Expr.describe('Bool-typed expression. First branch whose condition is `true` wins; the rest are skipped.'),
+          body: opts.Expr.describe('Evaluated when this branch\'s condition is true. The if-expression\'s value is this body\'s value.'),
+        }))
+        .describe(
+          'Ordered list of `{condition, body}` branches — first true condition wins. Each `condition` must be bool-typed (warned otherwise). With multiple branches this is the gin equivalent of `if / else if / else if`.',
+        ),
+      else: opts.Expr.optional().describe(
+        'Optional fallback evaluated when every `ifs[i].condition` is false. Without an else, a no-match if-expression evaluates to void.',
+      ),
     }).meta({ aid: 'Expr_if' });
   }
 

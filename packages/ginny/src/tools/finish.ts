@@ -1,16 +1,19 @@
 import { z } from 'zod';
 import { ToolInterrupt } from '@aeye/core';
+import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
-import { registerFnAsGlobal } from '../fns-global';
 
 /**
  * Finalize the draft after a successful test. If `saveAs` is provided
- * the draft is also persisted as a callable function under
- * `fns/<saveAs>.json` and registered in the engine immediately, so
- * subsequent requests in this session can invoke it by name. This is
- * how ginny's "everything is a function" model works — there's no
- * separate `programs/` dir; a finalized program with no parameters is
- * just a `fn() => T`.
+ * the draft is persisted as a single TypeDef whose `call.get` is the
+ * body — gin's native shape for a callable global (see
+ * `gin/src/__tests__/recurse.test.ts:267`). Subsequent requests in
+ * this session can invoke it by name; the path walker handles args
+ * binding and `recurse` automatically (`gin/src/path.ts:283-290`).
+ *
+ * This is how ginny's "everything is a function" model works — there's
+ * no separate `programs/` dir; a finalized program with no parameters
+ * is just a `fn() => T` with `call.get` = the program body.
  */
 export const finish = ai.tool({
   name: 'finish',
@@ -27,7 +30,7 @@ export const finish = ai.tool({
     docs: z
       .string()
       .optional()
-      .describe('Short description of what the saved function does.'),
+      .describe('Short description of what the saved function does. Stored on the TypeDef so search_fns surfaces it.'),
   }),
   applicable: (ctx) => !!ctx.runState.lastTest?.success,
   call: async (input: { saveAs?: string; docs?: string }, _refs, ctx) => {
@@ -55,18 +58,29 @@ export const finish = ai.tool({
       // intended signature lives on `ctx.targetFn`. Use it so the saved
       // type matches what the engineer designed instead of being
       // inferred from the body — `engine.typeOf(draft)` of an if/elif
-      // chain lands on weird unions like `or<bool, bool>`, which is
-      // useless to callers expecting `(n: num) => list<num>`.
+      // chain lands on weird unions like `or<bool, bool>`, useless to
+      // callers expecting `(n: num) => list<num>`.
       const useTarget = ctx.targetFn && ctx.targetFn.name === name;
       const argsType = useTarget ? ctx.targetFn!.argsType : r.obj({});
-      const returnType = useTarget ? ctx.targetFn!.returnsType : ctx.engine.typeOf(draft);
-      const fnType = r.fn(argsType, returnType);
+      const returnsType = useTarget ? ctx.targetFn!.returnsType : ctx.engine.typeOf(draft);
+
+      // Build the TypeDef with the body baked into `call.get`. Gin's
+      // path walker invokes this directly — no ginny-side callable
+      // wrapping needed.
+      const fnTypeDef: TypeDef = {
+        name: 'function',
+        ...(input.docs ? { docs: input.docs } : {}),
+        call: {
+          args: argsType.toJSON(),
+          returns: returnsType.toJSON(),
+          get: draft,
+        },
+      };
+
       try {
-        ctx.store.writeFn(name, { type: fnType.toJSON(), body: draft });
-        // Register only as a runtime global — FnType.name is always
-        // 'function', so calling registry.register(fnType) would clobber
-        // the canonical FnType class, not create a named entry.
-        registerFnAsGlobal(ctx.engine, name, fnType, draft);
+        ctx.store.writeFn(name, fnTypeDef);
+        const fnType = r.parse(fnTypeDef);
+        ctx.engine.registerGlobal(name, { type: fnType, value: null });
         ctx.loadedFns.add(name);
         savedNote = ` (saved as fn '${name}': ${fnType.toCode()})`;
       } catch (e: unknown) {

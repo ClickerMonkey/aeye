@@ -49,12 +49,20 @@ export class SwitchExpr extends Expr {
     return z.object({
       kind: z.literal('switch'),
       ...baseExprFields,
-      value: opts.Expr,
-      cases: z.array(z.object({
-        equals: z.array(opts.Expr),
-        body: opts.Expr,
-      })),
-      else: opts.Expr.optional(),
+      value: opts.Expr.describe(
+        'Expression whose result is compared against each case\'s `equals` candidates. Evaluated once.',
+      ),
+      cases: z
+        .array(z.object({
+          equals: z.array(opts.Expr).describe(
+            'Candidate values for this case. The case wins if `value` equals ANY one of them (logical OR). Each candidate\'s type must be compatible with `value`\'s type — checked as `switch.case.type`.',
+          ),
+          body: opts.Expr.describe('Evaluated when this case wins. The switch expression\'s value is this body\'s value.'),
+        }))
+        .describe('Ordered list of cases — first match wins. Cases are NOT fall-through; only the matching case\'s body runs.'),
+      else: opts.Expr.optional().describe(
+        'Optional fallback evaluated when no case matches. Without an else, a no-match switch evaluates to void.',
+      ),
     }).meta({ aid: 'Expr_switch' });
   }
 

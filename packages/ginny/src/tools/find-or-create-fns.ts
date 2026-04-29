@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
 import { runSubagent } from '../progress';
-import { registerFnAsGlobal } from '../fns-global';
 import { MAX_PROGRAMMER_DEPTH } from '../context';
 
 interface EngineerResult {
@@ -38,28 +37,25 @@ export const findOrCreateFunctions = ai.tool({
     for (const name of [...use, ...created]) {
       if (!ctx.loadedFns.has(name)) {
         try {
-          const def = ctx.store.readFn(name);
-          const type = ctx.registry.parse(def.type);
-          ctx.registry.register(type);
-          // Wire as a runtime callable so programs can invoke it.
-          // Without this the fn is only typed-known, not executable.
-          registerFnAsGlobal(ctx.engine, name, type, def.body);
+          // Saved fns are TypeDefs whose `call.get` IS the body. Parse
+          // and register with `value: null` — gin's path walker handles
+          // invocation, args binding, and recurse natively (see
+          // `gin/src/path.ts:283-290`). No callable wrapping needed.
+          const typeDef = ctx.store.readFn(name);
+          const fnType = ctx.registry.parse(typeDef);
+          ctx.engine.registerGlobal(name, { type: fnType, value: null });
           ctx.loadedFns.add(name);
         } catch {
           // The engineer claimed this function exists but there's no
-          // file on disk. This happens when the engineer hallucinates a
-          // success in its structured output even though create_new_fn
-          // didn't actually write anything (e.g. inner programmer
-          // failed). Drop the ghost and surface it so the caller knows
-          // not to trust the engineer's claim.
+          // file on disk (or it failed to parse). Drop the ghost and
+          // surface it so the caller knows not to trust the claim.
           ghosts.push(name);
           continue;
         }
       }
       try {
-        const def = ctx.store.readFn(name);
-        const type = ctx.registry.parse(def.type);
-        loaded.push(`fn ${name}: ${type.toCode()}`);
+        const fnType = ctx.registry.parse(ctx.store.readFn(name));
+        loaded.push(`fn ${name}: ${fnType.toCode()}`);
       } catch {
         loaded.push(`fn ${name}`);
       }

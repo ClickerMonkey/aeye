@@ -32,7 +32,11 @@ export class BlockExpr extends Expr {
     return z.object({
       kind: z.literal('block'),
       ...baseExprFields,
-      lines: z.array(opts.Expr),
+      lines: z
+        .array(opts.Expr)
+        .describe(
+          'Sequence of expressions evaluated in order. The block\'s value is the LAST line\'s value (an empty block returns void). Earlier lines run for their side effects (set, fns.fetch, etc.).',
+        ),
     }).meta({ aid: 'Expr_block' });
   }
 

@@ -3,6 +3,7 @@ import type { Type } from './type';
 import type { ExprDef } from './schema';
 import { Problems } from './problem';
 import { Expr, type ValidateContext } from './expr';
+import { RESERVED_NAMES } from './scope';
 
 /**
  * Static type scope: name → runtime Type. Used by typeOf / validate to
@@ -56,3 +57,38 @@ export function walkValidate(
 
 // Re-export ValidateContext for convenience.
 export type { ValidateContext } from './expr';
+
+/**
+ * Validate a user-supplied binding name against the rules a `define`
+ * (or any other user-named scope binding) must follow:
+ *
+ * 1. Must not be a reserved name — gin's runtime injects those at
+ *    well-known contexts (`args`, `recurse`, etc.); a user binding
+ *    would be silently shadowed at runtime.
+ * 2. Must not already exist in `scope` — including names from outer
+ *    scopes / globals. Disallowing this prevents accidental shadowing
+ *    that produces confusing-at-runtime behavior (e.g. `define vars =
+ *    ...` shadowing the persistent vars global).
+ *
+ * Pushes errors into `p`; never throws. Caller is expected to have
+ * already entered the relevant `at(...)` path.
+ */
+export function checkBindingName(
+  name: string,
+  scope: TypeScope,
+  p: Problems,
+): void {
+  if (RESERVED_NAMES.has(name)) {
+    p.error(
+      'binding.reserved',
+      `'${name}' is a reserved name (gin binds it automatically in fn/loop/path contexts) — pick a different name`,
+    );
+    return;
+  }
+  if (scope.has(name)) {
+    p.error(
+      'binding.shadow',
+      `'${name}' is already in scope — pick a different name to avoid shadowing`,
+    );
+  }
+}

@@ -45,9 +45,15 @@ export class LambdaExpr extends Expr {
     return z.object({
       kind: z.literal('lambda'),
       ...baseExprFields,
-      type: opts.Type,
-      body: opts.Expr,
-      constraint: opts.Expr.optional(),
+      type: opts.Type.describe(
+        'The lambda\'s function type — `{ name: "function", call: { args, returns } }` (or a registered named fn type). The `args` obj defines what the body sees under the `args` scope variable; `returns` is what the body must produce.',
+      ),
+      body: opts.Expr.describe(
+        'The lambda body. At runtime, scope contains the lexical scope at definition site PLUS `args` (the call arguments) and `recurse` (this same lambda, for self-calls). Read params via `[{prop:"args"},{prop:"<name>"}]`.',
+      ),
+      constraint: opts.Expr.optional().describe(
+        'Optional bool-typed precondition evaluated before the body on every call (with `args` in scope). If it returns false, the call throws. Use for input invariants you want enforced regardless of caller.',
+      ),
     }).meta({ aid: 'Expr_lambda' });
   }
 

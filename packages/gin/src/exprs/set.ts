@@ -34,8 +34,14 @@ export class SetExpr extends Expr {
     return z.object({
       kind: z.literal('set'),
       ...baseExprFields,
-      path: z.array(pathStepSchema(opts)),
-      value: opts.Expr,
+      path: z
+        .array(pathStepSchema(opts))
+        .describe(
+          'Steps walked left-to-right to a writable target. Single-step `[{prop:"x"}]` re-assigns scope variable `x`. Multi-step targets need the type to support set on the final step (a prop with a `set` ExprDef, an indexed slot, or a method whose call has `set:`).',
+        ),
+      value: opts.Expr.describe(
+        'The expression evaluated and assigned to the path target. Its type must be compatible with the target\'s declared type — checked statically as `set.type-mismatch`.',
+      ),
     }).meta({ aid: 'Expr_set' });
   }
 

@@ -6,7 +6,7 @@ import { BreakSignal, ContinueSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { TypeScope } from '../analysis';
-import { walkValidate } from '../analysis';
+import { checkBindingName, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
@@ -54,14 +54,31 @@ export class LoopExpr extends Expr {
     return z.object({
       kind: z.literal('loop'),
       ...baseExprFields,
-      over: opts.Expr,
-      body: opts.Expr,
-      key: z.string().optional(),
-      value: z.string().optional(),
-      parallel: z.object({
-        concurrent: opts.Expr.optional(),
-        rate: opts.Expr.optional(),
-      }).optional(),
+      over: opts.Expr.describe(
+        'The iterable to walk — must evaluate to a value whose type defines `get().loop` (lists by index, maps by key, etc.). NOT a bool: gin has no while-loop; a finite iterable is required.',
+      ),
+      body: opts.Expr.describe(
+        "Evaluated once per iteration with the current `key` and `value` bound in scope. Use `{kind:'flow', action:'break'}` or `'continue'` for early-exit. The loop expression itself returns void.",
+      ),
+      key: z.string().optional().describe(
+        'Override the scope-variable name the iteration index/key is bound under (default: `key`). Must NOT be reserved or shadow an outer scope var. Use to disambiguate when looping inside another loop.',
+      ),
+      value: z.string().optional().describe(
+        'Override the scope-variable name the iteration value is bound under (default: `value`). Same rules as `key`.',
+      ),
+      parallel: z
+        .object({
+          concurrent: opts.Expr.optional().describe(
+            'Max in-flight iterations as a num (omit / 1 → strictly sequential). Use when iterations are independent I/O — e.g. fetching N URLs concurrently.',
+          ),
+          rate: opts.Expr.optional().describe(
+            'Minimum interval between iteration starts. Accepts a num (milliseconds) or a duration. Use to rate-limit fan-out (e.g. avoid hammering an API).',
+          ),
+        })
+        .optional()
+        .describe(
+          'Opt-in parallelism. Both fields are optional and independent: `concurrent` caps fan-out width, `rate` paces start times. Iterations may finish out of order; the body should not assume sequential ordering.',
+        ),
     }).meta({ aid: 'Expr_loop' });
   }
 
@@ -165,6 +182,18 @@ export class LoopExpr extends Expr {
           p.error('loop.parallel.rate.type',
             `parallel.rate must be a number or duration, got '${t.name}'`));
       }
+    }
+
+    // If the loop overrides keyName / valueName, the user-chosen names
+    // must follow the same rules as define vars: not reserved, not
+    // already in scope. The default `key` / `value` names are reserved
+    // by gin precisely because loops bind them, so we don't check the
+    // defaults — only explicit overrides.
+    if (this.keyName !== undefined) {
+      p.at('key', () => checkBindingName(this.keyName!, scope, p));
+    }
+    if (this.valueName !== undefined) {
+      p.at('value', () => checkBindingName(this.valueName!, scope, p));
     }
 
     // Bind key/value using the iterable's actual types (not any) so the
