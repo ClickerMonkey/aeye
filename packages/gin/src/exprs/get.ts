@@ -5,12 +5,13 @@ import type { Value } from '../value';
 import { Path } from '../path';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields, pathStepSchema } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * GetExpr — read a value through a Path chain.
@@ -24,8 +25,8 @@ export class GetExpr extends Expr {
     super();
   }
 
-  static from(json: GetExprDef, registry: Registry): GetExpr {
-    return new GetExpr(Path.from(json.path, registry)).withComment(json.comment);
+  static from(json: GetExprDef, scope: TypeScope): GetExpr {
+    return new GetExpr(Path.from(json.path, scope)).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -44,11 +45,11 @@ export class GetExpr extends Expr {
     return this.path.walk(scope, _engine, { mode: 'get' });
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     return this.path.typeOf(engine, scope);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     return this.path.validateWalk(engine, scope, p, ctx, 'get');
   }
 

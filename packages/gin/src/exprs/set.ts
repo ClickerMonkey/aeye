@@ -5,12 +5,13 @@ import { Value, val } from '../value';
 import { Path, PropStep } from '../path';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields, pathStepSchema } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * SetExpr — assign to a Path. Returns Value<bool>:
@@ -25,8 +26,8 @@ export class SetExpr extends Expr {
     super();
   }
 
-  static from(json: SetExprDef, registry: Registry): SetExpr {
-    return new SetExpr(Path.from(json.path, registry), registry.parseExpr(json.value))
+  static from(json: SetExprDef, scope: TypeScope): SetExpr {
+    return new SetExpr(Path.from(json.path, scope), scope.registry.parseExpr(json.value, scope))
       .withComment(json.comment);
   }
 
@@ -55,11 +56,11 @@ export class SetExpr extends Expr {
     return this.path.walk(scope, engine, { mode: 'set', setValue: value });
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return engine.registry.bool();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const valueT = p.at('value', () => this.value.validateWalk(engine, scope, p, ctx));
     const targetT = this.path.validateWalk(engine, scope, p, ctx, 'set');
     // The rvalue type must be assignable to the target position's type.

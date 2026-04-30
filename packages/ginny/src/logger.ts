@@ -2,16 +2,23 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * Append-only logger that writes to `./ginny.log` in the session CWD.
+ * Per-startup logger that writes to `./ginny.log` in the session CWD.
  * Wired into AI hooks + sub-agent invocations so every LLM request and
  * response is captured for later inspection / debugging.
+ *
+ * Truncated at startup — each ginny invocation gets a fresh log so the
+ * file reflects only the current session. Older sessions roll off
+ * naturally; if you need history, copy the file before launching ginny
+ * again.
  */
 export class Logger {
   private stream: fs.WriteStream;
 
   constructor(cwd: string) {
     const filePath = path.join(cwd, 'ginny.log');
-    this.stream = fs.createWriteStream(filePath, { flags: 'a' });
+    // 'w' truncates on open (vs. 'a' which appends). One file per
+    // session keeps the post-mortem signal-to-noise ratio high.
+    this.stream = fs.createWriteStream(filePath, { flags: 'w' });
     this.log(`=== ginny session start: ${new Date().toISOString()} ===`);
   }
 

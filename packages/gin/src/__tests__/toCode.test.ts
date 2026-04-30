@@ -105,14 +105,14 @@ describe('Type.toCode — functions and references', () => {
     expect(fn.toCode()).toBe('(): void');
   });
   test('fn with generics', () => {
-    const fn = r.fn(r.obj({ x: { type: r.generic('T') } }), r.generic('T'), undefined, { T: r.any() });
+    const fn = r.fn(r.obj({ x: { type: r.alias('T') } }), r.alias('T'), undefined, { T: r.any() });
     expect(fn.toCode()).toBe('<T>(x: T): T');
   });
   test('ref → bare name', () => {
-    expect(r.ref('User').toCode()).toBe('User');
+    expect(r.alias('User').toCode()).toBe('User');
   });
   test('generic → bare name', () => {
-    expect(r.generic('T').toCode()).toBe('T');
+    expect(r.alias('T').toCode()).toBe('T');
   });
   test('iface renders struct-style', () => {
     const t = r.iface({

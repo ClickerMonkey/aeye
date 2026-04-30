@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, type PropSpec, type Rnd, Type } from '../type';
@@ -26,9 +26,10 @@ export class OrType extends Type<any, OrOptions> {
   static readonly NAME = 'or';
   readonly name = OrType.NAME;
 
-  static from(json: TypeDef, registry: Registry): OrType {
-    const variants = ((json.options?.types ?? []) as TypeDef[]).map((t) => registry.parse(t));
-    return new OrType(registry, variants);
+  static from(json: TypeDef, scope: TypeScope): OrType {
+    const registry = scope.registry;
+    const variants = ((json.options?.types ?? []) as TypeDef[]).map((t) => scope.parse(t));
+    return new OrType(scope, variants);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -42,22 +43,22 @@ export class OrType extends Type<any, OrOptions> {
     return opts.Expr;
   }
 
-  constructor(registry: Registry, variants: Type[]) {
-    super(registry, { variants });
+  constructor(scope: TypeScope, variants: Type[]) {
+    super(scope, { variants });
   }
 
   get variants(): Type[] {
     return this.options.variants;
   }
 
-  valid(raw: unknown): raw is any {
-    return this.variants.some((v) => v.valid(raw));
+  valid(raw: unknown, scope?: TypeScope): raw is any {
+    return this.variants.some((v) => v.valid(raw, scope));
   }
 
-  parse(json: unknown): Value<any> {
+  parse(json: unknown, scope?: TypeScope): Value<any> {
     for (const v of this.variants) {
       try {
-        const parsed = v.parse(json);
+        const parsed = v.parse(json, scope);
         return new Value(this, parsed.raw);
       } catch {
         continue;
@@ -70,15 +71,15 @@ export class OrType extends Type<any, OrOptions> {
     });
   }
 
-  encode(raw: any): any {
-    const match = this.variants.find((v) => v.valid(raw));
+  encode(raw: any, scope?: TypeScope): any {
+    const match = this.variants.find((v) => v.valid(raw, scope));
     if (!match) {
       throw new TypeError({
         path: [], code: 'or.dump.no-match',
         message: 'or.dump: value does not satisfy any variant', severity: 'error',
       });
     }
-    return match.encode(raw);
+    return match.encode(raw, scope);
   }
 
   create(): any {
@@ -100,12 +101,12 @@ export class OrType extends Type<any, OrOptions> {
     return this.registry.or(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     // other is assignable to Or iff it's assignable to at least one variant.
     if (other instanceof OrType) {
-      return other.variants.every((v) => this.compatible(v, opts));
+      return other.variants.every((v) => this.compatible(v, opts, scope));
     }
-    return this.variants.some((v) => v.compatible(other, opts));
+    return this.variants.some((v) => v.compatible(other, opts, scope));
   }
 
   or(other: Type<any>): Type<any> {

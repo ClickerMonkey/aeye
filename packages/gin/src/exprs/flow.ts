@@ -5,13 +5,14 @@ import type { Value } from '../value';
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, ThrowSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export type FlowAction = 'break' | 'return' | 'continue' | 'exit' | 'throw';
 
@@ -30,11 +31,12 @@ export class FlowExpr extends Expr {
     super();
   }
 
-  static from(json: FlowExprDef, registry: Registry): FlowExpr {
+  static from(json: FlowExprDef, scope: TypeScope): FlowExpr {
+    const r = scope.registry;
     return new FlowExpr(
       json.action,
-      json.value ? registry.parseExpr(json.value) : undefined,
-      json.error ? registry.parseExpr(json.error) : undefined,
+      json.value ? r.parseExpr(json.value, scope) : undefined,
+      json.error ? r.parseExpr(json.error, scope) : undefined,
     ).withComment(json.comment);
   }
 
@@ -78,11 +80,11 @@ export class FlowExpr extends Expr {
     }
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return engine.registry.void();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     if ((this.action === 'break' || this.action === 'continue') && !ctx.inLoop) {
       p.error('flow.outside-loop', `${this.action} used outside a loop`);
     }

@@ -4,7 +4,7 @@ import type { TemplateExprDef, NewExprDef, ExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
@@ -12,6 +12,7 @@ import type { CodeOptions, SchemaOptions } from '../node';
 import { NewExpr } from './new';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * TemplateExpr — string interpolation.
@@ -24,18 +25,19 @@ export class TemplateExpr extends Expr {
     super();
   }
 
-  static from(json: TemplateExprDef, registry: Registry): TemplateExpr {
+  static from(json: TemplateExprDef, scope: TypeScope): TemplateExpr {
+    const r = scope.registry;
     // template is declared `string` in schema but historically evaluated as ExprDef.
     const t = json.template as unknown;
     const templateExpr =
       t && typeof t === 'object' && 'kind' in (t as ExprDef)
-        ? registry.parseExpr(t as ExprDef)
-        : registry.parseExpr({
+        ? r.parseExpr(t as ExprDef, scope)
+        : r.parseExpr({
             kind: 'new',
             type: { name: 'text' },
             value: String(t),
-          } as NewExprDef);
-    return new TemplateExpr(templateExpr, registry.parseExpr(json.params))
+          } as NewExprDef, scope);
+    return new TemplateExpr(templateExpr, r.parseExpr(json.params, scope))
       .withComment(json.comment);
   }
 
@@ -67,11 +69,11 @@ export class TemplateExpr extends Expr {
     return val(engine.registry.text(), out);
   }
 
-  typeOf(_engine: Engine, _scope: TypeScope): Type {
+  typeOf(_engine: Engine, _scope: Locals): Type {
     return _engine.registry.text();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const text = engine.registry.text();
     const tmplT = p.at('template', () => walkValidate(engine, this.template, scope, p, ctx));
     if (!text.compatible(tmplT)) {

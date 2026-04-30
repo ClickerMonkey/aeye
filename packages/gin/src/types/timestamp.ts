@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -20,8 +20,9 @@ export class TimestampType extends Type<Date, TimestampOptions> {
   static readonly NAME = 'timestamp';
   readonly name = TimestampType.NAME;
 
-  static from(json: TypeDef, registry: Registry): TimestampType {
-    return new TimestampType(registry, (json.options ?? {}) as TimestampOptions);
+  static from(json: TypeDef, scope: TypeScope): TimestampType {
+    const registry = scope.registry;
+    return new TimestampType(scope, (json.options ?? {}) as TimestampOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

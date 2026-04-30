@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -17,8 +17,9 @@ export class ColorType extends Type<number, ColorOptions> {
   static readonly NAME = 'color';
   readonly name = ColorType.NAME;
 
-  static from(json: TypeDef, registry: Registry): ColorType {
-    return new ColorType(registry, (json.options ?? {}) as ColorOptions);
+  static from(json: TypeDef, scope: TypeScope): ColorType {
+    const registry = scope.registry;
+    return new ColorType(scope, (json.options ?? {}) as ColorOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

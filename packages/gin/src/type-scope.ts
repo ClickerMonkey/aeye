@@ -1,5 +1,7 @@
 import type { Registry } from './registry';
 import type { Type } from './type';
+import type { Expr } from './expr';
+import type { TypeDef, ExprDef } from './schema';
 
 /**
  * Type-name resolution scope. A tree of name → Type bindings rooted at
@@ -7,7 +9,7 @@ import type { Type } from './type';
  * and by `Registry.parse` to dispatch bare-name TypeDefs to AliasType
  * when X is bound in a local scope.
  *
- * - The Registry is the root scope; it implements `Scope` directly.
+ * - The Registry is the root scope; it implements `TypeScope` directly.
  *   Its `lookup` walks `namedTypes` and built-in `classes`.
  * - `LocalScope` wraps a parent scope with an overlay map. Used by
  *   `decodeCall` to scope `CallDef.types` aliases, by FnType to scope
@@ -15,22 +17,40 @@ import type { Type } from './type';
  *
  * Distinct from:
  *  - `Scope` in `scope.ts` (runtime variable bindings — Value scope).
- *  - `TypeScope` in `analysis.ts` (`Map<string, Type>` for static
+ *  - `Locals` in `analysis.ts` (`Map<string, Type>` for static
  *    variable-type analysis during validate / typeOf).
  */
-export interface Scope {
+export interface TypeScope {
   /** Look up a type by name. Returns the bound Type if present in this
    *  scope or any parent scope; undefined if not found anywhere. */
   lookup(name: string): Type | undefined;
 
-  /** The root Registry — every Scope can resolve to it via the parent
-   *  chain. Used by Type subclasses that need to construct child types
-   *  (e.g. `this.scope.registry.num()`) without caring about whether
-   *  they're inside a LocalScope. */
+  /** Look up a type bound DIRECTLY in this scope's local layer.
+   *  Does NOT walk parent. Used by `Registry.parseInner` to detect
+   *  bare-name refs that must wrap as AliasType (so generic / alias
+   *  substitution still works) rather than resolving eagerly through
+   *  the registry. The Registry implementation returns undefined —
+   *  registry hits aren't "local-above-root" bindings. */
+  localLookup(name: string): Type | undefined;
+
+  /** Parse a TypeDef in this scope. Convenience over
+   *  `scope.registry.parse(def, scope)` — most type implementations'
+   *  `from(def, scope)` recurse via `scope.parse(child)` without
+   *  needing to thread the registry separately. */
+  parse(def: unknown): Type;
+
+  /** Parse an ExprDef in this scope. Mirrors `parse()` for the
+   *  expression side. Used by Expr classes that recurse into nested
+   *  expressions / lambdas / new defs. */
+  parseExpr(def: unknown): Expr;
+
+  /** The root Registry — every TypeScope can resolve to it via the
+   *  parent chain. Use this to access builder methods (`registry.num()`)
+   *  for fresh built-in instances. */
   readonly registry: Registry;
 
   /** Parent scope, or undefined for the root (Registry). */
-  readonly parent?: Scope;
+  readonly parent?: TypeScope;
 }
 
 /**
@@ -39,12 +59,12 @@ export interface Scope {
  * builds (later aliases referencing earlier ones); the caller is
  * responsible for adding bindings in order if dependencies exist.
  */
-export class LocalScope implements Scope {
-  readonly parent: Scope;
+export class LocalScope implements TypeScope {
+  readonly parent: TypeScope;
   readonly registry: Registry;
   private readonly local: Record<string, Type>;
 
-  constructor(parent: Scope, local: Record<string, Type> = {}) {
+  constructor(parent: TypeScope, local: Record<string, Type> = {}) {
     this.parent = parent;
     this.registry = parent.registry;
     this.local = local;
@@ -52,6 +72,18 @@ export class LocalScope implements Scope {
 
   lookup(name: string): Type | undefined {
     return this.local[name] ?? this.parent.lookup(name);
+  }
+
+  localLookup(name: string): Type | undefined {
+    return this.local[name];
+  }
+
+  parse(def: unknown): Type {
+    return this.registry.parse(def as TypeDef, this);
+  }
+
+  parseExpr(def: unknown): Expr {
+    return this.registry.parseExpr(def as ExprDef, this);
   }
 
   /** Add a binding to this scope's local map. Used by sequential

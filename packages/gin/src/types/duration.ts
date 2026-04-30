@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
@@ -16,8 +16,9 @@ export class DurationType extends Type<number, Record<string, never>> {
   static readonly NAME = 'duration';
   readonly name = DurationType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): DurationType {
-    return new DurationType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): DurationType {
+    const registry = scope.registry;
+    return new DurationType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {

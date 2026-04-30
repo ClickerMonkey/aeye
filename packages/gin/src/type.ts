@@ -1,8 +1,8 @@
 import type { Registry } from './registry';
+import type { TypeScope } from './type-scope';
 import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
 import type { Expr } from './expr';
 import { Value, val } from './value';
-import { substituteChildren } from './spec';
 import type { Node, CodeOptions } from './node';
 import type { Engine } from './engine';
 import { Problems } from './problem';
@@ -216,20 +216,13 @@ export class GetSet<K = any, V = any> {
 /**
  * Runtime Call — callable spec, with arg/return/throws Types resolved.
  *
- * The parsed `args` / `returns` / `throws` (and `get` / `set` ExprDefs
- * that flow through to the engine) are the fully-inlined forms — the
- * runtime / analysis layer never sees alias references.
- *
- * When the source `CallDef` declared `types` (call-local type aliases),
- * the un-inlined source forms are preserved on private fields below
- * so `toJSON()` can emit the compact aliased shape rather than the
- * verbose inlined one. These fields are populated only when aliases
- * were actually used; otherwise undefined.
- *
- * On `.bind()` substitution, gin's substitute pipeline drops the
- * `types` and source fields so post-bind `toJSON()` doesn't emit a
- * stale source map alongside an updated parsed call. The bound Call
- * is therefore alias-free in both representations.
+ * `args` / `returns` / `throws` are parsed inside the call's local
+ * scope (a `LocalScope` carrying any `CallDef.types` aliases plus
+ * declared generics). Bare alias references inside those Types are
+ * `AliasType` instances that resolve via that scope; their `toJSON()`
+ * emits the bare-name form, which decodeCall then rebuilds against a
+ * freshly constructed LocalScope on round-trip. No source-form
+ * preservation needed — the structure is symmetric.
  */
 export class Call<TArgs extends object = any, TResult = any, TError = any> {
   readonly args: Type<TArgs>;
@@ -239,19 +232,10 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
   readonly set?: ExprDef;
   readonly docs?: string;
 
-  /** Call-local type aliases declared on `CallDef.types`. Public so
-   *  rendering (toCode / toCodeDefinition) can surface the alias
-   *  header. Populated only when aliases were used; undefined
-   *  otherwise. */
-  readonly types?: Record<string, TypeDef>;
-  // Un-inlined source forms for round-trip via `toJSON()`. Private —
-  // pure bookkeeping, no external consumer. Populated alongside
-  // `types`; undefined when no aliases were declared.
-  private readonly sourceArgs?: TypeDef;
-  private readonly sourceReturns?: TypeDef;
-  private readonly sourceThrows?: TypeDef;
-  private readonly sourceGet?: ExprDef;
-  private readonly sourceSet?: ExprDef;
+  /** Call-local type aliases declared on `CallDef.types`, parsed.
+   *  Public so rendering (toCode / toCodeDefinition) can surface the
+   *  alias header. Populated only when aliases were declared. */
+  readonly types?: Record<string, Type>;
 
   constructor(spec: {
     args: Type<TArgs>;
@@ -260,12 +244,7 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     get?: ExprDef;
     set?: ExprDef;
     docs?: string;
-    types?: Record<string, TypeDef>;
-    sourceArgs?: TypeDef;
-    sourceReturns?: TypeDef;
-    sourceThrows?: TypeDef;
-    sourceGet?: ExprDef;
-    sourceSet?: ExprDef;
+    types?: Record<string, Type>;
   }) {
     this.args = spec.args;
     this.returns = spec.returns;
@@ -274,30 +253,18 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     this.set = spec.set;
     this.docs = spec.docs;
     this.types = spec.types;
-    this.sourceArgs = spec.sourceArgs;
-    this.sourceReturns = spec.sourceReturns;
-    this.sourceThrows = spec.sourceThrows;
-    this.sourceGet = spec.sourceGet;
-    this.sourceSet = spec.sourceSet;
   }
 
   /** Serialize to CallDef JSON. Inverse of `decodeCall` in spec.ts. */
   toJSON(): CallDef {
-    if (this.types) {
-      // Source-form preservation: emit the un-inlined slots so the
-      // saved CallDef stays compact (alias names intact).
-      return {
-        docs: this.docs,
-        types: this.types,
-        args: this.sourceArgs ?? this.args.toJSON(),
-        returns: this.sourceReturns ?? this.returns?.toJSON(),
-        throws: this.sourceThrows ?? this.throws?.toJSON(),
-        get: this.sourceGet ?? this.get,
-        set: this.sourceSet ?? this.set,
-      };
-    }
+    const types = this.types && Object.keys(this.types).length > 0
+      ? Object.fromEntries(
+          Object.entries(this.types).map(([k, t]) => [k, t.toJSON()]),
+        )
+      : undefined;
     return {
       docs: this.docs,
+      types,
       args: this.args.toJSON(),
       returns: this.returns?.toJSON(),
       throws: this.throws?.toJSON(),
@@ -372,7 +339,14 @@ export type Rnd = (min: number, max: number, whole: boolean) => number;
  */
 export abstract class Type<T = any, O = any> implements Node {
   constructor(
-    readonly registry: Registry,
+    /**
+     * Type-name resolution scope. Usually the Registry (root scope);
+     * Types parsed inside an FnType's generic-parameter scope or a
+     * `CallDef.types` alias scope hold a `LocalScope` instead, so that
+     * any `AliasType` captured in their tree can resolve through the
+     * same chain at use time.
+     */
+    readonly scope: TypeScope,
     readonly options: O,
     /**
      * Generic parameter bindings (e.g. list<V> stores V here). Empty for
@@ -381,6 +355,10 @@ export abstract class Type<T = any, O = any> implements Node {
      */
     readonly generic: Record<string, Type> = {},
   ) {}
+
+  /** Underlying Registry — shortcut for `this.scope.registry`, used
+   *  by subclasses for builder access (`this.registry.num()` etc.). */
+  get registry(): Registry { return this.scope.registry; }
 
   /** Identifier of this type (e.g. 'num', 'text', 'list'). */
   abstract readonly name: string;
@@ -404,14 +382,20 @@ export abstract class Type<T = any, O = any> implements Node {
    * solving `T` backwards through the refinement. Narrowing still works
    * — callers that need `Value<T>.raw` typed simply rely on the Value's
    * constructor contract.
+   *
+   * Optional `scope` overlays an extra TypeScope on top of any
+   * AliasType resolutions inside this type — used by call-site
+   * generics (path step `generic: {R: numDef}`) so AliasType('R')
+   * resolves to num without rebuilding the type tree.
    */
-  abstract valid(raw: unknown): boolean;
+  abstract valid(raw: unknown, scope?: TypeScope): boolean;
 
   /**
    * Parse a JSON-shape input into a Value of this type.
    * Throws if the input cannot be coerced to a valid raw value.
+   * `scope` propagates the call-site TypeScope (see `valid`).
    */
-  abstract parse(json: unknown): Value<T>;
+  abstract parse(json: unknown, scope?: TypeScope): Value<T>;
 
   /**
    * Serialize a runtime raw value to its JSON shape.
@@ -423,8 +407,9 @@ export abstract class Type<T = any, O = any> implements Node {
    * Called by `Value.toJSON()` to build the outer `{type, value}` wire
    * envelope. For logical primitive output (no type info) callers can
    * walk `.raw` and read the underlying Value contents directly.
+   * `scope` propagates the call-site TypeScope (see `valid`).
    */
-  abstract encode(raw: RuntimeOf<T>): JSONOf<T>;
+  abstract encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T>;
 
   /** Default / zero raw value — used by { kind: 'new' } with no args. */
   abstract create(): RuntimeOf<T>;
@@ -438,17 +423,18 @@ export abstract class Type<T = any, O = any> implements Node {
    * Structural + (optional) strict compatibility check.
    * Concrete types implement this — the default impls below (accepts,
    * exact) compose it with pre-set option flags.
+   * `scope` propagates the call-site TypeScope (see `valid`).
    */
-  abstract compatible(other: Type, opts?: CompatOptions): boolean;
+  abstract compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean;
 
   /** Strict: another instance of the same class must match structurally. */
-  accepts(other: Type): boolean {
-    return this.compatible(other, { strict: true });
+  accepts(other: Type, scope?: TypeScope): boolean {
+    return this.compatible(other, { strict: true }, scope);
   }
 
   /** Strict + exact: no wrapper unwrapping, no value-mode. */
-  exact(other: Type): boolean {
-    return this.compatible(other, { strict: true, exact: true });
+  exact(other: Type, scope?: TypeScope): boolean {
+    return this.compatible(other, { strict: true, exact: true }, scope);
   }
 
   /** True if this type accepts instances of other classes structurally. */
@@ -465,8 +451,9 @@ export abstract class Type<T = any, O = any> implements Node {
    * `list<registry.like(X)>`, pulling in every registry type compatible
    * with X. When `other` is a different class, the default fallback returns
    * `this` unchanged.
+   * `scope` propagates the call-site TypeScope (see `valid`).
    */
-  like(_other: Type): Type {
+  like(_other: Type, _scope?: TypeScope): Type {
     return this;
   }
 
@@ -492,8 +479,9 @@ export abstract class Type<T = any, O = any> implements Node {
    */
   abstract or(other: Type<T>): Type<T>;
 
-  /** Canonical form — collapse trivial wrappers. */
-  simplify(): Type {
+  /** Canonical form — collapse trivial wrappers. AliasType uses
+   *  `scope` to consult call-site bindings before its captured scope. */
+  simplify(_scope?: TypeScope): Type {
     return this;
   }
 
@@ -532,8 +520,9 @@ export abstract class Type<T = any, O = any> implements Node {
    * The base defines universal props that every type inherits — `toAny`
    * is always available. Subclasses spread `super.props()` into their
    * return to pick these up.
+   * `scope` propagates the call-site TypeScope (see `valid`).
    */
-  props(): Record<string, Prop | PropSpec> {
+  props(_scope?: TypeScope): Record<string, Prop | PropSpec> {
     return {
       toAny: this.registry.method({}, this.registry.any(), 'type.toAny'),
     };
@@ -556,23 +545,23 @@ export abstract class Type<T = any, O = any> implements Node {
   }
 
   /** Effective GetSet — present iff this type supports [key] access. */
-  get(): GetSet | undefined {
+  get(_scope?: TypeScope): GetSet | undefined {
     return undefined;
   }
 
   /** Effective Call — present iff this type is invocable. */
-  call(): Call | undefined {
+  call(_scope?: TypeScope): Call | undefined {
     return undefined;
   }
 
   /** Effective Init — present iff this type has a custom constructor. */
-  init(): Init | undefined {
+  init(_scope?: TypeScope): Init | undefined {
     return undefined;
   }
 
   /** Convenience over props() — single-name lookup, normalized to Prop. */
-  prop(name: string): Prop | undefined {
-    const raw = this.props()[name];
+  prop(name: string, scope?: TypeScope): Prop | undefined {
+    const raw = this.props(scope)[name];
     return raw ? Prop.from(raw) : undefined;
   }
 
@@ -582,51 +571,41 @@ export abstract class Type<T = any, O = any> implements Node {
    * Resolve a single PathStep against this type, returning the sub-type
    * reached by that step (or undefined if the step doesn't apply here).
    * Concrete types with positional semantics (Tuple) may override.
+   * `scope` propagates the call-site TypeScope (see `valid`).
    */
-  follow(step: PathStepDef): Type | undefined {
+  follow(step: PathStepDef, scope?: TypeScope): Type | undefined {
     if ('prop' in step) {
-      return this.prop(step.prop)?.type;
+      return this.prop(step.prop, scope)?.type;
     }
     if ('args' in step) {
-      return this.call()?.returns;
+      return this.call(scope)?.returns;
     }
     if ('key' in step) {
-      return this.get()?.value;
+      return this.get(scope)?.value;
     }
     return undefined;
   }
 
   /** Fold follow() over a whole Path. */
-  at(path: PathDef): Type | undefined {
+  at(path: PathDef, scope?: TypeScope): Type | undefined {
     let current: Type | undefined = this;
     for (const step of path) {
       if (!current) return undefined;
-      current = current.follow(step);
+      current = current.follow(step, scope);
     }
     return current;
   }
 
-  // ─── GENERIC BINDING ─────────────────────────────────────────────────────
-
-  /**
-   * Substitute generic placeholders in this type using the given bindings.
-   * Delegates to `substitute(bindings)` — each Type class chooses its own
-   * substitution semantics polymorphically.
-   */
-  bind(bindings: Record<string, Type>): Type {
-    if (Object.keys(bindings).length === 0) return this;
-    return this.substitute(bindings);
-  }
-
-  /**
-   * Default substitution: walk the common child-type fields via the
-   * JSON-shape helper. GenericType overrides to return its binding.
-   * Other types with no generic placeholders just return this.
-   */
-  substitute(bindings: Record<string, Type>): Type {
-    if (Object.keys(bindings).length === 0) return this;
-    return this.registry.parse(substituteChildren(this.toJSON(), bindings, this.registry));
-  }
+  // ─── GENERIC RESOLUTION (scope-based; no bind/substitute) ───────────────
+  //
+  // Generic placeholders are AliasType instances whose `scope` chain
+  // includes the binding (see `FnType.from`'s LocalScope, decodeCall's
+  // alias map, etc.). To specialize a generic at a call site, callers
+  // pass an extra `scope: TypeScope` (a LocalScope layered on top of
+  // the captured scope, with call-site bindings) into the methods
+  // that resolve types — `parse`, `valid`, `compatible`, `props`,
+  // `call`, etc. AliasType.resolve consults `extra` first, falling
+  // back to its captured scope. No type tree is rebuilt.
 
   // ─── SCHEMA ROUND-TRIP ───────────────────────────────────────────────────
 
@@ -806,12 +785,8 @@ export abstract class Type<T = any, O = any> implements Node {
     // reading the constructor / call signature lines below.
     const call = this.definitionCall();
     if (call?.types) {
-      for (const [name, def] of Object.entries(call.types)) {
-        try {
-          lines.push(`  type ${name} = ${this.registry.parse(def).toCode()};`);
-        } catch {
-          lines.push(`  type ${name} = ${JSON.stringify(def)};`);
-        }
+      for (const [name, t] of Object.entries(call.types)) {
+        lines.push(`  type ${name} = ${t.toCode()};`);
       }
     }
 
@@ -951,35 +926,30 @@ export function optionsCode(opts: object | undefined | null): string {
 /**
  * Render a Call's `types` (call-local type aliases) as a header block
  * `{a: <code>; b: <code>}` immediately after the generic params and
- * before the parameter list. Each alias is parsed in isolation so its
- * generic-placeholder references render as `T` etc. Empty / missing
- * map → empty string.
+ * before the parameter list. Empty / missing map → empty string.
  */
 export function renderCallTypes(
-  registry: { parse(def: TypeDef): Type },
-  types: Record<string, TypeDef> | undefined,
+  types: Record<string, Type> | undefined,
 ): string {
   if (!types) return '';
   const keys = Object.keys(types);
   if (keys.length === 0) return '';
-  const parts = keys.map((k) => {
-    try { return `${k}: ${registry.parse(types[k]!).toCode()}`; }
-    catch { return `${k}: ${JSON.stringify(types[k])}`; }
-  });
+  const parts = keys.map((k) => `${k}: ${types[k]!.toCode()}`);
   return `{${parts.join('; ')}}`;
 }
 
 /**
- * Render a type's generic-parameter map as `<T, U: Bound>`. `T` when bound
- * is `any` (unconstrained) or a self-referencing GenericType placeholder,
- * `T: code` otherwise. Shared by type headers and fn signatures.
+ * Render a type's generic-parameter map as `<T, U: Bound>`. `T` when
+ * bound is `any` (unconstrained) or a self-referencing AliasType
+ * placeholder, `T: code` otherwise. Shared by type headers and fn
+ * signatures.
  */
 export function renderGenerics(generic: Record<string, Type>): string {
   const keys = Object.keys(generic);
   if (keys.length === 0) return '';
   const parts = keys.map((k) => {
     const t = generic[k]!;
-    const selfRef = t.name === 'generic'
+    const selfRef = t.name === 'alias'
       && (t.options as { name?: string } | undefined)?.name === k;
     return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode()}`;
   });

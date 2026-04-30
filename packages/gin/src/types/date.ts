@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -16,8 +16,9 @@ export class DateType extends Type<Date, DateOptions> {
   static readonly NAME = 'date';
   readonly name = DateType.NAME;
 
-  static from(json: TypeDef, registry: Registry): DateType {
-    return new DateType(registry, (json.options ?? {}) as DateOptions);
+  static from(json: TypeDef, scope: TypeScope): DateType {
+    const registry = scope.registry;
+    return new DateType(scope, (json.options ?? {}) as DateOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

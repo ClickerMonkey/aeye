@@ -1,18 +1,18 @@
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
-import type { ExprDef, LambdaExprDef, TypeDef } from '../schema';
+import type { LambdaExprDef } from '../schema';
 import { Value } from '../value';
 import { ReturnSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
-import { buildAliasMap, inlineExprDef } from './inline-aliases';
+import { LocalScope, type TypeScope } from '../type-scope';
 
 /**
  * LambdaExpr — a callable value that closes over the lexical scope.
@@ -29,42 +29,23 @@ export class LambdaExpr extends Expr {
     readonly fnType: Type,
     readonly body: Expr,
     readonly constraint?: Expr,
-    /** Source-form ExprDefs (with alias references intact) for
-     *  round-trip via `toJSON()` when `fnType.call.types` declared
-     *  call-local aliases. Without these the parsed body's `toJSON()`
-     *  would emit the inlined form, defeating the verbosity-reduction
-     *  point of aliases. */
-    readonly _sourceBody?: ExprDef,
-    readonly _sourceConstraint?: ExprDef,
   ) {
     super();
   }
 
-  static from(json: LambdaExprDef, registry: Registry): LambdaExpr {
-    // If the lambda's fnType declares `call.types`, those aliases must
-    // resolve in the body / constraint too — same convention as a
-    // saved fn's `call.get` / `call.set` (see `decodeCall`). Inline
-    // before parsing so referenced alias names don't trip
-    // `registry.parse`'s "unknown type" check.
-    const callTypes = (json.type as { call?: { types?: Record<string, TypeDef> } })
-      .call?.types;
-    const aliases = callTypes ? buildAliasMap(callTypes, registry) : undefined;
-    const hasAliases = !!aliases && Object.keys(aliases).length > 0;
-    const bodyDef = hasAliases ? inlineExprDef(json.body, aliases!) : json.body;
-    const constraintDef = json.constraint
-      ? (hasAliases ? inlineExprDef(json.constraint, aliases!) : json.constraint)
+  static from(json: LambdaExprDef, scope: TypeScope): LambdaExpr {
+    const registry = scope.registry;
+    // Parse the fn type first (FnType.from layers its own LocalScope
+    // for declared generics). Then build a body scope on top so bare
+    // alias / generic references inside the body / constraint resolve
+    // through AliasType.
+    const fnType = registry.parse(json.type, scope);
+    const bodyScope = buildBodyScope(scope, fnType);
+    const body = registry.parseExpr(json.body, bodyScope);
+    const constraint = json.constraint
+      ? registry.parseExpr(json.constraint, bodyScope)
       : undefined;
-
-    const fnType = registry.parse(json.type);
-    const body = registry.parseExpr(bodyDef);
-    const constraint = constraintDef ? registry.parseExpr(constraintDef) : undefined;
-    return new LambdaExpr(
-      fnType,
-      body,
-      constraint,
-      hasAliases ? json.body : undefined,
-      hasAliases && json.constraint ? json.constraint : undefined,
-    ).withComment(json.comment);
+    return new LambdaExpr(fnType, body, constraint).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -113,13 +94,13 @@ export class LambdaExpr extends Expr {
     return new Value(fnType, callable);
   }
 
-  typeOf(_engine: Engine, _scope: TypeScope): Type {
+  typeOf(_engine: Engine, _scope: Locals): Type {
     return this.fnType;
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const call = this.fnType.call();
-    const child: TypeScope = new Map(scope);
+    const child: Locals = new Map(scope);
     child.set('args', call?.args ?? engine.registry.any());
     const bodyT = p.at('body', () =>
       walkValidate(engine, this.body, child, p, { ...ctx, inLambda: true }));
@@ -160,11 +141,8 @@ export class LambdaExpr extends Expr {
     return this.withCommentOn({
       kind: 'lambda',
       type: this.fnType.toJSON(),
-      // Prefer source forms when present so aliased bodies round-trip
-      // compact. The parsed body has already been inlined; emitting
-      // it would lose the alias references the user wrote.
-      body: this._sourceBody ?? this.body.toJSON(),
-      constraint: this._sourceConstraint ?? this.constraint?.toJSON(),
+      body: this.body.toJSON(),
+      constraint: this.constraint?.toJSON(),
     });
   }
 
@@ -173,8 +151,6 @@ export class LambdaExpr extends Expr {
       this.fnType.clone(),
       this.body.clone(),
       this.constraint?.clone(),
-      this._sourceBody,
-      this._sourceConstraint,
     ).withComment(this.comment);
   }
 
@@ -182,4 +158,17 @@ export class LambdaExpr extends Expr {
     visit(this.body, 'lambda');
     if (this.constraint) visit(this.constraint, 'lambda');
   }
+}
+
+/** Build a body scope that exposes the fnType's generics and
+ *  `call.types` aliases by name, so bare `{name: 'X'}` references
+ *  inside the body / constraint resolve via AliasType. */
+function buildBodyScope(parent: TypeScope, fnType: Type): TypeScope {
+  const local = new LocalScope(parent);
+  for (const [name, t] of Object.entries(fnType.generic)) local.bind(name, t);
+  const call = fnType.call();
+  if (call?.types) {
+    for (const [name, t] of Object.entries(call.types)) local.bind(name, t);
+  }
+  return local;
 }

@@ -59,11 +59,11 @@ export function registerFetchType(registry: Registry) {
       headers: { type: registry.optional(registry.map(registry.text(), registry.text())) },
       body:    { type: registry.optional(registry.any()) },
       output:  {
-        type: registry.optional(registry.typ(registry.generic('R'))),
+        type: registry.optional(registry.typ(registry.alias('R'))),
         docs: 'gin Type to parse the JSON response body through — unifies R in the return type.',
       },
     }),
-    registry.generic('R'),
+    registry.alias('R'),
     undefined,
     { R: registry.text() },
   );

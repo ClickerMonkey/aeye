@@ -1,5 +1,5 @@
+import type { TypeScope } from '../type-scope';
 import { z } from 'zod';
-import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
@@ -25,9 +25,10 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
   static readonly NAME = 'typ';
   readonly name = TypType.NAME;
 
-  static from(json: TypeDef, registry: Registry): TypType {
-    const constraint = json.generic?.T ? registry.parse(json.generic.T) : registry.any();
-    return new TypType(registry, constraint);
+  static from(json: TypeDef, scope: TypeScope): TypType {
+    const registry = scope.registry;
+    const constraint = json.generic?.T ? scope.parse(json.generic.T) : registry.any();
+    return new TypType(scope, constraint);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -42,29 +43,30 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     return opts.Type;
   }
 
-  constructor(registry: Registry, readonly constraint: Type<T>) {
-    super(registry, {}, { T: constraint });
+  constructor(scope: TypeScope, readonly constraint: Type<T>) {
+    super(scope, {}, { T: constraint });
   }
 
   /** Accepts a Type instance whose values fit (in either direction — see
    *  note on compat asymmetry). The raw IS a Type, not JSON. */
-  valid(raw: unknown): boolean {
+  valid(raw: unknown, scope?: TypeScope): boolean {
     if (!(raw instanceof Type)) return false;
     // Accept in either direction: `raw.compatible(constraint)` handles
     // Extension subtypes (Positive.compatible(num) = true via base); the
     // opposite direction `constraint.compatible(raw)` handles top-type
     // cases (any.compatible(num) = true) so `typ<any>` accepts everything.
-    return raw.compatible(this.constraint) || this.constraint.compatible(raw);
+    return raw.compatible(this.constraint, undefined, scope)
+        || this.constraint.compatible(raw, undefined, scope);
   }
 
   /** Parse a JSON TypeDef into a Type instance, then validate against the
    *  constraint. One-shot conversion — subsequent `.raw` access is free. */
-  parse(json: unknown): Value<Type> {
+  parse(json: unknown, scope?: TypeScope): Value<Type> {
     // Passthrough: already a Value of the right shape.
     if (json instanceof Value && json.type instanceof TypType) return json;
     // Already a Type — wrap directly.
     if (json instanceof Type) {
-      if (!this.valid(json)) {
+      if (!this.valid(json, scope)) {
         throw new Error(`typ.parse: Type '${json.name}' is not compatible with ${this.constraint.toCode()}`);
       }
       return new Value(this, json);
@@ -78,19 +80,19 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     }
     let parsed: Type;
     try {
-      parsed = this.registry.parse(json as TypeDef);
+      parsed = this.registry.parse(json as TypeDef, scope);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new Error(`typ.parse: ${msg}`);
     }
-    if (!this.valid(parsed)) {
+    if (!this.valid(parsed, scope)) {
       throw new Error(`typ.parse: Type '${parsed.name}' is not compatible with ${this.constraint.toCode()}`);
     }
     return new Value(this, parsed);
   }
 
   /** Serialize to TypeDef JSON — the wire form. */
-  encode(raw: Type): TypeDef {
+  encode(raw: Type, _scope?: TypeScope): TypeDef {
     return raw.toJSON();
   }
 
@@ -102,9 +104,9 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     return this.constraint;
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof TypType)) return false;
-    return this.constraint.compatible(other.constraint, opts);
+    return this.constraint.compatible(other.constraint, opts, scope);
   }
 
   or(other: Type<Type>): Type<Type> {

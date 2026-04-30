@@ -18,7 +18,7 @@ import { ask } from '../tools/ask';
  * Works by introspecting the canonical's own `generic` map — each class's
  * `from` method already knows which parameter names it expects. If the
  * canonical has any generic slot that's an unnamed/any type, swap it for
- * a GenericType placeholder at the same key.
+ * an AliasType placeholder (bare-name TypeDef `{name: 'V'}`) at the same key.
  */
 function placeholderize(r: Registry, cls: { NAME: string; from: (def: TypeDef, r: Registry) => Type }): Type | undefined {
   let canonical: Type;
@@ -32,7 +32,9 @@ function placeholderize(r: Registry, cls: { NAME: string; from: (def: TypeDef, r
 
   const genericDef: Record<string, TypeDef> = {};
   for (const k of keys) {
-    genericDef[k] = { name: 'generic', options: { name: k } };
+    // Bare-name shape: `{name: 'V'}` parses to an AliasType('V'), which
+    // is the unified placeholder/ref runtime form.
+    genericDef[k] = { name: k };
   }
   try {
     return cls.from({ name: cls.NAME, generic: genericDef } as TypeDef, r);
@@ -74,6 +76,166 @@ function buildTypeDocs(r: Registry): string {
 
   return docs.join('\n\n');
 }
+
+const EXPR_KINDS = `## Expression kinds — quick reference
+
+A gin program is a tree of \`ExprDef\` JSON objects. Every node has
+\`kind: "..."\` and the fields its kind declares. Twelve kinds in total:
+
+### \`new\` — construct a value of a given type
+\`{ kind: "new", type: <TypeDef>, value?: <raw or Expr slots> }\`
+\`\`\`json
+// new num{value: 42}
+{ "kind": "new", "type": { "name": "num" }, "value": 42 }
+
+// new list<num>{values: [1,2,3]} — composite slots are Exprs
+{ "kind": "new", "type": { "name": "list", "generic": { "V": { "name": "num" } } },
+  "value": [
+    { "kind": "new", "type": { "name": "num" }, "value": 1 },
+    { "kind": "new", "type": { "name": "num" }, "value": 2 }
+  ] }
+
+// new obj{ x: text, y: num } { ... }
+{ "kind": "new", "type": { "name": "obj", "props": { "x": {"type":{"name":"text"}}, "y": {"type":{"name":"num"}} } },
+  "value": {
+    "x": { "kind": "new", "type": { "name": "text" }, "value": "hi" },
+    "y": { "kind": "new", "type": { "name": "num" }, "value": 1 }
+  } }
+\`\`\`
+
+### \`get\` — read through a path (variables, props, indexed, calls)
+\`{ kind: "get", path: [<step>, <step>, ...] }\`
+See the path-system section below for the full step grammar. First step
+is always \`{prop:"<scopeVar>"}\`.
+
+### \`set\` — write through a path; returns \`bool\` (true=wrote, false=safe-nav abort)
+\`{ kind: "set", path: [<step>, ...], value: <Expr> }\`
+\`\`\`json
+// counter = counter + 1
+{ "kind": "set", "path": [{"prop":"counter"}],
+  "value": { "kind": "get", "path": [
+    { "prop": "counter" }, { "prop": "add" },
+    { "args": { "other": { "kind": "new", "type": { "name": "num" }, "value": 1 } } }
+  ] } }
+\`\`\`
+
+### \`define\` — bind locals into a child scope, then evaluate \`body\`
+\`{ kind: "define", vars: [{ name, type?, value }, ...], body: <Expr> }\`
+Each var is added to scope BEFORE the next var's value is evaluated, so
+later vars can reference earlier ones. \`type\` is optional (inferred
+from \`value\`'s type).
+\`\`\`json
+{ "kind": "define",
+  "vars": [
+    { "name": "x", "value": { "kind": "new", "type": { "name": "num" }, "value": 10 } },
+    { "name": "y", "value": { "kind": "get", "path": [
+      { "prop": "x" }, { "prop": "mul" },
+      { "args": { "other": { "kind": "new", "type": { "name": "num" }, "value": 2 } } }
+    ] } }
+  ],
+  "body": { "kind": "get", "path": [{ "prop": "y" }] }
+}
+\`\`\`
+
+### \`block\` — sequence of expressions; result is the LAST line's value
+\`{ kind: "block", lines: [<Expr>, <Expr>, ...] }\`
+Earlier lines run for side effects (\`set\`, fns.fetch, etc.). Empty
+block returns \`void\`.
+
+### \`if\` — conditional branching; result is the winning branch's body
+\`{ kind: "if", ifs: [{ condition, body }, ...], else?: <Expr> }\`
+First branch whose \`condition\` evaluates true wins. Conditions must be
+\`bool\`-typed. \`else\` (optional) handles the no-match case.
+\`\`\`json
+{ "kind": "if",
+  "ifs": [{
+    "condition": { "kind": "get", "path": [
+      { "prop": "x" }, { "prop": "gt" },
+      { "args": { "other": { "kind": "new", "type": { "name": "num" }, "value": 0 } } }
+    ] },
+    "body": { "kind": "new", "type": { "name": "text" }, "value": "positive" }
+  }],
+  "else": { "kind": "new", "type": { "name": "text" }, "value": "non-positive" }
+}
+\`\`\`
+
+### \`switch\` — value-based branching (multi-equals per case)
+\`{ kind: "switch", value: <Expr>, cases: [{ equals: [<Expr>...], body }], else?: <Expr> }\`
+The case wins if \`value\` equals ANY one of \`equals\`. Use over \`if\`
+when comparing one expression against several literal values.
+
+### \`loop\` — iterate any iterable (list / map / num / text / bool while-loop)
+\`{ kind: "loop", over: <Expr>, body: <Expr>, key?: string, value?: string, parallel?: {...} }\`
+- iterable \`over\` (list/map/num/text): walked once; \`key\` is the index
+  / map key, \`value\` is the element. Both bind to scope under those
+  names (override via the optional \`key\`/\`value\` fields).
+- bool \`over\`: while-loop semantics. The expression is RE-EVALUATED
+  each iteration; loop continues while \`true\`, exits the moment it
+  becomes \`false\`. Use \`set\` exprs in the body to evolve state the
+  bool reads. Combine with \`flow:break\`/\`flow:continue\` for explicit
+  early exit.
+- \`parallel\`: optional concurrency hints (\`concurrent: num\`,
+  \`rate: num\` per-second).
+\`\`\`json
+// for each task in tasks: do something
+{ "kind": "loop",
+  "over": { "kind": "get", "path": [{ "prop": "tasks" }] },
+  "body": { "kind": "get", "path": [
+    { "prop": "value" }, { "prop": "title" }, { "prop": "add" },
+    { "args": { "other": { "kind": "new", "type": { "name": "text" }, "value": "!" } } }
+  ] }
+}
+\`\`\`
+
+### \`lambda\` — callable closure over the lexical scope
+\`{ kind: "lambda", type: <fn TypeDef>, body: <Expr>, constraint?: <Expr> }\`
+Inside the body, \`args\` is the call's arguments obj and \`recurse\` is
+this same lambda (for self-calls). Optional \`constraint\` runs before
+the body each call (must return \`bool\`); throws on false.
+\`\`\`json
+// (args: { value: num }) => args.value + 1
+{ "kind": "lambda",
+  "type": { "name": "function",
+    "call": { "args": { "name": "obj", "props": { "value": { "type": { "name": "num" } } } },
+              "returns": { "name": "num" } } },
+  "body": { "kind": "get", "path": [
+    { "prop": "args" }, { "prop": "value" }, { "prop": "add" },
+    { "args": { "other": { "kind": "new", "type": { "name": "num" }, "value": 1 } } }
+  ] }
+}
+\`\`\`
+
+### \`template\` — string interpolation with \`{name}\` placeholders
+\`{ kind: "template", template: "<string>", params: <Expr evaluating to obj> }\`
+Each \`{name}\` in the string is replaced by the stringified
+\`params.name\`.
+\`\`\`json
+{ "kind": "template",
+  "template": "Hello, {who}! You have {n} messages.",
+  "params": { "kind": "new",
+    "type": { "name": "obj", "props": { "who": { "type": { "name": "text" } }, "n": { "type": { "name": "num" } } } },
+    "value": {
+      "who": { "kind": "new", "type": { "name": "text" }, "value": "world" },
+      "n":   { "kind": "new", "type": { "name": "num" },  "value": 3 }
+    }
+  }
+}
+\`\`\`
+
+### \`flow\` — non-local control: \`break\`, \`continue\`, \`return\`, \`exit\`, \`throw\`
+\`{ kind: "flow", action: "break" | "continue" | "return" | "exit" | "throw", value?: <Expr>, error?: <Expr> }\`
+- \`break\` / \`continue\` — only valid inside a \`loop\`.
+- \`return\` — unwinds to the enclosing lambda; \`value\` becomes its result.
+- \`exit\` — unwinds all the way to \`engine.run\`; \`value\` becomes the program result.
+- \`throw\` — raises \`error\`; caught by a path step's \`catch:\` handler.
+
+### \`native\` — escape hatch calling a registered native impl by id
+\`{ kind: "native", id: "<nativeId>", type?: <TypeDef> }\`
+You should NOT generate \`native\` directly. Methods on built-in types
+(list.push, num.add, etc.) are reached via \`get\` paths — gin resolves
+to natives internally. \`native\` is mentioned for completeness only.
+
+`;
 
 const PATH_EXPLANATION = `## The path system — how to build \`get\` / \`set\` expressions
 
@@ -182,12 +344,47 @@ names, index signatures, and call signatures exist on each type:
 {{typeDocs}}
 \`\`\`
 
+${EXPR_KINDS}
 ${PATH_EXPLANATION}
 
 ## Globals always available
 - \`fns.fetch<R = text>({ url, method?, headers?, body?, output?: typ<R> }): R\` — HTTP fetch.
 - \`fns.llm<R = text>({ prompt, tools?, output?: typ<R> }): R\` — LLM call.
+- \`fns.log({ message: any }): void\` — print a runtime message to the user (stderr). Use for progress narration, intermediate values, debug breadcrumbs. Distinct from the program's return value.
+- \`fns.ask<R = text>({ title: text, details: text, output?: typ<R> }): optional<R>\` — pause execution and prompt the user. With \`output\` set the consumer walks the user through any complex shape (obj fields, list items, choices, optionals). Returns \`null\` (\`optional<R>\`) on cancel — handle that explicitly.
 - \`vars.*\` — named typed values, persisted on disk.
+
+## Writing prompt-friendly types for \`fns.ask\`
+
+The ask consumer uses each (sub)type's \`docs\` field as the user-facing
+label for its prompt. Put short, human-readable descriptions on every
+field of an output type you pass to \`fns.ask\` — that's what the user
+sees, not the field name or the raw TypeDef.
+
+\`\`\`json
+// Asking for a list of contacts:
+{ "kind": "get", "path": [
+  { "prop": "fns" }, { "prop": "ask" },
+  { "args": {
+    "title":   { "kind": "new", "type": { "name": "text" }, "value": "Add contacts" },
+    "details": { "kind": "new", "type": { "name": "text" }, "value": "Enter each contact one at a time. Press Enter on the 'add another?' prompt to stop." },
+    "output":  { "kind": "new", "type": { "name": "typ" },
+                 "value": { "name": "list", "generic": { "V": {
+                   "name": "obj",
+                   "props": {
+                     "name":  { "type": { "name": "text" }, "docs": "Full name" },
+                     "email": { "type": { "name": "text", "options": { "pattern": ".+@.+" } }, "docs": "Email address" },
+                     "role":  { "type": { "name": "enum", "options": { "values": { "admin": "admin", "viewer": "viewer" } } }, "docs": "Permission role" }
+                   }
+                 } } } }
+  } }
+]}
+\`\`\`
+
+The user sees three labelled prompts per item — "Full name", "Email
+address", "Permission role" (as a 1/2 choice) — instead of \`name\`,
+\`email\`, \`role\`. Always set \`docs\` on each obj field; for list
+elements, \`docs\` on the element type itself works too.
 
 ## Typed output — why it matters
 

@@ -1,8 +1,8 @@
-import type { Registry } from '../registry';
 import type { ExprDef, TypeDef } from '../schema';
 import { Value } from '../value';
 import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderCallTypes, renderGenerics } from '../type';
 import { decodeCall } from '../spec';
+import { LocalScope, type TypeScope } from '../type-scope';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema } from '../schemas';
@@ -24,18 +24,28 @@ export class FnType extends Type<any, Record<string, never>> {
 
   readonly _call: Call;
 
-  static from(json: TypeDef, registry: Registry): FnType {
+  static from(json: TypeDef, scope: TypeScope): FnType {
+    const registry = scope.registry;
+    // Generics declared on the fn — bind each into a LocalScope so that
+    // bare `{name: 'T'}` inside the call signature resolves to the
+    // generic placeholder via AliasType (and supports later
+    // substitution via .bind).
     const generic: Record<string, Type> = {};
+    const local = new LocalScope(scope);
     if (json.generic) {
-      for (const [k, def] of Object.entries(json.generic)) generic[k] = registry.parse(def);
+      for (const [k, def] of Object.entries(json.generic)) {
+        const t = local.parse(def);
+        generic[k] = t;
+        local.bind(k, t);
+      }
     }
     if (!json.call) {
-      return new FnType(registry, new Call({
+      return new FnType(local, new Call({
         args: registry.any() as Type<any>,
         returns: registry.any(),
       }), generic);
     }
-    return new FnType(registry, decodeCall(json.call, registry), generic);
+    return new FnType(local, decodeCall(json.call, local), generic);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -53,22 +63,22 @@ export class FnType extends Type<any, Record<string, never>> {
   }
 
   constructor(
-    registry: Registry,
+    scope: TypeScope,
     call: Call | ConstructorParameters<typeof Call>[0],
     generic: Record<string, Type> = {},
   ) {
-    super(registry, {}, generic);
+    super(scope, {}, generic);
     this._call = call instanceof Call ? call : new Call(call);
   }
 
-  valid(raw: unknown): boolean {
+  valid(raw: unknown, _scope?: TypeScope): boolean {
     if (typeof raw === 'function') return true;
     if (typeof raw === 'string') return true;
     if (raw && typeof raw === 'object' && 'kind' in (raw as Record<string, unknown>)) return true;
     return false;
   }
 
-  parse(json: unknown): Value<any> {
+  parse(json: unknown, _scope?: TypeScope): Value<any> {
     // Functions aren't JSON-serializable; accept either a string ref or an
     // ExprDef (e.g. { kind: 'lambda' }). Native JS functions can only come
     // from in-process construction, not JSON parse.
@@ -80,7 +90,7 @@ export class FnType extends Type<any, Record<string, never>> {
     return new Value(this, null as any);
   }
 
-  encode(raw: ((...args: any[]) => any) | ExprDef | string): any {
+  encode(raw: ((...args: any[]) => any) | ExprDef | string, _scope?: TypeScope): any {
     if (typeof raw === 'string') return raw;
     if (typeof raw === 'function') return null; // native, not serializable
     return raw;
@@ -106,13 +116,13 @@ export class FnType extends Type<any, Record<string, never>> {
     return r.fn(args as Type<any>, returns, throws, this.generic);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof FnType)) return false;
     // args: contravariant — this.args must accept other.args
-    if (!this._call.args.compatible(other._call.args, opts)) return false;
+    if (!this._call.args.compatible(other._call.args, opts, scope)) return false;
     // returns: covariant — other.returns must be compatible with this.returns
     if (this._call.returns && other._call.returns) {
-      if (!this._call.returns.compatible(other._call.returns, opts)) return false;
+      if (!this._call.returns.compatible(other._call.returns, opts, scope)) return false;
     }
     return true;
   }
@@ -134,12 +144,12 @@ export class FnType extends Type<any, Record<string, never>> {
     return {};
   }
 
-  call(): Call {
+  call(_scope?: TypeScope): Call {
     return this._call;
   }
 
-  props(): Record<string, Prop> {
-    return super.props() as Record<string, Prop>;
+  props(scope?: TypeScope): Record<string, Prop> {
+    return super.props(scope) as Record<string, Prop>;
   }
 
   toJSON(): TypeDef {
@@ -173,7 +183,7 @@ export class FnType extends Type<any, Record<string, never>> {
   toCode(): string {
     const ret = this._call.returns?.toCode() ?? 'void';
     return this.docsPrefix()
-      + `${renderGenerics(this.generic)}${renderCallTypes(this.registry, this._call.types)}(${formatParams(this._call.args)}): ${ret}`;
+      + `${renderGenerics(this.generic)}${renderCallTypes(this._call.types)}(${formatParams(this._call.args)}): ${ret}`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

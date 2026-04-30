@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
@@ -15,8 +15,9 @@ export class AnyType extends Type<any, Record<string, never>> {
   static readonly NAME = 'any';
   readonly name = AnyType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): AnyType {
-    return new AnyType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): AnyType {
+    const registry = scope.registry;
+    return new AnyType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
@@ -82,7 +83,7 @@ export class AnyType extends Type<any, Record<string, never>> {
       is:        r.method({}, r.bool(), 'any.is', { generic: { T: r.any() } }),
       // Cast to target type T. Returns optional<T> — null when the value
       // doesn't satisfy T.
-      as:        r.method({}, r.optional(r.generic('T')), 'any.as', { generic: { T: r.any() } }),
+      as:        r.method({}, r.optional(r.alias('T')), 'any.as', { generic: { T: r.any() } }),
       toText:    r.method({},                 r.text(), 'any.toText'),
       toBool:    r.method({},                 r.bool(), 'any.toBool'),
       eq:        r.method({ other: r.any() }, r.bool(), 'any.eq'),

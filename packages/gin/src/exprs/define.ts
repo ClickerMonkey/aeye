@@ -4,7 +4,7 @@ import type { DefineExprDef, TypeDef } from '../schema';
 import type { Value } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { checkBindingName, typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
@@ -12,6 +12,7 @@ import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * DefineExpr — introduce local bindings into a child scope, then evaluate body.
@@ -32,13 +33,14 @@ export class DefineExpr extends Expr {
     super();
   }
 
-  static from(json: DefineExprDef, registry: Registry): DefineExpr {
+  static from(json: DefineExprDef, scope: TypeScope): DefineExpr {
+    const r = scope.registry;
     const vars: DefineVar[] = json.vars.map((v) => ({
       name: v.name,
-      type: v.type ? registry.parse(v.type) : undefined,
-      value: registry.parseExpr(v.value),
+      type: v.type ? r.parse(v.type, scope) : undefined,
+      value: r.parseExpr(v.value, scope),
     }));
-    return new DefineExpr(vars, registry.parseExpr(json.body)).withComment(json.comment);
+    return new DefineExpr(vars, r.parseExpr(json.body, scope)).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -73,8 +75,8 @@ export class DefineExpr extends Expr {
     return this.body.evaluate(engine, child);
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
-    const child: TypeScope = new Map(scope);
+  typeOf(engine: Engine, scope: Locals): Type {
+    const child: Locals = new Map(scope);
     for (const v of this.vars) {
       const t = v.type ?? typeOf(engine, v.value, child);
       child.set(v.name, t);
@@ -82,8 +84,8 @@ export class DefineExpr extends Expr {
     return typeOf(engine, this.body, child);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
-    const child: TypeScope = new Map(scope);
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
+    const child: Locals = new Map(scope);
     for (let i = 0; i < this.vars.length; i++) {
       const v = this.vars[i]!;
       // Each var name must not be a reserved name and must not collide

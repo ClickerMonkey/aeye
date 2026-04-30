@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, Prop, type PropSpec, type Rnd, Type } from '../type';
@@ -23,10 +23,11 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   /** Runtime prop specs. Structural fields — each has at least `type`. */
   readonly fields: Record<string, Prop>;
 
-  static from(json: TypeDef, registry: Registry): ObjType {
+  static from(json: TypeDef, scope: TypeScope): ObjType {
+    const registry = scope.registry;
     const fieldDefs = (json.props ?? {}) as Record<string, PropDef>;
-    const fields = decodeProps(fieldDefs, registry);
-    return new ObjType(registry, fields);
+    const fields = decodeProps(fieldDefs, scope);
+    return new ObjType(scope, fields);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -42,8 +43,8 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return z.record(z.string(), opts.Expr);
   }
 
-  constructor(registry: Registry, fields: Record<string, Prop | PropSpec>) {
-    super(registry, {});
+  constructor(scope: TypeScope, fields: Record<string, Prop | PropSpec>) {
+    super(scope, {});
     // Normalize plain objects to Prop instances so methods are available.
     const normalized: Record<string, Prop> = {};
     for (const [k, v] of Object.entries(fields)) {
@@ -52,7 +53,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     this.fields = normalized;
   }
 
-  valid(raw: unknown): raw is RuntimeOf<T> {
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
     for (const [name] of Object.entries(this.fields)) {
       const v = (raw as Record<string, unknown>)[name];
@@ -60,12 +61,12 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       // the declared field type. Validate the stored raw against the
       // Value's actual type (supports covariance).
       if (!(v instanceof Value)) return false;
-      if (!v.type.valid(v.raw)) return false;
+      if (!v.type.valid(v.raw, scope)) return false;
     }
     return true;
   }
 
-  parse(json: unknown): Value<T> {
+  parse(json: unknown, scope?: TypeScope): Value<T> {
     if (typeof json !== 'object' || json === null || Array.isArray(json)) {
       throw new TypeError({
         path: [], code: 'object.invalid',
@@ -75,13 +76,13 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     const raw: Record<string, Value> = {};
     for (const [name, prop] of Object.entries(this.fields)) {
       const input = (json as Record<string, unknown>)[name];
-      raw[name] = this.registry.parseValue(input, prop.type);
+      raw[name] = this.registry.parseValue(input, prop.type, scope);
     }
     return new Value(this, raw as RuntimeOf<T>);
   }
 
   /** Each field becomes a `JSONValue` envelope. */
-  encode(raw: RuntimeOf<T>): JSONOf<T> {
+  encode(raw: RuntimeOf<T>, _scope?: TypeScope): JSONOf<T> {
     const fields = raw as Record<string, Value>;
     const out: Record<string, JSONValue> = {};
     for (const [name] of Object.entries(this.fields)) {
@@ -118,13 +119,13 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return this.registry.obj(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof ObjType)) return false;
     // Structural: every field in this must appear compatibly in other.
     for (const [name, prop] of Object.entries(this.fields)) {
       const otherProp = other.fields[name];
       if (!otherProp) return false;
-      if (!prop.type.compatible(otherProp.type, opts)) return false;
+      if (!prop.type.compatible(otherProp.type, opts, scope)) return false;
     }
     // In exact mode, field sets must match.
     if (opts?.exact) {

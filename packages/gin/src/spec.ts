@@ -1,92 +1,7 @@
 import type { Registry } from './registry';
 import { Call, GetSet, Init, Prop, type PropSpec, type Type } from './type';
 import type { CallDef, GetSetDef, PropDef, TypeDef } from './schema';
-import { buildAliasMap, inlineCallDef } from './exprs/inline-aliases';
-
-// ─── generic substitution (TypeDef tree) ─────────────────────────────────
-
-/**
- * Walk a TypeDef substituting generic placeholders per `bindings`. Fully
- * polymorphic: parses each node into a Type and dispatches to its
- * `.substitute(bindings)` method, then re-encodes. GenericType overrides
- * substitute() to return its binding; every other type uses the default,
- * which recurses into its common child fields (generic / props / get /
- * call / init). No `name === 'generic'` check lives in this file.
- *
- * This helper is now a thin wrapper over Type.substitute — kept for
- * backwards-compat and for the registry's parse-time use (e.g., Type.bind
- * and programmatic substitution).
- */
-export function substituteTypeDef(
-  def: TypeDef,
-  bindings: Record<string, Type>,
-  registry: Registry,
-): TypeDef {
-  return registry.parse(def).substitute(bindings).toJSON();
-}
-
-/**
- * Default child-walker used by Type.substitute: recursively substitutes
- * the common child-type fields without knowing anything about the outer
- * type's kind. Only invoked from Type.substitute — never from user code.
- */
-export function substituteChildren(
-  def: TypeDef,
-  bindings: Record<string, Type>,
-  registry: Registry,
-): TypeDef {
-  const next: TypeDef = { ...def };
-
-  if (def.generic) {
-    const g: Record<string, TypeDef> = {};
-    for (const [k, v] of Object.entries(def.generic)) {
-      g[k] = substituteTypeDef(v, bindings, registry);
-    }
-    next.generic = g;
-  }
-
-  if (def.props) {
-    const p: Record<string, PropDef> = {};
-    for (const [k, pd] of Object.entries(def.props)) {
-      p[k] = { ...pd, type: substituteTypeDef(pd.type, bindings, registry) };
-    }
-    next.props = p;
-  }
-
-  if (def.get) {
-    next.get = {
-      ...def.get,
-      key: substituteTypeDef(def.get.key, bindings, registry),
-      value: substituteTypeDef(def.get.value, bindings, registry),
-    };
-  }
-
-  if (def.call) {
-    // If the source CallDef declared `types` (call-local aliases),
-    // first inline them so substituteTypeDef doesn't try to
-    // registry.parse a bare alias-name and throw. Then drop `types`
-    // from the substituted output — bound calls are alias-free in
-    // both their parsed and JSON forms (Plan-agent footgun fix).
-    const callBase = def.call.types
-      ? inlineCallDef(def.call, buildAliasMap(def.call.types, registry))
-      : def.call;
-    next.call = {
-      ...callBase,
-      args: substituteTypeDef(callBase.args, bindings, registry),
-      returns: callBase.returns ? substituteTypeDef(callBase.returns, bindings, registry) : undefined,
-      throws: callBase.throws ? substituteTypeDef(callBase.throws, bindings, registry) : undefined,
-    };
-    // `types` was either absent or already consumed by the inline
-    // pass — either way, the substituted output should not carry it.
-    delete (next.call as { types?: unknown }).types;
-  }
-
-  if (def.init) {
-    next.init = { ...def.init, args: substituteTypeDef(def.init.args, bindings, registry) };
-  }
-
-  return next;
-}
+import { LocalScope, type TypeScope } from './type-scope';
 
 /**
  * Runtime ↔ schema conversion for Prop/GetSet/Call/Init specs.
@@ -123,9 +38,9 @@ export function encodeProps(props: Record<string, Prop | PropSpec>): Record<stri
 
 // ─── decode (schema → runtime), recurses via registry ────────────────────
 
-export function decodeProp(def: PropDef, registry: Registry): Prop {
+export function decodeProp(def: PropDef, scope: TypeScope): Prop {
   return new Prop({
-    type: registry.parse(def.type),
+    type: scope.parse(def.type),
     get: def.get,
     set: def.set,
     default: def.default,
@@ -133,16 +48,19 @@ export function decodeProp(def: PropDef, registry: Registry): Prop {
   });
 }
 
-export function decodeProps(defs: Record<string, PropDef>, registry: Registry): Record<string, Prop> {
+export function decodeProps(
+  defs: Record<string, PropDef>,
+  scope: TypeScope,
+): Record<string, Prop> {
   const out: Record<string, Prop> = {};
-  for (const [name, def] of Object.entries(defs)) out[name] = decodeProp(def, registry);
+  for (const [name, def] of Object.entries(defs)) out[name] = decodeProp(def, scope);
   return out;
 }
 
-export function decodeGetSet(def: GetSetDef, registry: Registry): GetSet {
+export function decodeGetSet(def: GetSetDef, scope: TypeScope): GetSet {
   return new GetSet({
-    key: registry.parse(def.key),
-    value: registry.parse(def.value),
+    key: scope.parse(def.key),
+    value: scope.parse(def.value),
     get: def.get,
     set: def.set,
     loop: def.loop,
@@ -151,34 +69,44 @@ export function decodeGetSet(def: GetSetDef, registry: Registry): GetSet {
   });
 }
 
-export function decodeCall(def: CallDef, registry: Registry): Call {
-  // Build the alias source map (sequential — later may reference
-  // earlier). When `def.types` is undefined this is a no-op map and
-  // the inliner pass-through returns the slots unchanged.
-  const aliases = buildAliasMap(def.types, registry);
-  const hasAliases = Object.keys(aliases).length > 0;
-  const inlined = hasAliases ? inlineCallDef(def, aliases) : def;
+/**
+ * Decode a CallDef into a `Call`. When `def.types` is non-empty, build
+ * a `LocalScope` layered on top of `scope` and bind each alias to its
+ * (sequentially-parsed) Type — earlier aliases are visible to later
+ * ones and to the call's args/returns/throws/get/set. The call retains
+ * the alias map so `Call.toJSON()` can round-trip it.
+ */
+export function decodeCall(def: CallDef, scope: TypeScope): Call {
+  let inner: TypeScope = scope;
+  let aliases: Record<string, Type> | undefined;
+  if (def.types && Object.keys(def.types).length > 0) {
+    const local = new LocalScope(scope);
+    inner = local;
+    aliases = {};
+    for (const [name, aliasDef] of Object.entries(def.types)) {
+      const t = local.parse(aliasDef);
+      local.bind(name, t);
+      aliases[name] = t;
+    }
+  }
 
   return new Call({
-    args: registry.parse(inlined.args) as Type<any>,
-    returns: inlined.returns ? registry.parse(inlined.returns) : undefined,
-    throws: inlined.throws ? registry.parse(inlined.throws) : undefined,
-    get: inlined.get,
-    set: inlined.set,
+    args: inner.parse(def.args) as Type<any>,
+    returns: def.returns ? inner.parse(def.returns) : undefined,
+    throws: def.throws ? inner.parse(def.throws) : undefined,
+    get: def.get,
+    set: def.set,
     docs: def.docs,
-    // Source-form preservation, only when aliases were actually used.
-    types: hasAliases ? aliases : undefined,
-    sourceArgs: hasAliases ? def.args : undefined,
-    sourceReturns: hasAliases ? def.returns : undefined,
-    sourceThrows: hasAliases ? def.throws : undefined,
-    sourceGet: hasAliases ? def.get : undefined,
-    sourceSet: hasAliases ? def.set : undefined,
+    types: aliases,
   });
 }
 
-export function decodeInit(def: NonNullable<TypeDef['init']>, registry: Registry): Init {
+export function decodeInit(
+  def: NonNullable<TypeDef['init']>,
+  scope: TypeScope,
+): Init {
   return new Init({
-    args: registry.parse(def.args) as Type<any>,
+    args: scope.parse(def.args) as Type<any>,
     run: def.run,
     docs: def.docs,
   });

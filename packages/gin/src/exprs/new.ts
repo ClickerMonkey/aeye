@@ -5,12 +5,13 @@ import { Value, val } from '../value';
 import { ObjType } from '../types/obj';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * NewExpr — construct a Value of a type.
@@ -37,8 +38,8 @@ export class NewExpr extends Expr {
     super();
   }
 
-  static from(json: NewExprDef, registry: Registry): NewExpr {
-    return new NewExpr(registry.parse(json.type), json.value).withComment(json.comment);
+  static from(json: NewExprDef, scope: TypeScope): NewExpr {
+    return new NewExpr(scope.registry.parse(json.type, scope), json.value).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -131,11 +132,11 @@ export class NewExpr extends Expr {
     return val(type, type.create());
   }
 
-  typeOf(_engine: Engine, _scope: TypeScope): Type {
+  typeOf(_engine: Engine, _scope: Locals): Type {
     return this.type;
   }
 
-  validateWalk(_engine: Engine, _scope: TypeScope, _p: Problems, _ctx: ValidateContext): Type {
+  validateWalk(_engine: Engine, _scope: Locals, _p: Problems, _ctx: ValidateContext): Type {
     return this.type;
   }
 

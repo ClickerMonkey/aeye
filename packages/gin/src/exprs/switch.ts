@@ -4,7 +4,7 @@ import type { SwitchExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
@@ -13,6 +13,7 @@ import { indentCode, renderStatementBody, findEscapingFlow } from './code';
 import { FlowExpr } from './flow';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export interface SwitchCase {
   equals: ReadonlyArray<Expr>;
@@ -34,14 +35,15 @@ export class SwitchExpr extends Expr {
     super();
   }
 
-  static from(json: SwitchExprDef, registry: Registry): SwitchExpr {
+  static from(json: SwitchExprDef, scope: TypeScope): SwitchExpr {
+    const r = scope.registry;
     return new SwitchExpr(
-      registry.parseExpr(json.value),
+      r.parseExpr(json.value, scope),
       json.cases.map((c) => ({
-        equals: c.equals.map((e) => registry.parseExpr(e)),
-        body: registry.parseExpr(c.body),
+        equals: c.equals.map((e) => r.parseExpr(e, scope)),
+        body: r.parseExpr(c.body, scope),
       })),
-      json.else ? registry.parseExpr(json.else) : undefined,
+      json.else ? r.parseExpr(json.else, scope) : undefined,
     ).withComment(json.comment);
   }
 
@@ -78,14 +80,14 @@ export class SwitchExpr extends Expr {
     return val(engine.registry.void(), undefined);
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     const ts = this.cases.map((c) => typeOf(engine, c.body, scope));
     if (this.otherwise) ts.push(typeOf(engine, this.otherwise, scope));
     if (ts.length === 0) return engine.registry.void();
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const valueT = p.at('value', () => walkValidate(engine, this.value, scope, p, ctx));
     const ts: Type[] = [];
     for (let i = 0; i < this.cases.length; i++) {

@@ -1,3 +1,4 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { PropDef, TypeDef } from '../schema';
 import { Value } from '../value';
@@ -26,9 +27,10 @@ export class AndType extends Type<any, AndOptions> {
   static readonly NAME = 'and';
   readonly name = AndType.NAME;
 
-  static from(json: TypeDef, registry: Registry): AndType {
-    const parts = ((json.options?.types ?? []) as TypeDef[]).map((t) => registry.parse(t));
-    return new AndType(registry, parts);
+  static from(json: TypeDef, scope: TypeScope): AndType {
+    const registry = scope.registry;
+    const parts = ((json.options?.types ?? []) as TypeDef[]).map((t) => scope.parse(t));
+    return new AndType(scope, parts);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -42,22 +44,22 @@ export class AndType extends Type<any, AndOptions> {
     return opts.Expr;
   }
 
-  constructor(registry: Registry, parts: Type[]) {
-    super(registry, { parts });
+  constructor(scope: TypeScope, parts: Type[]) {
+    super(scope, { parts });
   }
 
   get parts(): Type[] {
     return this.options.parts;
   }
 
-  valid(raw: unknown): raw is any {
-    return this.parts.every((p) => p.valid(raw));
+  valid(raw: unknown, scope?: TypeScope): raw is any {
+    return this.parts.every((p) => p.valid(raw, scope));
   }
 
-  parse(json: unknown): Value<any> {
+  parse(json: unknown, scope?: TypeScope): Value<any> {
     // Every part must accept the raw value.
     for (const p of this.parts) {
-      if (!p.valid(json)) {
+      if (!p.valid(json, scope)) {
         throw new TypeError({
           path: [], code: 'and.constraint',
           message: `and: value fails part ${p.name}`, severity: 'error',
@@ -67,9 +69,9 @@ export class AndType extends Type<any, AndOptions> {
     return new Value(this, json);
   }
 
-  encode(raw: any): any {
+  encode(raw: any, scope?: TypeScope): any {
     // Take any part's dump (they should all agree on valid values).
-    return this.parts[0]?.encode(raw) ?? raw;
+    return this.parts[0]?.encode(raw, scope) ?? raw;
   }
 
   create(): any {
@@ -92,9 +94,9 @@ export class AndType extends Type<any, AndOptions> {
     return this.registry.and(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     // other assignable to And iff assignable to every part.
-    return this.parts.every((p) => p.compatible(other, opts));
+    return this.parts.every((p) => p.compatible(other, opts, scope));
   }
 
   /** Empty And vacuously matches anything — too broad for Registry.compatible. */

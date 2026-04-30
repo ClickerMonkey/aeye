@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -15,8 +15,9 @@ export class BoolType extends Type<boolean, BoolOptions> {
   static readonly NAME = 'bool';
   readonly name = BoolType.NAME;
 
-  static from(json: TypeDef, registry: Registry): BoolType {
-    return new BoolType(registry, (json.options ?? {}) as BoolOptions);
+  static from(json: TypeDef, scope: TypeScope): BoolType {
+    const registry = scope.registry;
+    return new BoolType(scope, (json.options ?? {}) as BoolOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

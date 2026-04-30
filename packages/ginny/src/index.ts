@@ -109,7 +109,15 @@ async function runRequest(request: string): Promise<void> {
     const events = programmer.get(
       'stream',
       {},
-      { signal: abort.signal, messages: history, ask: askUser },
+      {
+        signal: abort.signal,
+        messages: history,
+        ask: askUser,
+        // Top-level request — propagates down through every recursive
+        // engineer/programmer pair so deep programmers know what the
+        // user originally asked for, not just their immediate task.
+        originalRequest: request,
+      },
     );
     for await (const event of events) {
       // Keep the "ginny is thinking…" spinner alive until the model

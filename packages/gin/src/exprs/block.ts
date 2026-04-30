@@ -4,7 +4,7 @@ import type { BlockExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
@@ -12,6 +12,7 @@ import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * BlockExpr — sequence of expressions; last one's value is the result.
@@ -24,8 +25,9 @@ export class BlockExpr extends Expr {
     super();
   }
 
-  static from(json: BlockExprDef, registry: Registry): BlockExpr {
-    return new BlockExpr(json.lines.map((l) => registry.parseExpr(l))).withComment(json.comment);
+  static from(json: BlockExprDef, scope: TypeScope): BlockExpr {
+    const r = scope.registry;
+    return new BlockExpr(json.lines.map((l) => r.parseExpr(l, scope))).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -48,12 +50,12 @@ export class BlockExpr extends Expr {
     return last;
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     if (this.lines.length === 0) return engine.registry.void();
     return typeOf(engine, this.lines[this.lines.length - 1]!, scope);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     let last: Type = engine.registry.void();
     for (let i = 0; i < this.lines.length; i++) {
       last = p.at(i, () => walkValidate(engine, this.lines[i]!, scope, p, ctx));

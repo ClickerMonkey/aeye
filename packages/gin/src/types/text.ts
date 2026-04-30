@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -23,8 +23,9 @@ export class TextType extends Type<string, TextOptions> {
 
   private _regex?: RegExp;
 
-  static from(json: TypeDef, registry: Registry): TextType {
-    return new TextType(registry, (json.options ?? {}) as TextOptions);
+  static from(json: TypeDef, scope: TypeScope): TextType {
+    const registry = scope.registry;
+    return new TextType(scope, (json.options ?? {}) as TextOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

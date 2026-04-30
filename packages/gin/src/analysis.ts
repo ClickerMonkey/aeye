@@ -9,13 +9,13 @@ import { RESERVED_NAMES } from './scope';
  * Static type scope: name → runtime Type. Used by typeOf / validate to
  * reason about expression trees without executing them.
  */
-export type TypeScope = Map<string, Type>;
+export type Locals = Map<string, Type>;
 
 /**
  * Infer the static result Type of an ExprDef (or parsed Expr) against a
  * type scope. Falls back to `any` on unknown parts — never throws.
  */
-export function typeOf(engine: Engine, expr: ExprDef | Expr, scope: TypeScope): Type {
+export function typeOf(engine: Engine, expr: ExprDef | Expr, scope: Locals): Type {
   const e = expr instanceof Expr ? expr : parseExprSafe(engine, expr);
   if (!e) return engine.registry.any();
   return e.typeOf(engine, scope);
@@ -27,7 +27,7 @@ function parseExprSafe(engine: Engine, expr: ExprDef): Expr | undefined {
 }
 
 /** Top-level: walk an expression tree collecting Problems. Never throws. */
-export function validate(engine: Engine, expr: ExprDef | Expr, scope: TypeScope): Problems {
+export function validate(engine: Engine, expr: ExprDef | Expr, scope: Locals): Problems {
   const p = new Problems();
   walkValidate(engine, expr, scope, p, { inLoop: false, inLambda: false });
   return p;
@@ -37,7 +37,7 @@ export function validate(engine: Engine, expr: ExprDef | Expr, scope: TypeScope)
 export function walkValidate(
   engine: Engine,
   expr: ExprDef | Expr,
-  scope: TypeScope,
+  scope: Locals,
   p: Problems,
   ctx: ValidateContext,
 ): Type {
@@ -75,7 +75,7 @@ export type { ValidateContext } from './expr';
  */
 export function checkBindingName(
   name: string,
-  scope: TypeScope,
+  scope: Locals,
   p: Problems,
 ): void {
   if (RESERVED_NAMES.has(name)) {

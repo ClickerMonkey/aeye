@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
@@ -16,8 +16,9 @@ export class NullType extends Type<null, Record<string, never>> {
   static readonly NAME = 'null';
   readonly name = NullType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): NullType {
-    return new NullType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): NullType {
+    const registry = scope.registry;
+    return new NullType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {

@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
@@ -15,8 +15,9 @@ export class VoidType extends Type<void, Record<string, never>> {
   static readonly NAME = 'void';
   readonly name = VoidType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): VoidType {
-    return new VoidType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): VoidType {
+    const registry = scope.registry;
+    return new VoidType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {

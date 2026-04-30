@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
@@ -19,11 +19,12 @@ export class NotType extends Type<any, NotOptions> {
   static readonly NAME = 'not';
   readonly name = NotType.NAME;
 
-  static from(json: TypeDef, registry: Registry): NotType {
+  static from(json: TypeDef, scope: TypeScope): NotType {
+    const registry = scope.registry;
     const excluded = json.options?.excluded
-      ? registry.parse(json.options.excluded)
+      ? scope.parse(json.options.excluded)
       : registry.any();
-    return new NotType(registry, excluded);
+    return new NotType(scope, excluded);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -35,16 +36,16 @@ export class NotType extends Type<any, NotOptions> {
 
   static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.any(); }
 
-  constructor(registry: Registry, readonly excluded: Type) {
-    super(registry, { excluded: excluded.toJSON() });
+  constructor(scope: TypeScope, readonly excluded: Type) {
+    super(scope, { excluded: excluded.toJSON() });
   }
 
-  valid(raw: unknown): raw is any {
-    return !this.excluded.valid(raw);
+  valid(raw: unknown, scope?: TypeScope): raw is any {
+    return !this.excluded.valid(raw, scope);
   }
 
-  parse(json: unknown): Value<any> {
-    if (this.excluded.valid(json)) {
+  parse(json: unknown, scope?: TypeScope): Value<any> {
+    if (this.excluded.valid(json, scope)) {
       throw new TypeError({
         path: [], code: 'not.excluded',
         message: `not: value matches excluded type ${this.excluded.name}`, severity: 'error',
@@ -53,7 +54,7 @@ export class NotType extends Type<any, NotOptions> {
     return new Value(this, json);
   }
 
-  encode(raw: any): any {
+  encode(raw: any, _scope?: TypeScope): any {
     return raw;
   }
 
@@ -72,10 +73,10 @@ export class NotType extends Type<any, NotOptions> {
     return this.registry.not(excluded);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
-    if (opts?.exact) return other instanceof NotType && this.excluded.exact(other.excluded);
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+    if (opts?.exact) return other instanceof NotType && this.excluded.exact(other.excluded, scope);
     // other must NOT be structurally compatible with excluded.
-    return !this.excluded.compatible(other, opts);
+    return !this.excluded.compatible(other, opts, scope);
   }
 
   flexible(): boolean {

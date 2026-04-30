@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
@@ -22,10 +22,11 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   static readonly NAME = 'map';
   readonly name = MapType.NAME;
 
-  static from(json: TypeDef, registry: Registry): MapType {
-    const K = json.generic?.K ? registry.parse(json.generic.K) : registry.text();
-    const V = json.generic?.V ? registry.parse(json.generic.V) : registry.any();
-    return new MapType(registry, K, V);
+  static from(json: TypeDef, scope: TypeScope): MapType {
+    const registry = scope.registry;
+    const K = json.generic?.K ? scope.parse(json.generic.K) : registry.text();
+    const V = json.generic?.V ? scope.parse(json.generic.V) : registry.any();
+    return new MapType(scope, K, V);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -41,8 +42,8 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return z.array(z.object({ key: opts.Expr, value: opts.Expr }));
   }
 
-  constructor(registry: Registry, key: Type<K>, value: Type<V>) {
-    super(registry, {}, { K: key, V: value });
+  constructor(scope: TypeScope, key: Type<K>, value: Type<V>) {
+    super(scope, {}, { K: key, V: value });
   }
 
   get key(): Type<K> {
@@ -53,18 +54,18 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return this.generic.V as Type<V>;
   }
 
-  valid(raw: unknown): raw is Map<unknown, [Value<K>, Value<V>]> {
+  valid(raw: unknown, scope?: TypeScope): raw is Map<unknown, [Value<K>, Value<V>]> {
     if (!(raw instanceof Map)) return false;
     for (const [, entry] of raw as Map<unknown, unknown>) {
       if (!Array.isArray(entry) || entry.length !== 2) return false;
       const [kv, vv] = entry;
       if (!(kv instanceof Value) || !(vv instanceof Value)) return false;
-      if (!kv.type.valid(kv.raw) || !vv.type.valid(vv.raw)) return false;
+      if (!kv.type.valid(kv.raw, scope) || !vv.type.valid(vv.raw, scope)) return false;
     }
     return true;
   }
 
-  parse(json: unknown): Value<Map<K, V>> {
+  parse(json: unknown, scope?: TypeScope): Value<Map<K, V>> {
     if (!Array.isArray(json)) {
       throw new TypeError({
         path: [], code: 'map.invalid',
@@ -77,8 +78,8 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
         ? entry
         : [(entry as { key?: unknown; value?: unknown }).key,
            (entry as { key?: unknown; value?: unknown }).value];
-      const keyV: Value<K> = this.registry.parseValue(rawK, this.key);
-      const valV: Value<V> = this.registry.parseValue(rawV, this.value);
+      const keyV: Value<K> = this.registry.parseValue(rawK, this.key, scope);
+      const valV: Value<V> = this.registry.parseValue(rawV, this.value, scope);
       m.set(keyV.raw, [keyV, valV]);
     }
     return new Value(this, m);
@@ -87,7 +88,7 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   /** Emit as an array of `{ key, value }` envelopes (LLM-friendly — avoids
    *  positional tuples). Each key/value is itself a `JSONValue` envelope
    *  so nested subtypes round-trip. */
-  encode(raw: Map<unknown, [Value<K>, Value<V>]>): Array<{ key: JSONValue<K>; value: JSONValue<V> }> {
+  encode(raw: Map<unknown, [Value<K>, Value<V>]>, _scope?: TypeScope): Array<{ key: JSONValue<K>; value: JSONValue<V> }> {
     return Array.from(raw, ([, [kv, vv]]) => ({ key: kv.toJSON(), value: vv.toJSON() }));
   }
 
@@ -114,9 +115,9 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return this.registry.map(key, value);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof MapType)) return false;
-    return this.key.compatible(other.key, opts) && this.value.compatible(other.value, opts);
+    return this.key.compatible(other.key, opts, scope) && this.value.compatible(other.value, opts, scope);
   }
 
   or(other: Type<Map<K, V>>): Type<Map<K, V>> {

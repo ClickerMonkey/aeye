@@ -24,9 +24,15 @@ describe('Registry', () => {
     expect(t).toBeInstanceOf(Extension);
   });
 
-  test('parse throws for unknown name', () => {
+  test('parse of bare unknown name returns a lazy alias placeholder', () => {
+    // Unknown bare names route through AliasType so forward refs and
+    // self-referential types parse without an existence check. The
+    // alias resolves via scope.lookup at use time; unresolved aliases
+    // behave permissively (compatible / valid both pass) until the
+    // target gets registered.
     const r = createRegistry();
-    expect(() => r.parse({ name: 'unknown-type' })).toThrow();
+    const t = r.parse({ name: 'unknown-type' });
+    expect(t.name).toBe('alias');
   });
 
   test('parse throws for extends of unknown base', () => {
@@ -78,8 +84,9 @@ describe('Registry', () => {
     expect(t.name).toBe('list');
   });
 
-  test('empty Registry (no builtins) rejects parse', () => {
+  test('empty Registry (no builtins) parses bare name as a lazy alias', () => {
     const r = new Registry();
-    expect(() => r.parse({ name: 'num' })).toThrow();
+    const t = r.parse({ name: 'num' });
+    expect(t.name).toBe('alias');
   });
 });

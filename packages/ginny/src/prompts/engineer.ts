@@ -6,7 +6,7 @@ import { ai } from '../ai';
 import { modelFor } from '../model-selection';
 import { ask } from '../tools/ask';
 import { runSubagent } from '../progress';
-import { MAX_PROGRAMMER_DEPTH } from '../context';
+import { MAX_PROGRAMMER_DEPTH, type ProgrammerChainEntry } from '../context';
 import { createRunState } from '../run-state';
 // `programmer` and `engineer` form a circular import (programmer ↔
 // findOrCreateFunctions → engineer → createNewFn → programmer). The
@@ -69,7 +69,7 @@ const createNewFn = ai.tool({
           'Optional `call.types` aliases — declare reusable named types here ONCE and reference them inside `args` / `returns` as a bare `{name: "<alias>"}`. ' +
           'Use whenever the same composite type would appear more than once in the signature. ' +
           'Example: `{ "positiveInt": { "name": "num", "options": { "whole": true, "min": 1 } } }` lets you write `args: { name: "obj", props: { n: { type: { name: "positiveInt" } } } }` and `returns: { name: "list", generic: { V: { name: "positiveInt" } } }` — instead of repeating the full options block twice. ' +
-          'Sequential: later aliases may reference earlier. Forward / self references throw. Alias names cannot match a built-in type-class name (`num`, `list`, `obj`, etc.).',
+          'Sequential: later aliases may reference earlier. Pick alias names that don\'t collide with built-in type-class names (`num`, `list`, `obj`, etc.) — bare `{name: "num"}` always resolves to the built-in num.',
         ),
       args: (opts.Type as z.ZodType<TypeDef>).describe(
         'TypeDef of the function\'s parameter object. The PROPS of this obj ARE the function\'s parameters — ' +
@@ -103,9 +103,9 @@ const createNewFn = ai.tool({
     // Parse the engineer-supplied signature into runtime Types. When
     // the engineer declared `types` aliases, args/returns may
     // reference them — we resolve those by parsing through a synthetic
-    // FnType TypeDef (which routes through `decodeCall`'s alias
-    // inliner). This makes the engineer's declared aliases live for
-    // both the targetFn pass-through AND the eventual saved fn.
+    // FnType TypeDef. `decodeCall` builds a LocalScope binding each
+    // alias sequentially, so bare `{name: "<alias>"}` references
+    // inside args/returns resolve via AliasType through that scope.
     let argsType: ObjType;
     let returnsType: Type;
     try {
@@ -144,6 +144,49 @@ const createNewFn = ai.tool({
       ? '(no parameters — body should produce a value of the return type with no inputs)'
       : paramNames.map((p) => `\`${p}\``).join(', ');
 
+    // Build the chain ancestry for the inner programmer. Each prior
+    // engineer call appended its `create_new_fn` input as one entry.
+    // The current call appends itself BEFORE the inner programmer is
+    // launched so the deepest entry is "you are here".
+    const parentChain = ctx.programmerChain ?? [];
+    const youAreHere: ProgrammerChainEntry = {
+      name: input.name,
+      argsCode,
+      returnsCode,
+      description: input.description,
+    };
+    const innerChain: ProgrammerChainEntry[] = [...parentChain, youAreHere];
+
+    // Render the chain block — only when there's an enclosing caller
+    // (depth ≥ 1). At depth 0 there is no parent fn; the user's
+    // request is already in the conversation as a regular message.
+    const chainBlock = (() => {
+      if (parentChain.length === 0 && !ctx.originalRequest) return '';
+      const lines: string[] = [];
+      lines.push(`## Call chain — why this function exists`);
+      lines.push(``);
+      if (ctx.originalRequest) {
+        lines.push(`Top-level user request:`);
+        for (const ln of ctx.originalRequest.split('\n')) lines.push(`> ${ln}`);
+        lines.push(``);
+      }
+      lines.push(`Your function is being built to support a chain of callers:`);
+      lines.push(``);
+      innerChain.forEach((entry, i) => {
+        const here = i === innerChain.length - 1 ? '     ← YOU ARE HERE' : '';
+        lines.push(`  ${i + 1}. ${entry.name}(${entry.argsCode}): ${entry.returnsCode}${here}`);
+        lines.push(`     "${entry.description}"`);
+      });
+      lines.push(``);
+      lines.push(
+        innerChain.length === 1
+          ? `Keep your scope tight to what the top-level request actually needs — don't add features it doesn't ask for.`
+          : `The level-${innerChain.length - 1} caller (\`${parentChain[parentChain.length - 1]!.name}\`) is building its function and needs yours to do its job. Keep your scope tight to what that caller actually needs — don't add features the chain above doesn't ask for.`,
+      );
+      lines.push(``);
+      return lines.join('\n') + '\n';
+    })();
+
     // Spell out the job in the recursive programmer's first user
     // message so it has the full signature in scope and doesn't try to
     // delegate back to find_or_create_functions / create_new_fn.
@@ -155,6 +198,7 @@ const createNewFn = ai.tool({
       `Returns type:  ${returnsCode}`,
       `Description:   ${input.description}`,
       ``,
+      chainBlock,
       `## How parameters work`,
       ``,
       `Parameters are bound under a single \`args\` scope variable (the entire signature obj). To read a parameter, walk the path \`args.<name>\`.`,
@@ -194,6 +238,7 @@ const createNewFn = ai.tool({
       ...ctx,
       messages,
       programmerDepth: childDepth,
+      programmerChain: innerChain,
       runState: innerRunState,
       targetFn: {
         name: input.name,

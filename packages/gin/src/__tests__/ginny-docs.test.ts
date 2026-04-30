@@ -15,7 +15,9 @@ function placeholderize(r: ReturnType<typeof createRegistry>, cls: { NAME: strin
   const keys = Object.keys(canonical.generic);
   if (keys.length === 0) return canonical;
   const genericDef: Record<string, TypeDef> = {};
-  for (const k of keys) genericDef[k] = { name: 'generic', options: { name: k } };
+  // Bare-name shape: `{name: 'V'}` parses to an AliasType('V') in
+  // the registry-root scope (unresolved → universal placeholder).
+  for (const k of keys) genericDef[k] = { name: k };
   try { return cls.from({ name: cls.NAME, generic: genericDef } as TypeDef, r); } catch { return canonical; }
 }
 

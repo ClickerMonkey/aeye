@@ -4,10 +4,11 @@ import type { Value } from './value';
 import type { Type } from './type';
 import type { Registry } from './registry';
 import type { ExprDef } from './schema';
-import type { TypeScope } from './analysis';
+import type { Locals } from './analysis';
 import { Problems } from './problem';
 import type { Node, CodeOptions, SchemaOptions } from './node';
 import type { z } from 'zod';
+import type { TypeScope } from './type-scope';
 
 /**
  * Context flags carried through validate walks so handlers can report
@@ -80,17 +81,17 @@ export abstract class Expr implements Node {
   abstract evaluate(engine: Engine, scope: Scope): Promise<Value>;
 
   /** Infer the static return Type against a type scope. */
-  abstract typeOf(engine: Engine, scope: TypeScope): Type;
+  abstract typeOf(engine: Engine, scope: Locals): Type;
 
   /**
    * Recursive validation walk — accumulates Problems into `p` and returns
    * the inferred Type. Called by child exprs during validate walks.
    * Use `validate(engine)` for the clean top-level entry.
    */
-  abstract validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type;
+  abstract validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type;
 
   /** Top-level entry: walk collecting Problems. Mirrors Type.validate. */
-  validate(engine: Engine, scope?: TypeScope): Problems {
+  validate(engine: Engine, scope?: Locals): Problems {
     const p = new Problems();
     const s = scope ?? engine.globalTypeScope();
     this.validateWalk(engine, s, p, { inLoop: false, inLambda: false });
@@ -121,7 +122,11 @@ export abstract class Expr implements Node {
  */
 export interface ExprClass {
   readonly KIND: string;
-  from(json: ExprDef, registry: Registry): Expr;
+  /** Build an Expr from its JSON. `scope` is the type-name resolution
+   *  scope used when recursing into nested TypeDefs (for `new`,
+   *  `lambda`, `native`, `define`). Use `scope.registry` to access the
+   *  underlying Registry. */
+  from(json: ExprDef, scope: TypeScope): Expr;
   /** JSON-shape Zod schema for this Expr's ExprDef. */
   toSchema(opts: SchemaOptions): z.ZodTypeAny;
 }

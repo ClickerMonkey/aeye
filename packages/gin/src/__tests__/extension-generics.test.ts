@@ -1,22 +1,21 @@
 import { describe, test, expect } from 'vitest';
 import { createRegistry } from '../index';
 import { Extension } from '../extension';
-import { GenericType } from '../types/generic';
+import { AliasType } from '../types/alias';
+import { LocalScope } from '../type-scope';
 
 /**
  * Extensions can declare their own generic parameters. The parameters
- * live on `local.generic` (decl + current binding map), are substituted
- * via `.bind({T: ...})`, and propagate through local.props / get / call.
- *
- * Convention: use `registry.generic('T')` as both the declaration value
- * AND the placeholder inside props/etc. That way `.bind(...)` updates
- * the declared binding AND the usage sites in one substitute walk.
+ * live on `local.generic` (decl + current binding map) and are
+ * referenced as `r.alias('T')` inside `props`/`get`/`call`. There is
+ * no eager `bind` machinery — call sites pass an extra `TypeScope`
+ * binding T to a concrete type, and AliasType resolution sees it.
  */
 describe('Extension generics', () => {
   const r = createRegistry();
 
-  test('declare + bind: Box<T>', () => {
-    const T = r.generic('T');
+  test('declare: Box<T> placeholders survive as AliasType', () => {
+    const T = r.alias('T');
     const Box = r.extend('object', {
       name: 'Box',
       generic: { T },
@@ -26,22 +25,32 @@ describe('Extension generics', () => {
     });
     r.register(Box);
 
-    // Template: T unbound
-    expect(Box.generic.T).toBeInstanceOf(GenericType);
-    expect((Box as Extension).local.props!.value!.type).toBeInstanceOf(GenericType);
-
-    // Bind T = num
-    const NumBox = Box.bind({ T: r.num() });
-    expect(NumBox).toBeInstanceOf(Extension);
-    expect(NumBox.generic.T!.name).toBe('num');
-    // The prop's type is now num, not a placeholder.
-    expect((NumBox as Extension).local.props!.value!.type.name).toBe('num');
+    expect(Box.generic.T).toBeInstanceOf(AliasType);
+    expect((Box as Extension).local.props!.value!.type).toBeInstanceOf(AliasType);
   });
 
-  test('multi-param: Pair<A, B>', () => {
-    const A = r.generic('A');
-    const B = r.generic('B');
-    const Pair = r.extend('object', {
+  test('Box<T> resolution: extra-scope T=num makes value.type behave as num', () => {
+    const reg = createRegistry();
+    const T = reg.alias('T');
+    const Box = reg.extend('object', {
+      name: 'Box',
+      generic: { T },
+      props: { value: { type: T } },
+    });
+    reg.register(Box);
+
+    const local = new LocalScope(reg, { T: reg.num() });
+    const valueProp = (Box as Extension).local.props!.value!;
+    expect((valueProp.type as AliasType).simplify(local).name).toBe('num');
+    expect(valueProp.type.valid(5, local)).toBe(true);
+    expect(valueProp.type.valid('x', local)).toBe(false);
+  });
+
+  test('multi-param: Pair<A, B> via extra-scope', () => {
+    const reg = createRegistry();
+    const A = reg.alias('A');
+    const B = reg.alias('B');
+    const Pair = reg.extend('object', {
       name: 'Pair',
       generic: { A, B },
       props: {
@@ -49,34 +58,39 @@ describe('Extension generics', () => {
         second: { type: B },
       },
     });
-    r.register(Pair);
+    reg.register(Pair);
 
-    const NumText = Pair.bind({ A: r.num(), B: r.text() });
-    expect((NumText as Extension).local.props!.first!.type.name).toBe('num');
-    expect((NumText as Extension).local.props!.second!.type.name).toBe('text');
+    const local = new LocalScope(reg, { A: reg.num(), B: reg.text() });
+    expect((Pair as Extension).local.props!.first!.type.valid(5, local)).toBe(true);
+    expect((Pair as Extension).local.props!.first!.type.valid('x', local)).toBe(false);
+    expect((Pair as Extension).local.props!.second!.type.valid('x', local)).toBe(true);
+    expect((Pair as Extension).local.props!.second!.type.valid(5, local)).toBe(false);
   });
 
-  test('generic on call: identity<T>(x: T): T', () => {
-    const T = r.generic('T');
-    const Fn = r.extend('function', {
+  test('generic on call: identity<T>(x: T): T resolves via extra-scope', () => {
+    const reg = createRegistry();
+    const T = reg.alias('T');
+    const Fn = reg.extend('function', {
       name: 'identity',
       generic: { T },
-      call: { args: r.obj({ x: { type: T } }), returns: T },
+      call: { args: reg.obj({ x: { type: T } }), returns: T },
     });
-    r.register(Fn);
+    reg.register(Fn);
 
-    const bound = Fn.bind({ T: r.num() });
-    const call = bound.call()!;
-    expect(call.returns!.name).toBe('num');
-    // args is an obj; its `x` field is num.
-    const argsObj = call.args;
-    expect(argsObj.prop('x')!.type.name).toBe('num');
+    const local = new LocalScope(reg, { T: reg.num() });
+    const call = Fn.call(local)!;
+    // `returns` is AliasType('T'); .simplify(local) → num.
+    expect(call.returns?.simplify(local).name).toBe('num');
+    // args is an obj; its `x` field, accessed with local scope,
+    // resolves through to num.
+    expect(call.args.prop('x', local)!.type.valid(5, local)).toBe(true);
   });
 
-  test('generic on get: Bag<K, V>[K]: V', () => {
-    const K = r.generic('K');
-    const V = r.generic('V');
-    const Bag = r.extend('object', {
+  test('generic on get: Bag<K, V>[K]: V resolves via extra-scope', () => {
+    const reg = createRegistry();
+    const K = reg.alias('K');
+    const V = reg.alias('V');
+    const Bag = reg.extend('object', {
       name: 'Bag',
       generic: { K, V },
       get: {
@@ -84,48 +98,53 @@ describe('Extension generics', () => {
         value: V,
       },
     });
-    r.register(Bag);
+    reg.register(Bag);
 
-    const bound = Bag.bind({ K: r.text(), V: r.num() });
-    const gs = bound.get()!;
-    expect(gs.key.name).toBe('text');
-    expect(gs.value.name).toBe('num');
+    const local = new LocalScope(reg, { K: reg.text(), V: reg.num() });
+    const gs = Bag.get(local)!;
+    // gs.key / gs.value are AliasTypes; resolved via local.
+    expect((gs.key as AliasType).simplify(local).name).toBe('text');
+    expect((gs.value as AliasType).simplify(local).name).toBe('num');
   });
 
-  test('JSON round-trip preserves generic', () => {
-    const T = r.generic('T');
-    const Holder = r.extend('object', {
+  test('JSON round-trip preserves generic placeholder', () => {
+    const reg = createRegistry();
+    const T = reg.alias('T');
+    const Holder = reg.extend('object', {
       name: 'Holder',
       generic: { T },
       props: { item: { type: T } },
     });
-    r.register(Holder);
+    reg.register(Holder);
 
-    const NumHolder = Holder.bind({ T: r.num() });
-    const json = NumHolder.toJSON();
-    expect(json.generic?.T).toEqual({ name: 'num', options: undefined });
-    expect(json.props?.item?.type).toEqual({ name: 'num', options: undefined });
+    const json = Holder.toJSON();
+    // `T` survives in the JSON as a bare-name AliasType ref.
+    expect(json.generic?.T).toEqual({ name: 'T' });
+    expect(json.props?.item?.type).toEqual({ name: 'T' });
 
-    const reparsed = r.parse(json) as Extension;
-    expect(reparsed.local.props!.item!.type.name).toBe('num');
+    const reparsed = reg.parse(json) as Extension;
+    expect(reparsed.local.props!.item!.type).toBeInstanceOf(AliasType);
+    const local = new LocalScope(reg, { T: reg.num() });
+    expect((reparsed.local.props!.item!.type as AliasType).simplify(local).name).toBe('num');
   });
 
-  test('bind substitutes inside props, accessible via props()', () => {
-    const T = r.generic('T');
-    const Wrapper = r.extend('object', {
+  test('extra-scope inside props is visible via props()', () => {
+    const reg = createRegistry();
+    const T = reg.alias('T');
+    const Wrapper = reg.extend('object', {
       name: 'Wrapper',
       generic: { T },
       props: { inside: { type: T } },
     });
-    r.register(Wrapper);
+    reg.register(Wrapper);
 
-    const StrWrap = Wrapper.bind({ T: r.text({ minLength: 1 }) });
-    // Access via the merged props() surface — T is replaced by the text type
-    // with its options preserved.
-    const inside = StrWrap.prop('inside');
+    const local = new LocalScope(reg, { T: reg.text({ minLength: 1 }) });
+    const inside = Wrapper.prop('inside', local);
     expect(inside).toBeDefined();
-    expect(inside!.type.name).toBe('text');
-    const textOpts = (inside!.type.options as { minLength?: number });
-    expect(textOpts.minLength).toBe(1);
+    // The captured Prop's type is AliasType('T'); resolution via local
+    // returns the bound text type with options preserved.
+    const resolved = (inside!.type as AliasType).simplify(local);
+    expect(resolved.name).toBe('text');
+    expect((resolved.options as { minLength?: number }).minLength).toBe(1);
   });
 });

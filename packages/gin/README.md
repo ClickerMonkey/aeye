@@ -169,13 +169,13 @@ them. Every type implements:
 
 | Method | Purpose |
 |---|---|
-| `valid(raw)` | Runtime type guard over the raw value |
-| `parse(json)` | JSON → `Value<T>` (throws on mismatch) |
-| `encode(raw)` | raw → JSON envelope (round-trip-safe) |
-| `compatible(other)` | structural compatibility check |
-| `like(other)` | narrow self by `other`, recursing through children |
-| `bind(bindings)` | substitute generic placeholders |
-| `props()` / `get()` / `call()` / `init()` | expose fields, index access, call signatures, constructors |
+| `valid(raw, scope?)` | Runtime type guard over the raw value |
+| `parse(json, scope?)` | JSON → `Value<T>` (throws on mismatch) |
+| `encode(raw, scope?)` | raw → JSON envelope (round-trip-safe) |
+| `compatible(other, opts?, scope?)` | structural compatibility check |
+| `like(other, scope?)` | narrow self by `other`, recursing through children |
+| `simplify(scope?)` | collapse trivial wrappers; AliasType resolves through `scope` |
+| `props(scope?)` / `get(scope?)` / `call(scope?)` / `init(scope?)` | expose fields, index access, call signatures, constructors |
 | `toCode()` / `toCodeDefinition()` | render TypeScript-like source for the LLM |
 | `toSchema(opts)` | Zod schema for the TypeDef JSON |
 | `toValueSchema(opts)` | Zod schema for the runtime VALUE |
@@ -308,44 +308,79 @@ An `Extension` wraps a base type, adds local options / fields / methods
 the base. Multi-level extension is supported — every layer's props
 compose.
 
-### Recursive types
+### Recursive types & generics — both ride the same `AliasType`
 
-`r.ref(name)` returns a lazy reference. The target doesn't need to
-exist at construction time — resolve happens at use time, so mutual
-cycles work:
+Bare-name TypeDefs (`{name: 'X'}` with no other peers) parse as
+`AliasType('X')`. That single class covers what used to be two
+distinct concepts:
 
-```ts
-const Task = r.extend(r.obj({
-  title:   { type: r.text() },
-  creator: { type: r.ref('User') },
-}), { name: 'Task' });
-r.register(Task);
+- **Lazy reference** to a named type registered with the registry —
+  the target doesn't need to exist at construction time, so mutual
+  cycles work:
 
-const User = r.extend(r.obj({
-  name:  { type: r.text() },
-  tasks: { type: r.list(r.ref('Task')) },
-}), { name: 'User' });
-r.register(User);
-```
+  ```ts
+  const Task = r.extend(r.obj({
+    title:   { type: r.text() },
+    creator: { type: r.alias('User') },
+  }), { name: 'Task' });
+  r.register(Task);
 
-### Generics
+  const User = r.extend(r.obj({
+    name:  { type: r.text() },
+    tasks: { type: r.list(r.alias('Task')) },
+  }), { name: 'User' });
+  r.register(User);
+  ```
 
-Type-parameterized types (`list<V>`, `map<K,V>`, `typ<T>`) store their
-parameters in a `generic: Record<string, Type>` map on the base class.
-`bind(bindings)` substitutes them through the whole subtree. Generic
-placeholders pre-binding are maximally permissive.
+- **Generic placeholder** — the same builder. Type-parameterized
+  types (`list<V>`, `map<K,V>`, `typ<T>`) store their parameters in a
+  `generic: Record<string, Type>` map; the placeholders inside are
+  AliasTypes captured against the enclosing local scope.
+
+`AliasType.resolve(extra?)` walks an optional caller-supplied
+TypeScope first, then its captured scope. That's the only resolution
+mechanism — no `bind()` / `substitute()` / type-tree rebuilding.
+Pre-resolution, an unresolved alias acts as a maximally permissive
+placeholder.
 
 Function types support **method-level generics**:
 
 ```ts
 // list.map<R>(fn: (value:V, index:num) => R): list<R>
-const listT = r.list(r.generic('V'));
+const listT = r.list(r.alias('V'));
 listT.toCodeDefinition();
 // type list<V> {
 //   map<R>(fn: (value: V, index: num): R): list<R>
 //   ...
 // }
 ```
+
+#### Specializing generics at call sites — `TypeScope`
+
+Resolution-touching methods on `Type` (`parse`, `valid`, `compatible`,
+`props`, `prop`, `get`, `call`, `init`, `follow`, `like`, `simplify`)
+take an optional `scope?: TypeScope`. Pass a `LocalScope` of bindings
+to override `R` (etc.) without rebuilding anything:
+
+```ts
+import { LocalScope } from '@aeye/gin';
+
+// fn map<R>(fn: (value: V, index: num) => R): list<R>
+const mapFn = r.fn(
+  r.obj({ fn: { type: r.fn(r.obj({ value: { type: V } /*…*/ }), r.alias('R')) } }),
+  r.list(r.alias('R')),
+  undefined,
+  { R: r.any() },
+);
+
+const local = new LocalScope(r, { R: r.num() });
+mapFn.call(local).returns!.simplify(local).name === 'list';        // list<num>
+```
+
+Path-step `generic` bindings (`[..., {args, generic: {R: numDef}}]`)
+work the same way: `CallStep.callSiteScope(calledType)` builds the
+`LocalScope` once per call and threads it into the type's resolution
+methods. The fn type itself is never cloned.
 
 ### `typ<T>` — types-as-values
 
@@ -357,9 +392,9 @@ Sometimes you want a program to receive a *type* as an argument — e.g.
 const fetchFn = r.fn(
   r.obj({
     url:    { type: r.text() },
-    output: { type: r.optional(r.typ(r.generic('R'))) },
+    output: { type: r.optional(r.typ(r.alias('R'))) },
   }),
-  r.generic('R'),
+  r.alias('R'),
   undefined,
   { R: r.text() },
 );

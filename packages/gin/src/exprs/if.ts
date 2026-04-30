@@ -4,7 +4,7 @@ import type { IfExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
@@ -12,6 +12,7 @@ import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode, renderStatementBody, findEscapingFlow } from './code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export interface IfBranch {
   condition: Expr;
@@ -29,12 +30,13 @@ export class IfExpr extends Expr {
     super();
   }
 
-  static from(json: IfExprDef, registry: Registry): IfExpr {
+  static from(json: IfExprDef, scope: TypeScope): IfExpr {
+    const r = scope.registry;
     const ifs = json.ifs.map((b) => ({
-      condition: registry.parseExpr(b.condition),
-      body: registry.parseExpr(b.body),
+      condition: r.parseExpr(b.condition, scope),
+      body: r.parseExpr(b.body, scope),
     }));
-    return new IfExpr(ifs, json.else ? registry.parseExpr(json.else) : undefined)
+    return new IfExpr(ifs, json.else ? r.parseExpr(json.else, scope) : undefined)
       .withComment(json.comment);
   }
 
@@ -65,13 +67,13 @@ export class IfExpr extends Expr {
     return val(engine.registry.void(), undefined);
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     const ts = this.ifs.map((b) => typeOf(engine, b.body, scope));
     if (this.otherwise) ts.push(typeOf(engine, this.otherwise, scope));
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const bool = engine.registry.bool();
     const ts: Type[] = [];
     for (let i = 0; i < this.ifs.length; i++) {

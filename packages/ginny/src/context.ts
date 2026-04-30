@@ -31,6 +31,24 @@ export interface Ctx {
    */
   programmerDepth?: number;
   /**
+   * The user's original top-level request, captured by the entry point
+   * before launching the depth-0 programmer. Plumbed through every
+   * recursive engineer/programmer pair so a deep programmer can render
+   * "what is this work ultimately for" alongside its own immediate
+   * task. Empty for non-interactive entry points that didn't bother to
+   * set it.
+   */
+  originalRequest?: string;
+  /**
+   * Call-chain ancestry for recursive programmers, oldest → newest.
+   * Each entry is a function the engineer was asked to create at one
+   * level of nesting. Empty at depth 0; appended once per
+   * `engineer.create_new_fn` before spawning the inner programmer. A
+   * programmer at depth N reads the chain to understand which caller
+   * needs its function and why — so it can stay scoped to that need.
+   */
+  programmerChain?: ProgrammerChainEntry[];
+  /**
    * Set by `engineer.create_new_fn` before invoking the inner programmer.
    * Tells `test()` how to wrap raw scope args into typed `Value`s and
    * tells `finish()` what signature to use when persisting the draft —
@@ -70,5 +88,22 @@ export interface Ctx {
  *  create more programmers; the deepest one cannot. Set to 3 → max 3
  *  programmers in the stack. */
 export const MAX_PROGRAMMER_DEPTH = 3;
+
+/**
+ * One step in the programmer call-chain — recorded by the engineer at
+ * each `create_new_fn`. The chain lets a deep programmer reason about
+ * which parent function depends on its output and what the original
+ * user request was, instead of seeing only its own isolated signature.
+ */
+export interface ProgrammerChainEntry {
+  /** Function name (matches what `finish({ saveAs })` will use). */
+  name: string;
+  /** `argsType.toCode()` — human-readable parameter shape. */
+  argsCode: string;
+  /** `returnsType.toCode()` — human-readable return shape. */
+  returnsCode: string;
+  /** The engineer's `description` input — what this function should do. */
+  description: string;
+}
 
 export interface Meta {}

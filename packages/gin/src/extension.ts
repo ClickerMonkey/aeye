@@ -1,4 +1,5 @@
 import type { Registry } from './registry';
+import type { TypeScope } from './type-scope';
 import type { TypeDef } from './schema';
 import { Value, val } from './value';
 import {
@@ -27,13 +28,14 @@ import type { Expr } from './expr';
  * any generics the base already has). Each key is the parameter name; the
  * value is the current binding (use `registry.any()` as a default, or a
  * concrete Type for a bound instance). Placeholders elsewhere in the
- * local spec use `registry.generic('T')` — those get substituted by
- * `.bind({T: …})` via the standard substitute walk.
+ * local spec use `registry.alias('T')` — those resolve through any
+ * extra `TypeScope` passed at access time (e.g. a path call site's
+ * `<T: num>` bindings) before falling back to the captured layer.
  *
  *   registry.extend('object', {
  *     name: 'Box',
  *     generic: { T: registry.any() },
- *     props: { value: { type: registry.generic('T') } },
+ *     props: { value: { type: registry.alias('T') } },
  *   })
  */
 export interface ExtensionLocal<T = any, O = any> {
@@ -118,9 +120,10 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       : original;
 
     // Thread local generic declarations up to the base Type so `this.generic`
-    // reflects the Extension's own parameters. Binding via `.bind(bindings)`
-    // walks through substituteChildren, which rebuilds the Extension with
-    // substituted placeholders.
+    // reflects the Extension's own parameters. Generic specialization at
+    // call sites is handled by passing an extra TypeScope into the
+    // resolution-touching methods (parse / valid / call / props / etc.) —
+    // AliasType reads the override layer first, then its captured scope.
     super(registry, narrowedOptions, local.generic ?? {});
     this.original = original;
     this.base = effectiveBase;
@@ -131,18 +134,18 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── VALUE OPERATIONS (delegate to effective base) ─────────────────────
 
-  valid(raw: unknown): raw is RuntimeOf<T> {
-    return this.base.valid(raw);
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
+    return this.base.valid(raw, scope);
   }
 
-  parse(json: unknown): Value<T> {
-    const v = this.base.parse(json);
+  parse(json: unknown, scope?: TypeScope): Value<T> {
+    const v = this.base.parse(json, scope);
     // Re-wrap so Value.type is this Extension, not the base.
     return new Value(this, v.raw);
   }
 
-  encode(raw: RuntimeOf<T>): JSONOf<T> {
-    return this.base.encode(raw);
+  encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
+    return this.base.encode(raw, scope);
   }
 
   create(): RuntimeOf<T> {
@@ -155,20 +158,20 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── TYPE RELATIONS ────────────────────────────────────────────────────
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (opts?.exact) {
       // Exact requires same Extension name.
       if (other instanceof Extension && other.name === this.name) {
-        return this.base.compatible(other.base, opts);
+        return this.base.compatible(other.base, opts, scope);
       }
       return false;
     }
     // Covariant: compatible with base (looser) and with other Extensions
     // sharing a compatible base.
     if (other instanceof Extension) {
-      return this.base.compatible(other.base, opts);
+      return this.base.compatible(other.base, opts, scope);
     }
-    return this.base.compatible(other, opts);
+    return this.base.compatible(other, opts, scope);
   }
 
   // ─── ALGEBRA ───────────────────────────────────────────────────────────
@@ -212,20 +215,20 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── EFFECTIVE ACCESS SPECS (merge local over base) ────────────────────
 
-  props(): Record<string, Prop | PropSpec> {
-    return { ...this.base.props(), ...(this.local.props ?? {}) };
+  props(scope?: TypeScope): Record<string, Prop | PropSpec> {
+    return { ...this.base.props(scope), ...(this.local.props ?? {}) };
   }
 
-  get(): GetSet | undefined {
-    return this.local.get ?? this.base.get();
+  get(scope?: TypeScope): GetSet | undefined {
+    return this.local.get ?? this.base.get(scope);
   }
 
-  call(): Call | undefined {
-    return this.local.call ?? this.base.call();
+  call(scope?: TypeScope): Call | undefined {
+    return this.local.call ?? this.base.call(scope);
   }
 
-  init(): Init | undefined {
-    return this.local.init ?? this.base.init();
+  init(scope?: TypeScope): Init | undefined {
+    return this.local.init ?? this.base.init(scope);
   }
 
   // ─── SCHEMA ROUND-TRIP ─────────────────────────────────────────────────

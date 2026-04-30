@@ -4,12 +4,13 @@ import type { NativeExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * NativeExpr — escape hatch calling a registered native impl by id.
@@ -22,8 +23,8 @@ export class NativeExpr extends Expr {
     super();
   }
 
-  static from(json: NativeExprDef, registry: Registry): NativeExpr {
-    return new NativeExpr(json.id, json.type ? registry.parse(json.type) : undefined)
+  static from(json: NativeExprDef, scope: TypeScope): NativeExpr {
+    return new NativeExpr(json.id, json.type ? scope.registry.parse(json.type, scope) : undefined)
       .withComment(json.comment);
   }
 
@@ -49,11 +50,11 @@ export class NativeExpr extends Expr {
     return val(type, out);
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return this.type ?? engine.registry.any();
   }
 
-  validateWalk(engine: Engine, _scope: TypeScope, p: Problems, _ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, _scope: Locals, p: Problems, _ctx: ValidateContext): Type {
     if (!engine.registry.getNative(this.id)) {
       p.warn('native.unknown', `native impl '${this.id}' is not registered`);
     }

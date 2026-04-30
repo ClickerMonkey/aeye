@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -22,8 +22,9 @@ export class NumType extends Type<number, NumOptions> {
   static readonly NAME = 'num';
   readonly name = NumType.NAME;
 
-  static from(json: TypeDef, registry: Registry): NumType {
-    return new NumType(registry, (json.options ?? {}) as NumOptions);
+  static from(json: TypeDef, scope: TypeScope): NumType {
+    const registry = scope.registry;
+    return new NumType(scope, (json.options ?? {}) as NumOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

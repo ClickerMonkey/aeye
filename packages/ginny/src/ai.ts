@@ -11,6 +11,8 @@ import { createStore } from './store';
 import { createRunState } from './run-state';
 import { createFetchImpl, registerFetchType } from './natives/fetch';
 import { createLlmImpl, registerLlmType } from './natives/llm';
+import { createLogImpl, registerLogType } from './natives/log';
+import { createAskImpl, registerAskType } from './natives/ask';
 
 // Hydrate process.env from config.json before anything reads env vars.
 // Safe: imported modules above just declare classes; no env-var reads run yet.
@@ -192,16 +194,22 @@ process.on('SIGTERM', () => { logger.close(); process.exit(0); });
 // Wire global natives after AI instance is created.
 const fetchFnType = registerFetchType(registry);
 const llmFnType = registerLlmType(registry);
+const logFnType = registerLogType(registry);
+const askFnType = registerAskType(registry);
 
 const fnsType = registry.obj({
   fetch: { type: fetchFnType },
-  llm: { type: llmFnType },
+  llm:   { type: llmFnType },
+  log:   { type: logFnType, docs: 'Print a runtime message to the user (stderr). Use for progress narration or surfacing intermediate values.' },
+  ask:   { type: askFnType, docs: 'Pause execution and prompt the user for input. Pass `output: typ<T>` to get a typed answer; the consumer walks the user through any complex shape (obj fields, list items, choices, etc). Put `docs` on type fields — those become the prompt labels.' },
 });
 
 engine.registerGlobal('fns', {
   type: fnsType,
   value: {
     fetch: createFetchImpl(registry),
-    llm: createLlmImpl(registry, ai),
+    llm:   createLlmImpl(registry, ai),
+    log:   createLogImpl(registry),
+    ask:   createAskImpl(registry),
   },
 });

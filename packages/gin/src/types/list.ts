@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
@@ -23,9 +23,10 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   static readonly NAME = 'list';
   readonly name = ListType.NAME;
 
-  static from(json: TypeDef, registry: Registry): ListType {
-    const item = json.generic?.V ? registry.parse(json.generic.V) : registry.any();
-    return new ListType(registry, item, (json.options ?? {}) as ListOptions);
+  static from(json: TypeDef, scope: TypeScope): ListType {
+    const registry = scope.registry;
+    const item = json.generic?.V ? scope.parse(json.generic.V) : registry.any();
+    return new ListType(scope, item, (json.options ?? {}) as ListOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -44,31 +45,31 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return z.array(opts.Expr);
   }
 
-  constructor(registry: Registry, item: Type<V>, options: ListOptions = {}) {
-    super(registry, options, { V: item });
+  constructor(scope: TypeScope, item: Type<V>, options: ListOptions = {}) {
+    super(scope, options, { V: item });
   }
 
   get item(): Type<V> {
     return this.generic.V as Type<V>;
   }
 
-  valid(raw: unknown): raw is Value<V>[] {
+  valid(raw: unknown, scope?: TypeScope): raw is Value<V>[] {
     if (!Array.isArray(raw)) return false;
     const { minLength, maxLength } = this.options;
     if (minLength !== undefined && raw.length < minLength) return false;
     if (maxLength !== undefined && raw.length > maxLength) return false;
-    return raw.every((x) => x instanceof Value && x.type.valid(x.raw));
+    return raw.every((x) => x instanceof Value && x.type.valid(x.raw, scope));
   }
 
-  parse(json: unknown): Value<V[]> {
+  parse(json: unknown, scope?: TypeScope): Value<V[]> {
     if (!Array.isArray(json)) {
       throw new TypeError({
         path: [], code: 'list.invalid',
         message: `list.parse: expected array, got ${typeof json}`, severity: 'error',
       });
     }
-    const raw: Value<V>[] = json.map((x) => this.registry.parseValue<V>(x, this.item));
-    if (!this.valid(raw)) {
+    const raw: Value<V>[] = json.map((x) => this.registry.parseValue<V>(x, this.item, scope));
+    if (!this.valid(raw, scope)) {
       throw new TypeError({
         path: [], code: 'list.constraint',
         message: 'list.parse: length constraints violated', severity: 'error',
@@ -79,7 +80,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
 
   /** Each element becomes a `JSONValue` envelope so nested subtypes
    *  round-trip through JSON. */
-  encode(raw: Value<V>[]): JSONValue<V>[] {
+  encode(raw: Value<V>[], _scope?: TypeScope): JSONValue<V>[] {
     return raw.map((v) => v.toJSON());
   }
 
@@ -102,9 +103,9 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return this.registry.list(item);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof ListType)) return false;
-    if (!this.item.compatible(other.item, opts)) return false;
+    if (!this.item.compatible(other.item, opts, scope)) return false;
     if (!opts?.value) return true;
     const a = this.options, b = other.options;
     if (a.minLength !== undefined && (b.minLength === undefined || b.minLength < a.minLength)) return false;
@@ -194,10 +195,10 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
       unique:     r.method({},                       lstV,  'list.unique'),
       duplicates: r.method({},                       lstV,  'list.duplicates'),
 
-      map:    r.method({ fn: fnValueIndex(r.generic('R')) }, r.list(r.generic('R')), 'list.map', { generic: { R: r.any() } }),
+      map:    r.method({ fn: fnValueIndex(r.alias('R')) }, r.list(r.alias('R')), 'list.map', { generic: { R: r.any() } }),
       filter: r.method({ fn: fnValueIndex(bool) },    lstV,            'list.filter'),
       find:   r.method({ fn: fnValueIndex(bool) },    optV,            'list.find'),
-      reduce: r.method({ fn: r.fn(r.obj({ acc: { type: r.generic('R') }, value: { type: V }, index: { type: num } }), r.generic('R')), initial: r.generic('R') }, r.generic('R'), 'list.reduce', { generic: { R: r.any() } }),
+      reduce: r.method({ fn: r.fn(r.obj({ acc: { type: r.alias('R') }, value: { type: V }, index: { type: num } }), r.alias('R')), initial: r.alias('R') }, r.alias('R'), 'list.reduce', { generic: { R: r.any() } }),
       some:   r.method({ fn: fnValueIndex(bool) },    bool,            'list.some'),
       every:  r.method({ fn: fnValueIndex(bool) },    bool,            'list.every'),
       sort:   r.method({ fn: r.optional(r.fn(r.obj({ a: { type: V }, b: { type: V } }), num)) }, lstV, 'list.sort'),

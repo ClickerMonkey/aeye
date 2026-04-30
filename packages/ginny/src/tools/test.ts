@@ -3,6 +3,7 @@ import { ToolInterrupt } from '@aeye/core';
 import { LambdaExpr, val, type Value, type ObjType, type Registry } from '@aeye/gin';
 import { ai } from '../ai';
 import { flushDirtyVars } from '../vars-global';
+import { withAskHandler } from '../natives/ask';
 
 /**
  * Build the Zod sub-schema the model sees for `args`.
@@ -67,9 +68,11 @@ export const test = ai.tool({
     }
 
     try {
-      const value = ctx.targetFn
-        ? await invokeAsLambda(ctx.registry, ctx.engine, ctx.targetFn, draft, input.args)
-        : await invokeTopLevel(ctx.registry, ctx.engine, draft, input.args);
+      const value = await withAskHandler(ctx.ask, ctx.signal, () =>
+        ctx.targetFn
+          ? invokeAsLambda(ctx.registry, ctx.engine, ctx.targetFn, draft, input.args)
+          : invokeTopLevel(ctx.registry, ctx.engine, draft, input.args),
+      );
       const rawResult = value.type?.encode ? value.type.encode(value.raw) : value.raw;
 
       if (input.expectError) {

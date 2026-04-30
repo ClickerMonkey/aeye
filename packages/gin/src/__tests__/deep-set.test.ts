@@ -196,7 +196,7 @@ describe('deep set: method call → prop set', () => {
           },
         },
         self: {
-          type: r.fn(r.obj({}), r.ref('tattler')),
+          type: r.fn(r.obj({}), r.alias('tattler')),
           get: { kind: 'get', path: [{ prop: 'this' }] },
         },
       },

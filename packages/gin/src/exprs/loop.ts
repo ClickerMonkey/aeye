@@ -5,7 +5,7 @@ import { Value, val } from '../value';
 import { BreakSignal, ContinueSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { checkBindingName, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
@@ -13,6 +13,7 @@ import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export interface LoopParallel {
   concurrent?: Expr;
@@ -36,14 +37,15 @@ export class LoopExpr extends Expr {
     super();
   }
 
-  static from(json: LoopExprDef, registry: Registry): LoopExpr {
+  static from(json: LoopExprDef, scope: TypeScope): LoopExpr {
+    const r = scope.registry;
     const parallel = json.parallel ? {
-      concurrent: json.parallel.concurrent ? registry.parseExpr(json.parallel.concurrent) : undefined,
-      rate: json.parallel.rate ? registry.parseExpr(json.parallel.rate) : undefined,
+      concurrent: json.parallel.concurrent ? r.parseExpr(json.parallel.concurrent, scope) : undefined,
+      rate: json.parallel.rate ? r.parseExpr(json.parallel.rate, scope) : undefined,
     } : undefined;
     return new LoopExpr(
-      registry.parseExpr(json.over),
-      registry.parseExpr(json.body),
+      r.parseExpr(json.over, scope),
+      r.parseExpr(json.body, scope),
       json.key,
       json.value,
       parallel,
@@ -193,11 +195,11 @@ export class LoopExpr extends Expr {
     return val(engine.registry.void(), undefined);
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return engine.registry.void();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const overT = p.at('over', () => walkValidate(engine, this.over, scope, p, ctx));
     const gs = overT.get();
     // Iterable: type's GetSet defines either a `loop` ExprDef
@@ -252,7 +254,7 @@ export class LoopExpr extends Expr {
     // the iterable surface was missing (already errored above).
     const keyType = gs?.key ?? engine.registry.any();
     const valueType = gs?.value ?? engine.registry.any();
-    const child: TypeScope = new Map(scope);
+    const child: Locals = new Map(scope);
     child.set(this.keyName ?? 'key', keyType);
     child.set(this.valueName ?? 'value', valueType);
     p.at('body', () => walkValidate(engine, this.body, child, p, { ...ctx, inLoop: true }));

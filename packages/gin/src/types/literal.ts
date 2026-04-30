@@ -1,4 +1,4 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCode } from '../type';
@@ -34,10 +34,11 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
 
   readonly inner: Type<T>;
 
-  static from(json: TypeDef, registry: Registry): LiteralType {
-    const inner = json.generic?.T ? registry.parse(json.generic.T) : registry.any();
+  static from(json: TypeDef, scope: TypeScope): LiteralType {
+    const registry = scope.registry;
+    const inner = json.generic?.T ? scope.parse(json.generic.T) : registry.any();
     const value = (json.options as { value?: unknown } | undefined)?.value;
-    return new LiteralType(registry, inner, value);
+    return new LiteralType(scope, inner, value);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -54,8 +55,8 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return z.any();
   }
 
-  constructor(registry: Registry, inner: Type<T>, value: T) {
-    super(registry, { value }, { T: inner });
+  constructor(scope: TypeScope, inner: Type<T>, value: T) {
+    super(scope, { value }, { T: inner });
     this.inner = inner;
   }
 
@@ -63,12 +64,12 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return this.options.value;
   }
 
-  valid(raw: unknown): raw is RuntimeOf<T> {
-    return this.inner.valid(raw) && raw === this.literal;
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
+    return this.inner.valid(raw, scope) && raw === this.literal;
   }
 
-  parse(json: unknown): Value<T> {
-    const inner = this.inner.parse(json);
+  parse(json: unknown, scope?: TypeScope): Value<T> {
+    const inner = this.inner.parse(json, scope);
     if (inner.raw !== this.literal) {
       throw new TypeError({
         path: [], code: 'literal.not-match',
@@ -79,8 +80,8 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return new Value(this, inner.raw);
   }
 
-  encode(raw: RuntimeOf<T>): JSONOf<T> {
-    return this.inner.encode(raw);
+  encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
+    return this.inner.encode(raw, scope);
   }
 
   create(): RuntimeOf<T> {
@@ -91,13 +92,13 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return this.literal as RuntimeOf<T>;
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (other instanceof LiteralType) {
-      return this.inner.compatible(other.inner, opts) && this.literal === other.literal;
+      return this.inner.compatible(other.inner, opts, scope) && this.literal === other.literal;
     }
     if (opts?.exact) return false;
     // Literal is compatible with its inner type (a literal IS a value of inner).
-    return this.inner.compatible(other, opts);
+    return this.inner.compatible(other, opts, scope);
   }
 
   /** literal<any> (canonical with no declared value) delegates to any — too broad. */

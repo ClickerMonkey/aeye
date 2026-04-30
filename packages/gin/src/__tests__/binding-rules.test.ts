@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { createRegistry, Engine, RESERVED_NAMES, checkBindingName, Problems } from '../index';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 
 /**
  * Tests for the user-binding hygiene rules added in `analysis.ts`
@@ -36,7 +36,7 @@ describe('RESERVED_NAMES set', () => {
 describe('checkBindingName helper', () => {
   test('reserved name → binding.reserved error', () => {
     const p = new Problems();
-    const scope: TypeScope = new Map();
+    const scope: Locals = new Map();
     checkBindingName('args', scope, p);
     expect(p.list).toHaveLength(1);
     expect(p.list[0]!.code).toBe('binding.reserved');
@@ -45,7 +45,7 @@ describe('checkBindingName helper', () => {
 
   test('name in scope → binding.shadow error', () => {
     const p = new Problems();
-    const scope: TypeScope = new Map();
+    const scope: Locals = new Map();
     scope.set('foo', e.registry.num());
     checkBindingName('foo', scope, p);
     expect(p.list).toHaveLength(1);
@@ -57,7 +57,7 @@ describe('checkBindingName helper', () => {
     // A name that is BOTH reserved AND in scope reports as reserved
     // (clearer message; the helper returns after the reserved branch).
     const p = new Problems();
-    const scope: TypeScope = new Map();
+    const scope: Locals = new Map();
     scope.set('args', e.registry.any());
     checkBindingName('args', scope, p);
     expect(p.list).toHaveLength(1);
@@ -66,7 +66,7 @@ describe('checkBindingName helper', () => {
 
   test('fresh non-reserved name → no error', () => {
     const p = new Problems();
-    const scope: TypeScope = new Map();
+    const scope: Locals = new Map();
     checkBindingName('myVar', scope, p);
     expect(p.list).toHaveLength(0);
   });
