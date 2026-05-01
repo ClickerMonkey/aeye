@@ -5,7 +5,7 @@ import type {
   TypeDef,
 } from './schema';
 import { Value, val } from './value';
-import { ThrowSignal } from './flow-control';
+import { ReturnSignal, ThrowSignal } from './flow-control';
 import type { GetSet, Type } from './type';
 import { Expr } from './expr';
 import type { Registry } from './registry';
@@ -90,16 +90,42 @@ export class CallStep extends PathStep {
    *  when there are no bindings. Threaded through type-resolution
    *  methods (`call`, `parse`, etc.) at the call site so AliasTypes
    *  inside the called signature resolve to the bound types without
-   *  rebuilding the type tree. */
+   *  rebuilding the type tree.
+   *
+   *  Validates each binding against its declared constraint
+   *  (`calledType.generic[name]`). A binding `T` is accepted iff
+   *  `constraint.compatible(T)` — equivalently, `T` is assignable to
+   *  the constraint. Throws on violation: parsing the binding into
+   *  the call scope before that check would silently use an unsound
+   *  type, so failing fast is the right call.
+   *
+   *  Bindings for generic names the called type didn't declare are
+   *  parsed into the call scope but not validated (they may target
+   *  aliases declared on `call.types` or simply be ignored). */
   callSiteScope(calledType: Type): TypeScope {
     if (!this.generic || Object.keys(this.generic).length === 0) {
       return calledType.scope;
     }
     const bindings: Record<string, Type> = {};
+    const declaredGenerics = calledType.generic ?? {};
     // Parse each binding TypeDef in the called type's own scope so
     // intra-binding name lookups (e.g. R: list<num>) resolve naturally.
     for (const [k, def] of Object.entries(this.generic)) {
-      bindings[k] = calledType.scope.parse(def);
+      const bound = calledType.scope.parse(def);
+      const constraint = declaredGenerics[k];
+      if (constraint) {
+        // Self-referential placeholder (e.g. `R: alias('R')`) means
+        // "no constraint" — skip the satisfies check, every binding
+        // is accepted.
+        const isSelfRef = constraint.name === 'alias'
+          && (constraint.options as { name?: string } | undefined)?.name === k;
+        if (!isSelfRef && !constraint.compatible(bound)) {
+          throw new Error(
+            `path: generic '${k}' binding '${bound.toCode()}' does not satisfy constraint '${constraint.toCode()}'`,
+          );
+        }
+      }
+      bindings[k] = bound;
     }
     return new LocalScope(calledType.scope, bindings);
   }
@@ -164,7 +190,9 @@ export class Path {
       } else if (step instanceof CallStep) {
         const entries = Object.entries(step.args);
         if (entries.length === 0) {
-          out += '({})';
+          // No args — render as a bare `()`. Showing `({})` would be
+          // accurate but visually noisier (the empty obj is implied).
+          out += '()';
         } else {
           const parts = entries.map(([k, v]) => `${k}: ${v.toCode(registry, { ...options, expectsValue: true })}`);
           const joined = joinAuto(parts);
@@ -305,9 +333,19 @@ export class Path {
           } else if (callSpec?.get) {
             const getterCallable = async (newArgs: Value): Promise<Value> => {
               const recurseValue = new Value(callType, getterCallable);
-              return engine.evaluate(callSpec.get!, scope.child({
-                args: newArgs, recurse: recurseValue,
-              }));
+              // Catch ReturnSignal so a saved fn body using `flow:'return'`
+              // unwinds to its own call boundary (not all the way out
+              // through the caller's enclosing lambda).
+              try {
+                return await engine.evaluate(callSpec.get!, scope.child({
+                  args: newArgs, recurse: recurseValue,
+                }));
+              } catch (sig) {
+                if (sig instanceof ReturnSignal) {
+                  return sig.value ?? val(engine.registry.void(), undefined);
+                }
+                throw sig;
+              }
             };
             current = await getterCallable(argsValue);
           } else {

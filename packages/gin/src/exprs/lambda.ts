@@ -163,12 +163,18 @@ export class LambdaExpr extends Expr {
   }
 }
 
-/** Build a body scope that exposes the fnType's generics and
- *  `call.types` aliases by name, so bare `{name: 'X'}` references
- *  inside the body / constraint resolve via AliasType. */
+/** Build a body scope that exposes the fnType's `call.types` aliases
+ *  by name, so bare `{name: 'X'}` references inside the body /
+ *  constraint resolve via AliasType.
+ *
+ *  Generics are NOT bound here — their declared types are constraints,
+ *  not active resolutions. Bare `{name: 'R'}` inside the body remains
+ *  an unresolved AliasType placeholder; concrete resolution comes
+ *  from call-site bindings layered into the scope at invocation
+ *  time. (Aliases ARE bound, since `call.types` declarations are
+ *  type-aliases — substitution targets, not parameters.) */
 function buildBodyScope(parent: TypeScope, fnType: Type): TypeScope {
   const local = new LocalScope(parent);
-  for (const [name, t] of Object.entries(fnType.generic)) local.bind(name, t);
   const call = fnType.call();
   if (call?.types) {
     for (const [name, t] of Object.entries(call.types)) local.bind(name, t);

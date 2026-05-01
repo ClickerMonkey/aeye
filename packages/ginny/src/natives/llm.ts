@@ -46,6 +46,12 @@ export function registerLlmType(registry: Registry) {
     }),
     registry.alias('R'),
     undefined,
-    { R: registry.text() },
+    // Constraint on R, not a default. The LLM call always returns either
+    // a primitive text reply or a structured `obj` matching whatever
+    // schema the caller passes via `output`. Anything outside that —
+    // bool, num, list, etc. — wouldn't round-trip through the model's
+    // structured-output channel reliably, so reject those bindings at
+    // call sites.
+    { R: registry.or([registry.text(), registry.obj({})]) },
   );
 }

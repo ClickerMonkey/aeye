@@ -10,7 +10,7 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
-import { baseExprFields, pathStepSchema } from '../schemas';
+import { pathStepSchema } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 /**
@@ -32,7 +32,7 @@ export class GetExpr extends Expr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('get'),
-      ...baseExprFields,
+      // No `comment` field — see header comment above.
       path: z
         .array(pathStepSchema(opts))
         .describe(

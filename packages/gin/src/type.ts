@@ -6,6 +6,7 @@ import { Value, val } from './value';
 import type { Node, CodeOptions } from './node';
 import type { Engine } from './engine';
 import { Problems } from './problem';
+import { ReturnSignal } from './flow-control';
 import type { Scope } from './scope';
 import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
@@ -135,7 +136,18 @@ export class Prop {
       const bindings: Record<string, Value> = { this: self, args: newArgs, recurse: recurseValue };
       const sup = self.type.propSuperFor(self, name, 'get', scope, engine);
       if (sup) bindings.super = sup;
-      return engine.evaluate(getExpr, scope.child(bindings));
+      // Catch `ReturnSignal` here so a saved fn body or method body
+      // can use `flow: 'return'` for early-exit. The body is the call
+      // boundary even though it's not literally wrapped in a
+      // LambdaExpr — same semantics as Lambda.evaluate's catch.
+      try {
+        return await engine.evaluate(getExpr, scope.child(bindings));
+      } catch (sig) {
+        if (sig instanceof ReturnSignal) {
+          return sig.value ?? new Value(engine.registry.void(), undefined);
+        }
+        throw sig;
+      }
     };
     return callable(argsValue);
   }

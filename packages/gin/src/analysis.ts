@@ -26,10 +26,21 @@ function parseExprSafe(engine: Engine, expr: ExprDef): Expr | undefined {
   catch { return undefined; }
 }
 
-/** Top-level: walk an expression tree collecting Problems. Never throws. */
-export function validate(engine: Engine, expr: ExprDef | Expr, scope: Locals): Problems {
+/** Top-level: walk an expression tree collecting Problems. Never throws.
+ *
+ *  `ctx` lets callers mark the entry expression as already inside a
+ *  loop or lambda — useful when validating a saved fn's body (where
+ *  `return` is legal even though the body isn't wrapped in a
+ *  LambdaExpr) or a snippet meant to run inside a loop. Defaults to
+ *  the top-level program shape (neither loop nor lambda). */
+export function validate(
+  engine: Engine,
+  expr: ExprDef | Expr,
+  scope: Locals,
+  ctx: ValidateContext = { inLoop: false, inLambda: false },
+): Problems {
   const p = new Problems();
-  walkValidate(engine, expr, scope, p, { inLoop: false, inLambda: false });
+  walkValidate(engine, expr, scope, p, ctx);
   return p;
 }
 

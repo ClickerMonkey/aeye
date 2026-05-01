@@ -122,10 +122,20 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof ObjType)) return false;
-    // Structural: every field in this must appear compatibly in other.
+    // Structural: `this` accepts every value of `other`. Each field
+    // declared on `this` either appears on `other` with a compatible
+    // type (covariant per-field), or — when `this`'s field is optional
+    // — may be absent on `other` (an optional field doesn't constrain
+    // values that lack it). The latter is what makes
+    // `{x:num, y?:bool}.compatible({x:num})` true: callers passing the
+    // simpler shape still produce values the wider shape accepts.
     for (const [name, prop] of Object.entries(this.fields)) {
       const otherProp = other.fields[name];
-      if (!otherProp) return false;
+      if (!otherProp) {
+        if (opts?.exact) return false;
+        if (prop.type.isOptional()) continue;
+        return false;
+      }
       if (!prop.type.compatible(otherProp.type, opts, scope)) return false;
     }
     // In exact mode, field sets must match.

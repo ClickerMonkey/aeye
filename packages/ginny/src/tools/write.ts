@@ -22,7 +22,12 @@ export const write = ai.tool({
 
     let code: string;
     try {
-      code = ctx.engine.toCode(input.program);
+      // Suppress inline comments in the user-visible render. The comments
+      // stay in the saved ExprDef (so `print_fn(name, includeComments:true)`
+      // can surface them later) but the live terminal view stays
+      // structural — comment volume is the model's biggest source of
+      // visual noise during the write→test loop.
+      code = ctx.engine.toCode(input.program, { includeComments: false });
     } catch (e: unknown) {
       // toCode shouldn't throw for valid ExprDefs, but if the parse
       // path hits a malformed sub-tree we still want write() to
@@ -50,7 +55,16 @@ export const write = ai.tool({
     let problemsNote = '';
     let problemsCount = 0;
     try {
-      const problems = ctx.engine.validate(input.program, scope);
+      // When authoring a fn body (`targetFn` set), the program runs
+      // INSIDE the saved fn's call boundary — `return` is legal there,
+      // even though the body isn't wrapped in a LambdaExpr. Pass
+      // `inLambda: true` so the validator doesn't warn `flow.outside-
+      // lambda` on `return`. For a top-level user program (no
+      // targetFn), defaults stand: `return` warns as before.
+      const ctxFlags = ctx.targetFn
+        ? { inLoop: false, inLambda: true }
+        : undefined;
+      const problems = ctx.engine.validate(input.program, scope, ctxFlags);
       problemsCount = problems.list.length;
       if (problemsCount > 0) {
         const lines = problems.list.map((p) => {
@@ -71,7 +85,7 @@ export const write = ai.tool({
     // problem list and threading goes to ginny.log for post-mortem
     // debugging — keeps the live view scannable while preserving
     // every detail in the log.
-    process.stderr.write(`\x1b[2m${code}\x1b[0m\n`);
+    process.stderr.write(`\n\x1b[2m${code}\x1b[0m\n`);
     if (problemsCount > 0) {
       const noun = problemsCount === 1 ? 'problem' : 'problems';
       process.stderr.write(`\x1b[31m[${problemsCount} validation ${noun} — see ginny.log for details]\x1b[0m\n`);

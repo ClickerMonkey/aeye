@@ -277,6 +277,213 @@ const createNewFn = ai.tool({
   },
 });
 
+/**
+ * Edit an existing saved function. The new signature is checked
+ * against the old for backwards-compatibility BEFORE the programmer
+ * is spawned to write a fresh body:
+ *
+ *   - args (contravariant): the new args obj must accept every
+ *     old-args input. Concretely — every required field on the old
+ *     args must be present on the new with a wider-or-equal type;
+ *     newly-added fields must be optional.
+ *   - returns (covariant): the new return type must produce values
+ *     that fit the old return type's contract. Narrowing return is
+ *     always fine; widening is rejected.
+ *
+ * The body is written from scratch — `targetFn` is set on the inner
+ * programmer's ctx exactly the same as `create_new_fn`. The disk
+ * record is overwritten on `finish()` only after the programmer
+ * reaches a passing test.
+ */
+const editFn = ai.tool({
+  name: 'edit_fn',
+  description: 'Edit a saved function: new signature (compat-checked) + fresh body authored by an inner programmer.',
+  instructions:
+    'Replace a saved function. The new args / returns are checked against the old: existing callers must keep working. ' +
+    'Allowed: widen args (add optional params, widen field types), narrow returns. ' +
+    'Rejected: removing required args, narrowing arg types, widening returns.',
+  schema: (ctx) => {
+    const opts = buildSchemas(ctx.registry);
+    return z.object({
+      name: z.string().describe('Saved function name (matches the file at `./fns/<name>.json`).'),
+      description: z.string().describe('Updated description for the body programmer'),
+      types: z
+        .record(z.string(), opts.Type as z.ZodType<TypeDef>)
+        .optional()
+        .describe('Optional `call.types` aliases — same semantics as `create_new_fn`.'),
+      args: (opts.Type as z.ZodType<TypeDef>).describe('New args TypeDef. Must accept every value the old args accepted.'),
+      returns: (opts.Type as z.ZodType<TypeDef>).describe('New return TypeDef. Must be assignable back into the old return type.'),
+    });
+  },
+  applicable: (ctx) => (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
+  call: async (
+    input: {
+      name: string;
+      description: string;
+      args: TypeDef;
+      returns: TypeDef;
+      types?: Record<string, TypeDef>;
+    },
+    _refs,
+    ctx,
+  ) => {
+    // 1. Read the existing fn off disk and parse it. If anything goes
+    //    wrong here, the edit is fundamentally not possible — surface
+    //    the reason and bail.
+    let oldFnDef: TypeDef;
+    try {
+      oldFnDef = ctx.store.readFn(input.name);
+    } catch {
+      return `// FAILED: function '${input.name}' not found at \`./fns/${input.name}.json\`. Use \`create_new_fn\` instead, or \`search_fns\` to find what's actually saved.`;
+    }
+    let oldArgsType: ObjType;
+    let oldReturnsType: Type;
+    try {
+      const oldFn = ctx.registry.parse(oldFnDef);
+      const oldCall = (oldFn as { _call?: { args: Type; returns?: Type } })._call;
+      if (!oldCall?.args || !(oldCall.args instanceof ObjType)) {
+        throw new Error('saved fn has no obj-typed args');
+      }
+      if (!oldCall.returns) throw new Error('saved fn has no return type');
+      oldArgsType = oldCall.args;
+      oldReturnsType = oldCall.returns;
+    } catch (e: unknown) {
+      return `// FAILED: could not parse on-disk fn '${input.name}': ${e instanceof Error ? e.message : String(e)}.`;
+    }
+
+    // 2. Parse the proposed new signature exactly like create_new_fn.
+    let newArgsType: ObjType;
+    let newReturnsType: Type;
+    try {
+      const fnDef: TypeDef = {
+        name: 'function',
+        call: {
+          ...(input.types ? { types: input.types } : {}),
+          args: input.args,
+          returns: input.returns,
+        },
+      };
+      const parsedFn = ctx.registry.parse(fnDef);
+      const parsedCall = (parsedFn as { _call?: { args: Type; returns?: Type } })._call;
+      if (!parsedCall) throw new Error('parsed FnType has no call spec');
+      if (!(parsedCall.args instanceof ObjType)) {
+        throw new Error(`expected args to be an obj type, got '${parsedCall.args.name}'`);
+      }
+      newArgsType = parsedCall.args;
+      if (!parsedCall.returns) throw new Error('returns is required');
+      newReturnsType = parsedCall.returns;
+    } catch (e: unknown) {
+      return `// FAILED: could not parse new signature for '${input.name}': ${e instanceof Error ? e.message : String(e)}.`;
+    }
+
+    // 3. Backwards-compat check. Args contravariant, returns
+    //    covariant. We delegate to the per-Type `compatible` methods
+    //    (obj's already accepts extra optional fields after the
+    //    obj-compat fix; non-obj types fall through to the standard
+    //    "values fit" relation).
+    if (!newArgsType.compatible(oldArgsType)) {
+      return (
+        `// FAILED: new args type '${safeToCode(newArgsType)}' is not a backwards-compatible widening of old args '${safeToCode(oldArgsType)}'.\n`
+        + `// Allowed: add optional params, widen existing param types.\n`
+        + `// Rejected: removing required params, narrowing param types.`
+      );
+    }
+    if (!oldReturnsType.compatible(newReturnsType)) {
+      return (
+        `// FAILED: new return type '${safeToCode(newReturnsType)}' is not assignable to old '${safeToCode(oldReturnsType)}'.\n`
+        + `// Returns may NARROW (subset), not WIDEN — callers expecting the old shape must still receive values that fit it.`
+      );
+    }
+
+    // 4. Compat passed — spawn an inner programmer to author a fresh
+    //    body, identical machinery to create_new_fn from this point.
+    const argsCode = (() => { try { return newArgsType.toCode(); } catch { return JSON.stringify(input.args); } })();
+    const returnsCode = (() => { try { return newReturnsType.toCode(); } catch { return JSON.stringify(input.returns); } })();
+    const paramNames: string[] = Object.keys(newArgsType.fields);
+    const paramList = paramNames.length === 0
+      ? '(no parameters)'
+      : paramNames.map((p) => `\`${p}\``).join(', ');
+
+    const parentChain = ctx.programmerChain ?? [];
+    const youAreHere: ProgrammerChainEntry = {
+      name: input.name,
+      argsCode,
+      returnsCode,
+      description: input.description,
+    };
+    const innerChain: ProgrammerChainEntry[] = [...parentChain, youAreHere];
+
+    const request = [
+      `You ARE the writer of this gin function. You're EDITING an existing saved fn — old signature is being replaced and a new body is needed. Do NOT call find_or_create_functions or delegate elsewhere.`,
+      ``,
+      `Function name: ${input.name}`,
+      `Old args:      ${safeToCode(oldArgsType)}`,
+      `Old returns:   ${safeToCode(oldReturnsType)}`,
+      `New args:      ${argsCode}`,
+      `New returns:   ${returnsCode}`,
+      `Description:   ${input.description}`,
+      ``,
+      `## How parameters work`,
+      ``,
+      `Parameters are bound under \`args\` — read \`args.<name>\` via \`{ kind: "get", path: [{ prop: "args" }, { prop: "<name>" }] }\`. Available params: ${paramList}.`,
+      ``,
+      `## Recursion via \`recurse\``,
+      ``,
+      `\`recurse\` is the (new) function bound for self-calls. Path: \`{ kind: "get", path: [{ prop: "recurse" }, { args: { ... } }] }\`.`,
+      ``,
+      `## Steps`,
+      ``,
+      `1. \`write({ program: <new body matching the new signature> })\`.`,
+      `2. \`test({ args: { ${paramNames.map((p) => `${p}: <sample>`).join(', ')} } })\`.`,
+      `3. \`finish({ saveAs: '${input.name}' })\` once the test passes — overwrites the existing on-disk fn.`,
+    ].join('\n');
+
+    const messages: Message[] = [{ role: 'user', content: request }];
+    const childDepth = (ctx.programmerDepth ?? 0) + 1;
+    const innerRunState = createRunState();
+    const innerCtx = {
+      ...ctx,
+      messages,
+      programmerDepth: childDepth,
+      programmerChain: innerChain,
+      runState: innerRunState,
+      targetFn: {
+        name: input.name,
+        argsType: newArgsType,
+        returnsType: newReturnsType,
+        ...(input.types
+          ? {
+            callTypes: input.types,
+            sourceArgs: input.args,
+            sourceReturns: input.returns,
+          }
+          : {}),
+      },
+    };
+
+    await runSubagent(
+      `programmer: ${input.name} edit (depth ${childDepth})`,
+      () => programmer.get('stream', {}, innerCtx),
+      ctx.signal,
+    );
+
+    if (!innerRunState.lastTest?.success) {
+      const why = innerRunState.lastTest?.error ?? 'no successful test was recorded';
+      return `// FAILED: edit of '${input.name}' did not reach a passing test (${why}). The on-disk fn is UNCHANGED.`;
+    }
+    if (!ctx.loadedFns.has(input.name)) {
+      return `// FAILED: programmer reached a passing test but didn't call finish({ saveAs: '${input.name}' }). The on-disk fn is UNCHANGED.`;
+    }
+    return `Function '${input.name}' edited (now ${argsCode} → ${returnsCode}). The new body has been persisted.`;
+  },
+});
+
+function safeToCode(t: { toCode?: () => string; name?: string } | undefined): string {
+  if (!t) return '<unparsed>';
+  try { return (t.toCode?.() ?? t.name) ?? '<unrenderable>'; }
+  catch { return t.name ?? '<unrenderable>'; }
+}
+
 export const designer = ai.prompt({
   name: 'designer',
   description: 'Design or reuse gin functions — the reusable building blocks of programs.',
@@ -306,19 +513,31 @@ When in doubt:
 \`use\` and \`created\` must reflect what is ACTUALLY available on disk:
 - Only put a name in \`use\` if \`get_fn\` (or \`search_fns\` + \`get_fn\`)
   confirmed it exists.
-- Only put a name in \`created\` if \`create_new_fn\` returned successfully
-  for that name in this session. If \`create_new_fn\` raised an error,
-  the function was NOT written — do NOT claim it as created. The
-  programmer that consumes your output will load each name from disk
-  and break if you fabricate entries.
+- Only put a name in \`created\` if \`create_new_fn\` OR \`edit_fn\`
+  returned successfully for that name in this session. If either
+  raised an error, the function was NOT written — do NOT claim it as
+  created. The programmer that consumes your output will load each
+  name from disk and break if you fabricate entries.
 
 If you couldn't satisfy the request, return empty arrays and let the
 programmer write the work inline rather than claiming a non-existent
 function.
 
+## Edit vs create
+
+Use \`edit_fn\` when the request is to MODIFY an existing saved fn
+(widen its args, narrow its returns, change its body). The edit tool
+enforces backwards-compatibility — args may add optional params or
+widen existing param types; returns may narrow. If the requested
+change would break callers (remove a required arg, narrow arg types,
+widen returns), \`edit_fn\` rejects it and you should either tell the
+caller it's incompatible OR \`create_new_fn\` under a different name.
+
+Use \`create_new_fn\` for net-new functionality.
+
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
-  tools: [searchFns, getFn, printFn, createNewFn, ask],
+  tools: [searchFns, getFn, printFn, createNewFn, editFn, ask],
   toolIterations: toolIterationsConfig(),
   excludeMessages: true,
   schema: z.object({

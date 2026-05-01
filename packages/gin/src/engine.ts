@@ -95,10 +95,19 @@ export class Engine {
   /**
    * Walk an expression tree and collect Problems (unknown vars, unknown
    * props / natives, out-of-place break/return, etc.). Never throws.
+   *
+   * `ctx` lets the caller mark the root as already inside a lambda or
+   * loop — needed when validating a saved fn's body (the body has
+   * `args`/`recurse` bound and `return` is legal there even though
+   * there's no enclosing LambdaExpr). Defaults to top-level shape.
    */
-  validate(expr: ExprDef | Expr, scope?: Locals): Problems {
+  validate(
+    expr: ExprDef | Expr,
+    scope?: Locals,
+    ctx?: import('./expr').ValidateContext,
+  ): Problems {
     const s = scope ?? this.globalTypeScope();
-    return validateAnalysis(this, expr, s);
+    return validateAnalysis(this, expr, s, ctx);
   }
 
   /**

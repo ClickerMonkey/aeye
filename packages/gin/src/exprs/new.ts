@@ -10,7 +10,6 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 /**
@@ -43,6 +42,11 @@ export class NewExpr extends Expr {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // No `comment` field on any branch below — `new` is a literal /
+    // constructor; the type + value already convey what it is, so an
+    // attached comment is pure noise. Strict-mode schema rejects it
+    // outright. Comments belong on statement-shaped Exprs only.
+    //
     // Strict mode: emit a discriminated union over every Type the LLM
     // could legitimately `new`:
     //   - One branch per built-in Type class: `type` is that class's full
@@ -65,7 +69,6 @@ export class NewExpr extends Expr {
       const instanceBranches = Array.from(byName.values()).map((t) =>
         z.object({
           kind: z.literal('new'),
-          ...baseExprFields,
           type: z.object({ name: z.literal(t.name) }).passthrough().describe(
             `Reference to the registered named type \`${t.name}\` — name-only, the registry resolves it to its full definition.`,
           ),
@@ -83,7 +86,6 @@ export class NewExpr extends Expr {
       const classBranches = opts.registry.typeClasses().map((cls) =>
         z.object({
           kind: z.literal('new'),
-          ...baseExprFields,
           type: cls.toSchema(opts).describe(
             `Full TypeDef for a \`${cls.NAME}\` instance (name + options + per-class fields).`,
           ),
@@ -100,7 +102,10 @@ export class NewExpr extends Expr {
     // Default (non-strict): any TypeDef + any value.
     return z.object({
       kind: z.literal('new'),
-      ...baseExprFields,
+// no `comment` field — comment-spam on `new`/`get`/`flow` Exprs is
+      // pure noise (the literal/path/keyword already conveys intent), so
+      // strict-mode schema rejects them outright. Comments belong on
+      // statement-shaped Exprs (if/switch/define/block/lambda) only.
       type: opts.Type.describe(
         'TypeDef of the value being constructed. The `value` field is interpreted relative to this type — primitives take their raw form (`new num` → number), composites take Expr slots (`new list` → Expr[]).',
       ),

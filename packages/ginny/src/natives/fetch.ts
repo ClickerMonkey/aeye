@@ -65,6 +65,10 @@ export function registerFetchType(registry: Registry) {
     }),
     registry.alias('R'),
     undefined,
-    { R: registry.text() },
+    // Constraint on R, not a default. fetch is fully untyped from gin's
+    // perspective — the response body is whatever the remote server
+    // hands back, and `output:` parses it into any gin Type the caller
+    // asks for. `any` reflects that.
+    { R: registry.any() },
   );
 }

@@ -111,6 +111,12 @@ export function registerAskType(registry: Registry) {
     }),
     registry.optional(registry.alias('R')),
     undefined,
-    { R: registry.text() },
+    // Constraint on R, not a default. `consume()` walks any gin Type —
+    // primitives, lists, objs, enums, optionals — and prompts the user
+    // accordingly. `any` reflects that any shape the caller asks for
+    // is acceptable. Without an `output:` arg the impl returns
+    // `optional<text>`; with one, the impl coerces R to whatever the
+    // caller's Type was.
+    { R: registry.any() },
   );
 }

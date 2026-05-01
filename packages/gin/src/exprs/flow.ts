@@ -11,7 +11,6 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 export type FlowAction = 'break' | 'return' | 'continue' | 'exit' | 'throw';
@@ -45,7 +44,10 @@ export class FlowExpr extends Expr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('flow'),
-      ...baseExprFields,
+      // No `comment` field — keywords (return/break/continue/throw/exit)
+      // already say what they do; comments are pure noise. Strict-mode
+      // schema rejects them. Comments belong on statement-shaped Exprs
+      // (if/switch/define/block/lambda) only.
       action: z.enum(['break', 'continue', 'return', 'exit', 'throw']).describe(
         'Which control-flow signal to raise. ' +
         '`break`/`continue` only valid inside a loop. ' +

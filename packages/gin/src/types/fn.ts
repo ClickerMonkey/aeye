@@ -27,17 +27,23 @@ export class FnType extends Type<any, Record<string, never>> {
 
   static from(json: TypeDef, scope: TypeScope): FnType {
     const registry = scope.registry;
-    // Generics declared on the fn — bind each into a LocalScope so that
-    // bare `{name: 'T'}` inside the call signature resolves to the
-    // generic placeholder via AliasType (and supports later
-    // substitution via .bind).
+    // Generics declared on the fn — each entry's value is a CONSTRAINT
+    // type that bindings supplied at call sites must satisfy. The
+    // generic NAME itself stays unresolved in the captured scope: bare
+    // `{name: 'R'}` inside the call signature parses as an AliasType
+    // placeholder, NOT bound to its constraint. Concrete resolution
+    // only happens through call-site bindings (a CallStep's `generic`
+    // map layered into a LocalScope at invocation).
+    //
+    // Use `registry.any()` as the constraint when the parameter is
+    // unconstrained. A self-reference (`R: alias('R')`) also works as
+    // an unconstrained declaration — the alias resolves to itself in
+    // any context that doesn't supply a binding.
     const generic: Record<string, Type> = {};
     const local = new LocalScope(scope);
     if (json.generic) {
       for (const [k, def] of Object.entries(json.generic)) {
-        const t = local.parse(def);
-        generic[k] = t;
-        local.bind(k, t);
+        generic[k] = local.parse(def);
       }
     }
     if (!json.call) {
@@ -119,9 +125,16 @@ export class FnType extends Type<any, Record<string, never>> {
 
   compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof FnType)) return false;
-    // args: contravariant — this.args must accept other.args
+    // Bivariant on args: a satisfier with narrower args (e.g. `num.eq`
+    // takes `other: num`) is accepted as a witness of a wider-args
+    // interface (e.g. `iface.eq` takes `other: any`). This is the
+    // pragmatic structural-interface check most gin code wants — and
+    // matches TypeScript's default bivariant method-parameter rule.
+    // Strict-subtype variance (contravariant args / covariant returns)
+    // is what consumers like edit-compat want; those should split
+    // args + returns and use `compatible` directionally per side
+    // rather than calling `FnType.compatible` whole.
     if (!this._call.args.compatible(other._call.args, opts, scope)) return false;
-    // returns: covariant — other.returns must be compatible with this.returns
     if (this._call.returns && other._call.returns) {
       if (!this._call.returns.compatible(other._call.returns, opts, scope)) return false;
     }
