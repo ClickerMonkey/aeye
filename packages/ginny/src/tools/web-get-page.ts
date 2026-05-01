@@ -30,10 +30,11 @@ export const webGetPage = ai.tool({
   applicable: (ctx) => !!ctx.features?.webSearch,
   call: async (input: { url: string }, _refs, ctx) => {
     throwIfAborted(ctx.signal);
-    // Puppeteer's page.goto and pdf-parse / mammoth conversion don't
-    // accept an AbortSignal — race the whole pipeline against the
-    // signal so ESC during a slow render unwinds the call.
-    const result = await withAbortRace(fetchAndConvert(input.url), ctx.signal);
+    // fetchAndConvert now plumbs the signal into puppeteer + the raw
+    // fetch, so ESC during a slow render kills the browser directly.
+    // The withAbortRace wrapper is still useful for pdf-parse /
+    // mammoth conversion which doesn't accept a signal natively.
+    const result = await withAbortRace(fetchAndConvert(input.url, ctx.signal), ctx.signal);
     if (!result.ok) {
       return `Error fetching ${input.url}: ${result.error}`;
     }

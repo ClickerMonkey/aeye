@@ -31,13 +31,13 @@ describe('Registry', () => {
     // behave permissively (compatible / valid both pass) until the
     // target gets registered.
     const r = createRegistry();
-    const t = r.parse({ name: 'unknown-type' });
+    const t = r.parse({ name: 'unknown_type' });
     expect(t.name).toBe('alias');
   });
 
   test('parse throws for extends of unknown base', () => {
     const r = createRegistry();
-    expect(() => r.parse({ name: 'x', extends: 'does-not-exist' })).toThrow();
+    expect(() => r.parse({ name: 'x', extends: 'does_not_exist' })).toThrow();
   });
 
   test('register + lookup roundtrip', () => {

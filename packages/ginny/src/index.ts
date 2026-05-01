@@ -1,9 +1,25 @@
 #!/usr/bin/env node
+// NOTE: AbortSignal listener cap. Lifted in two places, by design:
+//
+//   1. `esbuild.config.cjs` banner — patches `globalThis.AbortController`
+//      so every signal created in the bundle (ours, the AI library's,
+//      SDK internals, fetch's) is uncapped from birth. The banner runs
+//      before any imported module's top-level code, so SDKs that capture
+//      `globalThis.AbortController` at module init see the patched ctor.
+//
+//   2. `setMaxListeners(Infinity)` below — sets the global default for
+//      future EventTargets/EventEmitters. Belt-and-suspenders: in some
+//      Node versions EventTarget captures `defaultMaxListeners` at module
+//      load and doesn't re-read it, which is why (1) is the load-bearing
+//      fix; this one is the cheap "in case it works" addition.
 import * as readline from 'readline';
+import events from 'events';
+events.setMaxListeners(Number.POSITIVE_INFINITY);
+
 import type { Message } from '@aeye/core';
 import { programmer } from './prompts/programmer';
 import { EventDisplay } from './event-display';
-import { logger } from './logger';
+import { logger, genId } from './logger';
 import { aiInfo } from './ai';
 import { setRuntimeSignal } from './runtime-signal';
 
@@ -169,6 +185,13 @@ async function runRequest(request: string): Promise<void> {
       },
     );
     for await (const event of events) {
+      // After ESC (or Ctrl+C), stop draining further events. The inner
+      // streamer's signal listener tears down its in-flight request,
+      // but the model may still be queuing up follow-up tool calls
+      // that we shouldn't process — bail here so the run actually
+      // unwinds back to the prompt instead of grinding through one
+      // last iteration.
+      if (abort.signal.aborted) break;
       // Keep the "ginny is thinking…" spinner alive until the model
       // actually produces something. `request`/`requestUsage` fire at
       // the start of an iteration, before any output, so they don't
@@ -183,9 +206,12 @@ async function runRequest(request: string): Promise<void> {
     }
     if (!display.producedText) {
       // No text response (e.g. pure tool-only run, or empty answer).
-      process.stdout.write('(no output)');
+      process.stdout.write('(no output)\n');
     }
-    process.stdout.write('\n');
+    // No unconditional trailing newline here — when text WAS streamed,
+    // `EventDisplay` already terminated it on the `text` /
+    // `textComplete` event. Adding another `\n` here would produce a
+    // blank line before the next `> ` prompt.
   } catch (e: unknown) {
     ensureSpinnerStopped();
     const err = e as { message?: string; stack?: string; name?: string };
@@ -194,14 +220,16 @@ async function runRequest(request: string): Promise<void> {
     } else {
       // Keep the on-screen error short — zod / aggregate errors can
       // dump hundreds of lines that bury the prompt. Full message and
-      // stack go to ginny.log for post-mortem.
+      // stack go to ginny.log for post-mortem; the 6-char id makes
+      // both ends of the trail joinable via `grep <id> ginny.log`.
+      const id = genId();
       const raw = err.message ?? String(e);
       const oneLiner = raw.replace(/\s+/g, ' ').trim();
       const short = oneLiner.length > 200 ? `${oneLiner.slice(0, 200)}…` : oneLiner;
-      console.error(`\nError: ${short}`);
-      console.error('(see ginny.log for full details)');
-      logger.log(`Error: ${raw}`);
-      if (err.stack) logger.log(err.stack);
+      console.error(`\nError [${id}]: ${short}`);
+      console.error(`(see ginny.log — search for ${id})`);
+      logger.log(`[${id}] runRequest error: ${raw}`);
+      if (err.stack) logger.log(`[${id}] stack:\n${err.stack}`);
     }
   } finally {
     process.off('SIGINT', onSigint);

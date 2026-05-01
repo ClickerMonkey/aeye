@@ -4,7 +4,7 @@ import { createRegistry } from '../index';
 describe('satisfies enforcement', () => {
   test('claimed interface not found → error', () => {
     const r = createRegistry();
-    expect(() => r.parse({ name: 'num', satisfies: ['missing-iface'] })).toThrow(/unknown interface/);
+    expect(() => r.parse({ name: 'num', satisfies: ['missing_iface'] })).toThrow(/unknown interface/);
   });
 
   test('structural mismatch → error', () => {
@@ -14,9 +14,9 @@ describe('satisfies enforcement', () => {
       props: { fictional: { type: { name: 'any' } } },
     });
     // Give it a lookup name by wrapping in a named Extension.
-    const namedIface = r.extend(iface, { name: 'fictional-iface' });
+    const namedIface = r.extend(iface, { name: 'fictional_iface' });
     r.register(namedIface);
-    expect(() => r.parse({ name: 'num', satisfies: ['fictional-iface'] })).toThrow(/does not structurally match/);
+    expect(() => r.parse({ name: 'num', satisfies: ['fictional_iface'] })).toThrow(/does not structurally match/);
   });
 
   test('structurally satisfying types pass', () => {
@@ -27,9 +27,9 @@ describe('satisfies enforcement', () => {
         eq: { type: { name: 'fn', call: { args: { name: 'obj', props: { other: { type: { name: 'any' } } } }, returns: { name: 'bool' } } } },
       },
     });
-    const named = r.extend(iface, { name: 'has-eq' });
+    const named = r.extend(iface, { name: 'has_eq' });
     r.register(named);
-    expect(() => r.parse({ name: 'num', satisfies: ['has-eq'] })).not.toThrow();
+    expect(() => r.parse({ name: 'num', satisfies: ['has_eq'] })).not.toThrow();
   });
 });
 
@@ -42,9 +42,9 @@ describe('Registry.getTypesFor', () => {
         toText: { type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'text' } } } },
       },
     });
-    const named = r.extend(iface, { name: 'has-toText' });
+    const named = r.extend(iface, { name: 'has_toText' });
     r.register(named);
-    const matches = r.getTypesFor('has-toText');
+    const matches = r.getTypesFor('has_toText');
     // At minimum: bool, num, any, void, null, not — all declare toText.
     const names = matches.map((t) => t.name);
     expect(names).toContain('num');
@@ -53,6 +53,6 @@ describe('Registry.getTypesFor', () => {
 
   test('returns empty for unknown interface', () => {
     const r = createRegistry();
-    expect(r.getTypesFor('not-a-real-iface')).toEqual([]);
+    expect(r.getTypesFor('not_a_real_iface')).toEqual([]);
   });
 });

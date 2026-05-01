@@ -1,5 +1,17 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
+
+/**
+ * Generate a short (6 hex chars) "errorable-work" id. Stamp it on a
+ * pair of log lines — `[id] <op> start` before the work, then either
+ * `[id] <op> ok` or `[id] <op> error: <msg>` after — and surface the
+ * id in the user-visible one-liner so a `grep <id> ginny.log` pulls
+ * up the full context (params, stack, retry attempts, etc.).
+ */
+export function genId(): string {
+  return crypto.randomBytes(3).toString('hex');
+}
 
 /**
  * Per-startup logger that writes to `./ginny.log` in the session CWD.

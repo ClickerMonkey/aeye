@@ -326,6 +326,26 @@ export class Registry implements TypeBuilder, TypeScope {
       throw new Error(`registry.parse: expected object, got ${typeof json}`);
     }
     const def = json as TypeDef;
+    // Type names must be \w+ (letters, digits, underscore — no
+    // whitespace, no punctuation). LLM-emitted TypeDefs sometimes
+    // arrive with leading whitespace or other junk in the name; the
+    // downstream "claims to satisfy X but does not structurally
+    // match" error is baffling because the offending whitespace is
+    // invisible. Reject explicitly here with a precise pointer.
+    if (typeof def.name !== 'string' || !/^\w+$/.test(def.name)) {
+      throw new Error(`registry.parse: type 'name' must match /^\\w+$/, got ${JSON.stringify(def.name)}`);
+    }
+    if (def.extends !== undefined && (typeof def.extends !== 'string' || !/^\w+$/.test(def.extends))) {
+      throw new Error(`registry.parse: type 'extends' must match /^\\w+$/, got ${JSON.stringify(def.extends)}`);
+    }
+    if (def.satisfies) {
+      for (const ifaceName of def.satisfies) {
+        if (typeof ifaceName !== 'string' || !/^\w+$/.test(ifaceName)) {
+          throw new Error(`registry.parse: 'satisfies' entries must match /^\\w+$/, got ${JSON.stringify(ifaceName)}`);
+        }
+      }
+    }
+
     const result = this.parseInner(def, scope);
 
     // `satisfies` claims: verify each against the named interface.

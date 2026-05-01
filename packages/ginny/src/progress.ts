@@ -1,5 +1,5 @@
 import { AnyTool, Prompt, PromptEvent, Tuple } from '@aeye/core';
-import { logger } from './logger';
+import { logger, genId } from './logger';
 
 /**
  * Stream a sub-agent prompt to completion, surfacing per-event progress
@@ -107,11 +107,16 @@ export async function runSubagent<
           const t = toolStarts.get(event.args);
           const elapsed = t ? Date.now() - t : 0;
           // Cap the on-screen error to one line — zod / aggregate
-          // errors easily run 100+ lines and bury the timeline. Full
-          // text → ginny.log.
-          const line = `    ✗ ${event.tool.name} (${elapsed}ms): ${preview(event.error)}`;
+          // errors easily run 100+ lines and bury the timeline. The
+          // 6-char id is the join key into ginny.log, where the full
+          // stack + args are recorded.
+          const id = genId();
+          const line = `    ✗ ${event.tool.name} [${id}] (${elapsed}ms): ${preview(event.error)}`;
           process.stderr.write(`${c(RED, line)}\n`);
-          logger.log(`✗ ${event.tool.name} (${elapsed}ms): ${event.error}`);
+          logger.log(`[${id}] tool=${event.tool.name} (${elapsed}ms) error: ${event.error}`);
+          const stack = (event.error as { stack?: string } | undefined)?.stack;
+          if (stack) logger.log(`[${id}] stack:\n${stack}`);
+          try { logger.log(`[${id}] args: ${JSON.stringify(event.args)}`); } catch { /* ignore */ }
           break;
         }
         case 'complete': {

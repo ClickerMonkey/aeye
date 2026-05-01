@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { buildSchemas } from '@aeye/gin';
 import type { ExprDef } from '@aeye/gin';
 import { ai } from '../ai';
-import { logger } from '../logger';
+import { logger, genId } from '../logger';
 
 export const write = ai.tool({
   name: 'write',
@@ -52,6 +52,14 @@ export const write = ai.tool({
       scope.set('recurse', ctx.registry.fn(ctx.targetFn.argsType, ctx.targetFn.returnsType));
     }
 
+    // Generate the 6-char id up front so the SAME id appears in
+    // every place this validation surfaces: the stderr line the user
+    // sees in their terminal, the line ginny.log records, AND the
+    // tool result the model + the `← write (Xms): ...` timeline line
+    // show. `grep <id> ginny.log` from any of those recovers the
+    // full problem list + rendered code.
+    const id = genId();
+
     let problemsNote = '';
     let problemsCount = 0;
     try {
@@ -71,27 +79,29 @@ export const write = ai.tool({
           const path = p.path.length > 0 ? ` @ ${p.path.join('.')}` : '';
           return `  - [${p.severity}] ${p.code}: ${p.message}${path}`;
         });
-        problemsNote = `\n\n[validation problems — fix these before calling test()]\n${lines.join('\n')}`;
+        problemsNote = `\n\n[validation problems [${id}] — fix these before calling test()]\n${lines.join('\n')}`;
       }
     } catch (e: unknown) {
       // validate shouldn't throw, but be defensive — a thrown error
       // here shouldn't take down the write call.
-      problemsNote = `\n\n[validation threw: ${e instanceof Error ? e.message : String(e)}]`;
+      problemsNote = `\n\n[validation threw [${id}]: ${e instanceof Error ? e.message : String(e)}]`;
       problemsCount = 1;
     }
 
     // Stderr (the user's terminal) gets the rendered code plus a
-    // single-line problem count when there are issues. The full
-    // problem list and threading goes to ginny.log for post-mortem
-    // debugging — keeps the live view scannable while preserving
-    // every detail in the log.
+    // single-line problem count when there are issues.
     process.stderr.write(`\n\x1b[2m${code}\x1b[0m\n`);
     if (problemsCount > 0) {
       const noun = problemsCount === 1 ? 'problem' : 'problems';
-      process.stderr.write(`\x1b[31m[${problemsCount} validation ${noun} — see ginny.log for details]\x1b[0m\n`);
+      process.stderr.write(`\x1b[31m[${problemsCount} validation ${noun} [${id}] — grep ginny.log for ${id}]\x1b[0m\n`);
+      logger.log(`[${id}] write validation problems (${problemsCount}):\n${code}${problemsNote}`);
+    } else {
+      logger.log(`write:\n${code}`);
     }
-    logger.log(`write:\n${code}${problemsNote}`);
 
+    // Tool result that the model sees AND the `← write (Xms): ...`
+    // preview line both pull from this string, so the id sits in
+    // problemsNote (above) — appears in both with no extra plumbing.
     return `Draft saved. Call test() to evaluate it.\n\n${code}${problemsNote}`;
   },
 });

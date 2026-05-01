@@ -32,14 +32,14 @@ export class NumType extends Type<number, NumOptions> {
     return z.object({
       name: z.literal('num'),
       options: z.object({
-        min: z.number().optional(),
-        max: z.number().optional(),
-        whole: z.boolean().optional(),
-        minPrecision: z.number().optional(),
-        maxPrecision: z.number().optional(),
-        prefix: z.string().optional(),
-        suffix: z.string().optional(),
-      }).optional(),
+        min: z.number().optional().describe('Only set when a real lower bound is part of the spec — e.g. "positive count" → min: 1, "age" → min: 0. Do NOT add `min: 0` to every num just because most numbers happen to be non-negative.'),
+        max: z.number().optional().describe('Only set when there is an actual upper bound — a percentage capped at 100, a year capped at 9999. Do NOT pick a generic ceiling like 1000/9999 to fill the field.'),
+        whole: z.boolean().optional().describe('Only set to true when the value is genuinely integral (counts, indices, ids). Leave unset (allow fractions) for measurements, ratios, etc.'),
+        minPrecision: z.number().optional().describe('Decimal-place floor. Almost never needed; omit unless the spec explicitly requires N decimal places.'),
+        maxPrecision: z.number().optional().describe('Decimal-place ceiling. Same rule as minPrecision — omit unless explicitly required.'),
+        prefix: z.string().optional().describe('Display-only prefix (e.g. "$"). Has no effect on validation. Omit unless rendering needs it.'),
+        suffix: z.string().optional().describe('Display-only suffix (e.g. "%"). Same as prefix — omit unless rendering needs it.'),
+      }).optional().describe('Omit entirely for ordinary numbers. Only include when the value has a real, named constraint worth enforcing on every parse.'),
     }).meta({ aid: 'Type_num' });
   }
 

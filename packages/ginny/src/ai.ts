@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { logger } from './logger';
+import { logger, genId } from './logger';
 import { AI, type Provider } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
@@ -70,6 +70,38 @@ const awsChatHooks = {
   },
 };
 
+/**
+ * Shared retry-event handlers — every provider that accepts a `retryEvents`
+ * option uses these so retry attempts (especially 429s) are visible in
+ * `ginny.log`. Each retry burst gets a 6-char id stamped on every line so a
+ * single `grep <id>` recovers the whole sequence: provider, op, attempts,
+ * timings, and final outcome.
+ *
+ * The defaults built into the providers (3 retries, 1s base, exponential
+ * backoff, jittered, retryable on [0, 429, 500, 503]) handle transient
+ * rate-limit blips automatically. When the 429 message says "quota" /
+ * "billing" we annotate the log so you can tell a credit-exhausted error
+ * from a genuine rate-limit one instantly.
+ */
+function makeRetryEvents() {
+  return {
+    onRetry: (attempt: number, error: Error, delay: number, ctxMeta: { operation: string; provider: string; requestId?: string }) => {
+      const id = ctxMeta.requestId ?? genId();
+      const isQuota = /quota|billing|insufficient/i.test(error.message);
+      const flavor = isQuota ? 'quota-exhausted (NOT retryable)' : 'transient';
+      logger.log(`[${id}] retry attempt=${attempt} provider=${ctxMeta.provider} op=${ctxMeta.operation} flavor=${flavor} delay=${delay}ms err=${error.message}`);
+    },
+    onMaxRetriesExceeded: (attempts: number, lastError: Error, ctxMeta: { operation: string; provider: string; requestId?: string }) => {
+      const id = ctxMeta.requestId ?? genId();
+      logger.log(`[${id}] retry-exhausted attempts=${attempts} provider=${ctxMeta.provider} op=${ctxMeta.operation} err=${lastError.message}`);
+    },
+    onTimeout: (duration: number, ctxMeta: { operation: string; provider: string; requestId?: string }) => {
+      const id = ctxMeta.requestId ?? genId();
+      logger.log(`[${id}] retry-timeout duration=${duration}ms provider=${ctxMeta.provider} op=${ctxMeta.operation}`);
+    },
+  };
+}
+
 async function buildProviders(): Promise<{
   providers: Record<string, Provider>;
   enabled: string[];
@@ -79,10 +111,15 @@ async function buildProviders(): Promise<{
   const skipped: string[] = [];
   const providers: Record<string, Provider> = {};
 
+  const retryEvents = makeRetryEvents();
+
   if (process.env['OPENAI_API_KEY']) {
     providers.openai = new OpenAIProvider({
       apiKey: process.env['OPENAI_API_KEY']!,
       hooks: { chat: openaiChatHooks },
+      // Defaults are sane (3 retries, 1s base, expo backoff, retry on
+      // [0, 429, 500, 503]); we just want visibility into when they fire.
+      retryEvents,
     });
     enabled.push('openai');
   } else {
@@ -93,6 +130,7 @@ async function buildProviders(): Promise<{
     providers.openrouter = new OpenRouterProvider({
       apiKey: process.env['OPENROUTER_API_KEY']!,
       hooks: { chat: openrouterChatHooks },
+      retryEvents,
     });
     enabled.push('openrouter');
   } else {

@@ -4,6 +4,7 @@ import { val } from '@aeye/gin';
 import type { AI } from '@aeye/ai';
 import { modelFor } from '../model-selection';
 import { getRuntimeSignal } from '../runtime-signal';
+import { logger, genId } from '../logger';
 
 export function createLlmImpl(registry: Registry, ai: AI<any>) {
   return async (argsValue: Value): Promise<Value> => {
@@ -57,11 +58,27 @@ export function createLlmImpl(registry: Registry, ai: AI<any>) {
       ? (result as { value: unknown }).value
       : result;
 
-    if (outputType && finalResult !== undefined) {
+    if (outputType) {
+      // Surface a clear error (with a 6-char id pointing at the full
+      // raw response in ginny.log) when the LLM gave us nothing
+      // parseable. The previous behaviour fell back to an empty text
+      // Value, which then surfaced downstream as the cryptic
+      // "text.parse: expected string, got undefined" against the
+      // caller's typed slot — much harder to diagnose.
+      if (finalResult === undefined || finalResult === null) {
+        const id = genId();
+        logger.log(`[${id}] fns.llm returned ${finalResult === null ? 'null' : 'undefined'}; outputType=${outputType.toCode()} prompt=${JSON.stringify(promptText.slice(0, 200))}`);
+        throw new Error(`fns.llm produced no usable response for output ${outputType.toCode()} [${id}]`);
+      }
       try {
         return outputType.parse(finalResult);
-      } catch {
-        return val(registry.text(), JSON.stringify(finalResult));
+      } catch (e: unknown) {
+        const id = genId();
+        const raw = typeof finalResult === 'string'
+          ? finalResult
+          : (() => { try { return JSON.stringify(finalResult); } catch { return String(finalResult); } })();
+        logger.log(`[${id}] fns.llm parse-failure outputType=${outputType.toCode()} raw=${raw}`);
+        throw new Error(`fns.llm output didn't parse against ${outputType.toCode()} [${id}]: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 

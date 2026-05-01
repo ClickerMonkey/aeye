@@ -11,7 +11,7 @@
  * on the args object — the same reference is reused across the
  * matching toolStart / toolOutput / toolError events).
  */
-import { logger } from './logger';
+import { logger, genId } from './logger';
 
 const ESC = '\x1b[';
 const RESET = `${ESC}0m`;
@@ -42,6 +42,17 @@ type LastEventKind = 'thinking' | 'text' | 'tool' | null;
 export class EventDisplay {
   private toolStarts = new WeakMap<object, number>();
   private last: LastEventKind = null;
+  /**
+   * Has the streamed text line been left open (no trailing newline)?
+   * Set on every `textPartial`, cleared once we write the terminating
+   * `\n`. Tracked separately from `last` so that consuming the
+   * "terminate the line" event (`text` / `textComplete` / a tool
+   * boundary) can reset this independently — otherwise the next event
+   * would try to write a second newline.
+   */
+  private textLineOpen = false;
+  /** Latches when we ever write streamed user text — used by `producedText`. */
+  private hasProducedText = false;
   private color: boolean;
   private thinkingShownThisTurn = false;
 
@@ -54,8 +65,9 @@ export class EventDisplay {
   }
 
   private breakIfText(): void {
-    if (this.last === 'text') {
+    if (this.textLineOpen) {
       process.stdout.write('\n');
+      this.textLineOpen = false;
     }
   }
 
@@ -87,8 +99,25 @@ export class EventDisplay {
       }
 
       case 'textPartial': {
-        process.stdout.write(event.content ?? '');
-        this.last = 'text';
+        const chunk = event.content ?? '';
+        if (chunk) {
+          process.stdout.write(chunk);
+          this.last = 'text';
+          this.textLineOpen = true;
+          this.hasProducedText = true;
+        }
+        break;
+      }
+
+      case 'text':
+      case 'textComplete': {
+        // Streaming for this text segment is done — `text` fires when
+        // the model finishes its prose for a turn (just before any
+        // tool calls), `textComplete` fires once at the very end of
+        // the response. Either way, terminate the streamed line so
+        // whatever prints next (tool boundary, prompt, etc.) starts
+        // on its own row instead of butting up against the last word.
+        this.breakIfText();
         break;
       }
 
@@ -126,9 +155,15 @@ export class EventDisplay {
         const elapsed = started ? Date.now() - started : 0;
         // Cap the on-screen error: zod / aggregate errors can run hundreds
         // of lines and bury the live view. Full text still goes to ginny.log.
-        const line = `✗ ${event.tool.name} (${elapsed}ms): ${preview(event.error)}`;
+        // The 6-char id ties the one-liner to the full stack/args
+        // dumped to ginny.log — grep `<id>` to surface everything.
+        const id = genId();
+        const line = `✗ ${event.tool.name} [${id}] (${elapsed}ms): ${preview(event.error)}`;
         process.stderr.write(`${this.c(RED, line)}\n`);
-        logger.log(`✗ ${event.tool.name} (${elapsed}ms): ${event.error}`);
+        logger.log(`[${id}] tool=${event.tool.name} (${elapsed}ms) error: ${event.error}`);
+        const stack = (event.error as { stack?: string } | undefined)?.stack;
+        if (stack) logger.log(`[${id}] stack:\n${stack}`);
+        try { logger.log(`[${id}] args: ${JSON.stringify(event.args)}`); } catch { /* ignore */ }
         this.last = 'tool';
         break;
       }
@@ -152,8 +187,8 @@ export class EventDisplay {
     }
   }
 
-  /** Did we ever stream user-visible text? */
+  /** Did we ever stream user-visible text during the run? */
   get producedText(): boolean {
-    return this.last === 'text';
+    return this.hasProducedText;
   }
 }

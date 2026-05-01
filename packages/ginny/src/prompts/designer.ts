@@ -535,6 +535,27 @@ caller it's incompatible OR \`create_new_fn\` under a different name.
 
 Use \`create_new_fn\` for net-new functionality.
 
+## Sequencing parallel requests
+
+When a single request asks for multiple fns and one composes the
+others (e.g. \`fetchAndSummarize\` calls \`fetchContent\` and
+\`summarizeContent\`), you MUST issue \`create_new_fn\` calls
+SEQUENTIALLY — one at a time — with the dependencies first, the
+composer last. Independent fns can be created in any order.
+
+Why: tool calls in a single LLM round run in parallel. If you queue
+\`fetchContent\`, \`summarizeContent\`, AND \`fetchAndSummarize\` in
+the same round, the inner programmer authoring \`fetchAndSummarize\`
+sees neither dependency loaded — it has to re-derive the fetch + llm
+logic inline, which is exactly the duplication this designer is
+supposed to prevent. So:
+
+  Round 1: \`create_new_fn\` for \`fetchContent\`. Wait for the
+           result.
+  Round 2: \`create_new_fn\` for \`summarizeContent\`. Wait.
+  Round 3: \`create_new_fn\` for \`fetchAndSummarize\` — which can
+           now reference both.
+
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
   tools: [searchFns, getFn, printFn, createNewFn, editFn, ask],

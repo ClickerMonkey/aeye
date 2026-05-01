@@ -154,11 +154,16 @@ export function extensionSchemaNarrowed(
   const extendsEnum = allowedNames.length > 0
     ? z.enum(allowedNames as [string, ...string[]])
     : z.never();
+  // Type names are identifiers — letters, digits, underscore. No
+  // whitespace, no punctuation, no spaces. Catching this at the schema
+  // layer surfaces a precise zod path ("name: ...") instead of a
+  // baffling structural-match failure deep inside `registry.parse`.
+  const identifier = z.string().regex(/^\w+$/, 'must be a /\\w+/ identifier');
   return z.object({
-    name: z.string(),
+    name: identifier,
     extends: extendsEnum,
     docs: z.string().optional(),
-    satisfies: z.array(z.string()).optional(),
+    satisfies: z.array(identifier).optional(),
     generic: genericSchema(opts).optional(),
     options: z.record(z.string(), z.any()).optional(),
     props: z.record(z.string(), propDefSchema(opts)).optional(),
