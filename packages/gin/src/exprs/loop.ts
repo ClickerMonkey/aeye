@@ -84,7 +84,8 @@ export class LoopExpr extends Expr {
         })
         .optional()
         .describe(
-          'Opt-in parallelism. Both fields are optional and independent: `concurrent` caps fan-out width, `rate` paces start times. Iterations may finish out of order; the body should not assume sequential ordering.',
+          'Opt-in parallelism. Both fields are optional and independent: `concurrent` caps fan-out width, `rate` paces start times. Iterations may finish out of order; the body should not assume sequential ordering. ' +
+          'Composes with dynamic (bool while-loop) iteration: the body fans out up to `concurrent`, and `over` is re-evaluated against the outer scope each time a task completes — so accumulating side effects of earlier tasks decide whether more tasks spawn.',
         ),
     }).meta({ aid: 'Expr_loop' });
   }
@@ -103,29 +104,106 @@ export class LoopExpr extends Expr {
     const keyName = this.keyName ?? 'key';
     const valueName = this.valueName ?? 'value';
 
+    // Read parallel options up front — both dynamic and static modes
+    // honor them. Dynamic mode requires concurrency to be bounded for
+    // parallel to be meaningful (otherwise every "tick" of `over`
+    // would race the body's side effects in unbounded ways), so we
+    // treat unbounded-concurrent + dynamic as sequential.
+    const concurrent = this.parallel?.concurrent
+      ? Number((await this.parallel.concurrent.evaluate(engine, scope)).raw)
+      : undefined;
+    const rateMs = this.parallel?.rate
+      ? Number((await this.parallel.rate.evaluate(engine, scope)).raw)
+      : undefined;
+    const parallel = concurrent !== undefined || rateMs !== undefined;
+
     // Dynamic mode: re-evaluate `over` against the OUTER scope each
-    // iteration; continue while the value's `raw` is truthy. Body
-    // mutations (via `set`) on vars the expression reads drive the
+    // iteration. Continue while the value's `raw` is truthy. Body
+    // mutations (via `set` on vars the expression reads) drive the
     // exit condition. `key` is the iteration index, `value` is the
-    // current re-evaluated value. Bool's GetSet sets this flag for
-    // while-loop semantics; other types can opt in similarly. Parallel
-    // options aren't meaningful in this mode (analyzer warns).
+    // current re-evaluated value.
     if (gs.loopDynamic) {
-      let current: Value = over;
+      const indexType = engine.registry.num({ whole: true, min: 0 });
+
+      // Sequential: simple while-loop.
+      if (!parallel) {
+        let current: Value = over;
+        let iteration = 0;
+        while (current.raw) {
+          const iter = scope.child({
+            [keyName]: val(indexType, iteration),
+            [valueName]: current,
+          });
+          try {
+            await this.body.evaluate(engine, iter);
+          } catch (sig) {
+            if (sig instanceof BreakSignal) break;
+            if (!(sig instanceof ContinueSignal)) throw sig;
+          }
+          iteration++;
+          current = await this.over.evaluate(engine, scope);
+        }
+        return val(engine.registry.void(), undefined);
+      }
+
+      // Dynamic + parallel: spawn up to `concurrent` tasks; whenever
+      // ANY task completes, re-evaluate `over` against the outer
+      // scope and — if still truthy — spawn another. The re-eval
+      // happens AFTER each completion (not before each start) so
+      // body side effects from the previous batch are visible before
+      // the next decision. Rate-limits delay starts the same way as
+      // static mode.
+      const pool: Set<Promise<void>> = new Set();
+      const maxConcurrent = concurrent ?? Infinity;
+      let broken = false;
+      let lastStart = 0;
       let iteration = 0;
-      while (current.raw) {
+
+      const trySpawn = async (): Promise<boolean> => {
+        if (broken) return false;
+        const current = await this.over.evaluate(engine, scope);
+        if (!current.raw) return false;
+        if (rateMs && rateMs > 0) {
+          const now = Date.now();
+          const delta = now - lastStart;
+          if (delta < rateMs) await new Promise((r) => setTimeout(r, rateMs - delta));
+          lastStart = Date.now();
+        }
         const iter = scope.child({
-          [keyName]: val(engine.registry.num({ whole: true, min: 0 }), iteration),
+          [keyName]: val(indexType, iteration),
           [valueName]: current,
         });
-        try {
-          await this.body.evaluate(engine, iter);
-        } catch (sig) {
-          if (sig instanceof BreakSignal) break;
-          if (!(sig instanceof ContinueSignal)) throw sig;
-        }
+        const task = (async () => {
+          try {
+            await this.body.evaluate(engine, iter);
+          } catch (sig) {
+            if (sig instanceof ContinueSignal) return;
+            if (sig instanceof BreakSignal) { broken = true; return; }
+            throw sig;
+          }
+        })();
+        const wrapped = task.finally(() => pool.delete(wrapped));
+        pool.add(wrapped);
         iteration++;
-        current = await this.over.evaluate(engine, scope);
+        return true;
+      };
+
+      // Initial fill — bring the pool up to capacity (or until `over`
+      // becomes falsy). For unbounded-concurrent, spawn ONE task and
+      // let the drain loop step the rest sequentially.
+      const initialCap = Number.isFinite(maxConcurrent) ? maxConcurrent : 1;
+      while (pool.size < initialCap) {
+        const ok = await trySpawn();
+        if (!ok) break;
+      }
+      // Drain — every completion re-evaluates and possibly fills the
+      // freed slot.
+      while (pool.size > 0) {
+        await Promise.race(pool);
+        while (!broken && pool.size < initialCap) {
+          const ok = await trySpawn();
+          if (!ok) break;
+        }
       }
       return val(engine.registry.void(), undefined);
     }
@@ -137,15 +215,6 @@ export class LoopExpr extends Expr {
     if (!loopExpr) {
       throw new Error(`loop: type '${over.type.name}' has no loop ExprDef on its GetSet`);
     }
-
-    const concurrent = this.parallel?.concurrent
-      ? Number((await this.parallel.concurrent.evaluate(engine, scope)).raw)
-      : undefined;
-    const rateMs = this.parallel?.rate
-      ? Number((await this.parallel.rate.evaluate(engine, scope)).raw)
-      : undefined;
-
-    const parallel = concurrent !== undefined || rateMs !== undefined;
 
     if (!parallel) {
       const yieldFn = async (keyVal: Value, valueVal: Value): Promise<Value> => {
@@ -210,9 +279,6 @@ export class LoopExpr extends Expr {
     const iterable = !!(gs?.loop || gs?.loopDynamic);
     if (!iterable) {
       p.error('loop.not-iterable', `type '${overT.name}' has no loop defined`);
-    }
-    if (gs?.loopDynamic && this.parallel) {
-      p.error('loop.parallel.dynamic', 'parallel options (concurrent / rate) are not meaningful for a dynamic (re-evaluated) loop');
     }
 
     // parallel.concurrent must be num; parallel.rate must be num or duration.

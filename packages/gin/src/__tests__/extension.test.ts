@@ -64,7 +64,7 @@ describe('Extension', () => {
   test('auto-Extension: fn.call is native (no wrap)', () => {
     const r = createRegistry();
     const json = {
-      name: 'function',
+      name: 'fn',
       call: { args: { name: 'obj' }, returns: { name: 'num' } },
     };
     const back = r.parse(json);

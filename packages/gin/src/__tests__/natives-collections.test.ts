@@ -74,7 +74,7 @@ describe('list natives', () => {
     });
     const gt2 = {
       kind: 'lambda',
-      type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'bool' } } },
+      type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'bool' } } },
       body: { kind: 'get', path: [{ prop: 'args' }, { prop: 'value' }, { prop: 'gt' }, { args: { other: { kind: 'new', type: { name: 'num' }, value: 2 } } }] },
     };
     expect((await e.run(program(gt2, 'some'))).raw).toBe(true);

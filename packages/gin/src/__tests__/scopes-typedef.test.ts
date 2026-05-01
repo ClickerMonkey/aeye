@@ -439,7 +439,7 @@ describe('CallDef.get body', () => {
     const r = createRegistry();
     const e = new Engine(r);
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { x: { type: { name: 'num' } } } },
         returns: { name: 'num' },
@@ -515,7 +515,7 @@ describe('PathCall.catch scope', () => {
         value: {
           kind: 'lambda',
           type: {
-            name: 'function',
+            name: 'fn',
             call: {
               args: { name: 'obj' },
               returns: { name: 'text' },

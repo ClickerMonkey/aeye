@@ -70,7 +70,7 @@ describe('Extension generics', () => {
   test('generic on call: identity<T>(x: T): T resolves via extra-scope', () => {
     const reg = createRegistry();
     const T = reg.alias('T');
-    const Fn = reg.extend('function', {
+    const Fn = reg.extend('fn', {
       name: 'identity',
       generic: { T },
       call: { args: reg.obj({ x: { type: T } }), returns: T },

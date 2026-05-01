@@ -67,7 +67,7 @@ describe('toSchema / buildSchemas', () => {
     expect(() => Expr.parse({
       kind: 'lambda',
       type: {
-        name: 'function',
+        name: 'fn',
         call: {
           args: { name: 'obj', props: { n: { type: { name: 'num' } } } },
           returns: { name: 'num' },

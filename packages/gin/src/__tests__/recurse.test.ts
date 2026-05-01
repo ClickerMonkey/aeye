@@ -19,7 +19,7 @@ describe('recurse in lambda body', () => {
         value: {
           kind: 'lambda',
           type: {
-            name: 'function',
+            name: 'fn',
             call: {
               args: { name: 'obj', props: { n: { type: { name: 'num' } } } },
               returns: { name: 'num' },
@@ -217,7 +217,7 @@ describe('recurse in CallDef.get', () => {
   test('JSON-declared callable recurses via `recurse`', async () => {
     const r = createRegistry();
     const countdownFn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { n: { type: { name: 'num' } } } },
         returns: { name: 'num' },
@@ -281,7 +281,7 @@ describe('recurse in CallDef.set (method)', () => {
     const r = createRegistry();
     // x.drain({k}) = _ — walks k..0, pushing each to log via recurse.
     const drainFn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { k: { type: { name: 'num' } } } },
         returns: { name: 'num' },
@@ -367,7 +367,7 @@ describe('recurse in CallDef.set (direct call)', () => {
   test('direct-call setter recurses', async () => {
     const r = createRegistry();
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { k: { type: { name: 'num' } } } },
         returns: { name: 'num' },

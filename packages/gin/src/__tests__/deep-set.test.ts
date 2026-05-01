@@ -108,7 +108,7 @@ describe('set return value + safe-navigation', () => {
   test('safe-nav does NOT short-circuit a call step (Fn raw may be null)', async () => {
     const r = createRegistry();
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
@@ -270,7 +270,7 @@ describe('deep set: method call with CallDef.set', () => {
     const r = createRegistry();
     // Method whose Fn type has call.set — set body pushes {args.key, value} to log.
     const setterFn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { key: { type: { name: 'text' } } } },
         returns: { name: 'num' },
@@ -337,7 +337,7 @@ describe('deep set: direct call with CallDef.set', () => {
   test('`fn(args) = value` invokes the Fn\'s call.set', async () => {
     const r = createRegistry();
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
@@ -381,7 +381,7 @@ describe('deep set: direct call with CallDef.set', () => {
         name: 'fn',
         value: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
+          type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'new', type: { name: 'num' }, value: 0 },
         },
       }],

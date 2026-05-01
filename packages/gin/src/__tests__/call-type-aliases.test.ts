@@ -19,7 +19,7 @@ const e = new Engine(r);
 describe('CallDef.types — basic resolution', () => {
   test('alias referenced twice in args resolves to the alias target', () => {
     const fn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
         args: { name: 'obj', props: { a: { type: { name: 'counter' } }, b: { type: { name: 'counter' } } } },
@@ -40,7 +40,7 @@ describe('CallDef.types — basic resolution', () => {
 
   test('sequential aliases — later refs earlier', () => {
     const fn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         types: {
           A: { name: 'num', options: { whole: true, min: 1 } },
@@ -63,7 +63,7 @@ describe('CallDef.types — basic resolution', () => {
 
   test('alias references generic — extra-scope T=text resolves through the alias', () => {
     const fn = r.parse({
-      name: 'function',
+      name: 'fn',
       generic: { T: { name: 'T' } },
       call: {
         types: {
@@ -88,7 +88,7 @@ describe('CallDef.types — basic resolution', () => {
 describe('CallDef.types — round-trip', () => {
   test('toJSON preserves the source `types` map and alias references', () => {
     const def: TypeDef = {
-      name: 'function',
+      name: 'fn',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
         args: { name: 'obj', props: { a: { type: { name: 'counter' } } } },
@@ -106,7 +106,7 @@ describe('CallDef.types — round-trip', () => {
 
   test('parse → toJSON → parse produces structurally identical args', () => {
     const def: TypeDef = {
-      name: 'function',
+      name: 'fn',
       call: {
         types: {
           A: { name: 'num', options: { min: 0 } },
@@ -127,7 +127,7 @@ describe('CallDef.types — round-trip', () => {
     // regardless of which scopes consult it. toJSON always emits the
     // declared shape — `T` survives bare, `box` survives.
     const fn = r.parse({
-      name: 'function',
+      name: 'fn',
       generic: { T: { name: 'T' } },
       call: {
         types: { box: { name: 'list', generic: { V: { name: 'T' } } } },
@@ -149,7 +149,7 @@ describe('CallDef.types — ExprDef bodies', () => {
   test('alias referenced inside `call.get` body resolves correctly', async () => {
     // counterFn() => 7 (where `counter` aliases num{min:1, whole:true})
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
         args: { name: 'obj' },
@@ -169,7 +169,7 @@ describe('CallDef.types — ExprDef bodies', () => {
 describe('CallDef.types — toCodeDefinition rendering', () => {
   test('aliases render as `type X = …;` lines before the call signature', () => {
     const fn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
         args: { name: 'obj', props: { n: { type: { name: 'counter' } } } },

@@ -18,7 +18,7 @@ import { callDefSchema } from '../schemas';
  * shape apply meaningfully to function bodies.
  */
 export class FnType extends Type<any, Record<string, never>> {
-  static readonly NAME = 'function';
+  static readonly NAME = 'fn';
   /** fn's signature IS its structure — call is natively consumed. */
   static readonly consumes = ['call'] as const;
   readonly name = FnType.NAME;
@@ -57,7 +57,7 @@ export class FnType extends Type<any, Record<string, never>> {
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
-      name: z.literal('function'),
+      name: z.literal('fn'),
       call: callDefSchema(opts).optional(),
     }).meta({ aid: 'Type_function' });
   }

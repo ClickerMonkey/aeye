@@ -62,7 +62,7 @@ describe('LambdaExpr validation', () => {
   test('body type incompatible with declared returns → warn', () => {
     const probs = e.validate({
       kind: 'lambda',
-      type: { name: 'function', call: {
+      type: { name: 'fn', call: {
         args: { name: 'obj' },
         returns: { name: 'num' },
       } },
@@ -74,7 +74,7 @@ describe('LambdaExpr validation', () => {
   test('body type matches declared returns → no warn', () => {
     const probs = e.validate({
       kind: 'lambda',
-      type: { name: 'function', call: {
+      type: { name: 'fn', call: {
         args: { name: 'obj' },
         returns: { name: 'num' },
       } },

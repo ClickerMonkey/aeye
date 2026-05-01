@@ -179,7 +179,10 @@ when comparing one expression against several literal values.
   bool reads. Combine with \`flow:break\`/\`flow:continue\` for explicit
   early exit.
 - \`parallel\`: optional concurrency hints (\`concurrent: num\`,
-  \`rate: num\` per-second).
+  \`rate: num\` per-second). Composes with bool while-loop mode:
+  the body fans out up to \`concurrent\`, and \`over\` is re-evaluated
+  each time a task COMPLETES — so prior tasks' side effects decide
+  whether more tasks spawn.
 \`\`\`json
 // for each task in tasks: do something
 { "kind": "loop",
@@ -199,7 +202,7 @@ the body each call (must return \`bool\`); throws on false.
 \`\`\`json
 // (args: { value: num }) => args.value + 1
 { "kind": "lambda",
-  "type": { "name": "function",
+  "type": { "name": "fn",
     "call": { "args": { "name": "obj", "props": { "value": { "type": { "name": "num" } } } },
               "returns": { "name": "num" } } },
   "body": { "kind": "get", "path": [
@@ -696,10 +699,14 @@ Padding with defaults like \`prefix: ""\` adds visual noise.
   Combine with \`flow:break\` / \`flow:continue\` for explicit early
   exit. For state that evolves across iterations, use \`set\` exprs in
   the body to mutate the variables the bool expression reads.
-- **Function types are \`{name: 'function', call: {args, returns}}\`.**
+  Adding \`parallel: { concurrent: N }\` to a bool over fans the body
+  out up to N in-flight; \`over\` is re-evaluated each time a task
+  completes, so accumulating side effects from earlier tasks decide
+  whether more spawn.
+- **Function types are \`{name: 'fn', call: {args, returns}}\`.**
   Do NOT invent obj shapes with a \`returns\` key as a fn type. If
   you find yourself writing \`type: { args: ..., returns: ... }\`
-  without \`name: 'function'\`, that's wrong.
+  without \`name: 'fn'\`, that's wrong.
 - **Mutating a local var is a \`set\` expr.** Use \`{ kind: "set",
   path: [{prop: "varName"}], value: <newExpr> }\`. Never write
   \`varName = ...\` — that's TypeScript syntax, not a gin ExprDef.

@@ -55,7 +55,7 @@ export class LambdaExpr extends Expr {
       kind: z.literal('lambda'),
       ...baseExprFields,
       type: opts.Type.describe(
-        'The lambda\'s function type — `{ name: "function", call: { args, returns } }` (or a registered named fn type). The `args` obj defines what the body sees under the `args` scope variable; `returns` is what the body must produce.',
+        'The lambda\'s function type — `{ name: "fn", call: { args, returns } }` (or a registered named fn type). The `args` obj defines what the body sees under the `args` scope variable; `returns` is what the body must produce.',
       ),
       body: opts.Expr.describe(
         'The lambda body. At runtime, scope contains the lexical scope at definition site PLUS `args` (the call arguments) and `recurse` (this same lambda, for self-calls). Read params via `[{prop:"args"},{prop:"<name>"}]`.',

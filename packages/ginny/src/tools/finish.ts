@@ -76,7 +76,7 @@ export const finish = ai.tool({
       // alias references intact.
       const useAliases = useTarget && ctx.targetFn?.callTypes && ctx.targetFn?.sourceArgs && ctx.targetFn?.sourceReturns;
       const fnTypeDef: TypeDef = {
-        name: 'function',
+        name: 'fn',
         ...(input.docs ? { docs: input.docs } : {}),
         call: useAliases
           ? {

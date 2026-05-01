@@ -97,7 +97,7 @@ const createNewFn = ai.tool({
     let returnsType: Type;
     try {
       const fnDef: TypeDef = {
-        name: 'function',
+        name: 'fn',
         call: {
           ...(input.types ? { types: input.types } : {}),
           args: input.args,
@@ -356,7 +356,7 @@ const editFn = ai.tool({
     let newReturnsType: Type;
     try {
       const fnDef: TypeDef = {
-        name: 'function',
+        name: 'fn',
         call: {
           ...(input.types ? { types: input.types } : {}),
           args: input.args,

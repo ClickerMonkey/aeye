@@ -34,7 +34,7 @@ describe('composite values preserve actual element types', () => {
   test('obj with interface field retains the concrete type of the stored value', () => {
     const r = createRegistry();
     const comparable = r.iface({
-      props: { toText: { type: { name: 'function', call: {
+      props: { toText: { type: { name: 'fn', call: {
         args: { name: 'obj' }, returns: { name: 'text' },
       } } } },
     });

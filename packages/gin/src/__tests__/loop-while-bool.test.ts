@@ -276,14 +276,84 @@ describe('LoopExpr — validation accepts bool over', () => {
     expect(probs.list.some((p) => p.code === 'loop.not-iterable')).toBe(false);
   });
 
-  test('parallel options on a dynamic (bool) loop flag loop.parallel.dynamic', () => {
+  test('parallel options on a dynamic (bool) loop are accepted', () => {
+    // Dynamic + parallel runs the body concurrently up to `concurrent`
+    // tasks; `over` is re-evaluated after each completion. No analyzer
+    // warning — both modes compose.
     const probs = e.validate({
       kind: 'loop',
       over: boolLit(true),
       parallel: { concurrent: numLit(2) },
       body: { kind: 'flow', action: 'break' },
     });
-    expect(probs.list.some((p) => p.code === 'loop.parallel.dynamic')).toBe(true);
+    expect(probs.list.some((p) => p.code === 'loop.parallel.dynamic')).toBe(false);
+  });
+
+  test('dynamic + parallel: body runs concurrently up to `concurrent`', async () => {
+    // `over` flips false once the counter reaches 6. With concurrent=3,
+    // the test.busy probe should report 3 simultaneously in-flight at
+    // peak. Wall time should be roughly 2 batches × 50ms (≤ ~150ms),
+    // not 6 × 50ms = 300ms.
+    let inFlight = 0;
+    let max = 0;
+    const r2 = createRegistry();
+    const e2 = new Engine(r2);
+    r2.setNative('test.busy', async (_scope, reg) => {
+      inFlight++;
+      if (inFlight > max) max = inFlight;
+      await new Promise((res) => setTimeout(res, 50));
+      inFlight--;
+      return val(reg.void(), undefined);
+    });
+
+    const program = {
+      kind: 'define',
+      vars: [
+        { name: 'count', value: { kind: 'new', type: { name: 'num' }, value: 0 } },
+      ],
+      body: {
+        kind: 'loop',
+        // over = count.lt(6); re-evaluated after each task completes.
+        over: {
+          kind: 'get',
+          path: [
+            { prop: 'count' }, { prop: 'lt' },
+            { args: { other: { kind: 'new', type: { name: 'num' }, value: 6 } } },
+          ],
+        },
+        parallel: { concurrent: { kind: 'new', type: { name: 'num' }, value: 3 } },
+        body: {
+          kind: 'block',
+          lines: [
+            // Spawn the busy probe AND increment count so over flips.
+            // The increment lands BEFORE busy resolves so subsequent
+            // re-evals see updated counter, but several tasks can be
+            // simultaneously waiting in busy.
+            {
+              kind: 'set',
+              path: [{ prop: 'count' }],
+              value: {
+                kind: 'get',
+                path: [
+                  { prop: 'count' }, { prop: 'add' },
+                  { args: { other: { kind: 'new', type: { name: 'num' }, value: 1 } } },
+                ],
+              },
+            },
+            { kind: 'native', id: 'test.busy' },
+          ],
+        },
+      },
+    } as const;
+
+    const start = Date.now();
+    await e2.run(program);
+    const elapsed = Date.now() - start;
+
+    // 6 iterations × 50ms with concurrency 3 = 2 batches × 50ms ≈ 100ms.
+    expect(max).toBeGreaterThanOrEqual(2);
+    expect(max).toBeLessThanOrEqual(3);
+    expect(elapsed).toBeLessThan(200);
   });
 
   test('non-iterable, non-bool over still flags loop.not-iterable', () => {

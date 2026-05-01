@@ -310,13 +310,13 @@ describe('Engine.toCode — expressions', () => {
         condition: { kind: 'new', type: { name: 'bool' }, value: true },
         body: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
+          type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'flow', action: 'return', value: { kind: 'new', type: { name: 'num' }, value: 7 } },
         },
       }],
       else: {
         kind: 'lambda',
-        type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
+        type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
         body: { kind: 'new', type: { name: 'num' }, value: 0 },
       },
     }, { expectsValue: true });
@@ -362,7 +362,7 @@ describe('Engine.toCode — expressions', () => {
     const code = e.toCode({
       kind: 'lambda',
       type: {
-        name: 'function',
+        name: 'fn',
         call: { args: { name: 'obj', props: { n: { type: { name: 'num' } } } }, returns: { name: 'num' } },
       },
       body: {

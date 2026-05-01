@@ -71,7 +71,7 @@ describe('Registry', () => {
   test('method helper builds fn-typed prop', () => {
     const r = createRegistry();
     const p = r.method({ other: r.num() }, r.bool(), 'x.method');
-    expect(p.type.name).toBe('function');
+    expect(p.type.name).toBe('fn');
     expect((p.get as any).id).toBe('x.method');
   });
 

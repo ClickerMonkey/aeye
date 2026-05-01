@@ -23,7 +23,7 @@ describe('evalLambda + list.map', () => {
               fn: {
                 kind: 'lambda',
                 type: {
-                  name: 'function',
+                  name: 'fn',
                   call: {
                     args: { name: 'obj', props: { value: { type: { name: 'num' } }, index: { type: { name: 'num' } } } },
                     returns: { name: 'num' },
@@ -65,7 +65,7 @@ describe('evalLambda + list.map', () => {
             args: {
               fn: {
                 kind: 'lambda',
-                type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'bool' } } },
+                type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'bool' } } },
                 body: {
                   kind: 'get',
                   path: [

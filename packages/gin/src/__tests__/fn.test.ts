@@ -41,7 +41,7 @@ describe('FnType', () => {
 
   test('call is natively consumed → no auto-Extension', () => {
     const json = {
-      name: 'function',
+      name: 'fn',
       call: { args: { name: 'obj' }, returns: { name: 'num' } },
     };
     const back = r.parse(json);

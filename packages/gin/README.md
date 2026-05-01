@@ -253,6 +253,12 @@ Optional `parallel: { concurrent?, rate? }` fans body execution out:
 native iterator just calls `yield(k, v)`; the parallel orchestration
 sits in `LoopExpr.evaluate` so every iterable inherits it for free.
 
+Parallel composes with the dynamic mode too: `bool over` plus
+`parallel: { concurrent: 3 }` fans the body out up to 3 in-flight,
+and `over` is re-evaluated against the outer scope every time a task
+COMPLETES (not when it starts). So accumulating side effects from
+the prior batch decide whether more tasks spawn.
+
 ### `lambda` — callable closure over the lexical scope
 
 `{ kind: 'lambda', type: <fn TypeDef>, body: <Expr>, constraint?: <Expr> }`

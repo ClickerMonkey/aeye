@@ -24,7 +24,7 @@ describe('satisfies enforcement', () => {
     // Any interface whose requirements num already meets (e.g., has eq).
     const iface = r.iface({
       props: {
-        eq: { type: { name: 'function', call: { args: { name: 'obj', props: { other: { type: { name: 'any' } } } }, returns: { name: 'bool' } } } },
+        eq: { type: { name: 'fn', call: { args: { name: 'obj', props: { other: { type: { name: 'any' } } } }, returns: { name: 'bool' } } } },
       },
     });
     const named = r.extend(iface, { name: 'has-eq' });
@@ -39,7 +39,7 @@ describe('Registry.getTypesFor', () => {
     // Build an interface requiring a `toText` method.
     const iface = r.iface({
       props: {
-        toText: { type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'text' } } } },
+        toText: { type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'text' } } } },
       },
     });
     const named = r.extend(iface, { name: 'has-toText' });
