@@ -5,7 +5,7 @@ import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, PropSpec, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface AndOptions {
@@ -165,8 +165,8 @@ export class AndType extends Type<any, AndOptions> {
     return new AndType(this.registry, this.parts.map((p) => p.clone()));
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `and<${this.parts.map((p) => p.toCode()).join(', ')}>`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `and<${this.parts.map((p) => p.toCode(undefined, options)).join(', ')}>`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

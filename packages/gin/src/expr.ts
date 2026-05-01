@@ -64,10 +64,25 @@ export abstract class Expr implements Node {
     return this;
   }
 
+  /**
+   * Whether this Expr's comment should render as a line comment
+   * (`// foo\n` on the line above) rather than an inline block
+   * (`/* foo *\/ expr`). Defaults to "line in statement context, inline
+   * in value context". Multi-line / statement-shaped Exprs (define /
+   * if / switch / block / lambda / loop / flow / set) override this to
+   * force the line form even when used in value position — a stacked
+   * `// note` reads better above a multi-line construct than a stray
+   * inline block at its head.
+   */
+  protected useLineComment(options: CodeOptions = {}): boolean {
+    return options.expectsValue === false;
+  }
+
   /** Rendered comment prefix for toCode. */
   protected commentPrefix(options: CodeOptions = {}): string {
     if (!this.comment) return '';
-    return options.expectsValue === false
+    if (options.includeComments === false) return '';
+    return this.useLineComment(options)
       ? `// ${this.comment}\n`
       : `/* ${this.comment} */ `;
   }

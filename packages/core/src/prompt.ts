@@ -6,6 +6,24 @@ import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./t
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { strictify, toJSONSchema } from "./schema";
 
+/** Default cap (chars) for validation error messages we surface to the LLM. */
+const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
+
+/**
+ * Truncate a validation error so the corrective user message we send back
+ * to the LLM stays bounded. Lengthy zod errors against deep recursive
+ * schemas can run 100k+ characters — eating context and burning tokens
+ * on noise the model can't usefully act on. Anything past `max` is
+ * replaced with a `… (N more characters)` marker so the LLM both knows
+ * the message was clipped and roughly how much was lost.
+ */
+function truncateValidationError(message: string, max?: number): string {
+  const cap = max ?? DEFAULT_VALIDATION_ERROR_MAX_LENGTH;
+  if (cap <= 0 || message.length <= cap) return message;
+  const dropped = message.length - cap;
+  return `${message.slice(0, cap)}… (${dropped} more characters)`;
+}
+
 /**
  * Represents a tool that can be selected by the retool function.
  * Can be either a tool name (string) to select from predefined tools,
@@ -106,6 +124,13 @@ export interface PromptInput<
   toolExecution?: 'sequential' | 'parallel' | 'immediate';
   // Number of attempts to retry tool calls upon failure. Defaults to 2. */
   toolRetries?: number;
+  // Maximum number of characters of any validation error message
+  // (Zod tool-arg parse, output schema parse, output validate, JSON parse)
+  // surfaced back to the LLM as a corrective user message. Lengthy zod
+  // errors against deep recursive schemas can otherwise blow past 100k
+  // characters, blowing the model's context and the user's terminal both.
+  // Truncation appends a `… (N more characters)` marker. Default 4096.
+  validationErrorMaxLength?: number;
   // Number of attempts to get the output in the right format and to pass validation. Defaults to what's on the context, which defaults to 2.
   outputRetries?: number;
   // Number of attempts that will be made to forget context messages of the past in order to complete the request. Defaults to what's on the context, which defaults to 1.
@@ -673,7 +698,7 @@ export class Prompt<
 
         // Handle tool calls
         if (chunk.toolCallNamed) {
-          const toolExecutor = newToolExecution(ctx, chunk.toolCallNamed, toolMap.get(chunk.toolCallNamed.name));
+          const toolExecutor = newToolExecution(ctx, chunk.toolCallNamed, toolMap.get(chunk.toolCallNamed.name), this.input.validationErrorMaxLength);
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
           
@@ -960,6 +985,7 @@ export class Prompt<
 
           let errorMessage = '';
           let resetReason = '';
+          const errMax = this.input.validationErrorMaxLength;
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
@@ -968,7 +994,10 @@ export class Prompt<
               const issueSummary = parsedSafe.error.issues
                 .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
                 .join('\n')
-              errorMessage = `The output was an invalid format:\n${issueSummary}\n\nPlease adhere to the output schema:\n${toJSONSchema(schema, this.input.strict ?? true)}`;
+              errorMessage = truncateValidationError(
+                `The output was an invalid format:\n${issueSummary}\n\nPlease adhere to the output schema:\n${toJSONSchema(schema, this.input.strict ?? true)}`,
+                errMax,
+              );
               resetReason = 'schema-parsing';
             } else {
               result = parsedSafe.data as unknown as TOutput;
@@ -976,12 +1005,18 @@ export class Prompt<
               try {
                 await this.input.validate?.(result, ctx);
               } catch (validationError: any) {
-                errorMessage = `The output failed validation:\n${validationError.message}`;
+                errorMessage = truncateValidationError(
+                  `The output failed validation:\n${validationError.message}`,
+                  errMax,
+                );
                 resetReason = 'validation';
               }
             }
           } catch (parseError: any) {
-            errorMessage = `The output was not valid JSON:\n${parseError.message}`;
+            errorMessage = truncateValidationError(
+              `The output was not valid JSON:\n${parseError.message}`,
+              errMax,
+            );
             resetReason = 'json-parsing';
           }
 
@@ -1413,7 +1448,7 @@ function emitter() {
   return emitter;
 }
 
-function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: ToolCall, toolInfo?: { tool: T, definition: ToolDefinition }) {
+function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: ToolCall, toolInfo?: { tool: T, definition: ToolDefinition }, validationErrorMaxLength?: number) {
   const start = emitter();
   const output = emitter();
   const error = emitter();
@@ -1447,7 +1482,10 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
         start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
-        execution.error = `Error parsing tool arguments: ${e.message}, args: ${args}`;
+        execution.error = truncateValidationError(
+          `Error parsing tool arguments: ${e.message}, args: ${args}`,
+          validationErrorMaxLength,
+        );
         error.ready = true;
       }
 

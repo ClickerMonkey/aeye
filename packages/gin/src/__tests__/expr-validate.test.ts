@@ -63,7 +63,7 @@ describe('LambdaExpr validation', () => {
     const probs = e.validate({
       kind: 'lambda',
       type: { name: 'function', call: {
-        args: { name: 'object' },
+        args: { name: 'obj' },
         returns: { name: 'num' },
       } },
       body: { kind: 'new', type: { name: 'text' }, value: 'wrong' },
@@ -75,7 +75,7 @@ describe('LambdaExpr validation', () => {
     const probs = e.validate({
       kind: 'lambda',
       type: { name: 'function', call: {
-        args: { name: 'object' },
+        args: { name: 'obj' },
         returns: { name: 'num' },
       } },
       body: { kind: 'new', type: { name: 'num' }, value: 42 },
@@ -89,7 +89,7 @@ describe('TemplateExpr validation', () => {
     const probs = e.validate({
       kind: 'template',
       template: { kind: 'new', type: { name: 'num' }, value: 42 },
-      params: { kind: 'new', type: { name: 'object', props: {} }, value: {} },
+      params: { kind: 'new', type: { name: 'obj', props: {} }, value: {} },
     });
     expect(probs.list.some((p) => p.code === 'template.template.type')).toBe(true);
   });
@@ -107,7 +107,7 @@ describe('TemplateExpr validation', () => {
     const probs = e.validate({
       kind: 'template',
       template: { kind: 'new', type: { name: 'text' }, value: 'hi' },
-      params: { kind: 'new', type: { name: 'object', props: {} }, value: {} },
+      params: { kind: 'new', type: { name: 'obj', props: {} }, value: {} },
     });
     expect(probs.list.some((p) => p.code === 'template.template.type')).toBe(false);
     expect(probs.list.some((p) => p.code === 'template.params.type')).toBe(false);

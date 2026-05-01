@@ -1,11 +1,12 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { DateOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -145,7 +146,7 @@ export class DateType extends Type<Date, DateOptions> {
     return new DateType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'date' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'date' + optionsCode(this.options); }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is an ISO date string (YYYY-MM-DD).

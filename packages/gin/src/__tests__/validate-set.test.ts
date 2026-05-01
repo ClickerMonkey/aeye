@@ -133,7 +133,7 @@ describe('validate set — negative cases (errors flagged)', () => {
         name: 'fn',
         value: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+          type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'new', type: { name: 'num' }, value: 0 },
         },
       }],

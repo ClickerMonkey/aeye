@@ -1,11 +1,12 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -233,7 +234,18 @@ export class NumType extends Type<number, NumOptions> {
     return new NumType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'num' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    // `minPrecision` / `maxPrecision` / `prefix` / `suffix` are
+    // display-only — skip when at their typical defaults so the
+    // type code stays focused on validation-relevant constraints
+    // (`min`, `max`, `whole`).
+    return this.docsPrefix(options) + 'num' + optionsCode(this.options, {
+      minPrecision: 1,
+      maxPrecision: 7,
+      prefix: '',
+      suffix: '',
+    });
+  }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     let s = this.options.whole ? z.number().int() : z.number();

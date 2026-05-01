@@ -1,11 +1,12 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -122,7 +123,7 @@ export class TimestampType extends Type<Date, TimestampOptions> {
     return new TimestampType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'timestamp' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'timestamp' + optionsCode(this.options); }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is ISO 8601 datetime with a REQUIRED time component:

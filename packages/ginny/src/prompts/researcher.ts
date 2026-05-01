@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import { modelFor } from '../model-selection';
+import { modelFor, toolIterationsConfig } from '../model-selection';
 import { webSearch } from '../tools/web-search';
 import { webGetPage } from '../tools/web-get-page';
 import { ask } from '../tools/ask';
@@ -36,7 +36,7 @@ Keep answers concise and factual. Cite source URLs.
 Question: {{question}}`,
   input: (input: { question: string }) => ({ question: input.question }),
   tools: [webSearch, webGetPage, ask],
-  toolIterations: 10,
+  toolIterations: toolIterationsConfig(),
   excludeMessages: true,
   schema: z.object({
     answer: z.string().describe('The researched answer, concise and factual.'),

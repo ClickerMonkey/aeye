@@ -54,7 +54,7 @@ export class GetExpr extends Expr {
   }
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
-    return this.commentPrefix(options) + this.path.toCode(registry!);
+    return this.commentPrefix(options) + this.path.toCode(registry!, options);
   }
 
   toJSON(): GetExprDef {

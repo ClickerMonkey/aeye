@@ -1,4 +1,5 @@
 import type { PathStepDef, TypeDef } from '../schema';
+import type { Registry } from '../registry';
 import { Value } from '../value';
 import {
   type Call,
@@ -12,7 +13,7 @@ import {
 } from '../type';
 import type { TypeScope } from '../type-scope';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface AliasOptions {
@@ -175,8 +176,8 @@ export class AliasType extends Type<any, AliasOptions> {
     return new AliasType(this.scope, { ...this.options });
   }
 
-  toCode(): string {
-    return this.docsPrefix() + this.options.name;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + this.options.name;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

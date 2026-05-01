@@ -22,7 +22,7 @@ describe('CallDef.types — basic resolution', () => {
       name: 'function',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
-        args: { name: 'object', props: { a: { type: { name: 'counter' } }, b: { type: { name: 'counter' } } } },
+        args: { name: 'obj', props: { a: { type: { name: 'counter' } }, b: { type: { name: 'counter' } } } },
         returns: { name: 'counter' },
       },
     });
@@ -46,7 +46,7 @@ describe('CallDef.types — basic resolution', () => {
           A: { name: 'num', options: { whole: true, min: 1 } },
           B: { name: 'list', generic: { V: { name: 'A' } } },
         },
-        args: { name: 'object', props: { items: { type: { name: 'B' } } } },
+        args: { name: 'obj', props: { items: { type: { name: 'B' } } } },
         returns: { name: 'A' },
       },
     });
@@ -69,7 +69,7 @@ describe('CallDef.types — basic resolution', () => {
         types: {
           valueList: { name: 'list', generic: { V: { name: 'T' } } },
         },
-        args: { name: 'object', props: { items: { type: { name: 'valueList' } } } },
+        args: { name: 'obj', props: { items: { type: { name: 'valueList' } } } },
         returns: { name: 'T' },
       },
     });
@@ -91,7 +91,7 @@ describe('CallDef.types — round-trip', () => {
       name: 'function',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
-        args: { name: 'object', props: { a: { type: { name: 'counter' } } } },
+        args: { name: 'obj', props: { a: { type: { name: 'counter' } } } },
         returns: { name: 'counter' },
       },
     };
@@ -100,7 +100,7 @@ describe('CallDef.types — round-trip', () => {
     expect(json.call?.types).toBeDefined();
     expect(json.call?.types?.['counter']).toEqual({ name: 'num', options: { whole: true, min: 1 } });
     // The args slot still references the alias by NAME (bare form).
-    expect(json.call?.args).toEqual({ name: 'object', props: { a: { type: { name: 'counter' } } } });
+    expect(json.call?.args).toEqual({ name: 'obj', props: { a: { type: { name: 'counter' } } } });
     expect(json.call?.returns).toEqual({ name: 'counter' });
   });
 
@@ -112,7 +112,7 @@ describe('CallDef.types — round-trip', () => {
           A: { name: 'num', options: { min: 0 } },
           B: { name: 'list', generic: { V: { name: 'A' } } },
         },
-        args: { name: 'object', props: { xs: { type: { name: 'B' } } } },
+        args: { name: 'obj', props: { xs: { type: { name: 'B' } } } },
         returns: { name: 'A' },
       },
     };
@@ -131,7 +131,7 @@ describe('CallDef.types — round-trip', () => {
       generic: { T: { name: 'T' } },
       call: {
         types: { box: { name: 'list', generic: { V: { name: 'T' } } } },
-        args: { name: 'object', props: { v: { type: { name: 'box' } } } },
+        args: { name: 'obj', props: { v: { type: { name: 'box' } } } },
         returns: { name: 'T' },
       },
     });
@@ -152,7 +152,7 @@ describe('CallDef.types — ExprDef bodies', () => {
       name: 'function',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
-        args: { name: 'object' },
+        args: { name: 'obj' },
         returns: { name: 'counter' },
         get: { kind: 'new', type: { name: 'counter' }, value: 7 },
       },
@@ -172,7 +172,7 @@ describe('CallDef.types — toCodeDefinition rendering', () => {
       name: 'function',
       call: {
         types: { counter: { name: 'num', options: { whole: true, min: 1 } } },
-        args: { name: 'object', props: { n: { type: { name: 'counter' } } } },
+        args: { name: 'obj', props: { n: { type: { name: 'counter' } } } },
         returns: { name: 'counter' },
       },
     });

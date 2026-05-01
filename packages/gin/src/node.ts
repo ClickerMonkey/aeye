@@ -107,6 +107,16 @@ export interface SchemaOptions extends ValueSchemaOptions {
 export interface CodeOptions {
   expectsValue?: boolean;
   indent?: string;
+  /**
+   * When false, suppress all `/* docs * /` and `// comment` rendering —
+   * Type docstrings, Prop docs, Expr comments, and `// docs` lines on
+   * Init / Call / Prop in `toCodeDefinition`. Default true (include).
+   *
+   * Threading this through inner `.toCode(...)` / `.toCodeDefinition(...)`
+   * calls is the responsibility of each composite type / expr — callers
+   * that want a comment-free render set this once at the top.
+   */
+  includeComments?: boolean;
 }
 
 /**

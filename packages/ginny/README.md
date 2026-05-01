@@ -70,7 +70,7 @@ ginny is a small council of sub-agents, each specialized:
          ┌────────────────┬──────┴──────┬────────────────┐
          ▼                ▼             ▼                ▼
   ┌─────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-  │  architect  │ │   engineer   │ │     dba      │ │  researcher  │
+  │  architect  │ │   designer   │ │     dba      │ │  researcher  │
   │   (types)   │ │    (fns)     │ │    (vars)    │ │  (web search │
   │             │ │              │ │              │ │   + pages)   │
   └─────────────┘ └──────┬───────┘ └──────────────┘ └──────────────┘
@@ -86,7 +86,7 @@ ginny is a small council of sub-agents, each specialized:
 - **architect** — searches `./types/*.json` by keyword (top-10 above a
   configurable threshold, or all entries below); returns existing
   types or designs new ones.
-- **engineer** — same pattern over `./fns/*.json`; can recursively
+- **designer** — same pattern over `./fns/*.json`; can recursively
   spin up the programmer to implement a brand-new function body.
 - **dba** — same pattern over `./vars/*.json` (typed named values the
   user or agent can read/write).

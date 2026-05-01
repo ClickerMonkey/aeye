@@ -1,5 +1,6 @@
 import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
+import type { Registry } from '../registry';
 import { Value } from '../value';
 import {
   Call,
@@ -9,10 +10,11 @@ import {
   type PropSpec,
   type Rnd,
   Type,
+  joinAuto,
 } from '../type';
 import { decodeCall, decodeGetSet, decodeProps, encodeProps } from '../spec';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
 
 /**
@@ -201,24 +203,25 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return new IfaceType(this.registry, { props: p, get: this._get, call: this._call });
   }
 
-  toCode(): string {
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    const includeComments = options?.includeComments !== false;
     const parts: string[] = [];
     for (const [name, prop] of Object.entries(this._props)) {
       const optional = prop.type.isOptional();
       const t = optional ? prop.type.required() : prop.type;
       const label = optional ? `${name}?` : name;
-      const propDocs = prop.docs ? `/* ${prop.docs} */ ` : '';
-      parts.push(`${propDocs}${label}: ${t.toCode()}`);
+      const propDocs = prop.docs && includeComments ? `/* ${prop.docs} */ ` : '';
+      parts.push(`${propDocs}${label}: ${t.toCode(undefined, options)}`);
     }
     if (this._get) {
-      parts.push(`[key: ${this._get.key.toCode()}]: ${this._get.value.toCode()}`);
+      parts.push(`[key: ${this._get.key.toCode(undefined, options)}]: ${this._get.value.toCode(undefined, options)}`);
     }
     if (this._call) {
-      const ret = this._call.returns?.toCode() ?? 'void';
-      parts.push(`(${this._call.args.toCode()}): ${ret}`);
+      const ret = this._call.returns?.toCode(undefined, options) ?? 'void';
+      parts.push(`(${this._call.args.toCode(undefined, options)}): ${ret}`);
     }
-    const body = parts.length === 0 ? 'iface' : `iface{${parts.join(', ')}}`;
-    return this.docsPrefix() + body;
+    const body = parts.length === 0 ? 'iface' : `iface{${joinAuto(parts)}}`;
+    return this.docsPrefix(options) + body;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

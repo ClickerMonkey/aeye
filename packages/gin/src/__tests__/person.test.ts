@@ -33,7 +33,7 @@ describe('Person.fullName integration', () => {
             template: { kind: 'new', type: { name: 'text' }, value: '{first} {last}' },
             params: {
               kind: 'new',
-              type: { name: 'object', props: {
+              type: { name: 'obj', props: {
                 first: { type: { name: 'text' } },
                 last:  { type: { name: 'text' } },
               } },
@@ -106,7 +106,7 @@ describe('Person.fullName integration', () => {
             template: { kind: 'new', type: { name: 'text' }, value: '{first} {last}' },
             params: {
               kind: 'new',
-              type: { name: 'object', props: {
+              type: { name: 'obj', props: {
                 first: { type: { name: 'text' } },
                 last:  { type: { name: 'text' } },
               } },

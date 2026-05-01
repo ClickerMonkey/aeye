@@ -26,6 +26,8 @@ export class SetExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: SetExprDef, scope: TypeScope): SetExpr {
     return new SetExpr(Path.from(json.path, scope), scope.registry.parseExpr(json.value, scope))
       .withComment(json.comment);
@@ -73,7 +75,7 @@ export class SetExpr extends Expr {
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     return this.commentPrefix(options)
-      + `${this.path.toCode(registry!)} = ${this.value.toCode(registry, { expectsValue: true })}`;
+      + `${this.path.toCode(registry!, options)} = ${this.value.toCode(registry, { ...options, expectsValue: true })}`;
   }
 
   toJSON(): SetExprDef {

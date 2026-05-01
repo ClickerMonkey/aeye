@@ -31,7 +31,7 @@ export const write = ai.tool({
     }
 
     // Build the type-scope `engine.validate` walks against. Globals
-    // are always there; when the engineer is authoring a fn, also
+    // are always there; when the designer is authoring a fn, also
     // bind `args` (the parameter obj) and `recurse` (the function
     // itself, for self-calls). Matches gin's runtime call binding —
     // see `gin/src/path.ts:286-287` for the saved-fn path and
@@ -48,9 +48,11 @@ export const write = ai.tool({
     }
 
     let problemsNote = '';
+    let problemsCount = 0;
     try {
       const problems = ctx.engine.validate(input.program, scope);
-      if (problems.list.length > 0) {
+      problemsCount = problems.list.length;
+      if (problemsCount > 0) {
         const lines = problems.list.map((p) => {
           const path = p.path.length > 0 ? ` @ ${p.path.join('.')}` : '';
           return `  - [${p.severity}] ${p.code}: ${p.message}${path}`;
@@ -61,12 +63,19 @@ export const write = ai.tool({
       // validate shouldn't throw, but be defensive — a thrown error
       // here shouldn't take down the write call.
       problemsNote = `\n\n[validation threw: ${e instanceof Error ? e.message : String(e)}]`;
+      problemsCount = 1;
     }
 
-    // Mirror to stderr for the user watching the terminal, and to
-    // ginny.log for the post-mortem.
+    // Stderr (the user's terminal) gets the rendered code plus a
+    // single-line problem count when there are issues. The full
+    // problem list and threading goes to ginny.log for post-mortem
+    // debugging — keeps the live view scannable while preserving
+    // every detail in the log.
     process.stderr.write(`\x1b[2m${code}\x1b[0m\n`);
-    if (problemsNote) process.stderr.write(`\x1b[31m${problemsNote.trim()}\x1b[0m\n`);
+    if (problemsCount > 0) {
+      const noun = problemsCount === 1 ? 'problem' : 'problems';
+      process.stderr.write(`\x1b[31m[${problemsCount} validation ${noun} — see ginny.log for details]\x1b[0m\n`);
+    }
     logger.log(`write:\n${code}${problemsNote}`);
 
     return `Draft saved. Call test() to evaluate it.\n\n${code}${problemsNote}`;

@@ -24,10 +24,13 @@ const PREVIEW_MAX = 120;
 
 function preview(value: unknown): string {
   let s: string;
-  try {
-    s = typeof value === 'string' ? value : JSON.stringify(value);
-  } catch {
-    s = String(value);
+  if (value instanceof Error) {
+    // `JSON.stringify(new Error())` is `{}` — surface .message instead.
+    s = value.message || String(value);
+  } else if (typeof value === 'string') {
+    s = value;
+  } else {
+    try { s = JSON.stringify(value); } catch { s = String(value); }
   }
   if (s == null) return '';
   s = s.replace(/\s+/g, ' ');
@@ -91,7 +94,9 @@ export class EventDisplay {
 
       case 'refusal': {
         this.breakIfText();
-        process.stderr.write(`${this.c(RED, `refusal: ${event.content ?? ''}`)}\n`);
+        const line = `refusal: ${preview(event.content ?? '')}`;
+        process.stderr.write(`${this.c(RED, line)}\n`);
+        logger.log(`refusal: ${event.content ?? ''}`);
         this.last = 'text';
         break;
       }
@@ -119,9 +124,11 @@ export class EventDisplay {
       case 'toolError': {
         const started = this.toolStarts.get(event.args);
         const elapsed = started ? Date.now() - started : 0;
-        const line = `✗ ${event.tool.name} (${elapsed}ms): ${event.error}`;
+        // Cap the on-screen error: zod / aggregate errors can run hundreds
+        // of lines and bury the live view. Full text still goes to ginny.log.
+        const line = `✗ ${event.tool.name} (${elapsed}ms): ${preview(event.error)}`;
         process.stderr.write(`${this.c(RED, line)}\n`);
-        logger.log(line);
+        logger.log(`✗ ${event.tool.name} (${elapsed}ms): ${event.error}`);
         this.last = 'tool';
         break;
       }
@@ -135,9 +142,11 @@ export class EventDisplay {
       }
 
       case 'textReset': {
-        const line = `(reset: ${event.reason ?? 'unspecified'})`;
+        // The reason can be a multi-line forget/output retry message
+        // (e.g. zod validation). Show a one-liner; full text → ginny.log.
+        const line = `(reset: ${preview(event.reason ?? 'unspecified')})`;
         process.stderr.write(`${this.c(DIM, line)}\n`);
-        logger.log(line);
+        logger.log(`(reset: ${event.reason ?? 'unspecified'})`);
         break;
       }
     }

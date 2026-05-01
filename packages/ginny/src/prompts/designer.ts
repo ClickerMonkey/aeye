@@ -1,34 +1,21 @@
 import { z } from 'zod';
-import { ToolInterrupt, type Message } from '@aeye/core';
+import type { Message } from '@aeye/core';
 import { buildSchemas, ObjType } from '@aeye/gin';
 import type { TypeDef, Type } from '@aeye/gin';
 import { ai } from '../ai';
-import { modelFor } from '../model-selection';
+import { modelFor, toolIterationsConfig } from '../model-selection';
 import { ask } from '../tools/ask';
+import { printFn } from '../tools/print-fn';
+import { searchFns } from '../tools/search-fns';
 import { runSubagent } from '../progress';
 import { MAX_PROGRAMMER_DEPTH, type ProgrammerChainEntry } from '../context';
 import { createRunState } from '../run-state';
-// `programmer` and `engineer` form a circular import (programmer ↔
-// findOrCreateFunctions → engineer → createNewFn → programmer). The
+// `programmer` and `designer` form a circular import (programmer ↔
+// findOrCreateFunctions → designer → createNewFn → programmer). The
 // reference here is only used inside `createNewFn`'s `call` async fn,
 // so by call-time both modules have finished initializing — ESM live
 // bindings make this safe.
 import { programmer } from './programmer';
-
-const searchFns = ai.tool({
-  name: 'search_fns',
-  description: 'Search existing functions by keywords.',
-  instructions: 'Search the function catalog.',
-  schema: z.object({
-    keywords: z.array(z.string()),
-    limit: z.number().optional().default(10),
-  }),
-  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
-    const results = ctx.store.searchFns({ keywords: input.keywords, limit: input.limit });
-    if (results.length === 0) return 'No matching functions found.';
-    return results.map((r) => `${r.name}: ${r.summary}`).join('\n');
-  },
-});
 
 const getFn = ai.tool({
   name: 'get_fn',
@@ -86,7 +73,7 @@ const createNewFn = ai.tool({
     });
   },
   // Defensive — the deepest programmer is supposed to write inline, but
-  // also block engineer.createNewFn at the cap in case a different path
+  // also block designer.createNewFn at the cap in case a different path
   // got us here.
   applicable: (ctx) => (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
   call: async (
@@ -100,8 +87,8 @@ const createNewFn = ai.tool({
     _refs,
     ctx,
   ) => {
-    // Parse the engineer-supplied signature into runtime Types. When
-    // the engineer declared `types` aliases, args/returns may
+    // Parse the designer-supplied signature into runtime Types. When
+    // the designer declared `types` aliases, args/returns may
     // reference them — we resolve those by parsing through a synthetic
     // FnType TypeDef. `decodeCall` builds a LocalScope binding each
     // alias sequentially, so bare `{name: "<alias>"}` references
@@ -127,10 +114,16 @@ const createNewFn = ai.tool({
       if (!parsedCall.returns) throw new Error('returns is required');
       returnsType = parsedCall.returns;
     } catch (e: unknown) {
-      throw new ToolInterrupt(
-        `Could not parse signature for '${input.name}': ${e instanceof Error ? e.message : String(e)}. ` +
-        `args must be an obj type whose props are the function's parameters — e.g. \`{ name: "obj", props: { n: { type: { name: "num" } } } }\`. ` +
-        `If you declared \`types\` aliases, ensure each is declared before it's referenced and that referenced names are bare \`{name: "<alias>"}\`.`,
+      // Return-as-string (not throw) so the designer's LLM sees the
+      // failure reason in the tool result. `ToolInterrupt` would be
+      // captured by `@aeye/core` as a suspension event with an empty
+      // tool result — the LLM gets nothing useful and silently emits
+      // `created: []`.
+      return (
+        `// FAILED: could not parse signature for '${input.name}': ${e instanceof Error ? e.message : String(e)}. `
+        + `args must be an obj type whose props are the function's parameters — e.g. \`{ name: "obj", props: { n: { type: { name: "num" } } } }\`. `
+        + `If you declared \`types\` aliases, ensure each is declared before it's referenced and that referenced names are bare \`{name: "<alias>"}\`. `
+        + `Do NOT include '${input.name}' in your final \`created\` list.`
       );
     }
 
@@ -145,7 +138,7 @@ const createNewFn = ai.tool({
       : paramNames.map((p) => `\`${p}\``).join(', ');
 
     // Build the chain ancestry for the inner programmer. Each prior
-    // engineer call appended its `create_new_fn` input as one entry.
+    // designer call appended its `create_new_fn` input as one entry.
     // The current call appends itself BEFORE the inner programmer is
     // launched so the deepest entry is "you are here".
     const parentChain = ctx.programmerChain ?? [];
@@ -191,7 +184,7 @@ const createNewFn = ai.tool({
     // message so it has the full signature in scope and doesn't try to
     // delegate back to find_or_create_functions / create_new_fn.
     const request = [
-      `You ARE the writer of this gin function. The engineer has already designed the signature; your job is to author the body. Do NOT call find_or_create_functions or delegate elsewhere.`,
+      `You ARE the writer of this gin function. The designer has already designed the signature; your job is to author the body. Do NOT call find_or_create_functions or delegate elsewhere.`,
       ``,
       `Function name: ${input.name}`,
       `Args type:     ${argsCode}`,
@@ -225,7 +218,7 @@ const createNewFn = ai.tool({
       ``,
       `1. \`write({ program: <body that reads args.* and produces a ${returnsCode}> })\`.`,
       `2. \`test({ args: { ${paramNames.map((p) => `${p}: <sample>`).join(', ')} } })\` — concrete sample values matching the args type; the args schema is auto-built from the function's args type.`,
-      `3. \`finish({ saveAs: '${input.name}' })\` once the test passes — this persists the body with the engineer-designed signature.`,
+      `3. \`finish({ saveAs: '${input.name}' })\` once the test passes — this persists the body with the designer-designed signature.`,
     ].join('\n');
 
     // Fresh sub-conversation, fresh runState we can read after the run
@@ -261,34 +254,34 @@ const createNewFn = ai.tool({
     );
 
     // Verify the inner programmer actually produced a working draft.
-    // Throw `ToolInterrupt` rather than returning a string — the AI
-    // runtime turns that into an error event, so the engineer's
-    // structured-output stage can't quietly include this name in
-    // `created` when the file was never written. (Returning a "did not
-    // succeed" string still counts as a successful tool call to the
-    // engineer, which led to ghost entries.)
+    // Return the failure as a string (not a `ToolInterrupt` throw) so
+    // the designer's LLM sees WHY in the tool result and can decide to
+    // try a different signature, give up cleanly, or relay the reason.
+    // Strings starting with `// FAILED:` are the convention the
+    // designer's prompt teaches to keep the failed name out of the
+    // final `created` list.
     if (!innerRunState.lastTest?.success) {
       const why = innerRunState.lastTest?.error ?? 'no successful test was recorded';
-      throw new ToolInterrupt(
-        `Function '${input.name}' was NOT created — programmer did not reach a passing test (${why}). ` +
-        `Refine the description / signature and try again, or do not include this name in your final \`created\` list.`,
+      return (
+        `// FAILED: function '${input.name}' was NOT created — programmer did not reach a passing test (${why}). `
+        + `Refine the description / signature and try again, or do not include this name in your final \`created\` list.`
       );
     }
     if (!ctx.loadedFns.has(input.name)) {
-      throw new ToolInterrupt(
-        `Function '${input.name}' was NOT saved — programmer reached a passing test but didn't call finish({ saveAs: '${input.name}' }). ` +
-        `Do not include this name in your final \`created\` list.`,
+      return (
+        `// FAILED: function '${input.name}' was NOT saved — programmer reached a passing test but didn't call finish({ saveAs: '${input.name}' }). `
+        + `Do not include this name in your final \`created\` list.`
       );
     }
     return `Function '${input.name}' created (${argsCode} → ${returnsCode}). It is now safe to include '${input.name}' in your final \`created\` list.`;
   },
 });
 
-export const engineer = ai.prompt({
-  name: 'engineer',
+export const designer = ai.prompt({
+  name: 'designer',
   description: 'Design or reuse gin functions — the reusable building blocks of programs.',
-  metadata: modelFor('engineer') as any,
-  content: `You are the engineer — responsible for designing and curating
+  metadata: modelFor('designer') as any,
+  content: `You are the designer — responsible for designing and curating
 reusable gin functions. Find an existing function that matches the
 request or spin up a programmer to author a new one.
 
@@ -325,19 +318,19 @@ function.
 
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
-  tools: [searchFns, getFn, createNewFn, ask],
-  toolIterations: 8,
+  tools: [searchFns, getFn, printFn, createNewFn, ask],
+  toolIterations: toolIterationsConfig(),
   excludeMessages: true,
   schema: z.object({
     use: z.array(z.string()).default([]).describe('Names of existing functions confirmed via get_fn / search_fns.'),
     created: z.array(z.string()).default([]).describe('Names of functions create_new_fn successfully wrote to disk this session. Do NOT include names where create_new_fn errored.'),
   }),
-  // Round-trip the engineer's structured output against disk before
+  // Round-trip the designer's structured output against disk before
   // returning it. Anything in `use` / `created` must actually be
-  // readable via `store.readFn` — otherwise the engineer is
+  // readable via `store.readFn` — otherwise the designer is
   // hallucinating and the programmer downstream would hit ENOENT when
   // it tries to load the fn. Throwing here forces the prompt loop to
-  // re-prompt the engineer with the validation error so it can fix the
+  // re-prompt the designer with the validation error so it can fix the
   // arrays.
   validate: (output, ctx) => {
     const { use = [], created = [] } = output;

@@ -29,7 +29,7 @@ describe('toSchema / buildSchemas', () => {
 
   test('obj with nested props parses', () => {
     expect(() => Type.parse({
-      name: 'object',
+      name: 'obj',
       props: {
         name: { type: { name: 'text' } },
         age:  { type: { name: 'num' } },
@@ -69,7 +69,7 @@ describe('toSchema / buildSchemas', () => {
       type: {
         name: 'function',
         call: {
-          args: { name: 'object', props: { n: { type: { name: 'num' } } } },
+          args: { name: 'obj', props: { n: { type: { name: 'num' } } } },
           returns: { name: 'num' },
         },
       },

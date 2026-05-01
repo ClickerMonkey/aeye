@@ -4,7 +4,7 @@ import type { NewExprDef, ExprDef } from '../schema';
 import { Value, val } from '../value';
 import { ObjType } from '../types/obj';
 import type { Registry } from '../registry';
-import type { Type } from '../type';
+import { joinAuto, type Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
@@ -140,8 +140,8 @@ export class NewExpr extends Expr {
     return this.type;
   }
 
-  toCode(_registry?: Registry, options: CodeOptions = {}): string {
-    const typeName = this.type.toCode();
+  toCode(registry?: Registry, options: CodeOptions = {}): string {
+    const typeName = this.type.toCode(undefined, options);
     let code: string;
     if (this.value === undefined) {
       // An omitted value on an optional type IS `undefined`; otherwise
@@ -151,7 +151,7 @@ export class NewExpr extends Expr {
     else if (typeof this.value === 'number' || typeof this.value === 'boolean') code = String(this.value);
     else if (typeof this.value === 'string') code = JSON.stringify(this.value);
     else if (this.value === null) code = 'null';
-    else code = `${JSON.stringify(this.value)} as ${typeName}`;
+    else code = renderNewValue(this.value, registry, typeName, options);
     return this.commentPrefix(options) + code;
   }
 
@@ -162,6 +162,70 @@ export class NewExpr extends Expr {
   clone(): NewExpr {
     return new NewExpr(this.type.clone(), this.value).withComment(this.comment);
   }
+}
+
+/**
+ * Render the `value` slot of a `{kind:'new'}` expression as readable
+ * source instead of a raw `JSON.stringify(...) as TypeName` dump.
+ *
+ * The value can hold:
+ *   - primitive (already handled by the caller)
+ *   - ExprDef (object with `kind`) — recurse via the registry's
+ *     `parseExpr` and call its `toCode`. Mirrors how a hand-written
+ *     `new list { value: [<Expr>, <Expr>] }` would read.
+ *   - array — list-shaped `new`; render `[item, item]` with each slot
+ *     recursed.
+ *   - plain object — obj-shaped `new`; render `{ key: value, ... }`
+ *     with each value recursed.
+ *
+ * Without a registry we can't parse ExprDefs back into Exprs; in that
+ * case we still recurse over the array / object structure but render
+ * primitive leaves directly and bail to JSON.stringify for any
+ * ExprDef-shaped node we can't decode.
+ */
+function renderNewValue(value: unknown, registry: Registry | undefined, typeName: string, options: CodeOptions = {}): string {
+  // ExprDef-shaped → render via the parsed Expr's toCode.
+  if (registry && value && typeof value === 'object' && !Array.isArray(value)
+      && 'kind' in (value as Record<string, unknown>)
+      && typeof (value as { kind: unknown }).kind === 'string') {
+    const kind = (value as { kind: string }).kind;
+    if (registry.exprClass(kind)) {
+      try {
+        return registry.parseExpr(value as ExprDef).toCode(registry, { ...options, expectsValue: true });
+      } catch { /* fall through to literal rendering */ }
+    }
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value.map((v) => renderNewValueLeaf(v, registry, options));
+    const joined = joinAuto(parts);
+    return joined.startsWith('\n') ? `[${joined}]` : `[${joined}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) return `new ${typeName}()`;
+    const parts = entries.map(([k, v]) => `${k}: ${renderNewValueLeaf(v, registry, options)}`);
+    const joined = joinAuto(parts);
+    return joined.startsWith('\n')
+      ? `new ${typeName} {${joined}}`
+      : `new ${typeName} { ${joined} }`;
+  }
+
+  // Last resort — primitive / null already handled in caller; this
+  // is for unexpected shapes.
+  return JSON.stringify(value);
+}
+
+function renderNewValueLeaf(v: unknown, registry: Registry | undefined, options: CodeOptions = {}): string {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  // Recurse — typeName is unknown at leaf depth, so use a generic
+  // marker; composite leaves render as `[...]` or `{ k: v }` without
+  // the `new <type>` prefix.
+  return renderNewValue(v, registry, '<inferred>', options);
 }
 
 /**

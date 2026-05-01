@@ -1,11 +1,12 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue } from '../json-type';
 
 
@@ -223,8 +224,12 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return new ListType(this.registry, this.item.clone() as Type<V>, { ...this.options });
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `list<${this.item.toCode()}>` + optionsCode(this.options);
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    // `minLength=0` is a no-op; skip. `maxLength` only renders when
+    // explicitly set.
+    return this.docsPrefix(options) + `list<${this.item.toCode(undefined, options)}>` + optionsCode(this.options, {
+      minLength: 0,
+    });
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

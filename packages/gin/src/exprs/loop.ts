@@ -37,6 +37,8 @@ export class LoopExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: LoopExprDef, scope: TypeScope): LoopExpr {
     const r = scope.registry;
     const parallel = json.parallel ? {
@@ -263,30 +265,34 @@ export class LoopExpr extends Expr {
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     const expectsValue = options.expectsValue ?? false;
-    const over = this.over.toCode(registry, { expectsValue: true });
+    const valueOpts = { ...options, expectsValue: true };
+    const stmtOpts = { ...options, expectsValue: false };
+    const over = this.over.toCode(registry, valueOpts);
     const key = this.keyName ?? 'key';
     const value = this.valueName ?? 'value';
 
     let prefix = '';
-    if (this.parallel?.concurrent) {
-      prefix += `/* parallel.concurrent: ${this.parallel.concurrent.toCode(registry, { expectsValue: true })} */ `;
-    }
-    if (this.parallel?.rate) {
-      prefix += `/* parallel.rate: ${this.parallel.rate.toCode(registry, { expectsValue: true })} */ `;
+    if (options.includeComments !== false) {
+      if (this.parallel?.concurrent) {
+        prefix += `/* parallel.concurrent: ${this.parallel.concurrent.toCode(registry, valueOpts)} */ `;
+      }
+      if (this.parallel?.rate) {
+        prefix += `/* parallel.rate: ${this.parallel.rate.toCode(registry, valueOpts)} */ `;
+      }
     }
 
     // Body in statement context — uses bare statements / flow / nested control.
     const bodyStmt = (() => {
       const kind = (this.body as { kind: string }).kind;
-      if (kind === 'flow') return `${this.body.toCode(registry, { expectsValue: false })};`;
+      if (kind === 'flow') return `${this.body.toCode(registry, stmtOpts)};`;
       if (kind === 'block') {
-        const code = this.body.toCode(registry, { expectsValue: false });
+        const code = this.body.toCode(registry, stmtOpts);
         return code.startsWith('{') ? code.slice(1, -1).trim() : code;
       }
       if (kind === 'if' || kind === 'switch' || kind === 'loop') {
-        return this.body.toCode(registry, { expectsValue: false });
+        return this.body.toCode(registry, stmtOpts);
       }
-      return `${this.body.toCode(registry, { expectsValue: false })};`;
+      return `${this.body.toCode(registry, stmtOpts)};`;
     })();
 
     const forStmt = `${prefix}for (const [${key}, ${value}] of ${over}) {\n  ${indentCode(bodyStmt)}\n}`;

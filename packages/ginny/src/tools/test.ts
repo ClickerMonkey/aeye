@@ -8,7 +8,7 @@ import { withAskHandler } from '../natives/ask';
 /**
  * Build the Zod sub-schema the model sees for `args`.
  *
- * - When the engineer is authoring a fn (`ctx.targetFn?.argsType` is
+ * - When the designer is authoring a fn (`ctx.targetFn?.argsType` is
  *   set), use that obj type's value-side schema directly. The model
  *   sees `{ n: number, m: string }` instead of an opaque
  *   `Record<string, unknown>` and stops trying to invent wrapper
@@ -101,7 +101,7 @@ export const test = ai.tool({
 });
 
 /**
- * Engineer-driven flow: the draft is a function body.
+ * Designer-driven flow: the draft is a function body.
  *
  * Wrap it in a `LambdaExpr` and invoke through gin's standard call
  * machinery so the body sees `args` and `recurse` in scope and

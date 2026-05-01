@@ -16,7 +16,7 @@ describe('Extension generics', () => {
 
   test('declare: Box<T> placeholders survive as AliasType', () => {
     const T = r.alias('T');
-    const Box = r.extend('object', {
+    const Box = r.extend('obj', {
       name: 'Box',
       generic: { T },
       props: {
@@ -32,7 +32,7 @@ describe('Extension generics', () => {
   test('Box<T> resolution: extra-scope T=num makes value.type behave as num', () => {
     const reg = createRegistry();
     const T = reg.alias('T');
-    const Box = reg.extend('object', {
+    const Box = reg.extend('obj', {
       name: 'Box',
       generic: { T },
       props: { value: { type: T } },
@@ -50,7 +50,7 @@ describe('Extension generics', () => {
     const reg = createRegistry();
     const A = reg.alias('A');
     const B = reg.alias('B');
-    const Pair = reg.extend('object', {
+    const Pair = reg.extend('obj', {
       name: 'Pair',
       generic: { A, B },
       props: {
@@ -90,7 +90,7 @@ describe('Extension generics', () => {
     const reg = createRegistry();
     const K = reg.alias('K');
     const V = reg.alias('V');
-    const Bag = reg.extend('object', {
+    const Bag = reg.extend('obj', {
       name: 'Bag',
       generic: { K, V },
       get: {
@@ -110,7 +110,7 @@ describe('Extension generics', () => {
   test('JSON round-trip preserves generic placeholder', () => {
     const reg = createRegistry();
     const T = reg.alias('T');
-    const Holder = reg.extend('object', {
+    const Holder = reg.extend('obj', {
       name: 'Holder',
       generic: { T },
       props: { item: { type: T } },
@@ -131,7 +131,7 @@ describe('Extension generics', () => {
   test('extra-scope inside props is visible via props()', () => {
     const reg = createRegistry();
     const T = reg.alias('T');
-    const Wrapper = reg.extend('object', {
+    const Wrapper = reg.extend('obj', {
       name: 'Wrapper',
       generic: { T },
       props: { inside: { type: T } },

@@ -14,6 +14,7 @@ export interface GinConfig {
   GIN_MODEL?: string;
   GIN_PROVIDER?: string;
   GIN_SEARCH_THRESHOLD?: number;
+  GIN_TOOL_ITERATIONS?: number;
 }
 
 const TEMPLATE: GinConfig = {
@@ -24,6 +25,7 @@ const TEMPLATE: GinConfig = {
   GIN_MODEL: '',
   GIN_PROVIDER: '',
   GIN_SEARCH_THRESHOLD: 20,
+  GIN_TOOL_ITERATIONS: 100,
 };
 
 function ensureGitignore(cwd: string): void {
@@ -73,6 +75,7 @@ export function loadConfig(cwd: string): void {
     console.log('  GIN_PROVIDER — optional, preferred provider (openai | openrouter | aws)');
     console.log('  GIN_MODEL — optional, specific model id');
     console.log('  GIN_SEARCH_THRESHOLD — optional, corpus size below which search returns all (default 20)');
+    console.log('  GIN_TOOL_ITERATIONS — optional, max tool-call iterations per prompt run (default 100)');
     console.log('');
     console.log('Environment variables still win over config.json values.');
     process.exit(0);

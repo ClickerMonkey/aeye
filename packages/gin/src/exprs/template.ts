@@ -84,7 +84,7 @@ export class TemplateExpr extends Expr {
     const paramsT = p.at('params', () => walkValidate(engine, this.params, scope, p, ctx));
     // params must be an object-shaped type so that `{name}` placeholders
     // can be looked up.
-    if (paramsT.name !== 'object' && paramsT.name !== 'any') {
+    if (paramsT.name !== 'obj' && paramsT.name !== 'any') {
       p.at('params', () => p.warn('template.params.type',
         `template params should be an object, got '${paramsT.name}'`));
     }
@@ -97,7 +97,7 @@ export class TemplateExpr extends Expr {
       : undefined;
     const prefix = this.commentPrefix(options);
     if (raw === undefined) {
-      return prefix + `template(${registry!.toCode(this.template)}, ${registry!.toCode(this.params)})`;
+      return prefix + `template(${registry!.toCode(this.template, options)}, ${registry!.toCode(this.params, options)})`;
     }
     const inline = tryInlineTemplateParams(this.params, registry!);
     const converted = raw.replace(/\{(\w+)\}/g, (_, name) =>
@@ -124,14 +124,28 @@ export class TemplateExpr extends Expr {
   }
 }
 
-function tryInlineTemplateParams(params: Expr, _registry: Registry): Record<string, string> | undefined {
+function tryInlineTemplateParams(params: Expr, registry: Registry): Record<string, string> | undefined {
   if (!(params instanceof NewExpr)) return undefined;
   const value = params.value;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     if (typeof v === 'string') out[k] = JSON.stringify(v);
-    else out[k] = String(v);
+    else if (typeof v === 'number' || typeof v === 'boolean') out[k] = String(v);
+    else if (v === null) out[k] = 'null';
+    else if (v && typeof v === 'object' && 'kind' in (v as Record<string, unknown>)
+             && typeof (v as { kind: unknown }).kind === 'string'
+             && registry.exprClass((v as { kind: string }).kind)) {
+      // ExprDef-shaped: render via the parsed Expr's toCode so a `get`
+      // path appears as `args.text` instead of `[object Object]`.
+      try {
+        out[k] = registry.parseExpr(v as ExprDef).toCode(registry, { expectsValue: true });
+      } catch { return undefined; }
+    } else {
+      // Unknown shape — bail out of inlining so the caller falls back
+      // to the safe `template(<expr>, <expr>)` form.
+      return undefined;
+    }
   }
   return out;
 }

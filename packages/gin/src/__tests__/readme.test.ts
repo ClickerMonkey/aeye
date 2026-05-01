@@ -68,7 +68,7 @@ describe('README examples', () => {
                 kind: 'lambda',
                 type: {
                   name: 'function',
-                  call: { args: { name: 'object' }, returns: { name: 'bool' } },
+                  call: { args: { name: 'obj' }, returns: { name: 'bool' } },
                 },
                 body: {
                   kind: 'get',

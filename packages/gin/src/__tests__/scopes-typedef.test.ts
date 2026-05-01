@@ -441,7 +441,7 @@ describe('CallDef.get body', () => {
     const fnType = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { x: { type: { name: 'num' } } } },
+        args: { name: 'obj', props: { x: { type: { name: 'num' } } } },
         returns: { name: 'num' },
         get: {
           kind: 'get',
@@ -471,7 +471,7 @@ describe('PropDef.default', () => {
     const v = await e.run({
       kind: 'new',
       type: {
-        name: 'object',
+        name: 'obj',
         props: {
           name:     { type: { name: 'text' } },
           greeting: {
@@ -491,7 +491,7 @@ describe('PropDef.default', () => {
     const v = await e.run({
       kind: 'new',
       type: {
-        name: 'object',
+        name: 'obj',
         props: {
           mode: {
             type: { name: 'text' },
@@ -517,7 +517,7 @@ describe('PathCall.catch scope', () => {
           type: {
             name: 'function',
             call: {
-              args: { name: 'object' },
+              args: { name: 'obj' },
               returns: { name: 'text' },
               throws: { name: 'text' },
             },

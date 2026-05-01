@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -140,8 +141,8 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return new LiteralType(this.registry, this.inner.clone() as Type<T>, this.literal);
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `literal<${this.inner.toCode()}>`
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `literal<${this.inner.toCode(undefined, options)}>`
       + optionsCode({ value: this.literal });
   }
 

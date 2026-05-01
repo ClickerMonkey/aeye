@@ -310,13 +310,13 @@ describe('Engine.toCode — expressions', () => {
         condition: { kind: 'new', type: { name: 'bool' }, value: true },
         body: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+          type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'flow', action: 'return', value: { kind: 'new', type: { name: 'num' }, value: 7 } },
         },
       }],
       else: {
         kind: 'lambda',
-        type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+        type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
         body: { kind: 'new', type: { name: 'num' }, value: 0 },
       },
     }, { expectsValue: true });
@@ -363,7 +363,7 @@ describe('Engine.toCode — expressions', () => {
       kind: 'lambda',
       type: {
         name: 'function',
-        call: { args: { name: 'object', props: { n: { type: { name: 'num' } } } }, returns: { name: 'num' } },
+        call: { args: { name: 'obj', props: { n: { type: { name: 'num' } } } }, returns: { name: 'num' } },
       },
       body: {
         kind: 'get',
@@ -382,7 +382,7 @@ describe('Engine.toCode — expressions', () => {
       template: { kind: 'new', type: { name: 'text' }, value: 'Hello {name}!' },
       params: {
         kind: 'new',
-        type: { name: 'object', props: { name: { type: { name: 'text' } } } },
+        type: { name: 'obj', props: { name: { type: { name: 'text' } } } },
         value: { name: 'Alice' },
       },
     });

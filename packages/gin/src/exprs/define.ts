@@ -33,6 +33,8 @@ export class DefineExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: DefineExprDef, scope: TypeScope): DefineExpr {
     const r = scope.registry;
     const vars: DefineVar[] = json.vars.map((v) => ({
@@ -115,20 +117,22 @@ export class DefineExpr extends Expr {
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     const expectsValue = options.expectsValue ?? false;
+    const valueOpts = { ...options, expectsValue: true };
+    const stmtOpts = { ...options, expectsValue: false };
     const lets = this.vars.map((v) => {
-      const typeAnno = v.type ? `: ${v.type.toCode()}` : '';
-      return `const ${v.name}${typeAnno} = ${v.value.toCode(registry, { expectsValue: true })};`;
+      const typeAnno = v.type ? `: ${v.type.toCode(undefined, options)}` : '';
+      return `const ${v.name}${typeAnno} = ${v.value.toCode(registry, valueOpts)};`;
     });
 
     if (expectsValue) {
-      const body = this.body.toCode(registry, { expectsValue: true });
+      const body = this.body.toCode(registry, valueOpts);
       const indented = [...lets.map((l) => `  ${l}`), `  return ${indentCode(body)};`].join('\n');
       return this.commentPrefix(options) + `(() => {\n${indented}\n})()`;
     }
 
     // Statement form: const decls followed by body as a statement.
     const bodyKind = (this.body as { kind: string }).kind;
-    const bodyCode = this.body.toCode(registry, { expectsValue: false });
+    const bodyCode = this.body.toCode(registry, stmtOpts);
     const bodyStmt = bodyKind === 'if' || bodyKind === 'switch' || bodyKind === 'loop' || bodyKind === 'block' || bodyKind === 'flow'
       ? (bodyKind === 'flow' ? `${bodyCode};` : bodyCode)
       : `${bodyCode};`;

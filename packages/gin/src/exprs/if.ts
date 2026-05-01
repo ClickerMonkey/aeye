@@ -30,6 +30,8 @@ export class IfExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: IfExprDef, scope: TypeScope): IfExpr {
     const r = scope.registry;
     const ifs = json.ifs.map((b) => ({
@@ -99,18 +101,19 @@ export class IfExpr extends Expr {
 
     const prefix = this.commentPrefix(options);
 
+    const valueOpts = { ...options, expectsValue: true };
     // Expression context with no non-local flow: ternary or IIFE.
     if (expectsValue && !hasFlow) {
       if (this.ifs.length === 1 && this.otherwise) {
         const b = this.ifs[0]!;
-        return prefix + `(${b.condition.toCode(registry, { expectsValue: true })} ? ${b.body.toCode(registry, { expectsValue: true })} : ${this.otherwise.toCode(registry, { expectsValue: true })})`;
+        return prefix + `(${b.condition.toCode(registry, valueOpts)} ? ${b.body.toCode(registry, valueOpts)} : ${this.otherwise.toCode(registry, valueOpts)})`;
       }
       const branches = this.ifs.map((b, i) => {
         const kw = i === 0 ? 'if' : 'else if';
-        return `  ${kw} (${b.condition.toCode(registry, { expectsValue: true })}) return ${indentCode(b.body.toCode(registry, { expectsValue: true }))};`;
+        return `  ${kw} (${b.condition.toCode(registry, valueOpts)}) return ${indentCode(b.body.toCode(registry, valueOpts))};`;
       }).join('\n');
       const elseClause = this.otherwise
-        ? `\n  return ${indentCode(this.otherwise.toCode(registry, { expectsValue: true }))};`
+        ? `\n  return ${indentCode(this.otherwise.toCode(registry, valueOpts))};`
         : '';
       return prefix + `(() => {\n${branches}${elseClause}\n})()`;
     }
@@ -121,10 +124,10 @@ export class IfExpr extends Expr {
       const b = this.ifs[i]!;
       const kw = i === 0 ? 'if' : 'else if';
       const leading = i === 0 ? '' : ' ';
-      out += `${leading}${kw} (${b.condition.toCode(registry, { expectsValue: true })}) ${renderStatementBody(b.body, registry)}`;
+      out += `${leading}${kw} (${b.condition.toCode(registry, valueOpts)}) ${renderStatementBody(b.body, registry, options)}`;
     }
     if (this.otherwise) {
-      out += ` else ${renderStatementBody(this.otherwise, registry)}`;
+      out += ` else ${renderStatementBody(this.otherwise, registry, options)}`;
     }
     return prefix + out;
   }

@@ -35,7 +35,7 @@ describe('composite values preserve actual element types', () => {
     const r = createRegistry();
     const comparable = r.iface({
       props: { toText: { type: { name: 'function', call: {
-        args: { name: 'object' }, returns: { name: 'text' },
+        args: { name: 'obj' }, returns: { name: 'text' },
       } } } },
     });
     const box = r.obj({ thing: { type: comparable } });

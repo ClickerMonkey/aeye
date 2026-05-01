@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, type PropSpec, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface OrOptions {
@@ -176,8 +177,8 @@ export class OrType extends Type<any, OrOptions> {
     return new OrType(this.registry, this.variants.map((v) => v.clone()));
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `or<${this.variants.map((v) => v.toCode()).join(', ')}>`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `or<${this.variants.map((v) => v.toCode(undefined, options)).join(', ')}>`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

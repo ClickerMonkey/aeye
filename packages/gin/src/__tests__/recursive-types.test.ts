@@ -14,7 +14,7 @@ import { createRegistry } from '../registry';
 describe('recursive types', () => {
   test('self-reference: Node with optional children list', () => {
     const r = createRegistry();
-    const Node = r.extend('object', {
+    const Node = r.extend('obj', {
       name: 'Node',
       props: {
         value:    { type: r.num() },
@@ -33,7 +33,7 @@ describe('recursive types', () => {
 
   test('self-reference: parse a nested value through the ref', () => {
     const r = createRegistry();
-    const Node = r.extend('object', {
+    const Node = r.extend('obj', {
       name: 'Node',
       props: {
         value:    { type: r.num() },
@@ -58,7 +58,7 @@ describe('recursive types', () => {
 
   test('self-reference: JSON serializes the ref by NAME, not expanded', () => {
     const r = createRegistry();
-    const Node = r.extend('object', {
+    const Node = r.extend('obj', {
       name: 'Node',
       props: {
         value:    { type: r.num() },
@@ -79,7 +79,7 @@ describe('recursive types', () => {
 
   test('mutual cycle: Task ↔ User', () => {
     const r = createRegistry();
-    const Task = r.extend('object', {
+    const Task = r.extend('obj', {
       name: 'Task',
       props: {
         title:   { type: r.text({ minLength: 1 }) },
@@ -88,7 +88,7 @@ describe('recursive types', () => {
     });
     r.register(Task);
 
-    const User = r.extend('object', {
+    const User = r.extend('obj', {
       name: 'User',
       props: {
         name:  { type: r.text() },
@@ -108,7 +108,7 @@ describe('recursive types', () => {
 
   test('mutual cycle: round-trips through JSON into a fresh registry', () => {
     const r = createRegistry();
-    const Task = r.extend('object', {
+    const Task = r.extend('obj', {
       name: 'Task',
       props: {
         title:   { type: r.text() },
@@ -116,7 +116,7 @@ describe('recursive types', () => {
       },
     });
     r.register(Task);
-    const User = r.extend('object', {
+    const User = r.extend('obj', {
       name: 'User',
       props: {
         name:  { type: r.text() },

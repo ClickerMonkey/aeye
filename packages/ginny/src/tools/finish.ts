@@ -54,9 +54,9 @@ export const finish = ai.tool({
       const name = input.saveAs;
       const r = ctx.registry;
 
-      // When the engineer set up this run via `create_new_fn`, the
+      // When the designer set up this run via `create_new_fn`, the
       // intended signature lives on `ctx.targetFn`. Use it so the saved
-      // type matches what the engineer designed instead of being
+      // type matches what the designer designed instead of being
       // inferred from the body — `engine.typeOf(draft)` of an if/elif
       // chain lands on weird unions like `or<bool, bool>`, useless to
       // callers expecting `(n: num) => list<num>`.
@@ -68,11 +68,11 @@ export const finish = ai.tool({
       // path walker invokes this directly — no ginny-side callable
       // wrapping needed.
       //
-      // When the engineer declared `call.types` aliases, the parsed
+      // When the designer declared `call.types` aliases, the parsed
       // argsType / returnsType have those aliases ALREADY INLINED.
       // Emitting the inlined toJSON would defeat the verbosity-
       // reduction point. Use `targetFn.sourceArgs` / `sourceReturns`
-      // (the engineer's original input) so the saved fn keeps the
+      // (the designer's original input) so the saved fn keeps the
       // alias references intact.
       const useAliases = useTarget && ctx.targetFn?.callTypes && ctx.targetFn?.sourceArgs && ctx.targetFn?.sourceReturns;
       const fnTypeDef: TypeDef = {

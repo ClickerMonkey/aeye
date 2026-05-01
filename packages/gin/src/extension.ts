@@ -17,7 +17,7 @@ import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from './node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Expr } from './expr';
 
 /**
@@ -32,7 +32,7 @@ import type { Expr } from './expr';
  * extra `TypeScope` passed at access time (e.g. a path call site's
  * `<T: num>` bindings) before falling back to the captured layer.
  *
- *   registry.extend('object', {
+ *   registry.extend('obj', {
  *     name: 'Box',
  *     generic: { T: registry.any() },
  *     props: { value: { type: registry.alias('T') } },
@@ -286,13 +286,13 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     });
   }
 
-  toCode(): string { return this.docsPrefix() + this.name; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + this.name; }
 
   /** Renders `type Email extends text{pattern="..."}` headers in
    *  `toCodeDefinition`. Uses `base` (narrowed) rather than `original`
    *  so the constraints the Extension sits atop are visible. */
-  protected extendsClause(): string {
-    return ` extends ${this.base.toCode()}`;
+  protected extendsClause(options?: CodeOptions): string {
+    return ` extends ${this.base.toCode(undefined, options)}`;
   }
 
   // Definition hooks — an Extension's rendered body shows only the

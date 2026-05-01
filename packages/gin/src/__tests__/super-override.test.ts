@@ -345,7 +345,7 @@ describe('super in CallDef.set (method call.set) override', () => {
     const baseFn = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',
@@ -383,7 +383,7 @@ describe('super in CallDef.set (method call.set) override', () => {
     const overrideFn = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',

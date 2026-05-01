@@ -31,6 +31,8 @@ export class FlowExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: FlowExprDef, scope: TypeScope): FlowExpr {
     const r = scope.registry;
     return new FlowExpr(
@@ -107,14 +109,15 @@ export class FlowExpr extends Expr {
    */
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     const prefix = this.commentPrefix(options);
+    const valueOpts = { ...options, expectsValue: true };
     let code: string;
     switch (this.action) {
       case 'break':    code = 'break'; break;
       case 'continue': code = 'continue'; break;
-      case 'return':   code = this.value ? `return ${this.value.toCode(registry, { expectsValue: true })}` : 'return'; break;
-      case 'throw':    code = this.error ? `throw ${this.error.toCode(registry, { expectsValue: true })}` : 'throw'; break;
+      case 'return':   code = this.value ? `return ${this.value.toCode(registry, valueOpts)}` : 'return'; break;
+      case 'throw':    code = this.error ? `throw ${this.error.toCode(registry, valueOpts)}` : 'throw'; break;
       case 'exit':     code = this.value
-        ? `/* exit */ return ${this.value.toCode(registry, { expectsValue: true })}`
+        ? `/* exit */ return ${this.value.toCode(registry, valueOpts)}`
         : '/* exit */ return'; break;
       default: code = '';
     }

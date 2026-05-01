@@ -96,6 +96,13 @@ export class Prop {
    * Invoke this prop as a method: runs get Expr with {this, args, super?, recurse}.
    * `fnType` is the effective (possibly generic-bound) Fn type used for the
    * recurse Value's type; defaults to this.type.
+   *
+   * When the prop has no `get` expression — the case for natively-installed
+   * globals like `fns.fetch` / `fns.llm` whose obj-field raw is a JS
+   * callable — fall back to invoking the raw value directly. This mirrors
+   * `Prop.read`'s direct-field fallback and the value-call branch in
+   * `Path.walk` (which is the path taken when the call follows a value
+   * read, not a method dispatch).
    */
   async invokeMethod(
     self: Value,
@@ -105,8 +112,23 @@ export class Prop {
     engine: Engine,
     fnType?: Type,
   ): Promise<Value> {
-    if (!this.get) throw new Error(`path: callable prop '${name}' has no get expression`);
     const effectiveType = fnType ?? this.type;
+    if (!this.get) {
+      const raw = (self.raw as Record<string, unknown> | null | undefined)?.[name];
+      const target = raw instanceof Value ? raw.raw : raw;
+      if (typeof target === 'function') {
+        return await (target as (a: Value) => Promise<Value>)(argsValue);
+      }
+      // Stored ExprDef (a lambda saved as JSON) — evaluate it to a callable
+      // Value first, then invoke. Mirrors how saved-fn globals dispatch.
+      if (target && typeof target === 'object' && 'kind' in (target as Record<string, unknown>)) {
+        const lambdaValue = await engine.evaluate(target as ExprDef, scope);
+        if (typeof lambdaValue.raw === 'function') {
+          return await (lambdaValue.raw as (a: Value) => Promise<Value>)(argsValue);
+        }
+      }
+      throw new Error(`path: callable prop '${name}' has no get expression and raw is not a callable`);
+    }
     const getExpr = this.get;
     const callable = async (newArgs: Value): Promise<Value> => {
       const recurseValue = new Value(effectiveType, callable);
@@ -736,17 +758,22 @@ export abstract class Type<T = any, O = any> implements Node {
   abstract toCode(registry?: Registry, options?: CodeOptions): string;
 
   /**
-   * Inline `/* docs * /` prefix for `toCode` output when this type has docs.
-   * Mirrors `Expr.commentPrefix`. Subclasses that want docs rendered call
-   * `this.docsPrefix() + <body>` from their `toCode` implementation.
+   * Inline `/* docs * /` prefix for `toCode` output. Always returns empty
+   * by default — type docs would otherwise repeat at every reference,
+   * burying real signal in noise (every `args.x: T` annotation, every
+   * `new T {...}`, every type parameter would carry the full prose). Docs
+   * stay on the type definition (rendered as a `// docs` header by
+   * `toCodeDefinition`) where they describe the type ONCE. The hook
+   * exists so a subclass could opt back in with policy if needed; today
+   * none do.
    */
-  protected docsPrefix(): string {
-    return this.docs ? `/* ${this.docs} */ ` : '';
+  protected docsPrefix(_options?: CodeOptions): string {
+    return '';
   }
 
   /** ` extends <base>` clause on the `type <name>` header — empty for
    *  built-in classes; Extension overrides to show its base type. */
-  protected extendsClause(): string {
+  protected extendsClause(_options?: CodeOptions): string {
     return '';
   }
 
@@ -777,8 +804,9 @@ export abstract class Type<T = any, O = any> implements Node {
    *     [key: "title" | "done" | "due"]: string | boolean | Date | undefined
    *   }
    */
-  toCodeDefinition(): string {
+  toCodeDefinition(options?: CodeOptions): string {
     const lines: string[] = [];
+    const includeComments = options?.includeComments !== false;
 
     // Call-local type aliases — rendered first so they read like
     // class-level type-alias declarations and can be referenced when
@@ -786,32 +814,32 @@ export abstract class Type<T = any, O = any> implements Node {
     const call = this.definitionCall();
     if (call?.types) {
       for (const [name, t] of Object.entries(call.types)) {
-        lines.push(`  type ${name} = ${t.toCode()};`);
+        lines.push(`  type ${name} = ${t.toCode(undefined, options)};`);
       }
     }
 
     // Constructor — rendered first so the shape reads like a class.
     const init = this.definitionInit();
     if (init) {
-      if (init.docs) lines.push(`  // ${init.docs}`);
-      lines.push(`  new(${formatParams(init.args)})`);
+      if (init.docs && includeComments) lines.push(`  // ${init.docs}`);
+      lines.push(`  new(${formatParams(init.args, options)})`);
     }
 
     // Call signature (`fn` / iface with call / Extension with call).
     if (call) {
-      const ret = call.returns?.toCode() ?? 'void';
-      lines.push(`  (${formatParams(call.args)}): ${ret}`);
+      const ret = call.returns?.toCode(undefined, options) ?? 'void';
+      lines.push(`  (${formatParams(call.args, options)}): ${ret}`);
     }
 
     // Index signature.
     const gs = this.definitionGet();
-    if (gs) lines.push(`  [key: ${gs.key.toCode()}]: ${gs.value.toCode()}`);
+    if (gs) lines.push(`  [key: ${gs.key.toCode(undefined, options)}]: ${gs.value.toCode(undefined, options)}`);
 
     // Fields + methods.
     const ownGenerics = new Set(Object.keys(this.generic));
     for (const [name, raw] of Object.entries(this.definitionProps())) {
       const prop = raw instanceof Prop ? raw : Prop.from(raw);
-      if (prop.docs) lines.push(`  // ${prop.docs}`);
+      if (prop.docs && includeComments) lines.push(`  // ${prop.docs}`);
       const optional = prop.type.isOptional();
       const t = optional ? prop.type.required() : prop.type;
       const opt = optional ? '?' : '';
@@ -825,21 +853,21 @@ export abstract class Type<T = any, O = any> implements Node {
         && !t.get()
         && nonUniversalKeys.length === 0;
       if (pureCallable) {
-        const ret = propCall!.returns?.toCode() ?? 'void';
+        const ret = propCall!.returns?.toCode(undefined, options) ?? 'void';
         // Method-level generics — declared on the fn's `.generic`, filtered
         // to those NOT inherited from the outer type's own generics.
         const methodGen = Object.fromEntries(
           Object.entries(t.generic).filter(([k]) => !ownGenerics.has(k)),
         );
-        const gParams = renderGenerics(methodGen);
-        lines.push(`  ${name}${opt}${gParams}(${formatParams(propCall!.args)}): ${ret}`);
+        const gParams = renderGenerics(methodGen, options);
+        lines.push(`  ${name}${opt}${gParams}(${formatParams(propCall!.args, options)}): ${ret}`);
       } else {
-        lines.push(`  ${name}${opt}: ${t.toCode()}`);
+        lines.push(`  ${name}${opt}: ${t.toCode(undefined, options)}`);
       }
     }
 
-    const docLine = this.docs ? `// ${this.docs}\n` : '';
-    const header = `${docLine}type ${this.name}${renderGenerics(this.generic)}${this.extendsClause()}`;
+    const docLine = this.docs && includeComments ? `// ${this.docs}\n` : '';
+    const header = `${docLine}type ${this.name}${renderGenerics(this.generic, options)}${this.extendsClause(options)}`;
     return lines.length === 0 ? `${header} {}` : `${header} {\n${lines.join('\n')}\n}`;
   }
 
@@ -900,15 +928,31 @@ export abstract class Type<T = any, O = any> implements Node {
 }
 
 /**
- * Serialize a type's `options` as gin's `{key=value, …}` suffix. Empty /
- * all-undefined options render as the empty string, so primitives without
- * narrowing (`num`, `text`) stay bare. Values use JSON encoding for
- * strings / null / arrays / objects; numbers and booleans render literal.
+ * Serialize a type's `options` as gin's `{key=value, …}` suffix. Empty
+ * / all-undefined options render as the empty string, so primitives
+ * without narrowing (`num`, `text`) stay bare.
+ *
+ * Skips noise that adds no information:
+ *   - undefined values
+ *   - empty strings (`prefix=""`, `suffix=""`)
+ *   - entries equal to the optional `defaults` map (per-type
+ *     "uninteresting default" — e.g. `minPrecision=1` on num is rarely
+ *     worth surfacing; if equal to the default, don't render it)
+ *
+ * Values use JSON encoding for strings / null / arrays / objects;
+ * numbers and booleans render as literals.
  */
-export function optionsCode(opts: object | undefined | null): string {
+export function optionsCode(
+  opts: object | undefined | null,
+  defaults?: Record<string, unknown>,
+): string {
   if (!opts) return '';
-  const entries = Object.entries(opts as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined);
+  const entries = Object.entries(opts as Record<string, unknown>).filter(([k, v]) => {
+    if (v === undefined) return false;
+    if (v === '') return false;
+    if (defaults && k in defaults && deepEqual(defaults[k], v)) return false;
+    return true;
+  });
   if (entries.length === 0) return '';
   const parts = entries.map(([k, v]) => {
     const encoded = typeof v === 'string'
@@ -920,7 +964,16 @@ export function optionsCode(opts: object | undefined | null): string {
           : JSON.stringify(v);
     return `${k}=${encoded}`;
   });
-  return `{${parts.join(', ')}}`;
+  return `{${joinAuto(parts)}}`;
+}
+
+/** Cheap deep-equality for `optionsCode`'s defaults skip. Stable JSON
+ *  stringify is good enough — option values are small primitives /
+ *  arrays / records, not class instances or functions. */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try { return JSON.stringify(a) === JSON.stringify(b); }
+  catch { return false; }
 }
 
 /**
@@ -930,12 +983,13 @@ export function optionsCode(opts: object | undefined | null): string {
  */
 export function renderCallTypes(
   types: Record<string, Type> | undefined,
+  options?: CodeOptions,
 ): string {
   if (!types) return '';
   const keys = Object.keys(types);
   if (keys.length === 0) return '';
-  const parts = keys.map((k) => `${k}: ${types[k]!.toCode()}`);
-  return `{${parts.join('; ')}}`;
+  const parts = keys.map((k) => `${k}: ${types[k]!.toCode(undefined, options)}`);
+  return `{${joinAuto(parts, { sep: '; ' })}}`;
 }
 
 /**
@@ -944,16 +998,19 @@ export function renderCallTypes(
  * placeholder, `T: code` otherwise. Shared by type headers and fn
  * signatures.
  */
-export function renderGenerics(generic: Record<string, Type>): string {
+export function renderGenerics(
+  generic: Record<string, Type>,
+  options?: CodeOptions,
+): string {
   const keys = Object.keys(generic);
   if (keys.length === 0) return '';
   const parts = keys.map((k) => {
     const t = generic[k]!;
     const selfRef = t.name === 'alias'
       && (t.options as { name?: string } | undefined)?.name === k;
-    return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode()}`;
+    return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode(undefined, options)}`;
   });
-  return `<${parts.join(', ')}>`;
+  return `<${joinAuto(parts)}>`;
 }
 
 /**
@@ -962,16 +1019,53 @@ export function renderGenerics(generic: Record<string, Type>): string {
  * type for args, so duck-typing on `.fields` covers the common case;
  * anything else falls back to a single `args: <code>` param.
  */
-export function formatParams(args: Type): string {
+export function formatParams(args: Type, options?: CodeOptions): string {
   const fields = (args as unknown as { fields?: Record<string, Prop> }).fields;
   if (!fields) return args.name === 'void' || args.name === 'any'
     ? ''
-    : `args: ${args.toCode()}`;
+    : `args: ${args.toCode(undefined, options)}`;
   const parts = Object.entries(fields).map(([name, prop]) => {
     const optional = prop.type.isOptional();
     const t = optional ? prop.type.required() : prop.type;
-    const docs = prop.docs ? `/* ${prop.docs} */ ` : '';
-    return `${docs}${name}${optional ? '?' : ''}: ${t.toCode()}`;
+    const docs = prop.docs && options?.includeComments !== false ? `/* ${prop.docs} */ ` : '';
+    return `${docs}${name}${optional ? '?' : ''}: ${t.toCode(undefined, options)}`;
   });
-  return parts.join(', ');
+  return joinAuto(parts);
+}
+
+/**
+ * Delimiter-join with automatic wrapping for long content. Used by
+ * every comma- or semicolon-delimited renderer (params, call args,
+ * new-list / new-obj literals, call.types alias headers, …) so they
+ * stay readable at any depth.
+ *
+ * Compact form: `a<sep> b<sep> c` — when every item is short and
+ * single-line. Default separator is `, ` for comma-lists; pass `'; '`
+ * for semicolon-lists (e.g. `call.types` alias headers).
+ *
+ * Wrapped form: leading `\n`, each item indented by two spaces and
+ * followed by `<sep-trim><\n>`, trailing `\n` before the caller's
+ * closing delimiter:
+ *
+ *   `(\n  a: very-long-type,\n  b: another-long-type\n)`
+ *
+ * Triggers when ANY item exceeds `threshold` characters (default 32)
+ * or itself contains a newline (already wrapped at a deeper level).
+ * Already-multi-line items get their newlines indented so nesting
+ * doesn't lose alignment.
+ */
+export function joinAuto(
+  items: string[],
+  opts: { sep?: string; threshold?: number } = {},
+): string {
+  if (items.length === 0) return '';
+  const sep = opts.sep ?? ', ';
+  const threshold = opts.threshold ?? 32;
+  const wrap = items.some((i) => i.length > threshold || i.includes('\n'));
+  if (!wrap) return items.join(sep);
+  // Strip trailing whitespace from the separator so the wrapped form
+  // emits e.g. `,\n` (not `, \n`) — newline already does the spacing.
+  const wrapSep = sep.replace(/\s+$/, '');
+  const indented = items.map((i) => '  ' + i.replace(/\n/g, '\n  '));
+  return `\n${indented.join(`${wrapSep}\n`)}\n`;
 }

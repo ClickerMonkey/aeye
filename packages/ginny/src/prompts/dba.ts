@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { buildSchemas } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
-import { modelFor } from '../model-selection';
+import { modelFor, toolIterationsConfig } from '../model-selection';
 import { refreshVarsGlobal } from '../vars-global';
 import { ask } from '../tools/ask';
 
@@ -88,7 +88,7 @@ so the programmer can return a clear "set vars.X then re-run" message.
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
   tools: [searchVars, getVar, createVar, ask],
-  toolIterations: 5,
+  toolIterations: toolIterationsConfig(),
   excludeMessages: true,
   schema: z.object({
     use: z.array(z.string()).default([]).describe('Names of existing vars to use'),

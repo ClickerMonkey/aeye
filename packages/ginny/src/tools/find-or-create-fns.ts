@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import { engineer } from '../prompts/engineer';
+import { designer } from '../prompts/designer';
 import { runSubagent } from '../progress';
 import { MAX_PROGRAMMER_DEPTH } from '../context';
 
-interface EngineerResult {
+interface DesignerResult {
   use: string[];
   created: string[];
 }
@@ -12,23 +12,28 @@ interface EngineerResult {
 export const findOrCreateFunctions = ai.tool({
   name: 'find_or_create_functions',
   description: 'Locate or author reusable functions. Returns their signatures.',
-  instructions: 'Delegates to the engineer. Provide a description of what is needed.',
+  instructions: 'Delegates to the designer. Provide a description of what is needed.',
   schema: z.object({
     description: z.string().describe('What functions are needed and why'),
   }),
-  // The engineer's `create_new_fn` recursively spawns another programmer.
-  // Past the depth cap, exposing this tool lets the agent loop forever
-  // (programmer → engineer → programmer → engineer → ...). Withholding
-  // it forces the deepest programmer to author the function inline via
-  // write/test/finish, which is what the user actually wants.
-  applicable: (ctx) => (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
+  // Two reasons to withhold this tool:
+  //  1. Past the depth cap, exposing it lets the agent loop forever
+  //     (programmer → designer → programmer → designer → ...).
+  //  2. When `targetFn` is set, the programmer's job IS to author that
+  //     specific fn's body inline — delegating would just respawn a
+  //     designer for the SAME description and recurse uncontrolled,
+  //     exhausting heap before the depth cap kicks in (each level
+  //     allocates fresh tool schemas, conversation messages, etc.).
+  // In either case, force write/test/finish on the body directly.
+  applicable: (ctx) =>
+    !ctx.targetFn && (ctx.programmerDepth ?? 0) < MAX_PROGRAMMER_DEPTH - 1,
   call: async (input: { description: string }, _refs, ctx) => {
     const result = await runSubagent(
-      `engineer: ${input.description}`,
-      () => engineer.get('stream', { description: input.description }, ctx),
+      `designer: ${input.description}`,
+      () => designer.get('stream', { description: input.description }, ctx),
       ctx.signal,
     );
-    if (!result) return 'Engineer returned no result.';
+    if (!result) return 'Designer returned no result.';
 
     const { use = [], created = [] } = result;
     const loaded: string[] = [];
@@ -46,7 +51,7 @@ export const findOrCreateFunctions = ai.tool({
           ctx.engine.registerGlobal(name, { type: fnType, value: null });
           ctx.loadedFns.add(name);
         } catch {
-          // The engineer claimed this function exists but there's no
+          // The designer claimed this function exists but there's no
           // file on disk (or it failed to parse). Drop the ghost and
           // surface it so the caller knows not to trust the claim.
           ghosts.push(name);
@@ -63,7 +68,7 @@ export const findOrCreateFunctions = ai.tool({
 
     if (loaded.length === 0 && ghosts.length === 0) {
       return [
-        '// FAILED: the engineer could not create or find any function for that description.',
+        '// FAILED: the designer could not create or find any function for that description.',
         '// Likely causes: the inner programmer never reached a passing test for the signature,',
         '// or no existing saved fn matched the keywords.',
         '//',
@@ -77,7 +82,7 @@ export const findOrCreateFunctions = ai.tool({
     if (loaded.length > 0) parts.push(loaded.join('\n'));
     if (ghosts.length > 0) {
       parts.push(
-        `// Engineer claimed these were created but no file was written: ${ghosts.join(', ')}.\n` +
+        `// Designer claimed these were created but no file was written: ${ghosts.join(', ')}.\n` +
         `// Treat them as NOT available — DO NOT inline-define them. Either retry find_or_create_functions\n` +
         `// with a clearer description, or report the failure to the user.`,
       );

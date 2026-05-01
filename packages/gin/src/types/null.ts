@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -89,7 +90,7 @@ export class NullType extends Type<null, Record<string, never>> {
     return new NullType(this.registry, {});
   }
 
-  toCode(): string { return this.docsPrefix() + 'null'; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'null'; }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 

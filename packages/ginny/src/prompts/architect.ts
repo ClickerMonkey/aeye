@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { buildSchemas } from '@aeye/gin';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
-import { modelFor } from '../model-selection';
+import { modelFor, toolIterationsConfig } from '../model-selection';
 import { ask } from '../tools/ask';
 
 const searchTypes = ai.tool({
@@ -52,7 +52,7 @@ Respond with valid JSON matching the output schema.
 Request: {{description}}`,
   input: (input: { description: string }) => ({ description: input.description }),
   tools: [searchTypes, getType, ask],
-  toolIterations: 5,
+  toolIterations: toolIterationsConfig(),
   // Sub-prompt: takes its task via {{description}}, not via inherited
   // messages. Skipping the parent's history avoids dragging in the
   // in-flight tool_calls assistant message that triggered the

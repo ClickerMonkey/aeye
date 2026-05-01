@@ -21,7 +21,7 @@ describe('recurse in lambda body', () => {
           type: {
             name: 'function',
             call: {
-              args: { name: 'object', props: { n: { type: { name: 'num' } } } },
+              args: { name: 'obj', props: { n: { type: { name: 'num' } } } },
               returns: { name: 'num' },
             },
           },
@@ -219,7 +219,7 @@ describe('recurse in CallDef.get', () => {
     const countdownFn = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { n: { type: { name: 'num' } } } },
+        args: { name: 'obj', props: { n: { type: { name: 'num' } } } },
         returns: { name: 'num' },
         get: {
           kind: 'if',
@@ -283,7 +283,7 @@ describe('recurse in CallDef.set (method)', () => {
     const drainFn = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'num' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'num' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',
@@ -369,7 +369,7 @@ describe('recurse in CallDef.set (direct call)', () => {
     const fnType = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'num' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'num' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',

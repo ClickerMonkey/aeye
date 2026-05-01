@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { BoolOptions } from '../builder';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -118,7 +119,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
     return new BoolType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'bool' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'bool' + optionsCode(this.options); }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
 

@@ -156,30 +156,39 @@ function strictifySimple(
   }
   
   // Handle ZodRecord
+  // Strict-mode JSON Schema represents records as `array of {key, value}` —
+  // OpenAI's structured outputs has no native pattern for open records, so
+  // we rewrite. Previously this used `z.codec(arrayIn, recordOut, decode)`,
+  // but z.codec proved fragile inside recursive lazy unions: the inner
+  // codec's transform doesn't always run when validation traverses a
+  // sibling branch, leaving the data in array form when later code expects
+  // record form (and vice-versa) — surfacing as "expected array, received
+  // object" union failures.
+  //
+  // `z.preprocess` is more robust here: it normalizes the input to record
+  // shape BEFORE the record schema sees it. Either array-of-pairs (from a
+  // strict-mode model) or already-a-record (when the schema is reused
+  // outside strict context) is accepted; both arrive at the record schema
+  // as a record.
   if (schema instanceof z.ZodRecord) {
     const keyTransformed = schema.keyType ? transform(schema.keyType) as z.ZodType<PropertyKey, PropertyKey> : z.string();
     const valueTransformed = transform(schema.valueType);
 
-    // For the input schema (array of {key, value}), use the input side of any codecs
-    const key = getInputSchema(keyTransformed);
-    const value = getInputSchema(valueTransformed);
-
     return transferMetadata(
-      z.codec(
-        z.array(z.object({ key, value })),
-        z.record(keyTransformed, valueTransformed),
-        {
-          decode: (arr) => {
+      z.preprocess(
+        (val) => {
+          if (Array.isArray(val)) {
             const record: Record<PropertyKey, any> = {};
-            for (const { key, value } of arr) {
-              record[key as PropertyKey] = value;
+            for (const entry of val) {
+              if (entry && typeof entry === 'object' && 'key' in entry && 'value' in entry) {
+                record[(entry as { key: PropertyKey }).key] = (entry as { value: unknown }).value;
+              }
             }
             return record;
-          },
-          encode: (rec) => Object.entries(rec).map(
-            ([key, value]) => ({ key, value })
-          ),
-        }
+          }
+          return val;
+        },
+        z.record(keyTransformed, valueTransformed),
       ),
       schema
     );
@@ -210,10 +219,38 @@ function strictifySimple(
   }
   
   // Handle ZodTuple
+  // Strict-mode JSON Schema represents tuples as an object with numeric
+  // string keys (`{"0": <T0>, "1": <T1>, ...}`) — OpenAI's structured
+  // outputs has no positional `prefixItems` support and would otherwise
+  // collapse a `[string, number, bool]` to an array of `(string|number|bool)`,
+  // losing the per-position type. Encoding as an object preserves it.
+  // The strictified schema accepts EITHER form: an object with "0".."n-1"
+  // keys (what a strict-mode model produces) or an array (what a callsite
+  // outside strict context would pass). Both arrive at the tuple schema as
+  // an array.
   if (schema instanceof z.ZodTuple) {
+    const items = schema.def.items.map(transform) as [z.ZodType, ...z.ZodType[]];
+    const rest = schema.def.rest ? transform(schema.def.rest) : undefined;
+    const tupleSchema = rest ? z.tuple(items, rest) : z.tuple(items);
     return transferMetadata(
-      z.tuple(schema.def.items.map(transform) as [z.ZodType, ...z.ZodType[]]), 
-      schema
+      z.preprocess(
+        (val) => {
+          if (val && typeof val === 'object' && !Array.isArray(val)) {
+            const obj = val as Record<string, unknown>;
+            const keys = Object.keys(obj);
+            if (keys.length > 0 && keys.every((k) => /^\d+$/.test(k))) {
+              const indices = keys.map((k) => parseInt(k, 10));
+              const len = Math.max(...indices) + 1;
+              const arr: unknown[] = new Array(len);
+              for (const k of keys) arr[parseInt(k, 10)] = obj[k];
+              return arr;
+            }
+          }
+          return val;
+        },
+        tupleSchema,
+      ),
+      schema,
     );
   }
   
@@ -610,13 +647,45 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
 
   // Handle ZodTuple
   if (schema instanceof z.ZodTuple) {
-    // Tuples in JSON Schema can be represented as arrays with prefixItems
-    // For simplicity, we'll use an array type
     const items = schema.def.items.map(item => convert(item, context));
     const rest = schema.def.rest ? convert(schema.def.rest, context) : undefined;
+
+    // Strict mode: encode as an object with numeric-string keys ("0", "1",
+    // ...) so each position carries its exact type. OpenAI's strict
+    // structured outputs has no positional `prefixItems` support and would
+    // otherwise force every position into a single shared `items` (anyOf
+    // collapse), erasing per-position types. The matching strictify
+    // preprocess converts the object back to an array before tuple
+    // validation. Variadic rests aren't representable in strict-object
+    // form (no fixed key count) — fall back to a homogeneous array of
+    // (items ∪ rest) for that rare case.
+    if (context.strict && !rest) {
+      // OpenAI strict mode requires every property to be in `required`.
+      // Optional positions are surfaced via nullable on their schema (the
+      // same convention the ZodObject handler uses above) — the matching
+      // strictify preprocess unwraps `null` back to the array form before
+      // tuple validation. additionalProperties: false locks the shape.
+      const properties: Record<string, JSONSchema> = {};
+      const required: string[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const k = String(i);
+        properties[k] = isOptional(schema.def.items[i]) ? makeNullable(items[i]!) : items[i]!;
+        required.push(k);
+      }
+      return {
+        type: 'object',
+        properties,
+        required,
+        additionalProperties: false,
+      };
+    }
+
     const result: JSONSchema = { type: 'array' };
 
     if (context.strict && rest) {
+      // Strict + rest fallback: every position fits one of the declared
+      // types (positional info is lost — there's no way to express a
+      // mixed-prefix-plus-rest array in OpenAI strict mode).
       items.push(rest);
     }
 

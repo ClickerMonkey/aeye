@@ -1,9 +1,10 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -105,7 +106,7 @@ export class DurationType extends Type<number, Record<string, never>> {
     return new DurationType(this.registry, {});
   }
 
-  toCode(): string { return this.docsPrefix() + 'duration'; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'duration'; }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is a number of milliseconds.

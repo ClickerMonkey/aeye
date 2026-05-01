@@ -3,6 +3,7 @@ import * as readline from 'readline';
 import type { Message } from '@aeye/core';
 import { programmer } from './prompts/programmer';
 import { EventDisplay } from './event-display';
+import { logger } from './logger';
 
 /**
  * Single readline interface used for both the REPL prompt loop AND for
@@ -114,7 +115,7 @@ async function runRequest(request: string): Promise<void> {
         messages: history,
         ask: askUser,
         // Top-level request — propagates down through every recursive
-        // engineer/programmer pair so deep programmers know what the
+        // designer/programmer pair so deep programmers know what the
         // user originally asked for, not just their immediate task.
         originalRequest: request,
       },
@@ -143,8 +144,16 @@ async function runRequest(request: string): Promise<void> {
     if (abort.signal.aborted) {
       process.stderr.write('\n(cancelled)\n');
     } else {
-      console.error('\nError:', err.message ?? String(e));
-      if (err.stack) console.error(err.stack);
+      // Keep the on-screen error short — zod / aggregate errors can
+      // dump hundreds of lines that bury the prompt. Full message and
+      // stack go to ginny.log for post-mortem.
+      const raw = err.message ?? String(e);
+      const oneLiner = raw.replace(/\s+/g, ' ').trim();
+      const short = oneLiner.length > 200 ? `${oneLiner.slice(0, 200)}…` : oneLiner;
+      console.error(`\nError: ${short}`);
+      console.error('(see ginny.log for full details)');
+      logger.log(`Error: ${raw}`);
+      if (err.stack) logger.log(err.stack);
     }
   } finally {
     process.off('SIGINT', onSigint);
@@ -178,7 +187,13 @@ async function main() {
   prompt();
 }
 
-main().catch((e) => {
-  console.error(e);
+main().catch((e: unknown) => {
+  const err = e as { message?: string; stack?: string };
+  const raw = err.message ?? String(e);
+  const oneLiner = raw.replace(/\s+/g, ' ').trim();
+  const short = oneLiner.length > 200 ? `${oneLiner.slice(0, 200)}…` : oneLiner;
+  console.error(`Error: ${short}`);
+  logger.log(`Error: ${raw}`);
+  if (err.stack) logger.log(err.stack);
   process.exit(1);
 });

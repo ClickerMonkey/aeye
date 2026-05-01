@@ -110,7 +110,7 @@ describe('set return value + safe-navigation', () => {
     const fnType = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'get',
@@ -237,7 +237,7 @@ describe('deep set: field → index set', () => {
         value: {
           kind: 'new',
           type: {
-            name: 'object',
+            name: 'obj',
             props: { inner: { type: { name: 'map', generic: { K: { name: 'text' }, V: { name: 'num' } } } } },
           },
           value: { inner: [['a', 1]] },
@@ -272,7 +272,7 @@ describe('deep set: method call with CallDef.set', () => {
     const setterFn = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { key: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { key: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',
@@ -339,7 +339,7 @@ describe('deep set: direct call with CallDef.set', () => {
     const fnType = r.parse({
       name: 'function',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'get',
@@ -381,7 +381,7 @@ describe('deep set: direct call with CallDef.set', () => {
         name: 'fn',
         value: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+          type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'new', type: { name: 'num' }, value: 0 },
         },
       }],

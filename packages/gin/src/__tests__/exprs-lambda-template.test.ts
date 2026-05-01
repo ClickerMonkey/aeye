@@ -25,7 +25,7 @@ describe('evalLambda + list.map', () => {
                 type: {
                   name: 'function',
                   call: {
-                    args: { name: 'object', props: { value: { type: { name: 'num' } }, index: { type: { name: 'num' } } } },
+                    args: { name: 'obj', props: { value: { type: { name: 'num' } }, index: { type: { name: 'num' } } } },
                     returns: { name: 'num' },
                   },
                 },
@@ -65,7 +65,7 @@ describe('evalLambda + list.map', () => {
             args: {
               fn: {
                 kind: 'lambda',
-                type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'bool' } } },
+                type: { name: 'function', call: { args: { name: 'obj' }, returns: { name: 'bool' } } },
                 body: {
                   kind: 'get',
                   path: [
@@ -93,7 +93,7 @@ describe('evalTemplate', () => {
       template: { kind: 'new', type: { name: 'text' }, value: 'Hello {name}, you have {count} messages' },
       params: {
         kind: 'new',
-        type: { name: 'object', props: { name: { type: { name: 'text' } }, count: { type: { name: 'num' } } } },
+        type: { name: 'obj', props: { name: { type: { name: 'text' } }, count: { type: { name: 'num' } } } },
         value: { name: 'Alice', count: 3 },
       },
     });
@@ -104,7 +104,7 @@ describe('evalTemplate', () => {
     const v = await e.run({
       kind: 'template',
       template: { kind: 'new', type: { name: 'text' }, value: 'hi {missing}' },
-      params: { kind: 'new', type: { name: 'object', props: {} }, value: {} },
+      params: { kind: 'new', type: { name: 'obj', props: {} }, value: {} },
     });
     expect(v.raw).toBe('hi ');
   });

@@ -1,6 +1,6 @@
 import type { Registry, Type, TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
-import { modelFor } from '../model-selection';
+import { modelFor, toolIterationsConfig } from '../model-selection';
 import { write } from '../tools/write';
 import { test } from '../tools/test';
 import { finish } from '../tools/finish';
@@ -9,6 +9,9 @@ import { findOrCreateTypes } from '../tools/find-or-create-types';
 import { findOrCreateFunctions } from '../tools/find-or-create-fns';
 import { findOrCreateVars } from '../tools/find-or-create-vars';
 import { ask } from '../tools/ask';
+import { printFn } from '../tools/print-fn';
+import { searchFns } from '../tools/search-fns';
+import { searchVars } from '../tools/search-vars';
 
 /**
  * Rebuild a class's canonical instance with `generic` type-parameter
@@ -312,7 +315,7 @@ as ginny in all self-referential responses.
 You orchestrate four specialist sub-agents on demand:
 
 - **architect** — designs or picks gin types (\`find_or_create_types\`)
-- **engineer** — writes reusable gin functions (\`find_or_create_functions\`)
+- **designer** — writes reusable gin functions (\`find_or_create_functions\`)
 - **dba** — curates the \`vars.*\` catalog (\`find_or_create_vars\`)
 - **researcher** — answers factual questions from the web (\`research\`)
 
@@ -486,13 +489,13 @@ body. Examples:
 
 When you delegate to \`find_or_create_functions\`, spell out which
 inputs are user-supplied (parameters) versus fixed in the description.
-The engineer uses your description verbatim to design the signature.
+The designer uses your description verbatim to design the signature.
 
 ## When \`find_or_create_functions\` fails
 
 If \`find_or_create_functions\` returns a message starting with
 \`// FAILED\` (or otherwise indicates no functions were loaded), it
-means the engineer could not produce the function — typically because
+means the designer could not produce the function — typically because
 the inner programmer never reached a passing test, or because no
 existing saved fn matched the keywords.
 
@@ -500,7 +503,7 @@ When this happens:
 - Do NOT inline-define the missing function (no
   \`define myFn = lambda(...)\` as part of your draft). Inline-defining
   a recursive / loop-heavy function in gin without going through the
-  engineer's iteration is fragile and almost always produces invalid
+  designer's iteration is fragile and almost always produces invalid
   programs.
 - Respond to the user that the function couldn't be created, explain
   briefly what likely went wrong, and ask whether they want to:
@@ -508,6 +511,83 @@ When this happens:
   (b) reduce the scope of what the function should do, or
   (c) try a different approach altogether.
 - Then stop. Do not call write / test for an inline workaround.
+
+## Use the aliases you declare
+
+If you put an entry in a fn's \`call.types\` map (or any other place
+that accepts inline aliases), USE that alias name in \`args\`,
+\`returns\`, \`throws\`, and inside the body — that's the entire point.
+Declaring \`{ counter: { name: "num", options: {whole:true, min:1} } }\`
+and then writing \`args: { name: "obj", props: { n: { type: { name: "num", options: {...} } } } }\`
+with the full options block inline is wasted effort and bloats the
+saved fn.
+
+When \`print_fn\` renders the saved fn it shows aliases as \`type
+<alias> = ...;\` lines at the top of the body — exactly like a
+TypeScript fn declaring local type aliases before the implementation.
+The body should reference the aliases by bare name, e.g.:
+
+\`\`\`
+fn computePrimeFactors(n: positiveInt): list<positiveInt> {
+  type positiveInt = num{whole=true, min=1};
+
+  const acc: list<positiveInt> = [];
+  ...
+}
+\`\`\`
+
+Pattern to follow:
+1. Identify shapes that repeat in the signature OR the body — same
+   constrained \`num\`, same struct, same \`list<X>\`, etc.
+2. Declare each shape ONCE in \`call.types\` with a descriptive name
+   (\`positiveInt\`, \`Invoice\`, \`MoneyAmount\`).
+3. Reference the alias as a bare \`{name: "<alias>"}\` everywhere it
+   appears in args / returns / throws / call.get / call.set.
+4. Inside the body, when you author a \`new\` expr or a type
+   annotation on a \`define\`, also use the alias name — not the
+   inlined options block.
+
+If a type appears only ONCE in the whole signature and body, don't
+bother aliasing it — declare it inline and move on.
+
+## Comments — DEFAULT IS NONE
+
+\`comment\` on an ExprDef renders inline in every \`toCode\` output.
+**MOST EXPRESSIONS SHOULD HAVE NO COMMENT.** Annotating every node turns
+a 5-line program into a 50-line wall of redundant prose. The rendered
+code itself reads cleanly; descriptive identifiers and gin's structure
+already convey intent.
+
+Hard rules — pattern-match against these BEFORE adding any \`comment\`:
+
+- ❌ \`{ kind:'get', path:[{prop:'args'},{prop:'text'}], comment:'Get the input text' }\` — the path IS \`args.text\`.
+- ❌ \`{ kind:'new', type:{name:'num'}, value:0, comment:'the number zero' }\` — \`0\` is \`0\`.
+- ❌ \`{ kind:'new', type:{name:'text'}, value:'neutral', comment:'Default to neutral' }\` — the literal IS \`"neutral"\`.
+- ❌ \`{ kind:'flow', action:'return', value:..., comment:'Return the result' }\` — \`return\` already says it.
+- ❌ Calls to a clearly-named fn like \`fns.llm({...})\` with \`comment:'Call the LLM'\` — the call site says it.
+- ❌ Repeating a type's purpose at every reference (\`/* enum of valid sentiments */\` on every \`SentimentResult\`).
+
+Allowed comments — RARE, one-per-program-or-fewer territory:
+
+- ✅ A non-obvious algorithm invariant: \`comment:'invariant: divisor only divides the residual once per outer iteration'\`.
+- ✅ Why a magic number: \`comment:'7 = max retries before circuit-break per provider SLA'\`.
+- ✅ A subtle workaround: \`comment:'+1 because the API is 1-indexed despite the docs'\`.
+
+\`docs\` on a TYPE field is different — those become user-facing labels
+for \`fns.ask\` and the LLM-downstream schema description. Set \`docs\`
+on each prop of an output type you pass to \`fns.ask\` / \`fns.llm\`,
+because the user/llm sees it. Do NOT also put \`comment\` on every
+ExprDef that happens to use that type — \`docs\` lives on the type once
+and is enough.
+
+Rule of thumb: if removing the comment loses NO information that the
+reader can't recover from the structure, omit it. The default for any
+node you author is \`comment: undefined\` — opt INTO comments rarely,
+not opt OUT for trivia.
+
+Also: do NOT populate \`prefix\` / \`suffix\` / \`minPrecision\` /
+\`maxPrecision\` on \`num\` unless they actually change formatting.
+Padding with defaults like \`prefix: ""\` adds visual noise.
 
 ## Common gotchas
 
@@ -534,7 +614,7 @@ When this happens:
   Read the method's def in the type catalog above; \`mod(other: num):
   num\` means the call args obj has key \`other\`.
 - **Don't redeclare a function inline after asking
-  \`find_or_create_functions\` for it.** Either the engineer succeeded
+  \`find_or_create_functions\` for it.** Either the designer succeeded
   (use the saved fn directly via \`{name}({...args})\`) or it failed
   (escalate per the section above).
 
@@ -576,7 +656,10 @@ Respond to the most recent user message in light of the prior turns.`,
     finish,
     research,
     ask,
+    searchFns,
+    searchVars,
+    printFn,
   ],
   dynamic: true,
-  toolIterations: 20,
+  toolIterations: toolIterationsConfig(),
 });

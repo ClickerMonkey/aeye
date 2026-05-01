@@ -33,6 +33,8 @@ export class LambdaExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: LambdaExprDef, scope: TypeScope): LambdaExpr {
     const registry = scope.registry;
     // Parse the fn type first (FnType.from layers its own LocalScope
@@ -125,16 +127,17 @@ export class LambdaExpr extends Expr {
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     const call = this.fnType.call();
-    const argsType = call?.args?.toCode() ?? 'any';
+    const argsType = call?.args?.toCode(undefined, options) ?? 'any';
+    const valueOpts = { ...options, expectsValue: true };
     const prefix = this.commentPrefix(options);
     if (!this.constraint) {
-      return prefix + `(args: ${argsType}) => ${this.body.toCode(registry, { expectsValue: true })}`;
+      return prefix + `(args: ${argsType}) => ${this.body.toCode(registry, valueOpts)}`;
     }
-    const c = this.constraint.toCode(registry, { expectsValue: true });
+    const c = this.constraint.toCode(registry, valueOpts);
     // Render the constraint as an inline guard so readers see both the
     // precondition and the body.
     return prefix
-      + `(args: ${argsType}) => { if (!(${c})) throw new Error('constraint'); return ${this.body.toCode(registry, { expectsValue: true })}; }`;
+      + `(args: ${argsType}) => { if (!(${c})) throw new Error('constraint'); return ${this.body.toCode(registry, valueOpts)}; }`;
   }
 
   toJSON(): LambdaExprDef {

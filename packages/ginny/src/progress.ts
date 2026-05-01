@@ -33,10 +33,13 @@ const c = (code: string, text: string): string =>
 
 function preview(value: unknown): string {
   let s: string;
-  try {
-    s = typeof value === 'string' ? value : JSON.stringify(value);
-  } catch {
-    s = String(value);
+  if (value instanceof Error) {
+    // `JSON.stringify(new Error())` is `{}` — surface .message instead.
+    s = value.message || String(value);
+  } else if (typeof value === 'string') {
+    s = value;
+  } else {
+    try { s = JSON.stringify(value); } catch { s = String(value); }
   }
   if (!s) return '';
   s = s.replace(/\s+/g, ' ');
@@ -103,9 +106,12 @@ export async function runSubagent<
         case 'toolError': {
           const t = toolStarts.get(event.args);
           const elapsed = t ? Date.now() - t : 0;
-          const line = `    ✗ ${event.tool.name} (${elapsed}ms): ${event.error}`;
+          // Cap the on-screen error to one line — zod / aggregate
+          // errors easily run 100+ lines and bury the timeline. Full
+          // text → ginny.log.
+          const line = `    ✗ ${event.tool.name} (${elapsed}ms): ${preview(event.error)}`;
           process.stderr.write(`${c(RED, line)}\n`);
-          logger.log(line.trim());
+          logger.log(`✗ ${event.tool.name} (${elapsed}ms): ${event.error}`);
           break;
         }
         case 'complete': {

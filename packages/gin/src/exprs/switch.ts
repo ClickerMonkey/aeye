@@ -35,6 +35,8 @@ export class SwitchExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: SwitchExprDef, scope: TypeScope): SwitchExpr {
     const r = scope.registry;
     return new SwitchExpr(
@@ -116,28 +118,29 @@ export class SwitchExpr extends Expr {
       this.cases.some((c) => !!findEscapingFlow(c.body)) ||
       (this.otherwise ? !!findEscapingFlow(this.otherwise) : false);
 
-    const head = this.value.toCode(registry, { expectsValue: true });
+    const valueOpts = { ...options, expectsValue: true };
+    const head = this.value.toCode(registry, valueOpts);
     const prefix = this.commentPrefix(options);
 
     if (expectsValue && !hasFlow) {
       const cases = this.cases.map((c) => {
-        const labels = c.equals.map((e) => `    case ${e.toCode(registry, { expectsValue: true })}:`).join('\n');
-        return `${labels}\n      return ${indentCode(c.body.toCode(registry, { expectsValue: true }))};`;
+        const labels = c.equals.map((e) => `    case ${e.toCode(registry, valueOpts)}:`).join('\n');
+        return `${labels}\n      return ${indentCode(c.body.toCode(registry, valueOpts))};`;
       }).join('\n');
       const def = this.otherwise
-        ? `\n    default:\n      return ${indentCode(this.otherwise.toCode(registry, { expectsValue: true }))};`
+        ? `\n    default:\n      return ${indentCode(this.otherwise.toCode(registry, valueOpts))};`
         : '';
       return prefix + `(() => {\n  switch (${head}) {\n${cases}${def}\n  }\n})()`;
     }
 
     const cases = this.cases.map((c) => {
-      const labels = c.equals.map((e) => `  case ${e.toCode(registry, { expectsValue: true })}:`).join('\n');
-      const bodyCode = renderStatementBody(c.body, registry);
+      const labels = c.equals.map((e) => `  case ${e.toCode(registry, valueOpts)}:`).join('\n');
+      const bodyCode = renderStatementBody(c.body, registry, options);
       const tail = c.body instanceof FlowExpr ? '' : '\n    break;';
       return `${labels}\n    ${indentCode(bodyCode)}${tail}`;
     }).join('\n');
     const def = this.otherwise
-      ? `\n  default:\n    ${indentCode(renderStatementBody(this.otherwise, registry))}`
+      ? `\n  default:\n    ${indentCode(renderStatementBody(this.otherwise, registry, options))}`
       : '';
     return prefix + `switch (${head}) {\n${cases}${def}\n}`;
   }

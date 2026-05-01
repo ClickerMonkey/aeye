@@ -13,6 +13,8 @@ import type { Locals } from './analysis';
 import type { Problems } from './problem';
 import type { ValidateContext } from './expr';
 import { LocalScope, type TypeScope } from './type-scope';
+import { joinAuto } from './type';
+import type { CodeOptions } from './node';
 
 /**
  * Path — a sequence of steps against a starting value. The third citizen
@@ -152,7 +154,7 @@ export class Path {
     }
   }
 
-  toCode(registry: Registry): string {
+  toCode(registry: Registry, options: CodeOptions = {}): string {
     if (this.steps.length === 0) return '';
     let out = '';
     for (let i = 0; i < this.steps.length; i++) {
@@ -161,15 +163,25 @@ export class Path {
         out = i === 0 ? step.prop : `${out}.${step.prop}`;
       } else if (step instanceof CallStep) {
         const entries = Object.entries(step.args);
-        const body = entries.length === 0
-          ? '{}'
-          : `{ ${entries.map(([k, v]) => `${k}: ${v.toCode(registry)}`).join(', ')} }`;
-        out += `(${body})`;
+        if (entries.length === 0) {
+          out += '({})';
+        } else {
+          const parts = entries.map(([k, v]) => `${k}: ${v.toCode(registry, { ...options, expectsValue: true })}`);
+          const joined = joinAuto(parts);
+          // joinAuto returns `\n  …\n` for the wrapped form, plain
+          // `a, b` for the compact form. Brace-spacing matches each.
+          out += joined.startsWith('\n') ? `({${joined}})` : `({ ${joined} })`;
+        }
         if (step.catch_) {
-          out += ` /* catch: ${step.catch_.toCode(registry).replace(/\*\//g, '*_/')} */`;
+          // Render `catch:` as a JS-like `.catch(err => …)` chain so
+          // it survives nested comments / complex catch bodies. The
+          // call expects `error` in scope; the rendered handler
+          // signature mirrors that.
+          const handler = step.catch_.toCode(registry, { ...options, expectsValue: true });
+          out += `.catch((error) => ${handler})`;
         }
       } else if (step instanceof IndexStep) {
-        out += `[${step.key.toCode(registry)}]`;
+        out += `[${step.key.toCode(registry, { ...options, expectsValue: true })}]`;
       }
     }
     return out;

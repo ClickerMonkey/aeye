@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 export interface NotOptions {
@@ -116,7 +117,7 @@ export class NotType extends Type<any, NotOptions> {
     return new NotType(this.registry, this.excluded.clone());
   }
 
-  toCode(): string { return this.docsPrefix() + `not<${this.excluded.toCode()}>`; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + `not<${this.excluded.toCode(undefined, options)}>`; }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const excluded = this.excluded.toValueSchema(opts);

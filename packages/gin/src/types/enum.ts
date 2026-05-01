@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -155,9 +156,9 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     );
   }
 
-  toCode(): string {
-    const body = `enum<${this.value.toCode()}>` + optionsCode(this.options.values as Record<string, unknown>);
-    return this.docsPrefix() + body;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    const body = `enum<${this.value.toCode(undefined, options)}>` + optionsCode(this.options.values as Record<string, unknown>);
+    return this.docsPrefix(options) + body;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

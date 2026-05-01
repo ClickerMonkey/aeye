@@ -1,7 +1,8 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import { z } from 'zod';
 import type { TypeDef } from '../schema';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
 import { extensionSchemaNarrowed } from '../schemas';
@@ -135,8 +136,8 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     return new TypType(this.registry, this.constraint.clone() as Type<T>);
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `typ<${this.constraint.toCode()}>`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `typ<${this.constraint.toCode(undefined, options)}>`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

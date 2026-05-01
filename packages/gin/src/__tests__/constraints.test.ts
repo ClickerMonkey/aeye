@@ -121,7 +121,7 @@ describe('Lambda constraints', () => {
       type: {
         name: 'function',
         call: {
-          args: { name: 'object', props: { x: { type: { name: 'num' } } } },
+          args: { name: 'obj', props: { x: { type: { name: 'num' } } } },
           returns: { name: 'num' },
         },
       },

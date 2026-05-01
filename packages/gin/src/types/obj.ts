@@ -1,11 +1,12 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, Prop, type PropSpec, type Rnd, Type } from '../type';
 import { decodeProps, encodeProps } from '../spec';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
 
@@ -15,7 +16,7 @@ import { propDefSchema } from '../schemas';
  * exposed via props() directly. Any number of fields, typed per-name.
  */
 export class ObjType<T extends object = Record<string, any>> extends Type<T, Record<string, never>> {
-  static readonly NAME = 'object';
+  static readonly NAME = 'obj';
   /** obj's fields ARE its structure — props is natively consumed. */
   static readonly consumes = ['props'] as const;
   readonly name = ObjType.NAME;
@@ -32,7 +33,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
-      name: z.literal('object'),
+      name: z.literal('obj'),
       props: z.record(z.string(), propDefSchema(opts)).optional(),
     }).meta({ aid: 'Type_object' });
   }
@@ -206,17 +207,18 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return new ObjType<T>(this.registry, cloned);
   }
 
-  toCode(): string {
+  toCode(_registry?: Registry, options?: CodeOptions): string {
     const entries = Object.entries(this.fields);
-    if (entries.length === 0) return this.docsPrefix() + 'obj';
+    if (entries.length === 0) return this.docsPrefix(options) + 'obj';
+    const includeComments = options?.includeComments !== false;
     const parts = entries.map(([name, prop]) => {
       const optional = prop.type.isOptional();
       const t = optional ? prop.type.required() : prop.type;
       const label = optional ? `${name}?` : name;
-      const propDocs = prop.docs ? `/* ${prop.docs} */ ` : '';
-      return `${propDocs}${label}: ${t.toCode()}`;
+      const propDocs = prop.docs && includeComments ? `/* ${prop.docs} */ ` : '';
+      return `${propDocs}${label}: ${t.toCode(undefined, options)}`;
     });
-    return this.docsPrefix() + `obj{${parts.join(', ')}}`;
+    return this.docsPrefix(options) + `obj{${parts.join(', ')}}`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
@@ -249,7 +251,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       propShape[name] = z.object({ type: prop.type.toInstanceSchema() }).passthrough();
     }
     return z.object({
-      name: z.literal('object'),
+      name: z.literal('obj'),
       props: z.object(propShape).optional(),
     }).passthrough();
   }

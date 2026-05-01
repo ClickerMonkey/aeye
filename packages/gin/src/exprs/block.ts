@@ -25,6 +25,8 @@ export class BlockExpr extends Expr {
     super();
   }
 
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
   static from(json: BlockExprDef, scope: TypeScope): BlockExpr {
     const r = scope.registry;
     return new BlockExpr(json.lines.map((l) => r.parseExpr(l, scope))).withComment(json.comment);
@@ -73,23 +75,32 @@ export class BlockExpr extends Expr {
     const prefix = this.commentPrefix(options);
 
     if (expectsValue) {
+      // Value-form needs the IIFE wrapper so the rendered code reads as
+      // a single expression. The wrapper supplies the `{ }`.
       const body = this.lines.map((line, i) => {
         const isLast = i === this.lines.length - 1;
-        const code = line.toCode(registry, { expectsValue: isLast });
+        const code = line.toCode(registry, { ...options, expectsValue: isLast });
         return isLast ? `  return ${indentCode(code)};` : `  ${indentCode(code)};`;
       }).join('\n');
       return prefix + `(() => {\n${body}\n})()`;
     }
 
-    const body = this.lines.map((line) => {
+    // Statement-form: emit lines joined by newlines, no surrounding
+    // braces. The CALLER (fn body, if/else/for body, top-level
+    // engine.toCode) is responsible for wrapping in `{ ... }` if it
+    // needs a visual block. This keeps the output free of redundant
+    // double-brace artifacts when a `block` is the immediate body of
+    // another block-like construct.
+    return prefix + this.lines.map((line) => {
       const kind = (line as { kind: string }).kind;
-      const code = line.toCode(registry, { expectsValue: false });
-      if (kind === 'if' || kind === 'switch' || kind === 'loop' || kind === 'block') {
-        return `  ${indentCode(code)}`;
-      }
-      return `  ${indentCode(code)};`;
+      const code = line.toCode(registry, { ...options, expectsValue: false });
+      // Trailing `;` only for plain expressions / sets / defines —
+      // control-flow statements (if / switch / loop) already self-
+      // terminate, and a sub-block emits multiple lines that don't
+      // share one terminator.
+      if (kind === 'if' || kind === 'switch' || kind === 'loop' || kind === 'block') return code;
+      return `${code};`;
     }).join('\n');
-    return prefix + `{\n${body}\n}`;
   }
 
   toJSON(): BlockExprDef {

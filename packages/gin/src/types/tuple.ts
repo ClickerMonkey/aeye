@@ -1,10 +1,11 @@
 import type { TypeScope } from '../type-scope';
+import type { Registry } from '../registry';
 import type { PathStepDef, TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONValue } from '../json-type';
 
 
@@ -167,8 +168,8 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return new TupleType(this.registry, this.elements.map((e) => e.clone()));
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `tuple<${this.elements.map((e) => e.toCode()).join(', ')}>`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `tuple<${this.elements.map((e) => e.toCode(undefined, options)).join(', ')}>`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
