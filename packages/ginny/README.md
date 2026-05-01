@@ -175,13 +175,6 @@ Programs always have access to:
 
 - **`vars.<name>`** — any var you've created or imported.
 
-### Generics are constraints, not defaults
-
-`<R: text | obj>` declares the constraint a binding for R must
-satisfy. The model picks a concrete R at the call site (via the
-CallStep's `generic: { R: <type> }` map); there's no implicit default.
-Bindings that don't satisfy the constraint are rejected at call time.
-
 ## The write / test / finish loop
 
 ```
