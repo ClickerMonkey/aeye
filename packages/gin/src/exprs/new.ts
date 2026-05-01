@@ -42,11 +42,6 @@ export class NewExpr extends Expr {
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // No `comment` field on any branch below — `new` is a literal /
-    // constructor; the type + value already convey what it is, so an
-    // attached comment is pure noise. Strict-mode schema rejects it
-    // outright. Comments belong on statement-shaped Exprs only.
-    //
     // Strict mode: emit a discriminated union over every Type the LLM
     // could legitimately `new`:
     //   - One branch per built-in Type class: `type` is that class's full

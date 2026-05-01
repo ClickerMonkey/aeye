@@ -32,6 +32,22 @@ export const searchFns = ai.tool({
         ? 'No saved functions yet. Call `find_or_create_functions` to author one.'
         : `No functions matched [${input.keywords.join(', ')}].`;
     }
+    // Surfacing a fn to the model is also a signal it may be used —
+    // load each result into the engine's global scope so the model can
+    // call it directly without an extra `find_or_create_functions`
+    // round-trip. Idempotent: `loadedFns` guards against re-parsing.
+    for (const r of results) {
+      if (ctx.loadedFns.has(r.name)) continue;
+      try {
+        const typeDef = ctx.store.readFn(r.name);
+        const fnType = ctx.registry.parse(typeDef);
+        ctx.engine.registerGlobal(r.name, { type: fnType, value: null });
+        ctx.loadedFns.add(r.name);
+      } catch {
+        // Bad/missing file — skip; the fn won't appear callable but
+        // the listing still surfaces its name for diagnostic value.
+      }
+    }
     return results.map((r) => `${r.name}: ${r.summary}`).join('\n');
   },
 });

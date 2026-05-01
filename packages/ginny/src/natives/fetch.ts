@@ -1,5 +1,6 @@
 import type { Registry, Value, Type } from '@aeye/gin';
 import { val } from '@aeye/gin';
+import { getRuntimeSignal } from '../runtime-signal';
 
 export function createFetchImpl(registry: Registry) {
   return async (argsValue: Value): Promise<Value> => {
@@ -23,12 +24,17 @@ export function createFetchImpl(registry: Registry) {
 
     const outputType = args['output']?.raw as Type | undefined;
 
+    // Forward the entry-point's interrupt signal so an ESC during a
+    // long fetch tears down the underlying HTTP request immediately.
+    const signal = getRuntimeSignal();
+
     let bodyText = '';
     try {
       const resp = await globalThis.fetch(url, {
         method,
         headers: Object.keys(headersObj).length > 0 ? headersObj : undefined,
         body: bodyStr,
+        signal,
       });
       bodyText = await resp.text();
     } catch (e: unknown) {

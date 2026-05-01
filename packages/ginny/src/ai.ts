@@ -13,6 +13,7 @@ import { createFetchImpl, registerFetchType } from './natives/fetch';
 import { createLlmImpl, registerLlmType } from './natives/llm';
 import { createLogImpl, registerLogType } from './natives/log';
 import { createAskImpl, registerAskType } from './natives/ask';
+import { MODEL_KEYS } from './model-selection';
 
 // Hydrate process.env from config.json before anything reads env vars.
 // Safe: imported modules above just declare classes; no env-var reads run yet.
@@ -69,7 +70,11 @@ const awsChatHooks = {
   },
 };
 
-async function buildProviders(): Promise<{ providers: Record<string, Provider>; enabled: string[] }> {
+async function buildProviders(): Promise<{
+  providers: Record<string, Provider>;
+  enabled: string[];
+  skipped: string[];
+}> {
   const enabled: string[] = [];
   const skipped: string[] = [];
   const providers: Record<string, Provider> = {};
@@ -123,11 +128,9 @@ async function buildProviders(): Promise<{ providers: Record<string, Provider>; 
     );
   }
 
-  const tavily = process.env['TAVILY_API_KEY'] ? ' + web_search (tavily)' : '';
-  console.error(`ginny: providers enabled → ${enabled.join(', ')}${tavily}`);
-  for (const s of skipped) console.error(`       skipped → ${s}`);
-
-  return { providers, enabled };
+  // Logging the result is the entry point's job — it lives downstream
+  // of `console.clear()` and prints the full startup banner there.
+  return { providers, enabled, skipped };
 }
 
 export const { registry, engine } = bootstrap();
@@ -141,7 +144,28 @@ const sessionLoadedVars = new Map<string, { type: any; parsed: any; docs?: strin
 const modelIdOverride = process.env['GIN_MODEL'];
 const providerOverride = process.env['GIN_PROVIDER'];
 
-const { providers: enabledProviders, enabled: enabledProviderNames } = await buildProviders();
+const { providers: enabledProviders, enabled: enabledProviderNames, skipped: skippedProviderReasons } = await buildProviders();
+
+/** Unique set of model IDs configured via `GIN_MODEL` and any
+ *  `GIN_<KEY>_MODEL` override. Used by the startup banner — empty set
+ *  means selection falls through to the model registry's defaults. */
+const configuredModels = new Set<string>();
+for (const k of MODEL_KEYS) {
+  const v = process.env[`GIN_${k.toUpperCase()}_MODEL`];
+  if (v && v.trim()) configuredModels.add(v.trim());
+}
+const fallback = process.env['GIN_MODEL'];
+if (fallback && fallback.trim()) configuredModels.add(fallback.trim());
+
+/** Snapshot of provider/model/feature state captured at AI bootstrap.
+ *  The entry point reads this after clearing the screen so the user
+ *  sees a clean startup summary. */
+export const aiInfo = {
+  providers: enabledProviderNames,
+  skipped: skippedProviderReasons,
+  models: configuredModels,
+  webSearch: !!process.env['TAVILY_API_KEY'],
+};
 
 // Model selection picks the top-scored model across every entry in `models`.
 // If we don't restrict `providers.allow` to the set of providers we actually

@@ -11,7 +11,6 @@ import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { NewExpr } from './new';
 import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 /**
@@ -44,7 +43,6 @@ export class TemplateExpr extends Expr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('template'),
-      ...baseExprFields,
       template: z.union([opts.Expr, z.string()]).describe(
         'The template string — either a literal string (auto-wrapped as `new text`) or an Expr that evaluates to text. Placeholders use `{name}` syntax; each `name` must appear as a key on `params`.',
       ),

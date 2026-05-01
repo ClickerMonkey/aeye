@@ -32,7 +32,6 @@ export class GetExpr extends Expr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('get'),
-      // No `comment` field — see header comment above.
       path: z
         .array(pathStepSchema(opts))
         .describe(

@@ -8,6 +8,8 @@
 
 To see a complex example of a CLI agent built with aeye - `npm i -g @aeye/cletus` and run `cletus`!
 
+For a higher-level "build with types" experience, check out **[@aeye/gin](./packages/gin)** (a JSON-typed, executable program language for LLMs) and **[@aeye/ginny](./packages/ginny)** (a CLI that turns natural-language requests into validated gin programs) — `npm i -g @aeye/ginny` and run `ginny`.
+
 ```ts
 import { AI } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
@@ -226,6 +228,35 @@ npm install @aeye/aws
 - Image generation (Stability AI)
 - Text embeddings (Amazon Titan)
 - Automatic AWS credential discovery
+
+### Higher-Level Packages
+
+#### [@aeye/gin](./packages/gin)
+A JSON-based programming language and type system designed for LLMs to author, validate, and execute typed programs at runtime. Gives the model a real type system (generics, structural compatibility, extension-based inheritance) and an expression language serialized as plain JSON — programs round-trip through `JSON.stringify` / `JSON.parse`, can be introspected and validated without running them, and execute in-process against a pluggable registry of native functions.
+
+```bash
+npm install @aeye/gin zod
+```
+
+**Features:**
+- Typed expressions (`get`, `set`, `define`, `loop`, `if`, `switch`, `lambda`, `flow`, `native`, …) authored as JSON
+- Static `validate()` catches unknown vars, prop / type mismatches, out-of-place flow before execution
+- Generics with constraints (not defaults), structural type compatibility, type augmentation via `registry.augment(...)`
+- Sequential and parallel loops over lists, maps, objs, text, num — plus dynamic (bool while-loop) iteration that composes with parallelism
+
+#### [@aeye/ginny](./packages/ginny)
+CLI agent that turns natural-language requests into executable gin programs. Multi-prompt orchestration (programmer → designer → architect → researcher → DBA) drafts, validates, and persists reusable typed functions and variables to disk, with a path-callable native fn surface (`fns.fetch`, `fns.llm`, `fns.log`, `fns.ask`) and optional Tavily-powered web research.
+
+```bash
+npm install -g @aeye/ginny
+ginny
+```
+
+**Features:**
+- REPL with conversation history, ESC-to-interrupt, Ctrl+C exit
+- Per-prompt model overrides via `GIN_<KEY>_MODEL` env vars (programmer, researcher, architect, designer, dba, llm)
+- Fn / type / var catalog persisted as JSON under `./fns`, `./types`, `./vars` for reuse across sessions
+- Works with any provider configured for `@aeye/ai` — OpenAI, OpenRouter, AWS Bedrock; web research via Tavily
 
 ## Usage Examples
 
@@ -766,6 +797,8 @@ aeye/
 │   ├── openrouter/    # OpenRouter provider
 │   ├── replicate/     # Replicate provider
 │   ├── aws/           # AWS Bedrock provider
+│   ├── gin/           # JSON-typed program language for LLMs
+│   ├── ginny/         # CLI agent that authors gin programs
 │   └── cletus/        # Example CLI agent
 ├── package.json       # Root package configuration
 └── tsconfig.json      # TypeScript configuration

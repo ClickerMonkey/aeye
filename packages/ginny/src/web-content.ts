@@ -12,7 +12,10 @@
  * The companion `web_get_page` tool wraps `fetchAndConvert`; consumers
  * outside of that tool can use the same entry point.
  */
-import puppeteer from 'puppeteer';
+// puppeteer is loaded lazily — see `fetchHtmlWithPuppeteer`. Keeping
+// it out of the top-level import surface lets us declare it as an
+// `optionalDependency` so a global install of ginny doesn't force every
+// user to download Chromium (~170 MB) just to run non-web flows.
 import { NodeHtmlMarkdown } from 'node-html-markdown';
 import pdfParse from 'pdf-parse';
 import * as XLSX from 'xlsx';
@@ -58,6 +61,20 @@ export function detectContentType(contentType: string, url: string): ContentType
 // ---------------------------------------------------------------------------
 
 export async function fetchHtmlWithPuppeteer(url: string): Promise<string> {
+  // Dynamic import + try/catch so an install where puppeteer (or its
+  // Chromium download) was skipped surfaces a friendly error pointing
+  // at the fix, instead of crashing the whole module's import graph.
+  let puppeteer: typeof import('puppeteer').default;
+  try {
+    puppeteer = (await import('puppeteer')).default;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `puppeteer is not available (${msg}). ` +
+      `Install it to enable JS-rendered HTML fetching: \`npm i -g puppeteer\` ` +
+      `(this also downloads a bundled Chromium).`,
+    );
+  }
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],

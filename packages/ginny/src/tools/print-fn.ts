@@ -52,6 +52,15 @@ export const printFn = ai.tool({
     const call = fnType.call();
     if (!call) return `// FAILED: '${input.name}' is not a callable type — got ${fnType.name}.`;
 
+    // Inspecting a fn's body usually precedes calling it — load it into
+    // the engine's global scope on the way through so the next `write`
+    // can reference `{prop:'<name>'}` without a separate
+    // `find_or_create_functions` round-trip.
+    if (!ctx.loadedFns.has(input.name)) {
+      ctx.engine.registerGlobal(input.name, { type: fnType, value: null });
+      ctx.loadedFns.add(input.name);
+    }
+
     const generics = renderGenerics(fnType.generic, codeOpts);
     const params = formatParams(call.args, codeOpts);
     const returns = call.returns ? call.returns.toCode(undefined, codeOpts) : 'void';

@@ -39,6 +39,12 @@ esbuild.build({
   format: 'esm',
   plugins: [shebangPlugin],
   banner: esmBanner,
+  // `puppeteer` is heavy (Chromium download ~170 MB) and only used by
+  // web fetching. Externalize it so the bundle does a runtime
+  // `require('puppeteer')` instead of inlining it — paired with
+  // `optionalDependencies` in package.json, this lets users skip the
+  // Chromium install entirely if they don't need web fetching.
+  external: ['puppeteer'],
   define: {
     'process.env.NODE_ENV': '"production"',
   },

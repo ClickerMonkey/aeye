@@ -4,6 +4,8 @@ import type { Message } from '@aeye/core';
 import { programmer } from './prompts/programmer';
 import { EventDisplay } from './event-display';
 import { logger } from './logger';
+import { aiInfo } from './ai';
+import { setRuntimeSignal } from './runtime-signal';
 
 /**
  * Single readline interface used for both the REPL prompt loop AND for
@@ -18,6 +20,10 @@ const rl = readline.createInterface({
   output: process.stdout,
   terminal: true,
 });
+
+// Emit `keypress` events on stdin so we can listen for ESC during an
+// in-flight request and use it to interrupt the run cleanly.
+readline.emitKeypressEvents(process.stdin);
 
 /**
  * Resolve with the user's typed answer. Wired into every prompt's ctx
@@ -87,7 +93,7 @@ function startSpinner(label: string): () => void {
 const history: Message[] = [];
 
 async function runRequest(request: string): Promise<void> {
-  const stopSpinner = startSpinner('ginny is thinking…');
+  const stopSpinner = startSpinner('ginny is thinking… (ESC to interrupt)');
   let spinnerStopped = false;
   const ensureSpinnerStopped = () => {
     if (!spinnerStopped) {
@@ -96,11 +102,53 @@ async function runRequest(request: string): Promise<void> {
     }
   };
 
-  // Wire Ctrl+C during a request so we can abort the stream cleanly
-  // without tearing down the whole REPL.
+  // Two ways to abort an in-flight request without killing the REPL:
+  //   ESC     — primary interrupt; brings the user back to `> `
+  //   Ctrl+C  — also aborts, kept for muscle memory
+  // Once the request finishes, both listeners are removed so a Ctrl+C
+  // at the idle prompt still exits the process via Node's default.
+  //
+  // ESC delivery is fiddly across platforms: readline reports it as
+  // `key.name === 'escape'`; some terminals deliver only the raw
+  // sequence in `str`; on Windows `data` events can fire ahead of
+  // keypress decoding. Listen on both channels and match name OR raw
+  // ESC byte so we don't miss the press.
   const abort = new AbortController();
-  const onSigint = () => abort.abort();
+  const triggerInterrupt = (source: string) => {
+    if (abort.signal.aborted) return;
+    process.stderr.write(`\n(interrupting via ${source}…)\n`);
+    abort.abort();
+  };
+  const onSigint = () => triggerInterrupt('Ctrl+C');
+  const onKeypress = (
+    str: string | undefined,
+    key: { name?: string; sequence?: string } | undefined,
+  ) => {
+    const isEsc = key?.name === 'escape'
+      || str === '\x1b' || key?.sequence === '\x1b';
+    if (isEsc) triggerInterrupt('ESC');
+  };
+  const onData = (chunk: Buffer | string) => {
+    const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+    // A bare ESC arrives as a single 0x1b byte; an ESC-prefixed
+    // sequence (arrow keys, etc.) is two-or-more bytes starting with
+    // 0x1b. Only treat the lone byte as an interrupt.
+    if (buf.length === 1 && buf[0] === 0x1b) triggerInterrupt('ESC');
+  };
   process.on('SIGINT', onSigint);
+  process.stdin.on('keypress', onKeypress);
+  process.stdin.on('data', onData);
+  // Make sure stdin is actually flowing while we wait — readline pauses
+  // it between `rl.question` calls on some platforms, which would mute
+  // both keypress and data events.
+  if (process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+    process.stdin.setRawMode(true);
+  }
+  process.stdin.resume();
+  // Publish the signal for natives (fns.fetch / fns.llm) to forward
+  // into their underlying I/O — the gin engine doesn't thread ctx
+  // through native calls, so they can't read it from `ctx.signal`.
+  setRuntimeSignal(abort.signal);
 
   const display = new EventDisplay();
 
@@ -157,7 +205,46 @@ async function runRequest(request: string): Promise<void> {
     }
   } finally {
     process.off('SIGINT', onSigint);
+    process.stdin.off('keypress', onKeypress);
+    process.stdin.off('data', onData);
+    setRuntimeSignal(undefined);
   }
+}
+
+/**
+ * Render the post-clear startup summary: which providers came up, which
+ * were skipped (with reasons), the unique set of model IDs the user has
+ * pinned via env, and whether web research is wired up. When Tavily is
+ * unset, point the user at the env var so the fix is one step away.
+ */
+function printStartupBanner(): void {
+  const lines: string[] = [];
+  lines.push('ginny ready.');
+  lines.push('');
+
+  const providers = aiInfo.providers.length > 0
+    ? aiInfo.providers.join(', ')
+    : '(none)';
+  lines.push(`Providers: ${providers}`);
+  for (const reason of aiInfo.skipped) {
+    lines.push(`  · skipped ${reason}`);
+  }
+
+  if (aiInfo.models.size > 0) {
+    lines.push(`Models: ${[...aiInfo.models].join(', ')}`);
+  } else {
+    lines.push('Models: (defaults — no GIN_MODEL or GIN_<KEY>_MODEL set)');
+  }
+
+  if (aiInfo.webSearch) {
+    lines.push('Web research: enabled (tavily)');
+  } else {
+    lines.push('Web research: disabled — set TAVILY_API_KEY in config.json or env to enable (tavily.com)');
+  }
+
+  lines.push('');
+  lines.push('Type a request. ESC interrupts a run, Ctrl+C exits.');
+  console.log(lines.join('\n') + '\n');
 }
 
 async function main() {
@@ -171,7 +258,7 @@ async function main() {
     return;
   }
 
-  console.log('ginny ready. Type a request (Ctrl+C to exit).\n');
+  printStartupBanner();
 
   const prompt = () => {
     rl.question('> ', async (line) => {
