@@ -1,7 +1,7 @@
 import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { MapType } from '../types/map';
-import { arg, self, selfValue, argValue } from './helpers';
+import { arg, self, selfValue, argValue, setupYield } from './helpers';
 
 type Entry = [Value, Value];
 type MapRaw = Map<any, Entry>;
@@ -32,9 +32,16 @@ export const mapNatives: Record<string, NativeImpl> = {
   },
   'map.iterate': async (scope, reg) => {
     const m = self<MapRaw>(scope);
-    const yieldFn = scope.get('yield')!.raw as (k: Value, v: Value) => Promise<Value>;
+    // The map's K / V types are stored on `selfValue.type.generic`;
+    // peek at the first stored entry as a quick proxy. If the map
+    // is empty the loop body never runs so the args type doesn't
+    // matter — fall back to `any` only in that edge case.
+    const first = m.values().next().value as [Value, Value] | undefined;
+    const keyType = first ? first[0].type : reg.any();
+    const valueType = first ? first[1].type : reg.any();
+    const doYield = setupYield(scope, reg, keyType, valueType);
     for (const [, [kV, vV]] of m) {
-      await yieldFn(kV, vV);
+      await doYield(kV, vV);
     }
     return val(reg.void(), undefined);
   },

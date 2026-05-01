@@ -1,7 +1,7 @@
 import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { TupleType } from '../types/tuple';
-import { self, selfValue } from './helpers';
+import { self, selfValue, setupYield } from './helpers';
 
 const elems = (scope: any) => (selfValue(scope).type as TupleType).elements;
 
@@ -26,9 +26,17 @@ export const tupleNatives: Record<string, NativeImpl> = {
   },
   'tuple.iterate': async (scope, reg) => {
     const arr = self<Value[]>(scope);
-    const yieldFn = scope.get('yield')!.raw as (k: Value, v: Value) => Promise<Value>;
+    const indexType = reg.num({ whole: true, min: 0 });
+    // Tuple's value-side type is the union of element types — use it
+    // so the yielded value's args carry an honest static type. (Empty
+    // tuple short-circuits with `any`, but the loop body never runs.)
+    const elemTypes = arr.map((v) => v.type);
+    const valueType = elemTypes.length === 0
+      ? reg.any()
+      : elemTypes.length === 1 ? elemTypes[0]! : reg.or(elemTypes);
+    const doYield = setupYield(scope, reg, indexType, valueType);
     for (let i = 0; i < arr.length; i++) {
-      await yieldFn(val(reg.num({ whole: true, min: 0 }), i), arr[i]!);
+      await doYield(val(indexType, i), arr[i]!);
     }
     return val(reg.void(), undefined);
   },

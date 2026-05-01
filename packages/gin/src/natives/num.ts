@@ -1,6 +1,6 @@
 import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
-import { arg, epsilon, self } from './helpers';
+import { arg, epsilon, self, setupYield } from './helpers';
 
 export const numNatives: Record<string, NativeImpl> = {
   // comparison (value-approx via epsilon)
@@ -54,14 +54,15 @@ export const numNatives: Record<string, NativeImpl> = {
   // loop: yields (key=0..|n|-1, value=0-toward-n)
   'num.loop': async (scope, reg) => {
     const n = self<number>(scope);
-    const yieldFn = scope.get('yield')!.raw as (k: Value, v: Value) => Promise<Value>;
+    const numType = reg.num();
+    const doYield = setupYield(scope, reg, numType, numType);
     const count = Math.abs(Math.trunc(n));
     const step = n < 0 ? -1 : 1;
     for (let i = 0; i < count; i++) {
       const v = i * step;
       // Normalize negative zero to positive zero for consistent equality.
       const safe = Object.is(v, -0) ? 0 : v;
-      await yieldFn(val(reg.num(), i), val(reg.num(), safe));
+      await doYield(val(numType, i), val(numType, safe));
     }
     return val(reg.void(), undefined);
   },

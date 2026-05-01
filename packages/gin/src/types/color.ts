@@ -30,8 +30,10 @@ export class ColorType extends Type<number, ColorOptions> {
     }).meta({ aid: 'Type_color' });
   }
 
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.number().int().min(0).max(0xffffffff);
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Defer to canonical — base derives the obj shape ({r, g, b, a?})
+    // from `init.args`, matching the runtime contract.
+    return new ColorType(opts.registry, {}).toNewSchema(opts);
   }
 
   valid(raw: unknown): raw is number {

@@ -27,7 +27,14 @@ export class DurationType extends Type<number, Record<string, never>> {
       .meta({ aid: 'Type_duration' });
   }
 
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.number(); }
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Defer to the canonical instance — base `toNewSchema` already
+    // derives the right shape from `init.args` when a constructor is
+    // declared, so duration's `new` schema lines up with the runtime
+    // contract (an obj of {days?, hours?, minutes?, seconds?, ms?})
+    // instead of a bare number.
+    return new DurationType(opts.registry, {}).toNewSchema(opts);
+  }
 
   valid(raw: unknown): raw is number {
     return typeof raw === 'number' && !Number.isNaN(raw);

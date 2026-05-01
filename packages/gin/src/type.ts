@@ -557,9 +557,18 @@ export abstract class Type<T = any, O = any> implements Node {
    * `scope` propagates the call-site TypeScope (see `valid`).
    */
   props(_scope?: TypeScope): Record<string, Prop | PropSpec> {
-    return {
+    // Universal props every type carries.
+    const base: Record<string, Prop | PropSpec> = {
       toAny: this.registry.method({}, this.registry.any(), 'type.toAny'),
     };
+    // Spread registry-augmentation props BEFORE returning. Subclasses
+    // override `props()` and prepend `super.props()` to their own —
+    // so augmentation lands BEFORE the subclass's intrinsic methods,
+    // i.e. intrinsic wins on name conflict (`num.add` can't be
+    // accidentally replaced by augmenting `num` with another `add`).
+    const aug = this.registry.augmentation(this.name);
+    if (!aug?.props) return base;
+    return { ...base, ...aug.props };
   }
 
   /** Names of props defined universally on every Type (via base `props()`).
@@ -578,19 +587,28 @@ export abstract class Type<T = any, O = any> implements Node {
     return [];
   }
 
-  /** Effective GetSet — present iff this type supports [key] access. */
+  /** Effective GetSet — present iff this type supports [key] access.
+   *  Falls back to a registry-augmentation when the type itself
+   *  declares none. Augmentation NEVER overrides an intrinsic — it
+   *  only fills the gap. (Subclasses that declare their own `get`
+   *  override this method and don't consult augmentation.) */
   get(_scope?: TypeScope): GetSet | undefined {
-    return undefined;
+    return this.registry.augmentation(this.name)?.get;
   }
 
-  /** Effective Call — present iff this type is invocable. */
+  /** Effective Call — present iff this type is invocable. Augmented
+   *  via `registry.augment(name, { call })` for types that aren't
+   *  natively callable (e.g. making `timestamp` invocable). */
   call(_scope?: TypeScope): Call | undefined {
-    return undefined;
+    return this.registry.augmentation(this.name)?.call;
   }
 
-  /** Effective Init — present iff this type has a custom constructor. */
+  /** Effective Init — present iff this type has a custom constructor.
+   *  Augmented via `registry.augment(name, { init })` for types that
+   *  don't natively define one. When `init` is set on a type, `new T(args)`
+   *  routes through it — see `NewExpr.evaluate`. */
   init(_scope?: TypeScope): Init | undefined {
-    return undefined;
+    return this.registry.augmentation(this.name)?.init;
   }
 
   /** Convenience over props() — single-name lookup, normalized to Prop. */
@@ -684,9 +702,21 @@ export abstract class Type<T = any, O = any> implements Node {
    * the Zod shape. So `new obj { x: text, y: num }` accepts
    * `{ x: <any expr>, y: <any expr> }`.
    *
-   * Default = `toValueSchema(opts)`; composites override.
+   * Default behaviour:
+   *   - When the type defines `init()` (a constructor), the value
+   *     slot IS the init's args obj. `new <T>(args)` literally calls
+   *     `init.run` with `args` parsed against `init.args`, so the
+   *     schema the LLM sees should be that args type.
+   *   - Otherwise fall through to `toValueSchema(opts)`.
+   *
+   * Composites still override (list / map / obj / tuple / typ / ...
+   * have richer Expr-slot shapes that don't fit the init mould).
    */
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    const init = this.init();
+    if (init) {
+      return this.describeType(init.args.toValueSchema(opts), opts, 'NewValue_');
+    }
     return this.toValueSchema(opts);
   }
 

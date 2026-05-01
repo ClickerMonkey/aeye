@@ -1,5 +1,5 @@
 import type { ExprDef, TypeDef } from './schema';
-import { Prop, Type } from './type';
+import { Call, GetSet, Init, Prop, type PropSpec, Type } from './type';
 import { Extension, type ExtensionLocal } from './extension';
 import {
   type BoolOptions,
@@ -113,11 +113,41 @@ export type NativeImpl = (scope: Scope, registry: Registry) => Value | unknown |
  * to each class's static `from` method, and recurses through nested types
  * via the same entry point.
  */
+/**
+ * Augmentations a developer can attach to a Type by name (e.g. 'num',
+ * 'text', 'Email'). Stored on the Registry; consulted by every Type's
+ * `props()` / `get()` / `call()` / `init()` so the additions are
+ * visible at runtime path-walks, in static analysis, and in code
+ * rendering — without subclassing or wrapping the type in an
+ * Extension.
+ *
+ * Composition rules:
+ *   - `props`: ADDED to the type's intrinsic props. Intrinsic names
+ *     win on conflict (you can't replace `num.add` via augmentation).
+ *     Use this to introduce NEW methods / fields.
+ *   - `get` / `call` / `init`: applied IFF the type has none of its
+ *     own. Augmentation can introduce a missing surface (e.g. give
+ *     `date` a `get/loop`, make `timestamp` callable, give `text` an
+ *     init constructor) but does not override one the type already
+ *     declares.
+ *
+ * Augmentations are accumulated — multiple calls to `registry.augment`
+ * for the same name MERGE props. The first `get`/`call`/`init` that's
+ * defined wins (subsequent attempts to set the same field are no-ops).
+ */
+export interface TypeAugmentation {
+  props?: Record<string, Prop | PropSpec>;
+  get?: GetSet;
+  call?: Call;
+  init?: Init;
+}
+
 export class Registry implements TypeBuilder, TypeScope {
   private readonly classes = new Map<string, TypeClass>();
   private readonly namedTypes = new Map<string, Type>();
   private readonly natives = new Map<string, NativeImpl>();
   private readonly exprClasses = new Map<string, ExprClass>();
+  private readonly augments = new Map<string, TypeAugmentation>();
 
   // ─── SCOPE INTERFACE ─────────────────────────────────────────────────────
   /** Registry IS the root scope. */
@@ -136,6 +166,58 @@ export class Registry implements TypeBuilder, TypeScope {
   register(type: Type): this {
     this.namedTypes.set(type.name, type);
     return this;
+  }
+
+  /**
+   * Add methods / get / call / init to an existing type by name —
+   * works for both built-in classes (`'num'`, `'text'`, `'date'`,
+   * `'timestamp'`, ...) and named instances / Extensions you've
+   * registered. Repeated calls for the same name MERGE: props are
+   * accumulated, while get/call/init keep their first non-undefined
+   * value (subsequent attempts to redefine those are silently
+   * ignored — augmentations fill gaps, they don't override).
+   *
+   * Example — give `date` a `get/loop` so you can iterate over a
+   * range, and make `timestamp` callable as a fn:
+   * ```ts
+   *   registry.augment('date', { get: new GetSet({ key: registry.num(), value: registry.date(), loop: ... }) });
+   *   registry.augment('timestamp', { call: new Call({ args: ..., returns: ... }) });
+   * ```
+   *
+   * Augmented surface flows through every consumer: path-walker
+   * dispatches against augmented `props` / `get` / `call`,
+   * `validateWalk` static analysis sees them, `toCodeDefinition`
+   * renders them in the type's surface block.
+   */
+  augment(name: string, addition: TypeAugmentation): this {
+    const cur = this.augments.get(name);
+    if (!cur) {
+      this.augments.set(name, {
+        props: addition.props ? { ...addition.props } : undefined,
+        get: addition.get,
+        call: addition.call,
+        init: addition.init,
+      });
+      return this;
+    }
+    // Merge into the existing augmentation. Props additive (new wins
+    // on per-name conflict within augmentation itself, but intrinsic
+    // type props still win at consumption time). get/call/init are
+    // first-wins — once set, further attempts no-op.
+    this.augments.set(name, {
+      props: addition.props ? { ...(cur.props ?? {}), ...addition.props } : cur.props,
+      get: cur.get ?? addition.get,
+      call: cur.call ?? addition.call,
+      init: cur.init ?? addition.init,
+    });
+    return this;
+  }
+
+  /** Read the registered augmentation for a type-by-name. Returns
+   *  undefined when nothing has been augmented. Used by `Type.props`
+   *  / `Type.get` / `Type.call` / `Type.init` to overlay additions. */
+  augmentation(name: string): TypeAugmentation | undefined {
+    return this.augments.get(name);
   }
 
   /** Look up a Type by name. Registered named instances win; falls back

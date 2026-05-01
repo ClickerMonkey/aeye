@@ -350,8 +350,24 @@ async function runLoop(
   over: Value,
   yieldFn: (k: Value, v: Value) => Promise<Value>,
 ): Promise<void> {
-  const yieldType = engine.registry.fn(engine.registry.obj({}), engine.registry.void());
-  const yieldValue = new Value(yieldType, yieldFn);
+  // `yield` in the loop scope is a callable Value with args
+  // `obj({key, value})` and void return. The Value form is what makes
+  // it usable from a CUSTOM loop ExprDef (e.g. a `block`/`lambda`
+  // written by a dev that augments a type with their own iteration
+  // shape) — path-walker call sites pass a single args-obj Value, so
+  // yield's signature has to match. Native loop impls receive the
+  // same Value via `scope.get('yield')` and unwrap the two fields.
+  const r = engine.registry;
+  const yieldType = r.fn(
+    r.obj({ key: { type: r.any() }, value: { type: r.any() } }),
+    r.void(),
+  );
+  const wrappedYield = async (argsValue: Value): Promise<Value> => {
+    const fields = argsValue.raw as Record<string, Value> | null | undefined;
+    if (!fields) throw new Error('yield: missing args');
+    return yieldFn(fields['key']!, fields['value']!);
+  };
+  const yieldValue = new Value(yieldType, wrappedYield);
   const loopScope = scope.child({ this: over, yield: yieldValue });
   try {
     await engine.evaluate(loopExpr, loopScope);
