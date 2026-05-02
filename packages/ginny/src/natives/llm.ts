@@ -6,7 +6,32 @@ import { modelFor } from '../model-selection';
 import { getRuntimeSignal } from '../runtime-signal';
 import { logger, genId } from '../logger';
 
+/** Input shape passed to the shared `gin_llm_call` prompt — carries both
+ *  the user prompt and the per-call output schema, so the prompt itself
+ *  is constructed exactly once (at module load) instead of per call. */
+type LlmInput = { prompt: string; schema?: z.ZodType<object | string> };
+
 export function createLlmImpl(registry: Registry, ai: AI<any>) {
+  // Build the prompt ONCE here. Previously this lived inside the
+  // returned closure and ran per `fns.llm` invocation — every call
+  // pushed a fresh Prompt into `ai.components` (see ai.ts:861), which
+  // grew unbounded and OOMed V8. Hoisting it out means we register
+  // exactly one Prompt for the lifetime of the AI instance, and the
+  // per-call data (prompt text + output schema) flows through input.
+  const llmPrompt = ai.prompt({
+    name: 'gin_llm_call',
+    description: 'LLM invocation from gin program',
+    content: '{{userPrompt}}',
+    input: (input: LlmInput) => ({ userPrompt: input.prompt }),
+    // `schema` is a function — the prompt loop calls it per invocation
+    // with the current `input`, so each call gets the schema the
+    // caller wants without needing a fresh Prompt instance. Returning
+    // `false` opts the call into plain-text completion (when there's
+    // no `output` type at all).
+    schema: ((input: LlmInput | undefined) => input?.schema ?? false),
+    metadata: modelFor('llm'),
+  });
+
   return async (argsValue: Value): Promise<Value> => {
     const args = argsValue.raw as Record<string, Value>;
     const promptText = (args['prompt']?.raw ?? '') as string;
@@ -25,7 +50,7 @@ export function createLlmImpl(registry: Registry, ai: AI<any>) {
     // accepts it; we unwrap before parsing so callers see the inner
     // value.
     const innerSchema = outputType ? outputType.toValueSchema() : undefined;
-    let promptSchema: z.ZodType<string | object> | undefined;
+    let promptSchema: z.ZodType<object | string> | undefined;
     let unwrap = false;
     if (innerSchema) {
       if (innerSchema instanceof z.ZodObject || innerSchema instanceof z.ZodString) {
@@ -36,22 +61,13 @@ export function createLlmImpl(registry: Registry, ai: AI<any>) {
       }
     }
 
-    const llmPrompt = ai.prompt({
-      name: 'gin_llm_call',
-      description: 'LLM invocation from gin program',
-      content: '{{userPrompt}}',
-      input: (input: { prompt: string }) => ({ userPrompt: input.prompt }),
-      metadata: modelFor('llm') as any,
-      schema: promptSchema,
-    });
-
     // Plumb the entry-point's interrupt signal through so an ESC during
     // a long llm call cancels the HTTP request rather than hanging.
     const signal = getRuntimeSignal();
     const result = await llmPrompt.get(
       'result',
-      { prompt: promptText },
-      ({ signal } as any),
+      { prompt: promptText, schema: promptSchema },
+      ({ signal }),
     );
 
     const finalResult = unwrap && result && typeof result === 'object'

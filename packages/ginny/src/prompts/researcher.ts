@@ -16,7 +16,7 @@ import { ask } from '../tools/ask';
 export const researcher = ai.prompt({
   name: 'researcher',
   description: 'Answer a factual question by searching the web and reading pages.',
-  metadata: modelFor('researcher') as any,
+  metadata: modelFor('researcher'),
   content: `You are a research assistant. Given a question, use the available web
 tools to find an answer, then respond with your finding.
 

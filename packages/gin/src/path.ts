@@ -14,7 +14,38 @@ import type { Problems } from './problem';
 import type { ValidateContext } from './expr';
 import { LocalScope, type TypeScope } from './type-scope';
 import { joinAuto } from './type';
+import { ObjType } from './types/obj';
 import type { CodeOptions } from './node';
+
+/**
+ * `true` when accessing a prop whose type is a callable (fn / method)
+ * with no required arguments — every field on the args obj is either
+ * `optional<...>` or absent. We auto-invoke such callables on prop
+ * read, so e.g. `optional<T>.has` resolves to the bool result of
+ * `has()` instead of the bare function value. Saves callers from a
+ * trailing `{args: {}}` step that's always empty by definition.
+ *
+ * Only methods (props) auto-call — standalone fn-typed scope vars
+ * (`recurse`, user-bound function values) keep the existing
+ * "function-value on read, called only via explicit `{args: ...}`"
+ * semantics. The walker draws that line by checking whether the
+ * resolution came from a prop access (`current` non-null) vs a
+ * scope lookup (`current === null`); auto-call only runs in the
+ * prop-access branch.
+ */
+function isAutoCallable(propType: Type, scope?: TypeScope): boolean {
+  const call = propType.call(scope);
+  if (!call) return false;
+  const args = call.args;
+  if (!(args instanceof ObjType)) {
+    // Empty / no-args fn — auto-callable.
+    return true;
+  }
+  for (const prop of Object.values(args.fields)) {
+    if (!prop.type.isOptional()) return false;
+  }
+  return true;
+}
 
 /**
  * Path — a sequence of steps against a starting value. The third citizen
@@ -279,6 +310,23 @@ export class Path {
           continue;
         }
 
+        // Auto-call: prop is a method with no required args, no
+        // explicit `{args: ...}` step follows. Synthesize an empty-
+        // args call so `optional<T>.has` reads as the bool result,
+        // not the bare function value. Only triggers in the
+        // prop-access branch (current !== null) — standalone fn vars
+        // in scope still resolve to their function value.
+        if (!nextIsCall && isAutoCallable(prop.type)) {
+          const argsValue = await new CallStep({}, undefined, undefined).buildArgsValue(prop.type, scope, engine);
+          if (isLast && mode.mode === 'set') {
+            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, prop.type);
+            return okSet();
+          }
+          current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, prop.type);
+          i++;
+          continue;
+        }
+
         if (isLast && mode.mode === 'set') {
           await prop.write(current, step.prop, mode.setValue!, scope, engine);
           return okSet();
@@ -396,6 +444,16 @@ export class Path {
           i += 2;
           continue;
         }
+        // Auto-call zero-required-arg methods on prop access (see
+        // `isAutoCallable` for the rule). Mirrors the runtime branch
+        // in `evaluate` so static type inference matches what the
+        // program will actually return.
+        if (!(next instanceof CallStep) && isAutoCallable(propI.type)) {
+          const ret: Type | undefined = propI.type.call()?.returns;
+          current = ret ?? engine.registry.any();
+          i++;
+          continue;
+        }
         current = propI.type;
         i++;
         continue;
@@ -484,6 +542,15 @@ export class Path {
           const ret: Type | undefined = callable?.returns;
           current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
           i += 2;
+          continue;
+        }
+        // Auto-call zero-required-arg methods on prop access: mirrors
+        // `evaluate` and `typeOf` so a program like `args.opt.has`
+        // type-checks as bool (the call's return) instead of fn.
+        if (!(next instanceof CallStep) && isAutoCallable(propV.type)) {
+          const ret: Type | undefined = propV.type.call()?.returns;
+          current = ret ?? engine.registry.any();
+          i++;
           continue;
         }
         if (mode === 'set' && isLast) {

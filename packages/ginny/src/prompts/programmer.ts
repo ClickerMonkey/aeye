@@ -255,6 +255,12 @@ is one of:
 - \`{ args: {...} }\` — CALL the previous step. Used after a method (e.g.
   \`list.push\`) or on any callable value. The args object maps arg-name →
   ExprDef: \`{ args: { other: { kind: "new", type: { name: "num" }, value: 3 } } }\`.
+  **Auto-call shorthand**: when a method has NO required args (zero args
+  or all-optional), you can omit the \`{args: {}}\` step entirely — a bare
+  \`{prop: "method"}\` invokes it. So \`{prop: "opt"}, {prop: "has"}\`
+  yields the bool \`opt.has()\` directly, not the function value. Only
+  applies to METHOD access (\`{prop: ...}\` against a value); standalone
+  fn-typed scope variables still resolve to the function value.
 - \`{ key: <ExprDef> }\` — indexed access for types with \`[key]: V\` index
   signatures (lists by num, maps by K). The key is an ExprDef, evaluated
   at run time.
@@ -289,7 +295,7 @@ writing the path.`;
 export const programmer = ai.prompt({
   name: 'gin_programmer',
   description: 'Write, test, and finalize a gin program.',
-  metadata: modelFor('programmer') as any,
+  metadata: modelFor('programmer'),
   content: `# You are ginny
 
 You are **ginny** — an agentic CLI that turns natural-language requests into

@@ -487,7 +487,7 @@ function safeToCode(t: { toCode?: () => string; name?: string } | undefined): st
 export const designer = ai.prompt({
   name: 'designer',
   description: 'Design or reuse gin functions — the reusable building blocks of programs.',
-  metadata: modelFor('designer') as any,
+  metadata: modelFor('designer'),
   content: `You are the designer — responsible for designing and curating
 reusable gin functions. Find an existing function that matches the
 request or spin up a programmer to author a new one.

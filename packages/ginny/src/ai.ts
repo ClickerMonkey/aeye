@@ -20,55 +20,66 @@ import { MODEL_KEYS } from './model-selection';
 loadConfig(process.cwd());
 
 /**
- * Provider-level hooks that log the actual wire payload — the params
- * object the provider hands to the SDK's API call. This is what OpenAI
- * / OpenRouter / AWS actually sees (JSON Schema tools, flattened message
- * content, etc.) — drastically more useful for debugging 400s like
- * "Invalid schema for function 'write'" than logging the pre-serialized
- * internal `Request`.
+ * Provider-level hooks that log a SUMMARY of the wire payload. We used
+ * to dump the full `params` and `responseComplete` objects via
+ * `logger.logObject` — but ginny registers ~20 tools, each with a
+ * deeply-recursive Zod schema, so a serialized request was easily
+ * 10–50 MB. Multiplied by the request fan-out a designer makes per
+ * turn, JSON.stringify ate gigabytes of intermediate strings and V8
+ * OOMed. The summary captures the load-bearing fields (model, message
+ * count, tool count, finish reason, usage) — which is what's
+ * diagnostic anyway. Set `GIN_LOG_FULL_PAYLOAD=1` if you genuinely
+ * need the raw request/response (e.g. debugging a 400) and accept
+ * the memory cost.
  */
-const openaiChatHooks = {
-  beforeRequest: (_req: unknown, params: unknown) => {
-    logger.log('── OPENAI chat beforeRequest ──');
-    logger.logObject('params', params);
-  },
-  afterRequest: (_req: unknown, _params: unknown, _response: unknown, responseComplete: unknown) => {
-    logger.log('── OPENAI chat afterRequest ──');
-    logger.logObject('response', responseComplete);
-  },
-  onError: (_req: unknown, params: unknown, error: unknown) => {
-    logger.log('── OPENAI chat onError ──');
-    logger.logObject('params', params);
-    logger.logObject('error', error);
-  },
-};
+const LOG_FULL = !!process.env['GIN_LOG_FULL_PAYLOAD'];
 
-const openrouterChatHooks = {
-  beforeRequest: (_req: unknown, params: unknown) => {
-    logger.log('── OPENROUTER chat beforeRequest ──');
-    logger.logObject('params', params);
-  },
-  afterRequest: (_req: unknown, _params: unknown, _response: unknown, responseComplete: unknown) => {
-    logger.log('── OPENROUTER chat afterRequest ──');
-    logger.logObject('response', responseComplete);
-  },
-  onError: (_req: unknown, params: unknown, error: unknown) => {
-    logger.log('── OPENROUTER chat onError ──');
-    logger.logObject('params', params);
-    logger.logObject('error', error);
-  },
-};
+function summarizeParams(params: unknown): string {
+  const p = params as { model?: string; messages?: unknown[]; tools?: unknown[]; tool_choice?: unknown; response_format?: unknown };
+  if (!p || typeof p !== 'object') return String(params);
+  return [
+    p.model ? `model=${p.model}` : null,
+    p.messages ? `messages=${p.messages.length}` : null,
+    p.tools ? `tools=${p.tools.length}` : null,
+    p.response_format ? `response_format=${(p.response_format as { type?: string })?.type ?? 'set'}` : null,
+  ].filter(Boolean).join(' ');
+}
 
-const awsChatHooks = {
-  beforeRequest: (_req: unknown, params: unknown) => {
-    logger.log('── AWS chat beforeRequest ──');
-    logger.logObject('params', params);
-  },
-  afterRequest: (_req: unknown, _params: unknown, _response: unknown, responseComplete: unknown) => {
-    logger.log('── AWS chat afterRequest ──');
-    logger.logObject('response', responseComplete);
-  },
-};
+function summarizeResponse(resp: unknown): string {
+  const r = resp as { choices?: Array<{ finish_reason?: string; message?: { content?: string; tool_calls?: unknown[] } }>; usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number } };
+  if (!r || typeof r !== 'object') return String(resp);
+  const choice = r.choices?.[0];
+  return [
+    choice?.finish_reason ? `finish=${choice.finish_reason}` : null,
+    choice?.message?.tool_calls ? `tool_calls=${choice.message.tool_calls.length}` : null,
+    typeof choice?.message?.content === 'string' ? `content_len=${choice.message.content.length}` : null,
+    r.usage ? `tokens=${r.usage.total_tokens ?? '?'} (in=${r.usage.prompt_tokens ?? '?'} out=${r.usage.completion_tokens ?? '?'})` : null,
+  ].filter(Boolean).join(' ');
+}
+
+function makeChatHooks(provider: string) {
+  return {
+    beforeRequest: (_req: unknown, params: unknown) => {
+      logger.log(`── ${provider} chat beforeRequest ── ${summarizeParams(params)}`);
+      if (LOG_FULL) logger.logObject('params', params);
+    },
+    afterRequest: (_req: unknown, _params: unknown, _response: unknown, responseComplete: unknown) => {
+      logger.log(`── ${provider} chat afterRequest ── ${summarizeResponse(responseComplete)}`);
+      if (LOG_FULL) logger.logObject('response', responseComplete);
+    },
+    onError: (_req: unknown, params: unknown, error: unknown) => {
+      // Errors are rare and load-bearing for diagnosis — log the full
+      // params + error here regardless of the cap.
+      logger.log(`── ${provider} chat onError ── ${summarizeParams(params)}`);
+      logger.logObject('params', params);
+      logger.logObject('error', error);
+    },
+  };
+}
+
+const openaiChatHooks = makeChatHooks('OPENAI');
+const openrouterChatHooks = makeChatHooks('OPENROUTER');
+const awsChatHooks = makeChatHooks('AWS');
 
 /**
  * Shared retry-event handlers — every provider that accepts a `retryEvents`

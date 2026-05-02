@@ -67,7 +67,7 @@ const createVar = ai.tool({
 export const dba = ai.prompt({
   name: 'dba',
   description: 'Curate the catalog of named typed values (vars.*).',
-  metadata: modelFor('dba') as any,
+  metadata: modelFor('dba'),
   content: `You are the dba — keeper of the catalog of named typed values
 (\`vars.*\`) persisted to disk. Each entry is a typed datum any gin program
 can read from \`vars.<name>\`. Find an existing entry that matches the

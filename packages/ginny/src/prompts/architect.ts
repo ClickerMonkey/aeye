@@ -39,7 +39,7 @@ const getType = ai.tool({
 export const architect = ai.prompt({
   name: 'architect',
   description: 'Design or pick gin types that satisfy a shape request.',
-  metadata: modelFor('architect') as any,
+  metadata: modelFor('architect'),
   content: `You are the architect for a gin program — responsible for picking
 or designing the gin types a request needs.
 Given a description, find existing types or define new ones.

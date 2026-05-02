@@ -107,8 +107,13 @@ export class DefineExpr extends Expr {
       // CAN omit it; the only reason to set it is to constrain the
       // value, so a mismatch is always wrong.)
       if (v.type && !v.type.compatible(valueT)) {
+        // Render the full TypeCode so the LLM sees `or<optional<num>, num>`
+        // and `num{min:1,max:1000}` instead of just `'or'` and `'num'` —
+        // the bare class names give it nothing to act on.
+        const declaredCode = safeTypeCode(v.type);
+        const valueCode = safeTypeCode(valueT);
         p.at(['vars', i, 'value'], () => p.error('define.var.type-mismatch',
-          `var '${v.name}' value type '${valueT.name}' not compatible with declared '${v.type!.name}'`));
+          `var '${v.name}' value type '${valueCode}' not compatible with declared '${declaredCode}'`));
       }
       child.set(v.name, v.type ?? valueT);
     }
@@ -165,4 +170,11 @@ export class DefineExpr extends Expr {
     for (const v of this.vars) visit(v.value, 'inherit');
     visit(this.body, 'inherit');
   }
+}
+
+/** Render a Type's `toCode()` for use in error messages. Falls back to
+ *  the bare class name if `toCode()` throws (e.g. on a partially-built
+ *  AliasType during validation walks). */
+function safeTypeCode(t: Type): string {
+  try { return t.toCode(); } catch { return t.name; }
 }

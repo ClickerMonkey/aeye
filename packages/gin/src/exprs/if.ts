@@ -83,8 +83,16 @@ export class IfExpr extends Expr {
       const condT = p.at(['ifs', i, 'condition'], () =>
         walkValidate(engine, br.condition, scope, p, ctx));
       if (!bool.compatible(condT)) {
+        // Render the full TypeCode (e.g. `fn(x: num): bool` or
+        // `optional<num>`) so the LLM sees what it's actually
+        // looking at — naked `'fn'` / `'optional'` is a class name
+        // with no clue to act on. Common mistake: forgetting `()`
+        // on a method, leaving the function-value rather than its
+        // bool result.
+        let condCode: string;
+        try { condCode = condT.toCode(); } catch { condCode = condT.name; }
         p.at(['ifs', i, 'condition'], () =>
-          p.warn('if.condition.type', `if condition should be bool, got '${condT.name}'`));
+          p.warn('if.condition.type', `if condition should be bool, got '${condCode}' (did you forget to call a method?)`));
       }
       ts.push(p.at(['ifs', i, 'body'], () => walkValidate(engine, br.body, scope, p, ctx)));
     }
