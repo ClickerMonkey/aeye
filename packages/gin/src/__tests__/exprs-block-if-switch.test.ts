@@ -82,4 +82,45 @@ describe('evalSwitch', () => {
     });
     expect(v.raw).toBe(-1);
   });
+
+  test('toCode: bodies render as plain indented statements (no out-of-sync braces)', () => {
+    // Reproduces the user's example. The previous `renderStatementBody`
+    // wrapping in `{ ... }` and re-indenting via `indentCode` shifted
+    // the closing brace above the break statement; this asserts the
+    // new clean form: case label, body line(s) at +4, optional break
+    // at +4, default likewise.
+    const code = e.toCode({
+      kind: 'switch',
+      value: { kind: 'get', path: [{ prop: 'y' }] },
+      cases: [{
+        equals: [{ kind: 'new', type: { name: 'num' }, value: 5 }],
+        body: { kind: 'new', type: { name: 'text' }, value: 'y is five' },
+      }],
+      else: { kind: 'new', type: { name: 'text' }, value: 'y is not five' },
+    } as any);
+    expect(code).toBe(
+      'switch (y) {\n' +
+      '  case 5:\n' +
+      '    "y is five";\n' +
+      '    break;\n' +
+      '  default:\n' +
+      '    "y is not five";\n' +
+      '}',
+    );
+  });
+
+  test('toCode: case body that is a `flow` skips the auto-`break`', () => {
+    // A return / throw / exit terminates control flow on its own —
+    // appending `break;` after would be unreachable.
+    const code = e.toCode({
+      kind: 'switch',
+      value: { kind: 'get', path: [{ prop: 'x' }] },
+      cases: [{
+        equals: [{ kind: 'new', type: { name: 'num' }, value: 1 }],
+        body: { kind: 'flow', action: 'return', value: { kind: 'new', type: { name: 'num' }, value: 99 } },
+      }],
+    } as any);
+    expect(code).toContain('case 1:\n    return 99;');
+    expect(code).not.toContain('return 99;\n    break;');
+  });
 });

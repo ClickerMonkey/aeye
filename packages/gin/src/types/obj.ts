@@ -25,8 +25,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   readonly fields: Record<string, Prop>;
 
   static from(json: TypeDef, scope: TypeScope): ObjType {
-    const registry = scope.registry;
-    const fieldDefs = (json.props ?? {}) as Record<string, PropDef>;
+    const fieldDefs = json.props ?? {};
     const fields = decodeProps(fieldDefs, scope);
     return new ObjType(scope, fields);
   }
@@ -271,7 +270,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     const fields: Record<string, PropSpec> = {};
     for (const [name, value] of Object.entries(data)) {
       // Fall back to any — deeper inference is the describer's job, not ours.
-      const inferred = (this.registry.any() as Type).describe?.(value) ?? this.registry.any();
+      const inferred = this.registry.any().describe?.(value) ?? this.registry.any();
       fields[name] = { type: inferred };
     }
     return new ObjType(this.registry, fields);

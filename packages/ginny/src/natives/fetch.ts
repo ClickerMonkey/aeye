@@ -8,6 +8,23 @@ import {
   BINARY_TYPES,
 } from '../web-content';
 
+/**
+ * Two distinct return shapes, both surfaced through one `output` arg:
+ *
+ *   - `output: typ<text>` — caller wants the body as text. Markdown
+ *     conversion (`convert: "markdown"`, default) or raw passthrough
+ *     (`convert: "raw"`) applies. Result is a `text` Value.
+ *   - `output: typ<obj{...}>` (or list / etc.) — caller wants the
+ *     JSON body parsed against a concrete shape. The body is
+ *     `JSON.parse`d and then `outputType.parse`d. `convert` is
+ *     irrelevant here.
+ *
+ * `output` is REQUIRED (vs. previously optional) — keeping it bound
+ * means the fn's return type `R` is always concrete at the call
+ * site, so `define x: text = fns.fetch(...)` doesn't trip the
+ * "value type 'R' not compatible with declared 'text'" error the
+ * model couldn't figure out.
+ */
 export function createFetchImpl(registry: Registry) {
   return async (argsValue: Value): Promise<Value> => {
     const args = argsValue.raw as Record<string, Value>;
@@ -28,24 +45,24 @@ export function createFetchImpl(registry: Registry) {
       bodyStr = typeof bodyRaw === 'string' ? bodyRaw : JSON.stringify(bodyRaw);
     }
 
-    const outputType = args['output']?.raw as Type | undefined;
-    // 'markdown' (default): convert HTML/PDF/DOCX/XLSX to markdown,
-    // wrap JSON/CSV/source in fenced text — the readable form.
-    // 'raw': return the response body untouched, useful when the
-    // caller wants the literal HTML/JSON/etc. for downstream parsing.
-    // Ignored when `output` is set (typed-JSON path always JSON-parses
-    // the raw body).
+    const outputType = args['output']?.raw as Type;
     const convert = ((args['convert']?.raw as string | null) ?? 'markdown') as 'markdown' | 'raw';
 
     // Forward the entry-point's interrupt signal so an ESC during a
     // long fetch tears down the underlying HTTP request immediately.
     const signal = getRuntimeSignal();
 
-    // Output-typed branch: caller wants the JSON body parsed against a
-    // specific gin Type (typed obj, list, etc.). Take the raw text,
-    // JSON-parse it, type-parse it. Markdown conversion would mangle
-    // the structure here, so it's deliberately skipped.
-    if (outputType) {
+    // Decide between text-shaped and structured-JSON modes by the
+    // outputType's runtime class. `text` (and any TextType
+    // refinement) routes through the markdown / raw text paths;
+    // anything else is treated as structured JSON.
+    const wantsText = outputType?.name === 'text';
+
+    if (!wantsText) {
+      // Structured JSON path: fetch raw body, JSON.parse, type-parse
+      // against `outputType`. If JSON parse fails (caller hit a
+      // non-JSON endpoint), fall through to a text Value of the raw
+      // body so the model can see what came back.
       let bodyText = '';
       try {
         const resp = await globalThis.fetch(url, {
@@ -66,13 +83,8 @@ export function createFetchImpl(registry: Registry) {
       }
     }
 
-    // Untyped branch: by default convert whatever the URL returned
-    // to readable markdown / plaintext so the caller's program (or,
-    // more often, an `fns.llm` summarization step downstream) gets
-    // clean text instead of raw HTML / PDF bytes / spreadsheet
-    // binary. `convert: "raw"` returns the response body untouched
-    // — useful for downstream parsing or when you want the literal
-    // HTML/CSS source.
+    // Text path: convert the body for readability (default), or
+    // pass through raw for callers that want the literal source.
     try {
       const resp = await globalThis.fetch(url, {
         method,
@@ -85,10 +97,6 @@ export function createFetchImpl(registry: Registry) {
       }
 
       if (convert === 'raw') {
-        // Skip every conversion: return the body as-is. We still go
-        // through `text()` so the caller gets a string regardless of
-        // content-type; binary URLs (PDF, etc.) yield best-effort
-        // utf-8. Use `convert: "markdown"` for those.
         const raw = await resp.text();
         return val(registry.text(), raw);
       }
@@ -100,10 +108,9 @@ export function createFetchImpl(registry: Registry) {
       if (contentType === 'html' && method === 'GET') {
         // Re-fetch via headless browser so JS-rendered SPA pages
         // aren't returned as empty <body> shells. Puppeteer is GET-
-        // only — for non-GET HTML (rare) we fall back to the raw
-        // response body. The signal is plumbed in so an ESC during
-        // a slow render kills the browser instead of letting it
-        // hang for the full 30s wall-clock cap.
+        // only — for non-GET HTML we fall back to the raw response.
+        // The signal is plumbed in so an ESC during a slow render
+        // kills the browser instead of letting it hang.
         raw = await fetchHtmlWithPuppeteer(url, signal);
       } else if (BINARY_TYPES.has(contentType)) {
         raw = Buffer.from(await resp.arrayBuffer());
@@ -131,25 +138,25 @@ export function registerFetchType(registry: Registry) {
 
   return registry.fn(
     registry.obj({
-      url:     { type: registry.text(), docs: 'URL to fetch' },
-      method:  { type: registry.optional(httpMethod) },
-      headers: { type: registry.optional(registry.map(registry.text(), registry.text())) },
-      body:    { type: registry.optional(registry.any()) },
+      url:     { type: registry.text(), docs: 'URL to fetch.' },
+      method:  { type: registry.optional(httpMethod), docs: 'HTTP method (default GET).' },
+      headers: { type: registry.optional(registry.map(registry.text(), registry.text())), docs: 'Optional request headers.' },
+      body:    { type: registry.optional(registry.any()), docs: 'Optional request body. Objects are JSON.stringify-d before sending.' },
       convert: {
         type: registry.optional(convertMode),
-        docs: 'How to deliver the response body when `output` is NOT set. "markdown" (default) auto-converts HTML/PDF/DOCX/XLSX to markdown via headless browser + parsers, and wraps JSON/CSV/source in fenced text — the readable form, ideal for piping into `fns.llm`. "raw" returns the response body untouched as text, for callers that want literal HTML/JSON/etc. for their own parsing. Ignored when `output` is set (typed-JSON path always JSON-parses the raw body).',
+        docs: 'Only meaningful when `output: typ<text>`. "markdown" (default) auto-converts HTML / PDF / DOCX / XLSX to markdown via a headless browser + parsers and wraps JSON / CSV / source in fenced text — the readable form, ideal for piping into `fns.llm`. "raw" returns the response body untouched, for callers that want the literal source. When `output` is a structured type (obj / list / etc.), `convert` is ignored — the body is always JSON-parsed.',
       },
       output:  {
-        type: registry.optional(registry.typ(registry.alias('R'))),
-        docs: 'gin Type to parse the JSON response body through. ONLY set this for JSON APIs where you know the response shape — the body is JSON.parse-d and parsed against this type. WITHOUT this, fns.fetch returns a single text block (markdown by default, raw if `convert: "raw"`).',
+        // REQUIRED — not optional. Keeping the generic R bound at every
+        // call site means callers can write `define x: text = fns.fetch(...)`
+        // without tripping a `define.var.type-mismatch` against the
+        // unbound 'R'.
+        type: registry.typ(registry.alias('R')),
+        docs: 'REQUIRED. The gin Type the call site expects back. Two common shapes: `output: typ<text>` for free-form content (HTML pages, articles, PDFs, raw API responses) — pair with `convert: "markdown"` (default) or `convert: "raw"`. `output: typ<<some obj/list>>` for JSON APIs where the response shape is known — the body is JSON.parse-d and parsed against the type. Required so the fn\'s generic R is always bound; without it, declaring a return-type-annotated variable from the call site would mismatch.',
       },
     }),
     registry.alias('R'),
     undefined,
-    // Constraint on R, not a default. fetch is fully untyped from gin's
-    // perspective — the response body is whatever the remote server
-    // hands back, and `output:` parses it into any gin Type the caller
-    // asks for. `any` reflects that.
     { R: registry.any() },
   );
 }

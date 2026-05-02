@@ -119,8 +119,8 @@ export class FlowExpr extends Expr {
       case 'return':   code = this.value ? `return ${this.value.toCode(registry, valueOpts)}` : 'return'; break;
       case 'throw':    code = this.error ? `throw ${this.error.toCode(registry, valueOpts)}` : 'throw'; break;
       case 'exit':     code = this.value
-        ? `/* exit */ return ${this.value.toCode(registry, valueOpts)}`
-        : '/* exit */ return'; break;
+        ? `exit ${this.value.toCode(registry, valueOpts)}`
+        : 'exit'; break;
       default: code = '';
     }
     return prefix + code;

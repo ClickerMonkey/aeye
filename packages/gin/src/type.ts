@@ -71,7 +71,7 @@ export class Prop {
   // ─── runtime ops (called by Path.walk) ─────────────────────────────────
 
   /** Read this prop on `self`: evaluate get Expr with {this, super?}, or
-   *  fall back to direct object-field lookup. */
+   *  delegate to the parent type's `propGet` fallback. */
   async read(self: Value, name: string, scope: Scope, engine: Engine): Promise<Value> {
     if (this.get) {
       const bindings: Record<string, Value> = { this: self };
@@ -79,18 +79,36 @@ export class Prop {
       if (sup) bindings.super = sup;
       return engine.evaluate(this.get, scope.child(bindings));
     }
-    const raw = (self.raw as Record<string, unknown> | null | undefined)?.[name];
-    if (raw instanceof Value) return raw;
-    return val(this.type, raw);
+    return self.type.propGet(self, name, this.type);
   }
 
-  /** Write this prop on `self` with the given value. */
+  /**
+   * Write this prop on `self` with the given value.
+   *
+   *   1. Prop declares an explicit `set` Expr → run it.
+   *   2. Prop is COMPUTED (`get` Expr present, no `set`, type not
+   *      callable) → throw; there's no slot to hold a written value.
+   *   3. Otherwise → delegate to the parent type's `propSet`. Each
+   *      Type subclass decides whether prop writes are meaningful
+   *      against its raw shape (obj / iface / any: yes; num / text /
+   *      list: no — `propSet` throws there).
+   *
+   * Method-typed props carry their body in `this.get`, so the
+   * `!this.type.call()` guard keeps method assignment from being
+   * mis-flagged as a computed-prop write.
+   */
   async write(self: Value, name: string, value: Value, scope: Scope, engine: Engine): Promise<void> {
-    if (!this.set) throw new Error(`path: prop '${name}' has no set expression`);
-    const bindings: Record<string, Value> = { this: self, value };
-    const sup = self.type.propSuperFor(self, name, 'set', scope, engine);
-    if (sup) bindings.super = sup;
-    await engine.evaluate(this.set, scope.child(bindings));
+    if (this.set) {
+      const bindings: Record<string, Value> = { this: self, value };
+      const sup = self.type.propSuperFor(self, name, 'set', scope, engine);
+      if (sup) bindings.super = sup;
+      await engine.evaluate(this.set, scope.child(bindings));
+      return;
+    }
+    if (this.get && !this.type.call()) {
+      throw new Error(`path: prop '${name}' is computed (has 'get', no 'set') — cannot assign to it`);
+    }
+    self.type.propSet(self, name, value);
   }
 
   /**
@@ -940,6 +958,64 @@ export abstract class Type<T = any, O = any> implements Node {
     _engine: Engine,
   ): Value | undefined {
     return undefined;
+  }
+
+  // ─── STRUCTURAL PROP ACCESS (default fallbacks) ─────────────────────────
+  //
+  // `Prop.read` and `Prop.write` delegate to these when the prop has no
+  // explicit `get` / `set` Expr. Each Type subclass decides whether prop
+  // access against its raw shape is meaningful:
+  //
+  //   - obj / iface / any / extension: yes — raw is structurally a
+  //     `Record<string, …>`. The default implementations below already
+  //     do the right thing for those.
+  //   - num / text / bool / list / map / fn / tuple / enum / literal /
+  //     date / duration / timestamp / color / void / null: no — raw
+  //     isn't an object. `propGet` returns `Value(propType, undefined)`
+  //     (which gracefully turns into undefined / null reads); `propSet`
+  //     throws with a clear message.
+  //
+  // Subclasses can override either method to enforce stricter semantics
+  // (e.g. an immutable type rejecting `propSet`, or a typed accessor
+  // that wraps raw values according to a per-slot schema).
+
+  /**
+   * Read the structural slot at `name` from `self`. The `propType` is
+   * the prop's declared type, used to wrap a non-Value raw into a
+   * typed Value.
+   *
+   * Default behaviour: treat `self.raw` as object-shaped, look up
+   * `raw[name]`, and return either the stored Value (already typed)
+   * or wrap a raw scalar into `val(propType, raw)`. For raws that
+   * aren't object-shaped this returns `val(propType, undefined)` —
+   * which is what `Prop.read` would have produced before. Types
+   * with non-object raws should generally not have props declared
+   * against them, so this branch is rarely exercised.
+   */
+  propGet(self: Value, name: string, propType: Type): Value {
+    const raw = self.raw && typeof self.raw === 'object'
+      ? (self.raw as Record<string, unknown>)[name]
+      : undefined;
+    if (raw instanceof Value) return raw;
+    return val(propType, raw);
+  }
+
+  /**
+   * Write `value` into the structural slot at `name` on `self`.
+   *
+   * Default behaviour: assign directly into `self.raw[name]` for
+   * object-shaped raws (works for `obj`, `iface`, `any`, plus any
+   * Value backed by a plain JS object — including the `vars` proxy,
+   * which observes the assignment via its `set` trap and marks the
+   * slot dirty for persistence). Types with non-object raws throw
+   * with a clear message — there's nowhere to put the value.
+   */
+  propSet(self: Value, name: string, value: Value): void {
+    if (self.raw && typeof self.raw === 'object') {
+      (self.raw as Record<string, unknown>)[name] = value;
+      return;
+    }
+    throw new Error(`type '${this.name}': cannot set prop '${name}' — value's raw is not an object`);
   }
 
   // ─── VALIDATE ────────────────────────────────────────────────────────────

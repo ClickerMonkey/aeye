@@ -554,8 +554,23 @@ export class Path {
           continue;
         }
         if (mode === 'set' && isLast) {
-          if (!propV.set) {
-            p.at(['path', i], () => p.error('set.prop.no-set', `prop '${step.prop}' has no set expression`));
+          // Writing to a prop is allowed unless it's genuinely
+          // impossible. The only impossible case is a computed
+          // VALUE prop — `get` Expr present, no `set` Expr, and the
+          // prop's type is NOT callable. For those, the read is
+          // derived from `this` (no underlying slot to write into).
+          //
+          // Method-typed props (`propV.type.call()`) are NOT flagged
+          // here even if `propV.set` is missing — `propV.type.call()
+          // .set` could route the assignment through the call's own
+          // setter, or an extension could add a custom `propV.set`,
+          // or the runtime can fall through to a raw assignment.
+          // The validator doesn't have enough information at this
+          // step to decide; the runtime surfaces a clear error if
+          // the assignment is genuinely impossible.
+          if (!propV.set && propV.get && !propV.type.call()) {
+            p.at(['path', i], () => p.error('set.prop.computed',
+              `prop '${step.prop}' is computed (read-only); cannot assign to it`));
           }
         }
         current = propV.type;

@@ -168,7 +168,15 @@ export interface LambdaExprDef extends ExprDef {
 export interface TemplateExprDef extends ExprDef {
   kind: 'template';
   template: string;
-  params: ExprDef;  // expression that evaluates to an object with param values
+  /**
+   * Optional expression evaluating to an obj whose props supply
+   * placeholder values. When omitted (or when a particular `{name}`
+   * key isn't on the obj), placeholders fall back to a scope lookup
+   * — so a `${baseUrl}` placeholder resolves to the surrounding
+   * `define` of the same name. Provide `params` only when the
+   * placeholders need values that aren't already in scope.
+   */
+  params?: ExprDef;
 }
 
 export interface FlowExprDef extends ExprDef {

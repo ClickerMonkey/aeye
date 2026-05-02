@@ -9,7 +9,7 @@ import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { indentCode, renderStatementBody, findEscapingFlow } from './code';
+import { indentCode, findEscapingFlow } from './code';
 import { FlowExpr } from './flow';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
@@ -133,14 +133,47 @@ export class SwitchExpr extends Expr {
       return prefix + `(() => {\n  switch (${head}) {\n${cases}${def}\n  }\n})()`;
     }
 
+    // Render each case-body as plain indented statements — no brace
+    // wrapping. Wrapping in `{ ... }` made the indentation get out
+    // of sync (the brace landed at one level, the body at another,
+    // and the closing `}` floated above `break`). Bare statement
+    // lines indented by 4 spaces match the case-label indent + 2
+    // and read cleanly:
+    //
+    //   case 5:
+    //     "y is five";
+    //     break;
+    //   default:
+    //     "y is not five";
+    //
+    // FlowExpr bodies (`return X` / `break` / `throw X`) skip the
+    // automatic trailing `break;` since they already escape; their
+    // own `;` is appended below.
+    const renderBody = (expr: Expr): string => {
+      const kind = (expr as { kind: string }).kind;
+      if (expr instanceof FlowExpr) {
+        return expr.toCode(registry, { ...options, expectsValue: false }) + ';';
+      }
+      // Self-bracing forms — block / if / switch / loop emit their
+      // own structure as statements; just take their statement
+      // rendering verbatim.
+      if (kind === 'block' || kind === 'if' || kind === 'switch' || kind === 'loop') {
+        return expr.toCode(registry, { ...options, expectsValue: false });
+      }
+      // Expression statement — add `;` so it reads as a statement.
+      return expr.toCode(registry, { ...options, expectsValue: true }) + ';';
+    };
+    const indentBody = (code: string): string =>
+      code.split('\n').map((l) => '    ' + l).join('\n');
+
     const cases = this.cases.map((c) => {
       const labels = c.equals.map((e) => `  case ${e.toCode(registry, valueOpts)}:`).join('\n');
-      const bodyCode = renderStatementBody(c.body, registry, options);
+      const body = indentBody(renderBody(c.body));
       const tail = c.body instanceof FlowExpr ? '' : '\n    break;';
-      return `${labels}\n    ${indentCode(bodyCode)}${tail}`;
+      return `${labels}\n${body}${tail}`;
     }).join('\n');
     const def = this.otherwise
-      ? `\n  default:\n    ${indentCode(renderStatementBody(this.otherwise, registry, options))}`
+      ? `\n  default:\n${indentBody(renderBody(this.otherwise))}`
       : '';
     return prefix + `switch (${head}) {\n${cases}${def}\n}`;
   }

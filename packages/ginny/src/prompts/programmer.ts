@@ -57,6 +57,32 @@ function placeholderize(r: Registry, cls: { NAME: string; from: (def: TypeDef, r
  * so any new class added to gin or extension registered mid-session
  * flows through automatically — no hand-maintained list to keep in sync.
  */
+/**
+ * Render the saved fns currently loaded into the engine's globals as a
+ * bulleted list of `name: signature` entries. Every recursive
+ * programmer shares the same engine, so once a fn has been registered
+ * (via `find_or_create_functions`, `search_fns`, or `print_fn`), it
+ * stays callable for the rest of the session and shows up here for
+ * EVERY subsequent programmer iteration's system prompt — no
+ * `search_fns` round-trip needed to discover what's already there.
+ *
+ * Returns an empty string when no fns are loaded yet, so the prompt
+ * can swallow the section cleanly.
+ */
+function buildLoadedFnsDocs(ctx: { registry: Registry; store: { readFn(name: string): TypeDef }; loadedFns: Set<string> }): string {
+  if (ctx.loadedFns.size === 0) return '';
+  const lines: string[] = [];
+  for (const name of [...ctx.loadedFns].sort()) {
+    try {
+      const t = ctx.registry.parse(ctx.store.readFn(name));
+      lines.push(`- \`${name}\`: ${t.toCode()}`);
+    } catch {
+      lines.push(`- \`${name}\`: <unparseable>`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function buildTypeDocs(r: Registry): string {
   const seen = new Set<string>();
   const docs: string[] = [];
@@ -438,15 +464,63 @@ names, index signatures, and call signatures exist on each type:
 {{typeDocs}}
 \`\`\`
 
+## Saved functions currently loaded in this session
+
+These are TOP-LEVEL globals (not under \`fns.*\`) and are immediately
+callable as \`<name>({args})\`. Every recursive programmer shares the
+same engine, so anything listed here was registered by an earlier
+turn / sub-agent and is ready to use without a \`search_fns\` round-
+trip:
+
+\`\`\`
+{{loadedFnsDocs}}
+\`\`\`
+
+When this section is empty, no saved fns are loaded yet — call
+\`search_fns\` to discover any on disk, or \`find_or_create_functions\`
+to author a new one.
+
 ${EXPR_KINDS}
 ${PATH_EXPLANATION}
 
 ## Globals always available
-- \`fns.fetch<R: any>({ url, method?, headers?, body?, convert?: "markdown" | "raw", output?: typ<R> }): R\` — HTTP fetch. Three modes: (1) WITHOUT \`output\`, default \`convert: "markdown"\` auto-converts HTML (incl. JS-rendered SPAs via headless browser) / PDF / DOCX / XLSX to markdown and wraps JSON / CSV / source in fenced text — a single readable text block, ideal for \`fns.llm\` summarization. (2) WITHOUT \`output\` and \`convert: "raw"\`, the response body is returned untouched (literal HTML/JSON/etc. for your own parsing). (3) WITH \`output\` set to obj / list / etc., the body is JSON-parsed and type-parsed against \`output\` — \`convert\` is ignored.
+
+### Built-in natives (under the \`fns.*\` namespace)
+- \`fns.fetch<R: any>({ url, method?, headers?, body?, convert?: "markdown" | "raw", output: typ<R> }): R\` — HTTP fetch. \`output\` is REQUIRED so R is always bound. Two output shapes: (a) \`output: typ<text>\` — free-form content. \`convert: "markdown"\` (default) renders HTML (with headless-browser SPA support) / PDF / DOCX / XLSX as markdown and wraps JSON / CSV / source in fenced text. \`convert: "raw"\` returns the literal response body untouched. (b) \`output: typ<<some obj/list>>\` — JSON API. The body is JSON-parsed and type-parsed against the type; \`convert\` is ignored.
 - \`fns.llm<R: any>({ prompt, tools?, output?: typ<R> }): R\` — LLM call. R has no constraint — \`text\` produces a plain-string reply (preferred for simple answers), \`obj\` produces a structured reply via the OpenAI structured-output channel, and other types (enum, num, bool, list, tuple) are auto-wrapped over the wire and unwrapped before parse so callers see the inner value. Bind R explicitly via the call-site \`generic\` (see "Generic bindings" below).
 - \`fns.log({ message: any }): void\` — print a runtime message to the user (stderr). Use for progress narration, intermediate values, debug breadcrumbs. Distinct from the program's return value.
 - \`fns.ask<R: any>({ title: text, details: text, output?: typ<R> }): optional<R>\` — pause execution and prompt the user. With \`output\` set the consumer walks the user through any complex shape (obj fields, list items, choices, optionals). Returns \`null\` (\`optional<R>\`) on cancel — handle that explicitly.
-- \`vars.*\` — named typed values, persisted on disk.
+
+### Saved user functions (TOP-LEVEL globals — NOT under \`fns.*\`)
+
+Every fn the designer has authored (via \`find_or_create_functions\`)
+is registered as a TOP-LEVEL global under its bare name, in the
+SAME engine instance every recursive programmer shares — so once
+created, a fn is callable from any subsequent programmer run.
+
+Call them by name as a regular path:
+
+\`\`\`json
+// summarizePage({ url: "..." }) — bare-name first step, NOT fns.*
+{ "kind": "get", "path": [
+  { "prop": "summarizePage" },
+  { "args": { "url": { "kind": "new", "type": { "name": "text" }, "value": "https://..." } } }
+]}
+\`\`\`
+
+WRONG: \`{ "prop": "fns" }, { "prop": "summarizePage" }\` — the
+\`fns\` namespace ONLY holds the four built-in natives above. Saved
+fns are at the top level alongside \`vars\`.
+
+Discover them via \`search_fns\` (no keywords → enumerates all),
+inspect bodies via \`print_fn(name)\`. Both tools register the fn
+into the engine on lookup, so a \`search_fns\` is enough to make a
+saved fn callable in your next \`write\`.
+
+### Vars (top-level — under \`vars.*\`)
+- \`vars.*\` — named typed values, persisted on disk. Same calling
+  convention as fns: \`vars.<name>\` reads, \`vars.<name> = ...\`
+  writes (via the \`set\` Expr).
 
 ## Generic bindings — \`<R: ...>\` is a CONSTRAINT, not a default
 
@@ -483,6 +557,40 @@ Constraint-violating bindings are rejected at the call site:
 
 The \`<R: any>\` form (fetch, llm, ask) means "no constraint" — any binding
 is accepted.
+
+### Common pitfall: declared type vs unbound \`R\`
+
+If you write:
+
+\`\`\`ts
+const response: text = fns.fetch({ url: ... });   // ❌
+\`\`\`
+
+…you'll get \`define.var.type-mismatch: var 'response' value type 'R'
+not compatible with declared 'text'\`. The fn's return type is the
+unbound generic \`R\`, and you didn't tell the call site how to bind it,
+so R doesn't equal text.
+
+Three ways to fix, pick whichever fits:
+
+1. **Drop the declared type** — let R flow through. The runtime gives
+   you back whatever the fn produces; downstream code that uses it as
+   text just works. Simplest fix, recommended:
+   \`\`\`ts
+   const response = fns.fetch({ url: ... });   // ✅
+   \`\`\`
+2. **Pass \`output: typ<text>\`** — tells fetch to deliver text and
+   binds R = text in one shot:
+   \`\`\`ts
+   const response: text = fns.fetch({ url: ..., output: typ<text> });   // ✅
+   \`\`\`
+3. **Bind the generic explicitly** via \`generic: { R: { name: "text" } }\`
+   on the CallStep. Same effect as (2) without an \`output\` arg.
+
+The same pattern applies to every \`<R: any>\` fn — \`fns.fetch\`,
+\`fns.llm\`, \`fns.ask\`. If you see \`'R' not compatible with
+declared '...'\`, you're declaring a type that R hasn't been bound
+to yet — bind it or drop the declaration.
 
 ## DON'T over-specify type options on basic types
 
@@ -577,71 +685,79 @@ discover. Pick the type up front:
 Do NOT probe an untyped llm call just to see what it says — decide the
 shape first, then invoke with \`output\` set.
 
-## \`fns.fetch\` — three distinct modes
+## \`fns.fetch\` — \`output\` is REQUIRED
 
-### Mode A: unstructured content, converted (default)
+Every \`fns.fetch\` call MUST pass \`output: typ<...>\` so the fn's
+return type is concrete at the call site. Without it, the fn returns
+the unbound generic \`R\`, which trips
+\`define.var.type-mismatch\` against any declared variable type
+(\`const x: text = fns.fetch(...)\` would say "value type 'R' not
+compatible with declared 'text'").
+
+Two output shapes cover everything:
+
+### Output A: \`output: typ<text>\` — unstructured content
 
 For webpages, articles, PDFs, docs, spreadsheets — anything you'd
-want to read or summarize, not query as JSON — call \`fns.fetch\`
-WITHOUT \`output\`. With the default \`convert: "markdown"\` the
-native automatically:
+want to read or summarize, not query as JSON. Pair with a \`convert\`
+mode:
 
-- Renders HTML (including JS-heavy SPAs) via a headless browser, then
-  converts to **markdown**.
-- Extracts text from PDFs (pdf-parse), DOCX (mammoth), XLSX (xlsx)
-  and converts to markdown.
-- Wraps JSON / CSV / source code in fenced text.
-- Returns plain text / markdown / XML as-is.
+- **\`convert: "markdown"\`** (default) — renders HTML (incl. JS-
+  heavy SPAs via headless browser) to markdown, extracts text from
+  PDFs (pdf-parse) / DOCX (mammoth) / XLSX (xlsx), wraps JSON /
+  CSV / source code in fenced text. Single ready-to-use \`text\`
+  Value. **Pipe straight into \`fns.llm\` for summarization** —
+  you do NOT need helpers to "extract text from HTML", "remove
+  \`<script>\` tags", "parse PDF", etc.
+- **\`convert: "raw"\`** — returns the literal response body
+  untouched. Use when you need the raw source (regex over HTML,
+  hashing JSON-as-text, parsing a feed your own way).
 
-The return is a single ready-to-use \`text\` Value. You **do not**
-need to write helper functions to "extract text from HTML", "remove
-\`<script>\` tags", "parse PDF", etc. — that's already done. Pipe
-the result straight into \`fns.llm\` for summarization, search, etc.
-
-### Mode B: unstructured content, raw (\`convert: "raw"\`)
-
-When you actually need the literal response body — extracting URLs
-out of raw HTML with a regex, capturing the exact JSON-as-text for
-hashing/diffing, scraping a feed your own way — pass
-\`convert: "raw"\`. The native skips every conversion and returns
-\`text\` containing the response body byte-for-byte (best-effort
-utf-8 for non-text content types).
-
-\`\`\`ts
+\`\`\`json
 // Summarize a webpage in one step:
-const content = fns.fetch({ url: args.url });          // text/markdown
-const summary = fns.llm({ prompt: \`Summarize:\n\\n\${content}\` });
+{ "kind": "block", "lines": [
+  { "kind": "define", "vars": [{
+    "name": "content",
+    "value": { "kind": "get", "path": [
+      { "prop": "fns" }, { "prop": "fetch" },
+      { "args": {
+        "url": { "kind": "new", "type": { "name": "text" }, "value": "https://..." },
+        "output": { "kind": "new", "type": { "name": "typ" }, "value": { "name": "text" } }
+      } }
+    ] }
+  }], "body": ... }
+]}
 \`\`\`
 
-### Mode C: typed JSON (\`output: <YourType>\`)
+### Output B: \`output: typ<<some obj/list>>\` — typed JSON
 
-For JSON APIs where you know the response shape, set \`output\` to
-the gin Type you expect. The body is JSON-parsed and type-parsed
-against your Type — \`convert\` is ignored in this mode.
+For JSON APIs where the response shape is known. The body is
+JSON-parsed and type-parsed against the type. \`convert\` is
+ignored in this mode.
 
 Discovery flow when the JSON shape isn't obvious:
 
-1. **Probe, no output.** \`write\` a fetch WITHOUT \`output:\` against
-   the JSON endpoint, then \`test()\`. The test result shows the actual
-   payload (wrapped as fenced JSON).
-2. **If one sample isn't enough** — optional keys, discriminated enum
-   values, paged endpoints — call \`research\` (when available) for
-   the API's published schema. One sample doesn't decide \`optional\`
-   / \`enum<...>\`; the docs do.
-3. **Declare a matching type** via \`find_or_create_types\`. Unknown-
-   maybe-present fields → \`optional\`. Open-ended strings → \`text\`.
-   Exhaustive value sets → \`enum<...>\`.
-4. **Re-write typed** with \`output: <YourType>\`. \`test()\` to
-   confirm. The rest of your program can access fields directly.
+1. **Probe with \`output: typ<text>\` + \`convert: "raw"\`** to get
+   the literal payload. \`test()\` shows the actual JSON.
+2. **If one sample isn't enough** — optional keys, discriminated
+   enum values, paged endpoints — call \`research\` (when available)
+   for the API's published schema. One sample doesn't decide
+   \`optional\` / \`enum<...>\`; the docs do.
+3. **Declare a matching type** via \`find_or_create_types\`.
+   Unknown-maybe-present fields → \`optional\`. Open-ended strings
+   → \`text\`. Exhaustive value sets → \`enum<...>\`.
+4. **Re-write with \`output: typ<<YourType>>\`** and \`test()\`. The
+   rest of your program can access fields directly.
 5. **\`finish()\`** once typed-mode tests green.
 
 ### Common mistake to avoid
 
 Don't write helpers like \`extractTextFromHtml(html: text): text\` or
-\`fetchWebpageContent(url: text): text\` that re-derive what mode A
-already does. If the user wants "summarize a webpage", that's:
+\`fetchWebpageContent(url: text): text\` that re-derive what
+\`output: typ<text>\` already does. If the user wants "summarize a
+webpage", that's:
 
-1. \`fns.fetch({ url })\` — already returns markdown.
+1. \`fns.fetch({ url, output: typ<text> })\` — already returns markdown.
 2. \`fns.llm({ prompt: ... })\` — summarize.
 
 Two calls. No HTML parsing fn, no separate "extract text" step.
@@ -878,6 +994,7 @@ arrive as conversation messages, not embedded in this system prompt.
 Respond to the most recent user message in light of the prior turns.`,
   input: (_input: {}, ctx) => ({
     typeDocs: buildTypeDocs(ctx.registry as Registry),
+    loadedFnsDocs: buildLoadedFnsDocs(ctx),
   }),
   tools: [
     findOrCreateTypes,

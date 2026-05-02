@@ -12,6 +12,7 @@
  * matching toolStart / toolOutput / toolError events).
  */
 import { logger, genId } from './logger';
+import { MarkdownStream } from './markdown';
 
 const ESC = '\x1b[';
 const RESET = `${ESC}0m`;
@@ -55,9 +56,18 @@ export class EventDisplay {
   private hasProducedText = false;
   private color: boolean;
   private thinkingShownThisTurn = false;
+  /**
+   * Streaming markdown renderer. All streamed prose chunks pump through
+   * here so headings, code fences, lists, bold/italic, links etc.
+   * actually render rather than appearing as raw `**text**` /
+   * ```` ```ts ```` markup. Stateful — fenced-code mode carries
+   * across chunks within one segment.
+   */
+  private markdown: MarkdownStream;
 
   constructor(useColor = !!process.stderr.isTTY) {
     this.color = useColor;
+    this.markdown = new MarkdownStream(process.stdout, useColor);
   }
 
   private c(code: string, text: string): string {
@@ -66,6 +76,11 @@ export class EventDisplay {
 
   private breakIfText(): void {
     if (this.textLineOpen) {
+      // Drain any partial-line markdown buffer through the renderer
+      // before emitting the terminating newline. Without this, a
+      // mid-line tool boundary would print the partial line raw and
+      // discard the buffer.
+      this.markdown.flush();
       process.stdout.write('\n');
       this.textLineOpen = false;
     }
@@ -101,7 +116,11 @@ export class EventDisplay {
       case 'textPartial': {
         const chunk = event.content ?? '';
         if (chunk) {
-          process.stdout.write(chunk);
+          // Pump every streamed chunk through the markdown renderer.
+          // It buffers partial lines internally, so headings / fences
+          // / inline formatting render correctly across chunk
+          // boundaries.
+          this.markdown.write(chunk);
           this.last = 'text';
           this.textLineOpen = true;
           this.hasProducedText = true;
@@ -114,10 +133,14 @@ export class EventDisplay {
         // Streaming for this text segment is done — `text` fires when
         // the model finishes its prose for a turn (just before any
         // tool calls), `textComplete` fires once at the very end of
-        // the response. Either way, terminate the streamed line so
-        // whatever prints next (tool boundary, prompt, etc.) starts
-        // on its own row instead of butting up against the last word.
-        this.breakIfText();
+        // the response. Drain the markdown buffer (partial trailing
+        // line, dangling code fence reset, etc.) and terminate with
+        // a newline so the next output starts on its own row.
+        this.markdown.flush();
+        if (this.textLineOpen) {
+          process.stdout.write('\n');
+          this.textLineOpen = false;
+        }
         break;
       }
 

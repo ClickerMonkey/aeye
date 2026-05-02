@@ -136,7 +136,19 @@ export class NewExpr extends Expr {
     return this.type;
   }
 
-  validateWalk(_engine: Engine, _scope: Locals, _p: Problems, _ctx: ValidateContext): Type {
+  validateWalk(_engine: Engine, _scope: Locals, p: Problems, _ctx: ValidateContext): Type {
+    // Warn when the value is missing on a structural type with required
+    // fields — the runtime fills with `type.create()` defaults (zero
+    // for num, "" for text, null for optional, etc.), which is almost
+    // never what the author meant. The model frequently writes
+    // `{kind: 'new', type: obj{a, b}}` (no value) when it intends to
+    // declare placeholder slots; the resulting obj has zero/empty
+    // values that silently substitute into templates and arithmetic.
+    // Catching this at validate time saves a debug round-trip.
+    if (this.value === undefined && hasRequiredFields(this.type)) {
+      p.warn('new.value.missing',
+        `\`new ${this.type.name}\` has no \`value\` — every field will fall to its type default (0 / "" / null). Provide a \`value\` matching the type's shape.`);
+    }
     return this.type;
   }
 
@@ -287,4 +299,24 @@ function asObjType(type: Type): ObjType | undefined {
   if (type instanceof ObjType) return type;
   const base = (type as unknown as { base?: Type }).base;
   return base ? asObjType(base) : undefined;
+}
+
+/**
+ * True when the type is an obj (or extension thereof) with at least
+ * one required field. Other shapes — list/map/tuple/scalar — either
+ * default to empty (not interesting) or have no structural fields
+ * to populate, so a missing `value` isn't suspicious for them.
+ *
+ * We deliberately skip the generic `type.props()` path because
+ * `props()` includes inherited methods on every type (map.set,
+ * num.add, etc.); treating those as "required fields" would force
+ * the warning on every typed value with methods.
+ */
+function hasRequiredFields(type: Type): boolean {
+  const obj = asObjType(type);
+  if (!obj) return false;
+  for (const prop of Object.values(obj.fields)) {
+    if (!prop.type.isOptional()) return true;
+  }
+  return false;
 }

@@ -42,4 +42,54 @@ describe('evalNew', () => {
     const v = await e.run({ kind: 'new', type: { name: 'list', generic: { V: { name: 'num' } } } });
     expect(primitives(v)).toEqual([]);
   });
+
+  test('validate: warns on `new obj` with required fields and no value', () => {
+    // The actual case from the user's exchange: a template's params
+    // built as `new obj{radius: num, area: num}` with NO value. At
+    // runtime each field defaults to 0; `${radius}` and `${area}`
+    // silently substitute zero, masking the missing computation.
+    // The warning gives the model a chance to fix this before the
+    // test() call swallows the bug.
+    const probs = e.validate({
+      kind: 'new',
+      type: {
+        name: 'obj',
+        props: { radius: { type: { name: 'num' } }, area: { type: { name: 'num' } } },
+      },
+    });
+    const warn = probs.list.find((p) => p.code === 'new.value.missing');
+    expect(warn).toBeDefined();
+  });
+
+  test('validate: no warning when `new obj` has only optional fields', () => {
+    // Optional fields default to undefined/null which IS a meaningful
+    // value (not a silent zero), so a missing value is acceptable.
+    const probs = e.validate({
+      kind: 'new',
+      type: {
+        name: 'obj',
+        props: {
+          opt: { type: { name: 'optional', generic: { T: { name: 'num' } } } },
+        },
+      },
+    });
+    expect(probs.list.some((p) => p.code === 'new.value.missing')).toBe(false);
+  });
+
+  test('validate: no warning when `new obj` provides a value', () => {
+    const probs = e.validate({
+      kind: 'new',
+      type: { name: 'obj', props: { x: { type: { name: 'num' } } } },
+      value: { x: 5 },
+    });
+    expect(probs.list.some((p) => p.code === 'new.value.missing')).toBe(false);
+  });
+
+  test('validate: no warning for `new list<num>` (empty list is fine)', () => {
+    const probs = e.validate({
+      kind: 'new',
+      type: { name: 'list', generic: { V: { name: 'num' } } },
+    });
+    expect(probs.list.some((p) => p.code === 'new.value.missing')).toBe(false);
+  });
 });

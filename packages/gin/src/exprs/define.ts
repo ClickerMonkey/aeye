@@ -100,20 +100,32 @@ export class DefineExpr extends Expr {
       // (`evaluate`) and inference (`typeOf`) match.
       const valueT = p.at(['vars', i, 'value'], () =>
         walkValidate(engine, v.value, child, p, ctx));
-      // When a declared type is present, the value's inferred type must
-      // be assignable to it. This is a real bug, not a style note —
-      // report as error so the model fixes the mismatch instead of
-      // ignoring a warning. (`type` is optional precisely so callers
-      // CAN omit it; the only reason to set it is to constrain the
-      // value, so a mismatch is always wrong.)
-      if (v.type && !v.type.compatible(valueT)) {
+      // When a declared type is present, the value's inferred type
+      // must be assignable to it — UNLESS the inferred type is a
+      // universal placeholder (unbound generic alias, `any`, empty
+      // iface, etc.). In that case the static type is `we don't
+      // know yet`; the runtime decides via the value's actual
+      // shape. Erroring here would force the model into impossible
+      // hoops — e.g. `fns.fetch<R: any>(...)` returns R; without a
+      // call-site `generic: {R: text}` binding, R stays unbound
+      // and any declared type would mismatch. Better to skip the
+      // static check and let the runtime parse catch real issues.
+      if (v.type && !valueT.isUniversal() && !v.type.compatible(valueT)) {
         // Render the full TypeCode so the LLM sees `or<optional<num>, num>`
         // and `num{min:1,max:1000}` instead of just `'or'` and `'num'` —
         // the bare class names give it nothing to act on.
         const declaredCode = safeTypeCode(v.type);
         const valueCode = safeTypeCode(valueT);
+        // When the inferred type is an alias name (e.g. `R`), point
+        // the model at the fix: bind the generic explicitly, or
+        // omit the declared type. The `name === 'alias'` check
+        // catches AliasType specifically — `name` is the runtime
+        // class name. See AliasType for details.
+        const hint = valueT.name === 'alias'
+          ? ` (hint: '${valueCode}' is an unbound generic — either bind it via \`generic: {${valueCode}: ...}\` on the call site, pass \`output: typ<...>\`, or omit the declared type so the alias flows through)`
+          : '';
         p.at(['vars', i, 'value'], () => p.error('define.var.type-mismatch',
-          `var '${v.name}' value type '${valueCode}' not compatible with declared '${declaredCode}'`));
+          `var '${v.name}' value type '${valueCode}' not compatible with declared '${declaredCode}'${hint}`));
       }
       child.set(v.name, v.type ?? valueT);
     }
