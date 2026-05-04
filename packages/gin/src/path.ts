@@ -6,7 +6,7 @@ import type {
 } from './schema';
 import { Value, val } from './value';
 import { ReturnSignal, ThrowSignal } from './flow-control';
-import type { GetSet, Type } from './type';
+import type { Call, GetSet, Prop, Type } from './type';
 import { Expr } from './expr';
 import type { Registry } from './registry';
 import type { Locals } from './analysis';
@@ -433,7 +433,7 @@ export class Path {
           i++;
           continue;
         }
-        const propI: import('./type').Prop | undefined = current.prop(step.prop);
+        const propI: Prop | undefined = current.prop(step.prop);
         if (!propI) return engine.registry.any();
 
         const next = this.steps[i + 1];
@@ -517,7 +517,7 @@ export class Path {
           i++;
           continue;
         }
-        const propV: import('./type').Prop | undefined = current.prop(step.prop);
+        const propV: Prop | undefined = current.prop(step.prop);
         if (!propV) {
           p.at(['path', i], () => p.error('prop.unknown', `no prop '${step.prop}' on type '${current!.name}'`));
           current = engine.registry.any();
@@ -533,7 +533,7 @@ export class Path {
             p.at(['path', i + 1, 'catch'], () => next.catch_!.validateWalk(engine, scope, p, ctx));
           }
           const callScope: TypeScope = next.callSiteScope(propV.type);
-          const callable: import('./type').Call | undefined = propV.type.call(callScope);
+          const callable: Call | undefined = propV.type.call(callScope);
           if (mode === 'set' && i + 1 === this.steps.length - 1) {
             if (!callable?.set) {
               p.at(['path', i + 1], () => p.error('set.call.no-set', `method '${step.prop}' has no call.set`));
@@ -599,7 +599,7 @@ export class Path {
         }
         if (current) {
           const callScope: TypeScope = step.callSiteScope(current);
-          const callable: import('./type').Call | undefined = current.call(callScope);
+          const callable: Call | undefined = current.call(callScope);
           if (mode === 'set' && isLast) {
             if (!callable?.set) {
               p.at(['path', i], () => p.error('set.call.no-set', `call on type '${current?.name ?? '?'}' has no call.set`));

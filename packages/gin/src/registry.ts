@@ -308,7 +308,7 @@ export class Registry implements TypeBuilder, TypeScope {
    * of `Value.toJSON()` — decode the TypeDef via `parse`, then ask that
    * Type to parse the dumped value.
    */
-  parseValue<T = any>(json: unknown, expectedType?: Type, scope?: TypeScope): Value<T> {
+  parseValue<T = any>(json: unknown, expectedType?: Type, scope: TypeScope = this): Value<T> {
     if (json instanceof Value) {
       return json;
     }
