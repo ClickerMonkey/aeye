@@ -3,10 +3,11 @@ import type { TypeScope } from './type-scope';
 import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
 import type { Expr } from './expr';
 import { Value, val } from './value';
-import { Code, span as spanCode } from './code';
+import { Code, span as spanCode, jsonObject, jsonString, type JSONEntry } from './code';
 import type { Node, CodeOptions } from './node';
 import type { Engine } from './engine';
 import { Problems } from './problem';
+import { walkValidate } from './analysis';
 import { ReturnSignal } from './flow-control';
 import type { Scope } from './scope';
 import type { JSONOf, RuntimeOf } from './json-type';
@@ -839,23 +840,24 @@ export abstract class Type<T = any, O = any> implements Node {
 
   /**
    * Render as the JSON form of `toJSON()` with spans aligned to JSON
-   * positions. Default: wrap `JSON.stringify(this.toJSON(), null, 2)`
-   * in a single coarse span. Composite types override to track child
-   * key positions. When `level > 0` continuation lines are
-   * re-indented so the result composes cleanly when embedded under a
-   * parent renderer's already-indented context.
+   * positions. Walks the standard `TypeDef` structure (props / get /
+   * call / init / generic / options / constraint / etc.) so each
+   * sub-slot — and every embedded ExprDef inside Prop.get,
+   * GetSet.get/set/loop, Call.get/set, Init.run, constraint — gets
+   * its own span, with nested types recursing into their own
+   * `toJSONCode`. This makes `formatProblem` / `formatProblems` able
+   * to underline the precise offending range inside a type
+   * definition (the same way they already do inside Expr trees).
+   *
+   * Subclasses can override for custom shapes; otherwise this default
+   * suffices for every TypeDef-shaped JSON.
    */
   toJSONCode(
     path: ReadonlyArray<string | number> = [],
     indent: number = 2,
     level: number = 0,
   ): Code {
-    let text = JSON.stringify(this.toJSON(), null, indent);
-    if (level > 0) {
-      const lead = ' '.repeat(level * indent);
-      text = text.replace(/\n/g, '\n' + lead);
-    }
-    return spanCode(text, { path, type: this });
+    return renderTypeDefJSONCode(this.toJSON(), this.registry, path, indent, level, this);
   }
 
   /**
@@ -1062,17 +1064,38 @@ export abstract class Type<T = any, O = any> implements Node {
   // ─── VALIDATE ────────────────────────────────────────────────────────────
 
   /**
-   * Walk this Type collecting structural problems (round-trip encode/parse
-   * as a minimum sanity check). Types may override to add deeper checks.
-   * Matches the Node interface shared with Expr.
+   * Walk this Type collecting structural problems:
+   *
+   *   1. Round-trip encode/parse — catches malformed serialization.
+   *   2. Walk the type's full surface (`props()`, `get()`, `call()`,
+   *      `init()`) and validate every embedded Expr — method bodies,
+   *      getters/setters, indexed-access handlers, init runs.
+   *
+   * Each embedded Expr is validated with the runtime scope it'll
+   * actually see (`this`, `args`, `recurse`, `super`, `key`, `value`)
+   * pre-bound, then its inferred type is compared against the slot's
+   * declared shape (`Prop.type`, `Call.returns`, `GetSet.value`, etc.)
+   * — mismatches surface as warnings.
+   *
+   * Most slots on built-in types hold a `{kind:'native', id:'…'}`
+   * marker, which validates trivially (NativeExpr just checks impl
+   * registration). User-supplied bodies on Extensions /
+   * `registry.augment(...)` go through the full walker.
+   *
+   * `engine.validate(programExpr)` does NOT call this — programs
+   * are scoped to their own tree. To catch issues in user-supplied
+   * type surface, call `type.validate(engine)` directly or
+   * `registry.validate(engine)` to sweep every named type +
+   * augmentation.
    */
-  validate(_engine: Engine): Problems {
+  validate(engine: Engine): Problems {
     const p = new Problems();
     try {
       this.registry.parse(this.toJSON());
     } catch (err) {
       p.error('type.invalid', (err as Error).message);
     }
+    validateTypeSurface(this, engine, p);
     return p;
   }
 
@@ -1236,4 +1259,462 @@ export function joinAuto(
   const wrapSep = sep.replace(/\s+$/, '');
   const indented = items.map((i) => '  ' + i.replace(/\n/g, '\n  '));
   return `\n${indented.join(`${wrapSep}\n`)}\n`;
+}
+
+// ============================================================================
+// SURFACE VALIDATION (Type.validate's deep walk)
+// ============================================================================
+
+/**
+ * Walk a Type's surface — props, get/set, call, init — and validate every
+ * embedded ExprDef. Each slot's body is parsed via the registry, then run
+ * through `walkValidate` with the runtime scope it'll see at evaluation
+ * time (`this`, `args`, `recurse`, `super`, `key`, `value`). Inferred
+ * body types are compared against the slot's declared shape; mismatches
+ * surface as warnings.
+ *
+ * Built-in slots usually hold `{kind:'native', id:'…'}` which validates
+ * trivially. Real Expr bodies attached via `registry.extend()` /
+ * `registry.augment()` get the full walk.
+ */
+function validateTypeSurface(type: Type, engine: Engine, p: Problems): void {
+  const reg = type.registry;
+  const ctx = { inLoop: false, inLambda: false } as const;
+
+  // ─── Props (named methods + getters + defaults) ────────────────────────
+  const props = type.props();
+  for (const [name, raw] of Object.entries(props)) {
+    const prop = raw instanceof Prop ? raw : Prop.from(raw);
+    p.at(['props', name], () => {
+      validateEmbedded(prop.get, propGetScope(prop, type, reg), declaredOf(prop), 'get', engine, p, ctx);
+      validateEmbedded(prop.set, propSetScope(prop, type, reg), reg.void(), 'set', engine, p, ctx);
+      // Default has no `this` — it builds a fresh value of the prop's type.
+      validateEmbedded(prop.default, new Map(), prop.type, 'default', engine, p, ctx);
+    });
+  }
+
+  // ─── GetSet (indexed-access spec) ──────────────────────────────────────
+  const gs = type.get();
+  if (gs) {
+    p.at('get', () => {
+      const baseGetScope = new Map<string, Type>([['this', type], ['key', gs.key]]);
+      const baseSetScope = new Map<string, Type>([['this', type], ['key', gs.key], ['value', gs.value]]);
+      validateEmbedded(gs.get, baseGetScope, gs.value, 'get', engine, p, ctx);
+      validateEmbedded(gs.set, baseSetScope, reg.void(), 'set', engine, p, ctx);
+      // Loop body — `key` and `value` are the iteration variables yielded
+      // by the loop driver. Validate without an output-type expectation
+      // (loop drives via `yield` flow signals; its return type is not
+      // directly checked here).
+      validateEmbedded(gs.loop, baseGetScope, undefined, 'loop', engine, p, ctx);
+    });
+  }
+
+  // ─── Call (invocable spec) ─────────────────────────────────────────────
+  const call = type.call();
+  if (call) {
+    p.at('call', () => {
+      // call.get is the method body — runs with this/args/recurse bound.
+      const callScope = new Map<string, Type>([
+        ['this', type],
+        ['args', call.args],
+        ['recurse', reg.fn(call.args, call.returns ?? reg.any())],
+      ]);
+      validateEmbedded(call.get, callScope, call.returns, 'get', engine, p, { ...ctx, inLambda: true });
+      const callSetScope = new Map<string, Type>([
+        ['this', type], ['args', call.args], ['value', call.returns ?? reg.any()],
+        ['recurse', reg.fn(call.args, call.returns ?? reg.any())],
+      ]);
+      validateEmbedded(call.set, callSetScope, reg.void(), 'set', engine, p, { ...ctx, inLambda: true });
+    });
+  }
+
+  // ─── Init (constructor) ────────────────────────────────────────────────
+  const init = type.init();
+  if (init) {
+    p.at('init', () => {
+      const initScope = new Map<string, Type>([['this', type], ['args', init.args]]);
+      // Init body returns a representation of `this` — most often it
+      // mutates in place and returns void/undefined. We don't enforce a
+      // specific return shape here.
+      validateEmbedded(init.run, initScope, undefined, 'run', engine, p, ctx);
+    });
+  }
+
+  // ─── Constraint (Extension's runtime invariant) ────────────────────────
+  for (const constraint of type.constraints()) {
+    p.at('constraint', () => {
+      const constraintScope = new Map<string, Type>([['this', type]]);
+      const inferred = walkValidate(engine, constraint, constraintScope, p, ctx);
+      const boolT = reg.bool();
+      if (inferred.name !== 'any' && !boolT.compatible(inferred)) {
+        p.warn('type.surface.return-type',
+          `constraint must return bool, got '${inferred.name}'`);
+      }
+    });
+  }
+}
+
+/** Build the scope for a Prop's `get` slot. Method-typed props see
+ *  `args` + `recurse`; plain getters just see `this`. */
+function propGetScope(prop: Prop, owner: Type, reg: Registry): Map<string, Type> {
+  const m = new Map<string, Type>([['this', owner]]);
+  const c = prop.type.call?.();
+  if (c) {
+    m.set('args', c.args);
+    m.set('recurse', reg.fn(c.args, c.returns ?? reg.any()));
+  }
+  return m;
+}
+
+/** Build the scope for a Prop's `set` slot. Always carries `this` and
+ *  the incoming `value`. */
+function propSetScope(prop: Prop, owner: Type, _reg: Registry): Map<string, Type> {
+  return new Map<string, Type>([['this', owner], ['value', prop.type]]);
+}
+
+/** Resolve the declared output type for a Prop's `get` slot. Callable
+ *  props (methods) effectively return `call.returns`; plain props
+ *  return the prop's declared `type`. */
+function declaredOf(prop: Prop): Type | undefined {
+  const c = prop.type.call?.();
+  if (c) return c.returns;
+  return prop.type;
+}
+
+/** Validate a single embedded ExprDef. Skips when the slot is empty.
+ *  Parses through the registry, runs the validator with the supplied
+ *  Locals scope, and (when an `expected` Type is given) warns if the
+ *  inferred body type isn't compatible with what the slot declares.
+ *
+ *  `any` is treated as a universal escape hatch — when the body's
+ *  inferred type is `any` (the default for unattributed
+ *  `{kind:'native', id:'…'}` markers), trust the slot's declared
+ *  return type. The native impl is responsible for producing a value
+ *  that matches the declaration; the validator can't see through the
+ *  TS function. */
+function validateEmbedded(
+  expr: ExprDef | undefined,
+  scope: Map<string, Type>,
+  expected: Type | undefined,
+  slot: string,
+  engine: Engine,
+  p: Problems,
+  ctx: { inLoop: boolean; inLambda: boolean },
+): void {
+  if (!expr) return;
+  // Wrap the body's walk under `slot` so problems carry the slot path
+  // (`['props', name, 'get', …]` rather than `['props', name, …]`),
+  // making them addressable to the type's JSON form via `spanFor`.
+  p.at(slot, () => {
+    const inferred = walkValidate(engine, expr, scope, p, ctx);
+    if (expected && inferred.name !== 'any' && !expected.compatible(inferred)) {
+      p.warn('type.surface.return-type',
+        `${slot} body returns '${inferred.name}', not compatible with declared '${expected.name}'`);
+    }
+  });
+}
+
+// ============================================================================
+// JSON CODE (Type.toJSONCode's structural walk)
+// ============================================================================
+
+/**
+ * Render a TypeDef as Code with fine-grained spans tied to validator
+ * paths. Each known structural slot (`name`, `extends`, `docs`,
+ * `options`, `generic`, `props`, `get`, `set`, `call`, `init`,
+ * `constraint`, `satisfies`) becomes its own JSON entry whose value
+ * is rendered with span(s) aligned to its slot path. Recurses into
+ * nested TypeDefs and parses embedded ExprDefs through the registry
+ * so `Expr.toJSONCode` produces the inner spans.
+ *
+ * Used by `Type.toJSONCode` so `formatProblem(typeJsonCode, problem)`
+ * can underline precisely inside a type definition the way it does
+ * inside an Expr tree.
+ */
+function renderTypeDefJSONCode(
+  def: TypeDef,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+  type: Type | undefined,
+): Code {
+  const childLevel = level + 1;
+  const entries: JSONEntry[] = [];
+
+  if (def.name !== undefined) {
+    entries.push({ key: 'name', value: jsonString(def.name) });
+  }
+  if (def.extends !== undefined) {
+    entries.push({ key: 'extends', value: jsonString(def.extends) });
+  }
+  if (def.satisfies !== undefined && def.satisfies.length > 0) {
+    entries.push({
+      key: 'satisfies',
+      value: rawJSON(def.satisfies, [...path, 'satisfies'], indent, childLevel),
+    });
+  }
+  if (def.docs !== undefined) {
+    entries.push({ key: 'docs', value: jsonString(def.docs) });
+  }
+  if (def.options !== undefined && Object.keys(def.options as object).length > 0) {
+    // Options are a free-form per-type record (no embedded Exprs in
+    // any built-in's options); render as plain JSON with a span.
+    entries.push({
+      key: 'options',
+      value: rawJSON(def.options, [...path, 'options'], indent, childLevel),
+    });
+  }
+  if (def.generic !== undefined && Object.keys(def.generic).length > 0) {
+    entries.push({
+      key: 'generic',
+      value: renderTypeMapJSON(def.generic, registry, [...path, 'generic'], indent, childLevel),
+    });
+  }
+  if (def.props !== undefined && Object.keys(def.props).length > 0) {
+    entries.push({
+      key: 'props',
+      value: renderPropsMapJSON(def.props, registry, [...path, 'props'], indent, childLevel),
+    });
+  }
+  if (def.get !== undefined) {
+    entries.push({
+      key: 'get',
+      value: renderGetSetJSON(def.get, registry, [...path, 'get'], indent, childLevel),
+    });
+  }
+  if (def.call !== undefined) {
+    entries.push({
+      key: 'call',
+      value: renderCallJSON(def.call, registry, [...path, 'call'], indent, childLevel),
+    });
+  }
+  if (def.init !== undefined) {
+    entries.push({
+      key: 'init',
+      value: renderInitJSON(def.init, registry, [...path, 'init'], indent, childLevel),
+    });
+  }
+  if (def.constraint !== undefined) {
+    entries.push({
+      key: 'constraint',
+      value: renderEmbeddedExprJSON(def.constraint, registry, [...path, 'constraint'], indent, childLevel),
+    });
+  }
+
+  return jsonObject(entries, { path, type }, level, indent);
+}
+
+/** Render `{name: TypeDef, …}` map (used by `generic` and `call.types`). */
+function renderTypeMapJSON(
+  map: Record<string, TypeDef>,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  const entries: JSONEntry[] = Object.entries(map).map(([name, def]) => ({
+    key: name,
+    value: renderTypeDefJSONCode(def, registry, [...path, name], indent, level + 1, undefined),
+  }));
+  return jsonObject(entries, { path }, level, indent);
+}
+
+/** Render `{name: PropDef, …}` map under `props`. */
+function renderPropsMapJSON(
+  props: Record<string, PropDef>,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  const entries: JSONEntry[] = Object.entries(props).map(([name, prop]) => ({
+    key: name,
+    value: renderPropDefJSON(prop, registry, [...path, name], indent, level + 1),
+  }));
+  return jsonObject(entries, { path }, level, indent);
+}
+
+/** Render a single `PropDef = { docs?, type, get?, set?, default? }`. */
+function renderPropDefJSON(
+  prop: PropDef,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  const childLevel = level + 1;
+  const entries: JSONEntry[] = [];
+  if (prop.docs !== undefined) entries.push({ key: 'docs', value: jsonString(prop.docs) });
+  entries.push({
+    key: 'type',
+    value: renderTypeDefJSONCode(prop.type, registry, [...path, 'type'], indent, childLevel, undefined),
+  });
+  if (prop.get !== undefined) {
+    entries.push({
+      key: 'get',
+      value: renderEmbeddedExprJSON(prop.get, registry, [...path, 'get'], indent, childLevel),
+    });
+  }
+  if (prop.set !== undefined) {
+    entries.push({
+      key: 'set',
+      value: renderEmbeddedExprJSON(prop.set, registry, [...path, 'set'], indent, childLevel),
+    });
+  }
+  if (prop.default !== undefined) {
+    entries.push({
+      key: 'default',
+      value: renderEmbeddedExprJSON(prop.default, registry, [...path, 'default'], indent, childLevel),
+    });
+  }
+  return jsonObject(entries, { path }, level, indent);
+}
+
+function renderGetSetJSON(
+  gs: GetSetDef,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  const childLevel = level + 1;
+  const entries: JSONEntry[] = [];
+  if (gs.docs !== undefined) entries.push({ key: 'docs', value: jsonString(gs.docs) });
+  entries.push({
+    key: 'key',
+    value: renderTypeDefJSONCode(gs.key, registry, [...path, 'key'], indent, childLevel, undefined),
+  });
+  entries.push({
+    key: 'value',
+    value: renderTypeDefJSONCode(gs.value, registry, [...path, 'value'], indent, childLevel, undefined),
+  });
+  if (gs.get !== undefined) {
+    entries.push({
+      key: 'get',
+      value: renderEmbeddedExprJSON(gs.get, registry, [...path, 'get'], indent, childLevel),
+    });
+  }
+  if (gs.set !== undefined) {
+    entries.push({
+      key: 'set',
+      value: renderEmbeddedExprJSON(gs.set, registry, [...path, 'set'], indent, childLevel),
+    });
+  }
+  if (gs.loop !== undefined) {
+    entries.push({
+      key: 'loop',
+      value: renderEmbeddedExprJSON(gs.loop, registry, [...path, 'loop'], indent, childLevel),
+    });
+  }
+  if (gs.loopDynamic !== undefined) {
+    entries.push({ key: 'loopDynamic', value: String(gs.loopDynamic) });
+  }
+  return jsonObject(entries, { path }, level, indent);
+}
+
+function renderCallJSON(
+  call: CallDef,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  const childLevel = level + 1;
+  const entries: JSONEntry[] = [];
+  if (call.docs !== undefined) entries.push({ key: 'docs', value: jsonString(call.docs) });
+  if (call.types !== undefined && Object.keys(call.types).length > 0) {
+    entries.push({
+      key: 'types',
+      value: renderTypeMapJSON(call.types, registry, [...path, 'types'], indent, childLevel),
+    });
+  }
+  entries.push({
+    key: 'args',
+    value: renderTypeDefJSONCode(call.args, registry, [...path, 'args'], indent, childLevel, undefined),
+  });
+  if (call.returns !== undefined) {
+    entries.push({
+      key: 'returns',
+      value: renderTypeDefJSONCode(call.returns, registry, [...path, 'returns'], indent, childLevel, undefined),
+    });
+  }
+  if (call.throws !== undefined) {
+    entries.push({
+      key: 'throws',
+      value: renderTypeDefJSONCode(call.throws, registry, [...path, 'throws'], indent, childLevel, undefined),
+    });
+  }
+  if (call.get !== undefined) {
+    entries.push({
+      key: 'get',
+      value: renderEmbeddedExprJSON(call.get, registry, [...path, 'get'], indent, childLevel),
+    });
+  }
+  if (call.set !== undefined) {
+    entries.push({
+      key: 'set',
+      value: renderEmbeddedExprJSON(call.set, registry, [...path, 'set'], indent, childLevel),
+    });
+  }
+  return jsonObject(entries, { path }, level, indent);
+}
+
+function renderInitJSON(
+  init: NonNullable<TypeDef['init']>,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  const childLevel = level + 1;
+  const entries: JSONEntry[] = [];
+  if (init.docs !== undefined) entries.push({ key: 'docs', value: jsonString(init.docs) });
+  entries.push({
+    key: 'args',
+    value: renderTypeDefJSONCode(init.args, registry, [...path, 'args'], indent, childLevel, undefined),
+  });
+  entries.push({
+    key: 'run',
+    value: renderEmbeddedExprJSON(init.run, registry, [...path, 'run'], indent, childLevel),
+  });
+  return jsonObject(entries, { path }, level, indent);
+}
+
+/** Render an embedded ExprDef. Parses through the registry and
+ *  delegates to the parsed Expr's `toJSONCode` so the inner span
+ *  structure mirrors what `engine.toJSONCode(expr)` produces at the
+ *  top level. Falls back to a plain-JSON span when parse fails (e.g.
+ *  malformed kind, unknown class) — better to render something than
+ *  to throw mid-render. */
+function renderEmbeddedExprJSON(
+  expr: ExprDef,
+  registry: Registry,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  try {
+    const parsed = registry.parseExpr(expr);
+    return parsed.toJSONCode(path, indent, level);
+  } catch {
+    return rawJSON(expr, path, indent, level);
+  }
+}
+
+/** Render an arbitrary JSON value verbatim (with re-indent for
+ *  embedding) wrapped in a single span tagged with `path`. Used for
+ *  `options` and other free-form leaf objects. */
+function rawJSON(
+  value: unknown,
+  path: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  let text = JSON.stringify(value, null, indent);
+  if (level > 0) {
+    const lead = ' '.repeat(level * indent);
+    text = text.replace(/\n/g, '\n' + lead);
+  }
+  return spanCode(text, { path });
 }

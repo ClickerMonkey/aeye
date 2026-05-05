@@ -18,6 +18,8 @@ import { Expr, type ExprClass } from './expr';
 import type { CodeOptions, SchemaOptions } from './node';
 import type { Code } from './code';
 import type { JSONValue } from './json-type';
+import type { Engine } from './engine';
+import { Problems } from './problem';
 import type { z } from 'zod';
 
 import { AnyType } from './types/any';
@@ -323,6 +325,46 @@ export class Registry implements TypeBuilder, TypeScope {
   toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
     const e = expr instanceof Expr ? expr : this.parseExpr(expr);
     return e.toJSONCode([], indent);
+  }
+
+  /**
+   * Validate every user-supplied piece of type surface attached to this
+   * registry — every named type (registered via `register(...)` /
+   * `extend(...)`) AND every augmented built-in (registered via
+   * `augment(name, ...)`). Each type's full surface (props / get / call
+   * / init) is walked; embedded ExprDefs are parsed and validated with
+   * the runtime scope they'll see (`this` / `args` / `recurse` / etc.).
+   *
+   * Returns a single `Problems` bag with paths prefixed by the type's
+   * name. Run as a sweep step after registering custom types — surface
+   * issues at registration time rather than at runtime when the method
+   * is first called.
+   *
+   * Programs validated via `engine.validate(programExpr)` do NOT
+   * trigger this sweep; the two passes are intentionally separate so a
+   * program walk doesn't redo work for every type it touches.
+   */
+  validate(engine: Engine): Problems {
+    const out = new Problems();
+    const seen = new Set<string>();
+    const visit = (typeName: string, type: Type): void => {
+      if (seen.has(typeName)) return;
+      seen.add(typeName);
+      const sub = type.validate(engine);
+      for (const prob of sub.list) {
+        out.list.push({ ...prob, path: [typeName, ...prob.path] });
+      }
+    };
+    // Registered named types (Extensions and explicit `register(...)`).
+    for (const [name, type] of this.namedTypes) visit(name, type);
+    // Built-ins that have been augmented in place. Build a canonical
+    // instance via `lookup` so the surface walker sees the same
+    // type object the runtime would dispatch against.
+    for (const name of this.augments.keys()) {
+      const t = this.lookup(name);
+      if (t) visit(name, t);
+    }
+    return out;
   }
 
   // ─── JSON PARSE ──────────────────────────────────────────────────────────

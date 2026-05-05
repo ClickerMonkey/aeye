@@ -216,19 +216,33 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   // ─── EFFECTIVE ACCESS SPECS (merge local over base) ────────────────────
 
   props(scope?: TypeScope): Record<string, Prop | PropSpec> {
-    return { ...this.base.props(scope), ...(this.local.props ?? {}) };
+    // Order: base (carries `augmentation('obj')`) → registry-augmentation
+    // for THIS name → extension's own local. Extension-local wins last
+    // so authors can shadow either base or augmentation on conflict.
+    const ownAug = this.registry.augmentation(this.name);
+    return {
+      ...this.base.props(scope),
+      ...(ownAug?.props ?? {}),
+      ...(this.local.props ?? {}),
+    };
   }
 
   get(scope?: TypeScope): GetSet | undefined {
-    return this.local.get ?? this.base.get(scope);
+    return this.local.get
+      ?? this.registry.augmentation(this.name)?.get
+      ?? this.base.get(scope);
   }
 
   call(scope?: TypeScope): Call | undefined {
-    return this.local.call ?? this.base.call(scope);
+    return this.local.call
+      ?? this.registry.augmentation(this.name)?.call
+      ?? this.base.call(scope);
   }
 
   init(scope?: TypeScope): Init | undefined {
-    return this.local.init ?? this.base.init(scope);
+    return this.local.init
+      ?? this.registry.augmentation(this.name)?.init
+      ?? this.base.init(scope);
   }
 
   // ─── SCHEMA ROUND-TRIP ─────────────────────────────────────────────────
