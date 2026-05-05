@@ -9,6 +9,7 @@ import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
 
@@ -163,12 +164,48 @@ export class NewExpr extends Expr {
     else if (typeof this.value === 'number' || typeof this.value === 'boolean') code = String(this.value);
     else if (typeof this.value === 'string') code = JSON.stringify(this.value);
     else if (this.value === null) code = 'null';
-    else code = renderNewValue(this.value, registry, typeName, options);
+    else code = renderNewValue(this.value, registry, this.type, options);
     return this.commentPrefix(options) + code;
   }
 
   toJSON(): NewExprDef {
     return this.withCommentOn({ kind: 'new', type: this.type.toJSON(), value: this.value });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const typeCode = this.type.toJSONCode([...path, 'type'], indent, level + 1);
+    // The `value` field on the new-Expr is inlined literally (no
+    // child-Expr toJSONCode to delegate to). Continuation lines need
+    // to be re-anchored to (level + 1) — the depth of the `value`
+    // field inside the parent Code — so nested array / obj items
+    // sit one indent level deeper than `value` itself.
+    const valueText = this.value === undefined
+      ? undefined
+      : (() => {
+          const text = JSON.stringify(this.value, null, indent);
+          const reindentLevel = level + 1;
+          return reindentLevel > 0
+            ? text.replace(/\n/g, '\n' + ' '.repeat(reindentLevel * indent))
+            : text;
+        })();
+    const valueSpan = valueText !== undefined
+      ? span(valueText, { path: [...path, 'value'] })
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('new') },
+        { key: 'type', value: typeCode },
+        { key: 'value', value: valueSpan },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): NewExpr {
@@ -195,7 +232,7 @@ export class NewExpr extends Expr {
  * primitive leaves directly and bail to JSON.stringify for any
  * ExprDef-shaped node we can't decode.
  */
-function renderNewValue(value: unknown, registry: Registry | undefined, typeName: string, options: CodeOptions = {}): string {
+function renderNewValue(value: unknown, registry: Registry | undefined, type: Type | undefined, options: CodeOptions = {}): string {
   // ExprDef-shaped → render via the parsed Expr's toCode.
   if (registry && value && typeof value === 'object' && !Array.isArray(value)
       && 'kind' in (value as Record<string, unknown>)
@@ -208,16 +245,26 @@ function renderNewValue(value: unknown, registry: Registry | undefined, typeName
     }
   }
 
+  const typeName = type ? type.toCode(undefined, options) : '<inferred>';
+
   if (Array.isArray(value)) {
-    const parts = value.map((v) => renderNewValueLeaf(v, registry, options));
+    // For list-shaped types we know each item's type from `list.item`,
+    // so propagate it down — items render as `new Point {...}` instead
+    // of `new <inferred> {...}` when the parent declared `list<Point>`.
+    const itemType = (type as unknown as { item?: Type } | undefined)?.item;
+    const parts = value.map((v) => renderNewValueLeaf(v, registry, itemType, options));
     const joined = joinAuto(parts);
     return joined.startsWith('\n') ? `[${joined}]` : `[${joined}]`;
   }
 
   if (value && typeof value === 'object') {
+    // For obj-shaped types we know each field's type from `obj.fields`,
+    // so a nested obj literal can render with its declared field type
+    // (`{ pos: new Point {x:1,y:2} }` instead of `<inferred>`).
+    const fields = (type as unknown as { fields?: Record<string, { type: Type }> } | undefined)?.fields;
     const entries = Object.entries(value as Record<string, unknown>);
     if (entries.length === 0) return `new ${typeName}()`;
-    const parts = entries.map(([k, v]) => `${k}: ${renderNewValueLeaf(v, registry, options)}`);
+    const parts = entries.map(([k, v]) => `${k}: ${renderNewValueLeaf(v, registry, fields?.[k]?.type, options)}`);
     const joined = joinAuto(parts);
     return joined.startsWith('\n')
       ? `new ${typeName} {${joined}}`
@@ -229,15 +276,14 @@ function renderNewValue(value: unknown, registry: Registry | undefined, typeName
   return JSON.stringify(value);
 }
 
-function renderNewValueLeaf(v: unknown, registry: Registry | undefined, options: CodeOptions = {}): string {
+function renderNewValueLeaf(v: unknown, registry: Registry | undefined, type: Type | undefined, options: CodeOptions = {}): string {
   if (v === null) return 'null';
   if (v === undefined) return 'undefined';
   if (typeof v === 'string') return JSON.stringify(v);
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  // Recurse — typeName is unknown at leaf depth, so use a generic
-  // marker; composite leaves render as `[...]` or `{ k: v }` without
-  // the `new <type>` prefix.
-  return renderNewValue(v, registry, '<inferred>', options);
+  // Recurse with whatever element / field type the parent supplied;
+  // composite leaves at the deepest level fall back to `<inferred>`.
+  return renderNewValue(v, registry, type, options);
 }
 
 /**

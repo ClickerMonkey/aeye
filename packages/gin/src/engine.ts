@@ -7,6 +7,7 @@ import type { Type } from './type';
 import type { ExprDef } from './schema';
 import { Expr } from './expr';
 import type { CodeOptions } from './node';
+import type { Code } from './code';
 
 import { ExitSignal } from './flow-control';
 import { typeOf as typeOfAnalysis, validate as validateAnalysis, type Locals } from './analysis';
@@ -116,6 +117,27 @@ export class Engine {
    */
   toCode(expr: ExprDef | Expr, options?: CodeOptions): string {
     return this.registry.toCode(expr, options);
+  }
+
+  /**
+   * Render an ExprDef as gin TS-pseudocode with span annotations
+   * tying each rendered range back to its node + validator path.
+   * Pair the result with `Problems` from `validate(...)` and feed
+   * both to `formatProblem` / `formatProblems` (in `./code`) to get
+   * compiler-style `^^^` error pointers.
+   */
+  toGinCode(expr: ExprDef | Expr, options?: CodeOptions): Code {
+    return this.registry.toGinCode(expr, options);
+  }
+
+  /**
+   * Render an ExprDef as its JSON form (matching
+   * `JSON.stringify(expr.toJSON(), null, 2)`) with spans aligned to
+   * structural positions. Lets callers surface validation errors in
+   * the JSON the LLM actually wrote.
+   */
+  toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
+    return this.registry.toJSONCode(expr, indent);
   }
 
   /** A Locals seeded with the registered globals' declared types. */

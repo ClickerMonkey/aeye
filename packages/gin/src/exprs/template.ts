@@ -10,6 +10,7 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { NewExpr } from './new';
+import { Code, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
 
@@ -225,6 +226,32 @@ export class TemplateExpr extends Expr {
       template: this.template.toJSON() as unknown as string,
       ...(this.params ? { params: this.params.toJSON() } : {}),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    // The `template` field on the JSON shape is historically allowed
+    // to be either a literal string or an ExprDef. Render whichever
+    // the underlying child Expr's `toJSONCode` produces so the span
+    // path `template` resolves correctly.
+    const tmplCode = this.template.toJSONCode([...path, 'template'], indent, level + 1);
+    const paramsCode = this.params
+      ? this.params.toJSONCode([...path, 'params'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('template') },
+        { key: 'template', value: tmplCode },
+        { key: 'params', value: paramsCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): TemplateExpr {

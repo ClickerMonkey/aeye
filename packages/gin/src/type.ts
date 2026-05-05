@@ -3,6 +3,7 @@ import type { TypeScope } from './type-scope';
 import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
 import type { Expr } from './expr';
 import { Value, val } from './value';
+import { Code, span as spanCode } from './code';
 import type { Node, CodeOptions } from './node';
 import type { Engine } from './engine';
 import { Problems } from './problem';
@@ -814,8 +815,48 @@ export abstract class Type<T = any, O = any> implements Node {
    *
    * Accepts optional Registry + CodeOptions for uniformity with Expr.toCode;
    * most Types ignore both (a type is always a single expression).
+   *
+   * Subclasses MUST implement this; the base `toGinCode` reaches into
+   * the subclass's `toCode` to produce a coarse-span fallback.
    */
   abstract toCode(registry?: Registry, options?: CodeOptions): string;
+
+  /**
+   * Render as gin's TS-pseudocode form as a structured `Code` value
+   * carrying spans. Default: wrap the legacy `toCode` output in a
+   * single coarse span tagged with `path` + `type: this`. Composite
+   * types (obj/list/map/tuple/fn/iface) override to thread child
+   * paths through.
+   */
+  toGinCode(
+    registry?: Registry,
+    options?: CodeOptions,
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
+    const text = this.toCode(registry, options);
+    return spanCode(text, { path, type: this });
+  }
+
+  /**
+   * Render as the JSON form of `toJSON()` with spans aligned to JSON
+   * positions. Default: wrap `JSON.stringify(this.toJSON(), null, 2)`
+   * in a single coarse span. Composite types override to track child
+   * key positions. When `level > 0` continuation lines are
+   * re-indented so the result composes cleanly when embedded under a
+   * parent renderer's already-indented context.
+   */
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    let text = JSON.stringify(this.toJSON(), null, indent);
+    if (level > 0) {
+      const lead = ' '.repeat(level * indent);
+      text = text.replace(/\n/g, '\n' + lead);
+    }
+    return spanCode(text, { path, type: this });
+  }
 
   /**
    * Inline `/* docs * /` prefix for `toCode` output. Always returns empty
@@ -1167,20 +1208,29 @@ export function formatParams(args: Type, options?: CodeOptions): string {
  *
  *   `(\n  a: very-long-type,\n  b: another-long-type\n)`
  *
- * Triggers when ANY item exceeds `threshold` characters (default 32)
- * or itself contains a newline (already wrapped at a deeper level).
+ * Triggers when ANY of:
+ *   - an item exceeds `threshold` characters (default 32),
+ *   - an item itself contains a newline (already wrapped deeper),
+ *   - the compact joined form would exceed `totalThreshold` characters
+ *     (default 80) — keeps long-but-numerous arg lists from rendering
+ *     as one mega-line just because each item is individually short.
+ *     80 leaves headroom for the caller's surrounding delimiters /
+ *     indent so finished lines tend to land near a 100-char target.
  * Already-multi-line items get their newlines indented so nesting
  * doesn't lose alignment.
  */
 export function joinAuto(
   items: string[],
-  opts: { sep?: string; threshold?: number } = {},
+  opts: { sep?: string; threshold?: number; totalThreshold?: number } = {},
 ): string {
   if (items.length === 0) return '';
   const sep = opts.sep ?? ', ';
   const threshold = opts.threshold ?? 32;
-  const wrap = items.some((i) => i.length > threshold || i.includes('\n'));
-  if (!wrap) return items.join(sep);
+  const totalThreshold = opts.totalThreshold ?? 80;
+  const compact = items.join(sep);
+  const wrap = compact.length > totalThreshold
+    || items.some((i) => i.length > threshold || i.includes('\n'));
+  if (!wrap) return compact;
   // Strip trailing whitespace from the separator so the wrapped form
   // emits e.g. `,\n` (not `, \n`) — newline already does the spacing.
   const wrapSep = sep.replace(/\s+$/, '');

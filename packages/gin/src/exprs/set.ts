@@ -9,6 +9,7 @@ import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields, pathStepSchema } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -73,9 +74,14 @@ export class SetExpr extends Expr {
     return engine.registry.bool();
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
-    return this.commentPrefix(options)
-      + `${this.path.toCode(registry!, options)} = ${this.value.toCode(registry, { ...options, expectsValue: true })}`;
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
+    const pathCode = this.path.toGinCode(registry!, options, path);
+    const value = this.value.toGinCode(registry, { ...options, expectsValue: true }, [...path, 'value']);
+    return span(code`${this.commentPrefix(options)}${pathCode} = ${value}`, { path, expr: this });
   }
 
   toJSON(): SetExprDef {
@@ -84,6 +90,26 @@ export class SetExpr extends Expr {
       path: this.path.toJSON(),
       value: this.value.toJSON(),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const pathCode = this.path.toJSONCode([...path, 'path'], indent, level + 1);
+    const valueCode = this.value.toJSONCode([...path, 'value'], indent, level + 1);
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('set') },
+        { key: 'path', value: pathCode },
+        { key: 'value', value: valueCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): SetExpr {

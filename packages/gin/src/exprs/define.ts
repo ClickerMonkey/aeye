@@ -8,6 +8,7 @@ import type { Locals } from '../analysis';
 import { checkBindingName, typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
+import { Code, code, span, joinLines, jsonObject, jsonArray, jsonString } from '../code';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
 import { z } from 'zod';
@@ -132,28 +133,55 @@ export class DefineExpr extends Expr {
     return p.at('body', () => walkValidate(engine, this.body, child, p, ctx));
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const expectsValue = options.expectsValue ?? false;
     const valueOpts = { ...options, expectsValue: true };
     const stmtOpts = { ...options, expectsValue: false };
-    const lets = this.vars.map((v) => {
-      const typeAnno = v.type ? `: ${v.type.toCode(undefined, options)}` : '';
-      return `const ${v.name}${typeAnno} = ${v.value.toCode(registry, valueOpts)};`;
+
+    // Each `const <name>: <type> = <value>;` line — the `value` slot
+    // gets a child path that lines up with the validator
+    // (`vars[i].value`); same for `type` (`vars[i].type`). The `name`
+    // is plain text so the validator's `vars[i].name` errors will
+    // resolve to the bare-text segment via longest-prefix match.
+    //
+    // When the assembled `const … = …;` line exceeds the line-width
+    // target (80 chars on its FIRST rendered line), wrap right after
+    // the `=`. Multi-line values keep their internal layout — the
+    // wrap only adds one break + 2-space indent to the value, so a
+    // wrapped lambda body stays correctly aligned beneath.
+    const lets = this.vars.map((v, i) => {
+      const typeAnno = v.type
+        ? code`: ${v.type.toGinCode(undefined, options, [...path, 'vars', i, 'type'])}`
+        : '';
+      const value = v.value.toGinCode(registry, valueOpts, [...path, 'vars', i, 'value']);
+      const compact = code`let ${v.name}${typeAnno} = ${value};`;
+      const firstLine = compact.text.split('\n', 1)[0]!;
+      if (firstLine.length <= 80) return compact;
+      return code`let ${v.name}${typeAnno} =\n  ${value.indent('  ')};`;
     });
 
     if (expectsValue) {
-      const body = this.body.toCode(registry, valueOpts);
-      const indented = [...lets.map((l) => `  ${l}`), `  return ${indentCode(body)};`].join('\n');
-      return this.commentPrefix(options) + `(() => {\n${indented}\n})()`;
+      const body = this.body.toGinCode(registry, valueOpts, [...path, 'body']);
+      const indentedLets = lets.map((l) => code`  ${l}`);
+      const indentedBody = code`  return ${body.indent('  ')};`;
+      const inner = joinLines([...indentedLets, indentedBody]);
+      return span(code`${this.commentPrefix(options)}(() => {\n${inner}\n})()`, { path, expr: this });
     }
 
-    // Statement form: const decls followed by body as a statement.
+    // Statement form.
     const bodyKind = (this.body as { kind: string }).kind;
-    const bodyCode = this.body.toCode(registry, stmtOpts);
-    const bodyStmt = bodyKind === 'if' || bodyKind === 'switch' || bodyKind === 'loop' || bodyKind === 'block' || bodyKind === 'flow'
-      ? (bodyKind === 'flow' ? `${bodyCode};` : bodyCode)
-      : `${bodyCode};`;
-    return this.commentPrefix(options) + [...lets, bodyStmt].join('\n');
+    const bodyCode = this.body.toGinCode(registry, stmtOpts, [...path, 'body']);
+    const bodyStmt = (bodyKind === 'if' || bodyKind === 'switch' || bodyKind === 'loop' || bodyKind === 'block')
+      ? bodyCode
+      : code`${bodyCode};`;
+    return span(
+      code`${this.commentPrefix(options)}${joinLines([...lets, bodyStmt])}`,
+      { path, expr: this },
+    );
   }
 
   toJSON(): DefineExprDef {
@@ -169,6 +197,40 @@ export class DefineExpr extends Expr {
       }),
       body: this.body.toJSON(),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const varItems = this.vars.map((v, i) => {
+      const varPath = [...path, 'vars', i] as const;
+      const valueCode = v.value.toJSONCode([...varPath, 'value'], indent, level + 3);
+      const typeCode = v.type ? v.type.toJSONCode([...varPath, 'type'], indent, level + 3) : undefined;
+      return jsonObject(
+        [
+          { key: 'name', value: jsonString(v.name) },
+          { key: 'value', value: valueCode },
+          { key: 'type', value: typeCode },
+        ],
+        { path: varPath },
+        level + 2,
+        indent,
+      );
+    });
+    const bodyCode = this.body.toJSONCode([...path, 'body'], indent, level + 1);
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('define') },
+        { key: 'vars', value: jsonArray(varItems, { path: [...path, 'vars'] }, level + 1, indent) },
+        { key: 'body', value: bodyCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): DefineExpr {

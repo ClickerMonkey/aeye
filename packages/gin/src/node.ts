@@ -4,6 +4,7 @@ import type { Problems } from './problem';
 import type { z } from 'zod';
 import type { Expr } from './expr';
 import type { Type } from './type';
+import type { Code } from './code';
 
 /**
  * Passed into each class's static `toSchema(opts)` so sub-fields that
@@ -124,8 +125,50 @@ export interface CodeOptions {
  * validated. Both Type and Expr conform to this.
  */
 export interface Node {
-  /** Render as TypeScript-like source text. */
+  /**
+   * Render as TypeScript-like source text. Convenience wrapper that
+   * delegates to `toGinCode(...).toString()`. Existing callers that
+   * just want a string keep working unchanged.
+   */
   toCode(registry?: Registry, options?: CodeOptions): string;
+
+  /**
+   * Render as gin's TS-pseudocode form (the same format `toCode`
+   * emits) but as a structured `Code` value carrying spans that tie
+   * each rendered range back to its node + validator path. Used by
+   * `formatProblem` to emit compiler-style `^^^` underlines for
+   * validation errors.
+   *
+   * The `path` argument is the validator-style path prefix where
+   * this node sits in its parent — composite renderers thread
+   * `[...path, segment]` into each child's `toGinCode` call so the
+   * resulting span paths line up with `Problem.path` exactly.
+   *
+   * Future: a sibling `toTypescriptCode` would emit real TypeScript
+   * with the same Code shape.
+   */
+  toGinCode(
+    registry?: Registry,
+    options?: CodeOptions,
+    path?: ReadonlyArray<string | number>,
+  ): Code;
+
+  /**
+   * Render as the JSON form (the same shape `toJSON` emits, formatted
+   * with the same indentation as `JSON.stringify(..., null, 2)`) as a
+   * structured `Code` carrying spans aligned to JSON-token positions.
+   * Lets the caller surface validation errors in the JSON the LLM
+   * actually wrote.
+   */
+  toJSONCode(
+    path?: ReadonlyArray<string | number>,
+    indent?: number,
+    /** Current nesting depth — used by the indentation arithmetic so a
+     *  child rendered inside its parent's `code\`...\`` indents its
+     *  continuation lines correctly. Public callers leave at default 0;
+     *  composite renderers pass `level + 1` to each child. */
+    level?: number,
+  ): Code;
 
   /** Serialize to its JSON shape (TypeDef for Type, ExprDef for Expr). */
   toJSON(): unknown;

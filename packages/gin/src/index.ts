@@ -5,6 +5,24 @@ export { buildSchemas } from './schemas';
 
 // Core
 export * from './problem';
+export {
+  Code,
+  code,
+  span,
+  plain,
+  joinCode,
+  joinLines,
+  jsonObject,
+  jsonArray,
+  jsonString,
+  formatProblem,
+  formatProblems,
+  type Span,
+  type CodeLine,
+  type FormatOptions,
+  type FormatProblemsOptions,
+  type JSONEntry,
+} from './code';
 export * from './value';
 export * from './scope';
 export * from './type';

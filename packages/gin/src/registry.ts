@@ -16,6 +16,7 @@ import {
 import { decodeCall, decodeGetSet, decodeInit, decodeProps } from './spec';
 import { Expr, type ExprClass } from './expr';
 import type { CodeOptions, SchemaOptions } from './node';
+import type { Code } from './code';
 import type { JSONValue } from './json-type';
 import type { z } from 'zod';
 
@@ -299,6 +300,29 @@ export class Registry implements TypeBuilder, TypeScope {
   toCode(expr: ExprDef | Expr, options?: CodeOptions): string {
     const e = expr instanceof Expr ? expr : this.parseExpr(expr);
     return e.toCode(this, options);
+  }
+
+  /**
+   * Render an ExprDef (or parsed Expr) as gin's TS-pseudocode form
+   * with span annotations. The result's `Code` carries spans that
+   * line up with `Problem.path` from `engine.validate(...)`, so a
+   * caller can pass both into `formatProblem` / `formatProblems` to
+   * produce compiler-style `^^^` underlines.
+   */
+  toGinCode(expr: ExprDef | Expr, options?: CodeOptions): Code {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toGinCode(this, options, []);
+  }
+
+  /**
+   * Render an ExprDef (or parsed Expr) as the JSON form (same shape
+   * as `JSON.stringify(expr.toJSON(), null, 2)`) with spans on each
+   * structural slot. Used by ginny's `write` tool to surface
+   * validation pointers in the JSON the LLM actually emitted.
+   */
+  toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toJSONCode([], indent);
   }
 
   // ─── JSON PARSE ──────────────────────────────────────────────────────────

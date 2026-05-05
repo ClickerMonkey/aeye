@@ -10,6 +10,7 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
+import { Code, code, span, joinLines, jsonObject, jsonArray, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -65,46 +66,71 @@ export class BlockExpr extends Expr {
     return last;
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const expectsValue = options.expectsValue ?? false;
-    if (this.lines.length === 0) return expectsValue ? 'undefined' : '';
+    if (this.lines.length === 0) {
+      return span(expectsValue ? 'undefined' : '', { path, expr: this });
+    }
     if (this.lines.length === 1) {
-      return this.lines[0]!.toCode(registry, options);
+      return span(
+        this.lines[0]!.toGinCode(registry, options, [...path, 0]),
+        { path, expr: this },
+      );
     }
 
     const prefix = this.commentPrefix(options);
 
     if (expectsValue) {
-      // Value-form needs the IIFE wrapper so the rendered code reads as
-      // a single expression. The wrapper supplies the `{ }`.
-      const body = this.lines.map((line, i) => {
+      // Value-form: IIFE wrapper. Each line becomes `  return X;` or
+      // `  X;` depending on position. Each child renders with its own
+      // path-suffixed span so the validator's per-line `i` maps back
+      // to the right rendered range.
+      const lineBodies = this.lines.map((line, i) => {
         const isLast = i === this.lines.length - 1;
-        const code = line.toCode(registry, { ...options, expectsValue: isLast });
-        return isLast ? `  return ${indentCode(code)};` : `  ${indentCode(code)};`;
-      }).join('\n');
-      return prefix + `(() => {\n${body}\n})()`;
+        const c = line.toGinCode(registry, { ...options, expectsValue: isLast }, [...path, i]).indent('  ');
+        return isLast ? code`  return ${c};` : code`  ${c};`;
+      });
+      const body = joinLines(lineBodies);
+      return span(code`${prefix}(() => {\n${body}\n})()`, { path, expr: this });
     }
 
-    // Statement-form: emit lines joined by newlines, no surrounding
-    // braces. The CALLER (fn body, if/else/for body, top-level
-    // engine.toCode) is responsible for wrapping in `{ ... }` if it
-    // needs a visual block. This keeps the output free of redundant
-    // double-brace artifacts when a `block` is the immediate body of
-    // another block-like construct.
-    return prefix + this.lines.map((line) => {
+    // Statement-form: lines joined by newlines, no surrounding braces.
+    const parts = this.lines.map((line, i) => {
       const kind = (line as { kind: string }).kind;
-      const code = line.toCode(registry, { ...options, expectsValue: false });
+      const c = line.toGinCode(registry, { ...options, expectsValue: false }, [...path, i]);
       // Trailing `;` only for plain expressions / sets / defines —
-      // control-flow statements (if / switch / loop) already self-
-      // terminate, and a sub-block emits multiple lines that don't
-      // share one terminator.
-      if (kind === 'if' || kind === 'switch' || kind === 'loop' || kind === 'block') return code;
-      return `${code};`;
-    }).join('\n');
+      // control-flow statements self-terminate.
+      if (kind === 'if' || kind === 'switch' || kind === 'loop' || kind === 'block') return c;
+      return code`${c};`;
+    });
+    return span(code`${prefix}${joinLines(parts)}`, { path, expr: this });
   }
 
   toJSON(): BlockExprDef {
     return this.withCommentOn({ kind: 'block', lines: this.lines.map((l) => l.toJSON()) });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const childItems = this.lines.map((line, i) =>
+      line.toJSONCode([...path, i], indent, level + 2));
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('block') },
+        { key: 'lines', value: jsonArray(childItems, { path: [...path, 'lines'] }, level + 1, indent) },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): BlockExpr {
@@ -115,3 +141,4 @@ export class BlockExpr extends Expr {
     for (const line of this.lines) visit(line, 'inherit');
   }
 }
+

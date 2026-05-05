@@ -8,6 +8,7 @@ import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -69,6 +70,27 @@ export class NativeExpr extends Expr {
     const out: NativeExprDef = { kind: 'native', id: this.id };
     if (this.type) out.type = this.type.toJSON();
     return this.withCommentOn(out);
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const typeCode = this.type
+      ? this.type.toJSONCode([...path, 'type'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('native') },
+        { key: 'id', value: jsonString(this.id) },
+        { key: 'type', value: typeCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): NativeExpr {

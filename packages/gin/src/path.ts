@@ -16,6 +16,7 @@ import { LocalScope, type TypeScope } from './type-scope';
 import { joinAuto } from './type';
 import { ObjType } from './types/obj';
 import type { CodeOptions } from './node';
+import { Code, code, span, joinCode, jsonObject, jsonArray, jsonString } from './code';
 
 /**
  * `true` when accessing a prop whose type is a callable (fn / method)
@@ -195,6 +196,24 @@ export class Path {
     return this.steps.map((s) => s.toJSON());
   }
 
+  /**
+   * `Code`-rendered JSON form of this path. Each step gets a span at
+   * `[...path, i]`; nested arg / key / catch sub-Exprs nest deeper to
+   * match validator-emitted paths during a path validateWalk. Used by
+   * `GetExpr.toJSONCode` / `SetExpr.toJSONCode`.
+   */
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const items = this.steps.map((step, i) => {
+      const stepPath = [...path, i] as const;
+      return renderPathStepJSON(step, stepPath, indent, level + 1);
+    });
+    return jsonArray(items, { path }, level, indent);
+  }
+
   clone(): Path {
     return new Path(this.steps.map((s) => s.clone()));
   }
@@ -212,35 +231,60 @@ export class Path {
   }
 
   toCode(registry: Registry, options: CodeOptions = {}): string {
-    if (this.steps.length === 0) return '';
-    let out = '';
+    return this.toGinCode(registry, options).toString();
+  }
+
+  /**
+   * `Code`-aware path render. Every step gets a span at `[...path,
+   * 'path', i]`; nested arg / key / catch sub-Exprs get their own
+   * deeper spans matching what the validator emits during a path
+   * validateWalk. Used by GetExpr / SetExpr (which delegate path
+   * rendering to Path).
+   */
+  toGinCode(registry: Registry, options: CodeOptions = {}, path: ReadonlyArray<string | number> = []): Code {
+    if (this.steps.length === 0) return new Code('');
+    let out: Code = new Code('');
     for (let i = 0; i < this.steps.length; i++) {
       const step = this.steps[i]!;
+      const stepPath = [...path, 'path', i] as const;
       if (step instanceof PropStep) {
-        out = i === 0 ? step.prop : `${out}.${step.prop}`;
+        const stepText = i === 0 ? step.prop : `.${step.prop}`;
+        out = i === 0
+          ? span(stepText, { path: stepPath })
+          : code`${out}${span(stepText, { path: stepPath })}`;
       } else if (step instanceof CallStep) {
         const entries = Object.entries(step.args);
+        let callBody: Code;
         if (entries.length === 0) {
-          // No args — render as a bare `()`. Showing `({})` would be
-          // accurate but visually noisier (the empty obj is implied).
-          out += '()';
+          callBody = new Code('()');
         } else {
-          const parts = entries.map(([k, v]) => `${k}: ${v.toCode(registry, { ...options, expectsValue: true })}`);
-          const joined = joinAuto(parts);
-          // joinAuto returns `\n  …\n` for the wrapped form, plain
-          // `a, b` for the compact form. Brace-spacing matches each.
-          out += joined.startsWith('\n') ? `({${joined}})` : `({ ${joined} })`;
+          const parts: Code[] = entries.map(([k, v]) => {
+            const argPath = [...stepPath, 'args', k] as const;
+            const valCode = v.toGinCode(registry, { ...options, expectsValue: true }, argPath);
+            return code`${k}: ${valCode}`;
+          });
+          // Reuse joinAuto's heuristic on the joined string form.
+          const joined = joinAuto(parts.map((p) => p.toString()));
+          if (joined.startsWith('\n')) {
+            // Wrapped form: `({\n  a,\n  b,\n  c\n})`. The separator
+            // already places 2 spaces of indent before each non-first
+            // entry; only the first entry needs its own leading
+            // indent (supplied by the outer template's `\n  `).
+            const inner = joinCode(parts, ',\n  ');
+            callBody = code`({\n  ${inner}\n})`;
+          } else {
+            const inner = joinCode(parts, ', ');
+            callBody = code`({ ${inner} })`;
+          }
         }
+        out = code`${out}${span(callBody, { path: stepPath })}`;
         if (step.catch_) {
-          // Render `catch:` as a JS-like `.catch(err => …)` chain so
-          // it survives nested comments / complex catch bodies. The
-          // call expects `error` in scope; the rendered handler
-          // signature mirrors that.
-          const handler = step.catch_.toCode(registry, { ...options, expectsValue: true });
-          out += `.catch((error) => ${handler})`;
+          const handler = step.catch_.toGinCode(registry, { ...options, expectsValue: true }, [...stepPath, 'catch']);
+          out = code`${out}.catch((error) => ${handler})`;
         }
       } else if (step instanceof IndexStep) {
-        out += `[${step.key.toCode(registry, { ...options, expectsValue: true })}]`;
+        const key = step.key.toGinCode(registry, { ...options, expectsValue: true }, [...stepPath, 'key']);
+        out = code`${out}${span(code`[${key}]`, { path: stepPath })}`;
       }
     }
     return out;
@@ -638,4 +682,69 @@ export async function walkPath(
 ): Promise<Value> {
   const p = path instanceof Path ? path : Path.from(path, engine.registry);
   return p.walk(scope, engine, mode);
+}
+
+/**
+ * Render a single `PathStep` as a JSON object Code. Each step has its
+ * own JSON shape:
+ *   - PropStep   → `{ "prop": "<name>" }`
+ *   - CallStep   → `{ "args": { ... } [, "generic": ...] [, "catch": ...] }`
+ *   - IndexStep  → `{ "key": <ExprDef> }`
+ *
+ * Sub-Exprs (args, catch, key) recurse into their own `toJSONCode`
+ * with appropriate path suffixes so a `template.placeholder.unresolved`
+ * inside a `catch` block, for example, resolves to the right span.
+ */
+function renderPathStepJSON(
+  step: PathStep,
+  stepPath: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  if (step instanceof PropStep) {
+    return jsonObject(
+      [{ key: 'prop', value: jsonString(step.prop) }],
+      { path: stepPath },
+      level,
+      indent,
+    );
+  }
+  if (step instanceof CallStep) {
+    const argEntries = Object.entries(step.args).map(([k, expr]) => ({
+      key: k,
+      value: expr.toJSONCode([...stepPath, 'args', k], indent, level + 2),
+    }));
+    const argsObj = jsonObject(argEntries, { path: [...stepPath, 'args'] }, level + 1, indent);
+    const entries: Array<{ key: string; value: Code | string | undefined }> = [
+      { key: 'args', value: argsObj },
+    ];
+    if (step.generic) {
+      // `generic` is a Record<string, TypeDef>. We don't span-track
+      // individual TypeDef positions here — the validator currently
+      // emits errors at the call-step level, not into individual
+      // generic bindings. Inline as plain JSON; coarse-span fallback.
+      entries.push({
+        key: 'generic',
+        value: JSON.stringify(step.generic, null, indent)
+          .replace(/\n/g, '\n' + ' '.repeat(level * indent)),
+      });
+    }
+    if (step.catch_) {
+      entries.push({
+        key: 'catch',
+        value: step.catch_.toJSONCode([...stepPath, 'catch'], indent, level + 1),
+      });
+    }
+    return jsonObject(entries, { path: stepPath }, level, indent);
+  }
+  if (step instanceof IndexStep) {
+    return jsonObject(
+      [{ key: 'key', value: step.key.toJSONCode([...stepPath, 'key'], indent, level + 1) }],
+      { path: stepPath },
+      level,
+      indent,
+    );
+  }
+  // Unknown step kind — fall back to generic JSON.stringify.
+  return new Code(JSON.stringify(step.toJSON(), null, indent));
 }

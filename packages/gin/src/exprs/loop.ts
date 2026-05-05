@@ -11,6 +11,7 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
+import { Code, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -386,6 +387,40 @@ export class LoopExpr extends Expr {
       };
     }
     return this.withCommentOn(out);
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const overCode = this.over.toJSONCode([...path, 'over'], indent, level + 1);
+    const bodyCode = this.body.toJSONCode([...path, 'body'], indent, level + 1);
+    const parallelCode = this.parallel
+      ? jsonObject(
+          [
+            { key: 'concurrent', value: this.parallel.concurrent?.toJSONCode([...path, 'parallel', 'concurrent'], indent, level + 2) },
+            { key: 'rate', value: this.parallel.rate?.toJSONCode([...path, 'parallel', 'rate'], indent, level + 2) },
+          ],
+          { path: [...path, 'parallel'] },
+          level + 1,
+          indent,
+        )
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('loop') },
+        { key: 'over', value: overCode },
+        { key: 'body', value: bodyCode },
+        { key: 'key', value: this.keyName !== undefined ? jsonString(this.keyName) : undefined },
+        { key: 'value', value: this.valueName !== undefined ? jsonString(this.valueName) : undefined },
+        { key: 'parallel', value: parallelCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): LoopExpr {

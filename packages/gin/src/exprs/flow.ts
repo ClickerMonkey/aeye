@@ -10,6 +10,7 @@ import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
 
@@ -109,21 +110,60 @@ export class FlowExpr extends Expr {
    * ternary or IIFE. Callers that asked for a value-producing form should
    * treat this as "never returns" semantically.
    */
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const prefix = this.commentPrefix(options);
     const valueOpts = { ...options, expectsValue: true };
-    let code: string;
+    let body: Code;
     switch (this.action) {
-      case 'break':    code = 'break'; break;
-      case 'continue': code = 'continue'; break;
-      case 'return':   code = this.value ? `return ${this.value.toCode(registry, valueOpts)}` : 'return'; break;
-      case 'throw':    code = this.error ? `throw ${this.error.toCode(registry, valueOpts)}` : 'throw'; break;
-      case 'exit':     code = this.value
-        ? `exit ${this.value.toCode(registry, valueOpts)}`
-        : 'exit'; break;
-      default: code = '';
+      case 'break':    body = new Code('break'); break;
+      case 'continue': body = new Code('continue'); break;
+      case 'return':
+        body = this.value
+          ? code`return ${this.value.toGinCode(registry, valueOpts, [...path, 'value'])}`
+          : new Code('return');
+        break;
+      case 'throw':
+        body = this.error
+          ? code`throw ${this.error.toGinCode(registry, valueOpts, [...path, 'error'])}`
+          : new Code('throw');
+        break;
+      case 'exit':
+        body = this.value
+          ? code`exit ${this.value.toGinCode(registry, valueOpts, [...path, 'value'])}`
+          : new Code('exit');
+        break;
+      default: body = new Code('');
     }
-    return prefix + code;
+    return span(code`${prefix}${body}`, { path, expr: this });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const valueCode = this.value
+      ? this.value.toJSONCode([...path, 'value'], indent, level + 1)
+      : undefined;
+    const errorCode = this.error
+      ? this.error.toJSONCode([...path, 'error'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('flow') },
+        { key: 'action', value: jsonString(this.action) },
+        { key: 'value', value: valueCode },
+        { key: 'error', value: errorCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   toJSON(): FlowExprDef {

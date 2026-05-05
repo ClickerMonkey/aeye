@@ -193,7 +193,7 @@ describe('Engine.toCode — expressions', () => {
       vars: [{ name: 'x', value: { kind: 'new', type: { name: 'num' }, value: 10 } }],
       body: { kind: 'get', path: [{ prop: 'x' }] },
     });
-    expect(code).toContain('const x = 10');
+    expect(code).toContain('let x = 10');
     expect(code).toContain('x;');
   });
 
@@ -203,7 +203,7 @@ describe('Engine.toCode — expressions', () => {
       vars: [{ name: 'x', value: { kind: 'new', type: { name: 'num' }, value: 10 } }],
       body: { kind: 'get', path: [{ prop: 'x' }] },
     }, { expectsValue: true });
-    expect(code).toContain('const x');
+    expect(code).toContain('let x');
     expect(code).toContain('return x');
   });
 
@@ -373,7 +373,7 @@ describe('Engine.toCode — expressions', () => {
         ],
       },
     });
-    expect(code).toBe('(args: obj{n: num}) => args.n.mul({ other: 2 })');
+    expect(code).toBe('(n: num): num => args.n.mul({ other: 2 })');
   });
 
   test('template with static params inlines interpolations', () => {

@@ -9,7 +9,8 @@ import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { indentCode, renderStatementBody, findEscapingFlow } from './code';
+import { indentCode, renderStatementBody, renderStatementBodyRich, findEscapingFlow } from './code';
+import { Code, code, span, jsonObject, jsonArray, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -100,44 +101,59 @@ export class IfExpr extends Expr {
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const expectsValue = options.expectsValue ?? false;
-    // Any escaping flow in a branch body forbids ternary/IIFE rendering.
     const hasFlow =
       this.ifs.some((b) => !!findEscapingFlow(b.body)) ||
       (this.otherwise ? !!findEscapingFlow(this.otherwise) : false);
 
     const prefix = this.commentPrefix(options);
-
     const valueOpts = { ...options, expectsValue: true };
-    // Expression context with no non-local flow: ternary or IIFE.
+
     if (expectsValue && !hasFlow) {
       if (this.ifs.length === 1 && this.otherwise) {
         const b = this.ifs[0]!;
-        return prefix + `(${b.condition.toCode(registry, valueOpts)} ? ${b.body.toCode(registry, valueOpts)} : ${this.otherwise.toCode(registry, valueOpts)})`;
+        const cond = b.condition.toGinCode(registry, valueOpts, [...path, 'ifs', 0, 'condition']);
+        const body = b.body.toGinCode(registry, valueOpts, [...path, 'ifs', 0, 'body']);
+        const els = this.otherwise.toGinCode(registry, valueOpts, [...path, 'else']);
+        return span(code`${prefix}(${cond} ? ${body} : ${els})`, { path, expr: this });
       }
-      const branches = this.ifs.map((b, i) => {
+      let branches = code``;
+      for (let i = 0; i < this.ifs.length; i++) {
+        const b = this.ifs[i]!;
         const kw = i === 0 ? 'if' : 'else if';
-        return `  ${kw} (${b.condition.toCode(registry, valueOpts)}) return ${indentCode(b.body.toCode(registry, valueOpts))};`;
-      }).join('\n');
-      const elseClause = this.otherwise
-        ? `\n  return ${indentCode(this.otherwise.toCode(registry, valueOpts))};`
-        : '';
-      return prefix + `(() => {\n${branches}${elseClause}\n})()`;
+        const cond = b.condition.toGinCode(registry, valueOpts, [...path, 'ifs', i, 'condition']);
+        const body = b.body.toGinCode(registry, valueOpts, [...path, 'ifs', i, 'body']);
+        const sep = i === 0 ? '' : '\n';
+        branches = code`${branches}${sep}  ${kw} (${cond}) return ${body.indent('  ')};`;
+      }
+      let elseClause: Code | string = '';
+      if (this.otherwise) {
+        const els = this.otherwise.toGinCode(registry, valueOpts, [...path, 'else']);
+        elseClause = code`\n  return ${els.indent('  ')};`;
+      }
+      return span(code`${prefix}(() => {\n${branches}${elseClause}\n})()`, { path, expr: this });
     }
 
     // Statement form.
-    let out = '';
+    let out: Code = code``;
     for (let i = 0; i < this.ifs.length; i++) {
       const b = this.ifs[i]!;
       const kw = i === 0 ? 'if' : 'else if';
       const leading = i === 0 ? '' : ' ';
-      out += `${leading}${kw} (${b.condition.toCode(registry, valueOpts)}) ${renderStatementBody(b.body, registry, options)}`;
+      const cond = b.condition.toGinCode(registry, valueOpts, [...path, 'ifs', i, 'condition']);
+      const body = renderStatementBodyRich(b.body, registry, options, [...path, 'ifs', i, 'body']);
+      out = code`${out}${leading}${kw} (${cond}) ${body}`;
     }
     if (this.otherwise) {
-      out += ` else ${renderStatementBody(this.otherwise, registry, options)}`;
+      const els = renderStatementBodyRich(this.otherwise, registry, options, [...path, 'else']);
+      out = code`${out} else ${els}`;
     }
-    return prefix + out;
+    return span(code`${prefix}${out}`, { path, expr: this });
   }
 
   toJSON(): IfExprDef {
@@ -146,6 +162,39 @@ export class IfExpr extends Expr {
       ifs: this.ifs.map((b) => ({ condition: b.condition.toJSON(), body: b.body.toJSON() })),
       else: this.otherwise?.toJSON(),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const branchItems = this.ifs.map((b, i) => {
+      const branchPath = [...path, 'ifs', i] as const;
+      return jsonObject(
+        [
+          { key: 'condition', value: b.condition.toJSONCode([...branchPath, 'condition'], indent, level + 3) },
+          { key: 'body', value: b.body.toJSONCode([...branchPath, 'body'], indent, level + 3) },
+        ],
+        { path: branchPath },
+        level + 2,
+        indent,
+      );
+    });
+    const elseCode = this.otherwise
+      ? this.otherwise.toJSONCode([...path, 'else'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('if') },
+        { key: 'ifs', value: jsonArray(branchItems, { path: [...path, 'ifs'] }, level + 1, indent) },
+        { key: 'else', value: elseCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): IfExpr {
