@@ -62,10 +62,31 @@ function makeChatHooks(provider: string) {
     beforeRequest: (_req: unknown, params: unknown) => {
       logger.log(`── ${provider} chat beforeRequest ── ${summarizeParams(params)}`);
       if (LOG_FULL) logger.logObject('params', params);
+      // Memory snapshot before every wire-out: history is serialized
+      // here, so this is where we'd spot conversation-history bloat
+      // pushing us toward the heap ceiling.
+      logger.mem(`${provider} beforeRequest`);
+      // Also measure how many bytes we're about to send — this number
+      // doesn't show up in process.memoryUsage() because the
+      // serialization happens inside the provider, but it bounds the
+      // outgoing-allocation cost. Catches the "history is now N MB"
+      // case before it's lost in heapTotal.
+      try {
+        const sz = JSON.stringify(params).length;
+        logger.log(`[mem] ${provider} request payload=${(sz / 1024).toFixed(0)}KB`);
+      } catch { /* params unstringifiable — already logged above */ }
     },
     afterRequest: (_req: unknown, _params: unknown, _response: unknown, responseComplete: unknown) => {
       logger.log(`── ${provider} chat afterRequest ── ${summarizeResponse(responseComplete)}`);
       if (LOG_FULL) logger.logObject('response', responseComplete);
+      logger.mem(`${provider} afterRequest`);
+      // Same idea as the request side — measure the bytes we received
+      // and parsed. A 50MB response is unusual and points at a
+      // streaming-accumulation bug or a model echoing huge input.
+      try {
+        const sz = JSON.stringify(responseComplete).length;
+        logger.log(`[mem] ${provider} response payload=${(sz / 1024).toFixed(0)}KB`);
+      } catch { /* response unstringifiable */ }
     },
     onError: (_req: unknown, params: unknown, error: unknown) => {
       // Errors are rare and load-bearing for diagnosis — log the full
@@ -73,6 +94,7 @@ function makeChatHooks(provider: string) {
       logger.log(`── ${provider} chat onError ── ${summarizeParams(params)}`);
       logger.logObject('params', params);
       logger.logObject('error', error);
+      logger.mem(`${provider} onError`);
     },
   };
 }
@@ -285,4 +307,27 @@ engine.registerGlobal('fns', {
     log:   createLogImpl(registry),
     ask:   createAskImpl(registry),
   },
+});
+
+// Leak-hunting probes: each `[mem]` line gets a compact tail like
+//   ` globals=42 namedTypes=18 sessionFns=12 sessionTypes=7`
+// If those counters grow lock-step with heapUsed across turns, they
+// (or the data they reference) ARE the retainer. If they're flat
+// while heap climbs, the leak is somewhere else (likely AI lib chunk
+// retention or sub-agent state). Probes return null when their
+// underlying collection isn't introspectable so the line stays
+// compact.
+logger.addMemProbe(() => {
+  try { return `globals=${(engine.getGlobals?.() as Map<string, unknown> | undefined)?.size ?? '?'}`; }
+  catch { return null; }
+});
+logger.addMemProbe(() => {
+  try {
+    const list = (registry as unknown as { namedTypeList?: () => unknown[] }).namedTypeList?.();
+    return Array.isArray(list) ? `namedTypes=${list.length}` : null;
+  } catch { return null; }
+});
+logger.addMemProbe(() => {
+  try { return `sessionFns=${sessionLoadedFns.size} sessionTypes=${sessionLoadedTypes.size} sessionVars=${sessionLoadedVars.size}`; }
+  catch { return null; }
 });

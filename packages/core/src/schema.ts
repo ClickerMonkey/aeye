@@ -50,28 +50,6 @@ function transferMetadata(target: z.ZodType, source: z.ZodType) {
 }
 
 /**
- * Extracts the input schema from a transformed schema (codec or preprocess).
- * For preprocess with optional, we need the nullable version for strict mode input.
- * This is needed when building input schemas that contain transformed fields.
- */
-function getInputSchema(schema: z.ZodType): z.ZodType {
-  if (schema instanceof z.ZodCodec) {
-    return schema.def.in as z.ZodType;
-  }
-  // For ZodPipe (which preprocess creates), check if the output is optional
-  // If so, we need to return a nullable version for the input schema
-  if (schema instanceof z.ZodPipe) {
-    const outputSchema = schema.def.out;
-    if (outputSchema instanceof z.ZodOptional) {
-      // The input from preprocess is already set up to handle null->undefined conversion
-      // So we just need to make sure the base type accepts null
-      return z.nullable(outputSchema.unwrap());
-    }
-  }
-  return schema;
-}
-
-/**
 * Recursively transforms a Zod schema to support strict mode.
 * 
 * @param schema - input Zod schema
@@ -280,7 +258,7 @@ function strictifySimple(
 /**
  * Format specification for JSON Schema generation
  */
-export type JSONSchemaFormat = 'openai';
+export type JSONSchemaFormat = 'openai' | 'anthropic' | 'google';
 
 /**
  * Options for toJSONSchemaV2

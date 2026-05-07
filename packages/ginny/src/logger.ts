@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import v8 from 'v8';
 
 /**
  * Generate a short (6 hex chars) "errorable-work" id. Stamp it on a
@@ -39,46 +40,98 @@ export class Logger {
     this.stream.write(`[${ts}] ${message}\n`);
   }
 
+  // ─── memory instrumentation ──────────────────────────────────────────────
+
+  /** Highest `rss` we've ever observed this session, in bytes. Used to
+   *  detect new high-water marks and tag them WARN in the log. */
+  private peakRss = 0;
+  /** Heap limit in bytes (v8's heap_size_limit) — the ceiling V8 will
+   *  OOM at. Cached at first read. */
+  private heapLimitBytes: number | undefined;
+
+  /** Snapshot the current process memory and emit a compact one-liner
+   *  to `ginny.log`. Format:
+   *
+   *    [mem] <label> rss=420MB heap=320/450/4096MB ext=12MB
+   *                  └ resident set size                         (OS view of process memory)
+   *                          └ heapUsed / heapTotal / heapLimit  (V8 view)
+   *                                          └ external          (off-heap buffers)
+   *
+   *  Crosses heapUsed>80% of limit OR a new RSS high-water mark
+   *  (>+100MB since last peak) get a `WARN` prefix so they're easy to
+   *  grep when post-morteming an OOM. The whole call is allocation-
+   *  free aside from the format string — safe to call frequently. */
   /**
-   * Serialize an object for the log. Circular refs / functions →
-   * placeholders. Hard-capped at 1 MB of serialized output to keep a
-   * single accidental "log the whole world" call from allocating
-   * gigabytes of intermediate string. The cap is enforced INSIDE the
-   * stringify replacer (not after) so we never materialize the full
-   * blob in memory — once we've emitted ~1 MB worth, every subsequent
-   * non-primitive becomes `[…truncated]`.
+   * Optional snapshot probes registered by the host. Each returns a
+   * compact `key=value` string appended to the `[mem]` line — used by
+   * leak hunting to surface counters that should grow lock-step with
+   * memory (engine globals, registered named types, etc.). If those
+   * grow per turn, they're the retainer; if they're flat while heap
+   * climbs, the leak is somewhere else.
+   */
+  private probes: Array<() => string | null | undefined> = [];
+
+  /** Register a probe — called on every `mem()`. Return `null` to skip
+   *  a probe's contribution this snapshot. Probes should be O(1). */
+  addMemProbe(probe: () => string | null | undefined): void {
+    this.probes.push(probe);
+  }
+
+  mem(label: string): void {
+    const m = process.memoryUsage();
+    if (this.heapLimitBytes === undefined) {
+      try { this.heapLimitBytes = v8.getHeapStatistics().heap_size_limit; }
+      catch { this.heapLimitBytes = 0; }
+    }
+    const limit = this.heapLimitBytes ?? 0;
+    const heapPct = limit > 0 ? m.heapUsed / limit : 0;
+    const rssJumpMB = (m.rss - this.peakRss) / 1024 / 1024;
+    const isPeak = m.rss > this.peakRss;
+    if (isPeak) this.peakRss = m.rss;
+
+    const flags: string[] = [];
+    if (heapPct >= 0.85) flags.push(`heap@${(heapPct * 100).toFixed(0)}%`);
+    if (isPeak && rssJumpMB >= 100) flags.push(`+${rssJumpMB.toFixed(0)}MB`);
+
+    const fmt = (b: number): string => `${(b / 1024 / 1024).toFixed(0)}MB`;
+    const heapStr = limit > 0
+      ? `${fmt(m.heapUsed)}/${fmt(m.heapTotal)}/${fmt(limit)}`
+      : `${fmt(m.heapUsed)}/${fmt(m.heapTotal)}`;
+    const prefix = flags.length > 0 ? `WARN ` : '';
+    const flagStr = flags.length > 0 ? ` (${flags.join(' ')})` : '';
+
+    const probeBits: string[] = [];
+    for (const p of this.probes) {
+      try {
+        const out = p();
+        if (out) probeBits.push(out);
+      } catch { /* probe failure shouldn't break logging */ }
+    }
+    const probeStr = probeBits.length > 0 ? ` ${probeBits.join(' ')}` : '';
+
+    this.log(`[mem] ${prefix}${label} rss=${fmt(m.rss)} heap=${heapStr} ext=${fmt(m.external)}${flagStr}${probeStr}`);
+  }
+
+  /**
+   * Serialize an object for the log. Circular refs become `[circular]`
+   * and functions become `[function]`; otherwise the full payload is
+   * written verbatim. ginny.log is a post-mortem artifact — preserving
+   * complete prompts, responses, and tool args is more valuable than
+   * a hard byte cap. Disk space is cheap; truncated logs leave you
+   * unable to reproduce the failure.
    */
   logObject(label: string, obj: unknown): void {
-    const MAX_BYTES = 1_000_000;
-    let approxBytes = 0;
-    let truncated = false;
     try {
       const seen = new WeakSet<object>();
       const serialized = JSON.stringify(obj, (_, v) => {
-        if (truncated) return undefined;
         if (typeof v === 'function') return '[function]';
-        if (typeof v === 'string' && v.length > 8192) {
-          // Long strings (rendered prompts, JSON-serialized tool args)
-          // dominate. Truncate them inline so they contribute a known
-          // ceiling to the byte count.
-          approxBytes += 8192;
-          if (approxBytes > MAX_BYTES) { truncated = true; return '[…truncated]'; }
-          return `${v.slice(0, 8192)}…[${v.length - 8192} more chars]`;
-        }
-        if (typeof v === 'string') {
-          approxBytes += v.length;
-        } else if (typeof v === 'number' || typeof v === 'boolean') {
-          approxBytes += 8;
-        }
-        if (approxBytes > MAX_BYTES) { truncated = true; return '[…truncated]'; }
         if (v && typeof v === 'object') {
           if (seen.has(v)) return '[circular]';
           seen.add(v);
         }
         return v;
       }, 2);
-      const suffix = truncated ? `\n[…log entry truncated at ~${MAX_BYTES} bytes]` : '';
-      this.log(`${label}:\n${serialized}${suffix}`);
+      this.log(`${label}:\n${serialized}`);
     } catch (e: unknown) {
       this.log(`${label}: <unserializable: ${e instanceof Error ? e.message : String(e)}>`);
     }

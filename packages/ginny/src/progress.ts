@@ -62,6 +62,12 @@ export async function runSubagent<
   const start = Date.now();
   process.stderr.write(`  ${c(DIM, `▸ ${label}`)}\n`);
   logger.log(`▸ ${label}`);
+  // Sub-agent boundary memory snapshots — pair `subagent start` with
+  // `subagent done` to see how much each sub-agent retains after it
+  // returns. A clean delta (≤ a few MB) means sub-agent state is
+  // being released; a growing delta means closures or output objects
+  // are pinning the sub-agent's engine/registry/history.
+  logger.mem(`subagent start ${label}`);
 
   let output: GetStreamOutput<TGetStream> | undefined;
   const toolStarts = new WeakMap<object, number>();
@@ -130,6 +136,7 @@ export async function runSubagent<
     const cancelled = signal?.aborted ? ' [cancelled]' : '';
     process.stderr.write(`  ${c(DIM, `✓ ${label} (${elapsed}ms)${cancelled}`)}\n`);
     logger.log(`✓ ${label} (${elapsed}ms)${cancelled}`);
+    logger.mem(`subagent done ${label}`);
   }
 
   return output;

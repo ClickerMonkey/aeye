@@ -23,6 +23,12 @@ const DIM = `${ESC}2m`;
 
 const PREVIEW_MAX = 120;
 
+/** Sample every Nth streaming partial event for a memory snapshot.
+ *  100 ≈ once per ~10 KB of streamed content for typical providers —
+ *  fine-grained enough to catch a runaway allocation, coarse enough
+ *  not to flood ginny.log on a normal multi-thousand-token response. */
+const MEM_CHUNK_INTERVAL = 100;
+
 function preview(value: unknown): string {
   let s: string;
   if (value instanceof Error) {
@@ -56,6 +62,18 @@ export class EventDisplay {
   private hasProducedText = false;
   private color: boolean;
   private thinkingShownThisTurn = false;
+  /** Chunk counters for streaming-window memory logs. Reset on each
+   *  `request` event (start of a new turn); incremented on every
+   *  `textPartial` / `reasonPartial`. Every `MEM_CHUNK_INTERVAL`
+   *  partials we drop a `[mem] stream @ N chunks` line so a runaway
+   *  allocation during streaming is localizable inside the
+   *  beforeRequest → afterRequest window. */
+  private partialChunks = 0;
+  private reasonChunks = 0;
+  private streamLoggedAt = 0;
+  /** Track total streamed bytes per turn for the end-of-stream report. */
+  private streamBytesText = 0;
+  private streamBytesReason = 0;
   /**
    * Streaming markdown renderer. All streamed prose chunks pump through
    * here so headings, code fences, lists, bold/italic, links etc.
@@ -72,6 +90,17 @@ export class EventDisplay {
 
   private c(code: string, text: string): string {
     return this.color ? `${code}${text}${RESET}` : text;
+  }
+
+  /** Log a memory snapshot every `MEM_CHUNK_INTERVAL` partial chunks
+   *  during streaming. Keeps the AI lib's chunk accumulation visible
+   *  inside the beforeRequest → afterRequest window without flooding
+   *  the log (one line per ~100 chunks instead of per chunk). */
+  private maybeLogStreamMem(): void {
+    const total = this.partialChunks + this.reasonChunks;
+    if (total - this.streamLoggedAt < MEM_CHUNK_INTERVAL) return;
+    this.streamLoggedAt = total;
+    logger.mem(`stream @ ${total} chunks (text=${this.partialChunks} reason=${this.reasonChunks})`);
   }
 
   private breakIfText(): void {
@@ -93,11 +122,28 @@ export class EventDisplay {
         // Reset the per-turn thinking cue so the next iteration can
         // re-emit it; no visible separator between turns.
         this.thinkingShownThisTurn = false;
-        if (event.iterations > 0) logger.log(`── turn ${(event.iterations ?? 0) + 1} ──`);
+        // Reset per-turn streaming counters so the next stream's
+        // `[mem] stream @ N chunks` lines start at 0.
+        this.partialChunks = 0;
+        this.reasonChunks = 0;
+        this.streamLoggedAt = 0;
+        this.streamBytesText = 0;
+        this.streamBytesReason = 0;
+        if (event.iterations > 0) {
+          logger.log(`── turn ${(event.iterations ?? 0) + 1} ──`);
+          // Per-turn memory marker — pair with beforeRequest /
+          // afterRequest snapshots from ai.ts to see how much memory
+          // each turn actually retains after GC.
+          logger.mem(`turn ${(event.iterations ?? 0) + 1}`);
+        }
         break;
       }
 
       case 'reasonPartial': {
+        this.reasonChunks++;
+        const reasoningChunk = event.content ?? '';
+        if (typeof reasoningChunk === 'string') this.streamBytesReason += reasoningChunk.length;
+        this.maybeLogStreamMem();
         if (!this.thinkingShownThisTurn) {
           this.breakIfText();
           process.stderr.write(`${this.c(DIM, '(thinking…)')}\n`);
@@ -110,12 +156,17 @@ export class EventDisplay {
       case 'reason': {
         const text = event.reasoning?.content ?? '';
         if (text) logger.log(`reasoning: ${preview(text)}`);
+        // Reasoning stream finished — capture how much we accumulated
+        // and where memory landed.
+        logger.mem(`reason end (chunks=${this.reasonChunks} bytes=${this.streamBytesReason})`);
         break;
       }
 
       case 'textPartial': {
+        this.partialChunks++;
         const chunk = event.content ?? '';
         if (chunk) {
+          if (typeof chunk === 'string') this.streamBytesText += chunk.length;
           // Pump every streamed chunk through the markdown renderer.
           // It buffers partial lines internally, so headings / fences
           // / inline formatting render correctly across chunk
@@ -125,6 +176,7 @@ export class EventDisplay {
           this.textLineOpen = true;
           this.hasProducedText = true;
         }
+        this.maybeLogStreamMem();
         break;
       }
 
@@ -141,6 +193,12 @@ export class EventDisplay {
           process.stdout.write('\n');
           this.textLineOpen = false;
         }
+        // End-of-stream memory snapshot — the `[mem] stream end` line
+        // brackets the streaming window so the delta vs.
+        // `beforeRequest` shows whether streaming itself bloated the
+        // heap (chunk accumulation inside the AI lib + ginny's
+        // markdown buffer).
+        logger.mem(`stream end (textChunks=${this.partialChunks} textBytes=${this.streamBytesText})`);
         break;
       }
 
@@ -159,6 +217,10 @@ export class EventDisplay {
         const line = `→ ${event.tool.name}(${preview(event.args)})`;
         process.stderr.write(`${this.c(CYAN, line)}\n`);
         logger.log(line);
+        // Memory snapshot bracketing each tool call. Pair with the
+        // matching toolOutput snapshot below to see per-tool deltas
+        // when post-morteming an OOM via grep ginny.log.
+        logger.mem(`tool=${event.tool.name} start`);
         this.last = 'tool';
         break;
       }
@@ -169,6 +231,7 @@ export class EventDisplay {
         const line = `← ${event.tool.name} (${elapsed}ms): ${preview(event.result)}`;
         process.stderr.write(`${this.c(GREEN, line)}\n`);
         logger.log(line);
+        logger.mem(`tool=${event.tool.name} done`);
         this.last = 'tool';
         break;
       }

@@ -563,15 +563,35 @@ function renderSection(
     out.push(c(ANSI.dim, `── ${range} ${dashes}`));
   }
 
+  // Severity ordering — when multiple problems share an identical
+  // (startCol, endCol) range on a line, the underline is rendered once
+  // colored by the most severe of the group. Index = sort key (lower
+  // wins → more severe).
+  const SEV_RANK: Record<Problem['severity'], number> = { error: 0, warning: 1, info: 2 };
+
   for (let i = section.firstLine; i <= section.lastLine; i++) {
     out.push(numberedGutter(i + 1) + lines[i]!.text);
 
-    // Underlines: every problem whose span hits this line gets one.
+    // Dedupe underlines on this line: multiple problems whose spans
+    // collapse to the SAME (startCol, endCol) on this line share one
+    // underline instead of stacking 5 identical `^^^^` rows. The most
+    // severe color wins. (Different ranges still render separately.)
+    const seenRanges = new Map<string, Problem['severity']>();
     for (const p of section.problems) {
       const hit = p.hits.get(i);
       if (!hit) continue;
-      const underline = ' '.repeat(hit.startCol) + '^'.repeat(Math.max(1, hit.endCol - hit.startCol));
-      out.push(blankGutter() + c(SEVERITY_COLOR[p.problem.severity], underline));
+      const key = `${hit.startCol}:${hit.endCol}`;
+      const existing = seenRanges.get(key);
+      if (!existing || SEV_RANK[p.problem.severity] < SEV_RANK[existing]) {
+        seenRanges.set(key, p.problem.severity);
+      }
+    }
+    for (const [key, sev] of seenRanges) {
+      const [startStr, endStr] = key.split(':');
+      const startCol = Number(startStr);
+      const endCol = Number(endStr);
+      const underline = ' '.repeat(startCol) + '^'.repeat(Math.max(1, endCol - startCol));
+      out.push(blankGutter() + c(SEVERITY_COLOR[sev], underline));
     }
 
     // Messages: every problem whose span ENDS on this line gets its

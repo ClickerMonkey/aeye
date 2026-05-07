@@ -4,7 +4,7 @@ import { ZodString, ZodType } from 'zod';
 import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { strictify, toJSONSchema } from "./schema";
+import { strictify } from "./schema";
 
 /** Default cap (chars) for validation error messages we surface to the LLM. */
 const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
@@ -995,7 +995,7 @@ export class Prompt<
                 .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
                 .join('\n')
               errorMessage = truncateValidationError(
-                `The output was an invalid format:\n${issueSummary}\n\nPlease adhere to the output schema:\n${toJSONSchema(schema, this.input.strict ?? true)}`,
+                `The output was an invalid format:\n${issueSummary}`,
                 errMax,
               );
               resetReason = 'schema-parsing';
@@ -1475,15 +1475,27 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
       if (execution.status !== 'ready') {
         return execution;
       }
-      const args = execution.toolCall.arguments || '{}';
+      const rawArgs = execution.toolCall.arguments;
+      const isEmpty = !rawArgs || rawArgs.trim() === '';
+      const args = isEmpty ? '{}' : rawArgs;
       try {
         execution.args = await toolInfo!.tool.parse(ctx, args, toolInfo!.definition.parameters);
         execution.status = 'parsed';
         start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
+        // Distinguish "model sent no arguments at all" from "model sent
+        // bad arguments". The former is usually a streaming-relay issue
+        // (OpenRouter/Anthropic) or a genuine model gaffe — calling it
+        // out by name in the error gives the model a clearer cue to
+        // fix itself on the retry turn instead of repeating the empty
+        // call. The latter (bad arguments) keeps its original Zod /
+        // JSON.parse message, which already names the offending field.
+        const reason = isEmpty
+          ? `the tool was called with NO arguments. The schema requires arguments — re-call this tool with the required fields populated. Validation: ${e.message}`
+          : `${e.message}, args: ${args}`;
         execution.error = truncateValidationError(
-          `Error parsing tool arguments: ${e.message}, args: ${args}`,
+          `Error parsing tool arguments: ${reason}`,
           validationErrorMaxLength,
         );
         error.ready = true;

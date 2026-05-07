@@ -54,7 +54,16 @@ export const write = ai.tool({
     // the log entry, and the LLM tool result.
     const id = genId();
 
-    let problemsNote = '';
+    // The LLM tool result carries ONLY the TS-form pointers — the
+    // JSON-form pointers (with their multi-line span underlines) live
+    // in ginny.log under the same run id. Doubling the rendering in
+    // the tool result roughly doubled the conversation-history bytes
+    // the OpenAI client serialized on every turn; with multiple
+    // programmer agents in flight that pushed total resident memory
+    // toward GB-scale OOMs. Both forms are still captured for human
+    // debugging — `grep ginny.log <id>` pulls up the full block.
+    let problemsTsNote = '';
+    let problemsLogNote = '';
     let problemsCount = 0;
     try {
       const ctxFlags = ctx.targetFn
@@ -63,33 +72,33 @@ export const write = ai.tool({
       const problems = ctx.engine.validate(input.program, scope, ctxFlags);
       problemsCount = problems.list.length;
       if (problemsCount > 0) {
-        // LLM tool result and ginny.log: plain text, no ANSI (LLMs
-        // sometimes choke on color codes).
         const tsBlock = formatProblems(richCode, problems, { color: false });
         const jsonBlock = formatProblems(jsonCode, problems, { color: false });
-        problemsNote = `\n\n[validation problems [${id}] — fix before calling test()]\n\n${tsBlock}\n\n— or, in JSON form —\n\n${jsonBlock}`;
+        problemsTsNote = `\n\n[validation problems [${id}] — fix before calling test()]\n\n${tsBlock}`;
+        problemsLogNote = `${problemsTsNote}\n\n— or, in JSON form —\n\n${jsonBlock}`;
       }
     } catch (e: unknown) {
-      problemsNote = `\n\n[validation threw [${id}]: ${e instanceof Error ? e.message : String(e)}]`;
+      problemsTsNote = `\n\n[validation threw [${id}]: ${e instanceof Error ? e.message : String(e)}]`;
+      problemsLogNote = problemsTsNote;
       problemsCount = 1;
     }
 
     // Stderr (the user's terminal) gets the rendered code dim + a
-    // single-line problem count. The full problems block is in the
-    // tool result and ginny.log.
+    // single-line problem count. The full problems block is in
+    // ginny.log only.
     process.stderr.write(`\n\x1b[2m${codeStr}\x1b[0m\n`);
     if (problemsCount > 0) {
       const noun = problemsCount === 1 ? 'problem' : 'problems';
       process.stderr.write(`\x1b[31m[${problemsCount} validation ${noun} [${id}] — grep ginny.log for ${id}]\x1b[0m\n`);
-      logger.log(`[${id}] write validation problems (${problemsCount}):\n${codeStr}${problemsNote}`);
+      logger.log(`[${id}] write validation problems (${problemsCount}):\n${codeStr}${problemsLogNote}`);
     } else {
       logger.log(`write:\n${codeStr}`);
     }
 
     // Tool result the model sees + the `← write (Xms): ...` preview
-    // line both pull from this string. The id sits in problemsNote
-    // and the side-by-side TS / JSON renders carry the actual `^^^`
-    // pointer underlines.
-    return `Draft saved. Call test() to evaluate it.\n\n${codeStr}${problemsNote}`;
+    // line both pull from this string. The TS-form pointers carry
+    // enough signal for the model to fix the program; the matching
+    // JSON-form block is in ginny.log under the same `[id]`.
+    return `Draft saved. Call test() to evaluate it.\n\n${codeStr}${problemsTsNote}`;
   },
 });
