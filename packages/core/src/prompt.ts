@@ -4,7 +4,7 @@ import { ZodString, ZodType } from 'zod';
 import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { strictify } from "./schema";
+import { getDescriptorById, strictify } from "./schema";
 
 /** Default cap (chars) for validation error messages we surface to the LLM. */
 const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
@@ -109,8 +109,23 @@ export interface PromptInput<
   input?: Fn<Record<string, any>, [TInput | undefined, Context<TContext, TMetadata>]>;
   // A schema or function/promise that returns a schema defining the expected output format of the prompt. If not provided, defaults to plain text.
   schema?: Fn<ZodType<TOutput> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
-  // If true, the output schema is strictly enforced. By default this is true.
-  strict?: boolean;
+  /**
+   * Strict-mode policy for the output schema. Tri-state, with `1`
+   * (best-effort preference) as the default when omitted:
+   *
+   * - `true` — REQUIRE strict structured output. Selection filters out
+   *   models without the matching strict-output family.
+   * - `false` — FORCE lenient. Output emitted as standard JSON, no `strict`
+   *   flag on the wire.
+   * - `number > 0` (default `1`) — PREFER strict, tolerate fallback. The
+   *   number is the priority — used by `SchemaBudget` to allocate strict
+   *   slots in priority order when the chosen descriptor has per-request
+   *   limits (e.g. Anthropic's 24 optional-param ceiling).
+   *
+   * The legacy default of `true` was changed to `1` in v2 to keep
+   * "it just works" against unknown/unannotated models.
+   */
+  strict?: boolean | number;
   // A configuration object or function/promise that returns a configuration object for the AI request.
   config?: Fn<Partial<Request> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
   // After an iteration, a function that can reconfigure the prompt based on runtime statistics.
@@ -320,7 +335,11 @@ export class Prompt<
   constructor(
     public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>,
     private retool = resolveFn(input.retool),
-    private schema = resolveFn(input.schema, s => s && input.strict !== false ? strictify(s) as ZodType<TOutput> : s),
+    // Schema stays raw. The matching strictify is applied lazily at validation
+    // time using the descriptor pinned on `request.responseFormat.descriptor`
+    // by whichever provider built the request — so the validator always
+    // matches the wire shape the model actually saw.
+    private schema = resolveFn(input.schema),
     private config = resolveFn(input.config),
     private translate = resolveFn(input.input),
     private content = Prompt.compileContent(input.content, !!input.tools?.length),
@@ -989,7 +1008,19 @@ export class Prompt<
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
-            const parsedSafe = await schema.safeParseAsync(parsedJSON);
+            // Apply the same strictify rewrite the provider used for the wire
+            // shape, so array-of-pairs records / numeric-key tuples / etc.
+            // normalize back into the natural Zod shape before validation.
+            // The descriptor was pinned on the response format when the
+            // provider built the request. Fast cache lookup on retries.
+            const responseDescriptorId = typeof request.responseFormat === 'object'
+              ? request.responseFormat.descriptor
+              : undefined;
+            const validationSchema = responseDescriptorId
+              ? strictify(schema, getDescriptorById(responseDescriptorId)) as typeof schema
+              : schema;
+
+            const parsedSafe = await validationSchema.safeParseAsync(parsedJSON);
             if (!parsedSafe.success) {
               const issueSummary = parsedSafe.error.issues
                 .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
@@ -1257,7 +1288,7 @@ export class Prompt<
 
     // Determine response format
     const responseFormat: ResponseFormat = schema && !(schema instanceof ZodString)
-      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? true }
+      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1 }
       : 'text';
 
     return { config, content, tools, toolObjects, responseFormat, schema };
@@ -1479,7 +1510,12 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
       const isEmpty = !rawArgs || rawArgs.trim() === '';
       const args = isEmpty ? '{}' : rawArgs;
       try {
-        execution.args = await toolInfo!.tool.parse(ctx, args, toolInfo!.definition.parameters);
+        execution.args = await toolInfo!.tool.parse(
+          ctx,
+          args,
+          toolInfo!.definition.parameters,
+          toolInfo!.definition.descriptor,
+        );
         execution.status = 'parsed';
         start.ready = true;
       } catch (e: any) {

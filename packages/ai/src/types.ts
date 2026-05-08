@@ -17,6 +17,7 @@ import type {
   ComponentInput,
   ComponentOutput,
   Context as CoreContext,
+  DescriptorFamily,
   Executor,
   Message,
   Model,
@@ -108,7 +109,14 @@ export type ModelCapability =
   | 'audio'
   | 'hearing'
   | 'embedding'
-  | 'zdr';
+  | 'zdr'
+  // Strict tool-input enforcement. Auto-derived from `resolveStrictFormat(model)` returning a family.
+  // Selection treats this as an *optional preference* when a request has any
+  // strict-flagged tool — strict-capable models score higher but non-strict
+  // models still match (silent best-effort fallback).
+  // (`'structured'` already implies strict structured output and `'json'`
+  // covers the lenient case, so no separate `structuredStrict` capability.)
+  | 'toolsStrict';
 
 /**
  * Model performance and quality tiers.
@@ -219,6 +227,27 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
   tokenizer?: ModelTokenizer;
   // The supported parameters
   supportedParameters?: Set<ModelParameter>;
+  /**
+   * Strict-mode JSON-Schema dialect this model expects.
+   *
+   * Used by both tools (gated by the `'toolsStrict'` capability) and
+   * structured output (gated by `'structured'`). One field covers both
+   * because every documented strict-capable model uses the same dialect
+   * for both.
+   *
+   * - `'openai'`: records→array-of-pairs, tuples→object-numeric-keys, optional→nullable
+   * - `'anthropic'`: closed objects + all-required, no recursion, per-request budgets
+   * - `'google'`: prefixItems, `$ref: '#'` recursion, `propertyOrdering` emitted
+   * - `'none'`: explicit opt-out — overrides the auto-resolution from
+   *   `provider` / `id` and forces lenient mode
+   * - any other registered family (via `registerDescriptor` in `@aeye/core`)
+   *   — custom dialect picked up at request-build time
+   * - `undefined` (most models): auto-resolve via `resolveStrictFormat(model)`,
+   *   which checks `provider` against registered family names, then the
+   *   `[format]/...` prefix of `id`. The `'toolsStrict'` capability is
+   *   auto-derived from a successful resolution.
+   */
+  strictFormat?: DescriptorFamily | 'none';
   // Additional provider-specific metadata
   metadata?: Record<string, unknown>;
 }
@@ -260,6 +289,7 @@ export type ModelParameter =
   | 'transcribePrompt' // prompt
   // Speech
   | 'speechInstructions' // instructions
+  | 'toolsStrict' // tools[].strict
 
 /**
  * Override configuration for model properties.

@@ -185,9 +185,28 @@ await ai.models.refresh();
 Use `@aeye/models` for static model definitions:
 
 ```typescript
-import { models } from '@aeye/models';
+import { models, strictSupport } from '@aeye/models';
 
 const ai = AI.with()
   .providers({ openai })
-  .create({ models });
+  .create({
+    models,
+    // Curated strict-mode dialect declarations. Opts strict-capable model
+    // families (gpt-4o+, claude 4.5+, gemini 2.0+) into the `'toolsStrict'`
+    // capability and pins their JSON-Schema dialect. Without this, every
+    // model defaults to lenient even when the underlying API supports strict.
+    modelOverrides: [...strictSupport],
+  });
+```
+
+`strictSupport` is a `ModelOverride[]` you can splat alongside your own
+overrides. It only adds `strictFormat` (auto-derives the `'toolsStrict'`
+capability) — it doesn't touch pricing, tiers, or other fields, so it's
+safe to combine with arbitrary overrides:
+
+```typescript
+modelOverrides: [
+  ...strictSupport,
+  { modelPattern: /gpt-4/, overrides: { tier: 'flagship' } },
+],
 ```

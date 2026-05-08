@@ -74,4 +74,5 @@ console.log(result?.suggestion);
 | [`@aeye/openrouter`](/providers/openrouter) | OpenRouter multi-provider gateway |
 | [`@aeye/replicate`](/providers/replicate) | Replicate open-source model provider |
 | [`@aeye/aws`](/providers/aws) | AWS Bedrock provider (Converse API) |
+| [`@aeye/gin`](/gin/) | JSON-based programming language and type system for LLM-authored programs |
 | `@aeye/models` | Auto-generated model registry with pricing and capabilities |

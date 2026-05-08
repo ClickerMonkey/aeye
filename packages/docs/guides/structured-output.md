@@ -37,26 +37,27 @@ const result = await analyzer.get('result', {
 
 ## Strict Mode
 
-By default, `strict: true` transforms the schema for strict JSON Schema compliance (required by OpenAI's structured outputs):
+`Prompt.strict` is `boolean | number` (default: `1`):
+
+| Value | Meaning |
+|---|---|
+| `true` | Hard requirement — selection filters to strict-capable models. |
+| `false` | Force lenient. Standard JSON Schema, no `strict` flag on the wire. |
+| `number > 0` (default `1`) | Best-effort preference. Strict on models that support it, lenient fallback elsewhere. |
 
 ```typescript
 const prompt = ai.prompt({
   schema: z.object({ /* ... */ }),
-  strict: true,  // default — all properties required, no additionalProperties
+  // strict omitted → priority 1 (best-effort, default)
+});
+
+const strictPrompt = ai.prompt({
+  schema: z.object({ /* ... */ }),
+  strict: true,  // require a strict-capable model
 });
 ```
 
-Set `strict: false` for more lenient schemas:
-
-```typescript
-const prompt = ai.prompt({
-  schema: z.object({
-    required: z.string(),
-    optional: z.string().optional(), // allowed in non-strict mode
-  }),
-  strict: false,
-});
-```
+`@aeye` reconciles each provider's strict-mode dialect (OpenAI / Anthropic / Google) so the same Zod schema works everywhere — see the [Strict Mode guide](./strict-mode.md) for format families, per-request budgets, the curated `strictSupport` overrides, and how to register a custom dialect.
 
 ## Dynamic Schema
 

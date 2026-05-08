@@ -4,7 +4,7 @@ import { AI, type Provider } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { AWSBedrockProvider } from '@aeye/aws';
-import { models } from '@aeye/models';
+import { models, strictSupport } from '@aeye/models';
 import type { Ctx, Meta } from './context';
 import { bootstrap } from './registry';
 import { createStore } from './store';
@@ -269,6 +269,11 @@ export const ai = AI.with<Ctx, Meta>()
       providers: providersMeta,
     } as any,
     models,
+    // Curated strict-mode dialect declarations: opts strict-capable model
+    // families (gpt-4o+, claude 4.5+, gemini 2.0+) into the `'toolsStrict'`
+    // capability and pins their JSON-Schema dialect so providers emit the
+    // right wire shape. Without this, every model defaults to lenient.
+    modelOverrides: [...strictSupport],
   })
   .withHooks({
     // AI-level selection hook — captures which model was picked for each

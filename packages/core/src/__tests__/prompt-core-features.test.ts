@@ -561,8 +561,16 @@ describe('Prompt', () => {
         excludeMessages: true
       });
 
-      const executor = createMockExecutor({
+      // Snapshot at call time — the Prompt loop mutates request.messages
+      // post-call (pushes assistant response), so jest.fn().mock.calls
+      // captures a reference that reflects the mutation.
+      let snapshot: { content: unknown }[] = [];
+      const baseExecutor = createMockExecutor({
         response: { content: 'Response', finishReason: 'stop' }
+      });
+      const executor: typeof baseExecutor = jest.fn(async (request, ctx, metadata, signal) => {
+        snapshot = request.messages.map((m: any) => ({ content: m.content }));
+        return baseExecutor(request, ctx, metadata, signal);
       });
 
       const ctx: Context<{}, {}> = {
@@ -574,9 +582,8 @@ describe('Prompt', () => {
 
       await prompt.get('result', {}, ctx);
 
-      const request = (executor as any).mock.calls[0][0];
-      expect(request.messages).toHaveLength(1); // Only the prompt message
-      expect(request.messages[0].content).toContain('Standalone prompt');
+      expect(snapshot).toHaveLength(1);
+      expect(snapshot[0].content).toContain('Standalone prompt');
     });
   });
 

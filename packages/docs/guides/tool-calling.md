@@ -124,6 +124,28 @@ const tools = await prompt.get('tools', input);
 // tools is an array of { tool, result } objects
 ```
 
+## Strict Mode
+
+`Tool.strict` is `boolean | number` (default: `1`). When set, the LLM grammar-constrains tool arguments to your schema — no malformed args, no off-schema fields:
+
+```typescript
+const calc = ai.tool({
+  name: 'calculate',
+  schema: z.object({ expression: z.string() }),
+  // strict omitted → priority 1 (best-effort, default)
+  call: async ({ expression }) => ({ result: eval(expression) }),
+});
+
+const critical = ai.tool({
+  name: 'transfer',
+  schema: z.object({ amount: z.number(), to: z.string() }),
+  strict: true,  // hard requirement — selection rejects non-strict-capable models
+  call: async ({ amount, to }) => { /* ... */ },
+});
+```
+
+`@aeye` reconciles each provider's strict-mode dialect (OpenAI / Anthropic / Google) and handles per-request budgets so a request with many strict tools degrades gracefully. See the [Strict Mode guide](./strict-mode.md) for the full picture, including the curated `strictSupport` overrides you'll want to wire into your `AI` config.
+
 ## Error Handling
 
 Tool errors are caught and reported back to the model, which can retry or adjust:

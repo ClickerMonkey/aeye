@@ -16,14 +16,23 @@ import type {
   ModelInfo,
   Provider
 } from '@aeye/ai';
+import { isModelInfo, resolveStrictFormat } from '@aeye/ai';
 import {
   Chunk,
+  type DescriptorFamily,
   Executor,
   FinishReason,
+  type FormatDescriptor,
+  getDescriptor,
   getModel,
+  LENIENT,
   ModelInput,
   Request,
   Response,
+  SchemaBudget,
+  strictestOf,
+  strictify,
+  strictPriority,
   Streamer,
   toJSONSchema,
   ToolCall,
@@ -53,6 +62,29 @@ import { AWSAuthError, AWSContextWindowError, AWSError, AWSQuotaError, AWSRateLi
 // ============================================================================
 // AWS Bedrock Provider Configuration
 // ============================================================================
+
+/**
+ * Resolve the full ModelInfo for the request when available.
+ *
+ * BaseAPI injects `selected.model` into `ctx.metadata.model` after model
+ * selection; on the standard execution path we read strict-format
+ * declarations from there. Returns undefined when no ModelInfo is available
+ * (the convert call then falls back to LENIENT — silent best-effort).
+ */
+function pickAwsModelInfo(ctx: AIContextAny | undefined, modelId: string): ModelInfo | undefined {
+  const candidates = [ctx?.metadata?.model];
+  for (const c of candidates) {
+    if (c && typeof c === 'object' && isModelInfo(c)) {
+      // The Bedrock provider applies a model prefix at request build time
+      // (e.g. arn:aws:...) so the modelId we see here may not match the
+      // ModelInfo.id verbatim. Accept by suffix match for safety.
+      if (c.id === modelId || modelId.endsWith(c.id)) {
+        return c as ModelInfo;
+      }
+    }
+  }
+  return undefined;
+}
 
 /**
  * Hook called before a request is made to the provider.
@@ -338,10 +370,16 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   /**
    * Build a ConverseCommandInput from a generic @aeye/core Request.
    */
-  private convertRequestToConverse(modelId: string, request: Request): ConverseCommandInput {
+  private convertRequestToConverse(modelId: string, request: Request, ctx?: AIContextAny): ConverseCommandInput {
     const messages = this.convertMessagesToConverse(request);
     const system = this.convertSystemToConverse(request);
-    const toolConfig = this.convertToolsToConverse(request);
+    const modelInfo = pickAwsModelInfo(ctx, modelId);
+    // Bedrock's Converse API has no separate structured-output endpoint, so
+    // the budget only needs to cover tool schemas. We still build it through
+    // the same helper so the strictness selection stays consistent with the
+    // OpenAI provider and any future structured-output extension.
+    const budget = this.buildSchemaBudget(modelInfo);
+    const toolConfig = this.convertToolsToConverse(request, modelInfo, budget);
     const model = getModel(request.model);
     const maxTokens = request.maxTokens ?? (typeof model !== 'string' && model?.maxOutputTokens ? model.maxOutputTokens : undefined);
 
@@ -368,7 +406,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   private async executeWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): Promise<Response> {
     const model = getModel(modelInput);
     const modelId = this.applyModelPrefix(model.id);
-    const params = this.convertRequestToConverse(modelId, request);
+    const params = this.convertRequestToConverse(modelId, request, ctx);
 
     try {
       const command = new ConverseCommand(params);
@@ -430,7 +468,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   private async* streamWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
     const model = getModel(modelInput);
     const modelId = this.applyModelPrefix(model.id);
-    const params = this.convertRequestToConverse(modelId, request) as ConverseStreamCommandInput;
+    const params = this.convertRequestToConverse(modelId, request, ctx) as ConverseStreamCommandInput;
 
     try {
       const command = new ConverseStreamCommand(params);
@@ -700,19 +738,55 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
 
   /**
    * Convert @aeye/core tool definitions to AWS Bedrock Converse API tool format.
+   *
+   * Strict-tool support is best-effort and per-model: the descriptor is
+   * picked via `resolveStrictFormat(model)`, which falls back through
+   * `model.strictFormat` → `model.provider` → `id` prefix. Bedrock
+   * surfaces both Anthropic-family Claude models and (in some regions)
+   * OpenAI-shaped tools. Models without a declared family fall back to
+   * LENIENT — silent degradation. The chosen descriptor is pinned on each
+   * `ToolDefinition.descriptor` so the Prompt loop can apply the matching
+   * strictify when validating tool arguments.
+   *
+   * Anthropic enforces per-request limits (20 strict tools, 24 optional
+   * params, 16 union types across the whole request) — those are tracked
+   * by the shared `SchemaBudget` so over-budget tools degrade to LENIENT
+   * silently rather than failing the API call.
    */
-  private convertToolsToConverse(request: Request): ConverseCommandInput['toolConfig'] {
+  private convertToolsToConverse(
+    request: Request,
+    model?: ModelInfo,
+    budget?: SchemaBudget,
+  ): ConverseCommandInput['toolConfig'] {
     if (!request.tools || request.tools.length === 0) return undefined;
 
-    const tools = request.tools.map(tool => ({
-      toolSpec: {
-        name: tool.name,
-        description: tool.description,
-        inputSchema: {
-          json: toJSONSchema(tool.parameters, tool.strict ?? true) as unknown as JsonDocument,
+    const localBudget = budget ?? this.buildSchemaBudget(model);
+
+    // Allocate descriptors in descending-priority order so the most-wanted
+    // strict tools consume budget first, then emit in original order.
+    const order = request.tools
+      .map((t, i) => ({ i, p: strictPriority(t.strict) }))
+      .sort((a, b) => b.p - a.p);
+    const descriptors: FormatDescriptor[] = new Array(request.tools.length);
+    for (const { i } of order) {
+      const tool = request.tools[i];
+      descriptors[i] = localBudget.allocateTool(tool.parameters, tool.strict);
+      tool.descriptor = descriptors[i].id;
+    }
+
+    const tools = request.tools.map((tool, i) => {
+      const descriptor = descriptors[i];
+      const strictifiedSchema = strictify(tool.parameters, descriptor);
+      return {
+        toolSpec: {
+          name: tool.name,
+          description: tool.description,
+          inputSchema: {
+            json: toJSONSchema(strictifiedSchema, descriptor) as unknown as JsonDocument,
+          },
         },
-      },
-    })) as BedrockTool[];
+      };
+    }) as BedrockTool[];
 
     let toolChoice: BedrockToolChoice | undefined;
     if (request.toolChoice === 'auto') {
@@ -724,6 +798,32 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     }
 
     return { tools, toolChoice };
+  }
+
+  /**
+   * The set of strict descriptor families this provider can speak through
+   * Bedrock. Defaults to `['openai', 'anthropic', 'google']` — Bedrock
+   * surfaces all three. Subclasses can extend to accept custom registered
+   * families.
+   */
+  protected supportedStrictFamilies: ReadonlySet<DescriptorFamily> = new Set<DescriptorFamily>(['openai', 'anthropic', 'google']);
+
+  /**
+   * Build a SchemaBudget tuned to the resolved strict-format family.
+   * Bedrock surfaces multiple model families; the descriptor pick handles
+   * any in `supportedStrictFamilies`. Mismatched families fall back to
+   * LENIENT silently.
+   */
+  private buildSchemaBudget(model?: ModelInfo): SchemaBudget {
+    const family = model ? resolveStrictFormat(model) : undefined;
+    const familySupported = family !== undefined && this.supportedStrictFamilies.has(family);
+    const tools = familySupported && model!.capabilities.has('toolsStrict')
+      ? getDescriptor(family, true)
+      : LENIENT;
+    const out = familySupported && model!.capabilities.has('structured')
+      ? getDescriptor(family, true)
+      : LENIENT;
+    return new SchemaBudget(strictestOf(tools, out));
   }
 
   /**

@@ -10,3 +10,4 @@
 export { models, openaiModels, openrouterModels, replicateModels, awsModels } from './models';
 export { transformers } from './transformers';
 export { replicateTransformers } from './transformers/replicate';
+export { strictSupport } from './strict-support';

@@ -24,8 +24,8 @@ import type {
   TranscriptionRequest,
   TranscriptionResponse
 } from '@aeye/ai';
-import { detectTier } from '@aeye/ai';
-import { toFile, BaseRequest, type Chunk, type Executor, type FinishReason, getModel, getResourceFormat, type MessageContent, ModelInput, type Request, Resource, type Response, type Streamer, toBase64, toJSONSchema, type ToolCall, toStream, toText, toURL, type Usage, getResponseFromChunks } from '@aeye/core';
+import { detectTier, isModelInfo, resolveStrictFormat } from '@aeye/ai';
+import { toFile, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type FinishReason, type FormatDescriptor, getDescriptor, getModel, getResourceFormat, LENIENT, type MessageContent, ModelInput, type Request, Resource, type Response, SchemaBudget, strictestOf, strictify, strictPriority, type Streamer, toBase64, toJSONSchema, type ToolCall, toStream, toText, toURL, type Usage, getResponseFromChunks } from '@aeye/core';
 import fs from 'fs';
 import OpenAI from 'openai';
 import { Stream } from 'openai/core/streaming';
@@ -35,6 +35,29 @@ import { ContextWindowError, ProviderError } from './types';
 // ============================================================================
 // OpenAI Provider Configuration
 // ============================================================================
+
+/**
+ * Resolve the full `ModelInfo` for the request when available.
+ *
+ * `BaseAPI` injects `selected.model` into `ctx.metadata.model` after model
+ * selection, so on the standard execution path we get the strict-format
+ * declarations directly from there. External callers that bypass `BaseAPI`
+ * (e.g. invoking the executor directly) may pass only a model id — we
+ * return undefined in that case and the caller falls back to LENIENT.
+ */
+function pickModelInfo(
+  metadata: AIMetadataAny | undefined,
+  ctx: AIContextAny | undefined,
+  modelId: string,
+): ModelInfo | undefined {
+  const candidates = [metadata?.model, ctx?.metadata?.model];
+  for (const c of candidates) {
+    if (c && typeof c === 'object' && isModelInfo(c) && c.id === modelId) {
+      return c as ModelInfo;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Hook called before a request is made to the provider.
@@ -834,23 +857,104 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   /**
    * Convert @aeye tool definitions to OpenAI format.
    *
-   * Transforms Zod schemas into JSON Schema format required by OpenAI.
+   * Strict-mode is a best-effort wish: a tool's `strict: true` only takes
+   * effect when `resolveStrictFormat(model) === 'openai'` (resolved from
+   * the model's `strictFormat` override, or its `provider` / `id` prefix).
+   * Numeric
+   * priority (`strict: <n>`) competes for slot allocation under the shared
+   * `SchemaBudget`; tools that don't fit fall back to LENIENT silently.
    *
-   * @param request @aeye request object
-   * @returns Array of OpenAI-formatted tools or undefined
+   * Tools are emitted in their original declaration order, but slot
+   * allocation walks them in *descending priority* order so the most-wanted
+   * strict items consume the budget first.
+   *
+   * @param request @aeye request (mutated: each tool's `descriptor` field is
+   *                pinned for the validation roundtrip)
+   * @param model   the resolved model the request is targeting
+   * @param budget  shared allocator (also fed by `convertResponseFormat`)
    */
-  protected convertTools(request: Request): OpenAI.Chat.ChatCompletionTool[] | undefined {
+  protected convertTools(
+    request: Request,
+    model?: ModelInfo,
+    budget?: SchemaBudget,
+  ): OpenAI.Chat.ChatCompletionTool[] | undefined {
     if (!request.tools || request.tools.length === 0) return undefined;
-    
-    return request.tools.map((tool) => ({
-      type: 'function' as const,
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: toJSONSchema(tool.parameters, tool.strict ?? true),
-        strict: tool.strict ?? true,
-      },
-    }));
+
+    const localBudget = budget ?? this.buildSchemaBudget(model);
+    const descriptors = this.allocateToolDescriptors(request, localBudget);
+
+    return request.tools.map((tool, i) => {
+      const descriptor = descriptors[i];
+      const strictifiedSchema = strictify(tool.parameters, descriptor);
+
+      // Only set the API-level strict flag when we're actually emitting a
+      // strict-mode-compatible schema. Setting strict:true with a schema
+      // that violates OpenAI's strict-mode rules is the failure mode we
+      // are trying to avoid.
+      const result: OpenAI.Chat.ChatCompletionFunctionTool = {
+        type: 'function' as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: toJSONSchema(strictifiedSchema, descriptor),
+          ...(descriptor.strict ? { strict: true } : {}),
+        },
+      };
+      return result;
+    });
+  }
+
+  /**
+   * The set of strict descriptor families this provider can speak on the
+   * wire. Defaults to `['openai']` — the OpenAI Chat Completions API only
+   * accepts OpenAI-shaped strict schemas. Subclasses or custom providers
+   * extending OpenAIProvider can extend this set to accept additional
+   * registered families (e.g. a custom `'openai-tight'` variant).
+   */
+  protected supportedStrictFamilies: ReadonlySet<DescriptorFamily> = new Set<DescriptorFamily>(['openai']);
+
+  /**
+   * Build a SchemaBudget tuned to the strictest of the model's tool /
+   * structured-output families. Anthropic-style per-request limits apply
+   * across BOTH tool schemas and the response_format schema, so the budget
+   * is shared between `convertTools` and `convertResponseFormat`.
+   *
+   * Strict mode engages only when the model's resolved family is in
+   * `supportedStrictFamilies` AND the model has the corresponding
+   * capability (`'toolsStrict'` for tools, `'structured'` for output).
+   * Mismatched families fall back to LENIENT silently — protects the
+   * wire from receiving a dialect the API doesn't understand.
+   */
+  protected buildSchemaBudget(model?: ModelInfo): SchemaBudget {
+    const family = model ? resolveStrictFormat(model) : undefined;
+    const familySupported = family !== undefined && this.supportedStrictFamilies.has(family);
+    const tools = familySupported && model!.capabilities.has('toolsStrict')
+      ? getDescriptor(family, true)
+      : LENIENT;
+    const out = familySupported && model!.capabilities.has('structured')
+      ? getDescriptor(family, true)
+      : LENIENT;
+    return new SchemaBudget(strictestOf(tools, out));
+  }
+
+  /**
+   * Allocate per-tool descriptors in descending-priority order, then return
+   * them in original declaration order. Mutates `request.tools[i].descriptor`
+   * to record the chosen id for the Prompt's validation roundtrip.
+   */
+  private allocateToolDescriptors(request: Request, budget: SchemaBudget): FormatDescriptor[] {
+    const tools = request.tools!;
+    const order = tools
+      .map((t, i) => ({ i, p: strictPriority(t.strict) }))
+      .sort((a, b) => b.p - a.p);
+
+    const descriptors: FormatDescriptor[] = new Array(tools.length);
+    for (const { i } of order) {
+      const tool = tools[i];
+      descriptors[i] = budget.allocateTool(tool.parameters, tool.strict);
+      tool.descriptor = descriptors[i].id;
+    }
+    return descriptors;
   }
 
   /**
@@ -882,13 +986,22 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   /**
    * Convert @aeye response format to OpenAI format.
    *
-   * Supports text, JSON object mode, and structured output with Zod schemas.
+   * Strict structured output is best-effort: honored only when the chosen
+   * `resolveStrictFormat(model) === 'openai'` AND the model has the
+   * `'structured'` capability. For unsupported models
+   * the LENIENT descriptor is used and the API-level `strict: true` flag is
+   * omitted — silent fallback. The chosen descriptor is pinned on the
+   * `responseFormat.descriptor` so the Prompt validator can apply the
+   * matching strictify before parsing model output.
    *
-   * @param request @aeye request object
+   * @param request @aeye request object (mutated to record descriptor)
+   * @param model the resolved model the request is targeting
    * @returns OpenAI-formatted response format or undefined
    */
   protected convertResponseFormat(
-    request: Request
+    request: Request,
+    model?: ModelInfo,
+    budget?: SchemaBudget,
   ): OpenAI.Chat.ChatCompletionCreateParams['response_format'] | undefined {
     if (!request.responseFormat) return undefined;
 
@@ -902,17 +1015,26 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return undefined;
     }
 
-    const strict = request.responseFormat.strict ?? true;
+    const localBudget = budget ?? this.buildSchemaBudget(model);
+    const descriptor = localBudget.allocateOutput(
+      request.responseFormat.type,
+      request.responseFormat.strict ?? 1,
+    );
 
-    // Zod schema
-    return {
-      type: 'json_schema',
-      json_schema: {
-        name: 'response',
-        schema: toJSONSchema(request.responseFormat.type, strict),
-        strict,
-      },
+    request.responseFormat.descriptor = descriptor.id;
+
+    const strictifiedSchema = strictify(request.responseFormat.type, descriptor);
+    const json_schema: NonNullable<
+      Extract<OpenAI.Chat.ChatCompletionCreateParams['response_format'], { type: 'json_schema' }>
+    >['json_schema'] = {
+      name: 'response',
+      schema: toJSONSchema(strictifiedSchema, descriptor),
     };
+    if (descriptor.strict) {
+      json_schema.strict = true;
+    }
+
+    return { type: 'json_schema', json_schema };
   }
 
   // ============================================================================
@@ -1018,11 +1140,22 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     return async (request: Request, ctx: AIContextAny, metadata?: AIMetadataAny, requestSignal?: AbortSignal): Promise<Response> => {
       const { model, retry } = this.getRequestData<OpenAI.Chat.Completions.ChatCompletion>(request, requestSignal, ctx, effectiveConfig, 'chat', metadata?.model || effectiveConfig.defaultModels?.chat);
 
+      // Resolve full ModelInfo for strict-format decisions. BaseAPI injects
+      // the selected ModelInfo into ctx.metadata.model after model selection;
+      // fall back to the lightweight model from getRequestData when no
+      // ModelInfo is available (e.g. external callers bypassing BaseAPI).
+      const modelInfo = pickModelInfo(metadata, ctx, model.id);
+
+      // One budget shared across tools + structured output. Anthropic-style
+      // per-request limits apply across the whole request, so allocations
+      // need to cooperate rather than each hold their own counter.
+      const budget = this.buildSchemaBudget(modelInfo);
+
       const messages = await this.convertMessages(request, effectiveConfig);
-      const tools = this.convertTools(request);
+      const tools = this.convertTools(request, modelInfo, budget);
       const tool_choice = tools?.length ? this.convertToolChoice(request) : undefined;
       const parallel_tool_calls = tools?.length ? !request.toolsOneAtATime : undefined;
-      const response_format = this.convertResponseFormat(request);
+      const response_format = this.convertResponseFormat(request, modelInfo, budget);
       const params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
         model: model.id,
         messages,
@@ -1136,11 +1269,14 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     ): AsyncGenerator<Chunk> {
       const { model, retry, signal } = this.getRequestData<Stream<OpenAI.Chat.Completions.ChatCompletionChunk>>(request, requestSignal, ctx, effectiveConfig, 'streaming chat', metadata?.model || effectiveConfig.defaultModels?.chat);
 
+      const modelInfo = pickModelInfo(metadata, ctx, model.id);
+      const budget = this.buildSchemaBudget(modelInfo);
+
       const messages = await this.convertMessages(request, effectiveConfig);
-      const tools = this.convertTools(request);
+      const tools = this.convertTools(request, modelInfo, budget);
       const tool_choice = tools?.length ? this.convertToolChoice(request) : undefined;
       const parallel_tool_calls = tools?.length ? !request.toolsOneAtATime : undefined;
-      const response_format = this.convertResponseFormat(request);
+      const response_format = this.convertResponseFormat(request, modelInfo, budget);
 
       const params: OpenAI.Chat.ChatCompletionCreateParamsStreaming = {
         model: model.id,

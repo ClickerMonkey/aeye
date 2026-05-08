@@ -1,7 +1,7 @@
 import Handlebars from 'handlebars';
 import { ZodType } from 'zod';
 import { Fn, resolveFn } from './common';
-import { strictify } from './schema';
+import { FormatDescriptor, getDescriptorById, strictify } from './schema';
 import { Component, ComponentCompatible, Context, OptionalParams, ToolDefinition, Tuple } from './types';
     
 /**
@@ -37,8 +37,25 @@ export interface ToolInput<
   input?: Fn<Record<string, any>, [Context<TContext, TMetadata>]>;
   /** Zod schema defining the tool's input parameters */
   schema: Fn<ZodType<TParams> | undefined, [Context<TContext, TMetadata>]>;
-  /** Whether to require AI to strictly follow the schema. True bu default. */
-  strict?: boolean;
+  /**
+   * Strict-mode policy for this tool's schema. Tri-state, with `1` (best-effort
+   * preference) as the default when omitted:
+   *
+   * - `true` — REQUIRE strict. Selection filters out models without the
+   *   matching strict-tool family; if no model qualifies the request fails.
+   * - `false` — FORCE lenient. Schema is emitted as standard JSON Schema
+   *   regardless of model capability, no `strict: true` flag on the wire.
+   * - `number > 0` (default `1`) — PREFER strict; tolerate fallback. The
+   *   number is a priority — higher means more wanted. Selection biases
+   *   toward strict-capable models (optional capability). At request build
+   *   time the `SchemaBudget` allocates strict slots in priority order;
+   *   tools that don't fit fall back to lenient silently.
+   *
+   * Note: the legacy default of `true` was changed to `1` in v2 to keep
+   * "it just works" against unknown/unannotated models. Set `strict: true`
+   * explicitly when strict is non-negotiable.
+   */
+  strict?: boolean | number;
   /** References to other components (tools, prompts, agents) that this tool utilizes */
   refs?: TRefs;
   /** The function that implements the tool's behavior */
@@ -165,7 +182,9 @@ export class Tool<
   constructor(
     public input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs>,
     private instructions = input.instructions ? Tool.compileInstructions(input.instructions, !!input.input) : undefined,
-    private schema = resolveFn(input.schema, (s) => s && input.strict !== false ? strictify(s) as ZodType<TParams> : s),
+    // Schema stays raw. The provider applies the matching strictify lazily
+    // once it knows the chosen model's strict-tools format (descriptor).
+    private schema = resolveFn(input.schema),
     private translate = resolveFn(input.input),
     private descriptionFn = resolveFn(input.descriptionFn),
     private instructionsFn = resolveFn(input.instructionsFn, (r) => r ? Tool.compileInstructions(r, !!input.input) : undefined),
@@ -199,11 +218,23 @@ export class Tool<
    * @returns The parsed and validated input parameters.
    * @throws Error if schema is not available or parsing/validation fails.
    */
-  async parse(ctx: Context<TContext, TMetadata>, args: string, schema?: ZodType<TParams>): Promise<TParams> {
+  async parse(
+    ctx: Context<TContext, TMetadata>,
+    args: string,
+    schema?: ZodType<TParams>,
+    descriptor?: FormatDescriptor | string,
+  ): Promise<TParams> {
     let resolvedSchema = schema || await this.schema(ctx);
 
     if (!resolvedSchema) {
       throw new Error(`Not able to build a schema to parse arguments for ${this.input.name}`);
+    }
+
+    // Apply the strictify rewrite that matches the provider's chosen wire
+    // dialect. The cache makes repeated calls O(1).
+    if (descriptor) {
+      const fd = typeof descriptor === 'string' ? getDescriptorById(descriptor) : descriptor;
+      resolvedSchema = strictify(resolvedSchema, fd);
     }
 
     const parsed = await resolvedSchema.parseAsync(JSON.parse(args));
@@ -245,7 +276,9 @@ export class Tool<
     
     // Get dynamic description if function is provided
     const description = await this.descriptionFn(ctx) || this.input.description;
-    const strict = this.input.strict ?? true;
+    // Default to numeric priority 1 (best-effort preference) instead of
+    // boolean true. See ToolInput.strict JSDoc for the tri-state semantics.
+    const strict: boolean | number = this.input.strict ?? 1;
 
     return [
       instructions,

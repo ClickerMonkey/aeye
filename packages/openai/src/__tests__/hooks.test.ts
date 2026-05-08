@@ -64,24 +64,19 @@ describe('OpenAIProvider Hooks', () => {
         messages: [{ role: 'user', content: 'Hello' }]
       };
 
-      // Mock the chat completion response
-      const mockChatResponse = {
-        withResponse: jest.fn().mockResolvedValue({
-          response: { ok: true, headers: new Map() },
-          data: {
-            choices: [{
-              message: { content: 'Hi there!' },
-              finish_reason: 'stop'
-            }],
-            usage: {
-              prompt_tokens: 10,
-              completion_tokens: 5,
-              total_tokens: 15
-            }
-          }
-        })
-      };
-      mockOpenAI.chat.completions.create.mockReturnValue(mockChatResponse);
+      // Non-streaming executor awaits `create(...)` directly — no
+      // `.withResponse()` chain (that's only used by the streaming path).
+      mockOpenAI.chat.completions.create.mockResolvedValue({
+        choices: [{
+          message: { content: 'Hi there!' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15
+        }
+      });
 
       const executor = provider.createExecutor();
       const response = await executor(request, ctxDefault, { model: 'gpt-4' });
@@ -296,24 +291,19 @@ describe('OpenAIProvider Hooks', () => {
         messages: [{ role: 'user', content: 'Hello' }]
       };
 
-      // Mock the chat completion response
-      const mockChatResponse = {
-        withResponse: jest.fn().mockResolvedValue({
-          response: { ok: true, headers: new Map() },
-          data: {
-            choices: [{
-              message: { content: 'Hi there!' },
-              finish_reason: 'stop'
-            }],
-            usage: {
-              prompt_tokens: 10,
-              completion_tokens: 5,
-              total_tokens: 15
-            }
-          }
-        })
-      };
-      mockOpenAI.chat.completions.create.mockReturnValue(mockChatResponse);
+      // Non-streaming executor awaits `create(...)` directly — no
+      // `.withResponse()` chain (only used by the streaming path).
+      mockOpenAI.chat.completions.create.mockResolvedValue({
+        choices: [{
+          message: { content: 'Hi there!' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15
+        }
+      });
 
       const executor = provider.createExecutor();
       const response = await executor(request, ctxDefault, { model: 'gpt-4' });

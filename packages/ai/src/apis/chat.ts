@@ -53,6 +53,18 @@ import type {
 import { BaseAPI } from './base';
 
 /**
+ * Returns true when a `strict` field expresses a numeric (best-effort)
+ * preference rather than a hard `true` / `false`. Default-omitted (undefined)
+ * is treated as `1` per the v2 default policy in tool/prompt JSDoc, so it
+ * also counts as numeric preference here.
+ */
+function isNumericStrictPreference(strict: boolean | number | undefined): boolean {
+  if (strict === undefined) return true; // default 1
+  if (typeof strict === 'number') return strict > 0;
+  return false; // true and false are non-preferences for this purpose
+}
+
+/**
  * ChatAPI provides methods for chat completions with automatic model selection.
  * Inherits get() and stream() methods from BaseAPI.
  *
@@ -116,6 +128,16 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
       // Check if request uses tools
       if (request.tools && request.tools.length > 0) {
         capabilities.add('tools');
+
+        // Tri-state strict: any tool with `strict === true` is a HARD
+        // requirement that the chosen model support strict tools. Numeric
+        // priority is handled in `getOptionalCapabilities` (preference, not
+        // filter). Default-omitted strict (treated as `1` downstream) is
+        // *not* a hard requirement — selection still succeeds against
+        // models without strict-family declarations.
+        if (request.tools.some(t => t.strict === true)) {
+          capabilities.add('toolsStrict');
+        }
       }
     }
 
@@ -163,6 +185,42 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
       if (request.toolChoice !== undefined) {
         params.add('toolChoice');
       }
+    }
+
+    return Array.from(params);
+  }
+
+  /**
+   * Optional (preferred) capabilities. Adds `'toolsStrict'` when any tool
+   * is requesting strict at numeric priority (or default-omitted, which is
+   * treated as priority `1`). Hard `strict: true` is handled in the
+   * required path; `strict: false` adds nothing.
+   *
+   * Optional preferences score strict-tool-capable models higher without
+   * filtering anyone out, matching the best-effort philosophy.
+   */
+  protected getOptionalCapabilities(provided: ModelCapability[], request: Request, forStreaming: boolean): ModelCapability[] {
+    const optional = new Set<ModelCapability>(provided);
+
+    if ((request.tools?.length ?? 0) > 0) {
+      const wantsStrictPreference = request.tools!.some(t => isNumericStrictPreference(t.strict));
+      if (wantsStrictPreference) {
+        optional.add('toolsStrict');
+      }
+    }
+
+    return Array.from(optional);
+  }
+
+  /**
+   * Optional (preferred) parameters. Same logic as
+   * `getOptionalCapabilities` but at the parameter level.
+   */
+  protected getOptionalParameters(provided: ModelParameter[], request: Request, forStreaming: boolean): ModelParameter[] {
+    const params = new Set<ModelParameter>(provided);
+
+    if (request.tools?.some(t => isNumericStrictPreference(t.strict))) {
+      params.add('toolsStrict');
     }
 
     return Array.from(params);
