@@ -6,23 +6,11 @@ import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./t
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify } from "./schema";
 
-/** Default cap (chars) for validation error messages we surface to the LLM. */
+/** Default cap (chars) for validation error messages surfaced back to the
+ *  LLM. Read by `Prompt.truncateValidationError`; subclasses may override
+ *  the method to ignore this. Anything past `max` is replaced with a
+ *  `… (N more characters)` marker. */
 const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
-
-/**
- * Truncate a validation error so the corrective user message we send back
- * to the LLM stays bounded. Lengthy zod errors against deep recursive
- * schemas can run 100k+ characters — eating context and burning tokens
- * on noise the model can't usefully act on. Anything past `max` is
- * replaced with a `… (N more characters)` marker so the LLM both knows
- * the message was clipped and roughly how much was lost.
- */
-function truncateValidationError(message: string, max?: number): string {
-  const cap = max ?? DEFAULT_VALIDATION_ERROR_MAX_LENGTH;
-  if (cap <= 0 || message.length <= cap) return message;
-  const dropped = message.length - cap;
-  return `${message.slice(0, cap)}… (${dropped} more characters)`;
-}
 
 /**
  * Represents a tool that can be selected by the retool function.
@@ -156,6 +144,32 @@ export interface PromptInput<
   toolIterations?: number;
   // Maximum tool calls allowed. We can't enforce this exact number unless toolsOneAtATime=true, but we will stop sending tools if we have tool successes >= this number
   toolsMax?: number;
+  /**
+   * Guarantee every `toolCalls[i]` on an emitted assistant message has a
+   * matching `role: 'tool'` reply in `request.messages` before the loop
+   * returns — even when execution was aborted via the signal or
+   * short-circuited by a `ToolInterrupt`. Without this guarantee, the
+   * next round-trip fails (OpenAI / Anthropic both reject unpaired
+   * `tool_calls`).
+   *
+   * The synthetic reply carries a short marker (`[interrupted]`,
+   * `[aborted: …]`, `[error: …]`) so the model can see WHY the tool
+   * didn't run and the caller can detect the synthesized state via the
+   * message content if they need to re-issue.
+   *
+   * `PromptSuspend` is NEVER auto-paired — suspend/resume relies on
+   * the missing result slot to know which tool to resume. Suspended
+   * tools still skip result emission regardless of this flag.
+   *
+   * Note: abort-aware dispatch (the `if (signal.aborted) break;` at
+   * the top of the sequential / parallel / immediate dispatch loops)
+   * runs unconditionally so Ctrl+C unwinds quickly regardless of this
+   * flag. Only the synthesis pass that fills in placeholder replies
+   * is gated.
+   *
+   * Default: `true`.
+   */
+  toolsComplete?: boolean;
   // A function/promise that returns an array of tool names and/or tool objects to use, or false to indicate the prompt is not compatible with the context.
   // Tool names (strings) select from the predefined tools array, while tool objects allow for dynamic tools.
   retool?: Fn<RetoolResult<TContext, TMetadata, TTools>, [TInput | undefined, Context<TContext, TMetadata>]>;
@@ -628,6 +642,7 @@ export class Prompt<
     let forgetRetries = this.input.forgetRetries ?? ctx.forgetRetries ?? 1;
     let toolIterations = this.input.toolIterations ?? 3;
     let toolRetries = this.input.toolRetries ?? ctx.toolRetries ?? 2;
+    const toolsComplete = this.input.toolsComplete ?? true;
 
     let result: TOutput | undefined = undefined;
     let lastError: string | undefined = undefined;
@@ -661,6 +676,15 @@ export class Prompt<
 
     // Main execution loop!
     while (iterations < maxIterations) {
+      // Honor the caller's abort signal at iteration boundaries — if a
+      // tool dispatch already paired its tool_calls via the synthesis
+      // pass on the previous iteration, there's no reason to start
+      // another round-trip. Without this guard the loop would spin
+      // until `maxIterations` because each inner stream call would
+      // immediately observe `signal.aborted`, yield nothing, and fall
+      // through to "no tool calls" — wasting time and tokens for an
+      // already-cancelled request.
+      if (ctx.signal?.aborted) break;
       const toolExecutors: ToolExecution<PromptTools<TTools>>[] = [];
       const toolExecutorMap = new Map<string, ToolExecution<PromptTools<TTools>>>();
       const toolErrorsPrevious = (toolCallErrors + toolParseErrors);
@@ -717,7 +741,13 @@ export class Prompt<
 
         // Handle tool calls
         if (chunk.toolCallNamed) {
-          const toolExecutor = newToolExecution(ctx, chunk.toolCallNamed, toolMap.get(chunk.toolCallNamed.name), this.input.validationErrorMaxLength);
+          const toolExecutor = newToolExecution(
+            ctx,
+            chunk.toolCallNamed,
+            toolMap.get(chunk.toolCallNamed.name),
+            this.input.validationErrorMaxLength,
+            this.truncateValidationError.bind(this),
+          );
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
           
@@ -858,6 +888,15 @@ export class Prompt<
         switch (iterationMode) {
           case 'sequential':
             for (const toolExecutor of toolExecutors) {
+              // Abort-aware dispatch — once the caller's signal trips,
+              // stop starting subsequent tools so Ctrl+C unwinds within
+              // ~1 tool's duration instead of grinding through the rest
+              // of the batch. The synthesis pass below pairs every
+              // unstarted tool_call with an `[aborted]` placeholder.
+              // We check `ctx.signal` directly (not the streamController
+              // relay) because the relay's listener was already
+              // removed by the time tool dispatch runs.
+              if (ctx.signal?.aborted) break;
               await toolExecutor.parse();
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -881,6 +920,15 @@ export class Prompt<
           case 'immediate':
             const parseRuns = toolExecutors.map(tc => [tc.parse(), tc.run()]).flat();
             for await (const { result: toolCallPromise } of yieldAll(parseRuns)) {
+              // The promises in `parseRuns` were started eagerly, so
+              // tools already in flight will keep running in the
+              // background (orphaned). What we control here is whether
+              // we accumulate their results / emit their events. Bail
+              // on abort so the caller doesn't have to wait for stragglers
+              // to finish — synthesis below covers any unpaired tool_call.
+              // (We check `ctx.signal` directly — streamController's
+              // listener was already removed before tool dispatch.)
+              if (ctx.signal?.aborted) break;
               const toolExecutor = await toolCallPromise;
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -901,22 +949,46 @@ export class Prompt<
             break;
         }
 
-        // Emit tool results for all completed tools. If any tool suspended, skip its result
-        // (the caller will supply it on resume) and break after processing the rest.
-        // request.messages ends with: [...history, assistantMsg(toolCalls), toolResult(completed)...]
+        // Emit tool results for every executor. The pairing guarantee:
+        // every assistant `tool_calls[i]` pushed by this block must
+        // have a matching `role: 'tool'` entry by the end of the loop,
+        // otherwise the next round-trip 400s (OpenAI / Anthropic both
+        // reject unpaired tool_calls).
+        //
+        // - `suspended`: skipped on purpose (suspend/resume relies on
+        //   the missing slot to know which tool to resume).
+        // - incomplete (`ready` / `parsed` / `executing` / `interrupted`
+        //   without an error string): no real content. With
+        //   `toolsComplete: true` (default) we synthesize a marker
+        //   (`[aborted: …]`, `[interrupted]`) so the model knows WHY
+        //   the slot is empty. With `toolsComplete: false` we omit
+        //   the message entirely — the caller is on their own.
+        // - complete (`success` / `error` / `invalid` / `interrupted`
+        //   with an error string): emit the real result / error.
         let anySuspended = false;
         for (const toolExecutor of toolExecutors) {
           if (toolExecutor.status === 'suspended') {
             anySuspended = true;
-            continue; // Omit result — the pending result will be supplied on resume
+            continue;
           }
-          const content = toolExecutor.error
-            ? toolExecutor.error
-            : toolExecutor.result
+          const hasError = !!toolExecutor.error;
+          const hasResult = toolExecutor.result !== undefined && toolExecutor.result !== null;
+          const isComplete = hasError || hasResult || toolExecutor.status === 'success';
+          if (!isComplete && !toolsComplete) {
+            // Opt-out — leave the unfinished tool_call without a
+            // paired result. Caller has accepted responsibility for
+            // handling the broken history shape (e.g. they're about
+            // to discard the request entirely, or they have their
+            // own retry logic).
+            continue;
+          }
+          const content = hasError
+            ? toolExecutor.error!
+            : hasResult
               ? typeof toolExecutor.result === 'string'
                 ? toolExecutor.result
                 : JSON.stringify(toolExecutor.result)
-              : '';
+              : this.synthesizeUnpairedResult(toolExecutor);
 
           yield emitMessage({
             role: 'tool',
@@ -1025,7 +1097,7 @@ export class Prompt<
               const issueSummary = parsedSafe.error.issues
                 .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
                 .join('\n')
-              errorMessage = truncateValidationError(
+              errorMessage = this.truncateValidationError(
                 `The output was an invalid format:\n${issueSummary}`,
                 errMax,
               );
@@ -1036,7 +1108,7 @@ export class Prompt<
               try {
                 await this.input.validate?.(result, ctx);
               } catch (validationError: any) {
-                errorMessage = truncateValidationError(
+                errorMessage = this.truncateValidationError(
                   `The output failed validation:\n${validationError.message}`,
                   errMax,
                 );
@@ -1044,7 +1116,7 @@ export class Prompt<
               }
             }
           } catch (parseError: any) {
-            errorMessage = truncateValidationError(
+            errorMessage = this.truncateValidationError(
               `The output was not valid JSON:\n${parseError.message}`,
               errMax,
             );
@@ -1178,6 +1250,14 @@ export class Prompt<
 
     // We don't emit complete without a valid result unless toolsOnly is set
     if (result === undefined && !onlyTools) {
+      // Abort is not an error — the caller asked us to stop. Exit
+      // silently with the partial `request.messages` they may want
+      // for resume/inspection, without emitting `complete` (no real
+      // output to surface) and without raising. Mirrors the suspend
+      // path's `return undefined` semantics.
+      if (ctx.signal?.aborted) {
+        return undefined as any;
+      }
       if (!lastError && iterations === maxIterations) {
         lastError = `Maximum iterations (${maxIterations}) reached without a valid response.`;
       }
@@ -1311,6 +1391,68 @@ export class Prompt<
       }
       return response;
     };
+  }
+
+  /**
+   * Truncate a validation error so the corrective user message we send back
+   * to the LLM stays bounded. Lengthy zod errors against deep recursive
+   * schemas can run 100k+ characters — eating context and burning tokens
+   * on noise the model can't usefully act on. Anything past `max` is
+   * replaced with a `… (N more characters)` marker so the LLM both knows
+   * the message was clipped and roughly how much was lost.
+   *
+   * `protected` so a subclass can override — e.g. to emit a shorter
+   * marker, route errors through a custom formatter, or skip truncation
+   * entirely when targeting a model with a large context window.
+   */
+  protected truncateValidationError(message: string, max?: number): string {
+    const cap = max ?? DEFAULT_VALIDATION_ERROR_MAX_LENGTH;
+    if (cap <= 0 || message.length <= cap) return message;
+    const dropped = message.length - cap;
+    return `${message.slice(0, cap)}… (${dropped} more characters)`;
+  }
+
+  /**
+   * Build a short, model-readable placeholder for a `tool_call` that
+   * never produced a real result. Used by the result-emit loop when
+   * `toolsComplete` is true to keep `request.messages` well-paired
+   * even when the dispatch loop short-circuited (signal abort or
+   * `ToolInterrupt` cutting a parallel batch short) or a tool errored
+   * before its content could be accumulated.
+   *
+   * The marker prefix (`[aborted: …]`, `[interrupted]`, `[error: …]`)
+   * gives the model a clear cue and lets callers detect synthesized
+   * replies by inspecting the message content if they need to
+   * differentiate. Suspended tools are intentionally NOT routed
+   * through here — the suspend/resume protocol depends on the
+   * missing result slot.
+   *
+   * `protected` so a subclass can override — e.g. to emit
+   * project-specific markers, log diagnostics for every synthesized
+   * result, or fall back to a model-specific instruction string.
+   */
+  protected synthesizeUnpairedResult<T extends ToolCompatible<any, any>>(
+    te: ToolExecution<T>,
+  ): string {
+    switch (te.status) {
+      case 'interrupted':
+        return te.error
+          ? `[interrupted: ${te.error}]`
+          : '[interrupted]';
+      case 'error':
+      case 'invalid':
+        return te.error
+          ? `[error: ${te.error}]`
+          : '[error]';
+      case 'ready':
+      case 'parsed':
+      case 'executing':
+        // Never reached a terminal status — the dispatch loop cut out
+        // mid-flight (abort or interrupt of a sibling).
+        return '[aborted: tool call did not complete before the request was cancelled]';
+      default:
+        return '[no result]';
+    }
   }
 
   /**
@@ -1479,7 +1621,17 @@ function emitter() {
   return emitter;
 }
 
-function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: ToolCall, toolInfo?: { tool: T, definition: ToolDefinition }, validationErrorMaxLength?: number) {
+function newToolExecution<T extends AnyTool>(
+  ctx: Context<any, any>,
+  toolCall: ToolCall,
+  toolInfo?: { tool: T, definition: ToolDefinition },
+  validationErrorMaxLength?: number,
+  // Pluggable truncator — the owning Prompt instance forwards its
+  // (overridable) `truncateValidationError` method here so a subclass
+  // can change how tool-arg parse errors are formatted without having
+  // to fork the whole prompt loop.
+  truncate?: (message: string, max?: number) => string,
+) {
   const start = emitter();
   const output = emitter();
   const error = emitter();
@@ -1530,10 +1682,10 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
         const reason = isEmpty
           ? `the tool was called with NO arguments. The schema requires arguments — re-call this tool with the required fields populated. Validation: ${e.message}`
           : `${e.message}, args: ${args}`;
-        execution.error = truncateValidationError(
-          `Error parsing tool arguments: ${reason}`,
-          validationErrorMaxLength,
-        );
+        const formatted = `Error parsing tool arguments: ${reason}`;
+        execution.error = truncate
+          ? truncate(formatted, validationErrorMaxLength)
+          : formatted;
         error.ready = true;
       }
 
@@ -1569,3 +1721,5 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
 
   return execution;
 };
+
+
