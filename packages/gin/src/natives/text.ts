@@ -1,6 +1,6 @@
 import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
-import { arg, self } from './helpers';
+import { arg, self, setupYield } from './helpers';
 
 export const textNatives: Record<string, NativeImpl> = {
   // field
@@ -73,9 +73,11 @@ export const textNatives: Record<string, NativeImpl> = {
   },
   'text.chars': async (scope, reg) => {
     const s = self<string>(scope);
-    const yieldFn = scope.get('yield')!.raw as (k: Value, v: Value) => Promise<Value>;
+    const indexType = reg.num({ whole: true, min: 0 });
+    const charType = reg.text({ minLength: 1, maxLength: 1 });
+    const doYield = setupYield(scope, reg, indexType, charType);
     for (let i = 0; i < s.length; i++) {
-      await yieldFn(val(reg.num({ whole: true, min: 0 }), i), val(reg.text({ minLength: 1, maxLength: 1 }), s[i]!));
+      await doYield(val(indexType, i), val(charType, s[i]!));
     }
     return val(reg.void(), undefined);
   },

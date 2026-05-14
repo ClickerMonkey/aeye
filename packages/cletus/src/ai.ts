@@ -1,7 +1,7 @@
 import { AI, ContextInfer, ToolInfer } from '@aeye/ai';
 import { AWSBedrockProvider } from '@aeye/aws';
 import { Usage, accumulateUsage, toJSONSchema } from '@aeye/core';
-import { models, replicateTransformers } from '@aeye/models';
+import { models, replicateTransformers, strictSupport } from '@aeye/models';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { ReplicateProvider } from '@aeye/replicate';
@@ -273,6 +273,11 @@ export function createCletusAI(configFile: ConfigFile, client: CletusClient) {
         return { ...ctx, userPrompt, cache: {} };
       },
       models: allModels,
+      // Curated strict-mode dialect declarations: opts strict-capable model
+      // families (gpt-4o+, claude 4.5+, gemini 2.0+) into the `'toolsStrict'`
+      // capability and pins their JSON-Schema dialect so providers emit the
+      // right wire shape. Without this, every model defaults to lenient.
+      modelOverrides: [...strictSupport],
     }).withHooks({
       beforeRequest: async (ctx, request, selected, usage, cost) => {
         logger.log(`Cletus beforeRequest model=${selected.model.id}, usage=~${JSON.stringify(usage)}, cost=~${cost}:\n${JSON.stringify(request, jsonReplacer, 2)}`);

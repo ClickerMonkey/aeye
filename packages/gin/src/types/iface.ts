@@ -1,5 +1,6 @@
-import type { Registry } from '../registry';
+import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
+import type { Registry } from '../registry';
 import { Value } from '../value';
 import {
   Call,
@@ -9,10 +10,11 @@ import {
   type PropSpec,
   type Rnd,
   Type,
+  joinAuto,
 } from '../type';
-import { decodeCall, decodeGetSet, decodeProps, encodeCall, encodeGetSet, encodeProps } from '../spec';
+import { decodeCall, decodeGetSet, decodeProps, encodeProps } from '../spec';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
 
 /**
@@ -34,11 +36,12 @@ export class IfaceType extends Type<any, Record<string, never>> {
   readonly _get?: GetSet;
   readonly _call?: Call;
 
-  static from(json: TypeDef, registry: Registry): IfaceType {
-    return new IfaceType(registry, {
-      props: json.props ? decodeProps(json.props, registry) : {},
-      get: json.get ? decodeGetSet(json.get, registry) : undefined,
-      call: json.call ? decodeCall(json.call, registry) : undefined,
+  static from(json: TypeDef, scope: TypeScope): IfaceType {
+    const registry = scope.registry;
+    return new IfaceType(scope, {
+      props: json.props ? decodeProps(json.props, scope) : {},
+      get: json.get ? decodeGetSet(json.get, scope) : undefined,
+      call: json.call ? decodeCall(json.call, scope) : undefined,
     });
   }
 
@@ -56,10 +59,10 @@ export class IfaceType extends Type<any, Record<string, never>> {
   }
 
   constructor(
-    registry: Registry,
+    scope: TypeScope,
     spec: { props?: Record<string, Prop | PropSpec>; get?: GetSet; call?: Call },
   ) {
-    super(registry, {});
+    super(scope, {});
     const p: Record<string, Prop> = {};
     if (spec.props) {
       for (const [k, v] of Object.entries(spec.props)) p[k] = Prop.from(v);
@@ -69,17 +72,17 @@ export class IfaceType extends Type<any, Record<string, never>> {
     this._call = spec.call;
   }
 
-  valid(_raw: unknown): _raw is any {
+  valid(_raw: unknown, _scope?: TypeScope): _raw is any {
     // Runtime values don't directly "satisfy" interfaces — interface
     // satisfaction is a TYPE-level check (see compatible()).
     return true;
   }
 
-  parse(json: unknown): Value<any> {
+  parse(json: unknown, _scope?: TypeScope): Value<any> {
     return new Value(this, json);
   }
 
-  encode(raw: any): any {
+  encode(raw: any, _scope?: TypeScope): any {
     return raw;
   }
 
@@ -122,26 +125,26 @@ export class IfaceType extends Type<any, Record<string, never>> {
     });
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     // "other satisfies this interface" — structural.
-    const theirProps = other.props();
+    const theirProps = other.props(scope);
     for (const [name, prop] of Object.entries(this._props)) {
       const their = theirProps[name];
       if (!their) return false;
-      if (!prop.type.compatible(their.type, opts)) return false;
+      if (!prop.type.compatible(their.type, opts, scope)) return false;
     }
     if (this._get) {
-      const their = other.get();
+      const their = other.get(scope);
       if (!their) return false;
-      if (!this._get.key.compatible(their.key, opts)) return false;
-      if (!this._get.value.compatible(their.value, opts)) return false;
+      if (!this._get.key.compatible(their.key, opts, scope)) return false;
+      if (!this._get.value.compatible(their.value, opts, scope)) return false;
     }
     if (this._call) {
-      const their = other.call();
+      const their = other.call(scope);
       if (!their) return false;
-      if (!this._call.args.compatible(their.args, opts)) return false;
+      if (!this._call.args.compatible(their.args, opts, scope)) return false;
       if (this._call.returns && their.returns) {
-        if (!this._call.returns.compatible(their.returns, opts)) return false;
+        if (!this._call.returns.compatible(their.returns, opts, scope)) return false;
       }
     }
     return true;
@@ -171,15 +174,15 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return {};
   }
 
-  props(): Record<string, Prop> {
-    return { ...(super.props() as Record<string, Prop>), ...this._props };
+  props(scope?: TypeScope): Record<string, Prop> {
+    return { ...(super.props(scope) as Record<string, Prop>), ...this._props };
   }
 
-  get(): GetSet | undefined {
+  get(_scope?: TypeScope): GetSet | undefined {
     return this._get;
   }
 
-  call(): Call | undefined {
+  call(_scope?: TypeScope): Call | undefined {
     return this._call;
   }
 
@@ -187,8 +190,8 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return {
       name: IfaceType.NAME,
       props: Object.keys(this._props).length > 0 ? encodeProps(this._props) : undefined,
-      get: this._get ? encodeGetSet(this._get) : undefined,
-      call: this._call ? encodeCall(this._call) : undefined,
+      get: this._get?.toJSON(),
+      call: this._call?.toJSON(),
     };
   }
 
@@ -200,27 +203,28 @@ export class IfaceType extends Type<any, Record<string, never>> {
     return new IfaceType(this.registry, { props: p, get: this._get, call: this._call });
   }
 
-  toCode(): string {
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    const includeComments = options?.includeComments !== false;
     const parts: string[] = [];
     for (const [name, prop] of Object.entries(this._props)) {
       const optional = prop.type.isOptional();
       const t = optional ? prop.type.required() : prop.type;
       const label = optional ? `${name}?` : name;
-      const propDocs = prop.docs ? `/* ${prop.docs} */ ` : '';
-      parts.push(`${propDocs}${label}: ${t.toCode()}`);
+      const propDocs = prop.docs && includeComments ? `/* ${prop.docs} */ ` : '';
+      parts.push(`${propDocs}${label}: ${t.toCode(undefined, options)}`);
     }
     if (this._get) {
-      parts.push(`[key: ${this._get.key.toCode()}]: ${this._get.value.toCode()}`);
+      parts.push(`[key: ${this._get.key.toCode(undefined, options)}]: ${this._get.value.toCode(undefined, options)}`);
     }
     if (this._call) {
-      const ret = this._call.returns?.toCode() ?? 'void';
-      parts.push(`(${this._call.args.toCode()}): ${ret}`);
+      const ret = this._call.returns?.toCode(undefined, options) ?? 'void';
+      parts.push(`(${this._call.args.toCode(undefined, options)}): ${ret}`);
     }
-    const body = parts.length === 0 ? 'iface' : `iface{${parts.join(', ')}}`;
-    return this.docsPrefix() + body;
+    const body = parts.length === 0 ? 'iface' : `iface{${joinAuto(parts)}}`;
+    return this.docsPrefix(options) + body;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const mode = opts?.includeDocs ?? 'none';
     // Structural: any object carrying the declared props is acceptable.
     const shape: Record<string, z.ZodTypeAny> = {};

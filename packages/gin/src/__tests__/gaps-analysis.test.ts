@@ -12,10 +12,10 @@ describe('Engine.typeOf', () => {
   test('lambda returns the declared fn type', () => {
     const t = e.typeOf({
       kind: 'lambda',
-      type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'text' } } },
+      type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'text' } } },
       body: { kind: 'new', type: { name: 'text' }, value: 'hi' },
     } as any);
-    expect(t.name).toBe('function');
+    expect(t.name).toBe('fn');
   });
 
   test('block returns last line type', () => {
@@ -77,7 +77,7 @@ describe('Engine.typeOf', () => {
     const t = e.typeOf({
       kind: 'template',
       template: { kind: 'new', type: { name: 'text' }, value: '' },
-      params: { kind: 'new', type: { name: 'object', props: {} }, value: {} },
+      params: { kind: 'new', type: { name: 'obj', props: {} }, value: {} },
     } as any);
     expect(t.name).toBe('text');
   });

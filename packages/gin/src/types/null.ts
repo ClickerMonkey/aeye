@@ -1,10 +1,11 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -16,8 +17,9 @@ export class NullType extends Type<null, Record<string, never>> {
   static readonly NAME = 'null';
   readonly name = NullType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): NullType {
-    return new NullType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): NullType {
+    const registry = scope.registry;
+    return new NullType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
@@ -88,9 +90,9 @@ export class NullType extends Type<null, Record<string, never>> {
     return new NullType(this.registry, {});
   }
 
-  toCode(): string { return this.docsPrefix() + 'null'; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'null'; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('null') }).passthrough();

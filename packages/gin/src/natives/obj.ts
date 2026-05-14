@@ -1,7 +1,7 @@
 import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { ObjType } from '../types/obj';
-import { arg, self, selfValue } from './helpers';
+import { arg, self, selfValue, setupYield } from './helpers';
 
 const fields = (scope: any) => (selfValue(scope).type as ObjType).fields;
 
@@ -29,11 +29,19 @@ export const objNatives: Record<string, NativeImpl> = {
   'object.iterate': async (scope, reg) => {
     const obj = self<Record<string, Value>>(scope);
     const fs = fields(scope);
-    const yieldFn = scope.get('yield')!.raw as (k: Value, v: Value) => Promise<Value>;
+    // Build the per-iteration yielder once with stable types: keys
+    // are always text (field names), values are the union of the
+    // obj's field types (or just any when there are no fields).
+    const keyType = reg.text();
+    const fieldTypes = Object.values(fs).map((p: any) => p.type);
+    const valueType = fieldTypes.length === 0
+      ? reg.any()
+      : fieldTypes.length === 1 ? fieldTypes[0]! : reg.or(fieldTypes);
+    const doYield = setupYield(scope, reg, keyType, valueType);
     for (const [name] of Object.entries(fs)) {
       const stored = obj[name];
       if (stored instanceof Value) {
-        await yieldFn(val(reg.text(), name), stored);
+        await doYield(val(keyType, name), stored);
       }
     }
     return val(reg.void(), undefined);

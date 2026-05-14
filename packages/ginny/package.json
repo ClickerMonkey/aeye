@@ -41,14 +41,16 @@
     "mammoth": "^1.8.0",
     "node-html-markdown": "^1.3.0",
     "pdf-parse": "^1.1.1",
-    "puppeteer": "^24.0.0",
     "xlsx": "^0.18.5"
+  },
+  "optionalDependencies": {
+    "puppeteer": "^24.0.0"
   },
   "devDependencies": {
     "@aeye/ai": "0.3.8",
     "@aeye/aws": "0.3.8",
     "@aeye/core": "0.3.8",
-    "@aeye/gin": "0.1.0",
+    "@aeye/gin": "0.3.8",
     "@aeye/models": "0.3.8",
     "@aeye/openai": "0.3.8",
     "@aeye/openrouter": "0.3.8",

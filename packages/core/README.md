@@ -424,8 +424,105 @@ const adaptivePrompt = new Prompt({
 | `tools` | Function/tool calling |
 | `json` | JSON output mode |
 | `structured` | Structured outputs with schemas |
+| `toolsStrict` | Strict-mode tool input schemas (auto-derived; see [Strict Mode](#strict-mode)) |
 | `reasoning` | Extended chain-of-thought reasoning |
 | `zdr` | Zero data retention |
+
+## Strict Mode
+
+Each LLM provider that supports strict mode does so with its own JSON Schema dialect. `@aeye/core` reconciles them under a single `FormatDescriptor` so a Zod schema authored once works against any of them.
+
+### `strict` on Tool / Prompt
+
+`Tool.strict` and `Prompt.strict` are `boolean | number`:
+
+| Value | Meaning |
+|---|---|
+| `true` | **Require** strict. `@aeye/ai` filters selection down to models that declare strict support; the request fails if none qualify. |
+| `false` | **Force** lenient. Standard JSON Schema; no `strict: true` on the wire. |
+| `number > 0` (default `1`) | **Prefer** strict, accept fallback. Higher numbers win when there are more strict-requesting items than the chosen model's per-request budget allows. |
+| omitted | Treated as `1`. |
+
+```typescript
+new Tool({ name: 'must',     /* default 1 */                schema: z.object({...}) }); // best-effort
+new Tool({ name: 'critical', strict: true,                  schema: z.object({...}) }); // hard require
+new Tool({ name: 'meh',      strict: false,                 schema: z.object({...}) }); // never strict
+new Tool({ name: 'top',      strict: 100,                   schema: z.object({...}) }); // high priority
+```
+
+Default `1` keeps "it just works" against unannotated models — strict where the chosen model supports it, lenient elsewhere. Set `true` only when strict is non-negotiable.
+
+### Native format descriptors
+
+Seven descriptors ship out of the box:
+
+| Descriptor | Family / Strict | Notes |
+|---|---|---|
+| `OPENAI_STRICT` | openai / strict | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, closed objects, restricted format whitelist. |
+| `ANTHROPIC_STRICT` | anthropic / strict | Closed objects, no recursion, no length / numeric range constraints, per-request slot budgets (20 strict tools / 24 optional params / 16 union types). |
+| `GOOGLE_STRICT` | google / strict | `prefixItems`, `$ref: '#'` recursion, `propertyOrdering` emitted, restricted format whitelist. |
+| `LENIENT` | lenient / non-strict | No rewrites, all features pass through. Default for unannotated models. |
+| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT`, `GOOGLE_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
+
+```typescript
+import { OPENAI_STRICT, ANTHROPIC_STRICT, getDescriptor, toJSONSchema } from '@aeye/core';
+
+const schema = z.object({
+  name: z.string(),
+  tags: z.record(z.string(), z.string()),
+});
+
+// Same Zod, different wire shapes:
+toJSONSchema(schema, OPENAI_STRICT);                    // tags → array of {key, value}
+toJSONSchema(schema, ANTHROPIC_STRICT);                 // tags → array of {key, value} (open records unsupported)
+toJSONSchema(schema, getDescriptor('google', true));    // tags → standard additionalProperties
+
+// Backward-compat overloads still work:
+toJSONSchema(schema, true);   // === OPENAI_STRICT
+toJSONSchema(schema, false);  // === LENIENT
+```
+
+### Registering a custom descriptor
+
+You can ship your own descriptor for a provider or dialect that isn't supported natively. Define it as a `FormatDescriptor` value and register it with `registerDescriptor(descriptor)`:
+
+```typescript
+import { registerDescriptor, type FormatDescriptor, OPENAI_STRICT } from '@aeye/core';
+
+const MY_PROVIDER_STRICT: FormatDescriptor = {
+  ...OPENAI_STRICT,                   // start from a known good baseline
+  id: 'my-provider-strict',
+  family: 'openai',                   // or 'anthropic' | 'google' | 'lenient'
+  // Override only the fields that differ from the baseline:
+  recordEncoding: 'open-record',      // your provider supports additionalProperties: <schema>
+  tupleEncoding: 'prefix-items',
+  supportsRecursion: true,
+};
+
+registerDescriptor(MY_PROVIDER_STRICT);
+```
+
+Once registered:
+
+- Provider code can pass the descriptor to `toJSONSchema(schema, MY_PROVIDER_STRICT)` and `strictify(schema, MY_PROVIDER_STRICT)`.
+- The Prompt's validation roundtrip (which looks up descriptors by id from the request) will resolve `'my-provider-strict'` correctly.
+- A custom `Provider` implementation can return this descriptor from its `getStrictFormat`-equivalent helper.
+
+The descriptor's full field list is exported as the `FormatDescriptor` interface — every flag is documented inline. Common adjustments:
+
+| Field | Controls |
+|---|---|
+| `objectAllFieldsRequired` | Whether every property must appear in `required[]`. |
+| `objectClosedByDefault` | Whether every object emits `additionalProperties: false`. |
+| `recordEncoding` | `'array-of-pairs'` vs `'open-record'`. |
+| `tupleEncoding` | `'object-numeric-keys'` vs `'prefix-items'` vs `'items-union'`. |
+| `allowAllOf` / `allowAnyOf` / `allowOneOf` | JSON-Schema combinator support. |
+| `supportedStringFormats` | `'all'` or a `Set<string>` whitelist (`'date-time'`, `'email'`, etc.). |
+| `optionalAsNullable` | Whether `optional` fields are emitted as `T \| null` (OpenAI strict) vs omitted from `required[]`. |
+| `supportsRecursion` | Whether `$ref` self-reference works under this dialect. |
+| `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request budget caps; `undefined` means no documented limit. |
+
+You don't need to set every field — spread an existing descriptor and override deltas. Tested via `analyzeSchema` + the schema test suite; see the strict-mode guide in `@aeye/docs` for end-to-end examples.
 
 ## API Reference
 

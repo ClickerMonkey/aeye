@@ -33,7 +33,7 @@ describe('Person.fullName integration', () => {
             template: { kind: 'new', type: { name: 'text' }, value: '{first} {last}' },
             params: {
               kind: 'new',
-              type: { name: 'object', props: {
+              type: { name: 'obj', props: {
                 first: { type: { name: 'text' } },
                 last:  { type: { name: 'text' } },
               } },
@@ -106,7 +106,7 @@ describe('Person.fullName integration', () => {
             template: { kind: 'new', type: { name: 'text' }, value: '{first} {last}' },
             params: {
               kind: 'new',
-              type: { name: 'object', props: {
+              type: { name: 'obj', props: {
                 first: { type: { name: 'text' } },
                 last:  { type: { name: 'text' } },
               } },
@@ -130,7 +130,9 @@ describe('Person.fullName integration', () => {
     } as const;
 
     const code = e.toCode(program);
-    expect(code).toBe('p.fullName({})');
+    // Empty args render as bare `()` — the implicit `{}` is dropped
+    // for readability. See path.ts CallStep.toCode.
+    expect(code).toBe('p.fullName()');
 
     // typeOf on the method call should resolve to text via the Fn's returns.
     // (Requires a scope with p: Person; validate helps here.)

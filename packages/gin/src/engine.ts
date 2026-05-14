@@ -7,9 +7,10 @@ import type { Type } from './type';
 import type { ExprDef } from './schema';
 import { Expr } from './expr';
 import type { CodeOptions } from './node';
+import type { Code } from './code';
 
 import { ExitSignal } from './flow-control';
-import { typeOf as typeOfAnalysis, validate as validateAnalysis, type TypeScope } from './analysis';
+import { typeOf as typeOfAnalysis, validate as validateAnalysis, type Locals } from './analysis';
 import { Problems } from './problem';
 
 /**
@@ -87,7 +88,7 @@ export class Engine {
    * Infer the static return type of an expression against a type scope.
    * Returns `any` on unknown parts — never throws.
    */
-  typeOf(expr: ExprDef | Expr, scope?: TypeScope): Type {
+  typeOf(expr: ExprDef | Expr, scope?: Locals): Type {
     const s = scope ?? this.globalTypeScope();
     return typeOfAnalysis(this, expr, s);
   }
@@ -95,10 +96,19 @@ export class Engine {
   /**
    * Walk an expression tree and collect Problems (unknown vars, unknown
    * props / natives, out-of-place break/return, etc.). Never throws.
+   *
+   * `ctx` lets the caller mark the root as already inside a lambda or
+   * loop — needed when validating a saved fn's body (the body has
+   * `args`/`recurse` bound and `return` is legal there even though
+   * there's no enclosing LambdaExpr). Defaults to top-level shape.
    */
-  validate(expr: ExprDef | Expr, scope?: TypeScope): Problems {
+  validate(
+    expr: ExprDef | Expr,
+    scope?: Locals,
+    ctx?: import('./expr').ValidateContext,
+  ): Problems {
     const s = scope ?? this.globalTypeScope();
-    return validateAnalysis(this, expr, s);
+    return validateAnalysis(this, expr, s, ctx);
   }
 
   /**
@@ -109,8 +119,29 @@ export class Engine {
     return this.registry.toCode(expr, options);
   }
 
-  /** A TypeScope seeded with the registered globals' declared types. */
-  globalTypeScope(): TypeScope {
+  /**
+   * Render an ExprDef as gin TS-pseudocode with span annotations
+   * tying each rendered range back to its node + validator path.
+   * Pair the result with `Problems` from `validate(...)` and feed
+   * both to `formatProblem` / `formatProblems` (in `./code`) to get
+   * compiler-style `^^^` error pointers.
+   */
+  toGinCode(expr: ExprDef | Expr, options?: CodeOptions): Code {
+    return this.registry.toGinCode(expr, options);
+  }
+
+  /**
+   * Render an ExprDef as its JSON form (matching
+   * `JSON.stringify(expr.toJSON(), null, 2)`) with spans aligned to
+   * structural positions. Lets callers surface validation errors in
+   * the JSON the LLM actually wrote.
+   */
+  toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
+    return this.registry.toJSONCode(expr, indent);
+  }
+
+  /** A Locals seeded with the registered globals' declared types. */
+  globalTypeScope(): Locals {
     const m = new Map<string, Type>();
     for (const [name, g] of this.globals) m.set(name, g.type);
     return m;

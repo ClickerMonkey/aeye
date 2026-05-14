@@ -5,12 +5,14 @@ import type { Value } from '../value';
 import { Path } from '../path';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
-import { baseExprFields, pathStepSchema } from '../schemas';
+import { pathStepSchema } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * GetExpr — read a value through a Path chain.
@@ -24,15 +26,18 @@ export class GetExpr extends Expr {
     super();
   }
 
-  static from(json: GetExprDef, registry: Registry): GetExpr {
-    return new GetExpr(Path.from(json.path, registry)).withComment(json.comment);
+  static from(json: GetExprDef, scope: TypeScope): GetExpr {
+    return new GetExpr(Path.from(json.path, scope)).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('get'),
-      ...baseExprFields,
-      path: z.array(pathStepSchema(opts)),
+      path: z
+        .array(pathStepSchema(opts))
+        .describe(
+          'Steps walked left-to-right starting from a scope variable. Step shapes: `{prop:"name"}` for prop/method access, `{args:{…}}` to call the previous step, `{key:Expr}` for index access. The first step MUST be a prop step (the scope-var name). Result is the final step\'s value.',
+        ),
     }).meta({ aid: 'Expr_get' });
   }
 
@@ -40,20 +45,43 @@ export class GetExpr extends Expr {
     return this.path.walk(scope, _engine, { mode: 'get' });
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     return this.path.typeOf(engine, scope);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     return this.path.validateWalk(engine, scope, p, ctx, 'get');
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
-    return this.commentPrefix(options) + this.path.toCode(registry!);
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
+    const pathCode = this.path.toGinCode(registry!, options, path);
+    return span(code`${this.commentPrefix(options)}${pathCode}`, { path, expr: this });
   }
 
   toJSON(): GetExprDef {
     return this.withCommentOn({ kind: 'get', path: this.path.toJSON() });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const pathCode = this.path.toJSONCode([...path, 'path'], indent, level + 1);
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('get') },
+        { key: 'path', value: pathCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): GetExpr {

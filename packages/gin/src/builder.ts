@@ -138,9 +138,8 @@ export interface TypeBuilder {
   // ─── interfaces ─────────────────────────────────────────────────────────
   iface(spec: IfaceSpec): Type;
 
-  // ─── references & generics ──────────────────────────────────────────────
-  ref(name: string): Type;
-  generic(name: string): Type;
+  // ─── aliases (former ref + generic, unified) ────────────────────────────
+  alias(name: string): Type;
 
   // ─── extension ──────────────────────────────────────────────────────────
   extend<T, O>(base: Type<T> | string, local: ExtensionLocal<T, O>): Extension<T, O>;

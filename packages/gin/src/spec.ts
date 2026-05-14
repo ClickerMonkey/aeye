@@ -1,140 +1,46 @@
 import type { Registry } from './registry';
 import { Call, GetSet, Init, Prop, type PropSpec, type Type } from './type';
 import type { CallDef, GetSetDef, PropDef, TypeDef } from './schema';
-
-// ─── generic substitution (TypeDef tree) ─────────────────────────────────
-
-/**
- * Walk a TypeDef substituting generic placeholders per `bindings`. Fully
- * polymorphic: parses each node into a Type and dispatches to its
- * `.substitute(bindings)` method, then re-encodes. GenericType overrides
- * substitute() to return its binding; every other type uses the default,
- * which recurses into its common child fields (generic / props / get /
- * call / init). No `name === 'generic'` check lives in this file.
- *
- * This helper is now a thin wrapper over Type.substitute — kept for
- * backwards-compat and for the registry's parse-time use (e.g., Type.bind
- * and programmatic substitution).
- */
-export function substituteTypeDef(
-  def: TypeDef,
-  bindings: Record<string, Type>,
-  registry: Registry,
-): TypeDef {
-  return registry.parse(def).substitute(bindings).toJSON();
-}
-
-/**
- * Default child-walker used by Type.substitute: recursively substitutes
- * the common child-type fields without knowing anything about the outer
- * type's kind. Only invoked from Type.substitute — never from user code.
- */
-export function substituteChildren(
-  def: TypeDef,
-  bindings: Record<string, Type>,
-  registry: Registry,
-): TypeDef {
-  const next: TypeDef = { ...def };
-
-  if (def.generic) {
-    const g: Record<string, TypeDef> = {};
-    for (const [k, v] of Object.entries(def.generic)) {
-      g[k] = substituteTypeDef(v, bindings, registry);
-    }
-    next.generic = g;
-  }
-
-  if (def.props) {
-    const p: Record<string, PropDef> = {};
-    for (const [k, pd] of Object.entries(def.props)) {
-      p[k] = { ...pd, type: substituteTypeDef(pd.type, bindings, registry) };
-    }
-    next.props = p;
-  }
-
-  if (def.get) {
-    next.get = {
-      ...def.get,
-      key: substituteTypeDef(def.get.key, bindings, registry),
-      value: substituteTypeDef(def.get.value, bindings, registry),
-    };
-  }
-
-  if (def.call) {
-    next.call = {
-      ...def.call,
-      args: substituteTypeDef(def.call.args, bindings, registry),
-      returns: def.call.returns ? substituteTypeDef(def.call.returns, bindings, registry) : undefined,
-      throws: def.call.throws ? substituteTypeDef(def.call.throws, bindings, registry) : undefined,
-    };
-  }
-
-  if (def.init) {
-    next.init = { ...def.init, args: substituteTypeDef(def.init.args, bindings, registry) };
-  }
-
-  return next;
-}
+import { LocalScope, type TypeScope } from './type-scope';
 
 /**
  * Runtime ↔ schema conversion for Prop/GetSet/Call/Init specs.
  * Runtime specs hold resolved Type instances; schema specs hold TypeDef JSON.
- * Each concrete Type uses these when implementing encode() and parse/from.
+ *
+ * **Encoding lives on the runtime classes** as `toJSON()` methods —
+ * `Prop.toJSON()`, `GetSet.toJSON()`, `Call.toJSON()`, `Init.toJSON()`.
+ * Each concrete Type calls `.toJSON()` directly when implementing its
+ * own `toJSON()`. The free `encodeProps` helper below is the only
+ * survivor: it's a thin map-shim that normalizes `PropSpec`s to
+ * `Prop` instances before calling `.toJSON()`.
+ *
+ * Decoding (the reverse — JSON → runtime) lives here as free functions
+ * because each decode needs the registry to recurse into child types,
+ * and putting them as static methods on the runtime classes would mean
+ * every runtime class importing the registry.
  */
 
 // ─── encode (runtime → schema) ────────────────────────────────────────────
 
-export function encodeProp(prop: Prop | PropSpec): PropDef {
-  return {
-    docs: prop.docs,
-    type: prop.type.toJSON(),
-    get: prop.get,
-    default: prop.default,
-    set: prop.set,
-  };
-}
-
+/**
+ * Map a record of Prop/PropSpec values to their JSON form. Normalizes
+ * each entry through `Prop.from` so `PropSpec` plain objects work
+ * alongside `Prop` instances. The only free encode function — the
+ * single-instance ones live as methods on the runtime classes.
+ */
 export function encodeProps(props: Record<string, Prop | PropSpec>): Record<string, PropDef> {
   const out: Record<string, PropDef> = {};
-  for (const [name, prop] of Object.entries(props)) out[name] = encodeProp(prop);
+  for (const [name, prop] of Object.entries(props)) {
+    out[name] = Prop.from(prop).toJSON();
+  }
   return out;
-}
-
-export function encodeGetSet(gs: GetSet): GetSetDef {
-  return {
-    docs: gs.docs,
-    key: gs.key.toJSON(),
-    value: gs.value.toJSON(),
-    get: gs.get,
-    set: gs.set,
-    loop: gs.loop,
-  };
-}
-
-export function encodeCall(call: Call): CallDef {
-  return {
-    docs: call.docs,
-    args: call.args.toJSON(),
-    returns: call.returns?.toJSON(),
-    throws: call.throws?.toJSON(),
-    get: call.get,
-    set: call.set,
-  };
-}
-
-export function encodeInit(init: Init): NonNullable<TypeDef['init']> {
-  return {
-    docs: init.docs,
-    args: init.args.toJSON(),
-    run: init.run,
-  };
 }
 
 // ─── decode (schema → runtime), recurses via registry ────────────────────
 
-export function decodeProp(def: PropDef, registry: Registry): Prop {
+export function decodeProp(def: PropDef, scope: TypeScope): Prop {
   return new Prop({
-    type: registry.parse(def.type),
+    type: scope.parse(def.type),
     get: def.get,
     set: def.set,
     default: def.default,
@@ -142,37 +48,65 @@ export function decodeProp(def: PropDef, registry: Registry): Prop {
   });
 }
 
-export function decodeProps(defs: Record<string, PropDef>, registry: Registry): Record<string, Prop> {
+export function decodeProps(
+  defs: Record<string, PropDef>,
+  scope: TypeScope,
+): Record<string, Prop> {
   const out: Record<string, Prop> = {};
-  for (const [name, def] of Object.entries(defs)) out[name] = decodeProp(def, registry);
+  for (const [name, def] of Object.entries(defs)) out[name] = decodeProp(def, scope);
   return out;
 }
 
-export function decodeGetSet(def: GetSetDef, registry: Registry): GetSet {
+export function decodeGetSet(def: GetSetDef, scope: TypeScope): GetSet {
   return new GetSet({
-    key: registry.parse(def.key),
-    value: registry.parse(def.value),
+    key: scope.parse(def.key),
+    value: scope.parse(def.value),
     get: def.get,
     set: def.set,
     loop: def.loop,
+    loopDynamic: def.loopDynamic,
     docs: def.docs,
   });
 }
 
-export function decodeCall(def: CallDef, registry: Registry): Call {
+/**
+ * Decode a CallDef into a `Call`. When `def.types` is non-empty, build
+ * a `LocalScope` layered on top of `scope` and bind each alias to its
+ * (sequentially-parsed) Type — earlier aliases are visible to later
+ * ones and to the call's args/returns/throws/get/set. The call retains
+ * the alias map so `Call.toJSON()` can round-trip it.
+ */
+export function decodeCall(def: CallDef, scope: TypeScope): Call {
+  let inner: TypeScope = scope;
+  let aliases: Record<string, Type> | undefined;
+  if (def.types && Object.keys(def.types).length > 0) {
+    const local = new LocalScope(scope);
+    inner = local;
+    aliases = {};
+    for (const [name, aliasDef] of Object.entries(def.types)) {
+      const t = local.parse(aliasDef);
+      local.bind(name, t);
+      aliases[name] = t;
+    }
+  }
+
   return new Call({
-    args: registry.parse(def.args) as Type<any>,
-    returns: def.returns ? registry.parse(def.returns) : undefined,
-    throws: def.throws ? registry.parse(def.throws) : undefined,
+    args: inner.parse(def.args) as Type<any>,
+    returns: def.returns ? inner.parse(def.returns) : undefined,
+    throws: def.throws ? inner.parse(def.throws) : undefined,
     get: def.get,
     set: def.set,
     docs: def.docs,
+    types: aliases,
   });
 }
 
-export function decodeInit(def: NonNullable<TypeDef['init']>, registry: Registry): Init {
+export function decodeInit(
+  def: NonNullable<TypeDef['init']>,
+  scope: TypeScope,
+): Init {
   return new Init({
-    args: registry.parse(def.args) as Type<any>,
+    args: scope.parse(def.args) as Type<any>,
     run: def.run,
     docs: def.docs,
   });

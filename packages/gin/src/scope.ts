@@ -1,11 +1,30 @@
 import type { Value } from './value';
 
 /**
+ * Names gin's runtime injects into child scopes for specific
+ * expression contexts. User-authored bindings (`DefineExpr.vars[].name`,
+ * `LoopExpr.keyName`/`valueName` overrides) MUST NOT use these — the
+ * engine will rebind them at the relevant context, silently shadowing
+ * the user's value and producing very confusing behavior.
+ *
+ * - `args` — function parameters (Lambda, path call.get/set, NewExpr init).
+ * - `recurse` — self-reference in fn bodies.
+ * - `this` — receiver in prop/method bodies, NewExpr init, loop.over.
+ * - `super` — base impl in prop/method overrides.
+ * - `key`, `value` — loop iteration bindings (default names).
+ * - `yield` — internal yield callback for loop bodies.
+ * - `error` — bound in path catch handlers.
+ */
+export const RESERVED_NAMES: ReadonlySet<string> = new Set([
+  'args', 'recurse', 'this', 'super', 'key', 'value', 'yield', 'error',
+]);
+
+/**
  * Scope: lexical variable bindings with parent chain.
  *
  * Root scope contains globals. Each Define/Lambda/Loop creates a child.
- * Reserved names (this, args, result, key, value, yield, super) are
- * injected per-context, not by globals.
+ * Reserved names (see `RESERVED_NAMES`) are injected per-context, not
+ * by globals.
  */
 export class Scope {
   readonly parent: Scope | null;

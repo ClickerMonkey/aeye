@@ -1,7 +1,7 @@
 import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { ListType } from '../types/list';
-import { arg, self, selfValue, argValue } from './helpers';
+import { arg, self, selfValue, argValue, setupYield } from './helpers';
 
 const itemType = (scope: any) => (selfValue(scope).type as ListType).item;
 
@@ -31,11 +31,13 @@ export const listNatives: Record<string, NativeImpl> = {
   },
   'list.iterate': async (scope, reg) => {
     const arr = self<Value[]>(scope);
-    const yieldFn = scope.get('yield')!.raw as (k: Value, v: Value) => Promise<Value>;
+    const indexType = reg.num({ whole: true, min: 0 });
+    const doYield = setupYield(scope, reg, indexType, itemType(scope));
+    const voidValue = val(reg.void(), undefined);
     for (let i = 0; i < arr.length; i++) {
-      await yieldFn(val(reg.num({ whole: true, min: 0 }), i), arr[i]!);
+      await doYield(val(indexType, i), arr[i]!);
     }
-    return val(reg.void(), undefined);
+    return voidValue;
   },
 
   'list.at': (scope, reg) => {

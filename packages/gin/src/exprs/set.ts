@@ -5,12 +5,14 @@ import { Value, val } from '../value';
 import { Path, PropStep } from '../path';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields, pathStepSchema } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * SetExpr — assign to a Path. Returns Value<bool>:
@@ -25,8 +27,10 @@ export class SetExpr extends Expr {
     super();
   }
 
-  static from(json: SetExprDef, registry: Registry): SetExpr {
-    return new SetExpr(Path.from(json.path, registry), registry.parseExpr(json.value))
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
+  static from(json: SetExprDef, scope: TypeScope): SetExpr {
+    return new SetExpr(Path.from(json.path, scope), scope.registry.parseExpr(json.value, scope))
       .withComment(json.comment);
   }
 
@@ -34,8 +38,14 @@ export class SetExpr extends Expr {
     return z.object({
       kind: z.literal('set'),
       ...baseExprFields,
-      path: z.array(pathStepSchema(opts)),
-      value: opts.Expr,
+      path: z
+        .array(pathStepSchema(opts))
+        .describe(
+          'Steps walked left-to-right to a writable target. Single-step `[{prop:"x"}]` re-assigns scope variable `x`. Multi-step targets need the type to support set on the final step (a prop with a `set` ExprDef, an indexed slot, or a method whose call has `set:`).',
+        ),
+      value: opts.Expr.describe(
+        'The expression evaluated and assigned to the path target. Its type must be compatible with the target\'s declared type — checked statically as `set.type-mismatch`.',
+      ),
     }).meta({ aid: 'Expr_set' });
   }
 
@@ -49,11 +59,11 @@ export class SetExpr extends Expr {
     return this.path.walk(scope, engine, { mode: 'set', setValue: value });
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return engine.registry.bool();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const valueT = p.at('value', () => this.value.validateWalk(engine, scope, p, ctx));
     const targetT = this.path.validateWalk(engine, scope, p, ctx, 'set');
     // The rvalue type must be assignable to the target position's type.
@@ -64,9 +74,14 @@ export class SetExpr extends Expr {
     return engine.registry.bool();
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
-    return this.commentPrefix(options)
-      + `${this.path.toCode(registry!)} = ${this.value.toCode(registry, { expectsValue: true })}`;
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
+    const pathCode = this.path.toGinCode(registry!, options, path);
+    const value = this.value.toGinCode(registry, { ...options, expectsValue: true }, [...path, 'value']);
+    return span(code`${this.commentPrefix(options)}${pathCode} = ${value}`, { path, expr: this });
   }
 
   toJSON(): SetExprDef {
@@ -75,6 +90,26 @@ export class SetExpr extends Expr {
       path: this.path.toJSON(),
       value: this.value.toJSON(),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const pathCode = this.path.toJSONCode([...path, 'path'], indent, level + 1);
+    const valueCode = this.value.toJSONCode([...path, 'value'], indent, level + 1);
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('set') },
+        { key: 'path', value: pathCode },
+        { key: 'value', value: valueCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): SetExpr {

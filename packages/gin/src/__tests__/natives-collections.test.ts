@@ -74,7 +74,7 @@ describe('list natives', () => {
     });
     const gt2 = {
       kind: 'lambda',
-      type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'bool' } } },
+      type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'bool' } } },
       body: { kind: 'get', path: [{ prop: 'args' }, { prop: 'value' }, { prop: 'gt' }, { args: { other: { kind: 'new', type: { name: 'num' }, value: 2 } } }] },
     };
     expect((await e.run(program(gt2, 'some'))).raw).toBe(true);
@@ -123,7 +123,7 @@ describe('map natives', () => {
 
 describe('obj natives', () => {
   test('keys/values/entries/has', async () => {
-    const objType = { name: 'object', props: { name: { type: { name: 'text' } }, age: { type: { name: 'num' } } } };
+    const objType = { name: 'obj', props: { name: { type: { name: 'text' } }, age: { type: { name: 'num' } } } };
     const obj = { kind: 'new', type: objType, value: { name: 'Alice', age: 30 } };
     const call = (prop: string, args: any = {}) => e.run({
       kind: 'define', vars: [{ name: 's', value: obj }],
@@ -135,7 +135,7 @@ describe('obj natives', () => {
   });
 
   test('indexed access', async () => {
-    const objType = { name: 'object', props: { name: { type: { name: 'text' } }, age: { type: { name: 'num' } } } };
+    const objType = { name: 'obj', props: { name: { type: { name: 'text' } }, age: { type: { name: 'num' } } } };
     const obj = { kind: 'new', type: objType, value: { name: 'Alice', age: 30 } };
     const result = await e.run({
       kind: 'define', vars: [{ name: 's', value: obj }],

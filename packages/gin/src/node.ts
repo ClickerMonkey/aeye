@@ -4,6 +4,7 @@ import type { Problems } from './problem';
 import type { z } from 'zod';
 import type { Expr } from './expr';
 import type { Type } from './type';
+import type { Code } from './code';
 
 /**
  * Passed into each class's static `toSchema(opts)` so sub-fields that
@@ -21,18 +22,21 @@ import type { Type } from './type';
  *  - `newStrict` — when true, NewExpr.toSchema emits a discriminated
  *                union over `opts.types` instead of its generic shape.
  */
-export interface SchemaOptions {
-  Type: z.ZodTypeAny;
-  Expr: z.ZodTypeAny;
-  types: Type[];
-  exprs: Expr[];
-  /**
-   * Registry reference so schema builders can enumerate classes and
-   * registered named types (e.g. `NewExpr.toSchema` strict mode builds a
-   * union with branches per built-in class + per named instance).
-   */
-  registry: Registry;
-  newStrict?: boolean;
+/**
+ * Options consumed by `Type.toValueSchema` (and the helpers it delegates
+ * to like `describeType`). Deliberately narrower than `SchemaOptions`:
+ * value-side schema generation never references `Type` / `Expr` /
+ * `types` / `exprs` / `registry` / `newStrict`, so requiring them all
+ * just to pass `{ includeDocs: 'all' }` is overkill — and forces every
+ * caller to plumb the full meta-language schema bag through.
+ *
+ * Callers building a value-side schema for one Type (e.g. ginny's
+ * `test()` tool deriving its `args` schema from a function's params)
+ * can call `argsType.toValueSchema({ includeDocs: 'all' })` without
+ * holding onto the full `SchemaOptions`. `SchemaOptions` extends this,
+ * so existing call sites that already have the full bag still work.
+ */
+export interface ValueSchemaOptions {
   /**
    * Control whether Type docstrings are attached to generated Zod schemas
    * via `.describe(...)`. Useful for LLM prompting — docs become part of
@@ -44,6 +48,35 @@ export interface SchemaOptions {
    *              with its own `docs`.
    */
   includeDocs?: 'none' | 'type' | 'all';
+  /**
+   * Optional pass-through to the full meta-language schema bag. Most
+   * `toValueSchema` paths never touch these — they're declared here so
+   * a `SchemaOptions` (where these are required) is structurally
+   * assignable to `ValueSchemaOptions` without casts, and so the rare
+   * type that DOES need them (e.g. `TypType.toValueSchema` building an
+   * inline-Extension branch) can read them off `opts` directly when
+   * present and gracefully degrade when not.
+   */
+  Type?: z.ZodTypeAny;
+  Expr?: z.ZodTypeAny;
+  types?: Type[];
+  exprs?: Expr[];
+  registry?: Registry;
+  newStrict?: boolean;
+}
+
+export interface SchemaOptions extends ValueSchemaOptions {
+  Type: z.ZodTypeAny;
+  Expr: z.ZodTypeAny;
+  types: Type[];
+  exprs: Expr[];
+  /**
+   * Registry reference so schema builders can enumerate classes and
+   * registered named types (e.g. `NewExpr.toSchema` strict mode builds a
+   * union with branches per built-in class + per named instance).
+   */
+  registry: Registry;
+  newStrict?: boolean;
   /**
    * Control whether Expr comments are attached via `.describe(...)`.
    *  - `'none'` (default): ignore.
@@ -75,6 +108,16 @@ export interface SchemaOptions {
 export interface CodeOptions {
   expectsValue?: boolean;
   indent?: string;
+  /**
+   * When false, suppress all `/* docs * /` and `// comment` rendering —
+   * Type docstrings, Prop docs, Expr comments, and `// docs` lines on
+   * Init / Call / Prop in `toCodeDefinition`. Default true (include).
+   *
+   * Threading this through inner `.toCode(...)` / `.toCodeDefinition(...)`
+   * calls is the responsibility of each composite type / expr — callers
+   * that want a comment-free render set this once at the top.
+   */
+  includeComments?: boolean;
 }
 
 /**
@@ -82,8 +125,50 @@ export interface CodeOptions {
  * validated. Both Type and Expr conform to this.
  */
 export interface Node {
-  /** Render as TypeScript-like source text. */
+  /**
+   * Render as TypeScript-like source text. Convenience wrapper that
+   * delegates to `toGinCode(...).toString()`. Existing callers that
+   * just want a string keep working unchanged.
+   */
   toCode(registry?: Registry, options?: CodeOptions): string;
+
+  /**
+   * Render as gin's TS-pseudocode form (the same format `toCode`
+   * emits) but as a structured `Code` value carrying spans that tie
+   * each rendered range back to its node + validator path. Used by
+   * `formatProblem` to emit compiler-style `^^^` underlines for
+   * validation errors.
+   *
+   * The `path` argument is the validator-style path prefix where
+   * this node sits in its parent — composite renderers thread
+   * `[...path, segment]` into each child's `toGinCode` call so the
+   * resulting span paths line up with `Problem.path` exactly.
+   *
+   * Future: a sibling `toTypescriptCode` would emit real TypeScript
+   * with the same Code shape.
+   */
+  toGinCode(
+    registry?: Registry,
+    options?: CodeOptions,
+    path?: ReadonlyArray<string | number>,
+  ): Code;
+
+  /**
+   * Render as the JSON form (the same shape `toJSON` emits, formatted
+   * with the same indentation as `JSON.stringify(..., null, 2)`) as a
+   * structured `Code` carrying spans aligned to JSON-token positions.
+   * Lets the caller surface validation errors in the JSON the LLM
+   * actually wrote.
+   */
+  toJSONCode(
+    path?: ReadonlyArray<string | number>,
+    indent?: number,
+    /** Current nesting depth — used by the indentation arithmetic so a
+     *  child rendered inside its parent's `code\`...\`` indents its
+     *  continuation lines correctly. Public callers leave at default 0;
+     *  composite renderers pass `level + 1` to each child. */
+    level?: number,
+  ): Code;
 
   /** Serialize to its JSON shape (TypeDef for Type, ExprDef for Expr). */
   toJSON(): unknown;

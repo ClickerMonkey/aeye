@@ -62,8 +62,8 @@ describe('LambdaExpr validation', () => {
   test('body type incompatible with declared returns → warn', () => {
     const probs = e.validate({
       kind: 'lambda',
-      type: { name: 'function', call: {
-        args: { name: 'object' },
+      type: { name: 'fn', call: {
+        args: { name: 'obj' },
         returns: { name: 'num' },
       } },
       body: { kind: 'new', type: { name: 'text' }, value: 'wrong' },
@@ -74,8 +74,8 @@ describe('LambdaExpr validation', () => {
   test('body type matches declared returns → no warn', () => {
     const probs = e.validate({
       kind: 'lambda',
-      type: { name: 'function', call: {
-        args: { name: 'object' },
+      type: { name: 'fn', call: {
+        args: { name: 'obj' },
         returns: { name: 'num' },
       } },
       body: { kind: 'new', type: { name: 'num' }, value: 42 },
@@ -89,7 +89,7 @@ describe('TemplateExpr validation', () => {
     const probs = e.validate({
       kind: 'template',
       template: { kind: 'new', type: { name: 'num' }, value: 42 },
-      params: { kind: 'new', type: { name: 'object', props: {} }, value: {} },
+      params: { kind: 'new', type: { name: 'obj', props: {} }, value: {} },
     });
     expect(probs.list.some((p) => p.code === 'template.template.type')).toBe(true);
   });
@@ -107,7 +107,7 @@ describe('TemplateExpr validation', () => {
     const probs = e.validate({
       kind: 'template',
       template: { kind: 'new', type: { name: 'text' }, value: 'hi' },
-      params: { kind: 'new', type: { name: 'object', props: {} }, value: {} },
+      params: { kind: 'new', type: { name: 'obj', props: {} }, value: {} },
     });
     expect(probs.list.some((p) => p.code === 'template.template.type')).toBe(false);
     expect(probs.list.some((p) => p.code === 'template.params.type')).toBe(false);
@@ -149,7 +149,7 @@ describe('SetExpr validation', () => {
 });
 
 describe('DefineExpr validation', () => {
-  test('declared var type incompatible with value → warn', () => {
+  test('declared var type incompatible with value → error', () => {
     const probs = e.validate({
       kind: 'define',
       vars: [{
@@ -159,10 +159,12 @@ describe('DefineExpr validation', () => {
       }],
       body: { kind: 'get', path: [{ prop: 'x' }] },
     });
-    expect(probs.list.some((p) => p.code === 'define.var.type-mismatch')).toBe(true);
+    const mismatch = probs.list.find((p) => p.code === 'define.var.type-mismatch');
+    expect(mismatch).toBeDefined();
+    expect(mismatch!.severity).toBe('error');
   });
 
-  test('declared var type matches value → no warn', () => {
+  test('declared var type matches value → no error', () => {
     const probs = e.validate({
       kind: 'define',
       vars: [{

@@ -8,7 +8,7 @@ describe('FnType', () => {
   test('builder with args/returns', () => {
     const t = r.fn(r.obj({ x: { type: r.num() } }), r.num()) as FnType;
     expect(t).toBeInstanceOf(FnType);
-    expect(t.call()?.args.name).toBe('object');
+    expect(t.call()?.args.name).toBe('obj');
     expect(t.call()?.returns?.name).toBe('num');
   });
 
@@ -41,8 +41,8 @@ describe('FnType', () => {
 
   test('call is natively consumed → no auto-Extension', () => {
     const json = {
-      name: 'function',
-      call: { args: { name: 'object' }, returns: { name: 'num' } },
+      name: 'fn',
+      call: { args: { name: 'obj' }, returns: { name: 'num' } },
     };
     const back = r.parse(json);
     expect(back).toBeInstanceOf(FnType);

@@ -343,9 +343,9 @@ describe('super in CallDef.set (method call.set) override', () => {
     const r = createRegistry();
     // Base method has call.set that pushes (args.k, value) onto baseLog.
     const baseFn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',
@@ -381,9 +381,9 @@ describe('super in CallDef.set (method call.set) override', () => {
 
     // Override: push into overrideLog, then super({args: args, value: value + 1000}).
     const overrideFn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',

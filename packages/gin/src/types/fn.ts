@@ -1,10 +1,11 @@
-import type { Registry } from '../registry';
 import type { ExprDef, TypeDef } from '../schema';
+import type { Registry } from '../registry';
 import { Value } from '../value';
-import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderGenerics } from '../type';
-import { decodeCall, encodeCall } from '../spec';
+import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderCallTypes, renderGenerics } from '../type';
+import { decodeCall } from '../spec';
+import { LocalScope, type TypeScope } from '../type-scope';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema } from '../schemas';
 
 /**
@@ -17,30 +18,46 @@ import { callDefSchema } from '../schemas';
  * shape apply meaningfully to function bodies.
  */
 export class FnType extends Type<any, Record<string, never>> {
-  static readonly NAME = 'function';
+  static readonly NAME = 'fn';
   /** fn's signature IS its structure — call is natively consumed. */
   static readonly consumes = ['call'] as const;
   readonly name = FnType.NAME;
 
   readonly _call: Call;
 
-  static from(json: TypeDef, registry: Registry): FnType {
+  static from(json: TypeDef, scope: TypeScope): FnType {
+    const registry = scope.registry;
+    // Generics declared on the fn — each entry's value is a CONSTRAINT
+    // type that bindings supplied at call sites must satisfy. The
+    // generic NAME itself stays unresolved in the captured scope: bare
+    // `{name: 'R'}` inside the call signature parses as an AliasType
+    // placeholder, NOT bound to its constraint. Concrete resolution
+    // only happens through call-site bindings (a CallStep's `generic`
+    // map layered into a LocalScope at invocation).
+    //
+    // Use `registry.any()` as the constraint when the parameter is
+    // unconstrained. A self-reference (`R: alias('R')`) also works as
+    // an unconstrained declaration — the alias resolves to itself in
+    // any context that doesn't supply a binding.
     const generic: Record<string, Type> = {};
+    const local = new LocalScope(scope);
     if (json.generic) {
-      for (const [k, def] of Object.entries(json.generic)) generic[k] = registry.parse(def);
+      for (const [k, def] of Object.entries(json.generic)) {
+        generic[k] = local.parse(def);
+      }
     }
     if (!json.call) {
-      return new FnType(registry, new Call({
+      return new FnType(local, new Call({
         args: registry.any() as Type<any>,
         returns: registry.any(),
       }), generic);
     }
-    return new FnType(registry, decodeCall(json.call, registry), generic);
+    return new FnType(local, decodeCall(json.call, local), generic);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
-      name: z.literal('function'),
+      name: z.literal('fn'),
       call: callDefSchema(opts).optional(),
     }).meta({ aid: 'Type_function' });
   }
@@ -53,22 +70,22 @@ export class FnType extends Type<any, Record<string, never>> {
   }
 
   constructor(
-    registry: Registry,
+    scope: TypeScope,
     call: Call | ConstructorParameters<typeof Call>[0],
     generic: Record<string, Type> = {},
   ) {
-    super(registry, {}, generic);
+    super(scope, {}, generic);
     this._call = call instanceof Call ? call : new Call(call);
   }
 
-  valid(raw: unknown): boolean {
+  valid(raw: unknown, _scope?: TypeScope): boolean {
     if (typeof raw === 'function') return true;
     if (typeof raw === 'string') return true;
     if (raw && typeof raw === 'object' && 'kind' in (raw as Record<string, unknown>)) return true;
     return false;
   }
 
-  parse(json: unknown): Value<any> {
+  parse(json: unknown, _scope?: TypeScope): Value<any> {
     // Functions aren't JSON-serializable; accept either a string ref or an
     // ExprDef (e.g. { kind: 'lambda' }). Native JS functions can only come
     // from in-process construction, not JSON parse.
@@ -80,7 +97,7 @@ export class FnType extends Type<any, Record<string, never>> {
     return new Value(this, null as any);
   }
 
-  encode(raw: ((...args: any[]) => any) | ExprDef | string): any {
+  encode(raw: ((...args: any[]) => any) | ExprDef | string, _scope?: TypeScope): any {
     if (typeof raw === 'string') return raw;
     if (typeof raw === 'function') return null; // native, not serializable
     return raw;
@@ -106,13 +123,20 @@ export class FnType extends Type<any, Record<string, never>> {
     return r.fn(args as Type<any>, returns, throws, this.generic);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof FnType)) return false;
-    // args: contravariant — this.args must accept other.args
-    if (!this._call.args.compatible(other._call.args, opts)) return false;
-    // returns: covariant — other.returns must be compatible with this.returns
+    // Bivariant on args: a satisfier with narrower args (e.g. `num.eq`
+    // takes `other: num`) is accepted as a witness of a wider-args
+    // interface (e.g. `iface.eq` takes `other: any`). This is the
+    // pragmatic structural-interface check most gin code wants — and
+    // matches TypeScript's default bivariant method-parameter rule.
+    // Strict-subtype variance (contravariant args / covariant returns)
+    // is what consumers like edit-compat want; those should split
+    // args + returns and use `compatible` directionally per side
+    // rather than calling `FnType.compatible` whole.
+    if (!this._call.args.compatible(other._call.args, opts, scope)) return false;
     if (this._call.returns && other._call.returns) {
-      if (!this._call.returns.compatible(other._call.returns, opts)) return false;
+      if (!this._call.returns.compatible(other._call.returns, opts, scope)) return false;
     }
     return true;
   }
@@ -134,12 +158,12 @@ export class FnType extends Type<any, Record<string, never>> {
     return {};
   }
 
-  call(): Call {
+  call(_scope?: TypeScope): Call {
     return this._call;
   }
 
-  props(): Record<string, Prop> {
-    return super.props() as Record<string, Prop>;
+  props(scope?: TypeScope): Record<string, Prop> {
+    return super.props(scope) as Record<string, Prop>;
   }
 
   toJSON(): TypeDef {
@@ -149,7 +173,7 @@ export class FnType extends Type<any, Record<string, never>> {
       : Object.fromEntries(genericKeys.map((k) => [k, this.generic[k]!.toJSON()]));
     return {
       name: FnType.NAME,
-      call: encodeCall(this._call),
+      call: this._call.toJSON(),
       generic,
     };
   }
@@ -170,13 +194,13 @@ export class FnType extends Type<any, Record<string, never>> {
     );
   }
 
-  toCode(): string {
-    const ret = this._call.returns?.toCode() ?? 'void';
-    return this.docsPrefix()
-      + `${renderGenerics(this.generic)}(${formatParams(this._call.args)}): ${ret}`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    const ret = this._call.returns?.toCode(undefined, options) ?? 'void';
+    return this.docsPrefix(options)
+      + `${renderGenerics(this.generic, options)}${renderCallTypes(this._call.types, options)}(${formatParams(this._call.args, options)}): ${ret}`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Functions aren't JSON-serializable. Accept a native id (string) or
     // an inline lambda ExprDef (object with `kind`). LLMs shouldn't be
     // generating raw function values — use native id strings.

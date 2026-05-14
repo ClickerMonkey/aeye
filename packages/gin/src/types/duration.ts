@@ -1,9 +1,10 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -16,8 +17,9 @@ export class DurationType extends Type<number, Record<string, never>> {
   static readonly NAME = 'duration';
   readonly name = DurationType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): DurationType {
-    return new DurationType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): DurationType {
+    const registry = scope.registry;
+    return new DurationType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
@@ -25,7 +27,14 @@ export class DurationType extends Type<number, Record<string, never>> {
       .meta({ aid: 'Type_duration' });
   }
 
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.number(); }
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Defer to the canonical instance — base `toNewSchema` already
+    // derives the right shape from `init.args` when a constructor is
+    // declared, so duration's `new` schema lines up with the runtime
+    // contract (an obj of {days?, hours?, minutes?, seconds?, ms?})
+    // instead of a bare number.
+    return new DurationType(opts.registry, {}).toNewSchema(opts);
+  }
 
   valid(raw: unknown): raw is number {
     return typeof raw === 'number' && !Number.isNaN(raw);
@@ -104,9 +113,9 @@ export class DurationType extends Type<number, Record<string, never>> {
     return new DurationType(this.registry, {});
   }
 
-  toCode(): string { return this.docsPrefix() + 'duration'; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'duration'; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is a number of milliseconds.
     return this.describeType(z.number(), opts);
   }

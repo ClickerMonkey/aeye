@@ -4,12 +4,14 @@ import type { NativeExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 /**
  * NativeExpr — escape hatch calling a registered native impl by id.
@@ -22,8 +24,8 @@ export class NativeExpr extends Expr {
     super();
   }
 
-  static from(json: NativeExprDef, registry: Registry): NativeExpr {
-    return new NativeExpr(json.id, json.type ? registry.parse(json.type) : undefined)
+  static from(json: NativeExprDef, scope: TypeScope): NativeExpr {
+    return new NativeExpr(json.id, json.type ? scope.registry.parse(json.type, scope) : undefined)
       .withComment(json.comment);
   }
 
@@ -31,8 +33,12 @@ export class NativeExpr extends Expr {
     return z.object({
       kind: z.literal('native'),
       ...baseExprFields,
-      id: z.string(),
-      type: opts.Type.optional(),
+      id: z.string().describe(
+        'Identifier of a native impl registered via `registry.setNative(id, fn)` (e.g. `list.push`, `num.add`). The model should NOT generate `native` expressions directly — methods on built-in types are reached via `get` paths, which gin resolves to natives internally.',
+      ),
+      type: opts.Type.optional().describe(
+        'Optional type to wrap the native\'s raw return value with when the impl returns a non-Value. Defaults to `any` if omitted.',
+      ),
     }).meta({ aid: 'Expr_native' });
   }
 
@@ -45,11 +51,11 @@ export class NativeExpr extends Expr {
     return val(type, out);
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return this.type ?? engine.registry.any();
   }
 
-  validateWalk(engine: Engine, _scope: TypeScope, p: Problems, _ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, _scope: Locals, p: Problems, _ctx: ValidateContext): Type {
     if (!engine.registry.getNative(this.id)) {
       p.warn('native.unknown', `native impl '${this.id}' is not registered`);
     }
@@ -64,6 +70,27 @@ export class NativeExpr extends Expr {
     const out: NativeExprDef = { kind: 'native', id: this.id };
     if (this.type) out.type = this.type.toJSON();
     return this.withCommentOn(out);
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const typeCode = this.type
+      ? this.type.toJSONCode([...path, 'type'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('native') },
+        { key: 'id', value: jsonString(this.id) },
+        { key: 'type', value: typeCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): NativeExpr {

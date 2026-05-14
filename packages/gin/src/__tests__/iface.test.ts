@@ -8,7 +8,7 @@ describe('IfaceType', () => {
   test('builder accepts a spec', () => {
     const i = r.iface({
       props: {
-        toText: { type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'text' } } } },
+        toText: { type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'text' } } } },
       },
     });
     expect(i).toBeInstanceOf(IfaceType);
@@ -17,7 +17,7 @@ describe('IfaceType', () => {
   test('compatible: type that has matching props satisfies interface', () => {
     const i = r.iface({
       props: {
-        toText: { type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'text' } } } },
+        toText: { type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'text' } } } },
       },
     });
     // num has toText — should satisfy

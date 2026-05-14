@@ -1,10 +1,11 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
 
 
@@ -18,11 +19,12 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   static readonly NAME = 'optional';
   readonly name = OptionalType.NAME;
 
-  static from(json: TypeDef, registry: Registry): OptionalType {
+  static from(json: TypeDef, scope: TypeScope): OptionalType {
+    const registry = scope.registry;
     const inner = json.generic?.T
-      ? registry.parse(json.generic.T)
+      ? scope.parse(json.generic.T)
       : registry.any();
-    return new OptionalType(registry, inner);
+    return new OptionalType(scope, inner);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -36,23 +38,23 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return opts.Expr.optional();
   }
 
-  constructor(registry: Registry, readonly inner: Type<T>) {
-    super(registry, {}, { T: inner });
+  constructor(scope: TypeScope, readonly inner: Type<T>) {
+    super(scope, {}, { T: inner });
   }
 
-  valid(raw: unknown): raw is RuntimeOf<T | undefined> {
-    return raw === undefined || this.inner.valid(raw);
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T | undefined> {
+    return raw === undefined || this.inner.valid(raw, scope);
   }
 
-  parse(json: unknown): Value<T | undefined> {
+  parse(json: unknown, scope?: TypeScope): Value<T | undefined> {
     if (json === undefined || json === null) return new Value(this, undefined as RuntimeOf<T | undefined>);
-    const v = this.inner.parse(json);
+    const v = this.inner.parse(json, scope);
     return new Value(this, v.raw as RuntimeOf<T | undefined>);
   }
 
-  encode(raw: RuntimeOf<T | undefined>): JSONOf<T | undefined> {
+  encode(raw: RuntimeOf<T | undefined>, scope?: TypeScope): JSONOf<T | undefined> {
     if (raw === undefined) return null as JSONOf<T | undefined>;
-    return this.inner.encode(raw as RuntimeOf<T>) as JSONOf<T | undefined>;
+    return this.inner.encode(raw as RuntimeOf<T>, scope) as JSONOf<T | undefined>;
   }
 
   create(): RuntimeOf<T | undefined> {
@@ -71,12 +73,12 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return this.registry.optional(inner);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (other instanceof OptionalType) {
-      return this.inner.compatible(other.inner, opts);
+      return this.inner.compatible(other.inner, opts, scope);
     }
     if (opts?.exact) return false;
-    return this.inner.compatible(other, opts);
+    return this.inner.compatible(other, opts, scope);
   }
 
   or(other: Type<T | undefined>): Type<T | undefined> {
@@ -117,7 +119,7 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
       value: r.prop(T, 'optional.value'),
       has:   r.method({},                                r.bool(), 'optional.has'),
       or:    r.method({ fallback: T },                   T,        'optional.or'),
-      map:   r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.generic('R')) }, r.optional(r.generic('R')), 'optional.map', { generic: { R: r.any() } }),
+      map:   r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.alias('R')) }, r.optional(r.alias('R')), 'optional.map', { generic: { R: r.any() } }),
     };
   }
 
@@ -132,11 +134,11 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return new OptionalType(this.registry, this.inner.clone() as Type<T>);
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `optional<${this.inner.toCode()}>`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `optional<${this.inner.toCode(undefined, options)}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     return this.describeType(this.inner.toValueSchema(opts).optional(), opts);
   }
 

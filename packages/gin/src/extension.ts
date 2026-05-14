@@ -1,4 +1,5 @@
 import type { Registry } from './registry';
+import type { TypeScope } from './type-scope';
 import type { TypeDef } from './schema';
 import { Value, val } from './value';
 import {
@@ -11,17 +12,12 @@ import {
   type Rnd,
   Type,
 } from './type';
-import {
-  encodeCall,
-  encodeGetSet,
-  encodeInit,
-  encodeProps,
-} from './spec';
+import { encodeProps } from './spec';
 import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
-import type { SchemaOptions } from './node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Expr } from './expr';
 
 /**
@@ -32,13 +28,14 @@ import type { Expr } from './expr';
  * any generics the base already has). Each key is the parameter name; the
  * value is the current binding (use `registry.any()` as a default, or a
  * concrete Type for a bound instance). Placeholders elsewhere in the
- * local spec use `registry.generic('T')` — those get substituted by
- * `.bind({T: …})` via the standard substitute walk.
+ * local spec use `registry.alias('T')` — those resolve through any
+ * extra `TypeScope` passed at access time (e.g. a path call site's
+ * `<T: num>` bindings) before falling back to the captured layer.
  *
- *   registry.extend('object', {
+ *   registry.extend('obj', {
  *     name: 'Box',
  *     generic: { T: registry.any() },
- *     props: { value: { type: registry.generic('T') } },
+ *     props: { value: { type: registry.alias('T') } },
  *   })
  */
 export interface ExtensionLocal<T = any, O = any> {
@@ -123,9 +120,10 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       : original;
 
     // Thread local generic declarations up to the base Type so `this.generic`
-    // reflects the Extension's own parameters. Binding via `.bind(bindings)`
-    // walks through substituteChildren, which rebuilds the Extension with
-    // substituted placeholders.
+    // reflects the Extension's own parameters. Generic specialization at
+    // call sites is handled by passing an extra TypeScope into the
+    // resolution-touching methods (parse / valid / call / props / etc.) —
+    // AliasType reads the override layer first, then its captured scope.
     super(registry, narrowedOptions, local.generic ?? {});
     this.original = original;
     this.base = effectiveBase;
@@ -136,18 +134,18 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── VALUE OPERATIONS (delegate to effective base) ─────────────────────
 
-  valid(raw: unknown): raw is RuntimeOf<T> {
-    return this.base.valid(raw);
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
+    return this.base.valid(raw, scope);
   }
 
-  parse(json: unknown): Value<T> {
-    const v = this.base.parse(json);
+  parse(json: unknown, scope?: TypeScope): Value<T> {
+    const v = this.base.parse(json, scope);
     // Re-wrap so Value.type is this Extension, not the base.
     return new Value(this, v.raw);
   }
 
-  encode(raw: RuntimeOf<T>): JSONOf<T> {
-    return this.base.encode(raw);
+  encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
+    return this.base.encode(raw, scope);
   }
 
   create(): RuntimeOf<T> {
@@ -160,20 +158,20 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── TYPE RELATIONS ────────────────────────────────────────────────────
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (opts?.exact) {
       // Exact requires same Extension name.
       if (other instanceof Extension && other.name === this.name) {
-        return this.base.compatible(other.base, opts);
+        return this.base.compatible(other.base, opts, scope);
       }
       return false;
     }
     // Covariant: compatible with base (looser) and with other Extensions
     // sharing a compatible base.
     if (other instanceof Extension) {
-      return this.base.compatible(other.base, opts);
+      return this.base.compatible(other.base, opts, scope);
     }
-    return this.base.compatible(other, opts);
+    return this.base.compatible(other, opts, scope);
   }
 
   // ─── ALGEBRA ───────────────────────────────────────────────────────────
@@ -217,20 +215,34 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── EFFECTIVE ACCESS SPECS (merge local over base) ────────────────────
 
-  props(): Record<string, Prop | PropSpec> {
-    return { ...this.base.props(), ...(this.local.props ?? {}) };
+  props(scope?: TypeScope): Record<string, Prop | PropSpec> {
+    // Order: base (carries `augmentation('obj')`) → registry-augmentation
+    // for THIS name → extension's own local. Extension-local wins last
+    // so authors can shadow either base or augmentation on conflict.
+    const ownAug = this.registry.augmentation(this.name);
+    return {
+      ...this.base.props(scope),
+      ...(ownAug?.props ?? {}),
+      ...(this.local.props ?? {}),
+    };
   }
 
-  get(): GetSet | undefined {
-    return this.local.get ?? this.base.get();
+  get(scope?: TypeScope): GetSet | undefined {
+    return this.local.get
+      ?? this.registry.augmentation(this.name)?.get
+      ?? this.base.get(scope);
   }
 
-  call(): Call | undefined {
-    return this.local.call ?? this.base.call();
+  call(scope?: TypeScope): Call | undefined {
+    return this.local.call
+      ?? this.registry.augmentation(this.name)?.call
+      ?? this.base.call(scope);
   }
 
-  init(): Init | undefined {
-    return this.local.init ?? this.base.init();
+  init(scope?: TypeScope): Init | undefined {
+    return this.local.init
+      ?? this.registry.augmentation(this.name)?.init
+      ?? this.base.init(scope);
   }
 
   // ─── SCHEMA ROUND-TRIP ─────────────────────────────────────────────────
@@ -262,9 +274,9 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       generic: Object.keys(mergedGeneric).length > 0 ? mergedGeneric : undefined,
       options: mergedOptions && Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
       props: this.local.props ? encodeProps(this.local.props) : undefined,
-      get: this.local.get ? encodeGetSet(this.local.get) : undefined,
-      call: this.local.call ? encodeCall(this.local.call) : undefined,
-      init: this.local.init ? encodeInit(this.local.init) : undefined,
+      get: this.local.get?.toJSON(),
+      call: this.local.call?.toJSON(),
+      init: this.local.init?.toJSON(),
       constraint: this.local.constraint ? this.local.constraint.toJSON() : undefined,
     };
   }
@@ -288,13 +300,13 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     });
   }
 
-  toCode(): string { return this.docsPrefix() + this.name; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + this.name; }
 
   /** Renders `type Email extends text{pattern="..."}` headers in
    *  `toCodeDefinition`. Uses `base` (narrowed) rather than `original`
    *  so the constraints the Extension sits atop are visible. */
-  protected extendsClause(): string {
-    return ` extends ${this.base.toCode()}`;
+  protected extendsClause(options?: CodeOptions): string {
+    return ` extends ${this.base.toCode(undefined, options)}`;
   }
 
   // Definition hooks — an Extension's rendered body shows only the
@@ -317,7 +329,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     return this.local.constraint ? [this.local.constraint, ...base] : base;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Extensions normally delegate to base — but when `local.props` adds
     // data fields atop an object-shaped base (obj/iface), those fields need
     // to land in the value schema too. Nothing else in the pipeline pushes
@@ -341,7 +353,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   private mergeLocalPropsInto(
     schema: z.ZodTypeAny,
-    opts: SchemaOptions | undefined,
+    opts: ValueSchemaOptions | undefined,
     slotFor: (prop: Prop) => z.ZodTypeAny,
   ): z.ZodTypeAny {
     const props = this.local.props;

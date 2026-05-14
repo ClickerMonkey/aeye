@@ -29,7 +29,7 @@ describe('DurationType', () => {
   test('init spec exposes component args', () => {
     const i = r.duration().init();
     expect(i).toBeDefined();
-    expect(i!.args.name).toBe('object');
+    expect(i!.args.name).toBe('obj');
     expect(i!.run).toBeDefined();
   });
 

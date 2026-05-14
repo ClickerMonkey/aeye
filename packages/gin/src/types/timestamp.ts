@@ -1,3 +1,4 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
@@ -5,7 +6,7 @@ import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../t
 import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -20,8 +21,9 @@ export class TimestampType extends Type<Date, TimestampOptions> {
   static readonly NAME = 'timestamp';
   readonly name = TimestampType.NAME;
 
-  static from(json: TypeDef, registry: Registry): TimestampType {
-    return new TimestampType(registry, (json.options ?? {}) as TimestampOptions);
+  static from(json: TypeDef, scope: TypeScope): TimestampType {
+    const registry = scope.registry;
+    return new TimestampType(scope, (json.options ?? {}) as TimestampOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -121,9 +123,9 @@ export class TimestampType extends Type<Date, TimestampOptions> {
     return new TimestampType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'timestamp' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'timestamp' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is ISO 8601 datetime with a REQUIRED time component:
     //   YYYY-MM-DD[T or space]HH:MM[:SS[.fff]][Z|±HH:MM]
     return this.describeType(z.string().regex(

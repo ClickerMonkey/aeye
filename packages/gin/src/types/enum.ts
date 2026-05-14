@@ -1,10 +1,11 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -21,10 +22,11 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
   static readonly NAME = 'enum';
   readonly name = EnumType.NAME;
 
-  static from(json: TypeDef, registry: Registry): EnumType {
-    const V = json.generic?.V ? registry.parse(json.generic.V) : registry.text();
+  static from(json: TypeDef, scope: TypeScope): EnumType {
+    const registry = scope.registry;
+    const V = json.generic?.V ? scope.parse(json.generic.V) : registry.text();
     const values = (json.options?.values ?? {}) as Record<string, unknown>;
-    return new EnumType(registry, V, { values });
+    return new EnumType(scope, V, { values });
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -40,22 +42,22 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     return z.union([z.string(), z.number()]);
   }
 
-  constructor(registry: Registry, value: Type<V>, options: EnumOptions<V>) {
-    super(registry, options, { V: value });
+  constructor(scope: TypeScope, value: Type<V>, options: EnumOptions<V>) {
+    super(scope, options, { V: value });
   }
 
   get value(): Type<V> {
     return this.generic.V as Type<V>;
   }
 
-  valid(raw: unknown): raw is RuntimeOf<V> {
-    if (!this.value.valid(raw)) return false;
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<V> {
+    if (!this.value.valid(raw, scope)) return false;
     return Object.values(this.options.values).some((v) => v === raw);
   }
 
-  parse(json: unknown): Value<V> {
-    const inner = this.value.parse(json);
-    if (!this.valid(inner.raw)) {
+  parse(json: unknown, scope?: TypeScope): Value<V> {
+    const inner = this.value.parse(json, scope);
+    if (!this.valid(inner.raw, scope)) {
       throw new TypeError({
         path: [], code: 'enum.not-a-member',
         message: `enum.parse: ${String(inner.raw)} is not one of ${Object.values(this.options.values).join(', ')}`,
@@ -65,8 +67,8 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     return new Value(this, inner.raw);
   }
 
-  encode(raw: RuntimeOf<V>): JSONOf<V> {
-    return this.value.encode(raw);
+  encode(raw: RuntimeOf<V>, scope?: TypeScope): JSONOf<V> {
+    return this.value.encode(raw, scope);
   }
 
   create(): RuntimeOf<V> {
@@ -90,9 +92,9 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     );
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof EnumType)) return false;
-    if (!this.value.compatible(other.value, opts)) return false;
+    if (!this.value.compatible(other.value, opts, scope)) return false;
     if (!opts?.value) return true;
     // value-mode: other's values must be a subset of ours
     return Object.values(other.options.values).every((v) =>
@@ -154,12 +156,12 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     );
   }
 
-  toCode(): string {
-    const body = `enum<${this.value.toCode()}>` + optionsCode(this.options.values as Record<string, unknown>);
-    return this.docsPrefix() + body;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    const body = `enum<${this.value.toCode(undefined, options)}>` + optionsCode(this.options.values as Record<string, unknown>);
+    return this.docsPrefix(options) + body;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Zod v4's z.enum accepts a Record — same shape as EnumOptions.values.
     return this.describeType(
       z.enum(this.options.values as Record<string, string | number>),

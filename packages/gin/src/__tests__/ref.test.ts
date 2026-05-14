@@ -1,19 +1,24 @@
 import { describe, test, expect } from 'vitest';
 import { createRegistry } from '../registry';
-import { RefType } from '../types/ref';
+import { AliasType } from '../types/alias';
 import { NumType } from '../types/num';
 
-describe('RefType', () => {
+/**
+ * Reference-style aliases: `r.alias(name)` produces a lazy bare-name
+ * reference. Resolution walks `scope.lookup`, hitting the registered
+ * named type or built-in class. Replaces the former dedicated `RefType`.
+ */
+describe('AliasType (reference flavor)', () => {
   const r = createRegistry();
 
   test('builder stores the name', () => {
-    const t = r.ref('num') as RefType;
-    expect(t).toBeInstanceOf(RefType);
+    const t = r.alias('num') as AliasType;
+    expect(t).toBeInstanceOf(AliasType);
     expect(t.options.name).toBe('num');
   });
 
   test('resolves via registry for built-in', () => {
-    const t = r.ref('num');
+    const t = r.alias('num');
     expect(t.valid(5)).toBe(true);
     expect(t.valid('x')).toBe(false);
   });
@@ -22,33 +27,42 @@ describe('RefType', () => {
     const reg = createRegistry();
     const custom = reg.extend('num', { name: 'myNum', options: { min: 0 } });
     reg.register(custom);
-    const ref = reg.ref('myNum');
+    const ref = reg.alias('myNum');
     expect(ref.valid(5)).toBe(true);
     expect(ref.valid(-1)).toBe(false);
   });
 
-  test('unresolved ref throws on use', () => {
-    expect(() => r.ref('does-not-exist').valid(1)).toThrow();
+  test('unresolved alias is permissive (placeholder semantics)', () => {
+    // Forward-ref / unresolved name acts as an unbound placeholder:
+    // permissive valid/compatible, no props. Once the name registers,
+    // the alias starts delegating.
+    const t = r.alias('does-not-exist');
+    expect(t.valid(1)).toBe(true);
   });
 
   test('flexible is true', () => {
-    expect(r.ref('num').flexible()).toBe(true);
+    expect(r.alias('num').flexible()).toBe(true);
   });
 
   test('props delegate to resolved target', () => {
-    const t = r.ref('num');
+    const t = r.alias('num');
     const p = t.props();
     expect(p.add).toBeDefined();
   });
 
   test('simplify returns the resolved target', () => {
-    expect(r.ref('num').simplify()).toBeInstanceOf(NumType);
+    expect(r.alias('num').simplify()).toBeInstanceOf(NumType);
   });
 
   test('encode + parse roundtrip', () => {
-    const t = r.ref('num');
-    const back = r.parse(t.toJSON()) as RefType;
-    expect(back).toBeInstanceOf(RefType);
-    expect(back.options.name).toBe('num');
+    const t = r.alias('num');
+    const json = t.toJSON();
+    expect(json).toEqual({ name: 'num' });
+    // Re-parsing the bare-name form returns the canonical class
+    // instance directly (since 'num' is a built-in class), not an
+    // AliasType wrapper. Structural equality is preserved.
+    const back = r.parse(json);
+    expect(back.name).toBe('num');
+    expect(back.valid(5)).toBe(true);
   });
 });

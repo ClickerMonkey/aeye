@@ -1,3 +1,4 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
@@ -5,7 +6,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -22,22 +23,23 @@ export class NumType extends Type<number, NumOptions> {
   static readonly NAME = 'num';
   readonly name = NumType.NAME;
 
-  static from(json: TypeDef, registry: Registry): NumType {
-    return new NumType(registry, (json.options ?? {}) as NumOptions);
+  static from(json: TypeDef, scope: TypeScope): NumType {
+    const registry = scope.registry;
+    return new NumType(scope, (json.options ?? {}) as NumOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('num'),
       options: z.object({
-        min: z.number().optional(),
-        max: z.number().optional(),
-        whole: z.boolean().optional(),
-        minPrecision: z.number().optional(),
-        maxPrecision: z.number().optional(),
-        prefix: z.string().optional(),
-        suffix: z.string().optional(),
-      }).optional(),
+        min: z.number().optional().describe('Only set when a real lower bound is part of the spec — e.g. "positive count" → min: 1, "age" → min: 0. Do NOT add `min: 0` to every num just because most numbers happen to be non-negative.'),
+        max: z.number().optional().describe('Only set when there is an actual upper bound — a percentage capped at 100, a year capped at 9999. Do NOT pick a generic ceiling like 1000/9999 to fill the field.'),
+        whole: z.boolean().optional().describe('Only set to true when the value is genuinely integral (counts, indices, ids). Leave unset (allow fractions) for measurements, ratios, etc.'),
+        minPrecision: z.number().optional().describe('Decimal-place floor. Almost never needed; omit unless the spec explicitly requires N decimal places.'),
+        maxPrecision: z.number().optional().describe('Decimal-place ceiling. Same rule as minPrecision — omit unless explicitly required.'),
+        prefix: z.string().optional().describe('Display-only prefix (e.g. "$"). Has no effect on validation. Omit unless rendering needs it.'),
+        suffix: z.string().optional().describe('Display-only suffix (e.g. "%"). Same as prefix — omit unless rendering needs it.'),
+      }).optional().describe('Omit entirely for ordinary numbers. Only include when the value has a real, named constraint worth enforcing on every parse.'),
     }).meta({ aid: 'Type_num' });
   }
 
@@ -232,9 +234,20 @@ export class NumType extends Type<number, NumOptions> {
     return new NumType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'num' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    // `minPrecision` / `maxPrecision` / `prefix` / `suffix` are
+    // display-only — skip when at their typical defaults so the
+    // type code stays focused on validation-relevant constraints
+    // (`min`, `max`, `whole`).
+    return this.docsPrefix(options) + 'num' + optionsCode(this.options, {
+      minPrecision: 1,
+      maxPrecision: 7,
+      prefix: '',
+      suffix: '',
+    });
+  }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     let s = this.options.whole ? z.number().int() : z.number();
     if (this.options.min !== undefined) s = s.min(this.options.min);
     if (this.options.max !== undefined) s = s.max(this.options.max);

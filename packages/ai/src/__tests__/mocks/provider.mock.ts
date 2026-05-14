@@ -168,7 +168,12 @@ export const createMockProvider = (options?: MockProviderOptions): Provider => {
         })),
         model: request.model || `${providerName}-embed`,
         usage: {
-          text: { input: request.texts.length * 5, output: 0 },
+          // Embedding endpoints report usage under `embeddings` rather than
+          // `text` — the embed API expects this shape (count + tokens).
+          embeddings: {
+            count: request.texts.length,
+            tokens: request.texts.length * 5,
+          },
         }
       };
     }

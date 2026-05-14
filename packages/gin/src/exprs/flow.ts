@@ -5,13 +5,14 @@ import type { Value } from '../value';
 import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, ThrowSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
-import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export type FlowAction = 'break' | 'return' | 'continue' | 'exit' | 'throw';
 
@@ -30,21 +31,37 @@ export class FlowExpr extends Expr {
     super();
   }
 
-  static from(json: FlowExprDef, registry: Registry): FlowExpr {
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
+  static from(json: FlowExprDef, scope: TypeScope): FlowExpr {
+    const r = scope.registry;
     return new FlowExpr(
       json.action,
-      json.value ? registry.parseExpr(json.value) : undefined,
-      json.error ? registry.parseExpr(json.error) : undefined,
+      json.value ? r.parseExpr(json.value, scope) : undefined,
+      json.error ? r.parseExpr(json.error, scope) : undefined,
     ).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('flow'),
-      ...baseExprFields,
-      action: z.enum(['break', 'continue', 'return', 'exit', 'throw']),
-      value: opts.Expr.optional(),
-      error: opts.Expr.optional(),
+      // No `comment` field — keywords (return/break/continue/throw/exit)
+      // already say what they do; comments are pure noise. Strict-mode
+      // schema rejects them. Comments belong on statement-shaped Exprs
+      // (if/switch/define/block/lambda) only.
+      action: z.enum(['break', 'continue', 'return', 'exit', 'throw']).describe(
+        'Which control-flow signal to raise. ' +
+        '`break`/`continue` only valid inside a loop. ' +
+        '`return` only valid inside a fn body / lambda; unwinds to the enclosing call with `value`. ' +
+        '`exit` unwinds all the way to `engine.run`, returning `value` as the program result. ' +
+        '`throw` raises `error` (caught by a path step\'s `catch:` handler).',
+      ),
+      value: opts.Expr.optional().describe(
+        'Required for `return` and `exit` (the value being returned). Ignored by `break` / `continue` / `throw`.',
+      ),
+      error: opts.Expr.optional().describe(
+        'Required for `throw` — the value to raise. Ignored otherwise.',
+      ),
     }).meta({ aid: 'Expr_flow' });
   }
 
@@ -68,11 +85,11 @@ export class FlowExpr extends Expr {
     }
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return engine.registry.void();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     if ((this.action === 'break' || this.action === 'continue') && !ctx.inLoop) {
       p.error('flow.outside-loop', `${this.action} used outside a loop`);
     }
@@ -93,20 +110,60 @@ export class FlowExpr extends Expr {
    * ternary or IIFE. Callers that asked for a value-producing form should
    * treat this as "never returns" semantically.
    */
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const prefix = this.commentPrefix(options);
-    let code: string;
+    const valueOpts = { ...options, expectsValue: true };
+    let body: Code;
     switch (this.action) {
-      case 'break':    code = 'break'; break;
-      case 'continue': code = 'continue'; break;
-      case 'return':   code = this.value ? `return ${this.value.toCode(registry, { expectsValue: true })}` : 'return'; break;
-      case 'throw':    code = this.error ? `throw ${this.error.toCode(registry, { expectsValue: true })}` : 'throw'; break;
-      case 'exit':     code = this.value
-        ? `/* exit */ return ${this.value.toCode(registry, { expectsValue: true })}`
-        : '/* exit */ return'; break;
-      default: code = '';
+      case 'break':    body = new Code('break'); break;
+      case 'continue': body = new Code('continue'); break;
+      case 'return':
+        body = this.value
+          ? code`return ${this.value.toGinCode(registry, valueOpts, [...path, 'value'])}`
+          : new Code('return');
+        break;
+      case 'throw':
+        body = this.error
+          ? code`throw ${this.error.toGinCode(registry, valueOpts, [...path, 'error'])}`
+          : new Code('throw');
+        break;
+      case 'exit':
+        body = this.value
+          ? code`exit ${this.value.toGinCode(registry, valueOpts, [...path, 'value'])}`
+          : new Code('exit');
+        break;
+      default: body = new Code('');
     }
-    return prefix + code;
+    return span(code`${prefix}${body}`, { path, expr: this });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const valueCode = this.value
+      ? this.value.toJSONCode([...path, 'value'], indent, level + 1)
+      : undefined;
+    const errorCode = this.error
+      ? this.error.toJSONCode([...path, 'error'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('flow') },
+        { key: 'action', value: jsonString(this.action) },
+        { key: 'value', value: valueCode },
+        { key: 'error', value: errorCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   toJSON(): FlowExprDef {

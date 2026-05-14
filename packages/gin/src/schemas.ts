@@ -17,7 +17,13 @@ export type { SchemaOptions } from './node';
 
 /** Shared ExprDef fields (just `comment`). */
 export const baseExprFields: z.ZodRawShape = {
-  comment: z.string().optional().meta({ aid: 'Comment' }),
+  comment: z
+    .string()
+    .optional()
+    .describe(
+      'Optional one-line note explaining why this expression exists. Travels with the node, surfaces in `toCode` as a `/* … */` annotation, and shows up in error paths. Use for non-obvious steps; skip for trivial reads.',
+    )
+    .meta({ aid: 'Comment' }),
 };
 
 /** Shared generic-parameter map (`{ [name]: Type }`). Used inline by
@@ -30,13 +36,27 @@ export function genericSchema(opts: SchemaOptions): z.ZodTypeAny {
 /** Shared PathStep union used by GetExpr/SetExpr. */
 export function pathStepSchema(opts: SchemaOptions): z.ZodTypeAny {
   return z.union([
-    z.object({ prop: z.string() }),
     z.object({
-      args: z.record(z.string(), opts.Expr),
-      generic: genericSchema(opts).optional(),
-      catch: opts.Expr.optional(),
-    }),
-    z.object({ key: opts.Expr }),
+      prop: z.string().describe(
+        "Named-property access. First step looks up a scope variable by name; subsequent steps read the previous value's prop / method. Reject if the name isn't on the type's `props()`.",
+      ),
+    }).describe('PROP step — `.<name>` access (scope var on first step, prop/method on later steps).'),
+    z.object({
+      args: z.record(z.string(), opts.Expr).describe(
+        'Map of arg-name → ExprDef. Calls the previous step (a method or any callable). Each arg expression is evaluated in the caller scope before the call; the result obj is bound as `args` inside the call body.',
+      ),
+      generic: genericSchema(opts).optional().describe(
+        'Optional generic-parameter map for parameterized callables (e.g. `list.map<R>` binds `R` to the element type of the result list). Usually unnecessary — most callables infer generics.',
+      ),
+      catch: opts.Expr.optional().describe(
+        'Optional handler expression evaluated if this call throws. The thrown value is bound under `error` in the handler scope.',
+      ),
+    }).describe('CALL step — invoke the previous step. Comes after a method (e.g. `list.push`) or any callable value.'),
+    z.object({
+      key: opts.Expr.describe(
+        'Indexed-access key expression. Evaluated at run time and passed to the previous value\'s `[key]` get/set surface.',
+      ),
+    }).describe('INDEX step — `[<key>]` access for types with index signatures (lists by `num`, maps by their key type).'),
   ]).meta({ aid: 'PathStep' });
 }
 
@@ -60,6 +80,12 @@ export function getSetDefSchema(opts: SchemaOptions): z.ZodTypeAny {
     get: opts.Expr.optional(),
     set: opts.Expr.optional(),
     loop: opts.Expr.optional(),
+    loopDynamic: z
+      .boolean()
+      .optional()
+      .describe(
+        'When true, `loop over: <this-typed value>` re-evaluates the expression each iteration and exits when the result\'s raw is falsy. Bool uses this for while-loop semantics. The type may have either `loop` (for static iterables) OR `loopDynamic` set; with loopDynamic, no `loop` ExprDef is required.',
+      ),
   }).meta({ aid: 'GetSetDef' });
 }
 
@@ -67,6 +93,14 @@ export function getSetDefSchema(opts: SchemaOptions): z.ZodTypeAny {
 export function callDefSchema(opts: SchemaOptions): z.ZodTypeAny {
   return z.object({
     docs: z.string().optional(),
+    types: z
+      .record(z.string(), opts.Type)
+      .optional()
+      .describe(
+        'Call-local type aliases. Declare reusable named types here ONCE and reference them inside `args` / `returns` / `throws` / `get` / `set` as a bare `{name: "<alias>"}`. ' +
+        'Aliases process AFTER any enclosing generics (so they may reference generic placeholders) and BEFORE the call slots — the call slots resolve them at parse time. ' +
+        'Sequential: later aliases may reference earlier ones. Use this whenever the same composite type appears more than once in a signature — instead of writing `num{whole:true, min:1}` four times, declare `{ counter: { name:"num", options:{whole:true,min:1} } }` once and reference `{name:"counter"}`.',
+      ),
     args: opts.Type,
     returns: opts.Type.optional(),
     throws: opts.Type.optional(),
@@ -120,11 +154,16 @@ export function extensionSchemaNarrowed(
   const extendsEnum = allowedNames.length > 0
     ? z.enum(allowedNames as [string, ...string[]])
     : z.never();
+  // Type names are identifiers — letters, digits, underscore. No
+  // whitespace, no punctuation, no spaces. Catching this at the schema
+  // layer surfaces a precise zod path ("name: ...") instead of a
+  // baffling structural-match failure deep inside `registry.parse`.
+  const identifier = z.string().regex(/^\w+$/, 'must be a /\\w+/ identifier');
   return z.object({
-    name: z.string(),
+    name: identifier,
     extends: extendsEnum,
     docs: z.string().optional(),
-    satisfies: z.array(z.string()).optional(),
+    satisfies: z.array(identifier).optional(),
     generic: genericSchema(opts).optional(),
     options: z.record(z.string(), z.any()).optional(),
     props: z.record(z.string(), propDefSchema(opts)).optional(),

@@ -623,6 +623,32 @@ const ai = AI.with()
   });
 ```
 
+### Strict Mode
+
+Tool and Prompt schemas can ride the LLM's grammar-constrained strict mode for guaranteed type-safe output. Mechanics — descriptors, dialects, schema rewriting — live in [`@aeye/core`](../core/README.md#strict-mode). What `@aeye/ai` adds: model selection respects the `strict` flag (selection filters to strict-capable models when `strict: true`, scores them higher when `strict: <number>`).
+
+Splat the curated `strictSupport` overrides from `@aeye/models` so model selection knows which models actually support strict — without it, every model defaults to lenient even when the underlying API supports strict:
+
+```typescript
+import { models, strictSupport } from '@aeye/models';
+
+const ai = AI.with()
+  .providers({ openai })
+  .create({
+    models,
+    modelOverrides: [...strictSupport],
+  });
+```
+
+`strictSupport` is a `ModelOverride[]` you can combine with your own overrides:
+
+```typescript
+modelOverrides: [
+  ...strictSupport,
+  { modelPattern: /gpt-4/, overrides: { tier: 'flagship' } },
+],
+```
+
 ### Custom Providers
 
 Extend an existing provider or implement the `Provider<TConfig>` interface from `@aeye/core`:

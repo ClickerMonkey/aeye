@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ai } from '../ai';
 import { fetchAndConvert } from '../web-content';
+import { throwIfAborted, withAbortRace } from '../signal-utils';
 
 const PREVIEW_LIMIT = 16000;
 
@@ -27,8 +28,13 @@ export const webGetPage = ai.tool({
     url: z.string().describe('URL to fetch'),
   }),
   applicable: (ctx) => !!ctx.features?.webSearch,
-  call: async (input: { url: string }) => {
-    const result = await fetchAndConvert(input.url);
+  call: async (input: { url: string }, _refs, ctx) => {
+    throwIfAborted(ctx.signal);
+    // fetchAndConvert now plumbs the signal into puppeteer + the raw
+    // fetch, so ESC during a slow render kills the browser directly.
+    // The withAbortRace wrapper is still useful for pdf-parse /
+    // mammoth conversion which doesn't accept a signal natively.
+    const result = await withAbortRace(fetchAndConvert(input.url, ctx.signal), ctx.signal);
     if (!result.ok) {
       return `Error fetching ${input.url}: ${result.error}`;
     }

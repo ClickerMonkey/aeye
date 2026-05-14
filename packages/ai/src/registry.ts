@@ -5,7 +5,7 @@
  * Provider order ensures deterministic model resolution: first provider to return a model ID wins.
  */
 
-import { getModel } from '@aeye/core';
+import { type DescriptorFamily, type FormatDescriptor, getDescriptor, getModel, hasDescriptorFamily, LENIENT } from '@aeye/core';
 import { detectTier } from './modelDetection';
 import type {
   AIBaseMetadata,
@@ -20,6 +20,44 @@ import type {
   ScoredModel,
   SelectedModel
 } from './types';
+
+// ============================================================================
+// Strict-format resolution
+// ============================================================================
+
+/**
+ * Resolve a model's strict-mode JSON-Schema dialect via three-step fallback:
+ *
+ * 1. Explicit `model.strictFormat` if it's a registered family
+ *    (`'openai'` / `'anthropic'` / `'google'` ship by default; custom
+ *    families registered via `registerDescriptor` in `@aeye/core` work
+ *    here too). A literal `'none'` overrides the fallback chain and
+ *    returns `undefined`.
+ * 2. `model.provider` if it matches a registered family (covers direct
+ *    provider setups: `provider: 'openai'` → `'openai'`).
+ * 3. The `[family]/...` prefix of `model.id` (covers OpenRouter and
+ *    similar routing layers: `id: 'openai/gpt-4o'` → `'openai'`).
+ *
+ * Returns `undefined` when none of the above apply — provider falls back
+ * to LENIENT silently. Used by registry `applyOverrides` to auto-derive
+ * the `'toolsStrict'` capability and by providers to pick a descriptor at
+ * request build time.
+ */
+export function resolveStrictFormat(model: {
+  id: string;
+  provider: string;
+  strictFormat?: DescriptorFamily | 'none';
+}): DescriptorFamily | undefined {
+  if (model.strictFormat === 'none') return undefined;
+  if (model.strictFormat) return model.strictFormat;
+  if (hasDescriptorFamily(model.provider)) return model.provider;
+  const slashIdx = model.id.indexOf('/');
+  if (slashIdx > 0) {
+    const prefix = model.id.slice(0, slashIdx);
+    if (hasDescriptorFamily(prefix)) return prefix;
+  }
+  return undefined;
+}
 
 // ============================================================================
 // Generic Constraint Helpers
@@ -694,6 +732,29 @@ export class ModelRegistry<
   }
 
   /**
+   * Resolve the `FormatDescriptor` to use when sending a strict-flagged
+   * request to a given model.
+   *
+   * Returns `LENIENT` when the request is non-strict or when
+   * `resolveStrictFormat` can't determine a family for the model — strict
+   * is best-effort, the provider always gets *some* valid descriptor.
+   *
+   * Tools and structured output share the same dialect (per-model), so this
+   * helper takes no `kind` argument. Whether tools-strict or output-strict
+   * is actually engaged is gated by the `'toolsStrict'` and `'structured'`
+   * capabilities respectively, not by this helper.
+   */
+  getStrictFormat(
+    model: ModelInfo<TProviderKey>,
+    requested: boolean,
+  ): FormatDescriptor {
+    if (!requested) return LENIENT;
+    const family = resolveStrictFormat(model);
+    if (!family) return LENIENT;
+    return getDescriptor(family, true);
+  }
+
+  /**
    * Check if a model is applicable given the criteria.
    * Returns null if not applicable, or an object with matched capabilities if applicable.
    */
@@ -1016,6 +1077,24 @@ export class ModelRegistry<
       };
     }
 
+    // Capability is opt-IN, driven by the explicit `strictFormat` field —
+    // the curated table (or a scraper) lists models that ACTUALLY support
+    // strict. The fallback chain in `resolveStrictFormat` is only consulted
+    // at request-build time to pick the dialect, not to gate support.
+    //
+    // - `strictFormat: 'openai' | 'anthropic' | 'google'` adds 'toolsStrict'.
+    // - `strictFormat: 'none'` removes 'toolsStrict' if some upstream source
+    //   (e.g. a scraper) had set it incorrectly.
+    // - `strictFormat: undefined` leaves capabilities untouched.
+    if (result.strictFormat === 'none') {
+      if (result.capabilities.has('toolsStrict')) {
+        result.capabilities = new Set(result.capabilities);
+        result.capabilities.delete('toolsStrict');
+      }
+    } else if (result.strictFormat) {
+      result.capabilities = new Set([...result.capabilities, 'toolsStrict']);
+    }
+
     return result;
   }
 
@@ -1050,6 +1129,9 @@ export class ModelRegistry<
       maxOutputTokens: source.maxOutputTokens ?? base.maxOutputTokens,
       metrics: mergedMetrics,
       metadata: mergedMetadata,
+      supportedParameters: source.supportedParameters ?? base.supportedParameters,
+      tokenizer: source.tokenizer ?? base.tokenizer,
+      strictFormat: source.strictFormat ?? base.strictFormat,
     };
   }
 
@@ -1096,8 +1178,12 @@ export class ModelRegistry<
           // Create key for looking up source info
           const key = `${providerName as string}/${modelInfo.id}`;
 
-          // Create base model with defaults
+          // Create base model with defaults. Spread first so all fields the
+          // provider declared (including future-added ones like
+          // `strictFormat`, `supportedParameters`, `tokenizer`) reach the
+          // registry; then override with the canonical defaults below.
           let fullModel: ModelInfo<TProviderKey> = {
+            ...modelInfo,
             id: modelInfo.id,
             provider: providerName,
             name: modelInfo.name || modelInfo.id,

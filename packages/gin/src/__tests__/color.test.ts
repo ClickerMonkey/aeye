@@ -33,7 +33,7 @@ describe('ColorType', () => {
   test('init spec exposes r/g/b/a args', () => {
     const i = r.color().init();
     expect(i).toBeDefined();
-    expect(i!.args.name).toBe('object');
+    expect(i!.args.name).toBe('obj');
   });
 
   test('props include components + manipulation + conversion', () => {

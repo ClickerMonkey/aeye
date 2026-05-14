@@ -5,13 +5,48 @@ import type {
   TypeDef,
 } from './schema';
 import { Value, val } from './value';
-import { ThrowSignal } from './flow-control';
-import type { GetSet, Type } from './type';
+import { ReturnSignal, ThrowSignal } from './flow-control';
+import type { Call, GetSet, Prop, Type } from './type';
 import { Expr } from './expr';
 import type { Registry } from './registry';
-import type { TypeScope } from './analysis';
+import type { Locals } from './analysis';
 import type { Problems } from './problem';
 import type { ValidateContext } from './expr';
+import { LocalScope, type TypeScope } from './type-scope';
+import { joinAuto } from './type';
+import { ObjType } from './types/obj';
+import type { CodeOptions } from './node';
+import { Code, code, span, joinCode, jsonObject, jsonArray, jsonString } from './code';
+
+/**
+ * `true` when accessing a prop whose type is a callable (fn / method)
+ * with no required arguments — every field on the args obj is either
+ * `optional<...>` or absent. We auto-invoke such callables on prop
+ * read, so e.g. `optional<T>.has` resolves to the bool result of
+ * `has()` instead of the bare function value. Saves callers from a
+ * trailing `{args: {}}` step that's always empty by definition.
+ *
+ * Only methods (props) auto-call — standalone fn-typed scope vars
+ * (`recurse`, user-bound function values) keep the existing
+ * "function-value on read, called only via explicit `{args: ...}`"
+ * semantics. The walker draws that line by checking whether the
+ * resolution came from a prop access (`current` non-null) vs a
+ * scope lookup (`current === null`); auto-call only runs in the
+ * prop-access branch.
+ */
+function isAutoCallable(propType: Type, scope?: TypeScope): boolean {
+  const call = propType.call(scope);
+  if (!call) return false;
+  const args = call.args;
+  if (!(args instanceof ObjType)) {
+    // Empty / no-args fn — auto-callable.
+    return true;
+  }
+  for (const prop of Object.values(args.fields)) {
+    if (!prop.type.isOptional()) return false;
+  }
+  return true;
+}
 
 /**
  * Path — a sequence of steps against a starting value. The third citizen
@@ -35,16 +70,17 @@ export abstract class PathStep {
   abstract toJSON(): PathStepDef;
   abstract clone(): PathStep;
 
-  static from(json: PathStepDef, registry: Registry): PathStep {
+  static from(json: PathStepDef, scope: TypeScope): PathStep {
     if ('prop' in json) return new PropStep(json.prop);
+    const r = scope.registry;
     if ('args' in json) {
       const args: Record<string, Expr> = {};
       for (const [k, v] of Object.entries(json.args ?? {})) {
-        args[k] = registry.parseExpr(v);
+        args[k] = r.parseExpr(v, scope);
       }
-      return new CallStep(args, json.generic, json.catch ? registry.parseExpr(json.catch) : undefined);
+      return new CallStep(args, json.generic, json.catch ? r.parseExpr(json.catch, scope) : undefined);
     }
-    if ('key' in json) return new IndexStep(registry.parseExpr((json as PathIndexDef).key));
+    if ('key' in json) return new IndexStep(r.parseExpr((json as PathIndexDef).key, scope));
     throw new Error(`PathStep.from: unknown step shape`);
   }
 }
@@ -81,20 +117,55 @@ export class CallStep extends PathStep {
     return new CallStep(args, this.generic, this.catch_?.clone());
   }
 
-  /** Apply this step's generic bindings to the given callable type. */
-  bindGeneric(calledType: Type, engine: Engine): Type {
-    if (!this.generic || Object.keys(this.generic).length === 0) return calledType;
-    const bindings: Record<string, Type> = {};
-    for (const [k, def] of Object.entries(this.generic)) {
-      bindings[k] = engine.registry.parse(def);
+  /** Build a TypeScope of this step's generic bindings layered on top
+   *  of `calledType.scope`. Returns the called type's scope verbatim
+   *  when there are no bindings. Threaded through type-resolution
+   *  methods (`call`, `parse`, etc.) at the call site so AliasTypes
+   *  inside the called signature resolve to the bound types without
+   *  rebuilding the type tree.
+   *
+   *  Validates each binding against its declared constraint
+   *  (`calledType.generic[name]`). A binding `T` is accepted iff
+   *  `constraint.compatible(T)` — equivalently, `T` is assignable to
+   *  the constraint. Throws on violation: parsing the binding into
+   *  the call scope before that check would silently use an unsound
+   *  type, so failing fast is the right call.
+   *
+   *  Bindings for generic names the called type didn't declare are
+   *  parsed into the call scope but not validated (they may target
+   *  aliases declared on `call.types` or simply be ignored). */
+  callSiteScope(calledType: Type): TypeScope {
+    if (!this.generic || Object.keys(this.generic).length === 0) {
+      return calledType.scope;
     }
-    return calledType.bind(bindings);
+    const bindings: Record<string, Type> = {};
+    const declaredGenerics = calledType.generic ?? {};
+    // Parse each binding TypeDef in the called type's own scope so
+    // intra-binding name lookups (e.g. R: list<num>) resolve naturally.
+    for (const [k, def] of Object.entries(this.generic)) {
+      const bound = calledType.scope.parse(def);
+      const constraint = declaredGenerics[k];
+      if (constraint) {
+        // Self-referential placeholder (e.g. `R: alias('R')`) means
+        // "no constraint" — skip the satisfies check, every binding
+        // is accepted.
+        const isSelfRef = constraint.name === 'alias'
+          && (constraint.options as { name?: string } | undefined)?.name === k;
+        if (!isSelfRef && !constraint.compatible(bound)) {
+          throw new Error(
+            `path: generic '${k}' binding '${bound.toCode()}' does not satisfy constraint '${constraint.toCode()}'`,
+          );
+        }
+      }
+      bindings[k] = bound;
+    }
+    return new LocalScope(calledType.scope, bindings);
   }
 
   /** Evaluate all arg Exprs against `scope` and return a Value<args>. */
   async buildArgsValue(calledType: Type, scope: Scope, engine: Engine): Promise<Value> {
-    const effectiveType = this.bindGeneric(calledType, engine);
-    const callable = effectiveType.call?.();
+    const callScope = this.callSiteScope(calledType);
+    const callable = calledType.call?.(callScope);
     const argsType = callable?.args ?? engine.registry.obj({});
     const raw: Record<string, Value> = {};
     for (const [name, expr] of Object.entries(this.args)) {
@@ -117,12 +188,30 @@ export class IndexStep extends PathStep {
 export class Path {
   constructor(readonly steps: ReadonlyArray<PathStep>) {}
 
-  static from(json: PathDef, registry: Registry): Path {
-    return new Path(json.map((s) => PathStep.from(s, registry)));
+  static from(json: PathDef, scope: TypeScope): Path {
+    return new Path(json.map((s) => PathStep.from(s, scope)));
   }
 
   toJSON(): PathDef {
     return this.steps.map((s) => s.toJSON());
+  }
+
+  /**
+   * `Code`-rendered JSON form of this path. Each step gets a span at
+   * `[...path, i]`; nested arg / key / catch sub-Exprs nest deeper to
+   * match validator-emitted paths during a path validateWalk. Used by
+   * `GetExpr.toJSONCode` / `SetExpr.toJSONCode`.
+   */
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const items = this.steps.map((step, i) => {
+      const stepPath = [...path, i] as const;
+      return renderPathStepJSON(step, stepPath, indent, level + 1);
+    });
+    return jsonArray(items, { path }, level, indent);
   }
 
   clone(): Path {
@@ -141,24 +230,61 @@ export class Path {
     }
   }
 
-  toCode(registry: Registry): string {
-    if (this.steps.length === 0) return '';
-    let out = '';
+  toCode(registry: Registry, options: CodeOptions = {}): string {
+    return this.toGinCode(registry, options).toString();
+  }
+
+  /**
+   * `Code`-aware path render. Every step gets a span at `[...path,
+   * 'path', i]`; nested arg / key / catch sub-Exprs get their own
+   * deeper spans matching what the validator emits during a path
+   * validateWalk. Used by GetExpr / SetExpr (which delegate path
+   * rendering to Path).
+   */
+  toGinCode(registry: Registry, options: CodeOptions = {}, path: ReadonlyArray<string | number> = []): Code {
+    if (this.steps.length === 0) return new Code('');
+    let out: Code = new Code('');
     for (let i = 0; i < this.steps.length; i++) {
       const step = this.steps[i]!;
+      const stepPath = [...path, 'path', i] as const;
       if (step instanceof PropStep) {
-        out = i === 0 ? step.prop : `${out}.${step.prop}`;
+        const stepText = i === 0 ? step.prop : `.${step.prop}`;
+        out = i === 0
+          ? span(stepText, { path: stepPath })
+          : code`${out}${span(stepText, { path: stepPath })}`;
       } else if (step instanceof CallStep) {
         const entries = Object.entries(step.args);
-        const body = entries.length === 0
-          ? '{}'
-          : `{ ${entries.map(([k, v]) => `${k}: ${v.toCode(registry)}`).join(', ')} }`;
-        out += `(${body})`;
+        let callBody: Code;
+        if (entries.length === 0) {
+          callBody = new Code('()');
+        } else {
+          const parts: Code[] = entries.map(([k, v]) => {
+            const argPath = [...stepPath, 'args', k] as const;
+            const valCode = v.toGinCode(registry, { ...options, expectsValue: true }, argPath);
+            return code`${k}: ${valCode}`;
+          });
+          // Reuse joinAuto's heuristic on the joined string form.
+          const joined = joinAuto(parts.map((p) => p.toString()));
+          if (joined.startsWith('\n')) {
+            // Wrapped form: `({\n  a,\n  b,\n  c\n})`. The separator
+            // already places 2 spaces of indent before each non-first
+            // entry; only the first entry needs its own leading
+            // indent (supplied by the outer template's `\n  `).
+            const inner = joinCode(parts, ',\n  ');
+            callBody = code`({\n  ${inner}\n})`;
+          } else {
+            const inner = joinCode(parts, ', ');
+            callBody = code`({ ${inner} })`;
+          }
+        }
+        out = code`${out}${span(callBody, { path: stepPath })}`;
         if (step.catch_) {
-          out += ` /* catch: ${step.catch_.toCode(registry).replace(/\*\//g, '*_/')} */`;
+          const handler = step.catch_.toGinCode(registry, { ...options, expectsValue: true }, [...stepPath, 'catch']);
+          out = code`${out}.catch((error) => ${handler})`;
         }
       } else if (step instanceof IndexStep) {
-        out += `[${step.key.toCode(registry)}]`;
+        const key = step.key.toGinCode(registry, { ...options, expectsValue: true }, [...stepPath, 'key']);
+        out = code`${out}${span(code`[${key}]`, { path: stepPath })}`;
       }
     }
     return out;
@@ -207,16 +333,15 @@ export class Path {
         const next = this.steps[i + 1];
         const nextIsCall = next instanceof CallStep;
         if (nextIsCall && prop.type.call()) {
-          const effectiveFnType = (next as CallStep).bindGeneric(prop.type, engine);
           const argsValue = await (next as CallStep).buildArgsValue(prop.type, scope, engine);
 
           if (i + 1 === this.steps.length - 1 && mode.mode === 'set') {
-            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, effectiveFnType);
+            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, prop.type);
             return okSet();
           }
 
           try {
-            current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, effectiveFnType);
+            current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, prop.type);
           } catch (sig) {
             if (sig instanceof ThrowSignal && (next as CallStep).catch_) {
               const c = scope.child({ error: sig.error });
@@ -226,6 +351,23 @@ export class Path {
             }
           }
           i += 2;
+          continue;
+        }
+
+        // Auto-call: prop is a method with no required args, no
+        // explicit `{args: ...}` step follows. Synthesize an empty-
+        // args call so `optional<T>.has` reads as the bool result,
+        // not the bare function value. Only triggers in the
+        // prop-access branch (current !== null) — standalone fn vars
+        // in scope still resolve to their function value.
+        if (!nextIsCall && isAutoCallable(prop.type)) {
+          const argsValue = await new CallStep({}, undefined, undefined).buildArgsValue(prop.type, scope, engine);
+          if (isLast && mode.mode === 'set') {
+            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, prop.type);
+            return okSet();
+          }
+          current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, prop.type);
+          i++;
           continue;
         }
 
@@ -283,9 +425,19 @@ export class Path {
           } else if (callSpec?.get) {
             const getterCallable = async (newArgs: Value): Promise<Value> => {
               const recurseValue = new Value(callType, getterCallable);
-              return engine.evaluate(callSpec.get!, scope.child({
-                args: newArgs, recurse: recurseValue,
-              }));
+              // Catch ReturnSignal so a saved fn body using `flow:'return'`
+              // unwinds to its own call boundary (not all the way out
+              // through the caller's enclosing lambda).
+              try {
+                return await engine.evaluate(callSpec.get!, scope.child({
+                  args: newArgs, recurse: recurseValue,
+                }));
+              } catch (sig) {
+                if (sig instanceof ReturnSignal) {
+                  return sig.value ?? val(engine.registry.void(), undefined);
+                }
+                throw sig;
+              }
             };
             current = await getterCallable(argsValue);
           } else {
@@ -311,7 +463,7 @@ export class Path {
 
   // ─── STATIC ANALYSIS ─────────────────────────────────────────────────────
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     if (this.steps.length === 0) return engine.registry.any();
     let current: Type | null = null;
     let i = 0;
@@ -325,17 +477,28 @@ export class Path {
           i++;
           continue;
         }
-        const p = current.prop(step.prop);
-        if (!p) return engine.registry.any();
+        const propI: Prop | undefined = current.prop(step.prop);
+        if (!propI) return engine.registry.any();
 
         const next = this.steps[i + 1];
-        if (next instanceof CallStep && p.type.call()) {
-          const effective = next.bindGeneric(p.type, engine);
-          current = effective.call()?.returns ?? engine.registry.any();
+        if (next instanceof CallStep && propI.type.call()) {
+          const callScope: TypeScope = next.callSiteScope(propI.type);
+          const ret: Type | undefined = propI.type.call(callScope)?.returns;
+          current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
           i += 2;
           continue;
         }
-        current = p.type;
+        // Auto-call zero-required-arg methods on prop access (see
+        // `isAutoCallable` for the rule). Mirrors the runtime branch
+        // in `evaluate` so static type inference matches what the
+        // program will actually return.
+        if (!(next instanceof CallStep) && isAutoCallable(propI.type)) {
+          const ret: Type | undefined = propI.type.call()?.returns;
+          current = ret ?? engine.registry.any();
+          i++;
+          continue;
+        }
+        current = propI.type;
         i++;
         continue;
       }
@@ -347,8 +510,13 @@ export class Path {
       }
 
       if (step instanceof CallStep) {
-        const effective: Type | undefined = current ? step.bindGeneric(current, engine) : undefined;
-        current = effective?.call()?.returns ?? engine.registry.any();
+        if (current) {
+          const callScope: TypeScope = step.callSiteScope(current);
+          const ret: Type | undefined = current.call(callScope)?.returns;
+          current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
+        } else {
+          current = engine.registry.any();
+        }
         i++;
         continue;
       }
@@ -360,7 +528,7 @@ export class Path {
 
   validateWalk(
     engine: Engine,
-    scope: TypeScope,
+    scope: Locals,
     p: Problems,
     ctx: ValidateContext,
     mode: 'get' | 'set' = 'get',
@@ -393,37 +561,63 @@ export class Path {
           i++;
           continue;
         }
-        const pp = current.prop(step.prop);
-        if (!pp) {
+        const propV: Prop | undefined = current.prop(step.prop);
+        if (!propV) {
           p.at(['path', i], () => p.error('prop.unknown', `no prop '${step.prop}' on type '${current!.name}'`));
           current = engine.registry.any();
           i++;
           continue;
         }
         const next = this.steps[i + 1];
-        if (next instanceof CallStep && pp.type.call()) {
+        if (next instanceof CallStep && propV.type.call()) {
           for (const [name, argExpr] of Object.entries(next.args)) {
             p.at(['path', i + 1, 'args', name], () => argExpr.validateWalk(engine, scope, p, ctx));
           }
           if (next.catch_) {
             p.at(['path', i + 1, 'catch'], () => next.catch_!.validateWalk(engine, scope, p, ctx));
           }
-          const effective = next.bindGeneric(pp.type, engine);
+          const callScope: TypeScope = next.callSiteScope(propV.type);
+          const callable: Call | undefined = propV.type.call(callScope);
           if (mode === 'set' && i + 1 === this.steps.length - 1) {
-            if (!effective.call()?.set) {
+            if (!callable?.set) {
               p.at(['path', i + 1], () => p.error('set.call.no-set', `method '${step.prop}' has no call.set`));
             }
           }
-          current = effective.call()?.returns ?? engine.registry.any();
+          const ret: Type | undefined = callable?.returns;
+          current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
           i += 2;
           continue;
         }
+        // Auto-call zero-required-arg methods on prop access: mirrors
+        // `evaluate` and `typeOf` so a program like `args.opt.has`
+        // type-checks as bool (the call's return) instead of fn.
+        if (!(next instanceof CallStep) && isAutoCallable(propV.type)) {
+          const ret: Type | undefined = propV.type.call()?.returns;
+          current = ret ?? engine.registry.any();
+          i++;
+          continue;
+        }
         if (mode === 'set' && isLast) {
-          if (!pp.set) {
-            p.at(['path', i], () => p.error('set.prop.no-set', `prop '${step.prop}' has no set expression`));
+          // Writing to a prop is allowed unless it's genuinely
+          // impossible. The only impossible case is a computed
+          // VALUE prop — `get` Expr present, no `set` Expr, and the
+          // prop's type is NOT callable. For those, the read is
+          // derived from `this` (no underlying slot to write into).
+          //
+          // Method-typed props (`propV.type.call()`) are NOT flagged
+          // here even if `propV.set` is missing — `propV.type.call()
+          // .set` could route the assignment through the call's own
+          // setter, or an extension could add a custom `propV.set`,
+          // or the runtime can fall through to a raw assignment.
+          // The validator doesn't have enough information at this
+          // step to decide; the runtime surfaces a clear error if
+          // the assignment is genuinely impossible.
+          if (!propV.set && propV.get && !propV.type.call()) {
+            p.at(['path', i], () => p.error('set.prop.computed',
+              `prop '${step.prop}' is computed (read-only); cannot assign to it`));
           }
         }
-        current = pp.type;
+        current = propV.type;
         i++;
         continue;
       }
@@ -447,13 +641,19 @@ export class Path {
         for (const [name, argExpr] of Object.entries(step.args)) {
           p.at(['path', i, 'args', name], () => argExpr.validateWalk(engine, scope, p, ctx));
         }
-        const effective: Type | undefined = current ? step.bindGeneric(current, engine) : undefined;
-        if (mode === 'set' && isLast) {
-          if (!effective?.call()?.set) {
-            p.at(['path', i], () => p.error('set.call.no-set', `call on type '${current?.name ?? '?'}' has no call.set`));
+        if (current) {
+          const callScope: TypeScope = step.callSiteScope(current);
+          const callable: Call | undefined = current.call(callScope);
+          if (mode === 'set' && isLast) {
+            if (!callable?.set) {
+              p.at(['path', i], () => p.error('set.call.no-set', `call on type '${current?.name ?? '?'}' has no call.set`));
+            }
           }
+          const ret: Type | undefined = callable?.returns;
+          current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
+        } else {
+          current = engine.registry.any();
         }
-        current = effective?.call()?.returns ?? engine.registry.any();
         i++;
         continue;
       }
@@ -468,11 +668,11 @@ function isEmpty(v: Value): boolean {
   return v.raw === null || v.raw === undefined;
 }
 
-// ─── legacy walkPath wrapper ────────────────────────────────────────────────
+// ─── walkPath helper ────────────────────────────────────────────────────────
 
 /**
- * Backwards-compat: accepts a raw PathDef JSON and walks it.
- * Parses through Path.from for structured traversal.
+ * Convenience: accepts a raw PathDef JSON or an already-parsed `Path`,
+ * parses if needed, and walks it.
  */
 export async function walkPath(
   path: PathDef | Path,
@@ -482,4 +682,69 @@ export async function walkPath(
 ): Promise<Value> {
   const p = path instanceof Path ? path : Path.from(path, engine.registry);
   return p.walk(scope, engine, mode);
+}
+
+/**
+ * Render a single `PathStep` as a JSON object Code. Each step has its
+ * own JSON shape:
+ *   - PropStep   → `{ "prop": "<name>" }`
+ *   - CallStep   → `{ "args": { ... } [, "generic": ...] [, "catch": ...] }`
+ *   - IndexStep  → `{ "key": <ExprDef> }`
+ *
+ * Sub-Exprs (args, catch, key) recurse into their own `toJSONCode`
+ * with appropriate path suffixes so a `template.placeholder.unresolved`
+ * inside a `catch` block, for example, resolves to the right span.
+ */
+function renderPathStepJSON(
+  step: PathStep,
+  stepPath: ReadonlyArray<string | number>,
+  indent: number,
+  level: number,
+): Code {
+  if (step instanceof PropStep) {
+    return jsonObject(
+      [{ key: 'prop', value: jsonString(step.prop) }],
+      { path: stepPath },
+      level,
+      indent,
+    );
+  }
+  if (step instanceof CallStep) {
+    const argEntries = Object.entries(step.args).map(([k, expr]) => ({
+      key: k,
+      value: expr.toJSONCode([...stepPath, 'args', k], indent, level + 2),
+    }));
+    const argsObj = jsonObject(argEntries, { path: [...stepPath, 'args'] }, level + 1, indent);
+    const entries: Array<{ key: string; value: Code | string | undefined }> = [
+      { key: 'args', value: argsObj },
+    ];
+    if (step.generic) {
+      // `generic` is a Record<string, TypeDef>. We don't span-track
+      // individual TypeDef positions here — the validator currently
+      // emits errors at the call-step level, not into individual
+      // generic bindings. Inline as plain JSON; coarse-span fallback.
+      entries.push({
+        key: 'generic',
+        value: JSON.stringify(step.generic, null, indent)
+          .replace(/\n/g, '\n' + ' '.repeat(level * indent)),
+      });
+    }
+    if (step.catch_) {
+      entries.push({
+        key: 'catch',
+        value: step.catch_.toJSONCode([...stepPath, 'catch'], indent, level + 1),
+      });
+    }
+    return jsonObject(entries, { path: stepPath }, level, indent);
+  }
+  if (step instanceof IndexStep) {
+    return jsonObject(
+      [{ key: 'key', value: step.key.toJSONCode([...stepPath, 'key'], indent, level + 1) }],
+      { path: stepPath },
+      level,
+      indent,
+    );
+  }
+  // Unknown step kind — fall back to generic JSON.stringify.
+  return new Code(JSON.stringify(step.toJSON(), null, indent));
 }

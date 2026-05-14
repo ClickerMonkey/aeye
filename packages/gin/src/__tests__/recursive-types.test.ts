@@ -4,7 +4,7 @@ import { createRegistry } from '../registry';
 /**
  * Self-referential types (tree `Node` with `children: Node[]`) and mutual
  * cycles (`Task.creator: User` + `User.tasks: list<Task>`) are expressible
- * via `r.ref(name)` — RefType resolves lazily through the registry, so
+ * via `r.alias(name)` — RefType resolves lazily through the registry, so
  * cross-references don't need the target to exist at construction time.
  *
  * These tests pin the behavior end-to-end: construction, rendering,
@@ -14,11 +14,11 @@ import { createRegistry } from '../registry';
 describe('recursive types', () => {
   test('self-reference: Node with optional children list', () => {
     const r = createRegistry();
-    const Node = r.extend('object', {
+    const Node = r.extend('obj', {
       name: 'Node',
       props: {
         value:    { type: r.num() },
-        children: { type: r.optional(r.list(r.ref('Node'))) },
+        children: { type: r.optional(r.list(r.alias('Node'))) },
       },
     });
     r.register(Node);
@@ -33,11 +33,11 @@ describe('recursive types', () => {
 
   test('self-reference: parse a nested value through the ref', () => {
     const r = createRegistry();
-    const Node = r.extend('object', {
+    const Node = r.extend('obj', {
       name: 'Node',
       props: {
         value:    { type: r.num() },
-        children: { type: r.optional(r.list(r.ref('Node'))) },
+        children: { type: r.optional(r.list(r.alias('Node'))) },
       },
     });
     r.register(Node);
@@ -58,39 +58,41 @@ describe('recursive types', () => {
 
   test('self-reference: JSON serializes the ref by NAME, not expanded', () => {
     const r = createRegistry();
-    const Node = r.extend('object', {
+    const Node = r.extend('obj', {
       name: 'Node',
       props: {
         value:    { type: r.num() },
-        children: { type: r.optional(r.list(r.ref('Node'))) },
+        children: { type: r.optional(r.list(r.alias('Node'))) },
       },
     });
     r.register(Node);
 
     const json = JSON.stringify(Node.toJSON());
-    // Exactly one ref mention inside (for the children's inner type);
-    // no recursive explosion of the props tree.
-    const refMatches = json.match(/"name":"ref"/g) ?? [];
-    expect(refMatches.length).toBe(1);
-    expect(json).toContain('"options":{"name":"Node"}');
+    // The self-reference uses the bare-name shape `{"name":"Node"}` —
+    // emitted exactly twice in the props tree: once as the outer
+    // type's `name` (the Node type itself) and once as the inner ref
+    // inside `children`'s list. No recursive explosion (would be 100s
+    // if Node's props were re-inlined inside its own children).
+    const matches = json.match(/"name":"Node"/g) ?? [];
+    expect(matches.length).toBe(2);
   });
 
   test('mutual cycle: Task ↔ User', () => {
     const r = createRegistry();
-    const Task = r.extend('object', {
+    const Task = r.extend('obj', {
       name: 'Task',
       props: {
         title:   { type: r.text({ minLength: 1 }) },
-        creator: { type: r.ref('User') },
+        creator: { type: r.alias('User') },
       },
     });
     r.register(Task);
 
-    const User = r.extend('object', {
+    const User = r.extend('obj', {
       name: 'User',
       props: {
         name:  { type: r.text() },
-        tasks: { type: r.list(r.ref('Task')) },
+        tasks: { type: r.list(r.alias('Task')) },
       },
     });
     r.register(User);
@@ -106,19 +108,19 @@ describe('recursive types', () => {
 
   test('mutual cycle: round-trips through JSON into a fresh registry', () => {
     const r = createRegistry();
-    const Task = r.extend('object', {
+    const Task = r.extend('obj', {
       name: 'Task',
       props: {
         title:   { type: r.text() },
-        creator: { type: r.ref('User') },
+        creator: { type: r.alias('User') },
       },
     });
     r.register(Task);
-    const User = r.extend('object', {
+    const User = r.extend('obj', {
       name: 'User',
       props: {
         name:  { type: r.text() },
-        tasks: { type: r.list(r.ref('Task')) },
+        tasks: { type: r.list(r.alias('Task')) },
       },
     });
     r.register(User);
@@ -136,13 +138,17 @@ describe('recursive types', () => {
     expect(User2.toCodeDefinition()).toContain('tasks: list<Task>');
   });
 
-  test('ref to an unregistered name resolves lazily — error surfaces on use', () => {
+  test('ref to an unregistered name resolves lazily — placeholder semantics', () => {
     const r = createRegistry();
-    const ref = r.ref('DoesNotExist');
+    const ref = r.alias('DoesNotExist');
     // Construction + toJSON don't touch resolve().
     expect(ref.toCode()).toBe('DoesNotExist');
-    expect(ref.toJSON().name).toBe('ref');
-    // But actually exercising the ref fails.
-    expect(() => ref.parse({})).toThrow(/not registered/);
+    // Bare-name JSON form — no `ref` wrapper.
+    expect(ref.toJSON().name).toBe('DoesNotExist');
+    // Unresolved alias acts as a permissive placeholder (matches the
+    // unbound-generic behavior). Once `DoesNotExist` is registered,
+    // future calls would delegate to that target.
+    expect(ref.valid({})).toBe(true);
+    expect(ref.compatible(r.num())).toBe(true);
   });
 });

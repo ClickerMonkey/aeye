@@ -119,9 +119,9 @@ describe('Lambda constraints', () => {
     const lambda = r.parseExpr({
       kind: 'lambda',
       type: {
-        name: 'function',
+        name: 'fn',
         call: {
-          args: { name: 'object', props: { x: { type: { name: 'num' } } } },
+          args: { name: 'obj', props: { x: { type: { name: 'num' } } } },
           returns: { name: 'num' },
         },
       },

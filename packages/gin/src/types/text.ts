@@ -1,3 +1,4 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
@@ -5,7 +6,7 @@ import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } fr
 import type { TextOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -23,19 +24,20 @@ export class TextType extends Type<string, TextOptions> {
 
   private _regex?: RegExp;
 
-  static from(json: TypeDef, registry: Registry): TextType {
-    return new TextType(registry, (json.options ?? {}) as TextOptions);
+  static from(json: TypeDef, scope: TypeScope): TextType {
+    const registry = scope.registry;
+    return new TextType(scope, (json.options ?? {}) as TextOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       name: z.literal('text'),
       options: z.object({
-        minLength: z.number().optional(),
-        maxLength: z.number().optional(),
-        pattern: z.string().optional(),
-        flags: z.string().optional(),
-      }).optional(),
+        minLength: z.number().optional().describe('Only set when a real lower bound is part of the spec — e.g. "non-empty input" → minLength: 1. Do NOT default to 0.'),
+        maxLength: z.number().optional().describe('Only set when there is an actual upper bound — a database column width, an API limit, an explicit "no longer than X chars" rule. Do NOT pick a generic ceiling like 100/200/1000 just to fill the field.'),
+        pattern: z.string().optional().describe('Only set for actual format constraints (UUID, ISO date, slug, etc.). Do NOT use ".*" or other accept-anything patterns — they add zero validation and clutter the schema.'),
+        flags: z.string().optional().describe('Regex flags (e.g. "i"). Omit unless `pattern` is set AND requires flags.'),
+      }).optional().describe('Omit entirely for ordinary strings. Only include when the value has a real, named constraint worth enforcing on every parse.'),
     }).meta({ aid: 'Type_text' });
   }
 
@@ -206,9 +208,9 @@ export class TextType extends Type<string, TextOptions> {
     return new TextType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'text' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'text' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     let s = z.string();
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);

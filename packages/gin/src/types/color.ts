@@ -1,3 +1,4 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
@@ -5,7 +6,7 @@ import { type CompatOptions, Init, type Prop, type Rnd, Type, optionsCode } from
 import type { ColorOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -17,8 +18,9 @@ export class ColorType extends Type<number, ColorOptions> {
   static readonly NAME = 'color';
   readonly name = ColorType.NAME;
 
-  static from(json: TypeDef, registry: Registry): ColorType {
-    return new ColorType(registry, (json.options ?? {}) as ColorOptions);
+  static from(json: TypeDef, scope: TypeScope): ColorType {
+    const registry = scope.registry;
+    return new ColorType(scope, (json.options ?? {}) as ColorOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -28,8 +30,10 @@ export class ColorType extends Type<number, ColorOptions> {
     }).meta({ aid: 'Type_color' });
   }
 
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.number().int().min(0).max(0xffffffff);
+  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
+    // Defer to canonical — base derives the obj shape ({r, g, b, a?})
+    // from `init.args`, matching the runtime contract.
+    return new ColorType(opts.registry, {}).toNewSchema(opts);
   }
 
   valid(raw: unknown): raw is number {
@@ -130,9 +134,9 @@ export class ColorType extends Type<number, ColorOptions> {
     return new ColorType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'color' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'color' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Dump form is a 32-bit integer (0xRRGGBBAA or 0xRRGGBB depending on hasAlpha).
     return this.describeType(z.number().int().min(0).max(0xffffffff), opts);
   }

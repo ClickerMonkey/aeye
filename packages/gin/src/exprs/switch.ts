@@ -4,15 +4,17 @@ import type { SwitchExprDef } from '../schema';
 import { Value, val } from '../value';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { indentCode, renderStatementBody, findEscapingFlow } from './code';
+import { indentCode, findEscapingFlow } from './code';
 import { FlowExpr } from './flow';
+import { Code, code, span, joinLines, jsonObject, jsonArray, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export interface SwitchCase {
   equals: ReadonlyArray<Expr>;
@@ -34,14 +36,17 @@ export class SwitchExpr extends Expr {
     super();
   }
 
-  static from(json: SwitchExprDef, registry: Registry): SwitchExpr {
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
+  static from(json: SwitchExprDef, scope: TypeScope): SwitchExpr {
+    const r = scope.registry;
     return new SwitchExpr(
-      registry.parseExpr(json.value),
+      r.parseExpr(json.value, scope),
       json.cases.map((c) => ({
-        equals: c.equals.map((e) => registry.parseExpr(e)),
-        body: registry.parseExpr(c.body),
+        equals: c.equals.map((e) => r.parseExpr(e, scope)),
+        body: r.parseExpr(c.body, scope),
       })),
-      json.else ? registry.parseExpr(json.else) : undefined,
+      json.else ? r.parseExpr(json.else, scope) : undefined,
     ).withComment(json.comment);
   }
 
@@ -49,12 +54,20 @@ export class SwitchExpr extends Expr {
     return z.object({
       kind: z.literal('switch'),
       ...baseExprFields,
-      value: opts.Expr,
-      cases: z.array(z.object({
-        equals: z.array(opts.Expr),
-        body: opts.Expr,
-      })),
-      else: opts.Expr.optional(),
+      value: opts.Expr.describe(
+        'Expression whose result is compared against each case\'s `equals` candidates. Evaluated once.',
+      ),
+      cases: z
+        .array(z.object({
+          equals: z.array(opts.Expr).describe(
+            'Candidate values for this case. The case wins if `value` equals ANY one of them (logical OR). Each candidate\'s type must be compatible with `value`\'s type — checked as `switch.case.type`.',
+          ),
+          body: opts.Expr.describe('Evaluated when this case wins. The switch expression\'s value is this body\'s value.'),
+        }))
+        .describe('Ordered list of cases — first match wins. Cases are NOT fall-through; only the matching case\'s body runs.'),
+      else: opts.Expr.optional().describe(
+        'Optional fallback evaluated when no case matches. Without an else, a no-match switch evaluates to void.',
+      ),
     }).meta({ aid: 'Expr_switch' });
   }
 
@@ -70,14 +83,14 @@ export class SwitchExpr extends Expr {
     return val(engine.registry.void(), undefined);
   }
 
-  typeOf(engine: Engine, scope: TypeScope): Type {
+  typeOf(engine: Engine, scope: Locals): Type {
     const ts = this.cases.map((c) => typeOf(engine, c.body, scope));
     if (this.otherwise) ts.push(typeOf(engine, this.otherwise, scope));
     if (ts.length === 0) return engine.registry.void();
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const valueT = p.at('value', () => walkValidate(engine, this.value, scope, p, ctx));
     const ts: Type[] = [];
     for (let i = 0; i < this.cases.length; i++) {
@@ -100,36 +113,72 @@ export class SwitchExpr extends Expr {
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const expectsValue = options.expectsValue ?? false;
     const hasFlow =
       this.cases.some((c) => !!findEscapingFlow(c.body)) ||
       (this.otherwise ? !!findEscapingFlow(this.otherwise) : false);
 
-    const head = this.value.toCode(registry, { expectsValue: true });
+    const valueOpts = { ...options, expectsValue: true };
+    const head = this.value.toGinCode(registry, valueOpts, [...path, 'value']);
     const prefix = this.commentPrefix(options);
 
     if (expectsValue && !hasFlow) {
-      const cases = this.cases.map((c) => {
-        const labels = c.equals.map((e) => `    case ${e.toCode(registry, { expectsValue: true })}:`).join('\n');
-        return `${labels}\n      return ${indentCode(c.body.toCode(registry, { expectsValue: true }))};`;
-      }).join('\n');
-      const def = this.otherwise
-        ? `\n    default:\n      return ${indentCode(this.otherwise.toCode(registry, { expectsValue: true }))};`
-        : '';
-      return prefix + `(() => {\n  switch (${head}) {\n${cases}${def}\n  }\n})()`;
+      const caseBlocks = this.cases.map((c, i) => {
+        const labels = joinLines(c.equals.map((e, j) =>
+          code`    case ${e.toGinCode(registry, valueOpts, [...path, 'cases', i, 'equals', j])}:`,
+        ));
+        const body = c.body.toGinCode(registry, valueOpts, [...path, 'cases', i, 'body']);
+        return code`${labels}\n      return ${body.indent('      ')};`;
+      });
+      const cases = joinLines(caseBlocks);
+      let def: Code | string = '';
+      if (this.otherwise) {
+        const els = this.otherwise.toGinCode(registry, valueOpts, [...path, 'else']);
+        def = code`\n    default:\n      return ${els.indent('      ')};`;
+      }
+      return span(
+        code`${prefix}(() => {\n  switch (${head}) {\n${cases}${def}\n  }\n})()`,
+        { path, expr: this },
+      );
     }
 
-    const cases = this.cases.map((c) => {
-      const labels = c.equals.map((e) => `  case ${e.toCode(registry, { expectsValue: true })}:`).join('\n');
-      const bodyCode = renderStatementBody(c.body, registry);
+    // Statement form — bare indented bodies, no brace wrapping. See
+    // the long comment in the prior impl for the rationale.
+    const renderBody = (expr: Expr, bodyPath: ReadonlyArray<string | number>): Code => {
+      const kind = (expr as { kind: string }).kind;
+      if (expr instanceof FlowExpr) {
+        return code`${expr.toGinCode(registry, { ...options, expectsValue: false }, bodyPath)};`;
+      }
+      if (kind === 'block' || kind === 'if' || kind === 'switch' || kind === 'loop') {
+        return expr.toGinCode(registry, { ...options, expectsValue: false }, bodyPath);
+      }
+      return code`${expr.toGinCode(registry, { ...options, expectsValue: true }, bodyPath)};`;
+    };
+
+    const caseBlocks = this.cases.map((c, i) => {
+      const labels = joinLines(c.equals.map((e, j) =>
+        code`  case ${e.toGinCode(registry, valueOpts, [...path, 'cases', i, 'equals', j])}:`,
+      ));
+      const bodyPath = [...path, 'cases', i, 'body'] as const;
+      const body = renderBody(c.body, bodyPath).indent('    ');
       const tail = c.body instanceof FlowExpr ? '' : '\n    break;';
-      return `${labels}\n    ${indentCode(bodyCode)}${tail}`;
-    }).join('\n');
-    const def = this.otherwise
-      ? `\n  default:\n    ${indentCode(renderStatementBody(this.otherwise, registry))}`
-      : '';
-    return prefix + `switch (${head}) {\n${cases}${def}\n}`;
+      return code`${labels}\n    ${body}${tail}`;
+    });
+    const cases = joinLines(caseBlocks);
+    let def: Code | string = '';
+    if (this.otherwise) {
+      const elsBody = renderBody(this.otherwise, [...path, 'else']).indent('    ');
+      def = code`\n  default:\n    ${elsBody}`;
+    }
+    return span(
+      code`${prefix}switch (${head}) {\n${cases}${def}\n}`,
+      { path, expr: this },
+    );
   }
 
   toJSON(): SwitchExprDef {
@@ -142,6 +191,43 @@ export class SwitchExpr extends Expr {
       })),
       else: this.otherwise?.toJSON(),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const valueCode = this.value.toJSONCode([...path, 'value'], indent, level + 1);
+    const caseItems = this.cases.map((c, i) => {
+      const casePath = [...path, 'cases', i] as const;
+      const equalsItems = c.equals.map((e, j) =>
+        e.toJSONCode([...casePath, 'equals', j], indent, level + 4));
+      return jsonObject(
+        [
+          { key: 'equals', value: jsonArray(equalsItems, { path: [...casePath, 'equals'] }, level + 3, indent) },
+          { key: 'body', value: c.body.toJSONCode([...casePath, 'body'], indent, level + 3) },
+        ],
+        { path: casePath },
+        level + 2,
+        indent,
+      );
+    });
+    const elseCode = this.otherwise
+      ? this.otherwise.toJSONCode([...path, 'else'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('switch') },
+        { key: 'value', value: valueCode },
+        { key: 'cases', value: jsonArray(caseItems, { path: [...path, 'cases'] }, level + 1, indent) },
+        { key: 'else', value: elseCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): SwitchExpr {

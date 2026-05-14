@@ -95,11 +95,20 @@ export abstract class BaseAPI<
       }
     } else {
       // No model specified - use selection system
-      // Build metadata with required capabilities and parameters
+      // Build metadata with required + optional capabilities and parameters.
+      // Optional entries are *preferences* (registry scores them with up to
+      // 2x for capabilities, 1.5x for parameters) — they bias selection
+      // toward capable models without filtering anyone out. Required entries
+      // are hard filters. ChatAPI promotes per-tool/per-prompt `strict`
+      // requests into the right tier here (true → required, number →
+      // optional preference); see `getRequiredCapabilities` and
+      // `getOptionalCapabilities` in chat.ts.
       const metadataRequired: AIMetadataRequired<T> = {
         ...ctx.metadata,
         required: this.getRequiredCapabilities(ctx.metadata?.required || [], request, forStreaming),
+        optional: this.getOptionalCapabilities(ctx.metadata?.optional || [], request, forStreaming),
         requiredParameters: this.getRequiredParameters(ctx.metadata?.requiredParameters || [], request, forStreaming),
+        optionalParameters: this.getOptionalParameters(ctx.metadata?.optionalParameters || [], request, forStreaming),
       } as AIMetadataRequired<T>;
 
       // Build metadata from what used passed in context
@@ -376,6 +385,26 @@ export abstract class BaseAPI<
   // ============================================================================
   // OPTIONAL OVERRIDES (default implementations provided)
   // ============================================================================
+
+  /**
+   * Get optional (preferred) capabilities for model selection.
+   *
+   * Default implementation returns just what the caller provided. Subclasses
+   * override to auto-derive preferences from request shape — e.g. ChatAPI
+   * adds `'toolsStrict'` when any tool has `strict: true`. Optional entries
+   * never filter models out; they bias selection scoring toward capable models.
+   */
+  protected getOptionalCapabilities(provided: ModelCapability[], request: TRequest, forStreaming: boolean): ModelCapability[] {
+    return [...provided];
+  }
+
+  /**
+   * Get optional (preferred) parameters for model selection. Same role as
+   * `getOptionalCapabilities` but for parameter-level matching.
+   */
+  protected getOptionalParameters(provided: ModelParameter[], request: TRequest, forStreaming: boolean): ModelParameter[] {
+    return [...provided];
+  }
 
   /**
    * Get required capabilities for streaming (default: adds 'streaming')

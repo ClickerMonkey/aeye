@@ -9,7 +9,7 @@ import { createRegistry, buildSchemas } from '../index';
 describe('buildSchemas: named user types', () => {
   test('registered Extension shows up in opts.Type', () => {
     const r = createRegistry();
-    const Task = r.extend('object', {
+    const Task = r.extend('obj', {
       name: 'Task',
       props: {
         title: { type: r.text({ minLength: 1 }) },
@@ -32,14 +32,14 @@ describe('buildSchemas: named user types', () => {
     const r = createRegistry();
 
     // Register A with one shape.
-    const A1 = r.extend('object', {
+    const A1 = r.extend('obj', {
       name: 'A',
       props: { x: { type: r.num() } },
     });
     r.register(A1);
 
     // Pass a DIFFERENT A via opts.types — should win the dedup.
-    const A2 = r.extend('object', {
+    const A2 = r.extend('obj', {
       name: 'A',
       props: { y: { type: r.text() } },
     });
@@ -57,7 +57,7 @@ describe('buildSchemas: named user types', () => {
 
   test('user-defined type is usable from an LLM-style JSON type reference', () => {
     const r = createRegistry();
-    const Task = r.extend('object', {
+    const Task = r.extend('obj', {
       name: 'Task',
       docs: 'a work item',
       props: {
@@ -86,7 +86,7 @@ describe('buildSchemas: named user types', () => {
   test('unregistered extension is invisible to opts.Type', () => {
     const r = createRegistry();
     // An Extension that's never registered — no branch for it.
-    r.extend('object', {
+    r.extend('obj', {
       name: 'OrphanTask',
       props: { title: { type: r.text() } },
     });
@@ -95,7 +95,7 @@ describe('buildSchemas: named user types', () => {
     // (`num`, `object`, etc.), so ad-hoc extensions are not representable.
     expect(opts.Type.safeParse({ name: 'OrphanTask' }).success).toBe(false);
     // Register the same structure → now accepted.
-    const sibling = r.extend('object', {
+    const sibling = r.extend('obj', {
       name: 'RegisteredTask',
       props: { title: { type: r.text() } },
     });

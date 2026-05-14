@@ -54,7 +54,7 @@ describe('Extension', () => {
   test('auto-Extension: object.props is native (no wrap)', () => {
     const r = createRegistry();
     const json = {
-      name: 'object',
+      name: 'obj',
       props: { x: { type: { name: 'num' } } },
     };
     const back = r.parse(json);
@@ -64,8 +64,8 @@ describe('Extension', () => {
   test('auto-Extension: fn.call is native (no wrap)', () => {
     const r = createRegistry();
     const json = {
-      name: 'function',
-      call: { args: { name: 'object' }, returns: { name: 'num' } },
+      name: 'fn',
+      call: { args: { name: 'obj' }, returns: { name: 'num' } },
     };
     const back = r.parse(json);
     expect(back).not.toBeInstanceOf(Extension);
@@ -75,9 +75,9 @@ describe('Extension', () => {
     // obj consumes props but not init; adding init should trigger wrap.
     const r = createRegistry();
     const json = {
-      name: 'object',
+      name: 'obj',
       props: { x: { type: { name: 'num' } } },
-      init: { args: { name: 'object' }, run: { kind: 'native', id: 'foo' } },
+      init: { args: { name: 'obj' }, run: { kind: 'native', id: 'foo' } },
     };
     const back = r.parse(json);
     expect(back).toBeInstanceOf(Extension);

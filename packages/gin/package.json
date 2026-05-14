@@ -1,6 +1,6 @@
 {
   "name": "@aeye/gin",
-  "version": "0.1.0",
+  "version": "0.3.8",
   "description": "Gin - A type & expression system for LLM agents",
   "type": "module",
   "main": "dist/index.js",

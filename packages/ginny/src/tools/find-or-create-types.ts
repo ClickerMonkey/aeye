@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
+import { architect } from '../prompts/architect';
 import { runSubagent } from '../progress';
 
 interface ArchitectResult {
@@ -16,7 +17,6 @@ export const findOrCreateTypes = ai.tool({
     description: z.string().describe('What types are needed and why'),
   }),
   call: async (input: { description: string }, _refs, ctx) => {
-    const { architect } = await import('../prompts/architect');
     const result = await runSubagent(
       `architect: ${input.description}`,
       () => architect.get('stream', { description: input.description }, ctx),

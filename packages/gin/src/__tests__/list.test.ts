@@ -80,7 +80,7 @@ describe('ListType', () => {
 
   test('at method returns optional V', () => {
     const p = r.list(r.num()).props();
-    expect(p.at?.type.name).toBe('function');
+    expect(p.at?.type.name).toBe('fn');
   });
 
   test('encode + parse roundtrip', () => {

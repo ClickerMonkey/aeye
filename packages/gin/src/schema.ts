@@ -42,10 +42,32 @@ export interface GetSetDef {
   get?: ExprDef;
   set?: ExprDef;
   loop?: ExprDef;
+  /**
+   * When true, `LoopExpr` re-evaluates `over` BEFORE every iteration
+   * and binds the resulting value to `value` (and the iteration index
+   * to `key`). The loop continues while `value.raw` is truthy and
+   * exits when it becomes falsy. With this flag the type does NOT
+   * need a `loop` native — gin's loop machinery iterates directly.
+   *
+   * Bool sets this to get while-loop semantics. Other types can opt
+   * in with whatever truthy semantic makes sense for their `raw`
+   * (optional → present, num → non-zero, etc.).
+   */
+  loopDynamic?: boolean;
 }
 
 export interface CallDef {
   docs?: string;
+  /**
+   * Local type aliases scoped to THIS call. Each entry is a TypeDef
+   * referenced inside `args` / `returns` / `throws` / `get` / `set` via
+   * a bare `{name: '<aliasName>'}` reference. Aliases process AFTER
+   * the parent type's generics (so they may reference generic
+   * placeholders) and BEFORE the call slots (so the slots resolve
+   * against them). Sequential — later aliases may reference earlier.
+   * Inlining happens at parse time inside `decodeCall`.
+   */
+  types?: Record<string, TypeDef>;
   args: TypeDef;
   returns?: TypeDef;
   throws?: TypeDef;
@@ -146,7 +168,15 @@ export interface LambdaExprDef extends ExprDef {
 export interface TemplateExprDef extends ExprDef {
   kind: 'template';
   template: string;
-  params: ExprDef;  // expression that evaluates to an object with param values
+  /**
+   * Optional expression evaluating to an obj whose props supply
+   * placeholder values. When omitted (or when a particular `{name}`
+   * key isn't on the obj), placeholders fall back to a scope lookup
+   * — so a `${baseUrl}` placeholder resolves to the surrounding
+   * `define` of the same name. Provide `params` only when the
+   * placeholders need values that aren't already in scope.
+   */
+  params?: ExprDef;
 }
 
 export interface FlowExprDef extends ExprDef {

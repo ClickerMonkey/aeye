@@ -9,7 +9,7 @@
  *   GIN_PROGRAMMER_MODEL=gpt-4o
  *   GIN_RESEARCHER_MODEL=gpt-4o-mini
  *   GIN_ARCHITECT_MODEL=gpt-4o-mini       # designs / picks gin types
- *   GIN_ENGINEER_MODEL=gpt-4o             # designs reusable gin functions
+ *   GIN_DESIGNER_MODEL=gpt-4o             # designs reusable gin functions
  *   GIN_DBA_MODEL=gpt-4o-mini             # curates named typed vars (vars.*)
  *   GIN_LLM_MODEL=gpt-4o-mini             # used by the fns.llm native inside programs
  *   GIN_MODEL=gpt-4o-mini                 # fallback for any key above
@@ -18,7 +18,7 @@ export const MODEL_KEYS = [
   'programmer',
   'researcher',
   'architect',
-  'engineer',
+  'designer',
   'dba',
   'llm',
 ] as const;
@@ -38,4 +38,16 @@ export function modelFor(key: ModelKey): { model: { id: string } } | undefined {
   const fallback = process.env['GIN_MODEL'];
   const id = (specific && specific.trim()) || (fallback && fallback.trim());
   return id ? { model: { id } } : undefined;
+}
+
+/**
+ * Tool-iteration cap per prompt run. Resolves from `GIN_TOOL_ITERATIONS`
+ * (configured in `config.json` or the environment); falls back to 100
+ * when unset / unparseable so prompts have headroom for deep tasks.
+ */
+export function toolIterationsConfig(): number {
+  const raw = process.env['GIN_TOOL_ITERATIONS'];
+  if (!raw) return 100;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 100;
 }

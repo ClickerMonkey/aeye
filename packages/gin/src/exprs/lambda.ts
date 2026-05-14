@@ -5,13 +5,15 @@ import { Value } from '../value';
 import { ReturnSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
+import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import { LocalScope, type TypeScope } from '../type-scope';
 
 /**
  * LambdaExpr — a callable value that closes over the lexical scope.
@@ -32,22 +34,36 @@ export class LambdaExpr extends Expr {
     super();
   }
 
-  static from(json: LambdaExprDef, registry: Registry): LambdaExpr {
-    const constraint = json.constraint ? registry.parseExpr(json.constraint) : undefined;
-    return new LambdaExpr(
-      registry.parse(json.type),
-      registry.parseExpr(json.body),
-      constraint,
-    ).withComment(json.comment);
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
+  static from(json: LambdaExprDef, scope: TypeScope): LambdaExpr {
+    const registry = scope.registry;
+    // Parse the fn type first (FnType.from layers its own LocalScope
+    // for declared generics). Then build a body scope on top so bare
+    // alias / generic references inside the body / constraint resolve
+    // through AliasType.
+    const fnType = registry.parse(json.type, scope);
+    const bodyScope = buildBodyScope(scope, fnType);
+    const body = registry.parseExpr(json.body, bodyScope);
+    const constraint = json.constraint
+      ? registry.parseExpr(json.constraint, bodyScope)
+      : undefined;
+    return new LambdaExpr(fnType, body, constraint).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('lambda'),
       ...baseExprFields,
-      type: opts.Type,
-      body: opts.Expr,
-      constraint: opts.Expr.optional(),
+      type: opts.Type.describe(
+        'The lambda\'s function type — `{ name: "fn", call: { args, returns } }` (or a registered named fn type). The `args` obj defines what the body sees under the `args` scope variable; `returns` is what the body must produce.',
+      ),
+      body: opts.Expr.describe(
+        'The lambda body. At runtime, scope contains the lexical scope at definition site PLUS `args` (the call arguments) and `recurse` (this same lambda, for self-calls). Read params via `[{prop:"args"},{prop:"<name>"}]`.',
+      ),
+      constraint: opts.Expr.optional().describe(
+        'Optional bool-typed precondition evaluated before the body on every call (with `args` in scope). If it returns false, the call throws. Use for input invariants you want enforced regardless of caller.',
+      ),
     }).meta({ aid: 'Expr_lambda' });
   }
 
@@ -81,13 +97,13 @@ export class LambdaExpr extends Expr {
     return new Value(fnType, callable);
   }
 
-  typeOf(_engine: Engine, _scope: TypeScope): Type {
+  typeOf(_engine: Engine, _scope: Locals): Type {
     return this.fnType;
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const call = this.fnType.call();
-    const child: TypeScope = new Map(scope);
+    const child: Locals = new Map(scope);
     child.set('args', call?.args ?? engine.registry.any());
     const bodyT = p.at('body', () =>
       walkValidate(engine, this.body, child, p, { ...ctx, inLambda: true }));
@@ -110,18 +126,49 @@ export class LambdaExpr extends Expr {
     return this.fnType;
   }
 
-  toCode(registry?: Registry, options: CodeOptions = {}): string {
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
     const call = this.fnType.call();
-    const argsType = call?.args?.toCode() ?? 'any';
+    const valueOpts = { ...options, expectsValue: true };
     const prefix = this.commentPrefix(options);
-    if (!this.constraint) {
-      return prefix + `(args: ${argsType}) => ${this.body.toCode(registry, { expectsValue: true })}`;
+
+    // Param list — flatten the obj-typed `args` into individual params so
+    // the signature reads as plain TS (`(x: num, y: text)` instead of
+    // `(args: obj{x: num, y: text})`). Non-obj arg types fall back to
+    // `args: T` so unusual shapes still render.
+    const params = renderLambdaParams(call?.args, options);
+    const ret = call?.returns
+      ? `: ${call.returns.toCode(undefined, options)}`
+      : '';
+    const sig = `(${params})${ret}`;
+
+    const bodyCode = this.body.toGinCode(registry, valueOpts, [...path, 'body']);
+    const bodyText = bodyCode.text;
+
+    let inner: Code;
+    if (this.constraint) {
+      // With a constraint: always block-form so the precondition + body
+      // are on separate lines.
+      const consCode = this.constraint.toGinCode(registry, valueOpts, [...path, 'constraint']);
+      const consInline = inlineSingleLine(consCode);
+      const indentedBody = bodyCode.indent('  ');
+      inner = code`${sig} => {\n  if (!(${consInline})) throw new Error('constraint');\n  return ${indentedBody};\n}`;
+    } else if (bodyText.includes('\n')) {
+      // Multi-line body — wrap in a block.
+      const indentedBody = bodyCode.indent('  ');
+      inner = code`${sig} => {\n  ${indentedBody}\n}`;
+    } else {
+      // Compact one-liner.
+      inner = code`${sig} => ${bodyCode}`;
     }
-    const c = this.constraint.toCode(registry, { expectsValue: true });
-    // Render the constraint as an inline guard so readers see both the
-    // precondition and the body.
-    return prefix
-      + `(args: ${argsType}) => { if (!(${c})) throw new Error('constraint'); return ${this.body.toCode(registry, { expectsValue: true })}; }`;
+    return span(prefix ? code`${prefix}${inner}` : inner, { path, expr: this });
+  }
+
+  toCode(registry?: Registry, options: CodeOptions = {}): string {
+    return this.toGinCode(registry, options).toString();
   }
 
   toJSON(): LambdaExprDef {
@@ -131,6 +178,30 @@ export class LambdaExpr extends Expr {
       body: this.body.toJSON(),
       constraint: this.constraint?.toJSON(),
     });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const typeCode = this.fnType.toJSONCode([...path, 'type'], indent, level + 1);
+    const bodyCode = this.body.toJSONCode([...path, 'body'], indent, level + 1);
+    const constraintCode = this.constraint
+      ? this.constraint.toJSONCode([...path, 'constraint'], indent, level + 1)
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('lambda') },
+        { key: 'type', value: typeCode },
+        { key: 'body', value: bodyCode },
+        { key: 'constraint', value: constraintCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): LambdaExpr {
@@ -145,4 +216,55 @@ export class LambdaExpr extends Expr {
     visit(this.body, 'lambda');
     if (this.constraint) visit(this.constraint, 'lambda');
   }
+}
+
+/** Render a lambda's param list. When `args` is an obj-typed param bag
+ *  (the common case), each field becomes its own `name: type` entry —
+ *  the rendered signature drops the `args: obj{...}` wrapper for a
+ *  TS-pseudocode-style flat list. Non-obj arg types keep the `args: T`
+ *  fallback so e.g. opaque generic arg types still render. void/any
+ *  arg types render as an empty list. */
+function renderLambdaParams(args: Type | undefined, options: CodeOptions): string {
+  if (!args) return '';
+  if (args.name === 'void' || args.name === 'any') return '';
+  const fields = (args as unknown as { fields?: Record<string, { type: Type; docs?: string }> }).fields;
+  if (!fields) return `args: ${args.toCode(undefined, options)}`;
+  const entries = Object.entries(fields);
+  if (entries.length === 0) return '';
+  const parts = entries.map(([name, prop]) => {
+    const optional = prop.type.isOptional?.() ?? false;
+    const t = optional && typeof prop.type.required === 'function' ? prop.type.required() : prop.type;
+    const docs = prop.docs && options.includeComments !== false ? `/* ${prop.docs} */ ` : '';
+    return `${docs}${name}${optional ? '?' : ''}: ${t.toCode(undefined, options)}`;
+  });
+  return parts.join(', ');
+}
+
+/** Squash a Code value to a single line for inline-guard rendering. The
+ *  constraint is always one expression but its rendered form may span
+ *  lines (e.g. a chained get with wrap-form args). For the inline
+ *  `if (!(...))` guard we collapse those line breaks; spans still
+ *  resolve to the parent path. */
+function inlineSingleLine(c: Code): Code {
+  if (!c.text.includes('\n')) return c;
+  return new Code(c.text.replace(/\n\s*/g, ' '), c.spans);
+}
+
+/** Build a body scope that exposes the fnType's `call.types` aliases
+ *  by name, so bare `{name: 'X'}` references inside the body /
+ *  constraint resolve via AliasType.
+ *
+ *  Generics are NOT bound here — their declared types are constraints,
+ *  not active resolutions. Bare `{name: 'R'}` inside the body remains
+ *  an unresolved AliasType placeholder; concrete resolution comes
+ *  from call-site bindings layered into the scope at invocation
+ *  time. (Aliases ARE bound, since `call.types` declarations are
+ *  type-aliases — substitution targets, not parameters.) */
+function buildBodyScope(parent: TypeScope, fnType: Type): TypeScope {
+  const local = new LocalScope(parent);
+  const call = fnType.call();
+  if (call?.types) {
+    for (const [name, t] of Object.entries(call.types)) local.bind(name, t);
+  }
+  return local;
 }

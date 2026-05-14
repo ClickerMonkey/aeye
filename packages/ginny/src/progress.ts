@@ -1,5 +1,5 @@
 import { AnyTool, Prompt, PromptEvent, Tuple } from '@aeye/core';
-import { logger } from './logger';
+import { logger, genId } from './logger';
 
 /**
  * Stream a sub-agent prompt to completion, surfacing per-event progress
@@ -33,10 +33,13 @@ const c = (code: string, text: string): string =>
 
 function preview(value: unknown): string {
   let s: string;
-  try {
-    s = typeof value === 'string' ? value : JSON.stringify(value);
-  } catch {
-    s = String(value);
+  if (value instanceof Error) {
+    // `JSON.stringify(new Error())` is `{}` — surface .message instead.
+    s = value.message || String(value);
+  } else if (typeof value === 'string') {
+    s = value;
+  } else {
+    try { s = JSON.stringify(value); } catch { s = String(value); }
   }
   if (!s) return '';
   s = s.replace(/\s+/g, ' ');
@@ -59,6 +62,12 @@ export async function runSubagent<
   const start = Date.now();
   process.stderr.write(`  ${c(DIM, `▸ ${label}`)}\n`);
   logger.log(`▸ ${label}`);
+  // Sub-agent boundary memory snapshots — pair `subagent start` with
+  // `subagent done` to see how much each sub-agent retains after it
+  // returns. A clean delta (≤ a few MB) means sub-agent state is
+  // being released; a growing delta means closures or output objects
+  // are pinning the sub-agent's engine/registry/history.
+  logger.mem(`subagent start ${label}`);
 
   let output: GetStreamOutput<TGetStream> | undefined;
   const toolStarts = new WeakMap<object, number>();
@@ -103,9 +112,17 @@ export async function runSubagent<
         case 'toolError': {
           const t = toolStarts.get(event.args);
           const elapsed = t ? Date.now() - t : 0;
-          const line = `    ✗ ${event.tool.name} (${elapsed}ms): ${event.error}`;
+          // Cap the on-screen error to one line — zod / aggregate
+          // errors easily run 100+ lines and bury the timeline. The
+          // 6-char id is the join key into ginny.log, where the full
+          // stack + args are recorded.
+          const id = genId();
+          const line = `    ✗ ${event.tool.name} [${id}] (${elapsed}ms): ${preview(event.error)}`;
           process.stderr.write(`${c(RED, line)}\n`);
-          logger.log(line.trim());
+          logger.log(`[${id}] tool=${event.tool.name} (${elapsed}ms) error: ${event.error}`);
+          const stack = (event.error as { stack?: string } | undefined)?.stack;
+          if (stack) logger.log(`[${id}] stack:\n${stack}`);
+          try { logger.log(`[${id}] args: ${JSON.stringify(event.args)}`); } catch { /* ignore */ }
           break;
         }
         case 'complete': {
@@ -119,6 +136,7 @@ export async function runSubagent<
     const cancelled = signal?.aborted ? ' [cancelled]' : '';
     process.stderr.write(`  ${c(DIM, `✓ ${label} (${elapsed}ms)${cancelled}`)}\n`);
     logger.log(`✓ ${label} (${elapsed}ms)${cancelled}`);
+    logger.mem(`subagent done ${label}`);
   }
 
   return output;

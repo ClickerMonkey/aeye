@@ -452,10 +452,26 @@ export interface ToolDefinition
   name: string;
   /** Description of what the tool does */
   description?: string;
-  /** Zod schema defining the tool's input parameters */
+  /** Zod schema defining the tool's input parameters (raw — strict rewrites are applied lazily by the provider) */
   parameters: z.ZodType<object>;
-  /** Whether to require AI to strictly follow the schema. True by default. */
-  strict?: boolean;
+  /**
+   * Strict-mode policy. See `ToolInput.strict` JSDoc for full semantics.
+   *
+   * - `true` — require strict (selection filter)
+   * - `false` — force lenient
+   * - `number > 0` (default `1`) — prefer strict, accept fallback; the
+   *   number is the priority for SchemaBudget allocation when there are
+   *   more strict-requesting tools than the descriptor's per-request slot
+   *   budget allows.
+   */
+  strict?: boolean | number;
+  /**
+   * The FormatDescriptor id the provider chose for this tool's wire shape, set
+   * during request building. Used by `Tool.parse` to apply the matching
+   * strictify before validating arguments. Absent until the request reaches a
+   * provider; absent altogether when the request runs against a non-strict model.
+   */
+  descriptor?: string;
 }
 
 /**
@@ -496,7 +512,21 @@ export type ToolChoice =
 export type ResponseFormat =
   | 'text'
   | 'json'
-  | { type: z.ZodType<object, object>, strict: boolean };
+  | {
+      type: z.ZodType<object, object>,
+      /**
+       * Strict-mode policy. See `PromptInput.strict` for tri-state semantics.
+       * `true` requires; `false` forces lenient; positive number prefers
+       * strict with that priority for SchemaBudget allocation.
+       */
+      strict: boolean | number,
+      /**
+       * The FormatDescriptor id the provider chose for the wire shape, set
+       * during request building. Used by the Prompt validator to apply the
+       * matching strictify before parsing model output.
+       */
+      descriptor?: string,
+    };
 
 /**
  * Statistics about usage for an AI request.

@@ -10,8 +10,8 @@ describe('PathCall.generic — explicit generic bindings', () => {
 
     // Build identity as a standalone fn typed against T.
     const identity = r.fn(
-      r.obj({ x: { type: r.generic('T') } }),
-      r.generic('T'),
+      r.obj({ x: { type: r.alias('T') } }),
+      r.alias('T'),
     );
 
     // Run typeOf on a call with explicit generic binding; the returns

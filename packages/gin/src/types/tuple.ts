@@ -1,10 +1,11 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { PathStepDef, TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONValue } from '../json-type';
 
 
@@ -23,10 +24,11 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
 
   readonly elements: Type[];
 
-  static from(json: TypeDef, registry: Registry): TupleType {
+  static from(json: TypeDef, scope: TypeScope): TupleType {
+    const registry = scope.registry;
     const defs = ((json.options?.elements ?? []) as TypeDef[]);
-    const elems = defs.map((d) => registry.parse(d));
-    return new TupleType(registry, elems);
+    const elems = defs.map((d) => scope.parse(d));
+    return new TupleType(scope, elems);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -43,18 +45,18 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return z.array(opts.Expr);
   }
 
-  constructor(registry: Registry, elements: Type[]) {
-    super(registry, { elements: elements.map((e) => e.toJSON()) });
+  constructor(scope: TypeScope, elements: Type[]) {
+    super(scope, { elements: elements.map((e) => e.toJSON()) });
     this.elements = elements;
   }
 
-  valid(raw: unknown): raw is [Value, ...Value[]] {
+  valid(raw: unknown, scope?: TypeScope): raw is [Value, ...Value[]] {
     if (!Array.isArray(raw)) return false;
     if (raw.length !== this.elements.length) return false;
-    return raw.every((v) => v instanceof Value && v.type.valid(v.raw));
+    return raw.every((v) => v instanceof Value && v.type.valid(v.raw, scope));
   }
 
-  parse(json: unknown): Value<[any, ...any[]]> {
+  parse(json: unknown, scope?: TypeScope): Value<[any, ...any[]]> {
     if (!Array.isArray(json) || json.length !== this.elements.length) {
       throw new TypeError({
         path: [], code: 'tuple.invalid',
@@ -62,12 +64,12 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
         severity: 'error',
       });
     }
-    const raw = this.elements.map((e, i) => this.registry.parseValue(json[i], e)) as [Value, ...Value[]];
+    const raw = this.elements.map((e, i) => this.registry.parseValue(json[i], e, scope)) as [Value, ...Value[]];
     return new Value(this, raw);
   }
 
   /** Each positional value becomes a `JSONValue` envelope. */
-  encode(raw: [Value, ...Value[]]): [JSONValue, ...JSONValue[]] {
+  encode(raw: [Value, ...Value[]], _scope?: TypeScope): [JSONValue, ...JSONValue[]] {
     return raw.map((v) => v.toJSON()) as [JSONValue, ...JSONValue[]];
   }
 
@@ -88,10 +90,10 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return this.registry.tuple(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof TupleType)) return false;
     if (other.elements.length !== this.elements.length) return false;
-    return this.elements.every((e, i) => e.compatible(other.elements[i]!, opts));
+    return this.elements.every((e, i) => e.compatible(other.elements[i]!, opts, scope));
   }
 
   or(other: Type<[any, ...any[]]>): Type<[any, ...any[]]> {
@@ -127,7 +129,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     });
   }
 
-  follow(step: PathStepDef): Type | undefined {
+  follow(step: PathStepDef, scope?: TypeScope): Type | undefined {
     // Literal positional index → exact element type.
     if ('key' in step && !('args' in step)) {
       const key = step.key as any;
@@ -136,7 +138,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
         return this.elements[rawKey];
       }
     }
-    return super.follow(step);
+    return super.follow(step, scope);
   }
 
   props(): Record<string, Prop> {
@@ -166,11 +168,11 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return new TupleType(this.registry, this.elements.map((e) => e.clone()));
   }
 
-  toCode(): string {
-    return this.docsPrefix() + `tuple<${this.elements.map((e) => e.toCode()).join(', ')}>`;
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + `tuple<${this.elements.map((e) => e.toCode(undefined, options)).join(', ')}>`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Tuples ARE positional by nature — emit z.tuple for fidelity. LLM
     // consumers that struggle with positional arrays should use a different
     // shape (obj with named fields); tuple type preserves the position

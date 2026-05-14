@@ -1,3 +1,4 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
@@ -5,7 +6,7 @@ import { type CompatOptions, GetSet, Prop, type PropSpec, type Rnd, Type } from 
 import { decodeProps, encodeProps } from '../spec';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
 
@@ -15,7 +16,7 @@ import { propDefSchema } from '../schemas';
  * exposed via props() directly. Any number of fields, typed per-name.
  */
 export class ObjType<T extends object = Record<string, any>> extends Type<T, Record<string, never>> {
-  static readonly NAME = 'object';
+  static readonly NAME = 'obj';
   /** obj's fields ARE its structure — props is natively consumed. */
   static readonly consumes = ['props'] as const;
   readonly name = ObjType.NAME;
@@ -23,15 +24,15 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   /** Runtime prop specs. Structural fields — each has at least `type`. */
   readonly fields: Record<string, Prop>;
 
-  static from(json: TypeDef, registry: Registry): ObjType {
-    const fieldDefs = (json.props ?? {}) as Record<string, PropDef>;
-    const fields = decodeProps(fieldDefs, registry);
-    return new ObjType(registry, fields);
+  static from(json: TypeDef, scope: TypeScope): ObjType {
+    const fieldDefs = json.props ?? {};
+    const fields = decodeProps(fieldDefs, scope);
+    return new ObjType(scope, fields);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     return z.object({
-      name: z.literal('object'),
+      name: z.literal('obj'),
       props: z.record(z.string(), propDefSchema(opts)).optional(),
     }).meta({ aid: 'Type_object' });
   }
@@ -42,8 +43,8 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return z.record(z.string(), opts.Expr);
   }
 
-  constructor(registry: Registry, fields: Record<string, Prop | PropSpec>) {
-    super(registry, {});
+  constructor(scope: TypeScope, fields: Record<string, Prop | PropSpec>) {
+    super(scope, {});
     // Normalize plain objects to Prop instances so methods are available.
     const normalized: Record<string, Prop> = {};
     for (const [k, v] of Object.entries(fields)) {
@@ -52,7 +53,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     this.fields = normalized;
   }
 
-  valid(raw: unknown): raw is RuntimeOf<T> {
+  valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
     for (const [name] of Object.entries(this.fields)) {
       const v = (raw as Record<string, unknown>)[name];
@@ -60,12 +61,12 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       // the declared field type. Validate the stored raw against the
       // Value's actual type (supports covariance).
       if (!(v instanceof Value)) return false;
-      if (!v.type.valid(v.raw)) return false;
+      if (!v.type.valid(v.raw, scope)) return false;
     }
     return true;
   }
 
-  parse(json: unknown): Value<T> {
+  parse(json: unknown, scope?: TypeScope): Value<T> {
     if (typeof json !== 'object' || json === null || Array.isArray(json)) {
       throw new TypeError({
         path: [], code: 'object.invalid',
@@ -75,13 +76,13 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     const raw: Record<string, Value> = {};
     for (const [name, prop] of Object.entries(this.fields)) {
       const input = (json as Record<string, unknown>)[name];
-      raw[name] = this.registry.parseValue(input, prop.type);
+      raw[name] = this.registry.parseValue(input, prop.type, scope);
     }
     return new Value(this, raw as RuntimeOf<T>);
   }
 
   /** Each field becomes a `JSONValue` envelope. */
-  encode(raw: RuntimeOf<T>): JSONOf<T> {
+  encode(raw: RuntimeOf<T>, _scope?: TypeScope): JSONOf<T> {
     const fields = raw as Record<string, Value>;
     const out: Record<string, JSONValue> = {};
     for (const [name] of Object.entries(this.fields)) {
@@ -118,13 +119,23 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return this.registry.obj(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof ObjType)) return false;
-    // Structural: every field in this must appear compatibly in other.
+    // Structural: `this` accepts every value of `other`. Each field
+    // declared on `this` either appears on `other` with a compatible
+    // type (covariant per-field), or — when `this`'s field is optional
+    // — may be absent on `other` (an optional field doesn't constrain
+    // values that lack it). The latter is what makes
+    // `{x:num, y?:bool}.compatible({x:num})` true: callers passing the
+    // simpler shape still produce values the wider shape accepts.
     for (const [name, prop] of Object.entries(this.fields)) {
       const otherProp = other.fields[name];
-      if (!otherProp) return false;
-      if (!prop.type.compatible(otherProp.type, opts)) return false;
+      if (!otherProp) {
+        if (opts?.exact) return false;
+        if (prop.type.isOptional()) continue;
+        return false;
+      }
+      if (!prop.type.compatible(otherProp.type, opts, scope)) return false;
     }
     // In exact mode, field sets must match.
     if (opts?.exact) {
@@ -205,20 +216,21 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return new ObjType<T>(this.registry, cloned);
   }
 
-  toCode(): string {
+  toCode(_registry?: Registry, options?: CodeOptions): string {
     const entries = Object.entries(this.fields);
-    if (entries.length === 0) return this.docsPrefix() + 'obj';
+    if (entries.length === 0) return this.docsPrefix(options) + 'obj';
+    const includeComments = options?.includeComments !== false;
     const parts = entries.map(([name, prop]) => {
       const optional = prop.type.isOptional();
       const t = optional ? prop.type.required() : prop.type;
       const label = optional ? `${name}?` : name;
-      const propDocs = prop.docs ? `/* ${prop.docs} */ ` : '';
-      return `${propDocs}${label}: ${t.toCode()}`;
+      const propDocs = prop.docs && includeComments ? `/* ${prop.docs} */ ` : '';
+      return `${propDocs}${label}: ${t.toCode(undefined, options)}`;
     });
-    return this.docsPrefix() + `obj{${parts.join(', ')}}`;
+    return this.docsPrefix(options) + `obj{${parts.join(', ')}}`;
   }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny {
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     const mode = opts?.includeDocs ?? 'none';
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this.fields)) {
@@ -248,7 +260,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       propShape[name] = z.object({ type: prop.type.toInstanceSchema() }).passthrough();
     }
     return z.object({
-      name: z.literal('object'),
+      name: z.literal('obj'),
       props: z.object(propShape).optional(),
     }).passthrough();
   }
@@ -258,7 +270,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     const fields: Record<string, PropSpec> = {};
     for (const [name, value] of Object.entries(data)) {
       // Fall back to any — deeper inference is the describer's job, not ours.
-      const inferred = (this.registry.any() as Type).describe?.(value) ?? this.registry.any();
+      const inferred = this.registry.any().describe?.(value) ?? this.registry.any();
       fields[name] = { type: inferred };
     }
     return new ObjType(this.registry, fields);

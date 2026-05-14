@@ -108,9 +108,9 @@ describe('set return value + safe-navigation', () => {
   test('safe-nav does NOT short-circuit a call step (Fn raw may be null)', async () => {
     const r = createRegistry();
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'get',
@@ -196,7 +196,7 @@ describe('deep set: method call → prop set', () => {
           },
         },
         self: {
-          type: r.fn(r.obj({}), r.ref('tattler')),
+          type: r.fn(r.obj({}), r.alias('tattler')),
           get: { kind: 'get', path: [{ prop: 'this' }] },
         },
       },
@@ -237,7 +237,7 @@ describe('deep set: field → index set', () => {
         value: {
           kind: 'new',
           type: {
-            name: 'object',
+            name: 'obj',
             props: { inner: { type: { name: 'map', generic: { K: { name: 'text' }, V: { name: 'num' } } } } },
           },
           value: { inner: [['a', 1]] },
@@ -270,9 +270,9 @@ describe('deep set: method call with CallDef.set', () => {
     const r = createRegistry();
     // Method whose Fn type has call.set — set body pushes {args.key, value} to log.
     const setterFn = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
-        args: { name: 'object', props: { key: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { key: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'block',
@@ -337,9 +337,9 @@ describe('deep set: direct call with CallDef.set', () => {
   test('`fn(args) = value` invokes the Fn\'s call.set', async () => {
     const r = createRegistry();
     const fnType = r.parse({
-      name: 'function',
+      name: 'fn',
       call: {
-        args: { name: 'object', props: { k: { type: { name: 'text' } } } },
+        args: { name: 'obj', props: { k: { type: { name: 'text' } } } },
         returns: { name: 'num' },
         set: {
           kind: 'get',
@@ -381,7 +381,7 @@ describe('deep set: direct call with CallDef.set', () => {
         name: 'fn',
         value: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+          type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'new', type: { name: 'num' }, value: 0 },
         },
       }],

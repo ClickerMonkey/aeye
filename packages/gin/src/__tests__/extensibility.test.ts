@@ -110,7 +110,7 @@ describe('extensibility: Type.toCode is fully polymorphic', () => {
       r.enum({ A: 'a' }, r.text()), r.literal(r.num(), 7),
       r.fn(r.obj({}), r.num()),
       r.iface({ props: { x: { type: { name: 'num' } } } }),
-      r.ref('Foo'), r.generic('T'),
+      r.alias('Foo'), r.alias('T'),
       r.date(), r.timestamp(), r.duration(), r.color(),
       r.extend('num', { name: 'Positive', options: { min: 0 } }),
     ];

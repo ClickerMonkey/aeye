@@ -504,14 +504,17 @@ describe('Common Utilities', () => {
     });
 
     it('should aggregate reasoning from chunks', () => {
+      // `Chunk.reasoning` is the `Reasoning` object type (`{ content?: string, details?: ... }`),
+      // not a string. Reasoning text concatenates through `accumulateReasoning` →
+      // `appendMaybe` on the `content` field.
       const chunks: Chunk[] = [
-        { reasoning: 'First thought' },
-        { reasoning: ', second thought' },
+        { reasoning: { content: 'First thought' } },
+        { reasoning: { content: ', second thought' } },
         { content: 'Answer' },
       ];
 
       const response = getResponseFromChunks(chunks);
-      expect(response.reasoning).toBe('First thought, second thought');
+      expect(response.reasoning?.content).toBe('First thought, second thought');
     });
 
     it('should handle finishReason', () => {

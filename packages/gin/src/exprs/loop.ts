@@ -5,14 +5,16 @@ import { Value, val } from '../value';
 import { BreakSignal, ContinueSignal } from '../flow-control';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
-import type { TypeScope } from '../analysis';
-import { walkValidate } from '../analysis';
+import type { Locals } from '../analysis';
+import { checkBindingName, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
+import { Code, jsonObject, jsonString } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
 
 export interface LoopParallel {
   concurrent?: Expr;
@@ -36,14 +38,17 @@ export class LoopExpr extends Expr {
     super();
   }
 
-  static from(json: LoopExprDef, registry: Registry): LoopExpr {
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
+  static from(json: LoopExprDef, scope: TypeScope): LoopExpr {
+    const r = scope.registry;
     const parallel = json.parallel ? {
-      concurrent: json.parallel.concurrent ? registry.parseExpr(json.parallel.concurrent) : undefined,
-      rate: json.parallel.rate ? registry.parseExpr(json.parallel.rate) : undefined,
+      concurrent: json.parallel.concurrent ? r.parseExpr(json.parallel.concurrent, scope) : undefined,
+      rate: json.parallel.rate ? r.parseExpr(json.parallel.rate, scope) : undefined,
     } : undefined;
     return new LoopExpr(
-      registry.parseExpr(json.over),
-      registry.parseExpr(json.body),
+      r.parseExpr(json.over, scope),
+      r.parseExpr(json.body, scope),
       json.key,
       json.value,
       parallel,
@@ -54,35 +59,163 @@ export class LoopExpr extends Expr {
     return z.object({
       kind: z.literal('loop'),
       ...baseExprFields,
-      over: opts.Expr,
-      body: opts.Expr,
-      key: z.string().optional(),
-      value: z.string().optional(),
-      parallel: z.object({
-        concurrent: opts.Expr.optional(),
-        rate: opts.Expr.optional(),
-      }).optional(),
+      over: opts.Expr.describe(
+        'The iterable expression. Two evaluation modes: ' +
+        '(1) iterable types (list, map, etc. — anything whose `get().loop` is defined) iterate once; the expression is evaluated ONCE at the start. ' +
+        '(2) bool — while-loop semantics: the expression is RE-EVALUATED each iteration; the loop continues while the value is `true` and exits the moment it becomes `false`. ' +
+        'Use `flow:break` / `flow:continue` inside the body to control iteration regardless of mode.',
+      ),
+      body: opts.Expr.describe(
+        "Evaluated once per iteration with the current `key` and `value` bound in scope. Use `{kind:'flow', action:'break'}` or `'continue'` for early-exit. The loop expression itself returns void.",
+      ),
+      key: z.string().optional().describe(
+        'Override the scope-variable name the iteration index/key is bound under (default: `key`). Must NOT be reserved or shadow an outer scope var. Use to disambiguate when looping inside another loop.',
+      ),
+      value: z.string().optional().describe(
+        'Override the scope-variable name the iteration value is bound under (default: `value`). Same rules as `key`.',
+      ),
+      parallel: z
+        .object({
+          concurrent: opts.Expr.optional().describe(
+            'Max in-flight iterations as a num (omit / 1 → strictly sequential). Use when iterations are independent I/O — e.g. fetching N URLs concurrently.',
+          ),
+          rate: opts.Expr.optional().describe(
+            'Minimum interval between iteration starts. Accepts a num (milliseconds) or a duration. Use to rate-limit fan-out (e.g. avoid hammering an API).',
+          ),
+        })
+        .optional()
+        .describe(
+          'Opt-in parallelism. Both fields are optional and independent: `concurrent` caps fan-out width, `rate` paces start times. Iterations may finish out of order; the body should not assume sequential ordering. ' +
+          'Composes with dynamic (bool while-loop) iteration: the body fans out up to `concurrent`, and `over` is re-evaluated against the outer scope each time a task completes — so accumulating side effects of earlier tasks decide whether more tasks spawn.',
+        ),
     }).meta({ aid: 'Expr_loop' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {
     const over = await this.over.evaluate(engine, scope);
     const gs = over.type.get();
-    if (!gs?.loop) {
-      throw new Error(`loop: type '${over.type.name}' has no loop defined on its GetSet`);
+    // A type is iterable iff its GetSet declares EITHER a `loop`
+    // ExprDef (static — e.g. list/map iterate via the native) OR
+    // `loopDynamic: true` (dynamic — e.g. bool while-loop).
+    const iterable = !!(gs?.loop || gs?.loopDynamic);
+    if (!iterable) {
+      throw new Error(`loop: type '${over.type.name}' has no loop or loopDynamic defined on its GetSet`);
     }
 
     const keyName = this.keyName ?? 'key';
     const valueName = this.valueName ?? 'value';
 
+    // Read parallel options up front — both dynamic and static modes
+    // honor them. Dynamic mode requires concurrency to be bounded for
+    // parallel to be meaningful (otherwise every "tick" of `over`
+    // would race the body's side effects in unbounded ways), so we
+    // treat unbounded-concurrent + dynamic as sequential.
     const concurrent = this.parallel?.concurrent
       ? Number((await this.parallel.concurrent.evaluate(engine, scope)).raw)
       : undefined;
     const rateMs = this.parallel?.rate
       ? Number((await this.parallel.rate.evaluate(engine, scope)).raw)
       : undefined;
-
     const parallel = concurrent !== undefined || rateMs !== undefined;
+
+    // Dynamic mode: re-evaluate `over` against the OUTER scope each
+    // iteration. Continue while the value's `raw` is truthy. Body
+    // mutations (via `set` on vars the expression reads) drive the
+    // exit condition. `key` is the iteration index, `value` is the
+    // current re-evaluated value.
+    if (gs.loopDynamic) {
+      const indexType = engine.registry.num({ whole: true, min: 0 });
+
+      // Sequential: simple while-loop.
+      if (!parallel) {
+        let current: Value = over;
+        let iteration = 0;
+        while (current.raw) {
+          const iter = scope.child({
+            [keyName]: val(indexType, iteration),
+            [valueName]: current,
+          });
+          try {
+            await this.body.evaluate(engine, iter);
+          } catch (sig) {
+            if (sig instanceof BreakSignal) break;
+            if (!(sig instanceof ContinueSignal)) throw sig;
+          }
+          iteration++;
+          current = await this.over.evaluate(engine, scope);
+        }
+        return val(engine.registry.void(), undefined);
+      }
+
+      // Dynamic + parallel: spawn up to `concurrent` tasks; whenever
+      // ANY task completes, re-evaluate `over` against the outer
+      // scope and — if still truthy — spawn another. The re-eval
+      // happens AFTER each completion (not before each start) so
+      // body side effects from the previous batch are visible before
+      // the next decision. Rate-limits delay starts the same way as
+      // static mode.
+      const pool: Set<Promise<void>> = new Set();
+      const maxConcurrent = concurrent ?? Infinity;
+      let broken = false;
+      let lastStart = 0;
+      let iteration = 0;
+
+      const trySpawn = async (): Promise<boolean> => {
+        if (broken) return false;
+        const current = await this.over.evaluate(engine, scope);
+        if (!current.raw) return false;
+        if (rateMs && rateMs > 0) {
+          const now = Date.now();
+          const delta = now - lastStart;
+          if (delta < rateMs) await new Promise((r) => setTimeout(r, rateMs - delta));
+          lastStart = Date.now();
+        }
+        const iter = scope.child({
+          [keyName]: val(indexType, iteration),
+          [valueName]: current,
+        });
+        const task = (async () => {
+          try {
+            await this.body.evaluate(engine, iter);
+          } catch (sig) {
+            if (sig instanceof ContinueSignal) return;
+            if (sig instanceof BreakSignal) { broken = true; return; }
+            throw sig;
+          }
+        })();
+        const wrapped = task.finally(() => pool.delete(wrapped));
+        pool.add(wrapped);
+        iteration++;
+        return true;
+      };
+
+      // Initial fill — bring the pool up to capacity (or until `over`
+      // becomes falsy). For unbounded-concurrent, spawn ONE task and
+      // let the drain loop step the rest sequentially.
+      const initialCap = Number.isFinite(maxConcurrent) ? maxConcurrent : 1;
+      while (pool.size < initialCap) {
+        const ok = await trySpawn();
+        if (!ok) break;
+      }
+      // Drain — every completion re-evaluates and possibly fills the
+      // freed slot.
+      while (pool.size > 0) {
+        await Promise.race(pool);
+        while (!broken && pool.size < initialCap) {
+          const ok = await trySpawn();
+          if (!ok) break;
+        }
+      }
+      return val(engine.registry.void(), undefined);
+    }
+
+    // Static (iterable) path — gs.loop is required here. The check
+    // at the top rules out the (no loop AND no loopDynamic) case, but
+    // TS can't narrow through the OR so we re-assert.
+    const loopExpr = gs.loop;
+    if (!loopExpr) {
+      throw new Error(`loop: type '${over.type.name}' has no loop ExprDef on its GetSet`);
+    }
 
     if (!parallel) {
       const yieldFn = async (keyVal: Value, valueVal: Value): Promise<Value> => {
@@ -94,7 +227,7 @@ export class LoopExpr extends Expr {
           throw sig;
         }
       };
-      await runLoop(gs.loop, scope, engine, over, yieldFn);
+      await runLoop(loopExpr, scope, engine, over, yieldFn);
       return val(engine.registry.void(), undefined);
     }
 
@@ -134,14 +267,18 @@ export class LoopExpr extends Expr {
     return val(engine.registry.void(), undefined);
   }
 
-  typeOf(engine: Engine, _scope: TypeScope): Type {
+  typeOf(engine: Engine, _scope: Locals): Type {
     return engine.registry.void();
   }
 
-  validateWalk(engine: Engine, scope: TypeScope, p: Problems, ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     const overT = p.at('over', () => walkValidate(engine, this.over, scope, p, ctx));
     const gs = overT.get();
-    if (!gs?.loop) {
+    // Iterable: type's GetSet defines either a `loop` ExprDef
+    // (static — iterated once) or `loopDynamic: true` (re-evaluated
+    // per iteration; bool uses this for while-loop semantics).
+    const iterable = !!(gs?.loop || gs?.loopDynamic);
+    if (!iterable) {
       p.error('loop.not-iterable', `type '${overT.name}' has no loop defined`);
     }
 
@@ -167,12 +304,26 @@ export class LoopExpr extends Expr {
       }
     }
 
-    // Bind key/value using the iterable's actual types (not any) so the
-    // body validates against correct inner types. Fall back to any only
-    // when the iterable surface was missing (already errored above).
+    // If the loop overrides keyName / valueName, the user-chosen names
+    // must follow the same rules as define vars: not reserved, not
+    // already in scope. The default `key` / `value` names are reserved
+    // by gin precisely because loops bind them, so we don't check the
+    // defaults — only explicit overrides.
+    if (this.keyName !== undefined) {
+      p.at('key', () => checkBindingName(this.keyName!, scope, p));
+    }
+    if (this.valueName !== undefined) {
+      p.at('value', () => checkBindingName(this.valueName!, scope, p));
+    }
+
+    // Bind key/value from the iterable's GetSet. Both static and
+    // dynamic modes share the same `gs.key` / `gs.value` types — for
+    // bool that's `num{whole,min:0}` / `bool`; for list it's
+    // `num{whole,min:0}` / `<element>`. Fall back to `any` only when
+    // the iterable surface was missing (already errored above).
     const keyType = gs?.key ?? engine.registry.any();
     const valueType = gs?.value ?? engine.registry.any();
-    const child: TypeScope = new Map(scope);
+    const child: Locals = new Map(scope);
     child.set(this.keyName ?? 'key', keyType);
     child.set(this.valueName ?? 'value', valueType);
     p.at('body', () => walkValidate(engine, this.body, child, p, { ...ctx, inLoop: true }));
@@ -181,30 +332,34 @@ export class LoopExpr extends Expr {
 
   toCode(registry?: Registry, options: CodeOptions = {}): string {
     const expectsValue = options.expectsValue ?? false;
-    const over = this.over.toCode(registry, { expectsValue: true });
+    const valueOpts = { ...options, expectsValue: true };
+    const stmtOpts = { ...options, expectsValue: false };
+    const over = this.over.toCode(registry, valueOpts);
     const key = this.keyName ?? 'key';
     const value = this.valueName ?? 'value';
 
     let prefix = '';
-    if (this.parallel?.concurrent) {
-      prefix += `/* parallel.concurrent: ${this.parallel.concurrent.toCode(registry, { expectsValue: true })} */ `;
-    }
-    if (this.parallel?.rate) {
-      prefix += `/* parallel.rate: ${this.parallel.rate.toCode(registry, { expectsValue: true })} */ `;
+    if (options.includeComments !== false) {
+      if (this.parallel?.concurrent) {
+        prefix += `/* parallel.concurrent: ${this.parallel.concurrent.toCode(registry, valueOpts)} */ `;
+      }
+      if (this.parallel?.rate) {
+        prefix += `/* parallel.rate: ${this.parallel.rate.toCode(registry, valueOpts)} */ `;
+      }
     }
 
     // Body in statement context — uses bare statements / flow / nested control.
     const bodyStmt = (() => {
       const kind = (this.body as { kind: string }).kind;
-      if (kind === 'flow') return `${this.body.toCode(registry, { expectsValue: false })};`;
+      if (kind === 'flow') return `${this.body.toCode(registry, stmtOpts)};`;
       if (kind === 'block') {
-        const code = this.body.toCode(registry, { expectsValue: false });
+        const code = this.body.toCode(registry, stmtOpts);
         return code.startsWith('{') ? code.slice(1, -1).trim() : code;
       }
       if (kind === 'if' || kind === 'switch' || kind === 'loop') {
-        return this.body.toCode(registry, { expectsValue: false });
+        return this.body.toCode(registry, stmtOpts);
       }
-      return `${this.body.toCode(registry, { expectsValue: false })};`;
+      return `${this.body.toCode(registry, stmtOpts)};`;
     })();
 
     const forStmt = `${prefix}for (const [${key}, ${value}] of ${over}) {\n  ${indentCode(bodyStmt)}\n}`;
@@ -232,6 +387,40 @@ export class LoopExpr extends Expr {
       };
     }
     return this.withCommentOn(out);
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const overCode = this.over.toJSONCode([...path, 'over'], indent, level + 1);
+    const bodyCode = this.body.toJSONCode([...path, 'body'], indent, level + 1);
+    const parallelCode = this.parallel
+      ? jsonObject(
+          [
+            { key: 'concurrent', value: this.parallel.concurrent?.toJSONCode([...path, 'parallel', 'concurrent'], indent, level + 2) },
+            { key: 'rate', value: this.parallel.rate?.toJSONCode([...path, 'parallel', 'rate'], indent, level + 2) },
+          ],
+          { path: [...path, 'parallel'] },
+          level + 1,
+          indent,
+        )
+      : undefined;
+    return jsonObject(
+      [
+        { key: 'kind', value: jsonString('loop') },
+        { key: 'over', value: overCode },
+        { key: 'body', value: bodyCode },
+        { key: 'key', value: this.keyName !== undefined ? jsonString(this.keyName) : undefined },
+        { key: 'value', value: this.valueName !== undefined ? jsonString(this.valueName) : undefined },
+        { key: 'parallel', value: parallelCode },
+        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
   }
 
   clone(): LoopExpr {
@@ -262,8 +451,24 @@ async function runLoop(
   over: Value,
   yieldFn: (k: Value, v: Value) => Promise<Value>,
 ): Promise<void> {
-  const yieldType = engine.registry.fn(engine.registry.obj({}), engine.registry.void());
-  const yieldValue = new Value(yieldType, yieldFn);
+  // `yield` in the loop scope is a callable Value with args
+  // `obj({key, value})` and void return. The Value form is what makes
+  // it usable from a CUSTOM loop ExprDef (e.g. a `block`/`lambda`
+  // written by a dev that augments a type with their own iteration
+  // shape) — path-walker call sites pass a single args-obj Value, so
+  // yield's signature has to match. Native loop impls receive the
+  // same Value via `scope.get('yield')` and unwrap the two fields.
+  const r = engine.registry;
+  const yieldType = r.fn(
+    r.obj({ key: { type: r.any() }, value: { type: r.any() } }),
+    r.void(),
+  );
+  const wrappedYield = async (argsValue: Value): Promise<Value> => {
+    const fields = argsValue.raw as Record<string, Value> | null | undefined;
+    if (!fields) throw new Error('yield: missing args');
+    return yieldFn(fields['key']!, fields['value']!);
+  };
+  const yieldValue = new Value(yieldType, wrappedYield);
   const loopScope = scope.child({ this: over, yield: yieldValue });
   try {
     await engine.evaluate(loopExpr, loopScope);

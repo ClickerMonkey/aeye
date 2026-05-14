@@ -1,10 +1,11 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
+import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { BoolOptions } from '../builder';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -15,8 +16,9 @@ export class BoolType extends Type<boolean, BoolOptions> {
   static readonly NAME = 'bool';
   readonly name = BoolType.NAME;
 
-  static from(json: TypeDef, registry: Registry): BoolType {
-    return new BoolType(registry, (json.options ?? {}) as BoolOptions);
+  static from(json: TypeDef, scope: TypeScope): BoolType {
+    const registry = scope.registry;
+    return new BoolType(scope, (json.options ?? {}) as BoolOptions);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -88,6 +90,24 @@ export class BoolType extends Type<boolean, BoolOptions> {
     };
   }
 
+  /**
+   * Bool opts into `LoopExpr`'s while-loop semantics via
+   * `loopDynamic: true`. The loop's `over` expression is re-evaluated
+   * each iteration; iteration continues while the resulting bool is
+   * `true` and exits when it flips to `false`. The body sees `key`
+   * (iteration index, num) and `value` (current bool truth-value).
+   * No `loop` ExprDef is required — the engine drives iteration
+   * directly.
+   */
+  get(): GetSet {
+    const r = this.registry;
+    return new GetSet({
+      key: r.num({ whole: true, min: 0 }),
+      value: r.bool(),
+      loopDynamic: true,
+    });
+  }
+
   toJSON(): TypeDef {
     return {
       name: BoolType.NAME,
@@ -99,9 +119,9 @@ export class BoolType extends Type<boolean, BoolOptions> {
     return new BoolType(this.registry, { ...this.options });
   }
 
-  toCode(): string { return this.docsPrefix() + 'bool' + optionsCode(this.options); }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'bool' + optionsCode(this.options); }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('bool') }).passthrough();

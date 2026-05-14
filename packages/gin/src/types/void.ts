@@ -1,10 +1,11 @@
+import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
-import type { SchemaOptions } from '../node';
+import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 
 /**
@@ -15,8 +16,9 @@ export class VoidType extends Type<void, Record<string, never>> {
   static readonly NAME = 'void';
   readonly name = VoidType.NAME;
 
-  static from(_json: TypeDef, registry: Registry): VoidType {
-    return new VoidType(registry, {});
+  static from(_json: TypeDef, scope: TypeScope): VoidType {
+    const registry = scope.registry;
+    return new VoidType(scope, {});
   }
 
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
@@ -87,9 +89,9 @@ export class VoidType extends Type<void, Record<string, never>> {
     return new VoidType(this.registry, {});
   }
 
-  toCode(): string { return this.docsPrefix() + 'void'; }
+  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'void'; }
 
-  toValueSchema(opts?: SchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
 
   toInstanceSchema(): z.ZodTypeAny {
     return z.object({ name: z.literal('void') }).passthrough();

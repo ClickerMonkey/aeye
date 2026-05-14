@@ -105,14 +105,14 @@ describe('Type.toCode — functions and references', () => {
     expect(fn.toCode()).toBe('(): void');
   });
   test('fn with generics', () => {
-    const fn = r.fn(r.obj({ x: { type: r.generic('T') } }), r.generic('T'), undefined, { T: r.any() });
+    const fn = r.fn(r.obj({ x: { type: r.alias('T') } }), r.alias('T'), undefined, { T: r.any() });
     expect(fn.toCode()).toBe('<T>(x: T): T');
   });
   test('ref → bare name', () => {
-    expect(r.ref('User').toCode()).toBe('User');
+    expect(r.alias('User').toCode()).toBe('User');
   });
   test('generic → bare name', () => {
-    expect(r.generic('T').toCode()).toBe('T');
+    expect(r.alias('T').toCode()).toBe('T');
   });
   test('iface renders struct-style', () => {
     const t = r.iface({
@@ -193,7 +193,7 @@ describe('Engine.toCode — expressions', () => {
       vars: [{ name: 'x', value: { kind: 'new', type: { name: 'num' }, value: 10 } }],
       body: { kind: 'get', path: [{ prop: 'x' }] },
     });
-    expect(code).toContain('const x = 10');
+    expect(code).toContain('let x = 10');
     expect(code).toContain('x;');
   });
 
@@ -203,7 +203,7 @@ describe('Engine.toCode — expressions', () => {
       vars: [{ name: 'x', value: { kind: 'new', type: { name: 'num' }, value: 10 } }],
       body: { kind: 'get', path: [{ prop: 'x' }] },
     }, { expectsValue: true });
-    expect(code).toContain('const x');
+    expect(code).toContain('let x');
     expect(code).toContain('return x');
   });
 
@@ -310,13 +310,13 @@ describe('Engine.toCode — expressions', () => {
         condition: { kind: 'new', type: { name: 'bool' }, value: true },
         body: {
           kind: 'lambda',
-          type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+          type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
           body: { kind: 'flow', action: 'return', value: { kind: 'new', type: { name: 'num' }, value: 7 } },
         },
       }],
       else: {
         kind: 'lambda',
-        type: { name: 'function', call: { args: { name: 'object' }, returns: { name: 'num' } } },
+        type: { name: 'fn', call: { args: { name: 'obj' }, returns: { name: 'num' } } },
         body: { kind: 'new', type: { name: 'num' }, value: 0 },
       },
     }, { expectsValue: true });
@@ -362,8 +362,8 @@ describe('Engine.toCode — expressions', () => {
     const code = e.toCode({
       kind: 'lambda',
       type: {
-        name: 'function',
-        call: { args: { name: 'object', props: { n: { type: { name: 'num' } } } }, returns: { name: 'num' } },
+        name: 'fn',
+        call: { args: { name: 'obj', props: { n: { type: { name: 'num' } } } }, returns: { name: 'num' } },
       },
       body: {
         kind: 'get',
@@ -373,7 +373,7 @@ describe('Engine.toCode — expressions', () => {
         ],
       },
     });
-    expect(code).toBe('(args: obj{n: num}) => args.n.mul({ other: 2 })');
+    expect(code).toBe('(n: num): num => args.n.mul({ other: 2 })');
   });
 
   test('template with static params inlines interpolations', () => {
@@ -382,7 +382,7 @@ describe('Engine.toCode — expressions', () => {
       template: { kind: 'new', type: { name: 'text' }, value: 'Hello {name}!' },
       params: {
         kind: 'new',
-        type: { name: 'object', props: { name: { type: { name: 'text' } } } },
+        type: { name: 'obj', props: { name: { type: { name: 'text' } } } },
         value: { name: 'Alice' },
       },
     });

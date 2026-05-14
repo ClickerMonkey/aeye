@@ -324,8 +324,18 @@ describe('Prompt Final Coverage', () => {
         excludeMessages: true
       });
 
-      const executor = createMockExecutor({
+      // Snapshot messages at executor invocation time. The Prompt loop
+      // mutates `request.messages` after the executor returns (the
+      // assistant response is pushed in for the next iteration), so
+      // jest.fn().mock.calls captures a reference that reflects the
+      // post-mutation state — we have to snapshot here.
+      let messagesAtCall: number | undefined;
+      const baseExecutor = createMockExecutor({
         response: { content: 'response', finishReason: 'stop' }
+      });
+      const executor: typeof baseExecutor = jest.fn(async (request, ctx, metadata, signal) => {
+        messagesAtCall = request.messages.length;
+        return baseExecutor(request, ctx, metadata, signal);
       });
 
       const ctx: Context<{}, {}> = {
@@ -338,10 +348,8 @@ describe('Prompt Final Coverage', () => {
 
       await prompt.get('result', {}, ctx);
 
-      // Check that executor was called with only the prompt message
-      const call = (executor as any).mock.calls[0][0];
-      expect(call.messages).toBeDefined();
-      expect(call.messages.length).toBe(1); // Only the prompt's message
+      // The executor should have seen only the prompt's system message.
+      expect(messagesAtCall).toBe(1);
     });
 
     it('should include context messages by default', async () => {

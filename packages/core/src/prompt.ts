@@ -4,7 +4,13 @@ import { ZodString, ZodType } from 'zod';
 import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { strictify, toJSONSchema } from "./schema";
+import { getDescriptorById, strictify } from "./schema";
+
+/** Default cap (chars) for validation error messages surfaced back to the
+ *  LLM. Read by `Prompt.truncateValidationError`; subclasses may override
+ *  the method to ignore this. Anything past `max` is replaced with a
+ *  `… (N more characters)` marker. */
+const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
 
 /**
  * Represents a tool that can be selected by the retool function.
@@ -91,8 +97,23 @@ export interface PromptInput<
   input?: Fn<Record<string, any>, [TInput | undefined, Context<TContext, TMetadata>]>;
   // A schema or function/promise that returns a schema defining the expected output format of the prompt. If not provided, defaults to plain text.
   schema?: Fn<ZodType<TOutput> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
-  // If true, the output schema is strictly enforced. By default this is true.
-  strict?: boolean;
+  /**
+   * Strict-mode policy for the output schema. Tri-state, with `1`
+   * (best-effort preference) as the default when omitted:
+   *
+   * - `true` — REQUIRE strict structured output. Selection filters out
+   *   models without the matching strict-output family.
+   * - `false` — FORCE lenient. Output emitted as standard JSON, no `strict`
+   *   flag on the wire.
+   * - `number > 0` (default `1`) — PREFER strict, tolerate fallback. The
+   *   number is the priority — used by `SchemaBudget` to allocate strict
+   *   slots in priority order when the chosen descriptor has per-request
+   *   limits (e.g. Anthropic's 24 optional-param ceiling).
+   *
+   * The legacy default of `true` was changed to `1` in v2 to keep
+   * "it just works" against unknown/unannotated models.
+   */
+  strict?: boolean | number;
   // A configuration object or function/promise that returns a configuration object for the AI request.
   config?: Fn<Partial<Request> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
   // After an iteration, a function that can reconfigure the prompt based on runtime statistics.
@@ -106,6 +127,13 @@ export interface PromptInput<
   toolExecution?: 'sequential' | 'parallel' | 'immediate';
   // Number of attempts to retry tool calls upon failure. Defaults to 2. */
   toolRetries?: number;
+  // Maximum number of characters of any validation error message
+  // (Zod tool-arg parse, output schema parse, output validate, JSON parse)
+  // surfaced back to the LLM as a corrective user message. Lengthy zod
+  // errors against deep recursive schemas can otherwise blow past 100k
+  // characters, blowing the model's context and the user's terminal both.
+  // Truncation appends a `… (N more characters)` marker. Default 4096.
+  validationErrorMaxLength?: number;
   // Number of attempts to get the output in the right format and to pass validation. Defaults to what's on the context, which defaults to 2.
   outputRetries?: number;
   // Number of attempts that will be made to forget context messages of the past in order to complete the request. Defaults to what's on the context, which defaults to 1.
@@ -116,6 +144,32 @@ export interface PromptInput<
   toolIterations?: number;
   // Maximum tool calls allowed. We can't enforce this exact number unless toolsOneAtATime=true, but we will stop sending tools if we have tool successes >= this number
   toolsMax?: number;
+  /**
+   * Guarantee every `toolCalls[i]` on an emitted assistant message has a
+   * matching `role: 'tool'` reply in `request.messages` before the loop
+   * returns — even when execution was aborted via the signal or
+   * short-circuited by a `ToolInterrupt`. Without this guarantee, the
+   * next round-trip fails (OpenAI / Anthropic both reject unpaired
+   * `tool_calls`).
+   *
+   * The synthetic reply carries a short marker (`[interrupted]`,
+   * `[aborted: …]`, `[error: …]`) so the model can see WHY the tool
+   * didn't run and the caller can detect the synthesized state via the
+   * message content if they need to re-issue.
+   *
+   * `PromptSuspend` is NEVER auto-paired — suspend/resume relies on
+   * the missing result slot to know which tool to resume. Suspended
+   * tools still skip result emission regardless of this flag.
+   *
+   * Note: abort-aware dispatch (the `if (signal.aborted) break;` at
+   * the top of the sequential / parallel / immediate dispatch loops)
+   * runs unconditionally so Ctrl+C unwinds quickly regardless of this
+   * flag. Only the synthesis pass that fills in placeholder replies
+   * is gated.
+   *
+   * Default: `true`.
+   */
+  toolsComplete?: boolean;
   // A function/promise that returns an array of tool names and/or tool objects to use, or false to indicate the prompt is not compatible with the context.
   // Tool names (strings) select from the predefined tools array, while tool objects allow for dynamic tools.
   retool?: Fn<RetoolResult<TContext, TMetadata, TTools>, [TInput | undefined, Context<TContext, TMetadata>]>;
@@ -295,7 +349,11 @@ export class Prompt<
   constructor(
     public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>,
     private retool = resolveFn(input.retool),
-    private schema = resolveFn(input.schema, s => s && input.strict !== false ? strictify(s) as ZodType<TOutput> : s),
+    // Schema stays raw. The matching strictify is applied lazily at validation
+    // time using the descriptor pinned on `request.responseFormat.descriptor`
+    // by whichever provider built the request — so the validator always
+    // matches the wire shape the model actually saw.
+    private schema = resolveFn(input.schema),
     private config = resolveFn(input.config),
     private translate = resolveFn(input.input),
     private content = Prompt.compileContent(input.content, !!input.tools?.length),
@@ -584,6 +642,7 @@ export class Prompt<
     let forgetRetries = this.input.forgetRetries ?? ctx.forgetRetries ?? 1;
     let toolIterations = this.input.toolIterations ?? 3;
     let toolRetries = this.input.toolRetries ?? ctx.toolRetries ?? 2;
+    const toolsComplete = this.input.toolsComplete ?? true;
 
     let result: TOutput | undefined = undefined;
     let lastError: string | undefined = undefined;
@@ -617,6 +676,15 @@ export class Prompt<
 
     // Main execution loop!
     while (iterations < maxIterations) {
+      // Honor the caller's abort signal at iteration boundaries — if a
+      // tool dispatch already paired its tool_calls via the synthesis
+      // pass on the previous iteration, there's no reason to start
+      // another round-trip. Without this guard the loop would spin
+      // until `maxIterations` because each inner stream call would
+      // immediately observe `signal.aborted`, yield nothing, and fall
+      // through to "no tool calls" — wasting time and tokens for an
+      // already-cancelled request.
+      if (ctx.signal?.aborted) break;
       const toolExecutors: ToolExecution<PromptTools<TTools>>[] = [];
       const toolExecutorMap = new Map<string, ToolExecution<PromptTools<TTools>>>();
       const toolErrorsPrevious = (toolCallErrors + toolParseErrors);
@@ -673,7 +741,13 @@ export class Prompt<
 
         // Handle tool calls
         if (chunk.toolCallNamed) {
-          const toolExecutor = newToolExecution(ctx, chunk.toolCallNamed, toolMap.get(chunk.toolCallNamed.name));
+          const toolExecutor = newToolExecution(
+            ctx,
+            chunk.toolCallNamed,
+            toolMap.get(chunk.toolCallNamed.name),
+            this.input.validationErrorMaxLength,
+            this.truncateValidationError.bind(this),
+          );
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
           
@@ -814,6 +888,15 @@ export class Prompt<
         switch (iterationMode) {
           case 'sequential':
             for (const toolExecutor of toolExecutors) {
+              // Abort-aware dispatch — once the caller's signal trips,
+              // stop starting subsequent tools so Ctrl+C unwinds within
+              // ~1 tool's duration instead of grinding through the rest
+              // of the batch. The synthesis pass below pairs every
+              // unstarted tool_call with an `[aborted]` placeholder.
+              // We check `ctx.signal` directly (not the streamController
+              // relay) because the relay's listener was already
+              // removed by the time tool dispatch runs.
+              if (ctx.signal?.aborted) break;
               await toolExecutor.parse();
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -837,6 +920,15 @@ export class Prompt<
           case 'immediate':
             const parseRuns = toolExecutors.map(tc => [tc.parse(), tc.run()]).flat();
             for await (const { result: toolCallPromise } of yieldAll(parseRuns)) {
+              // The promises in `parseRuns` were started eagerly, so
+              // tools already in flight will keep running in the
+              // background (orphaned). What we control here is whether
+              // we accumulate their results / emit their events. Bail
+              // on abort so the caller doesn't have to wait for stragglers
+              // to finish — synthesis below covers any unpaired tool_call.
+              // (We check `ctx.signal` directly — streamController's
+              // listener was already removed before tool dispatch.)
+              if (ctx.signal?.aborted) break;
               const toolExecutor = await toolCallPromise;
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -857,22 +949,46 @@ export class Prompt<
             break;
         }
 
-        // Emit tool results for all completed tools. If any tool suspended, skip its result
-        // (the caller will supply it on resume) and break after processing the rest.
-        // request.messages ends with: [...history, assistantMsg(toolCalls), toolResult(completed)...]
+        // Emit tool results for every executor. The pairing guarantee:
+        // every assistant `tool_calls[i]` pushed by this block must
+        // have a matching `role: 'tool'` entry by the end of the loop,
+        // otherwise the next round-trip 400s (OpenAI / Anthropic both
+        // reject unpaired tool_calls).
+        //
+        // - `suspended`: skipped on purpose (suspend/resume relies on
+        //   the missing slot to know which tool to resume).
+        // - incomplete (`ready` / `parsed` / `executing` / `interrupted`
+        //   without an error string): no real content. With
+        //   `toolsComplete: true` (default) we synthesize a marker
+        //   (`[aborted: …]`, `[interrupted]`) so the model knows WHY
+        //   the slot is empty. With `toolsComplete: false` we omit
+        //   the message entirely — the caller is on their own.
+        // - complete (`success` / `error` / `invalid` / `interrupted`
+        //   with an error string): emit the real result / error.
         let anySuspended = false;
         for (const toolExecutor of toolExecutors) {
           if (toolExecutor.status === 'suspended') {
             anySuspended = true;
-            continue; // Omit result — the pending result will be supplied on resume
+            continue;
           }
-          const content = toolExecutor.error
-            ? toolExecutor.error
-            : toolExecutor.result
+          const hasError = !!toolExecutor.error;
+          const hasResult = toolExecutor.result !== undefined && toolExecutor.result !== null;
+          const isComplete = hasError || hasResult || toolExecutor.status === 'success';
+          if (!isComplete && !toolsComplete) {
+            // Opt-out — leave the unfinished tool_call without a
+            // paired result. Caller has accepted responsibility for
+            // handling the broken history shape (e.g. they're about
+            // to discard the request entirely, or they have their
+            // own retry logic).
+            continue;
+          }
+          const content = hasError
+            ? toolExecutor.error!
+            : hasResult
               ? typeof toolExecutor.result === 'string'
                 ? toolExecutor.result
                 : JSON.stringify(toolExecutor.result)
-              : '';
+              : this.synthesizeUnpairedResult(toolExecutor);
 
           yield emitMessage({
             role: 'tool',
@@ -960,15 +1076,31 @@ export class Prompt<
 
           let errorMessage = '';
           let resetReason = '';
+          const errMax = this.input.validationErrorMaxLength;
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
-            const parsedSafe = await schema.safeParseAsync(parsedJSON);
+            // Apply the same strictify rewrite the provider used for the wire
+            // shape, so array-of-pairs records / numeric-key tuples / etc.
+            // normalize back into the natural Zod shape before validation.
+            // The descriptor was pinned on the response format when the
+            // provider built the request. Fast cache lookup on retries.
+            const responseDescriptorId = typeof request.responseFormat === 'object'
+              ? request.responseFormat.descriptor
+              : undefined;
+            const validationSchema = responseDescriptorId
+              ? strictify(schema, getDescriptorById(responseDescriptorId)) as typeof schema
+              : schema;
+
+            const parsedSafe = await validationSchema.safeParseAsync(parsedJSON);
             if (!parsedSafe.success) {
               const issueSummary = parsedSafe.error.issues
                 .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
                 .join('\n')
-              errorMessage = `The output was an invalid format:\n${issueSummary}\n\nPlease adhere to the output schema:\n${toJSONSchema(schema, this.input.strict ?? true)}`;
+              errorMessage = this.truncateValidationError(
+                `The output was an invalid format:\n${issueSummary}`,
+                errMax,
+              );
               resetReason = 'schema-parsing';
             } else {
               result = parsedSafe.data as unknown as TOutput;
@@ -976,12 +1108,18 @@ export class Prompt<
               try {
                 await this.input.validate?.(result, ctx);
               } catch (validationError: any) {
-                errorMessage = `The output failed validation:\n${validationError.message}`;
+                errorMessage = this.truncateValidationError(
+                  `The output failed validation:\n${validationError.message}`,
+                  errMax,
+                );
                 resetReason = 'validation';
               }
             }
           } catch (parseError: any) {
-            errorMessage = `The output was not valid JSON:\n${parseError.message}`;
+            errorMessage = this.truncateValidationError(
+              `The output was not valid JSON:\n${parseError.message}`,
+              errMax,
+            );
             resetReason = 'json-parsing';
           }
 
@@ -1112,6 +1250,14 @@ export class Prompt<
 
     // We don't emit complete without a valid result unless toolsOnly is set
     if (result === undefined && !onlyTools) {
+      // Abort is not an error — the caller asked us to stop. Exit
+      // silently with the partial `request.messages` they may want
+      // for resume/inspection, without emitting `complete` (no real
+      // output to surface) and without raising. Mirrors the suspend
+      // path's `return undefined` semantics.
+      if (ctx.signal?.aborted) {
+        return undefined as any;
+      }
       if (!lastError && iterations === maxIterations) {
         lastError = `Maximum iterations (${maxIterations}) reached without a valid response.`;
       }
@@ -1222,7 +1368,7 @@ export class Prompt<
 
     // Determine response format
     const responseFormat: ResponseFormat = schema && !(schema instanceof ZodString)
-      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? true }
+      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1 }
       : 'text';
 
     return { config, content, tools, toolObjects, responseFormat, schema };
@@ -1245,6 +1391,68 @@ export class Prompt<
       }
       return response;
     };
+  }
+
+  /**
+   * Truncate a validation error so the corrective user message we send back
+   * to the LLM stays bounded. Lengthy zod errors against deep recursive
+   * schemas can run 100k+ characters — eating context and burning tokens
+   * on noise the model can't usefully act on. Anything past `max` is
+   * replaced with a `… (N more characters)` marker so the LLM both knows
+   * the message was clipped and roughly how much was lost.
+   *
+   * `protected` so a subclass can override — e.g. to emit a shorter
+   * marker, route errors through a custom formatter, or skip truncation
+   * entirely when targeting a model with a large context window.
+   */
+  protected truncateValidationError(message: string, max?: number): string {
+    const cap = max ?? DEFAULT_VALIDATION_ERROR_MAX_LENGTH;
+    if (cap <= 0 || message.length <= cap) return message;
+    const dropped = message.length - cap;
+    return `${message.slice(0, cap)}… (${dropped} more characters)`;
+  }
+
+  /**
+   * Build a short, model-readable placeholder for a `tool_call` that
+   * never produced a real result. Used by the result-emit loop when
+   * `toolsComplete` is true to keep `request.messages` well-paired
+   * even when the dispatch loop short-circuited (signal abort or
+   * `ToolInterrupt` cutting a parallel batch short) or a tool errored
+   * before its content could be accumulated.
+   *
+   * The marker prefix (`[aborted: …]`, `[interrupted]`, `[error: …]`)
+   * gives the model a clear cue and lets callers detect synthesized
+   * replies by inspecting the message content if they need to
+   * differentiate. Suspended tools are intentionally NOT routed
+   * through here — the suspend/resume protocol depends on the
+   * missing result slot.
+   *
+   * `protected` so a subclass can override — e.g. to emit
+   * project-specific markers, log diagnostics for every synthesized
+   * result, or fall back to a model-specific instruction string.
+   */
+  protected synthesizeUnpairedResult<T extends ToolCompatible<any, any>>(
+    te: ToolExecution<T>,
+  ): string {
+    switch (te.status) {
+      case 'interrupted':
+        return te.error
+          ? `[interrupted: ${te.error}]`
+          : '[interrupted]';
+      case 'error':
+      case 'invalid':
+        return te.error
+          ? `[error: ${te.error}]`
+          : '[error]';
+      case 'ready':
+      case 'parsed':
+      case 'executing':
+        // Never reached a terminal status — the dispatch loop cut out
+        // mid-flight (abort or interrupt of a sibling).
+        return '[aborted: tool call did not complete before the request was cancelled]';
+      default:
+        return '[no result]';
+    }
   }
 
   /**
@@ -1413,7 +1621,17 @@ function emitter() {
   return emitter;
 }
 
-function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: ToolCall, toolInfo?: { tool: T, definition: ToolDefinition }) {
+function newToolExecution<T extends AnyTool>(
+  ctx: Context<any, any>,
+  toolCall: ToolCall,
+  toolInfo?: { tool: T, definition: ToolDefinition },
+  validationErrorMaxLength?: number,
+  // Pluggable truncator — the owning Prompt instance forwards its
+  // (overridable) `truncateValidationError` method here so a subclass
+  // can change how tool-arg parse errors are formatted without having
+  // to fork the whole prompt loop.
+  truncate?: (message: string, max?: number) => string,
+) {
   const start = emitter();
   const output = emitter();
   const error = emitter();
@@ -1440,14 +1658,34 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
       if (execution.status !== 'ready') {
         return execution;
       }
-      const args = execution.toolCall.arguments || '{}';
+      const rawArgs = execution.toolCall.arguments;
+      const isEmpty = !rawArgs || rawArgs.trim() === '';
+      const args = isEmpty ? '{}' : rawArgs;
       try {
-        execution.args = await toolInfo!.tool.parse(ctx, args, toolInfo!.definition.parameters);
+        execution.args = await toolInfo!.tool.parse(
+          ctx,
+          args,
+          toolInfo!.definition.parameters,
+          toolInfo!.definition.descriptor,
+        );
         execution.status = 'parsed';
         start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
-        execution.error = `Error parsing tool arguments: ${e.message}, args: ${args}`;
+        // Distinguish "model sent no arguments at all" from "model sent
+        // bad arguments". The former is usually a streaming-relay issue
+        // (OpenRouter/Anthropic) or a genuine model gaffe — calling it
+        // out by name in the error gives the model a clearer cue to
+        // fix itself on the retry turn instead of repeating the empty
+        // call. The latter (bad arguments) keeps its original Zod /
+        // JSON.parse message, which already names the offending field.
+        const reason = isEmpty
+          ? `the tool was called with NO arguments. The schema requires arguments — re-call this tool with the required fields populated. Validation: ${e.message}`
+          : `${e.message}, args: ${args}`;
+        const formatted = `Error parsing tool arguments: ${reason}`;
+        execution.error = truncate
+          ? truncate(formatted, validationErrorMaxLength)
+          : formatted;
         error.ready = true;
       }
 
@@ -1483,3 +1721,5 @@ function newToolExecution<T extends AnyTool>(ctx: Context<any, any>, toolCall: T
 
   return execution;
 };
+
+

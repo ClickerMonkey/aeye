@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { createRegistry } from '../registry';
 import { buildSchemas } from '../schemas';
 import { TypType } from '../types/typ';
+import { LocalScope } from '../type-scope';
 
 /**
  * TypType — a gin type whose runtime values ARE TypeDefs. Its generic T
@@ -79,12 +80,15 @@ describe('TypType', () => {
     expect(r.typ(r.num()).compatible(r.num())).toBe(false);
   });
 
-  test('generic binding: typ<R>.bind({R: num}) → typ<num>', () => {
+  test('generic resolution: typ<R> with extra-scope R=num behaves as typ<num>', () => {
     const r = createRegistry();
-    const t = r.typ(r.generic('R'));
-    const bound = t.bind({ R: r.num() }) as TypType;
-    expect(bound).toBeInstanceOf(TypType);
-    expect(bound.constraint.name).toBe('num');
+    const t = r.typ(r.alias('R'));
+    const local = new LocalScope(r, { R: r.num() });
+    // typ<R>.parse({name:'num'}, local) — R resolves to num via the
+    // extra scope, so num is a satisfying TypeDef.
+    expect(t.parse({ name: 'num' }, local).raw.name).toBe('num');
+    // typ<R>.parse({name:'text'}, local) — text is not num-compatible.
+    expect(() => t.parse({ name: 'text' }, local)).toThrow();
   });
 
   test('typ<any> parse accepts any TypeDef JSON', () => {
@@ -140,7 +144,7 @@ describe('TypType', () => {
 describe('TypType + generics', () => {
   test('unbound typ<R> acts as typ<any> — parse accepts any TypeDef', () => {
     const r = createRegistry();
-    const t = r.typ(r.generic('R'));
+    const t = r.typ(r.alias('R'));
     expect(t.parse({ name: 'num' }).raw.name).toBe('num');
     expect(t.parse({ name: 'text' }).raw.name).toBe('text');
     expect(t.parse({ name: 'list', generic: { V: { name: 'num' } } }).raw.name).toBe('list');
@@ -148,55 +152,52 @@ describe('TypType + generics', () => {
     expect(() => t.parse(42)).toThrow();
   });
 
-  test('typ<R>.bind({R: num}) narrows to typ<num>', () => {
+  test('typ<R> with extra-scope R=num accepts num and rejects text', () => {
     const r = createRegistry();
-    const unbound = r.typ(r.generic('R'));
-    const bound = unbound.bind({ R: r.num() }) as TypType;
-    expect(bound).toBeInstanceOf(TypType);
-    expect(bound.constraint.name).toBe('num');
-    expect(bound.parse({ name: 'num' }).raw.name).toBe('num');
-    expect(() => bound.parse({ name: 'text' })).toThrow();
+    const unbound = r.typ(r.alias('R'));
+    const local = new LocalScope(r, { R: r.num() });
+    expect(unbound.parse({ name: 'num' }, local).raw.name).toBe('num');
+    expect(() => unbound.parse({ name: 'text' }, local)).toThrow();
   });
 
-  test('fn<(args{output: typ<R>}), R>.bind({R: num}) narrows output AND return', () => {
+  test('fn<(args{output: typ<R>}), R> with R=num scope: returns resolves to num, output to optional<typ<R>>', () => {
     const r = createRegistry();
     const fn = r.fn(
-      r.obj({ output: { type: r.optional(r.typ(r.generic('R'))) } }),
-      r.generic('R'),
+      r.obj({ output: { type: r.optional(r.typ(r.alias('R'))) } }),
+      r.alias('R'),
       undefined,
       { R: r.any() },
     );
-    const bound = fn.bind({ R: r.num() });
-    const call = bound.call();
+    const local = new LocalScope(r, { R: r.num() });
+    const call = fn.call(local);
     expect(call).toBeTruthy();
-    // Return type narrowed to num.
-    expect(call!.returns?.name).toBe('num');
-    // output arg narrowed to optional<typ<num>>.
+    // Return type's resolved form is num via simplify(local).
+    expect(call!.returns?.simplify(local).name).toBe('num');
+    // output arg is optional<typ<R>> — outer Optional doesn't change.
     const argsType = call!.args;
-    const outputProp = argsType.prop('output');
+    const outputProp = argsType.prop('output', local);
     expect(outputProp).toBeTruthy();
     expect(outputProp!.type.name).toBe('optional');
   });
 
   test('typ<R> JSON round-trips preserving the generic placeholder', () => {
     const r = createRegistry();
-    const t = r.typ(r.generic('R'));
+    const t = r.typ(r.alias('R'));
     const json = t.toJSON();
     expect(json.name).toBe('typ');
-    expect(json.generic?.T).toEqual({ name: 'generic', options: { name: 'R' } });
+    // Bare-name form — AliasType.toJSON emits `{name: 'R'}`.
+    expect(json.generic?.T).toEqual({ name: 'R' });
 
     const back = r.parse(json) as TypType;
     expect(back).toBeInstanceOf(TypType);
-    expect(back.constraint.name).toBe('generic');
+    expect(back.constraint.name).toBe('alias');
   });
 
-  test('typ<list<R>>.bind({R: num}) narrows list item', () => {
+  test('typ<list<R>> with extra-scope R=num: list<num> ok, list<text> rejected', () => {
     const r = createRegistry();
-    const t = r.typ(r.list(r.generic('R')));
-    const bound = t.bind({ R: r.num() }) as TypType;
-    expect(bound.constraint.name).toBe('list');
-    // Accepts list<num> TypeDef; rejects list<text>.
-    expect(bound.parse({ name: 'list', generic: { V: { name: 'num' } } }).raw.name).toBe('list');
-    expect(() => bound.parse({ name: 'list', generic: { V: { name: 'text' } } })).toThrow();
+    const t = r.typ(r.list(r.alias('R')));
+    const local = new LocalScope(r, { R: r.num() });
+    expect(t.parse({ name: 'list', generic: { V: { name: 'num' } } }, local).raw.name).toBe('list');
+    expect(() => t.parse({ name: 'list', generic: { V: { name: 'text' } } }, local)).toThrow();
   });
 });

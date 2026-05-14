@@ -12,7 +12,10 @@
  * The companion `web_get_page` tool wraps `fetchAndConvert`; consumers
  * outside of that tool can use the same entry point.
  */
-import puppeteer from 'puppeteer';
+// puppeteer is loaded lazily — see `fetchHtmlWithPuppeteer`. Keeping
+// it out of the top-level import surface lets us declare it as an
+// `optionalDependency` so a global install of ginny doesn't force every
+// user to download Chromium (~170 MB) just to run non-web flows.
 import { NodeHtmlMarkdown } from 'node-html-markdown';
 import pdfParse from 'pdf-parse';
 import * as XLSX from 'xlsx';
@@ -57,19 +60,91 @@ export function detectContentType(contentType: string, url: string): ContentType
 // Puppeteer HTML fetching — survives JS-rendered SPA content.
 // ---------------------------------------------------------------------------
 
-export async function fetchHtmlWithPuppeteer(url: string): Promise<string> {
+/**
+ * Fetch + render an HTML page through a headless browser.
+ *
+ * Most modern sites are client-rendered, so we ask puppeteer to wait
+ * for `networkidle2` (≤2 in-flight requests) — that's the signal a
+ * SPA has actually painted content. But many real-world pages keep
+ * connections open indefinitely (analytics, long-polling, websockets,
+ * tracking pixels) and never reach networkidle2. The trick is to give
+ * the wait a bounded budget and, IF it times out, scrape whatever's
+ * rendered AT THAT MOMENT instead of failing — for most pages the
+ * primary content is on screen well before the trailing connections
+ * settle.
+ *
+ * Layered protections:
+ *
+ * 1. **Soft `goto` timeout** — 15s, with `networkidle2`. On timeout
+ *    we DO NOT throw; we proceed to `page.content()` so the partial
+ *    render is captured. This is the load-bearing change vs the
+ *    previous "domcontentloaded only" version.
+ * 2. **Hard wall-clock cap** — 30s for the whole function. If any
+ *    step (launch, goto-after-timeout, content, close) is still
+ *    stuck after that, the cap force-closes the browser so we don't
+ *    let one URL leak into a multi-minute hang.
+ * 3. **Signal-driven cancel** — when `signal` fires (ESC), we kick
+ *    `browser.close()` so in-flight ops unwind immediately.
+ */
+export async function fetchHtmlWithPuppeteer(
+  url: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  // Dynamic import + try/catch so an install where puppeteer (or its
+  // Chromium download) was skipped surfaces a friendly error pointing
+  // at the fix, instead of crashing the whole module's import graph.
+  let puppeteer: typeof import('puppeteer').default;
+  try {
+    puppeteer = (await import('puppeteer')).default;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `puppeteer is not available (${msg}). ` +
+      `Install it to enable JS-rendered HTML fetching: \`npm i -g puppeteer\` ` +
+      `(this also downloads a bundled Chromium).`,
+    );
+  }
+
+  const HARD_CAP_MS = 30_000;
+  const GOTO_MS = 15_000;
+
   const browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   });
+
+  // Wire abort + hard cap to a single "kill the browser" path so any
+  // stuck puppeteer call rejects and lets `finally` close cleanly.
+  let killed = false;
+  const kill = () => {
+    if (killed) return;
+    killed = true;
+    browser.close().catch(() => { /* already closing */ });
+  };
+  const onAbort = () => kill();
+  signal?.addEventListener('abort', onAbort);
+  const hardCap = setTimeout(kill, HARD_CAP_MS);
+
   try {
+    if (signal?.aborted) throw new Error('aborted');
     const page = await browser.newPage();
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     );
-    await page.goto(url, { waitUntil: ['domcontentloaded', 'networkidle2'], timeout: 30000 });
+    // Wait for the SPA to settle if it can (`networkidle2` = ≤2
+    // in-flight requests). On timeout / nav error, swallow and fall
+    // through to `page.content()` — the primary content is usually
+    // already painted; whatever's blocking networkidle2 is the
+    // tracking-pixel / long-poll tail we don't actually need.
+    try {
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: GOTO_MS });
+    } catch {
+      // Swallowed by design — see comment above.
+    }
     return await page.content();
   } finally {
+    clearTimeout(hardCap);
+    signal?.removeEventListener('abort', onAbort);
     await browser.close();
   }
 }
@@ -180,13 +255,17 @@ export interface FetchError {
   error: string;
 }
 
-export async function fetchAndConvert(url: string): Promise<FetchResult | FetchError> {
+export async function fetchAndConvert(
+  url: string,
+  signal?: AbortSignal,
+): Promise<FetchResult | FetchError> {
   let rawContent: string | Buffer;
   let contentType: ContentType;
 
   try {
     const response = await globalThis.fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GinBot/1.0)' },
+      signal,
     });
     if (!response.ok) {
       return { ok: false, url, error: `HTTP ${response.status} ${response.statusText}` };
@@ -195,7 +274,7 @@ export async function fetchAndConvert(url: string): Promise<FetchResult | FetchE
     contentType = detectContentType(ct, url);
 
     if (contentType === 'html') {
-      rawContent = await fetchHtmlWithPuppeteer(url);
+      rawContent = await fetchHtmlWithPuppeteer(url, signal);
     } else if (BINARY_TYPES.has(contentType)) {
       rawContent = Buffer.from(await response.arrayBuffer());
     } else {

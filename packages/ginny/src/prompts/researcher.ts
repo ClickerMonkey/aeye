@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ai } from '../ai';
-import { modelFor } from '../model-selection';
+import { modelFor, toolIterationsConfig } from '../model-selection';
 import { webSearch } from '../tools/web-search';
 import { webGetPage } from '../tools/web-get-page';
 import { ask } from '../tools/ask';
@@ -16,7 +16,7 @@ import { ask } from '../tools/ask';
 export const researcher = ai.prompt({
   name: 'researcher',
   description: 'Answer a factual question by searching the web and reading pages.',
-  metadata: modelFor('researcher') as any,
+  metadata: modelFor('researcher'),
   content: `You are a research assistant. Given a question, use the available web
 tools to find an answer, then respond with your finding.
 
@@ -36,7 +36,7 @@ Keep answers concise and factual. Cite source URLs.
 Question: {{question}}`,
   input: (input: { question: string }) => ({ question: input.question }),
   tools: [webSearch, webGetPage, ask],
-  toolIterations: 10,
+  toolIterations: toolIterationsConfig(),
   excludeMessages: true,
   schema: z.object({
     answer: z.string().describe('The researched answer, concise and factual.'),

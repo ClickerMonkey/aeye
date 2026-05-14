@@ -1,5 +1,5 @@
 import type { ExprDef, TypeDef } from './schema';
-import { Prop, Type } from './type';
+import { Call, GetSet, Init, Prop, type PropSpec, Type } from './type';
 import { Extension, type ExtensionLocal } from './extension';
 import {
   type BoolOptions,
@@ -16,18 +16,21 @@ import {
 import { decodeCall, decodeGetSet, decodeInit, decodeProps } from './spec';
 import { Expr, type ExprClass } from './expr';
 import type { CodeOptions, SchemaOptions } from './node';
+import type { Code } from './code';
 import type { JSONValue } from './json-type';
+import type { Engine } from './engine';
+import { Problems } from './problem';
 import type { z } from 'zod';
 
 import { AnyType } from './types/any';
 import { AndType } from './types/and';
+import { AliasType } from './types/alias';
 import { BoolType } from './types/bool';
 import { ColorType } from './types/color';
 import { DateType } from './types/date';
 import { DurationType } from './types/duration';
 import { EnumType } from './types/enum';
 import { FnType } from './types/fn';
-import { GenericType } from './types/generic';
 import { IfaceType } from './types/iface';
 import { LiteralType } from './types/literal';
 import { ListType } from './types/list';
@@ -39,13 +42,13 @@ import { NumType } from './types/num';
 import { ObjType } from './types/obj';
 import { OptionalType } from './types/optional';
 import { OrType } from './types/or';
-import { RefType } from './types/ref';
 import { TextType } from './types/text';
 import { TimestampType } from './types/timestamp';
 import { TupleType } from './types/tuple';
 import { TypType } from './types/typ';
 import { VoidType } from './types/void';
 import type { Scope } from './scope';
+import type { TypeScope } from './type-scope';
 import { Value } from './value';
 import { registerBuiltinNatives } from './natives';
 
@@ -67,7 +70,13 @@ import { registerBuiltinNatives } from './natives';
 export interface TypeClass {
   readonly NAME: string;
   readonly consumes?: readonly CustomField[];
-  from(json: TypeDef, registry: Registry): Type;
+  /** Build a Type from its JSON. `scope` is the type-name resolution
+   *  scope (Registry as the root, LocalScope layers above for fn
+   *  generics / call.types aliases). Use `scope.registry` to access
+   *  the underlying Registry for child-type construction; use
+   *  `scope.parse` (i.e. `scope.registry.parse(child, scope)`) to
+   *  recursively parse children with the same scope. */
+  from(json: TypeDef, scope: TypeScope): Type;
   /** JSON-shape Zod schema for this Type's TypeDef. */
   toSchema(opts: SchemaOptions): z.ZodTypeAny;
   /**
@@ -89,8 +98,9 @@ export type CustomField = 'props' | 'get' | 'call' | 'init';
 const ALL_CUSTOM_FIELDS: readonly CustomField[] = ['props', 'get', 'call', 'init'];
 
 /** Native implementation — the actual JS function that runs a native op.
- *  Receives the current scope plus the registry for convenient access to
- *  built-in types when wrapping a returned raw back into a Value. */
+ *  Receives the current runtime scope plus the registry for convenient
+ *  access to built-in types when wrapping a returned raw back into a
+ *  Value. */
 export type NativeImpl = (scope: Scope, registry: Registry) => Value | unknown | Promise<Value | unknown>;
 
 /**
@@ -106,11 +116,46 @@ export type NativeImpl = (scope: Scope, registry: Registry) => Value | unknown |
  * to each class's static `from` method, and recurses through nested types
  * via the same entry point.
  */
-export class Registry implements TypeBuilder {
+/**
+ * Augmentations a developer can attach to a Type by name (e.g. 'num',
+ * 'text', 'Email'). Stored on the Registry; consulted by every Type's
+ * `props()` / `get()` / `call()` / `init()` so the additions are
+ * visible at runtime path-walks, in static analysis, and in code
+ * rendering — without subclassing or wrapping the type in an
+ * Extension.
+ *
+ * Composition rules:
+ *   - `props`: ADDED to the type's intrinsic props. Intrinsic names
+ *     win on conflict (you can't replace `num.add` via augmentation).
+ *     Use this to introduce NEW methods / fields.
+ *   - `get` / `call` / `init`: applied IFF the type has none of its
+ *     own. Augmentation can introduce a missing surface (e.g. give
+ *     `date` a `get/loop`, make `timestamp` callable, give `text` an
+ *     init constructor) but does not override one the type already
+ *     declares.
+ *
+ * Augmentations are accumulated — multiple calls to `registry.augment`
+ * for the same name MERGE props. The first `get`/`call`/`init` that's
+ * defined wins (subsequent attempts to set the same field are no-ops).
+ */
+export interface TypeAugmentation {
+  props?: Record<string, Prop | PropSpec>;
+  get?: GetSet;
+  call?: Call;
+  init?: Init;
+}
+
+export class Registry implements TypeBuilder, TypeScope {
   private readonly classes = new Map<string, TypeClass>();
   private readonly namedTypes = new Map<string, Type>();
   private readonly natives = new Map<string, NativeImpl>();
   private readonly exprClasses = new Map<string, ExprClass>();
+  private readonly augments = new Map<string, TypeAugmentation>();
+
+  // ─── SCOPE INTERFACE ─────────────────────────────────────────────────────
+  /** Registry IS the root scope. */
+  readonly parent: undefined = undefined;
+  get registry(): Registry { return this; }
 
   // ─── CLASS REGISTRATION ──────────────────────────────────────────────────
 
@@ -126,11 +171,70 @@ export class Registry implements TypeBuilder {
     return this;
   }
 
-  /** Look up a named Type by name. Registered instances win over defaults. */
+  /**
+   * Add methods / get / call / init to an existing type by name —
+   * works for both built-in classes (`'num'`, `'text'`, `'date'`,
+   * `'timestamp'`, ...) and named instances / Extensions you've
+   * registered. Repeated calls for the same name MERGE: props are
+   * accumulated, while get/call/init keep their first non-undefined
+   * value (subsequent attempts to redefine those are silently
+   * ignored — augmentations fill gaps, they don't override).
+   *
+   * Example — give `date` a `get/loop` so you can iterate over a
+   * range, and make `timestamp` callable as a fn:
+   * ```ts
+   *   registry.augment('date', { get: new GetSet({ key: registry.num(), value: registry.date(), loop: ... }) });
+   *   registry.augment('timestamp', { call: new Call({ args: ..., returns: ... }) });
+   * ```
+   *
+   * Augmented surface flows through every consumer: path-walker
+   * dispatches against augmented `props` / `get` / `call`,
+   * `validateWalk` static analysis sees them, `toCodeDefinition`
+   * renders them in the type's surface block.
+   */
+  augment(name: string, addition: TypeAugmentation): this {
+    const cur = this.augments.get(name);
+    if (!cur) {
+      this.augments.set(name, {
+        props: addition.props ? { ...addition.props } : undefined,
+        get: addition.get,
+        call: addition.call,
+        init: addition.init,
+      });
+      return this;
+    }
+    // Merge into the existing augmentation. Props additive (new wins
+    // on per-name conflict within augmentation itself, but intrinsic
+    // type props still win at consumption time). get/call/init are
+    // first-wins — once set, further attempts no-op.
+    this.augments.set(name, {
+      props: addition.props ? { ...(cur.props ?? {}), ...addition.props } : cur.props,
+      get: cur.get ?? addition.get,
+      call: cur.call ?? addition.call,
+      init: cur.init ?? addition.init,
+    });
+    return this;
+  }
+
+  /** Read the registered augmentation for a type-by-name. Returns
+   *  undefined when nothing has been augmented. Used by `Type.props`
+   *  / `Type.get` / `Type.call` / `Type.init` to overlay additions. */
+  augmentation(name: string): TypeAugmentation | undefined {
+    return this.augments.get(name);
+  }
+
+  /** Look up a Type by name. Registered named instances win; falls back
+   *  to built-in classes (synthesized canonical instance). Returns
+   *  undefined for unknown names. Implements `TypeScope.lookup`. */
   lookup(name: string): Type | undefined {
     if (this.namedTypes.has(name)) return this.namedTypes.get(name);
     const cls = this.classes.get(name);
     if (cls) return cls.from({ name }, this);
+    return undefined;
+  }
+
+  /** Registry has no "local-above-root" layer. See TypeScope.localLookup. */
+  localLookup(_name: string): Type | undefined {
     return undefined;
   }
 
@@ -176,8 +280,11 @@ export class Registry implements TypeBuilder {
     return Array.from(this.exprClasses.values());
   }
 
-  /** Parse an ExprDef (or already-parsed Expr) into an Expr instance. */
-  parseExpr(json: unknown): Expr {
+  /** Parse an ExprDef (or already-parsed Expr) into an Expr instance.
+   *  Optional `scope` lets callers thread a `LocalScope` (with generic /
+   *  call.types aliases bound) through Expr.from implementations that
+   *  recurse into nested TypeDefs (`new`, `lambda`, `native`, `define`). */
+  parseExpr(json: unknown, scope: TypeScope = this): Expr {
     if (json instanceof Expr) return json;
     if (!json || typeof json !== 'object' || !('kind' in (json as object))) {
       throw new Error(`registry.parseExpr: expected ExprDef with kind, got ${typeof json}`);
@@ -185,7 +292,7 @@ export class Registry implements TypeBuilder {
     const def = json as ExprDef;
     const cls = this.exprClasses.get(def.kind);
     if (!cls) throw new Error(`registry.parseExpr: unknown expr kind '${def.kind}'`);
-    return cls.from(def, this);
+    return cls.from(def, scope);
   }
 
   /**
@@ -197,6 +304,69 @@ export class Registry implements TypeBuilder {
     return e.toCode(this, options);
   }
 
+  /**
+   * Render an ExprDef (or parsed Expr) as gin's TS-pseudocode form
+   * with span annotations. The result's `Code` carries spans that
+   * line up with `Problem.path` from `engine.validate(...)`, so a
+   * caller can pass both into `formatProblem` / `formatProblems` to
+   * produce compiler-style `^^^` underlines.
+   */
+  toGinCode(expr: ExprDef | Expr, options?: CodeOptions): Code {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toGinCode(this, options, []);
+  }
+
+  /**
+   * Render an ExprDef (or parsed Expr) as the JSON form (same shape
+   * as `JSON.stringify(expr.toJSON(), null, 2)`) with spans on each
+   * structural slot. Used by ginny's `write` tool to surface
+   * validation pointers in the JSON the LLM actually emitted.
+   */
+  toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toJSONCode([], indent);
+  }
+
+  /**
+   * Validate every user-supplied piece of type surface attached to this
+   * registry — every named type (registered via `register(...)` /
+   * `extend(...)`) AND every augmented built-in (registered via
+   * `augment(name, ...)`). Each type's full surface (props / get / call
+   * / init) is walked; embedded ExprDefs are parsed and validated with
+   * the runtime scope they'll see (`this` / `args` / `recurse` / etc.).
+   *
+   * Returns a single `Problems` bag with paths prefixed by the type's
+   * name. Run as a sweep step after registering custom types — surface
+   * issues at registration time rather than at runtime when the method
+   * is first called.
+   *
+   * Programs validated via `engine.validate(programExpr)` do NOT
+   * trigger this sweep; the two passes are intentionally separate so a
+   * program walk doesn't redo work for every type it touches.
+   */
+  validate(engine: Engine): Problems {
+    const out = new Problems();
+    const seen = new Set<string>();
+    const visit = (typeName: string, type: Type): void => {
+      if (seen.has(typeName)) return;
+      seen.add(typeName);
+      const sub = type.validate(engine);
+      for (const prob of sub.list) {
+        out.list.push({ ...prob, path: [typeName, ...prob.path] });
+      }
+    };
+    // Registered named types (Extensions and explicit `register(...)`).
+    for (const [name, type] of this.namedTypes) visit(name, type);
+    // Built-ins that have been augmented in place. Build a canonical
+    // instance via `lookup` so the surface walker sees the same
+    // type object the runtime would dispatch against.
+    for (const name of this.augments.keys()) {
+      const t = this.lookup(name);
+      if (t) visit(name, t);
+    }
+    return out;
+  }
+
   // ─── JSON PARSE ──────────────────────────────────────────────────────────
 
   /**
@@ -204,30 +374,50 @@ export class Registry implements TypeBuilder {
    * of `Value.toJSON()` — decode the TypeDef via `parse`, then ask that
    * Type to parse the dumped value.
    */
-  parseValue<T = any>(json: unknown, expectedType?: Type): Value<T> {
+  parseValue<T = any>(json: unknown, expectedType?: Type, scope: TypeScope = this): Value<T> {
     if (json instanceof Value) {
       return json;
     }
     if (json && typeof json === 'object' && 'type' in json && 'value' in json) {
-      return this.parse(json.type).parse(json.value);
+      return this.parse(json.type, scope).parse(json.value, scope);
     }
     if (!expectedType) {
       throw new TypeError(`registry.parseValue: expected Value or JSONValue, got ${typeof json}`);
     }
-    return expectedType.parse(json);
+    return expectedType.parse(json, scope);
   }
 
-  parse(json: unknown): Type {
+  parse(json: unknown, scope: TypeScope = this): Type {
     if (!json || typeof json !== 'object') {
       throw new Error(`registry.parse: expected object, got ${typeof json}`);
     }
     const def = json as TypeDef;
-    const result = this.parseInner(def);
+    // Type names must be \w+ (letters, digits, underscore — no
+    // whitespace, no punctuation). LLM-emitted TypeDefs sometimes
+    // arrive with leading whitespace or other junk in the name; the
+    // downstream "claims to satisfy X but does not structurally
+    // match" error is baffling because the offending whitespace is
+    // invisible. Reject explicitly here with a precise pointer.
+    if (typeof def.name !== 'string' || !/^\w+$/.test(def.name)) {
+      throw new Error(`registry.parse: type 'name' must match /^\\w+$/, got ${JSON.stringify(def.name)}`);
+    }
+    if (def.extends !== undefined && (typeof def.extends !== 'string' || !/^\w+$/.test(def.extends))) {
+      throw new Error(`registry.parse: type 'extends' must match /^\\w+$/, got ${JSON.stringify(def.extends)}`);
+    }
+    if (def.satisfies) {
+      for (const ifaceName of def.satisfies) {
+        if (typeof ifaceName !== 'string' || !/^\w+$/.test(ifaceName)) {
+          throw new Error(`registry.parse: 'satisfies' entries must match /^\\w+$/, got ${JSON.stringify(ifaceName)}`);
+        }
+      }
+    }
+
+    const result = this.parseInner(def, scope);
 
     // `satisfies` claims: verify each against the named interface.
     if (def.satisfies && def.satisfies.length > 0) {
       for (const ifaceName of def.satisfies) {
-        const iface = this.lookup(ifaceName);
+        const iface = scope.lookup(ifaceName) ?? this.lookup(ifaceName);
         if (!iface) {
           throw new Error(`registry.parse: satisfies references unknown interface '${ifaceName}'`);
         }
@@ -240,13 +430,50 @@ export class Registry implements TypeBuilder {
     return result;
   }
 
-  private parseInner(def: TypeDef): Type {
+  /** True if `def` is a bare-name shape: only `name` (and optionally
+   *  `docs`), no structural peers. Bare-name defs route through scope
+   *  lookup → AliasType / registered named type / canonical class. */
+  private isBareNameDef(def: TypeDef): boolean {
+    const peers: ReadonlyArray<keyof TypeDef> = [
+      'extends', 'satisfies', 'generic', 'options',
+      'init', 'props', 'get', 'call', 'constraint',
+    ];
+    for (const k of peers) {
+      if ((def as unknown as Record<string, unknown>)[k] !== undefined) return false;
+    }
+    return true;
+  }
+
+  private parseInner(def: TypeDef, scope: TypeScope): Type {
     // `extends` indirection: build the base from the referenced name, wrap
     // in Extension with local additions/narrowings.
     if (def.extends) {
-      const base = this.lookup(def.extends);
+      const base = scope.lookup(def.extends) ?? this.lookup(def.extends);
       if (!base) throw new Error(`registry.parse: extends references unknown type '${def.extends}'`);
-      return new Extension(this, base, this.buildLocal(def));
+      return new Extension(this, base, this.buildLocal(def, scope));
+    }
+
+    // Bare-name shape: dispatch via scope chain.
+    if (this.isBareNameDef(def)) {
+      // Walk above-registry layers — if the name is bound LOCALLY in
+      // any LocalScope (generic placeholder, call.types alias), wrap in
+      // AliasType so substitute / scope resolution works correctly.
+      let s: TypeScope | undefined = scope;
+      while (s && s !== this) {
+        if (s.localLookup(def.name) !== undefined) {
+          return new AliasType(scope, { name: def.name });
+        }
+        s = s.parent;
+      }
+      // Registered named type — return directly (preserves instanceof).
+      if (this.namedTypes.has(def.name)) return this.namedTypes.get(def.name)!;
+      // Built-in class — dispatch eagerly to canonical instance.
+      const cls = this.classes.get(def.name);
+      if (cls) return cls.from(def, scope);
+      // Unknown name — AliasType (lazy; supports forward-refs to types
+      // registered later, e.g. self-referential `r.alias('Node')` during
+      // construction of Node).
+      return new AliasType(scope, { name: def.name });
     }
 
     // Previously-registered named type (Extension or programmatically defined).
@@ -261,19 +488,19 @@ export class Registry implements TypeBuilder {
     const consumed = new Set<CustomField>(cls.consumes ?? []);
     const leftover = ALL_CUSTOM_FIELDS.filter((f) => def[f] !== undefined && !consumed.has(f));
 
-    if (leftover.length === 0) return cls.from(def, this);
+    if (leftover.length === 0) return cls.from(def, scope);
 
     const stripped: TypeDef = { ...def };
     for (const f of leftover) delete stripped[f];
-    const base = cls.from(stripped, this);
+    const base = cls.from(stripped, scope);
 
     const local: ExtensionLocal = {
       name: def.name,
       docs: def.docs,
-      props: leftover.includes('props') && def.props ? decodeProps(def.props, this) : undefined,
-      get: leftover.includes('get') && def.get ? decodeGetSet(def.get, this) : undefined,
-      call: leftover.includes('call') && def.call ? decodeCall(def.call, this) : undefined,
-      init: leftover.includes('init') && def.init ? decodeInit(def.init, this) : undefined,
+      props: leftover.includes('props') && def.props ? decodeProps(def.props, scope) : undefined,
+      get: leftover.includes('get') && def.get ? decodeGetSet(def.get, scope) : undefined,
+      call: leftover.includes('call') && def.call ? decodeCall(def.call, scope) : undefined,
+      init: leftover.includes('init') && def.init ? decodeInit(def.init, scope) : undefined,
     };
     return new Extension(this, base, local);
   }
@@ -293,7 +520,7 @@ export class Registry implements TypeBuilder {
       try {
         if (iface.compatible(t)) out.push(t);
       } catch {
-        // lazy proxies (ref/generic) may throw during compat — skip.
+        // lazy proxies (alias) may throw during compat — skip.
       }
     }
 
@@ -316,10 +543,10 @@ export class Registry implements TypeBuilder {
   }
 
   /** Decode all customization fields from a TypeDef into an ExtensionLocal. */
-  private buildLocal(def: TypeDef): ExtensionLocal {
+  private buildLocal(def: TypeDef, scope: TypeScope): ExtensionLocal {
     const generic = def.generic
       ? Object.fromEntries(
-          Object.entries(def.generic).map(([k, v]) => [k, this.parse(v)]),
+          Object.entries(def.generic).map(([k, v]) => [k, this.parse(v, scope)]),
         )
       : undefined;
     return {
@@ -327,11 +554,11 @@ export class Registry implements TypeBuilder {
       docs: def.docs,
       options: def.options,
       generic,
-      props: def.props ? decodeProps(def.props, this) : undefined,
-      get: def.get ? decodeGetSet(def.get, this) : undefined,
-      call: def.call ? decodeCall(def.call, this) : undefined,
-      init: def.init ? decodeInit(def.init, this) : undefined,
-      constraint: def.constraint ? this.parseExpr(def.constraint) : undefined,
+      props: def.props ? decodeProps(def.props, scope) : undefined,
+      get: def.get ? decodeGetSet(def.get, scope) : undefined,
+      call: def.call ? decodeCall(def.call, scope) : undefined,
+      init: def.init ? decodeInit(def.init, scope) : undefined,
+      constraint: def.constraint ? this.parseExpr(def.constraint, scope) : undefined,
     };
   }
 
@@ -396,8 +623,15 @@ export class Registry implements TypeBuilder {
     });
   }
 
-  ref(name: string)     { return new RefType(this, { name }); }
-  generic(name: string) { return new GenericType(this, { name }); }
+
+  /** Bare-name reference / generic-parameter placeholder.
+   *  JSON form is `{name: 'X'}` — interpretation depends on scope:
+   *  resolves to a registered named type, a built-in class instance, a
+   *  generic placeholder bound on the enclosing fn, or a `call.types`
+   *  alias. Call-site specialization (e.g. path-step `<R: num>`)
+   *  passes an extra `TypeScope` at access time; AliasType.resolve
+   *  consults it before its captured scope. No type-tree rebuild. */
+  alias(name: string) { return new AliasType(this, { name }); }
 
   typ<T = any>(constraint: Type<T>): TypType<T> {
     return new TypType<T>(this, constraint);
@@ -517,8 +751,6 @@ export const BUILTIN_TYPES: TypeClass[] = [
   LiteralType,
   FnType,
   IfaceType,
-  RefType,
-  GenericType,
   TypType,
   DateType,
   TimestampType,

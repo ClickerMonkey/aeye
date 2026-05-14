@@ -199,7 +199,11 @@ describe('OpenAIProvider', () => {
         expect(response.toolCalls).toBeDefined();
         expect(response.toolCalls).toHaveLength(1);
         expect(response.toolCalls![0].name).toBe('get_weather');
-        expect(response.toolCalls![0].arguments).toEqual({ location: 'SF' });
+        // ToolCall.arguments is the raw JSON string — the prompt loop parses
+        // it with Zod when dispatching to the tool's `call`. The provider
+        // doesn't pre-parse.
+        expect(response.toolCalls![0].arguments).toBe('{"location":"SF"}');
+        expect(JSON.parse(response.toolCalls![0].arguments)).toEqual({ location: 'SF' });
       });
 
       it('should handle API errors', async () => {
@@ -236,7 +240,9 @@ describe('OpenAIProvider', () => {
       });
 
       it('should stream chat completion', async () => {
-        // Mock async iterable for streaming
+        // Streaming path uses `.create(...).withResponse()` to get both the
+        // HTTP response (for ok-check) and the async-iterable stream. Mock
+        // both layers.
         const mockStream = {
           [Symbol.asyncIterator]: async function* () {
             yield {
@@ -268,7 +274,12 @@ describe('OpenAIProvider', () => {
           }
         };
 
-        mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
+        mockOpenAI.chat.completions.create.mockReturnValue({
+          withResponse: jest.fn().mockResolvedValue({
+            response: { ok: true, headers: new Map(), status: 200, statusText: 'OK' },
+            data: mockStream,
+          }),
+        });
 
         const streamer = provider.createStreamer();
         const request: Request = {
@@ -353,9 +364,17 @@ describe('OpenAIProvider', () => {
     });
 
     it('should stream image generation with progress', async () => {
-      mockOpenAI.images.generate.mockResolvedValue({
-        data: [{ url: 'https://example.com/image.png' }]
-      });
+      // generateImageStream awaits `images.generate(...)` and iterates the
+      // returned `Stream<ImageGenStreamEvent>` — the mock must be an
+      // async-iterable.
+      const mockImageStream = {
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: 'image_generation.partial', b64_json: 'partial-1' };
+          yield { type: 'image_generation.partial', b64_json: 'partial-2' };
+          yield { type: 'image_generation.completed', b64_json: 'final' };
+        }
+      };
+      mockOpenAI.images.generate.mockResolvedValue(mockImageStream);
 
       const request: ImageGenerationRequest = {
         prompt: 'Test'
@@ -532,11 +551,11 @@ describe('OpenAIProvider', () => {
       });
 
       class CustomProvider extends OpenAIProvider {
-        override augmentImageGenerateRequest(params: any): any {
-          return {
-            ...params,
-            user: 'test-user',  
-          };
+        // augmentImageGenerateRequest mutates params in place — its return
+        // value is ignored. The previous version of this test returned a
+        // new object, which silently did nothing.
+        override augmentImageGenerateRequest(params: any): void {
+          params.user = 'test-user';
         }
       }
 
@@ -846,7 +865,14 @@ describe('OpenAIProvider', () => {
         }
       };
 
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
+      // Streaming uses `.create(...).withResponse()` to get the HTTP
+      // response + the iterable stream.
+      mockOpenAI.chat.completions.create.mockReturnValue({
+        withResponse: jest.fn().mockResolvedValue({
+          response: { ok: true, headers: new Map(), status: 200, statusText: 'OK' },
+          data: mockStream,
+        }),
+      });
 
       const streamer = provider.createStreamer();
       const request: Request = {
@@ -915,7 +941,10 @@ describe('OpenAIProvider', () => {
       expect(response).toBeDefined();
       const callArgs = mockOpenAI.chat.completions.create.mock.calls;
       const lastCall = callArgs[callArgs.length - 1][0];
-      expect(lastCall.max_tokens).toBe(100);
+      // The OpenAI SDK uses `max_completion_tokens` (not legacy `max_tokens`)
+      // since the o-series models added support for it; the provider sends
+      // request.maxTokens through that field.
+      expect(lastCall.max_completion_tokens).toBe(100);
     });
 
     it('should handle topP parameter', async () => {

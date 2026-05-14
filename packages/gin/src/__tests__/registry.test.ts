@@ -24,14 +24,20 @@ describe('Registry', () => {
     expect(t).toBeInstanceOf(Extension);
   });
 
-  test('parse throws for unknown name', () => {
+  test('parse of bare unknown name returns a lazy alias placeholder', () => {
+    // Unknown bare names route through AliasType so forward refs and
+    // self-referential types parse without an existence check. The
+    // alias resolves via scope.lookup at use time; unresolved aliases
+    // behave permissively (compatible / valid both pass) until the
+    // target gets registered.
     const r = createRegistry();
-    expect(() => r.parse({ name: 'unknown-type' })).toThrow();
+    const t = r.parse({ name: 'unknown_type' });
+    expect(t.name).toBe('alias');
   });
 
   test('parse throws for extends of unknown base', () => {
     const r = createRegistry();
-    expect(() => r.parse({ name: 'x', extends: 'does-not-exist' })).toThrow();
+    expect(() => r.parse({ name: 'x', extends: 'does_not_exist' })).toThrow();
   });
 
   test('register + lookup roundtrip', () => {
@@ -65,7 +71,7 @@ describe('Registry', () => {
   test('method helper builds fn-typed prop', () => {
     const r = createRegistry();
     const p = r.method({ other: r.num() }, r.bool(), 'x.method');
-    expect(p.type.name).toBe('function');
+    expect(p.type.name).toBe('fn');
     expect((p.get as any).id).toBe('x.method');
   });
 
@@ -78,8 +84,9 @@ describe('Registry', () => {
     expect(t.name).toBe('list');
   });
 
-  test('empty Registry (no builtins) rejects parse', () => {
+  test('empty Registry (no builtins) parses bare name as a lazy alias', () => {
     const r = new Registry();
-    expect(() => r.parse({ name: 'num' })).toThrow();
+    const t = r.parse({ name: 'num' });
+    expect(t.name).toBe('alias');
   });
 });
