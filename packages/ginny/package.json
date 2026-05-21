@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "npm run clean && node esbuild.config.cjs",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx src/index.ts",
     "start": "tsx --conditions=source src/index.ts",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "typecheck": "tsc --noEmit",

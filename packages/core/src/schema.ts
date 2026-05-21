@@ -89,8 +89,13 @@ export interface FormatDescriptor {
    * - `recursive-strict`: self-referencing $defs/Any with array-of-pairs records
    *   (OpenAI strict has no open-object support)
    * - `recursive-open`: $defs/Any with `additionalProperties: <self>` records
+   * - `flat`: a non-recursive `anyOf` over the JSON value types
+   *   (`string`/`number`/`boolean`/`null`/`array`/open-`object`). Used by
+   *   descriptors that reject recursive `$defs/Any` definitions (Anthropic
+   *   strict). Equivalent to TypeScript `any` — accepts every JSON value
+   *   without imposing any structural constraints.
    */
-  readonly anyEncoding: 'recursive-strict' | 'recursive-open';
+  readonly anyEncoding: 'recursive-strict' | 'recursive-open' | 'flat';
 
   // ---- Per-request strict-mode budget ----
   // Limits enforced by the API across ALL strict tools + structured-output
@@ -106,10 +111,18 @@ export interface FormatDescriptor {
 
   // ---- Schema-feature feasibility ----
   /**
-   * Whether the descriptor can express recursive schemas (z.lazy / $ref to
-   * self). Anthropic strict: false. OpenAI / Google strict: true. Used by the
-   * SchemaBudget to mark recursive items as infeasible under non-supporting
-   * descriptors and degrade them to LENIENT.
+   * Whether the descriptor can express recursive `$ref` schemas (`$ref: '#'`
+   * to root, or any `$ref: '#/$defs/X'` whose target transitively references
+   * itself). OpenAI / Google strict / Lenient: true. Anthropic strict: false
+   * — Anthropic's tool `input_schema` validator explicitly rejects circular
+   * `$defs` graphs.
+   *
+   * When `false`, the JSON-Schema emitter detects cycles in the source
+   * schema and replaces the offending back-edge with the descriptor's flat
+   * "any" shape (see `anyEncoding`) carrying a description that names the
+   * `$defs` entry it would otherwise have referenced. Non-cyclic shared
+   * `$ref` reuse is unaffected — those still emit as a `$ref` to a `$defs`
+   * entry.
    */
   readonly supportsRecursion: boolean;
 }
@@ -193,10 +206,13 @@ export const OPENAI_NON_STRICT: FormatDescriptor = Object.freeze({
  * - `additionalProperties` may **only** be `false` (no schema-valued open
  *   records), so `z.record(...)` falls back to the OpenAI-style
  *   array-of-pairs workaround.
- * - Recursive schemas are **not** supported. `allowRootRef`/`allowDefsRef`
- *   are both `false`; if a Zod schema is recursive, the provider should
- *   downgrade that request to LENIENT (toJSONSchema will still emit `$ref`,
- *   but the Anthropic API will reject it).
+ * - Non-cyclic `$ref` / `$defs` reuse is supported and used freely — only
+ *   *circular* `$defs` graphs are rejected by the API
+ *   (`Circular reference detected in schema definitions: …`). The emitter
+ *   sets `supportsRecursion: false` so the cycle-breaker replaces the
+ *   offending back-edge with the flat "any" shape (see `anyEncoding`) and
+ *   leaves shared non-cyclic `$ref`s alone. Root self-reference (`$ref: '#'`)
+ *   is always cyclic by definition, so `allowRootRef` stays `false`.
  * - Numerical (`minimum`/`maximum`/`multipleOf`) and string-length
  *   (`minLength`/`maxLength`) constraints are not supported and are dropped.
  * - `prefixItems` and other positional tuple keywords are not in the
@@ -216,7 +232,7 @@ export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   allowAnyOf: true,
   allowOneOf: false,
   allowRootRef: false,
-  allowDefsRef: false,
+  allowDefsRef: true,
   emitPropertyOrdering: false,
   supportedStringFormats: 'all',
   allowPattern: true,
@@ -225,16 +241,19 @@ export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   allowMinMaxItems: false,
   allowMinimumMaximum: false,
   optionalAsNullable: false,
-  anyEncoding: 'recursive-strict',
+  // Anthropic rejects recursive `$defs/Any` definitions, so encode `z.any()`
+  // as a flat `anyOf` over every JSON value — equivalent to TypeScript `any`.
+  anyEncoding: 'flat',
   // Anthropic-documented per-request limits (apply across ALL strict tool
   // schemas + JSON output schemas in one request).
   // Source: https://platform.claude.com/docs/en/build-with-claude/structured-outputs
   maxStrictTools: 20,
   maxStrictOptionalParams: 24,
   maxStrictUnionTypes: 16,
-  // Recursive schemas are explicitly NOT supported under Anthropic strict.
-  // The SchemaBudget detects recursion in source schemas and degrades them
-  // to LENIENT silently rather than emitting a $ref Anthropic will reject.
+  // Recursive `$ref` graphs are rejected by Anthropic's tool input_schema
+  // validator. The toJSONSchema emitter detects cycles and replaces the
+  // back-edge with an inline flat "any" shape (see `anyEncoding`); shared
+  // non-cyclic `$ref`s are still emitted normally.
   supportsRecursion: false,
 });
 
@@ -794,6 +813,13 @@ interface ConversionContext {
   definitionSchemas: Map<string, JSONSchema>; // id to schema
   refCounter: number;
   path: string[];
+  /**
+   * IDs whose conversion is still on the stack — distinguishes a true cycle
+   * (re-encounter while still converting) from a shared reference (re-encounter
+   * after conversion completed). Used by `convert()` to break cycles for
+   * descriptors with `supportsRecursion: false`.
+   */
+  inProgress: Set<string>;
 }
 
 /**
@@ -833,6 +859,7 @@ export function toJSONSchema(
     definitionSchemas: new Map(),
     refCounter: 0,
     path: [],
+    inProgress: new Set(),
   };
 
   const result = convert(schema, context);
@@ -859,17 +886,7 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
     // Check cache FIRST before evaluating getter to prevent infinite recursion
     const [cachedJs, cachedId] = context.definitions.get(schema) || [];
     if (cachedJs && cachedId) {
-      if (schema === context.root && context.descriptor.allowRootRef) {
-        return { $ref: `#` };
-      }
-      if (!context.definitionSchemas.has(cachedId)) {
-        context.definitionSchemas.set(cachedId, { ...cachedJs });
-        for (const prop in cachedJs) {
-          delete cachedJs[prop as keyof JSONSchema];
-        }
-        cachedJs.$ref = `#/$defs/${cachedId}`;
-      }
-      return { $ref: `#/$defs/${cachedId}` };
+      return emitCachedRef(schema, cachedJs, cachedId, context);
     }
 
     const metadata = (schema instanceof z.ZodType) ? schema.meta() : null;
@@ -882,19 +899,7 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
           const cachedMeta = cachedSchema.meta();
           if (cachedMeta?.aid === aid && jsId && js) {
             // Found a cached version with the same aid - use it
-            if (schema === context.root && context.descriptor.allowRootRef) {
-              return { $ref: `#` };
-            }
-
-            if (!context.definitionSchemas.has(jsId)) {
-              context.definitionSchemas.set(jsId, { ...js });
-              for (const prop in js) {
-                delete js[prop as keyof JSONSchema];
-              }
-              js.$ref = `#/$defs/${jsId}`;
-            }
-
-            return { $ref: `#/$defs/${jsId}` };
+            return emitCachedRef(schema, js, jsId, context);
           }
         }
       }
@@ -905,19 +910,7 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
     // Check cache by object identity for non-lazy schemas
     const [js, jsId] = context.definitions.get(schema) || [];
     if (jsId && js) {
-      if (schema === context.root && context.descriptor.allowRootRef) {
-        return { $ref: `#` };
-      }
-
-      if (!context.definitionSchemas.has(jsId)) {
-        context.definitionSchemas.set(jsId, { ...js });
-        for (const prop in js) {
-          delete js[prop as keyof JSONSchema];
-        }
-        js.$ref = `#/$defs/${jsId}`;
-      }
-
-      return { $ref: `#/$defs/${jsId}` };
+      return emitCachedRef(schema, js, jsId, context);
     }
   }
 
@@ -946,9 +939,15 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
 
   // Before converting, register this schema to handle recursion
   context.definitions.set(cacheKey, [target, id]);
+  context.inProgress.add(id);
 
   // Convert the unwrapped schema
-  const result = convertSchema(unwrappedSchema, context);
+  let result: JSONSchema;
+  try {
+    result = convertSchema(unwrappedSchema, context);
+  } finally {
+    context.inProgress.delete(id);
+  }
   Object.assign(result, metadata);
   delete result.aid;
 
@@ -962,6 +961,213 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
   }
 
   return target;
+}
+
+/**
+ * Emit a `$ref` (or, for descriptors that don't support recursion, an inline
+ * shape-aware placeholder) when the converter re-encounters a schema it's
+ * already started or finished converting.
+ *
+ * Three cases:
+ * 1. Re-encounter while still on the conversion stack (`inProgress.has(id)`)
+ *    AND the descriptor rejects recursive `$ref`s — emit a shape-aware
+ *    placeholder via `buildCycleBreakerSchema()` (number stays number, array
+ *    stays array, etc.) with a description naming the `$defs` entry it would
+ *    have referenced. This breaks the cycle inline so providers like
+ *    Anthropic don't reject the schema.
+ * 2. Re-encounter at root with `allowRootRef` — emit `{$ref: '#'}`.
+ * 3. Otherwise — emit `{$ref: '#/$defs/<id>'}`, promoting the original
+ *    target to a `$defs` entry on first share.
+ */
+function emitCachedRef(
+  schema: z.ZodType | z.core.$ZodType,
+  cachedJs: JSONSchema,
+  cachedId: string,
+  context: ConversionContext,
+): JSONSchema {
+  const descriptor = context.descriptor;
+  const isCycle = context.inProgress.has(cachedId);
+
+  if (isCycle && !descriptor.supportsRecursion) {
+    // Replace the back-edge with a placeholder whose top-level shape matches
+    // the recursive zod schema. The original `cachedJs` target keeps filling
+    // in normally — once conversion completes the `$defs` entry exists; we
+    // just don't reference it from here, since doing so would form the cycle
+    // the provider rejects.
+    return buildCycleBreakerSchema(schema, cachedId, descriptor);
+  }
+
+  if (schema === context.root && descriptor.allowRootRef) {
+    return { $ref: `#` };
+  }
+
+  if (!context.definitionSchemas.has(cachedId)) {
+    context.definitionSchemas.set(cachedId, { ...cachedJs });
+    for (const prop in cachedJs) {
+      delete cachedJs[prop as keyof JSONSchema];
+    }
+    cachedJs.$ref = `#/$defs/${cachedId}`;
+  }
+
+  return { $ref: `#/$defs/${cachedId}` };
+}
+
+/**
+ * Build the inline placeholder used in place of a cyclic `$ref` for
+ * descriptors with `supportsRecursion: false`. Inspects the recursive zod
+ * `schema` and emits a JSON-Schema node whose top-level shape matches it
+ * (number → `{type: 'number'}`, array → `{type: 'array', items: ...}`, union
+ * → `{anyOf: [...]}`, etc.) so the LLM still knows what JSON value to send
+ * at the cycle position. One level of structural fidelity, then bottoms out
+ * at the descriptor's flat "any" encoding.
+ */
+function buildCycleBreakerSchema(
+  schema: z.ZodType | z.core.$ZodType,
+  refId: string,
+  descriptor: FormatDescriptor,
+): JSONSchema {
+  const placeholder = genericize(schema, descriptor, 1);
+  return {
+    ...placeholder,
+    description: `Would recursively reference #/$defs/${refId}`,
+  };
+}
+
+/**
+ * Reduce a zod schema to a JSON-Schema node carrying its top-level shape
+ * class (string / number / array / object / union / …) without nested
+ * constraints. Used by the cycle-breaker so the placeholder at a recursive
+ * position matches the JSON value the LLM is supposed to emit.
+ *
+ * `depth` controls how far structural fidelity flows into the *recursive*
+ * containers (arrays of arrays, unions of unions). Closed-form schemas
+ * (primitives, objects, tuples) ignore depth — they have no further
+ * substructure to walk and are always safe to emit verbatim.
+ * - `depth >= 1`: arrays carry their `items`, unions carry their branches,
+ *   each recursing at `depth - 1`.
+ * - `depth === 0`: arrays collapse to bare `{type: 'array'}`, unions
+ *   collapse to the descriptor's flat any encoding. Stops the walk before
+ *   it can re-traverse the cycle that triggered the call.
+ *
+ * Depth is hardcoded to 1 by `buildCycleBreakerSchema`. That's enough for
+ * "a list of objects should be a list of records" and prevents infinite
+ * recursion on `Array<Array<Self>>` / `Union<Union<Self>>` shapes.
+ */
+function genericize(
+  schema: z.ZodType | z.core.$ZodType,
+  descriptor: FormatDescriptor,
+  depth: number,
+): JSONSchema {
+  // Unwrap transparent wrappers — recurse at the same depth because the
+  // wrapper itself doesn't add a structural level.
+  if (schema instanceof z.ZodLazy) {
+    return genericize(schema.def.getter(), descriptor, depth);
+  }
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
+    return genericize(schema.unwrap(), descriptor, depth);
+  }
+  if (schema instanceof z.ZodDefault) {
+    return genericize(schema.def.innerType, descriptor, depth);
+  }
+  if (schema instanceof z.ZodCodec) {
+    return genericize(schema.def.in, descriptor, depth);
+  }
+  if (schema instanceof z.ZodPipe) {
+    return genericize(schema.def.in, descriptor, depth);
+  }
+
+  // Primitive leaves and string-flavored types — no substructure, depth
+  // irrelevant. The LLM gets a precise type signal.
+  if (schema instanceof z.ZodString) return { type: 'string' };
+  if (schema instanceof z.ZodNumber) return { type: 'number' };
+  if (schema instanceof z.ZodBigInt) return { type: 'number' };
+  if (schema instanceof z.ZodBoolean) return { type: 'boolean' };
+  if (schema instanceof z.ZodNull) return { type: 'null' };
+  if (schema instanceof z.ZodUndefined) return { type: 'null' };
+  if (
+    schema instanceof z.ZodDate ||
+    schema instanceof z.ZodISODateTime ||
+    schema instanceof z.ZodISODate ||
+    schema instanceof z.ZodISOTime ||
+    schema instanceof z.ZodISODuration ||
+    schema instanceof z.ZodEmail ||
+    schema instanceof z.ZodIPv4 ||
+    schema instanceof z.ZodIPv6 ||
+    schema instanceof z.ZodUUID ||
+    schema instanceof z.ZodTemplateLiteral
+  ) {
+    return { type: 'string' };
+  }
+
+  if (schema instanceof z.ZodLiteral) {
+    // ZodLiteral can carry one or more values; pick the first that maps to
+    // a JSON primitive type, else fall back to flat any.
+    const v = Array.from(schema.values).find(
+      (x) => x === null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean',
+    );
+    if (v === null) return { type: 'null' };
+    if (typeof v === 'string') return { type: 'string' };
+    if (typeof v === 'number') return { type: 'number' };
+    if (typeof v === 'boolean') return { type: 'boolean' };
+    return buildAnyValueSchema(descriptor);
+  }
+
+  if (schema instanceof z.ZodEnum) {
+    const numericValues = Object.values(schema.def.entries).filter((v) => typeof v === 'number');
+    const values = Object.entries(schema.def.entries)
+      .filter(([k]) => numericValues.indexOf(+k) === -1)
+      .map(([, v]) => v);
+    if (values.every((v) => typeof v === 'string')) return { type: 'string' };
+    if (values.every((v) => typeof v === 'number')) return { type: 'number' };
+    return buildAnyValueSchema(descriptor);
+  }
+
+  // Closed-form containers — no nested schema to walk, safe at any depth.
+  if (
+    schema instanceof z.ZodObject ||
+    schema instanceof z.ZodRecord ||
+    schema instanceof z.ZodIntersection
+  ) {
+    return { type: 'object', additionalProperties: true };
+  }
+  if (schema instanceof z.ZodTuple) {
+    // Heterogeneous positional shape — drop items, keep array hint.
+    return { type: 'array' };
+  }
+
+  // Recursive containers — depth gates further structural fidelity.
+  if (schema instanceof z.ZodArray) {
+    if (depth <= 0) return { type: 'array' };
+    return { type: 'array', items: genericize(schema.element, descriptor, depth - 1) };
+  }
+  if (schema instanceof z.ZodUnion || schema instanceof z.ZodDiscriminatedUnion) {
+    if (depth <= 0) return buildAnyValueSchema(descriptor);
+    const options = (schema as z.ZodUnion).options as readonly (z.ZodType | z.core.$ZodType)[];
+    const branches = options.map((opt) => genericize(opt, descriptor, depth - 1));
+    const unique = uniqueByJSON(branches);
+    return unique.length === 1 ? unique[0] : { anyOf: unique };
+  }
+
+  // ZodAny / ZodUnknown / ZodTransform / anything we don't recognize —
+  // emit the descriptor's any encoding. Safer than guessing.
+  return buildAnyValueSchema(descriptor);
+}
+
+/**
+ * Dedupe an array of JSONSchema nodes by structural (JSON-stringified)
+ * equality. Order-preserving: the first occurrence wins. Used by
+ * `genericize` to collapse `union<T, T>` placeholders into a single branch.
+ */
+function uniqueByJSON(nodes: JSONSchema[]): JSONSchema[] {
+  const seen = new Set<string>();
+  const out: JSONSchema[] = [];
+  for (const node of nodes) {
+    const key = JSON.stringify(node);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(node);
+  }
+  return out;
 }
 
 /**
@@ -1344,11 +1550,16 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
 
   if (schema instanceof z.ZodAny || schema instanceof z.ZodUnknown) {
     // Bare `{}` would satisfy the meaning of "any" but OpenAI's strict
-    // structured-output mode rejects schemas without a `type` key. Instead,
-    // promote to a single shared `$defs/Any` definition that covers every
-    // JSON value in a strict-mode-compatible way, and return a `$ref` to it.
-    // Sharing via `$defs` also keeps the output compact when `z.any()`
-    // appears many times inside a big union (avoids schema explosion).
+    // structured-output mode rejects schemas without a `type` key. For
+    // descriptors with a recursive Any encoding, promote to a single shared
+    // `$defs/Any` definition that covers every JSON value and return a
+    // `$ref` — sharing keeps the output compact when `z.any()` appears many
+    // times inside a big union. For descriptors with `flat` Any encoding
+    // (e.g. Anthropic, which rejects recursive `$defs` graphs), inline the
+    // permissive shape directly so the schema stays acyclic.
+    if (descriptor.anyEncoding === 'flat') {
+      return buildAnyValueSchema(descriptor);
+    }
     const id = 'Any';
     if (!context.definitionSchemas.has(id)) {
       // Seed a placeholder BEFORE building the body so recursive
@@ -1371,21 +1582,30 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
 }
 
 /**
- * Builds the body of the shared `$defs/Any` schema — a self-recursive
- * `anyOf` covering every JSON value.
+ * Builds the body of the "any value" schema — an `anyOf` covering every JSON
+ * value (string, number, boolean, null, array, object).
  *
- * Open-record dialects use `additionalProperties: <self>` for the object
- * branch. Strict dialects (which forbid open records) use the array-of-pairs
- * workaround instead — same shape we use for `ZodRecord` in strict mode.
+ * Encoding modes:
+ * - `recursive-strict` (OpenAI strict): self-referencing `$defs/Any` with
+ *   array-of-pairs records (no open-object support in strict mode).
+ * - `recursive-open` (Lenient / Google): self-referencing `$defs/Any` with
+ *   `additionalProperties: <self>` records.
+ * - `flat` (Anthropic strict): non-recursive — array branch has no `items`
+ *   constraint, object branch is `additionalProperties: true`. Equivalent
+ *   to TypeScript `any`; safe under descriptors that reject cyclic `$defs`.
  */
 function buildAnyValueSchema(descriptor: FormatDescriptor): JSONSchema {
-  const selfRef: JSONSchema = { $ref: '#/$defs/Any' };
+  const isFlat = descriptor.anyEncoding === 'flat';
+  const selfRef: JSONSchema = isFlat ? {} : { $ref: '#/$defs/Any' };
+  const arrayBranch: JSONSchema = isFlat
+    ? { type: 'array' }
+    : { type: 'array', items: selfRef };
   const branches: JSONSchema[] = [
     { type: 'string' },
     { type: 'number' },
     { type: 'boolean' },
     { type: 'null' },
-    { type: 'array', items: selfRef },
+    arrayBranch,
   ];
   if (descriptor.anyEncoding === 'recursive-strict') {
     branches.push({
@@ -1400,10 +1620,16 @@ function buildAnyValueSchema(descriptor: FormatDescriptor): JSONSchema {
         additionalProperties: false,
       },
     });
-  } else {
+  } else if (descriptor.anyEncoding === 'recursive-open') {
     branches.push({
       type: 'object',
       additionalProperties: selfRef,
+    });
+  } else {
+    // flat
+    branches.push({
+      type: 'object',
+      additionalProperties: true,
     });
   }
   return { anyOf: branches };
@@ -1639,25 +1865,6 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
 }
 
 /**
- * Decide whether a single schema can be expressed under the given descriptor
- * regardless of remaining slot budget.
- *
- * Returns `false` only when the descriptor lacks a feature the schema
- * fundamentally needs — today that means recursion under a descriptor with
- * `supportsRecursion: false` (Anthropic strict). The schema can still go
- * through; it just falls back to LENIENT for that one item.
- */
-export function isStrictFeasible(
-  schema: z.ZodType | z.core.$ZodType,
-  descriptor: FormatDescriptor,
-): boolean {
-  if (!descriptor.strict) return true; // LENIENT accepts anything
-  const features = analyzeSchema(schema);
-  if (features.hasRecursion && !descriptor.supportsRecursion) return false;
-  return true;
-}
-
-/**
  * Per-request strict-mode allocator.
  *
  * Constructed once per outgoing request with the chosen model's strictest
@@ -1740,8 +1947,6 @@ export class SchemaBudget {
     if (requested === false) return LENIENT;
     // Descriptor itself is lenient → nothing to allocate.
     if (!this.descriptor.strict) return LENIENT;
-    // Schema feature unsupported by descriptor → silent fallback to lenient.
-    if (!isStrictFeasible(schema, this.descriptor)) return LENIENT;
 
     const features = analyzeSchema(schema);
     const isHardRequired = requested === true;

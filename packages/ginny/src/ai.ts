@@ -76,15 +76,15 @@ function makeChatHooks(provider: string) {
         logger.log(`[mem] ${provider} request payload=${(sz / 1024).toFixed(0)}KB`);
       } catch { /* params unstringifiable — already logged above */ }
     },
-    afterRequest: (_req: unknown, _params: unknown, _response: unknown, responseComplete: unknown) => {
+    afterRequest: (_req: unknown, _params: unknown, response: unknown, responseComplete: unknown) => {
       logger.log(`── ${provider} chat afterRequest ── ${summarizeResponse(responseComplete)}`);
-      if (LOG_FULL) logger.logObject('response', responseComplete);
+      if (LOG_FULL) logger.logObject('response', response);
       logger.mem(`${provider} afterRequest`);
       // Same idea as the request side — measure the bytes we received
       // and parsed. A 50MB response is unusual and points at a
       // streaming-accumulation bug or a model echoing huge input.
       try {
-        const sz = JSON.stringify(responseComplete).length;
+        const sz = JSON.stringify(response).length;
         logger.log(`[mem] ${provider} response payload=${(sz / 1024).toFixed(0)}KB`);
       } catch { /* response unstringifiable */ }
     },

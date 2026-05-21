@@ -2,9 +2,8 @@
  * SchemaBudget + analyzeSchema tests.
  *
  * Verifies per-request strict-slot allocation under each named descriptor,
- * including silent fallback for infeasible schemas (recursion under
- * Anthropic), priority-ordered budget consumption, and shared budgets
- * across tools + structured output.
+ * priority-ordered budget consumption, and shared budgets across tools +
+ * structured output.
  */
 
 import z from 'zod';
@@ -15,7 +14,6 @@ import {
   OPENAI_STRICT,
   SchemaBudget,
   analyzeSchema,
-  isStrictFeasible,
   strictPriority,
   strictestOf,
 } from '../schema';
@@ -70,39 +68,6 @@ describe('analyzeSchema', () => {
     const a = analyzeSchema(schema);
     const b = analyzeSchema(schema);
     expect(a).toBe(b);
-  });
-});
-
-describe('isStrictFeasible', () => {
-  it('returns true for non-recursive schemas under any descriptor', () => {
-    const schema = z.object({ name: z.string() });
-    expect(isStrictFeasible(schema, OPENAI_STRICT)).toBe(true);
-    expect(isStrictFeasible(schema, ANTHROPIC_STRICT)).toBe(true);
-    expect(isStrictFeasible(schema, GOOGLE_STRICT)).toBe(true);
-  });
-
-  it('returns false for recursive schemas under ANTHROPIC_STRICT', () => {
-    type Node = { value: string; children?: Node[] };
-    const NodeSchema: z.ZodType<Node> = z.lazy(() =>
-      z.object({
-        value: z.string(),
-        children: z.array(NodeSchema).optional(),
-      })
-    );
-    expect(isStrictFeasible(NodeSchema, ANTHROPIC_STRICT)).toBe(false);
-    expect(isStrictFeasible(NodeSchema, OPENAI_STRICT)).toBe(true);
-    expect(isStrictFeasible(NodeSchema, GOOGLE_STRICT)).toBe(true);
-  });
-
-  it('always returns true for LENIENT', () => {
-    type Node = { value: string; children?: Node[] };
-    const NodeSchema: z.ZodType<Node> = z.lazy(() =>
-      z.object({
-        value: z.string(),
-        children: z.array(NodeSchema).optional(),
-      })
-    );
-    expect(isStrictFeasible(NodeSchema, LENIENT)).toBe(true);
   });
 });
 
@@ -220,7 +185,11 @@ describe('SchemaBudget — Anthropic per-request limits', () => {
     expect(granted).toBe(16);
   });
 
-  it('falls back to LENIENT for recursive schemas under ANTHROPIC_STRICT', () => {
+  it('keeps recursive schemas strict under ANTHROPIC_STRICT (cycle-broken inline)', () => {
+    // Anthropic strict no longer degrades recursive schemas to LENIENT — the
+    // toJSONSchema cycle-breaker inlines a flat "any" placeholder at every
+    // back-edge so the schema remains expressible. allocateTool therefore
+    // grants strict (subject to remaining union/optional budget).
     type Node = { value: string; children?: Node[] };
     const NodeSchema: z.ZodType<Node> = z.lazy(() =>
       z.object({
@@ -229,8 +198,8 @@ describe('SchemaBudget — Anthropic per-request limits', () => {
       })
     );
     const budget = new SchemaBudget(ANTHROPIC_STRICT);
-    expect(budget.allocateTool(NodeSchema, true)).toBe(LENIENT);
-    expect(budget.allocateTool(NodeSchema, 5)).toBe(LENIENT);
+    expect(budget.allocateTool(NodeSchema, true)).toBe(ANTHROPIC_STRICT);
+    expect(budget.allocateTool(NodeSchema, 5)).toBe(ANTHROPIC_STRICT);
   });
 });
 

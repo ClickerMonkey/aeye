@@ -14,6 +14,8 @@ export interface Store {
   searchTypes(q: { keywords: string[]; limit?: number }): SearchResult[];
   readType(name: string): TypeDef;
   writeType(def: TypeDef): string;
+  /** All saved type names on disk, sorted alphabetically. */
+  listTypes(): string[];
 
   searchFns(q: { keywords: string[]; limit?: number }): SearchResult[];
   /**
@@ -25,10 +27,14 @@ export interface Store {
    */
   readFn(name: string): TypeDef;
   writeFn(name: string, def: TypeDef): string;
+  /** All saved fn names on disk, sorted alphabetically. */
+  listFns(): string[];
 
   searchVars(q: { keywords: string[]; limit?: number }): SearchResult[];
   readVar(name: string): { type: TypeDef; value: unknown; docs?: string };
   writeVar(name: string, v: { type: TypeDef; value: unknown; docs?: string }): string;
+  /** All saved var names on disk, sorted alphabetically. */
+  listVars(): string[];
 }
 
 function ensureDir(dir: string): void {
@@ -119,6 +125,10 @@ export function createStore(cwd: string): Store {
       return file;
     },
 
+    listTypes() {
+      return readDir(typesDir).sort();
+    },
+
     searchFns(q) {
       // Saved fns are TypeDefs with the body in `call.get`. The
       // top-level `docs` field is the function's description.
@@ -140,6 +150,10 @@ export function createStore(cwd: string): Store {
       return file;
     },
 
+    listFns() {
+      return readDir(fnsDir).sort();
+    },
+
     searchVars(q) {
       type T = { type?: TypeDef; value?: unknown; docs?: string };
       return searchDir<T>(
@@ -158,6 +172,10 @@ export function createStore(cwd: string): Store {
       const file = path.join(varsDir, `${name}.json`);
       writeJSON(file, v);
       return file;
+    },
+
+    listVars() {
+      return readDir(varsDir).sort();
     },
   };
 }

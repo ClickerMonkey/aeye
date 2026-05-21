@@ -224,16 +224,25 @@ describe('FormatDescriptor matrix', () => {
       expect(objectBranch!.items!.properties).toHaveProperty('value');
     });
 
-    it('ANTHROPIC_STRICT uses recursive-strict (array-of-pairs object branch)', () => {
-      // Anthropic forbids `additionalProperties: <schema>`, so the Any
-      // schema's object branch uses the same array-of-pairs workaround as
-      // OpenAI strict.
+    it('ANTHROPIC_STRICT uses flat (non-recursive) Any encoding', () => {
+      // Anthropic rejects circular `$defs` graphs, so `z.any()` is inlined as
+      // a flat `anyOf` over every JSON value type — equivalent to TS `any`,
+      // with no self-reference. No shared `$defs/Any` entry is created.
       const json = toJSONSchema(schema, ANTHROPIC_STRICT);
-      const branches = json.$defs!.Any.anyOf!;
-      const objectBranch = branches.find(b => b.type === 'array' && b.items?.type === 'object');
-      expect(objectBranch).toBeDefined();
-      expect(objectBranch!.items!.properties).toHaveProperty('key');
-      expect(objectBranch!.items!.properties).toHaveProperty('value');
+      expect(json.$defs?.Any).toBeUndefined();
+      const inlined = json.properties!.data;
+      expect(inlined.anyOf).toBeDefined();
+      const types = inlined.anyOf!.map((b) => b.type).sort();
+      expect(types).toEqual(['array', 'boolean', 'null', 'number', 'object', 'string']);
+      // Object branch is open and array branch is unconstrained — accepts
+      // every JSON value, just like TS `any`.
+      const objectBranch = inlined.anyOf!.find((b) => b.type === 'object');
+      expect(objectBranch?.additionalProperties).toBe(true);
+      const arrayBranch = inlined.anyOf!.find((b) => b.type === 'array');
+      expect(arrayBranch?.items).toBeUndefined();
+      // Crucially: nothing inside references back to itself.
+      const stringified = JSON.stringify(inlined);
+      expect(stringified).not.toContain('$ref');
     });
 
     it('LENIENT uses recursive-open', () => {
@@ -521,5 +530,456 @@ describe('FormatDescriptor matrix', () => {
       expect(JSON.stringify(toJSONSchema(schema, ANTHROPIC_NON_STRICT))).toBe(lenient);
       expect(JSON.stringify(toJSONSchema(schema, GOOGLE_NON_STRICT))).toBe(lenient);
     });
+  });
+});
+
+/**
+ * Cycle-breaking + flat "any" encoding tests.
+ *
+ * Anthropic's tool `input_schema` validator rejects circular `$defs`
+ * graphs ("Circular reference detected in schema definitions: ..."). The
+ * `convert()` cycle-breaker detects re-encounters that are still on the
+ * conversion stack and replaces the back-edge with the descriptor's flat
+ * "any" placeholder when `supportsRecursion: false`.
+ *
+ * These tests cover:
+ * 1. The `flat` `anyEncoding` body shape (no recursion, accepts every JSON value).
+ * 2. Cycle detection on `z.lazy` self-recursion (the canonical recursive case).
+ * 3. Cycle detection via `aid` metadata (gin's stable-id mechanism).
+ * 4. Mutual recursion between two `z.lazy` schemas.
+ * 5. Shared (non-cyclic) refs are still emitted as `$ref`.
+ * 6. Recursion-supporting descriptors keep `$ref` for cycles.
+ */
+
+// --- helpers --------------------------------------------------------------
+
+/** Walk a JSON Schema and yield every node (including `items`, `anyOf`, `properties`, etc.). */
+function* walkSchema(schema: any): Generator<any> {
+  if (schema === null || typeof schema !== 'object') return;
+  yield schema;
+  for (const key of ['items', 'additionalProperties', 'not', 'propertyNames']) {
+    if (schema[key] && typeof schema[key] === 'object') yield* walkSchema(schema[key]);
+  }
+  for (const key of ['anyOf', 'allOf', 'oneOf', 'prefixItems']) {
+    if (Array.isArray(schema[key])) {
+      for (const sub of schema[key]) yield* walkSchema(sub);
+    }
+  }
+  if (schema.properties) {
+    for (const key in schema.properties) yield* walkSchema(schema.properties[key]);
+  }
+  if (schema.$defs) {
+    for (const key in schema.$defs) yield* walkSchema(schema.$defs[key]);
+  }
+}
+
+/** Collect every `$ref` value referenced anywhere in the schema. */
+function collectRefs(schema: any): string[] {
+  const refs: string[] = [];
+  for (const node of walkSchema(schema)) {
+    if (typeof node.$ref === 'string') refs.push(node.$ref);
+  }
+  return refs;
+}
+
+describe('flat anyEncoding (Anthropic)', () => {
+  it('inlines a non-recursive anyOf covering every JSON value type', () => {
+    const schema = z.object({ data: z.any() });
+    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+
+    // No shared $defs/Any entry — the flat shape inlines at every use site.
+    expect(json.$defs?.Any).toBeUndefined();
+    const inlined = json.properties!.data;
+    expect(inlined.anyOf).toBeDefined();
+    const types = inlined.anyOf!.map((b) => b.type).sort();
+    expect(types).toEqual(['array', 'boolean', 'null', 'number', 'object', 'string']);
+
+    // Object branch is open (TS-`any`-like).
+    const objectBranch = inlined.anyOf!.find((b) => b.type === 'object');
+    expect(objectBranch?.additionalProperties).toBe(true);
+    // Array branch has no `items` constraint — accepts any element.
+    const arrayBranch = inlined.anyOf!.find((b) => b.type === 'array');
+    expect(arrayBranch?.items).toBeUndefined();
+    // Crucially: nothing inside this Any encoding is a $ref.
+    expect(collectRefs(inlined)).toEqual([]);
+  });
+
+  it('z.unknown() also uses the flat encoding under Anthropic', () => {
+    const schema = z.object({ data: z.unknown() });
+    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+    expect(json.$defs?.Any).toBeUndefined();
+    expect(json.properties!.data.anyOf).toBeDefined();
+    expect(collectRefs(json.properties!.data)).toEqual([]);
+  });
+
+  it('multiple z.any() occurrences each inline (no shared $defs)', () => {
+    const schema = z.object({
+      a: z.any(),
+      b: z.any(),
+      c: z.array(z.any()),
+    });
+    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+    expect(json.$defs?.Any).toBeUndefined();
+    expect(collectRefs(json)).toEqual([]);
+    expect(json.properties!.a.anyOf).toBeDefined();
+    expect(json.properties!.b.anyOf).toBeDefined();
+    expect(json.properties!.c.items?.anyOf).toBeDefined();
+  });
+
+  it('OPENAI_STRICT and LENIENT keep the recursive $defs/Any encoding', () => {
+    const schema = z.object({ data: z.any() });
+
+    const openai = toJSONSchema(schema, OPENAI_STRICT);
+    expect(openai.$defs!.Any).toBeDefined();
+    expect(openai.properties!.data).toEqual({ $ref: '#/$defs/Any' });
+
+    const lenient = toJSONSchema(schema, LENIENT);
+    expect(lenient.$defs!.Any).toBeDefined();
+    expect(lenient.properties!.data).toEqual({ $ref: '#/$defs/Any' });
+  });
+});
+
+describe('cycle-breaking under !supportsRecursion', () => {
+  type Node = { value: string; children?: Node[] };
+  const NodeSchema: z.ZodType<Node> = z.lazy(() =>
+    z.object({
+      value: z.string(),
+      children: z.array(NodeSchema).optional(),
+    }),
+  );
+
+  it('replaces self-recursive z.lazy back-edge with the flat "any" placeholder under ANTHROPIC_STRICT', () => {
+    const json = toJSONSchema(NodeSchema, ANTHROPIC_STRICT);
+
+    // The schema must not contain ANY $ref pointing back into itself —
+    // that's exactly what Anthropic's validator rejects.
+    const refs = collectRefs(json);
+    for (const ref of refs) {
+      // Allowed: no recursive refs at all in a single-cycle schema. If one
+      // were emitted, the cycle-breaker failed.
+      throw new Error(`unexpected $ref in cycle-broken Anthropic schema: ${ref}`);
+    }
+
+    // The placeholder where Node was recursively referenced has the
+    // expected open-object shape with a descriptive marker.
+    const placeholders: any[] = [];
+    for (const node of walkSchema(json)) {
+      if (
+        node.type === 'object' &&
+        node.additionalProperties === true &&
+        typeof node.description === 'string' &&
+        node.description.startsWith('Would recursively reference ')
+      ) {
+        placeholders.push(node);
+      }
+    }
+    expect(placeholders.length).toBeGreaterThan(0);
+    expect(placeholders[0].description).toMatch(/^Would recursively reference #\/\$defs\//);
+  });
+
+  it('keeps the $ref for recursive z.lazy under OPENAI_STRICT (recursion supported)', () => {
+    const json = toJSONSchema(NodeSchema, OPENAI_STRICT);
+    const refs = collectRefs(json);
+    expect(refs.length).toBeGreaterThan(0);
+    // Every emitted ref points to a $defs entry that actually exists.
+    for (const ref of refs) {
+      const id = ref.replace(/^#\/\$defs\//, '');
+      if (id !== ref) {
+        expect(json.$defs![id]).toBeDefined();
+      }
+    }
+  });
+
+  it('breaks mutual recursion between two z.lazy schemas under ANTHROPIC_STRICT', () => {
+    // Standard zod mutual-recursion pattern: each side references the other
+    // by name inside its lazy getter. The cross-references resolve at
+    // conversion time, not declaration time.
+    type A = { name: string; b?: B };
+    type B = { tag: number; a?: A };
+    const ASchema: z.ZodType<A> = z.lazy(() =>
+      z.object({ name: z.string(), b: BSchema.optional() }),
+    );
+    const BSchema: z.ZodType<B> = z.lazy(() =>
+      z.object({ tag: z.number(), a: ASchema.optional() }),
+    );
+
+    const json = toJSONSchema(ASchema, ANTHROPIC_STRICT);
+    expect(collectRefs(json)).toEqual([]);
+    // Somewhere in the tree, the back-edge from B → A (or A → B) appears as
+    // an open-object placeholder.
+    let foundPlaceholder = false;
+    for (const node of walkSchema(json)) {
+      if (
+        node.type === 'object' &&
+        node.additionalProperties === true &&
+        typeof node.description === 'string' &&
+        node.description.startsWith('Would recursively reference ')
+      ) {
+        foundPlaceholder = true;
+        break;
+      }
+    }
+    expect(foundPlaceholder).toBe(true);
+  });
+
+  it('breaks aid-based recursion (gin-style stable IDs) under ANTHROPIC_STRICT', () => {
+    // A lazy schema tagged with a stable `aid` referenced from inside its
+    // own definition — gin's pattern for named recursive types. The aid
+    // lookup in `convert()` finds the in-progress definition; the
+    // cycle-breaker replaces the back-edge with the flat placeholder.
+    type Tree = { label: string; left?: Tree; right?: Tree };
+    const TreeSchema: z.ZodType<Tree> = z.lazy(() =>
+      z.object({
+        label: z.string(),
+        left: TreeSchema.optional(),
+        right: TreeSchema.optional(),
+      }).meta({ aid: 'Tree' }),
+    );
+
+    const json = toJSONSchema(TreeSchema, ANTHROPIC_STRICT);
+    expect(collectRefs(json)).toEqual([]);
+  });
+
+  it('shared (non-cyclic) refs still emit as $ref under ANTHROPIC_STRICT', () => {
+    // Same schema referenced from multiple sites — but no cycle because the
+    // shared schema has no back-edge to itself. The dedup behavior should
+    // still emit a $ref + $defs entry rather than inlining everywhere.
+    const Person = z.object({ name: z.string(), age: z.number() }).meta({ id: 'Person' });
+    const schema = z.object({
+      author: Person,
+      reviewer: Person,
+    });
+    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+    // Person is shared, so it's promoted to $defs and referenced by $ref.
+    expect(json.$defs?.Person).toBeDefined();
+    const refs = collectRefs(json);
+    expect(refs).toContain('#/$defs/Person');
+    // No placeholder — there's no actual cycle here.
+    for (const node of walkSchema(json)) {
+      if (
+        node.type === 'object' &&
+        node.additionalProperties === true &&
+        typeof node.description === 'string' &&
+        node.description.startsWith('Would recursively reference ')
+      ) {
+        throw new Error('unexpected cycle-breaker placeholder for non-cyclic shared ref');
+      }
+    }
+  });
+
+  it('LENIENT (supportsRecursion=true) keeps recursive $ref even when cycles exist', () => {
+    const json = toJSONSchema(NodeSchema, LENIENT);
+    const refs = collectRefs(json);
+    // Lenient supports recursion → at least one back-edge ref present.
+    expect(refs.length).toBeGreaterThan(0);
+    // No cycle-breaker placeholders.
+    for (const node of walkSchema(json)) {
+      if (
+        node.type === 'object' &&
+        node.additionalProperties === true &&
+        typeof node.description === 'string' &&
+        node.description.startsWith('Would recursively reference ')
+      ) {
+        throw new Error('LENIENT should not emit cycle-breaker placeholders');
+      }
+    }
+  });
+
+  it('recursive schema under ANTHROPIC_STRICT serializes without throwing (no infinite loop)', () => {
+    // Sanity: the cycle-breaker terminates and the result is JSON-serializable.
+    const json = toJSONSchema(NodeSchema, ANTHROPIC_STRICT);
+    expect(() => JSON.stringify(json)).not.toThrow();
+  });
+
+  it('emits the same flat "any" shape under ANTHROPIC_STRICT regardless of where the cycle is', () => {
+    // Cycle inside a nested optional vs. inside an array branch — both should
+    // produce the same placeholder shape.
+    type Wrap = { inner?: Wrap };
+    const A: z.ZodType<Wrap> = z.lazy(() => z.object({ inner: A.optional() }));
+    type Arr = { items: Arr[] };
+    const B: z.ZodType<Arr> = z.lazy(() => z.object({ items: z.array(B) }));
+
+    const ja = toJSONSchema(A, ANTHROPIC_STRICT);
+    const jb = toJSONSchema(B, ANTHROPIC_STRICT);
+
+    // Both contain at least one open-object placeholder, no $refs.
+    expect(collectRefs(ja)).toEqual([]);
+    expect(collectRefs(jb)).toEqual([]);
+  });
+});
+
+/**
+ * Shape-aware cycle-breaker tests.
+ *
+ * The placeholder emitted at a back-edge must match the *kind* of JSON value
+ * the LLM is supposed to send — number stays number, array stays array,
+ * union stays an `anyOf`. Otherwise the LLM has no signal that the recursive
+ * position accepts anything other than an object.
+ *
+ * Each test runs under `ANTHROPIC_STRICT` (the `!supportsRecursion` path)
+ * and inspects the placeholder shape directly, not just `collectRefs(...) === []`.
+ */
+
+/** Find every cycle-breaker placeholder (any node carrying the marker description). */
+function findPlaceholders(schema: any): any[] {
+  const out: any[] = [];
+  for (const node of walkSchema(schema)) {
+    if (
+      typeof node.description === 'string' &&
+      node.description.startsWith('Would recursively reference ')
+    ) {
+      out.push(node);
+    }
+  }
+  return out;
+}
+
+describe('cycle-breaker — shape-aware placeholder', () => {
+  it('Array<Self> cycle: placeholder is an array (items also array, then bottoms out)', () => {
+    // type T = T[]
+    const T: z.ZodType<any> = z.lazy(() => z.array(T));
+    const json = toJSONSchema(T, ANTHROPIC_STRICT);
+
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    expect(placeholders.length).toBeGreaterThan(0);
+    // Cycle target T is z.array(T). Genericize at depth 1 yields
+    // {type:'array', items: genericize(T, depth=0)}. At depth 0 the inner
+    // array drops its items — preserving "array of arrays" without the
+    // walk reaching the cycle again.
+    expect(placeholders[0].type).toBe('array');
+    expect(placeholders[0].items).toEqual({ type: 'array' });
+    // Should NOT be an open-object placeholder — that would be the old
+    // always-object behavior we're moving away from.
+    expect(placeholders[0].additionalProperties).toBeUndefined();
+  });
+
+  it('Object cycle inside an array property: placeholder is an open object, not an array', () => {
+    // type Node = { value: string; children: Node[] }
+    type Node = { value: string; children: Node[] };
+    const Node: z.ZodType<Node> = z.lazy(() =>
+      z.object({ value: z.string(), children: z.array(Node) }),
+    );
+    const json = toJSONSchema(Node, ANTHROPIC_STRICT);
+
+    // The cycle target is Node (a ZodObject), not the array — so the
+    // placeholder must be `{type: 'object', additionalProperties: true}`,
+    // even though it sits *inside* the children array's `items`.
+    const childrenItems = (json as any).properties.children.items;
+    expect(childrenItems.type).toBe('object');
+    expect(childrenItems.additionalProperties).toBe(true);
+    expect(childrenItems.description).toMatch(/^Would recursively reference #\/\$defs\//);
+  });
+
+  it('union<NodeA, NodeB> mutually recursive (both objects) → deduped to single object', () => {
+    // type A = { kind: "a"; b?: B }; type B = { kind: "b"; a?: A }
+    type A = { kind: 'a'; b?: B };
+    type B = { kind: 'b'; a?: A };
+    const ASchema: z.ZodType<A> = z.lazy(() =>
+      z.object({ kind: z.literal('a'), b: BSchema.optional() }),
+    );
+    const BSchema: z.ZodType<B> = z.lazy(() =>
+      z.object({ kind: z.literal('b'), a: ASchema.optional() }),
+    );
+
+    const json = toJSONSchema(ASchema, ANTHROPIC_STRICT);
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    // Each back-edge is a single ZodObject (A or B), so the placeholder is
+    // a single object node — never an `anyOf` (because both A and B
+    // genericize to the same `{type: 'object', additionalProperties: true}`).
+    for (const p of placeholders) {
+      expect(p.type).toBe('object');
+      expect(p.additionalProperties).toBe(true);
+      expect(p.anyOf).toBeUndefined();
+    }
+  });
+
+  it('union<number, Self-shaped object> cycle → anyOf of number + open object', () => {
+    // type T = number | { rest: T }
+    const T: z.ZodType<any> = z.lazy(() =>
+      z.union([z.number(), z.object({ rest: T })]),
+    );
+    const json = toJSONSchema(T, ANTHROPIC_STRICT);
+
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    expect(placeholders.length).toBeGreaterThan(0);
+    // Cycle target is T (a ZodUnion). Genericize emits anyOf of its branches.
+    const ph = placeholders[0];
+    expect(ph.anyOf).toBeDefined();
+    const types = ph.anyOf.map((b: any) => b.type).sort();
+    expect(types).toEqual(['number', 'object']);
+    const objBranch = ph.anyOf.find((b: any) => b.type === 'object');
+    expect(objBranch.additionalProperties).toBe(true);
+  });
+
+  it('union<string, number, Self[]> cycle → anyOf of three primitive/array branches', () => {
+    // type T = string | number | T[]
+    const T: z.ZodType<any> = z.lazy(() =>
+      z.union([z.string(), z.number(), z.array(T)]),
+    );
+    const json = toJSONSchema(T, ANTHROPIC_STRICT);
+
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    expect(placeholders.length).toBeGreaterThan(0);
+    const ph = placeholders[0];
+    expect(ph.anyOf).toBeDefined();
+    const types = ph.anyOf.map((b: any) => b.type).sort();
+    expect(types).toEqual(['array', 'number', 'string']);
+    // Array branch is bare — at depth 0 (one level inside the union),
+    // arrays drop their items. The LLM still sees `type: 'array'`.
+    const arrBranch = ph.anyOf.find((b: any) => b.type === 'array');
+    expect(arrBranch).toEqual({ type: 'array' });
+  });
+
+  it('literal-string in union with self → string branch in anyOf placeholder', () => {
+    // type T = "leaf" | { kid: T }
+    const T: z.ZodType<any> = z.lazy(() =>
+      z.union([z.literal('leaf'), z.object({ kid: T })]),
+    );
+    const json = toJSONSchema(T, ANTHROPIC_STRICT);
+
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    const ph = placeholders[0];
+    expect(ph.anyOf).toBeDefined();
+    // ZodLiteral('leaf') genericizes to {type: 'string'}.
+    const types = ph.anyOf.map((b: any) => b.type).sort();
+    expect(types).toEqual(['object', 'string']);
+  });
+
+  it('deeply nested recursion stays serializable and emits zero refs', () => {
+    // type T = { a: { b: { c: T[] } } }
+    type T = { a: { b: { c: T[] } } };
+    const T: z.ZodType<T> = z.lazy(() =>
+      z.object({ a: z.object({ b: z.object({ c: z.array(T) }) }) }),
+    );
+    const json = toJSONSchema(T, ANTHROPIC_STRICT);
+
+    expect(() => JSON.stringify(json)).not.toThrow();
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    expect(placeholders.length).toBeGreaterThan(0);
+    // The inner-most placeholder (inside c.items) mirrors T (a ZodObject).
+    expect(placeholders[0].type).toBe('object');
+  });
+
+  it('Array<Array<Self>>: outer array preserved, inner array at depth 0 drops its items', () => {
+    // type T = T[][]  — the recursive type is itself an array of arrays.
+    const T: z.ZodType<any> = z.lazy(() => z.array(z.array(T)));
+    const json = toJSONSchema(T, ANTHROPIC_STRICT);
+
+    expect(collectRefs(json)).toEqual([]);
+    const placeholders = findPlaceholders(json);
+    expect(placeholders.length).toBeGreaterThan(0);
+    const ph = placeholders[0];
+    // Cycle target is T (the outer array). Genericize at depth 1:
+    //   {type: 'array', items: <genericize(z.array(T)) at depth 0>}
+    // At depth 0, ZodArray emits a bare `{type: 'array'}` — preserves the
+    // "array of arrays" structural hint without re-walking the cycle.
+    expect(ph.type).toBe('array');
+    expect(ph.items).toEqual({ type: 'array' });
   });
 });

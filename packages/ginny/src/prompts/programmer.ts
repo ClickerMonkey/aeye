@@ -83,6 +83,48 @@ function buildLoadedFnsDocs(ctx: { registry: Registry; store: { readFn(name: str
   return lines.join('\n');
 }
 
+/**
+ * Cap on how many catalog names to enumerate per section in the prompt.
+ * Anything past the cap collapses to a `+N more` suffix so the prompt
+ * length is bounded regardless of how big the on-disk catalog grows.
+ * The LLM still has search_types / search_fns / search_vars to dig into
+ * the tail when it needs something not in the visible window.
+ */
+const CATALOG_PREVIEW_LIMIT = 20;
+
+/**
+ * Render an on-disk catalog section as `name, name, name (+N more)`.
+ * Empty input renders as `(none)` so the prompt stays well-formed.
+ */
+function renderCatalogLine(names: string[], limit = CATALOG_PREVIEW_LIMIT): string {
+  if (names.length === 0) return '(none)';
+  const head = names.slice(0, limit).join(', ');
+  const extra = names.length - limit;
+  return extra > 0 ? `${head} (+${extra} more)` : head;
+}
+
+/**
+ * Build the "## Saved catalog on disk" section — three lines listing
+ * the names of saved types, fns, and vars currently on disk in the cwd.
+ * Names only, no signatures or docs (those come from the search/print
+ * tools). The point is to give the LLM enough visibility to AVOID
+ * blind `search_*` calls when an obviously-relevant name is already
+ * sitting in the catalog.
+ *
+ * Each section is capped at `CATALOG_PREVIEW_LIMIT` names with a
+ * `+N more` suffix when the catalog overflows the window.
+ */
+function buildSavedCatalogDocs(store: { listTypes(): string[]; listFns(): string[]; listVars(): string[] }): string {
+  const types = store.listTypes();
+  const fns = store.listFns();
+  const vars = store.listVars();
+  return [
+    `- Types (${types.length}): ${renderCatalogLine(types)}`,
+    `- Functions (${fns.length}): ${renderCatalogLine(fns)}`,
+    `- Vars (${vars.length}): ${renderCatalogLine(vars)}`,
+  ].join('\n');
+}
+
 function buildTypeDocs(r: Registry): string {
   const seen = new Set<string>();
   const docs: string[] = [];
@@ -464,6 +506,21 @@ names, index signatures, and call signatures exist on each type:
 {{typeDocs}}
 \`\`\`
 
+## Saved catalog on disk (names only)
+
+What's persisted in this working directory under \`./types/\`, \`./fns/\`,
+and \`./vars/\`. Names only — use \`search_types\` / \`search_fns\` /
+\`search_vars\` (or \`print_fn\`) to inspect any of them. The point of
+this section is so you don't blindly call \`search_*\` looking for
+something an obviously-named entry would already satisfy.
+
+Each line is capped at ${CATALOG_PREVIEW_LIMIT.toString()} names with a \`+N more\` suffix when
+the catalog is larger.
+
+\`\`\`
+{{savedCatalogDocs}}
+\`\`\`
+
 ## Saved functions currently loaded in this session
 
 These are TOP-LEVEL globals (not under \`fns.*\`) and are immediately
@@ -477,8 +534,8 @@ trip:
 \`\`\`
 
 When this section is empty, no saved fns are loaded yet — call
-\`search_fns\` to discover any on disk, or \`find_or_create_functions\`
-to author a new one.
+\`search_fns\` to discover any on disk (cross-reference the catalog
+above), or \`find_or_create_functions\` to author a new one.
 
 ${EXPR_KINDS}
 ${PATH_EXPLANATION}
@@ -995,6 +1052,7 @@ Respond to the most recent user message in light of the prior turns.`,
   input: (_input: {}, ctx) => ({
     typeDocs: buildTypeDocs(ctx.registry as Registry),
     loadedFnsDocs: buildLoadedFnsDocs(ctx),
+    savedCatalogDocs: buildSavedCatalogDocs(ctx.store),
   }),
   tools: [
     findOrCreateTypes,

@@ -1350,11 +1350,12 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       }
 
       // Track accumulated tool calls and response
-      type ToolCallItem = { id: string; name: string; arguments: string, named: boolean, finished: boolean, updated: boolean };
+      type ToolCallItem = { id: string; name: string; arguments: string, named: boolean, finished: boolean, updated: boolean, index: number };
       const toolCallsMap = new Map<number, ToolCallItem>();
       const toolCalls: ToolCallItem[] = [];
       const chunks: Chunk[] = [];
-      
+      let maxIndexSeen = -1;
+
       try {
         for await (const chunk of stream) {
           if (signal?.aborted) {
@@ -1363,10 +1364,16 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
 
           const choice = chunk?.choices[0];
           const delta = choice?.delta;
-          
+
+          // OpenAI streams `finish_reason: null` on every intermediate chunk
+          // and only sets a real value on the last chunk for the choice.
+          // Normalize null → undefined so downstream `!== undefined` checks
+          // (used by the tool-call finalization logic below) don't treat
+          // every intermediate chunk as "the model is done".
+          const finishReasonRaw = choice?.finish_reason ?? undefined;
           const yieldChunk: Chunk = {
             content: delta?.content || undefined,
-            finishReason: choice?.finish_reason as FinishReason | undefined,
+            finishReason: finishReasonRaw as FinishReason | undefined,
             refusal: delta?.refusal ?? undefined,
             usage: chunk.usage ? convertOpenAIUsage(chunk.usage) : undefined,
           };
@@ -1379,7 +1386,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
           if (delta?.tool_calls) {
             for (const tc of delta.tool_calls) {
               const existing = toolCallsMap.get(tc.index);
-              const toolCall = existing || { id: '', name: '', arguments: '', named: false, finished: false, updated: true };
+              const toolCall = existing || { id: '', name: '', arguments: '', named: false, finished: false, updated: true, index: tc.index };
 
               if (tc.id) {
                 toolCall.id = tc.id;
@@ -1397,6 +1404,9 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
                 toolCallsMap.set(tc.index, toolCall);
                 toolCalls.push(toolCall);
               }
+              if (typeof tc.index === 'number' && tc.index > maxIndexSeen) {
+                maxIndexSeen = tc.index;
+              }
 
               if (toolCall.arguments) {
                 if (!toolCall.named) {
@@ -1409,8 +1419,21 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
             }
           }
 
+          // Finalize tool calls only when we have positive evidence they're done.
+          // The previous "updated == false this chunk" check was wrong: providers
+          // (OpenRouter especially, with stream_options.include_usage) interleave
+          // usage-only / keep-alive chunks that have no `choices`/`delta`, which
+          // would prematurely flip a still-streaming tool_call to finished and
+          // emit it with partial arguments — downstream parse() then rejected
+          // it as "called with NO arguments". Only finalize when:
+          //   1. finish_reason is set on this chunk (the whole response is done), or
+          //   2. a higher tc.index appeared (per OpenAI streaming convention,
+          //      tool_calls arrive in index order, so a newer index implies the
+          //      older ones are complete).
+          // Anything still unfinished by stream end is handled by the finally block.
+          const hasFinishReason = yieldChunk.finishReason !== undefined;
           for (const toolCall of toolCalls) {
-            if (!toolCall.updated && !toolCall.finished) {
+            if (!toolCall.finished && (hasFinishReason || toolCall.index < maxIndexSeen)) {
               toolCall.finished = true;
               yieldChunk.toolCall = toolCall;
               if (!toolCall.named) {
