@@ -162,12 +162,7 @@ describe('TypType + generics', () => {
 
   test('fn<(args{output: typ<R>}), R> with R=num scope: returns resolves to num, output to optional<typ<R>>', () => {
     const r = createRegistry();
-    const fn = r.fn(
-      r.obj({ output: { type: r.optional(r.typ(r.alias('R'))) } }),
-      r.alias('R'),
-      undefined,
-      { R: r.any() },
-    );
+    const fn = r.fn({ args: r.obj({ output: { type: r.optional(r.typ(r.alias('R'))) } }), returns: r.alias('R'), generic: { R: r.any() } });
     const local = new LocalScope(r, { R: r.num() });
     const call = fn.call(local);
     expect(call).toBeTruthy();

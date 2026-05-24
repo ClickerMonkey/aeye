@@ -161,11 +161,11 @@ export class NumType extends Type<number, NumOptions> {
     // Looping over a number yields |n| iterations. `key` is the 0-based
     // iteration index (always non-negative); `value` walks from 0 toward
     // n by unit steps — so num=10 yields value 0..9, num=-10 yields 0..-9.
-    const num = this.registry.num();
+    const r = this.registry;
     return new GetSet({
-      key: this.registry.num({ whole: true, min: 0 }),
-      value: num,
-      loop: { kind: 'native', id: 'num.loop' },
+      key: r.num({ whole: true, min: 0 }),
+      value: r.num(),
+      loop: r.nativeExpr('num.loop'),
     });
   }
 

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, Engine, formatProblems } from '../index';
+import { createRegistry, Engine } from '../index';
 
 /**
  * Visual demo — a sprawling type def with embedded Expr bodies in
@@ -27,18 +27,18 @@ describe('Type.toJSONCode + Type.validate — visual demo', () => {
         balance: { type: r.num({ min: 0 }) },
         // Method that should return num but body returns text.
         wrongType: {
-          type: r.fn(r.obj({}), r.num()),
+          type: r.fn({ args: r.obj({}), returns: r.num() }),
           get: { kind: 'new', type: { name: 'text' }, value: 'oops' },
         },
         // Method whose body references an unbound name.
         undefinedRef: {
-          type: r.fn(r.obj({ x: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() }),
           get: { kind: 'get', path: [{ prop: 'unknownVar' }] },
         },
         // Method body that's actually fine — to show clean parts mixed
         // in with the broken ones.
         ok: {
-          type: r.fn(r.obj({}), r.num()),
+          type: r.fn({ args: r.obj({}), returns: r.num() }),
           get: { kind: 'new', type: { name: 'num' }, value: 42 },
         },
       },
@@ -67,9 +67,9 @@ describe('Type.toJSONCode + Type.validate — visual demo', () => {
       console.log(`  [${p.severity}] ${p.code}: ${p.message} @ ${p.path.join('.')}`);
     }
     console.log('\n' + '═'.repeat(80));
-    console.log('  formatProblems(typeJsonCode, problems) — sectioned ^^^ output');
+    console.log('  typeJsonCode.formatProblems(problems) — sectioned ^^^ output');
     console.log('═'.repeat(80));
-    console.log(formatProblems(codeObj, probs, { color: false }));
+    console.log(codeObj.formatProblems(probs, { color: false }));
 
     // Sanity: each broken slot produced a problem.
     expect(probs.list.length).toBeGreaterThanOrEqual(3);

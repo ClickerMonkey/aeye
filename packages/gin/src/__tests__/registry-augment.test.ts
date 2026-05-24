@@ -82,7 +82,7 @@ describe('Registry.augment', () => {
     // date now reports a `get`/`loop` surface.
     const dateGet = r.date().get();
     expect(dateGet).toBeDefined();
-    expect(dateGet?.loop).toEqual({ kind: 'native', id: 'date.dayLoop' });
+    expect(dateGet?.loop?.toJSON()).toEqual({ kind: 'native', id: 'date.dayLoop' });
 
     // Run a loop that collects the iteration count via a counter.
     const program = {
@@ -336,6 +336,6 @@ describe('Registry.augment', () => {
     r.augment('text', { init: init1 });
     r.augment('text', { init: init2 });
     const eff = r.text().init();
-    expect(eff?.run).toEqual({ kind: 'native', id: 'init.first' });
+    expect(eff?.run.toJSON()).toEqual({ kind: 'native', id: 'init.first' });
   });
 });

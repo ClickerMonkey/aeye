@@ -10,10 +10,11 @@ import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { Code, code, span, jsonObject, jsonString } from '../code';
+import { Code, code, span } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import { LocalScope, type TypeScope } from '../type-scope';
+import { Effects } from '../effects';
 
 /**
  * LambdaExpr — a callable value that closes over the lexical scope.
@@ -190,13 +191,13 @@ export class LambdaExpr extends Expr {
     const constraintCode = this.constraint
       ? this.constraint.toJSONCode([...path, 'constraint'], indent, level + 1)
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('lambda') },
+        { key: 'kind', value: Code.jsonString('lambda') },
         { key: 'type', value: typeCode },
         { key: 'body', value: bodyCode },
         { key: 'constraint', value: constraintCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -216,6 +217,10 @@ export class LambdaExpr extends Expr {
     visit(this.body, 'lambda');
     if (this.constraint) visit(this.constraint, 'lambda');
   }
+
+  /** Constructing a lambda VALUE is pure — the body's effects fire
+   *  only when the lambda is invoked, not at the construction site. */
+  effects(): Effects { return Effects.NONE; }
 }
 
 /** Render a lambda's param list. When `args` is an obj-typed param bag

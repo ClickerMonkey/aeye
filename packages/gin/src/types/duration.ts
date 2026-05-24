@@ -80,7 +80,7 @@ export class DurationType extends Type<number, Record<string, never>> {
         seconds: { type: r.optional(num) },
         ms:      { type: r.optional(num) },
       }) as Type<any>,
-      run: { kind: 'native', id: 'duration.init' },
+      run: r.nativeExpr('duration.init'),
     });
   }
 

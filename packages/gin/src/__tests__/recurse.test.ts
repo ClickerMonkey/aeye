@@ -87,7 +87,7 @@ describe('recurse in PropDef.get (method)', () => {
       name: 'summer',
       props: {
         sumTo: {
-          type: r.fn(r.obj({ k: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ k: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'if',
             ifs: [{
@@ -153,7 +153,7 @@ describe('recurse in PropDef.get (method)', () => {
       name: 'multiplier',
       props: {
         times: {
-          type: r.fn(r.obj({ k: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ k: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'if',
             ifs: [{

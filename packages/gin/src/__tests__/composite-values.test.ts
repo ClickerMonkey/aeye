@@ -107,7 +107,7 @@ describe('composite values preserve actual element types', () => {
       name: 'positive',
       options: { min: 0 },
       props: {
-        isPositive: { type: r.fn(r.obj({}), r.bool()) },
+        isPositive: { type: r.fn({ args: r.obj({}), returns: r.bool() }) },
       },
     });
     r.define('positive', positiveNum);

@@ -4,6 +4,21 @@ import type { TypeDef } from '@aeye/gin';
 import { ai } from '../ai';
 
 /**
+ * Maximum warning count tolerated on a saved fn. A fn that exceeds
+ * this is rejected with a `ToolInterrupt` listing the warnings, so the
+ * model must address them (or the threshold-setter must raise the cap)
+ * before the work persists. Configurable via env `GIN_MAX_WARNINGS`;
+ * defaults to 5 — five-ish per fn is "looks like the model knows what
+ * it's doing", more starts smelling like skeleton-shaped output.
+ */
+function maxWarnings(): number {
+  const raw = process.env.GIN_MAX_WARNINGS;
+  if (!raw) return 5;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 5;
+}
+
+/**
  * Finalize the draft after a successful test. If `saveAs` is provided
  * the draft is persisted as a single TypeDef whose `call.get` is the
  * body — gin's native shape for a callable global (see
@@ -53,6 +68,48 @@ export const finish = ai.tool({
     if (input.saveAs) {
       const name = input.saveAs;
       const r = ctx.registry;
+
+      // Warning-threshold gate: re-validate the draft and reject the
+      // save if the warning count is above the configured cap. The
+      // count uses the same validator path as `write`, so the model
+      // sees a consistent message between the two tools. Errors are
+      // checked too — they're harder to reach here (test passes
+      // implies the program at least evaluated) but a defensive
+      // guard catches edge cases like an unbound generic that
+      // happens to run with a permissive arg shape.
+      const scope = new Map(ctx.engine.globalTypeScope());
+      if (ctx.targetFn) {
+        scope.set('args', ctx.targetFn.argsType);
+        scope.set('recurse', r.fn({ args: ctx.targetFn.argsType, returns: ctx.targetFn.returnsType }));
+      }
+      const ctxFlags = ctx.targetFn ? { inLoop: false, inLambda: true } : undefined;
+      let warnings = 0;
+      let errors = 0;
+      const warningCodes: string[] = [];
+      try {
+        const probs = ctx.engine.validate(draft, scope, ctxFlags);
+        for (const p of probs.list) {
+          if (p.severity === 'warning') {
+            warnings++;
+            warningCodes.push(`${p.code} at ${p.path.join('.') || '<root>'}: ${p.message}`);
+          } else if (p.severity === 'error') {
+            errors++;
+            warningCodes.push(`(error) ${p.code} at ${p.path.join('.') || '<root>'}: ${p.message}`);
+          }
+        }
+      } catch { /* validation throws are surfaced at write-time; ignore here */ }
+      const cap = maxWarnings();
+      if (warnings > cap) {
+        throw new ToolInterrupt(
+          `Refusing to save '${name}': ${warnings} validation warnings exceed the cap of ${cap} (GIN_MAX_WARNINGS). ` +
+            `Address the warnings (or raise the cap) and retry.\n${warningCodes.join('\n')}`,
+        );
+      }
+      if (errors > 0) {
+        throw new ToolInterrupt(
+          `Refusing to save '${name}': ${errors} validation errors present. Fix and re-test before finish().\n${warningCodes.join('\n')}`,
+        );
+      }
 
       // When the designer set up this run via `create_new_fn`, the
       // intended signature lives on `ctx.targetFn`. Use it so the saved

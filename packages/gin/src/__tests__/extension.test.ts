@@ -10,7 +10,7 @@ describe('Extension', () => {
       name: 'temperature',
       options: { min: -273.15, suffix: '°C' },
       props: {
-        toFahrenheit: { type: r.fn(r.obj({}), r.num()) },
+        toFahrenheit: { type: r.fn({ args: r.obj({}), returns: r.num() }) },
       },
     });
     expect(temp).toBeInstanceOf(Extension);

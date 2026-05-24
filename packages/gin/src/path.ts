@@ -16,7 +16,8 @@ import { LocalScope, type TypeScope } from './type-scope';
 import { joinAuto } from './type';
 import { ObjType } from './types/obj';
 import type { CodeOptions } from './node';
-import { Code, code, span, joinCode, jsonObject, jsonArray, jsonString } from './code';
+import { Code, code, span, joinCode } from './code';
+import type { Effects } from './effects';
 
 /**
  * `true` when accessing a prop whose type is a callable (fn / method)
@@ -94,6 +95,15 @@ export class PropStep extends PathStep {
 }
 
 export class CallStep extends PathStep {
+  /**
+   * Effects of the called `Call` as resolved during `Path.validateWalk`.
+   * Populated lazily — undefined until validation has resolved the
+   * call site's type. Consumed by `GetExpr.effects()` so a path like
+   * `fns.fetch({url})` propagates EXTERNAL up to the loop / branch
+   * no-effect warnings (which run after the validator).
+   */
+  resolvedEffects?: Effects;
+
   constructor(
     readonly args: Record<string, Expr>,
     readonly generic?: Record<string, TypeDef>,
@@ -211,7 +221,7 @@ export class Path {
       const stepPath = [...path, i] as const;
       return renderPathStepJSON(step, stepPath, indent, level + 1);
     });
-    return jsonArray(items, { path }, level, indent);
+    return Code.jsonArray(items, { path }, level, indent);
   }
 
   clone(): Path {
@@ -408,9 +418,10 @@ export class Path {
           if (!callSpec?.set) {
             throw new Error(`path: call on type '${callType.name}' has no call.set`);
           }
+          const callSetExpr = callSpec.set;
           const setterCallable = async (newArgs: Value): Promise<Value> => {
             const recurseValue = new Value(callType, setterCallable);
-            await engine.evaluate(callSpec.set!, scope.child({
+            await callSetExpr.evaluate(engine, scope.child({
               args: newArgs, value: mode.setValue!, recurse: recurseValue,
             }));
             return val(engine.registry.void(), undefined);
@@ -423,13 +434,14 @@ export class Path {
           if (typeof callable === 'function') {
             current = await callable(argsValue);
           } else if (callSpec?.get) {
+            const callGetExpr = callSpec.get;
             const getterCallable = async (newArgs: Value): Promise<Value> => {
               const recurseValue = new Value(callType, getterCallable);
               // Catch ReturnSignal so a saved fn body using `flow:'return'`
               // unwinds to its own call boundary (not all the way out
               // through the caller's enclosing lambda).
               try {
-                return await engine.evaluate(callSpec.get!, scope.child({
+                return await callGetExpr.evaluate(engine, scope.child({
                   args: newArgs, recurse: recurseValue,
                 }));
               } catch (sig) {
@@ -583,6 +595,10 @@ export class Path {
               p.at(['path', i + 1], () => p.error('set.call.no-set', `method '${step.prop}' has no call.set`));
             }
           }
+          // Cache the resolved call's effects on the step so
+          // `GetExpr.effects()` can propagate them after the
+          // validator runs.
+          next.resolvedEffects = callable?.effects() ?? 0;
           const ret: Type | undefined = callable?.returns;
           current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
           i += 2;
@@ -649,9 +665,11 @@ export class Path {
               p.at(['path', i], () => p.error('set.call.no-set', `call on type '${current?.name ?? '?'}' has no call.set`));
             }
           }
+          step.resolvedEffects = callable?.effects() ?? 0;
           const ret: Type | undefined = callable?.returns;
           current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
         } else {
+          step.resolvedEffects = 0;
           current = engine.registry.any();
         }
         i++;
@@ -702,8 +720,8 @@ function renderPathStepJSON(
   level: number,
 ): Code {
   if (step instanceof PropStep) {
-    return jsonObject(
-      [{ key: 'prop', value: jsonString(step.prop) }],
+    return Code.jsonObject(
+      [{ key: 'prop', value: Code.jsonString(step.prop) }],
       { path: stepPath },
       level,
       indent,
@@ -714,7 +732,7 @@ function renderPathStepJSON(
       key: k,
       value: expr.toJSONCode([...stepPath, 'args', k], indent, level + 2),
     }));
-    const argsObj = jsonObject(argEntries, { path: [...stepPath, 'args'] }, level + 1, indent);
+    const argsObj = Code.jsonObject(argEntries, { path: [...stepPath, 'args'] }, level + 1, indent);
     const entries: Array<{ key: string; value: Code | string | undefined }> = [
       { key: 'args', value: argsObj },
     ];
@@ -735,10 +753,10 @@ function renderPathStepJSON(
         value: step.catch_.toJSONCode([...stepPath, 'catch'], indent, level + 1),
       });
     }
-    return jsonObject(entries, { path: stepPath }, level, indent);
+    return Code.jsonObject(entries, { path: stepPath }, level, indent);
   }
   if (step instanceof IndexStep) {
-    return jsonObject(
+    return Code.jsonObject(
       [{ key: 'key', value: step.key.toJSONCode([...stepPath, 'key'], indent, level + 1) }],
       { path: stepPath },
       level,

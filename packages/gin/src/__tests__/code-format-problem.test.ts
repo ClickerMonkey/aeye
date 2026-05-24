@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, Engine, formatProblem, Code } from '../index';
+import { createRegistry, Engine, Code } from '../index';
 
 /**
  * End-to-end: take a deliberately-broken ExprDef, run engine.validate
@@ -23,7 +23,7 @@ describe('formatProblem against rendered code', () => {
     const expr = { kind: 'get' as const, path: [{ prop: 'doesNotExist' }] };
     const probs = e.validate(expr);
     const richCode = e.toGinCode(expr);
-    const out = formatProblem(richCode, probs.list[0]!);
+    const out = richCode.formatProblem(probs.list[0]!);
     expect(out).toContain('doesNotExist');
     // Underline characters present.
     expect(out).toContain('^');
@@ -47,7 +47,7 @@ describe('formatProblem against rendered code', () => {
     const probs = e.validate(expr);
     const richCode = e.toGinCode(expr);
     const mismatch = probs.list.find((p) => p.code === 'define.var.type-mismatch')!;
-    const out = formatProblem(richCode, mismatch);
+    const out = richCode.formatProblem(mismatch);
     expect(out).toContain('"wrong"');
     expect(out).toContain('^');
     expect(out).toMatch(/error: /);
@@ -67,7 +67,7 @@ describe('formatProblem against rendered code', () => {
     const richCode = e.toGinCode(expr);
     const cond = probs.list.find((p) => p.code === 'if.condition.type');
     expect(cond).toBeDefined();
-    const out = formatProblem(richCode, cond!);
+    const out = richCode.formatProblem(cond!);
     // Should be a warning, not error.
     expect(out).toMatch(/warning: /);
     expect(out).toContain('^');
@@ -85,7 +85,7 @@ describe('formatProblem against rendered code', () => {
       message: 'something fake',
       severity: 'error' as const,
     };
-    const out = formatProblem(bareCode, fabricated);
+    const out = bareCode.formatProblem(fabricated);
     expect(out).toMatch(/^error: something fake @ nonexistent$/);
   });
 
@@ -93,7 +93,7 @@ describe('formatProblem against rendered code', () => {
     const expr = { kind: 'get' as const, path: [{ prop: 'unknown' }] };
     const probs = e.validate(expr);
     const richCode = e.toGinCode(expr);
-    const out = formatProblem(richCode, probs.list[0]!, { color: false });
+    const out = richCode.formatProblem(probs.list[0]!, { color: false });
     expect(out).not.toContain('\x1b[');
   });
 
@@ -101,7 +101,7 @@ describe('formatProblem against rendered code', () => {
     const expr = { kind: 'get' as const, path: [{ prop: 'unknown' }] };
     const probs = e.validate(expr);
     const richCode = e.toGinCode(expr);
-    const out = formatProblem(richCode, probs.list[0]!, { color: true });
+    const out = richCode.formatProblem(probs.list[0]!, { color: true });
     // Red color code (escape + 31m) somewhere in output.
     expect(out).toContain('\x1b[31m');
   });

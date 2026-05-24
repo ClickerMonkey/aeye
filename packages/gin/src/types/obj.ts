@@ -3,12 +3,12 @@ import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, Prop, type PropSpec, type Rnd, Type } from '../type';
-import { decodeProps, encodeProps } from '../spec';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
+import { Effects } from '../effects';
 
 /**
  * ObjType — structural object with named fields (props). Unlike other
@@ -25,8 +25,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   readonly fields: Record<string, Prop>;
 
   static from(json: TypeDef, scope: TypeScope): ObjType {
-    const fieldDefs = json.props ?? {};
-    const fields = decodeProps(fieldDefs, scope);
+    const fields = Prop.fromMap(json.props ?? {}, scope);
     return new ObjType(scope, fields);
   }
 
@@ -106,6 +105,32 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       out[name] = new Value(prop.type, prop.type.random(rnd));
     }
     return out as RuntimeOf<T>;
+  }
+
+  /** Walk each declared field through its type's `newEffects`. Fields
+   *  not present in `value` contribute their `default` Expr's effects
+   *  (if any) — the runtime fills them via `fillObjDefaults`, so their
+   *  effects realize at construction time. */
+  newEffects(value: unknown): Effects {
+    const init = this.initEffects();
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      // If the whole value is an Expr ref, defer to base.
+      const asExpr = this.exprValueEffects(value);
+      if (asExpr !== Effects.NONE) return init | asExpr;
+      const obj = value as Record<string, unknown>;
+      let acc = init;
+      for (const [name, prop] of Object.entries(this.fields)) {
+        if (name in obj) {
+          acc |= prop.type.newEffects(obj[name]);
+        } else if (prop.default !== undefined) {
+          try {
+            acc |= this.registry.parseExpr(prop.default, this.scope).effects();
+          } catch { /* unparseable default — skip */ }
+        }
+      }
+      return acc;
+    }
+    return init | this.exprValueEffects(value);
   }
 
   like(other: Type): Type {
@@ -192,19 +217,20 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     const key = keyLiterals.length === 1 ? keyLiterals[0]! : this.registry.or(keyLiterals);
     const fieldTypes = Object.values(this.fields).map((p) => p.type);
     const value = fieldTypes.length === 1 ? fieldTypes[0]! : this.registry.or(fieldTypes);
+    const r = this.registry;
     return new GetSet({
       key,
       value,
-      get: { kind: 'native', id: 'object.indexGet' },
-      set: { kind: 'native', id: 'object.indexSet' },
-      loop: { kind: 'native', id: 'object.iterate' },
+      get: r.nativeExpr('object.indexGet'),
+      set: r.nativeExpr('object.indexSet'),
+      loop: r.nativeExpr('object.iterate'),
     });
   }
 
   toJSON(): TypeDef {
     return {
       name: ObjType.NAME,
-      props: encodeProps(this.fields),
+      props: Prop.toJSONMap(this.fields),
     };
   }
 

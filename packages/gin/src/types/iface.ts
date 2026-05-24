@@ -12,7 +12,6 @@ import {
   Type,
   joinAuto,
 } from '../type';
-import { decodeCall, decodeGetSet, decodeProps, encodeProps } from '../spec';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
@@ -39,9 +38,9 @@ export class IfaceType extends Type<any, Record<string, never>> {
   static from(json: TypeDef, scope: TypeScope): IfaceType {
     const registry = scope.registry;
     return new IfaceType(scope, {
-      props: json.props ? decodeProps(json.props, scope) : {},
-      get: json.get ? decodeGetSet(json.get, scope) : undefined,
-      call: json.call ? decodeCall(json.call, scope) : undefined,
+      props: json.props ? Prop.fromMap(json.props, scope) : {},
+      get: json.get ? GetSet.from(json.get, scope) : undefined,
+      call: json.call ? Call.from(json.call, scope) : undefined,
     });
   }
 
@@ -189,7 +188,7 @@ export class IfaceType extends Type<any, Record<string, never>> {
   toJSON(): TypeDef {
     return {
       name: IfaceType.NAME,
-      props: Object.keys(this._props).length > 0 ? encodeProps(this._props) : undefined,
+      props: Object.keys(this._props).length > 0 ? Prop.toJSONMap(this._props) : undefined,
       get: this._get?.toJSON(),
       call: this._call?.toJSON(),
     };

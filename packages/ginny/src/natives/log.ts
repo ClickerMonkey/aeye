@@ -24,15 +24,16 @@ export function createLogImpl(registry: Registry) {
 }
 
 export function registerLogType(registry: Registry) {
-  return registry.fn(
-    registry.obj({
+  return registry.fn({
+    args: registry.obj({
       message: {
         type: registry.any(),
         docs: 'Anything to surface to the user — a status update, intermediate value, debug breadcrumb. Renders as text on stderr; complex values JSON-encode.',
       },
     }),
-    registry.void(),
-  );
+    returns: registry.void(),
+    call: registry.nativeExpr('fns.log'),
+  });
 }
 
 function formatMessage(v: Value | undefined): string {

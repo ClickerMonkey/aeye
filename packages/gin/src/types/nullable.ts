@@ -113,7 +113,7 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
       value:  r.prop(T,                                  'nullable.value'),
       isNull: r.method({},                  r.bool(),    'nullable.isNull'),
       or:     r.method({ fallback: T },     T,           'nullable.or'),
-      map:    r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.alias('R')) }, r.nullable(r.alias('R')), 'nullable.map', { generic: { R: r.any() } }),
+      map:    r.method({ fn: r.fn({ args: r.obj({ value: { type: T } }), returns: r.alias('R') }) }, r.nullable(r.alias('R')), 'nullable.map', { generic: { R: r.any() } }),
     };
   }
 

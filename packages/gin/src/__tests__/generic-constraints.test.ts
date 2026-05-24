@@ -25,12 +25,7 @@ describe('generic constraints', () => {
   test('unconstrained generic — any binding accepted', () => {
     const r = createRegistry();
     // identity<T: any>({x: T}): T — declared with `any` constraint.
-    const identity = r.fn(
-      r.obj({ x: { type: r.alias('T') } }),
-      r.alias('T'),
-      undefined,
-      { T: r.any() },
-    );
+    const identity = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.alias('T'), generic: { T: r.any() } });
 
     const stepNum = new CallStep({}, { T: { name: 'num' } });
     const stepText = new CallStep({}, { T: { name: 'text' } });
@@ -42,12 +37,7 @@ describe('generic constraints', () => {
   test('union constraint — only members of the union are accepted', () => {
     const r = createRegistry();
     // describe<R: text | obj>(...) — like fns.llm's R constraint.
-    const describer = r.fn(
-      r.obj({}),
-      r.alias('R'),
-      undefined,
-      { R: r.or([r.text(), r.obj({})]) },
-    );
+    const describer = r.fn({ args: r.obj({}), returns: r.alias('R'), generic: { R: r.or([r.text(), r.obj({})]) } });
 
     // Accepted: text fits the or<text, obj> constraint.
     expect(() =>
@@ -74,12 +64,7 @@ describe('generic constraints', () => {
     });
 
     // measure<T: Sized>({x: T}): num
-    const measure = r.fn(
-      r.obj({ x: { type: r.alias('T') } }),
-      r.num(),
-      undefined,
-      { T: Sized },
-    );
+    const measure = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.num(), generic: { T: Sized } });
 
     // text has `length: num` → satisfies Sized.
     expect(() =>
@@ -107,12 +92,7 @@ describe('generic constraints', () => {
     // to itself, declaring "this generic has no real constraint". The
     // satisfies check is skipped for this form so any binding is accepted.
     const r = createRegistry();
-    const identity = r.fn(
-      r.obj({ x: { type: r.alias('R') } }),
-      r.alias('R'),
-      undefined,
-      { R: r.alias('R') },
-    );
+    const identity = r.fn({ args: r.obj({ x: { type: r.alias('R') } }), returns: r.alias('R'), generic: { R: r.alias('R') } });
 
     expect(() =>
       new CallStep({}, { R: { name: 'num' } }).callSiteScope(identity),
@@ -131,12 +111,12 @@ describe('generic constraints', () => {
     // signature stays unresolved (AliasType placeholder); only call-
     // site bindings provide concrete resolution.
     const r = createRegistry();
-    const fn = r.fn(
-      r.obj({ x: { type: r.alias('R') } }),
-      r.alias('R'),
-      undefined,
-      { R: r.text() },                       // constraint, not default
-    );
+    // constraint, not default
+    const fn = r.fn({
+      args: r.obj({ x: { type: r.alias('R') } }),
+      returns: r.alias('R'),
+      generic: { R: r.text() },
+    });
 
     // Without a call-site binding, the captured fn scope does NOT
     // resolve R to text. The args type's `x` field is AliasType('R')
@@ -157,12 +137,7 @@ describe('generic constraints', () => {
     const r = createRegistry();
     const e = new Engine(r);
 
-    const identity = r.fn(
-      r.obj({ x: { type: r.alias('R') } }),
-      r.alias('R'),
-      undefined,
-      { R: r.or([r.text(), r.obj({})]) },
-    );
+    const identity = r.fn({ args: r.obj({ x: { type: r.alias('R') } }), returns: r.alias('R'), generic: { R: r.or([r.text(), r.obj({})]) } });
 
     const expr = {
       kind: 'get',
@@ -183,12 +158,7 @@ describe('generic constraints', () => {
     const r = createRegistry();
     const e = new Engine(r);
 
-    const identity = r.fn(
-      r.obj({ x: { type: r.alias('R') } }),
-      r.alias('R'),
-      undefined,
-      { R: r.or([r.text(), r.obj({})]) },
-    );
+    const identity = r.fn({ args: r.obj({ x: { type: r.alias('R') } }), returns: r.alias('R'), generic: { R: r.or([r.text(), r.obj({})]) } });
 
     // bool doesn't satisfy text|obj — typeOf walks callSiteScope which
     // throws on the satisfies failure.

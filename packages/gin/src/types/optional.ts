@@ -119,7 +119,7 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
       value: r.prop(T, 'optional.value'),
       has:   r.method({},                                r.bool(), 'optional.has'),
       or:    r.method({ fallback: T },                   T,        'optional.or'),
-      map:   r.method({ fn: r.fn(r.obj({ value: { type: T } }), r.alias('R')) }, r.optional(r.alias('R')), 'optional.map', { generic: { R: r.any() } }),
+      map:   r.method({ fn: r.fn({ args: r.obj({ value: { type: T } }), returns: r.alias('R') }) }, r.optional(r.alias('R')), 'optional.map', { generic: { R: r.any() } }),
     };
   }
 

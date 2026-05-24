@@ -83,7 +83,7 @@ describe('set return value + safe-navigation', () => {
       name: 'nullProducer',
       props: {
         maybeMap: {
-          type: r.fn(r.obj({}), r.map(r.text(), r.num())),
+          type: r.fn({ args: r.obj({}), returns: r.map(r.text(), r.num()) }),
           get: { kind: 'native', id: 'test.null-map' },
         },
       },
@@ -147,7 +147,7 @@ describe('deep set: method call → index set', () => {
       name: 'taggedMap',
       props: {
         scope: {
-          type: r.fn(r.obj({ a: { type: r.num() } }), r.map(r.text(), r.num())),
+          type: r.fn({ args: r.obj({ a: { type: r.num() } }), returns: r.map(r.text(), r.num()) }),
           get: { kind: 'get', path: [{ prop: 'this' }] },
         },
       },
@@ -196,7 +196,7 @@ describe('deep set: method call → prop set', () => {
           },
         },
         self: {
-          type: r.fn(r.obj({}), r.alias('tattler')),
+          type: r.fn({ args: r.obj({}), returns: r.alias('tattler') }),
           get: { kind: 'get', path: [{ prop: 'this' }] },
         },
       },

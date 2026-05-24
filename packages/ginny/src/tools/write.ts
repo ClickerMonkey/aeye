@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { buildSchemas, formatProblems, Code } from '@aeye/gin';
-import type { ExprDef } from '@aeye/gin';
+import { buildSchemas, Code, Problems } from '@aeye/gin';
+import type { ExprDef, Problem } from '@aeye/gin';
 import { ai } from '../ai';
 import { logger, genId } from '../logger';
 
@@ -10,8 +10,9 @@ export const write = ai.tool({
   instructions:
     'Store the program draft. Provide the gin ExprDef JSON as "program". ' +
     'Returns the program rendered as TypeScript-like source via toCode() so you can sanity-check what gin actually parsed, ' +
-    'plus any validation problems (unknown vars / props / out-of-place flow / type mismatches) found by static analysis. ' +
-    'Fix reported errors before calling test().',
+    'plus any validation problems found by static analysis. ' +
+    'ERRORS block the next step — fix them before calling test(). ' +
+    'WARNINGS are advisory — review and address what you can; a fn whose saved warnings exceed the threshold will be rejected at finish().',
   schema: (ctx) => {
     const opts = buildSchemas(ctx.registry, { newStrict: true });
     return z.object({ program: opts.Expr as z.ZodType<ExprDef> });
@@ -47,7 +48,7 @@ export const write = ai.tool({
     const scope = new Map(ctx.engine.globalTypeScope());
     if (ctx.targetFn) {
       scope.set('args', ctx.targetFn.argsType);
-      scope.set('recurse', ctx.registry.fn(ctx.targetFn.argsType, ctx.targetFn.returnsType));
+      scope.set('recurse', ctx.registry.fn({ args: ctx.targetFn.argsType, returns: ctx.targetFn.returnsType }));
     }
 
     // 6-char id for grepping ginny.log. Same id appears in stderr,
@@ -62,35 +63,60 @@ export const write = ai.tool({
     // programmer agents in flight that pushed total resident memory
     // toward GB-scale OOMs. Both forms are still captured for human
     // debugging — `grep ginny.log <id>` pulls up the full block.
+    //
+    // Errors and warnings render as TWO distinct blocks so the model
+    // sees the severity difference at a glance: errors MUST be fixed
+    // before test() (the program likely won't even evaluate); warnings
+    // SHOULD be addressed but allow forward motion. The finish() tool
+    // re-counts warnings against `GIN_MAX_WARNINGS` and rejects saving
+    // a fn that exceeds the threshold.
     let problemsTsNote = '';
     let problemsLogNote = '';
-    let problemsCount = 0;
+    let errorCount = 0;
+    let warningCount = 0;
     try {
       const ctxFlags = ctx.targetFn
         ? { inLoop: false, inLambda: true }
         : undefined;
       const problems = ctx.engine.validate(input.program, scope, ctxFlags);
-      problemsCount = problems.list.length;
-      if (problemsCount > 0) {
-        const tsBlock = formatProblems(richCode, problems, { color: false });
-        const jsonBlock = formatProblems(jsonCode, problems, { color: false });
-        problemsTsNote = `\n\n[validation problems [${id}] — fix before calling test()]\n\n${tsBlock}`;
-        problemsLogNote = `${problemsTsNote}\n\n— or, in JSON form —\n\n${jsonBlock}`;
+      const split = splitBySeverity(problems);
+      errorCount = split.errors.list.length;
+      warningCount = split.warnings.list.length;
+      const tsParts: string[] = [];
+      const logParts: string[] = [];
+      if (errorCount > 0) {
+        const tsBlock = richCode.formatProblems(split.errors, { color: false });
+        const jsonBlock = jsonCode.formatProblems(split.errors, { color: false });
+        tsParts.push(`[validation ERRORS [${id}] — fix before calling test()]\n\n${tsBlock}`);
+        logParts.push(`${tsParts[tsParts.length - 1]}\n\n— or, in JSON form —\n\n${jsonBlock}`);
+      }
+      if (warningCount > 0) {
+        const tsBlock = richCode.formatProblems(split.warnings, { color: false });
+        const jsonBlock = jsonCode.formatProblems(split.warnings, { color: false });
+        tsParts.push(`[validation WARNINGS [${id}] — address before finish() (saved fn rejected if too many)]\n\n${tsBlock}`);
+        logParts.push(`${tsParts[tsParts.length - 1]}\n\n— or, in JSON form —\n\n${jsonBlock}`);
+      }
+      if (tsParts.length > 0) {
+        problemsTsNote = `\n\n${tsParts.join('\n\n')}`;
+        problemsLogNote = `\n\n${logParts.join('\n\n')}`;
       }
     } catch (e: unknown) {
       problemsTsNote = `\n\n[validation threw [${id}]: ${e instanceof Error ? e.message : String(e)}]`;
       problemsLogNote = problemsTsNote;
-      problemsCount = 1;
+      errorCount = 1;
     }
 
     // Stderr (the user's terminal) gets the rendered code dim + a
     // single-line problem count. The full problems block is in
     // ginny.log only.
     process.stderr.write(`\n\x1b[2m${codeStr}\x1b[0m\n`);
-    if (problemsCount > 0) {
-      const noun = problemsCount === 1 ? 'problem' : 'problems';
-      process.stderr.write(`\x1b[31m[${problemsCount} validation ${noun} [${id}] — grep ginny.log for ${id}]\x1b[0m\n`);
-      logger.log(`[${id}] write validation problems (${problemsCount}):\n${codeStr}${problemsLogNote}`);
+    if (errorCount > 0 || warningCount > 0) {
+      const parts: string[] = [];
+      if (errorCount > 0) parts.push(`${errorCount} ${errorCount === 1 ? 'error' : 'errors'}`);
+      if (warningCount > 0) parts.push(`${warningCount} ${warningCount === 1 ? 'warning' : 'warnings'}`);
+      const color = errorCount > 0 ? '\x1b[31m' : '\x1b[33m';
+      process.stderr.write(`${color}[${parts.join(', ')} [${id}] — grep ginny.log for ${id}]\x1b[0m\n`);
+      logger.log(`[${id}] write validation (${parts.join(', ')}):\n${codeStr}${problemsLogNote}`);
     } else {
       logger.log(`write:\n${codeStr}`);
     }
@@ -102,3 +128,20 @@ export const write = ai.tool({
     return `Draft saved. Call test() to evaluate it.\n\n${codeStr}${problemsTsNote}`;
   },
 });
+
+/**
+ * Partition a `Problems` accumulator into two by severity. Each side is
+ * a fresh `Problems` so `formatProblems` can render them independently
+ * with their own colored headers.
+ */
+function splitBySeverity(p: Problems): { errors: Problems; warnings: Problems } {
+  const errors = new Problems();
+  const warnings = new Problems();
+  for (const item of p.list as ReadonlyArray<Problem>) {
+    if (item.severity === 'error') errors.list.push(item);
+    else if (item.severity === 'warning') warnings.list.push(item);
+    // 'info' is silently dropped — no consumers today, and surfacing
+    // it would clutter the model's view.
+  }
+  return { errors, warnings };
+}

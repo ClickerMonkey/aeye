@@ -5,6 +5,7 @@ export { buildSchemas } from './schemas';
 
 // Core
 export * from './problem';
+export { Effects, combine as combineEffects, has as hasEffects, formatEffects } from './effects';
 export {
   Code,
   code,
@@ -12,11 +13,6 @@ export {
   plain,
   joinCode,
   joinLines,
-  jsonObject,
-  jsonArray,
-  jsonString,
-  formatProblem,
-  formatProblems,
   type Span,
   type CodeLine,
   type FormatOptions,
@@ -27,7 +23,6 @@ export * from './value';
 export * from './scope';
 export * from './type';
 export * from './extension';
-export * from './spec';
 export * from './builder';
 export * from './registry';
 export * from './flow-control';

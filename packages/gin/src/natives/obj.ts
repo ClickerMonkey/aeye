@@ -2,6 +2,7 @@ import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { ObjType } from '../types/obj';
 import { arg, self, selfValue, setupYield } from './helpers';
+import { Effects } from '../effects';
 
 const fields = (scope: any) => (selfValue(scope).type as ObjType).fields;
 
@@ -76,6 +77,14 @@ export const objNatives: Record<string, NativeImpl> = {
     }
     return val(reg.text(), JSON.stringify(out));
   },
+};
+
+/**
+ * Effects overrides for object natives that aren't pure. Every native
+ * not listed here defaults to `Effects.NONE` at registration time.
+ */
+export const objNativesEffects: Record<string, Effects> = {
+  'object.indexSet': Effects.STATE,
 };
 
 /** Deep equality comparing Value.raw all the way down. */

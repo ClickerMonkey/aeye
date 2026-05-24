@@ -1,8 +1,6 @@
-import type { Registry } from '../registry';
-import type { CodeOptions } from '../node';
 import { Expr, type ChildBoundary } from '../expr';
 import { FlowExpr } from './flow';
-import { Code, code, plain } from '../code';
+import { Code, plain } from '../code';
 
 /** Indent every line after the first by two spaces (for multi-line bodies). */
 export function indentCode(code: string): string {
@@ -41,73 +39,9 @@ export function findEscapingFlow(expr: Expr, enclosing: ChildBoundary = 'inherit
   return found;
 }
 
-/**
- * Render an Expr as a statement-body for an if/else/for/switch branch.
- *
- * Always emits a multi-line braced form so all branches read uniformly
- * (no mixing of `} else { x; }` single-liners with multi-line if-bodies).
- * Special cases:
- *   - `flow` (return / break / continue / throw / exit) renders bare
- *     plus `;` — `else return x;` is more readable than wrapping in
- *     braces just to terminate.
- *   - sub-`if` / `switch` / `loop` render in their own statement form
- *     (already self-bracing); used by `else if (...)` chains.
- *   - `block` emits its lines bare (BlockExpr no longer self-braces in
- *     statement form), so the wrapper here adds the `{` / `}`.
- *   - everything else: an expression statement wrapped in braces.
- */
-export function renderStatementBody(expr: Expr, registry?: Registry, options: CodeOptions = {}): string {
-  // Use structural markers instead of instanceof to avoid a circular
-  // import on the concrete Expr classes.
-  const kind = (expr as { kind: string }).kind;
-  if (kind === 'flow') {
-    return `${expr.toCode(registry, { ...options, expectsValue: false })};`;
-  }
-  if (kind === 'if' || kind === 'switch' || kind === 'loop') {
-    return expr.toCode(registry, { ...options, expectsValue: false });
-  }
-  if (kind === 'block') {
-    const code = expr.toCode(registry, { ...options, expectsValue: false });
-    return code.startsWith('{') ? code : `{\n  ${indentCode(code)}\n}`;
-  }
-  // Expression statement — wrap in multi-line braces so the rendered
-  // code stays uniform across branch sizes.
-  return `{\n  ${indentCode(expr.toCode(registry, { ...options, expectsValue: true }))};\n}`;
-}
-
-/**
- * `Code`-aware variant of `renderStatementBody` — same semantics, but
- * the body's spans flow through to the caller. The caller passes the
- * `path` prefix where `expr` sits in its parent (e.g. `[...path, 'ifs',
- * i, 'body']`); the body's child spans are produced relative to that.
- *
- * Mirrors the string variant's branch logic exactly so call sites can
- * be migrated 1:1.
- */
-export function renderStatementBodyRich(
-  expr: Expr,
-  registry?: Registry,
-  options: CodeOptions = {},
-  path: ReadonlyArray<string | number> = [],
-): Code {
-  const kind = (expr as { kind: string }).kind;
-  if (kind === 'flow') {
-    const inner = expr.toGinCode(registry, { ...options, expectsValue: false }, path);
-    return code`${inner};`;
-  }
-  if (kind === 'if' || kind === 'switch' || kind === 'loop') {
-    return expr.toGinCode(registry, { ...options, expectsValue: false }, path);
-  }
-  if (kind === 'block') {
-    const body = expr.toGinCode(registry, { ...options, expectsValue: false }, path);
-    return body.text.startsWith('{')
-      ? body
-      : code`{\n  ${body.indent('  ')}\n}`;
-  }
-  // Expression statement — wrap in multi-line braces.
-  const inner = expr.toGinCode(registry, { ...options, expectsValue: true }, path);
-  return code`{\n  ${inner.indent('  ')};\n}`;
-}
+// `renderStatementBody` / `renderStatementBodyRich` moved to
+// `Expr.renderStatementBody(...)` / `Expr.renderStatementBodyRich(...)`
+// as instance methods (see `../expr.ts`).
 
 /** `Code.indent` thin wrapper for callers that already have a Code. */
 export function indentCodeRich(c: Code, prefix: string = '  '): Code {

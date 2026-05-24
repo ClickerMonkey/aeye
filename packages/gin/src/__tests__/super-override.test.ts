@@ -23,7 +23,7 @@ describe('super in method (PropDef.get) override', () => {
       name: 'doubled',
       props: {
         add: {
-          type: r.fn(r.obj({ other: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ other: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -58,7 +58,7 @@ describe('super in method (PropDef.get) override', () => {
       name: 'biasedAdder',
       props: {
         add: {
-          type: r.fn(r.obj({ other: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ other: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -101,7 +101,7 @@ describe('super in method (PropDef.get) override', () => {
       name: 'lvl1',
       props: {
         add: {
-          type: r.fn(r.obj({ other: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ other: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -121,7 +121,7 @@ describe('super in method (PropDef.get) override', () => {
       name: 'lvl2',
       props: {
         add: {
-          type: r.fn(r.obj({ other: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ other: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -160,7 +160,7 @@ describe('super in method (PropDef.get) override', () => {
       name: 'wrap',
       props: {
         add: {
-          type: r.fn(r.obj({ other: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ other: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -192,7 +192,7 @@ describe('super in method (PropDef.get) override', () => {
       name: 'withExtra',
       props: {
         brand: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: { kind: 'get', path: [{ prop: 'super' }] },
         },
       },

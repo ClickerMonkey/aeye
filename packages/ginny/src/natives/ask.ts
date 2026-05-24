@@ -94,8 +94,8 @@ export function createAskImpl(registry: Registry) {
 }
 
 export function registerAskType(registry: Registry) {
-  return registry.fn(
-    registry.obj({
+  return registry.fn({
+    args: registry.obj({
       title: {
         type: registry.text(),
         docs: 'Short headline shown to the user before any prompts. Describes WHAT you\'re asking for.',
@@ -109,14 +109,14 @@ export function registerAskType(registry: Registry) {
         docs: 'Optional gin Type the answer must conform to. Use rich shapes (obj / list<obj> / enum / optional) and put `docs` on every field — those docs become the user-facing label for each sub-prompt. Omit to read plain text.',
       },
     }),
-    registry.optional(registry.alias('R')),
-    undefined,
+    returns: registry.optional(registry.alias('R')),
     // Constraint on R, not a default. `consume()` walks any gin Type —
     // primitives, lists, objs, enums, optionals — and prompts the user
     // accordingly. `any` reflects that any shape the caller asks for
     // is acceptable. Without an `output:` arg the impl returns
     // `optional<text>`; with one, the impl coerces R to whatever the
     // caller's Type was.
-    { R: registry.any() },
-  );
+    generic: { R: registry.any() },
+    call: registry.nativeExpr('fns.ask'),
+  });
 }

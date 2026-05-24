@@ -2,6 +2,7 @@ import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { TupleType } from '../types/tuple';
 import { self, selfValue, setupYield } from './helpers';
+import { Effects } from '../effects';
 
 const elems = (scope: any) => (selfValue(scope).type as TupleType).elements;
 
@@ -57,4 +58,12 @@ export const tupleNatives: Record<string, NativeImpl> = {
     return val(es[es.length - 1]!, v);
   },
   'tuple.toList': (scope, reg) => val(reg.list(reg.any()), [...self<Value[]>(scope)]),
+};
+
+/**
+ * Effects overrides for tuple natives that aren't pure. Every native
+ * not listed here defaults to `Effects.NONE` at registration time.
+ */
+export const tupleNativesEffects: Record<string, Effects> = {
+  'tuple.setAt': Effects.STATE,
 };

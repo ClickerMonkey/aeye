@@ -32,7 +32,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     // the bound `this` Value. Body is real gin code, not a native id.
     r.augment('text', {
       props: {
-        echo: { type: r.fn(r.obj({}), r.text()), get: { kind: 'get', path: [{ prop: 'this' }] } },
+        echo: { type: r.fn({ args: r.obj({}), returns: r.text() }), get: { kind: 'get', path: [{ prop: 'this' }] } },
       },
     });
     const probs = r.text().validate(e);
@@ -45,7 +45,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     r.augment('text', {
       props: {
         // `unboundName` is not in scope — the slot only binds `this`/`args`/`recurse`.
-        broken: { type: r.fn(r.obj({}), r.text()), get: { kind: 'get', path: [{ prop: 'unboundName' }] } },
+        broken: { type: r.fn({ args: r.obj({}), returns: r.text() }), get: { kind: 'get', path: [{ prop: 'unboundName' }] } },
       },
     });
     const probs = r.text().validate(e);
@@ -59,7 +59,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     r.augment('text', {
       props: {
         wrongReturn: {
-          type: r.fn(r.obj({}), r.num()),
+          type: r.fn({ args: r.obj({}), returns: r.num() }),
           // `this` is text — returning it gives type 'text', not 'num'.
           get: { kind: 'get', path: [{ prop: 'this' }] },
         },
@@ -82,7 +82,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     r.augment('Point', {
       props: {
         broken: {
-          type: r.fn(r.obj({}), r.num()),
+          type: r.fn({ args: r.obj({}), returns: r.num() }),
           get: { kind: 'get', path: [{ prop: 'doesNotExist' }] },
         },
       },
@@ -100,7 +100,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     r.augment('text', {
       props: {
         broken: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: { kind: 'get', path: [{ prop: 'unbound' }] },
         },
       },
@@ -117,7 +117,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     r.augment('text', {
       props: {
         textBroken: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: { kind: 'get', path: [{ prop: 'unboundA' }] },
         },
       },
@@ -131,7 +131,7 @@ describe('Type.validate — embedded Expr surface walk', () => {
     r.augment('Point', {
       props: {
         pointBroken: {
-          type: r.fn(r.obj({}), r.num()),
+          type: r.fn({ args: r.obj({}), returns: r.num() }),
           get: { kind: 'get', path: [{ prop: 'unboundB' }] },
         },
       },

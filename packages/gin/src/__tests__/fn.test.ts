@@ -6,14 +6,14 @@ describe('FnType', () => {
   const r = createRegistry();
 
   test('builder with args/returns', () => {
-    const t = r.fn(r.obj({ x: { type: r.num() } }), r.num()) as FnType;
+    const t = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() }) as FnType;
     expect(t).toBeInstanceOf(FnType);
     expect(t.call()?.args.name).toBe('obj');
     expect(t.call()?.returns?.name).toBe('num');
   });
 
   test('valid accepts functions, expressions, strings', () => {
-    const t = r.fn(r.obj({}), r.num());
+    const t = r.fn({ args: r.obj({}), returns: r.num() });
     expect(t.valid(() => 1)).toBe(true);
     expect(t.valid('native-id')).toBe(true);
     expect(t.valid({ kind: 'lambda' })).toBe(true);
@@ -21,19 +21,19 @@ describe('FnType', () => {
   });
 
   test('compatible with matching signatures', () => {
-    const a = r.fn(r.obj({ x: { type: r.num() } }), r.num());
-    const b = r.fn(r.obj({ x: { type: r.num() } }), r.num());
+    const a = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() });
+    const b = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() });
     expect(a.compatible(b)).toBe(true);
   });
 
   test('compatible rejects different signatures', () => {
-    const a = r.fn(r.obj({ x: { type: r.num() } }), r.num());
-    const b = r.fn(r.obj({ x: { type: r.text() } }), r.num());
+    const a = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() });
+    const b = r.fn({ args: r.obj({ x: { type: r.text() } }), returns: r.num() });
     expect(a.compatible(b)).toBe(false);
   });
 
   test('call() exposes signature', () => {
-    const t = r.fn(r.obj({}), r.bool());
+    const t = r.fn({ args: r.obj({}), returns: r.bool() });
     const c = t.call();
     expect(c).toBeDefined();
     expect(c!.returns?.name).toBe('bool');
@@ -49,7 +49,7 @@ describe('FnType', () => {
   });
 
   test('encode + parse roundtrip', () => {
-    const t = r.fn(r.obj({ x: { type: r.num() } }), r.text());
+    const t = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.text() });
     const back = r.parse(t.toJSON()) as FnType;
     expect(back).toBeInstanceOf(FnType);
     expect(back.call().returns?.name).toBe('text');

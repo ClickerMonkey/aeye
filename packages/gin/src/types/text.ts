@@ -147,11 +147,12 @@ export class TextType extends Type<string, TextOptions> {
   }
 
   get(): GetSet {
+    const r = this.registry;
     return new GetSet({
-      key: this.registry.num(),
-      value: this.registry.text({ minLength: 1, maxLength: 1 }),
-      get: { kind: 'native', id: 'text.charAt' },
-      loop: { kind: 'native', id: 'text.chars' },
+      key: r.num(),
+      value: r.text({ minLength: 1, maxLength: 1 }),
+      get: r.nativeExpr('text.charAt'),
+      loop: r.nativeExpr('text.chars'),
     });
   }
 

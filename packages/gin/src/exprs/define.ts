@@ -8,10 +8,11 @@ import type { Locals } from '../analysis';
 import { checkBindingName, typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import { Code, code, span, joinLines, jsonObject, jsonArray, jsonString } from '../code';
+import { Code, code, span, joinLines } from '../code';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
 import { z } from 'zod';
+import { Effects } from '../effects';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
@@ -208,9 +209,9 @@ export class DefineExpr extends Expr {
       const varPath = [...path, 'vars', i] as const;
       const valueCode = v.value.toJSONCode([...varPath, 'value'], indent, level + 3);
       const typeCode = v.type ? v.type.toJSONCode([...varPath, 'type'], indent, level + 3) : undefined;
-      return jsonObject(
+      return Code.jsonObject(
         [
-          { key: 'name', value: jsonString(v.name) },
+          { key: 'name', value: Code.jsonString(v.name) },
           { key: 'value', value: valueCode },
           { key: 'type', value: typeCode },
         ],
@@ -220,12 +221,12 @@ export class DefineExpr extends Expr {
       );
     });
     const bodyCode = this.body.toJSONCode([...path, 'body'], indent, level + 1);
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('define') },
-        { key: 'vars', value: jsonArray(varItems, { path: [...path, 'vars'] }, level + 1, indent) },
+        { key: 'kind', value: Code.jsonString('define') },
+        { key: 'vars', value: Code.jsonArray(varItems, { path: [...path, 'vars'] }, level + 1, indent) },
         { key: 'body', value: bodyCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -243,6 +244,12 @@ export class DefineExpr extends Expr {
   forEachChild(visit: ChildVisitor): void {
     for (const v of this.vars) visit(v.value, 'inherit');
     visit(this.body, 'inherit');
+  }
+
+  effects(): Effects {
+    let acc: Effects = this.body.effects();
+    for (const v of this.vars) acc |= v.value.effects();
+    return acc;
   }
 }
 

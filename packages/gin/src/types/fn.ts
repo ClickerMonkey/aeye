@@ -1,8 +1,7 @@
 import type { ExprDef, TypeDef } from '../schema';
 import type { Registry } from '../registry';
 import { Value } from '../value';
-import { Call, type CompatOptions, type Prop, type Rnd, Type, formatParams, renderCallTypes, renderGenerics } from '../type';
-import { decodeCall } from '../spec';
+import { Call, type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { LocalScope, type TypeScope } from '../type-scope';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -52,7 +51,7 @@ export class FnType extends Type<any, Record<string, never>> {
         returns: registry.any(),
       }), generic);
     }
-    return new FnType(local, decodeCall(json.call, local), generic);
+    return new FnType(local, Call.from(json.call, local), generic);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -120,7 +119,7 @@ export class FnType extends Type<any, Record<string, never>> {
     if (returns && returns.name === 'null') return r.null();
     const throws = other._call.throws ? r.like(other._call.throws) : undefined;
     if (throws && throws.name === 'null') return r.null();
-    return r.fn(args as Type<any>, returns, throws, this.generic);
+    return r.fn({ args: args as Type<any>, returns, throws, generic: this.generic });
   }
 
   compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
@@ -197,7 +196,7 @@ export class FnType extends Type<any, Record<string, never>> {
   toCode(_registry?: Registry, options?: CodeOptions): string {
     const ret = this._call.returns?.toCode(undefined, options) ?? 'void';
     return this.docsPrefix(options)
-      + `${renderGenerics(this.generic, options)}${renderCallTypes(this._call.types, options)}(${formatParams(this._call.args, options)}): ${ret}`;
+      + `${Type.renderGenerics(this.generic, options)}${this._call.renderTypes(options)}(${Type.formatParams(this._call.args, options)}): ${ret}`;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

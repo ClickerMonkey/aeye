@@ -12,7 +12,6 @@ import {
   type Rnd,
   Type,
 } from './type';
-import { encodeProps } from './spec';
 import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { JSONOf, RuntimeOf } from './json-type';
@@ -74,25 +73,14 @@ export interface ExtensionLocal<T = any, O = any> {
  * methods (read/write/invokeMethod/…) are available on the normalized
  * Extension.local. Idempotent for already-wrapped values.
  */
-function normalizeLocal<T, O>(local: ExtensionLocal<T, O>): ExtensionLocal<T, O> {
-  const next: ExtensionLocal<T, O> = { ...local };
-  if (local.props) {
-    const p: Record<string, Prop> = {};
-    for (const [k, v] of Object.entries(local.props)) {
-      p[k] = Prop.from(v);
-    }
-    next.props = p;
-  }
-  if (local.get && !(local.get instanceof GetSet)) {
-    next.get = new GetSet(local.get as ConstructorParameters<typeof GetSet>[0]);
-  }
-  if (local.call && !(local.call instanceof Call)) {
-    next.call = new Call(local.call as ConstructorParameters<typeof Call>[0]);
-  }
-  if (local.init && !(local.init instanceof Init)) {
-    next.init = new Init(local.init as ConstructorParameters<typeof Init>[0]);
-  }
-  return next;
+function normalizeLocal<T, O>(local: ExtensionLocal<T, O>, registry: Registry): ExtensionLocal<T, O> {
+  return {
+    ...local,
+    props: local.props ? Prop.fromMap(local.props, registry) : undefined,
+    get: local.get ? GetSet.from(local.get, registry) : undefined,
+    call: local.call ? Call.from(local.call, registry) : undefined,
+    init: local.init ? Init.from(local.init, registry) : undefined,
+  };
 }
 
 export class Extension<T = any, O = any> extends Type<T, O> {
@@ -127,7 +115,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     super(registry, narrowedOptions, local.generic ?? {});
     this.original = original;
     this.base = effectiveBase;
-    this.local = normalizeLocal(local);
+    this.local = normalizeLocal(local, registry);
     this.name = local.name;
     this.docs = local.docs;
   }
@@ -273,7 +261,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       docs: this.docs,
       generic: Object.keys(mergedGeneric).length > 0 ? mergedGeneric : undefined,
       options: mergedOptions && Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
-      props: this.local.props ? encodeProps(this.local.props) : undefined,
+      props: this.local.props ? Prop.toJSONMap(this.local.props) : undefined,
       get: this.local.get?.toJSON(),
       call: this.local.call?.toJSON(),
       init: this.local.init?.toJSON(),
@@ -405,7 +393,10 @@ export class Extension<T = any, O = any> extends Type<T, O> {
         };
         return new Value(fnType, callable);
       }
-      const fnType = engine.registry.fn(engine.registry.obj({}), baseProp.type);
+      const fnType = engine.registry.fn({
+        args: engine.registry.obj({}),
+        returns: baseProp.type,
+      });
       const callable = async (_args: Value): Promise<Value> => {
         if (!baseProp.get) return val(baseProp.type, (selfAsBase.raw as Record<string, unknown> | null | undefined)?.[name]);
         const bindings: Record<string, Value> = { this: selfAsBase };
@@ -418,10 +409,10 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
     if (direction === 'set') {
       if (!baseProp.set) return undefined;
-      const fnType = engine.registry.fn(
-        engine.registry.obj({ value: { type: baseProp.type } }),
-        engine.registry.void(),
-      );
+      const fnType = engine.registry.fn({
+        args: engine.registry.obj({ value: { type: baseProp.type } }),
+        returns: engine.registry.void(),
+      });
       const callable = async (args: Value): Promise<Value> => {
         const newValue = (args.raw as Record<string, Value>).value!;
         const bindings: Record<string, Value> = { this: selfAsBase, value: newValue };
@@ -436,13 +427,13 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     // direction === 'callSet'
     const baseCall = baseProp.type.call();
     if (!baseCall?.set) return undefined;
-    const fnType = engine.registry.fn(
-      engine.registry.obj({
+    const fnType = engine.registry.fn({
+      args: engine.registry.obj({
         args: { type: baseCall.args },
         value: { type: baseCall.returns ?? engine.registry.any() },
       }),
-      engine.registry.void(),
-    );
+      returns: engine.registry.void(),
+    });
     const callable = async (args: Value): Promise<Value> => {
       const raw = args.raw as Record<string, Value>;
       const bindings: Record<string, Value> = {
@@ -474,10 +465,10 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
     if (direction === 'get') {
       if (!localGs.get || !baseGs.get) return undefined;
-      const fnType = engine.registry.fn(
-        engine.registry.obj({ key: { type: baseGs.key } }),
-        baseGs.value,
-      );
+      const fnType = engine.registry.fn({
+        args: engine.registry.obj({ key: { type: baseGs.key } }),
+        returns: baseGs.value,
+      });
       const callable = async (args: Value): Promise<Value> => {
         const keyVal = (args.raw as Record<string, Value>).key;
         const child = engine.createRootScope();
@@ -490,10 +481,10 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
     // direction === 'set'
     if (!localGs.set || !baseGs.set) return undefined;
-    const fnType = engine.registry.fn(
-      engine.registry.obj({ key: { type: baseGs.key }, value: { type: baseGs.value } }),
-      engine.registry.void(),
-    );
+    const fnType = engine.registry.fn({
+      args: engine.registry.obj({ key: { type: baseGs.key }, value: { type: baseGs.value } }),
+      returns: engine.registry.void(),
+    });
     const callable = async (args: Value): Promise<Value> => {
       const raw = args.raw as Record<string, Value>;
       const child = engine.createRootScope();

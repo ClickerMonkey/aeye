@@ -1,12 +1,12 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, Engine, formatProblems } from '../index';
+import { createRegistry, Engine } from '../index';
 
 /**
  * `Type.toJSONCode` walks the standard TypeDef structure and emits
  * fine-grained spans on every nested slot — props/get/call/init,
  * each Prop's get/set/default, embedded ExprDefs, etc. Combined with
  * `Type.validate(engine)` (which surfaces problems with paths into
- * the same structure), `formatProblem(typeJsonCode, problem)` can
+ * the same structure), `typeJsonCode.formatProblem(problem)` can
  * underline precisely the offending range INSIDE a type definition,
  * the way it does inside Expr trees.
  *
@@ -52,7 +52,7 @@ describe('Type.toJSONCode — fine spans inside type defs', () => {
       props: {
         // Method body is an Expr — referencing an unbound name.
         broken: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: { kind: 'get', path: [{ prop: 'unboundName' }] },
         },
       },
@@ -77,7 +77,7 @@ describe('Type.toJSONCode — fine spans inside type defs', () => {
     );
   });
 
-  test('formatProblems(typeJsonCode, problems) produces sectioned ^^^ output', () => {
+  test('typeJsonCode.formatProblems(problems) produces sectioned ^^^ output', () => {
     const r = createRegistry();
     const e = new Engine(r);
     const Broken = r.extend('obj', {
@@ -85,12 +85,12 @@ describe('Type.toJSONCode — fine spans inside type defs', () => {
       props: {
         rotateX: {
           // method declares returns: num, body returns text — mismatch.
-          type: r.fn(r.obj({}), r.num()),
+          type: r.fn({ args: r.obj({}), returns: r.num() }),
           get: { kind: 'new', type: { name: 'text' }, value: 'oops' },
         },
         bad: {
           // unbound name in method body.
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: { kind: 'get', path: [{ prop: 'whoIsThis' }] },
         },
       },
@@ -101,7 +101,7 @@ describe('Type.toJSONCode — fine spans inside type defs', () => {
     expect(probs.list.length).toBeGreaterThan(0);
 
     const codeObj = Broken.toJSONCode([], 2, 0);
-    const formatted = formatProblems(codeObj, probs, { color: false });
+    const formatted = codeObj.formatProblems(probs, { color: false });
     // Each problem renders against its own line range with line numbers,
     // a `^^^` underline, and the message — same shape as Expr-side.
     expect(formatted).toMatch(/── lines \d+-\d+ ─/);
@@ -134,7 +134,7 @@ describe('Type.toJSONCode — fine spans inside type defs', () => {
     );
     expect(violation).toBeDefined();
 
-    const formatted = formatProblems(codeObj, probs, { color: false });
+    const formatted = codeObj.formatProblems(probs, { color: false });
     expect(formatted).toContain('noSuchVar');
   });
 
@@ -146,7 +146,7 @@ describe('Type.toJSONCode — fine spans inside type defs', () => {
       props: {
         x: { type: r.num({ min: 0, max: 100 }) },
         helper: {
-          type: r.fn(r.obj({ n: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ n: { type: r.num() } }), returns: r.num() }),
           get: { kind: 'get', path: [{ prop: 'args' }, { prop: 'n' }] },
         },
       },

@@ -48,7 +48,7 @@ describe('PropDef.get (method) scope', () => {
       name: 'methodNum',
       props: {
         plus: {
-          type: r.fn(r.obj({ n: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ n: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -549,7 +549,7 @@ describe('PathCall.catch scope', () => {
       name: 'throwingNum',
       props: {
         failIfZero: {
-          type: r.fn(r.obj({}), r.num(), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.num(), throws: r.text() }),
           get: {
             kind: 'if',
             ifs: [{

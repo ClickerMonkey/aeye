@@ -11,7 +11,8 @@ import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode, findEscapingFlow } from './code';
 import { FlowExpr } from './flow';
-import { Code, code, span, joinLines, jsonObject, jsonArray, jsonString } from '../code';
+import { Effects } from '../effects';
+import { Code, code, span, joinLines } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -107,8 +108,22 @@ export class SwitchExpr extends Expr {
         }
       }
       ts.push(p.at(['cases', i, 'body'], () => walkValidate(engine, c.body, scope, p, ctx)));
+      if (c.body.effects() === Effects.NONE) {
+        p.at(['cases', i, 'body'], () => p.warn(
+          'switch.case.no-effect',
+          `switch case body has no observable effect — when this case matches, nothing happens. Either give it a \`set\`/\`flow\`/native call, or drop the case`,
+        ));
+      }
     }
-    if (this.otherwise) ts.push(p.at('else', () => walkValidate(engine, this.otherwise!, scope, p, ctx)));
+    if (this.otherwise) {
+      ts.push(p.at('else', () => walkValidate(engine, this.otherwise!, scope, p, ctx)));
+      if (this.otherwise.effects() === Effects.NONE) {
+        p.at('else', () => p.warn(
+          'switch.else.no-effect',
+          `switch default has no observable effect — OMIT it instead of carrying a placeholder fallback`,
+        ));
+      }
+    }
     if (ts.length === 0) return engine.registry.void();
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
@@ -203,9 +218,9 @@ export class SwitchExpr extends Expr {
       const casePath = [...path, 'cases', i] as const;
       const equalsItems = c.equals.map((e, j) =>
         e.toJSONCode([...casePath, 'equals', j], indent, level + 4));
-      return jsonObject(
+      return Code.jsonObject(
         [
-          { key: 'equals', value: jsonArray(equalsItems, { path: [...casePath, 'equals'] }, level + 3, indent) },
+          { key: 'equals', value: Code.jsonArray(equalsItems, { path: [...casePath, 'equals'] }, level + 3, indent) },
           { key: 'body', value: c.body.toJSONCode([...casePath, 'body'], indent, level + 3) },
         ],
         { path: casePath },
@@ -216,13 +231,13 @@ export class SwitchExpr extends Expr {
     const elseCode = this.otherwise
       ? this.otherwise.toJSONCode([...path, 'else'], indent, level + 1)
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('switch') },
+        { key: 'kind', value: Code.jsonString('switch') },
         { key: 'value', value: valueCode },
-        { key: 'cases', value: jsonArray(caseItems, { path: [...path, 'cases'] }, level + 1, indent) },
+        { key: 'cases', value: Code.jsonArray(caseItems, { path: [...path, 'cases'] }, level + 1, indent) },
         { key: 'else', value: elseCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -245,5 +260,15 @@ export class SwitchExpr extends Expr {
       visit(c.body, 'inherit');
     }
     if (this.otherwise) visit(this.otherwise, 'inherit');
+  }
+
+  effects(): Effects {
+    let acc: Effects = this.value.effects();
+    for (const c of this.cases) {
+      for (const e of c.equals) acc |= e.effects();
+      acc |= c.body.effects();
+    }
+    if (this.otherwise) acc |= this.otherwise.effects();
+    return acc;
   }
 }

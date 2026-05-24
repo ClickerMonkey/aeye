@@ -12,7 +12,7 @@ import type { TypeDef, ExprDef } from './schema';
  * - The Registry is the root scope; it implements `TypeScope` directly.
  *   Its `lookup` walks `namedTypes` and built-in `classes`.
  * - `LocalScope` wraps a parent scope with an overlay map. Used by
- *   `decodeCall` to scope `CallDef.types` aliases, by FnType to scope
+ *   `Call.from` to scope `CallDef.types` aliases, by FnType to scope
  *   declared generics, etc.
  *
  * Distinct from:
@@ -39,10 +39,20 @@ export interface TypeScope {
    *  needing to thread the registry separately. */
   parse(def: unknown): Type;
 
-  /** Parse an ExprDef in this scope. Mirrors `parse()` for the
-   *  expression side. Used by Expr classes that recurse into nested
-   *  expressions / lambdas / new defs. */
-  parseExpr(def: unknown): Expr;
+  /**
+   * Parse anything Expr-shaped in this scope. Overloads:
+   *   - `Expr` → returned as-is
+   *   - `ExprDef` → parsed
+   *   - `null` / `undefined` → returned as `undefined`
+   *
+   * Mirrors `parse()` for the expression side. Forwards to
+   * `this.registry.parseExpr(def, this)`. See `Registry.parseExpr`
+   * for the full contract.
+   */
+  parseExpr(def: Expr): Expr;
+  parseExpr(def: ExprDef): Expr;
+  parseExpr(def: null | undefined): undefined;
+  parseExpr(def: Expr | ExprDef | null | undefined): Expr | undefined;
 
   /** The root Registry — every TypeScope can resolve to it via the
    *  parent chain. Use this to access builder methods (`registry.num()`)
@@ -82,8 +92,12 @@ export class LocalScope implements TypeScope {
     return this.registry.parse(def as TypeDef, this);
   }
 
-  parseExpr(def: unknown): Expr {
-    return this.registry.parseExpr(def as ExprDef, this);
+  parseExpr(def: Expr): Expr;
+  parseExpr(def: ExprDef): Expr;
+  parseExpr(def: null | undefined): undefined;
+  parseExpr(def: Expr | ExprDef | null | undefined): Expr | undefined;
+  parseExpr(def: Expr | ExprDef | null | undefined): Expr | undefined {
+    return this.registry.parseExpr(def, this);
   }
 
   /** Add a binding to this scope's local map. Used by sequential

@@ -103,8 +103,8 @@ export function createLlmImpl(registry: Registry, ai: AI<any>) {
 }
 
 export function registerLlmType(registry: Registry) {
-  return registry.fn(
-    registry.obj({
+  return registry.fn({
+    args: registry.obj({
       prompt: { type: registry.text() },
       tools:  { type: registry.optional(registry.list(registry.any())) },
       output: {
@@ -112,11 +112,11 @@ export function registerLlmType(registry: Registry) {
         docs: 'gin Type to parse the LLM response through — unifies R in the return type. `text` and `obj` types pass straight through (text uses plain-completion mode, obj uses structured-output mode). Other types (enum/num/bool/list/tuple) are auto-wrapped as { value } over the wire and unwrapped before parse, so callers see the inner value.',
       },
     }),
-    registry.alias('R'),
-    undefined,
+    returns: registry.alias('R'),
     // Constraint on R, not a default. Anything `output:` resolves to is
     // wrappable into the LLM's structured-output channel — primitives,
     // enums, lists, objs all work. `any` keeps the surface permissive.
-    { R: registry.any() },
-  );
+    generic: { R: registry.any() },
+    call: registry.nativeExpr('fns.llm'),
+  });
 }

@@ -13,6 +13,7 @@ import { createFetchImpl, registerFetchType } from './natives/fetch';
 import { createLlmImpl, registerLlmType } from './natives/llm';
 import { createLogImpl, registerLogType } from './natives/log';
 import { createAskImpl, registerAskType } from './natives/ask';
+import { Effects, type Value } from '@aeye/gin';
 import { MODEL_KEYS } from './model-selection';
 
 // Hydrate process.env from config.json before anything reads env vars.
@@ -292,10 +293,33 @@ process.on('SIGINT', () => { logger.close(); process.exit(0); });
 process.on('SIGTERM', () => { logger.close(); process.exit(0); });
 
 // Wire global natives after AI instance is created.
+// Each fn type already has `call.get = nativeExpr('fns.<name>')` baked in
+// — that wiring is what lets `GetExpr.effects()` report a call like
+// `fns.fetch({...})` as EXTERNAL once the validator runs (see
+// `Path.validateWalk` caching `Call.effects()` on each CallStep, and
+// `NativeExpr.effects()` pulling EXTERNAL from the per-id registration
+// below). Runtime invocation still dispatches via the raw JS callable
+// stored on the obj global (faster than going through the native
+// indirection); the native registration is the static-effects
+// counterpart.
+const fetchImpl = createFetchImpl(registry);
+const llmImpl   = createLlmImpl(registry, ai);
+const logImpl   = createLogImpl(registry);
+const askImpl   = createAskImpl(registry);
+
+const wrapFnsNative = (impl: (a: Value) => Promise<Value>) =>
+  async (scope: { get(name: string): Value | undefined }) =>
+    impl(scope.get('args')!);
+
+registry.setNative('fns.fetch', wrapFnsNative(fetchImpl), Effects.EXTERNAL);
+registry.setNative('fns.llm',   wrapFnsNative(llmImpl),   Effects.EXTERNAL);
+registry.setNative('fns.log',   wrapFnsNative(logImpl),   Effects.EXTERNAL);
+registry.setNative('fns.ask',   wrapFnsNative(askImpl),   Effects.EXTERNAL);
+
 const fetchFnType = registerFetchType(registry);
-const llmFnType = registerLlmType(registry);
-const logFnType = registerLogType(registry);
-const askFnType = registerAskType(registry);
+const llmFnType   = registerLlmType(registry);
+const logFnType   = registerLogType(registry);
+const askFnType   = registerAskType(registry);
 
 const fnsType = registry.obj({
   fetch: { type: fetchFnType },
@@ -307,10 +331,10 @@ const fnsType = registry.obj({
 engine.registerGlobal('fns', {
   type: fnsType,
   value: {
-    fetch: createFetchImpl(registry),
-    llm:   createLlmImpl(registry, ai),
-    log:   createLogImpl(registry),
-    ask:   createAskImpl(registry),
+    fetch: fetchImpl,
+    llm:   llmImpl,
+    log:   logImpl,
+    ask:   askImpl,
   },
 });
 

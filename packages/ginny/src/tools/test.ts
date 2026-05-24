@@ -116,7 +116,7 @@ async function invokeAsLambda(
   draft: any,
   rawArgs: Record<string, unknown> | undefined,
 ): Promise<Value> {
-  const fnType = registry.fn(targetFn.argsType, targetFn.returnsType);
+  const fnType = registry.fn({ args: targetFn.argsType, returns: targetFn.returnsType });
   const lambda = new LambdaExpr(fnType, registry.parseExpr(draft));
   // `engine.createRootScope()` seeds globals (fns, vars, loaded fns)
   // so the body can call other saved fns; a hand-built scope wouldn't.

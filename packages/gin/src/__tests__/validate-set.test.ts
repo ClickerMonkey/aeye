@@ -43,7 +43,7 @@ describe('validate set — positive cases (no settability errors)', () => {
       name: 'taggedMap',
       props: {
         scope: {
-          type: r.fn(r.obj({ a: { type: r.num() } }), r.map(r.text(), r.num())),
+          type: r.fn({ args: r.obj({ a: { type: r.num() } }), returns: r.map(r.text(), r.num()) }),
           get: { kind: 'get', path: [{ prop: 'this' }] },
         },
       },

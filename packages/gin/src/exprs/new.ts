@@ -9,9 +9,10 @@ import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { Code, span, jsonObject, jsonString } from '../code';
+import { Code, span } from '../code';
 import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
+import type { Effects } from '../effects';
 
 /**
  * NewExpr — construct a Value of a type.
@@ -120,7 +121,7 @@ export class NewExpr extends Expr {
         const argsValue = init.args.parse(this.value);
         const thisValue = val(type, type.create());
         const child = scope.child({ this: thisValue, args: argsValue });
-        const result = await engine.evaluate(init.run, child);
+        const result = await init.run.evaluate(engine, child);
         if (result === undefined || result.raw === undefined) return thisValue;
         return new Value(type, (result as Value).raw);
       }
@@ -195,12 +196,12 @@ export class NewExpr extends Expr {
     const valueSpan = valueText !== undefined
       ? span(valueText, { path: [...path, 'value'] })
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('new') },
+        { key: 'kind', value: Code.jsonString('new') },
         { key: 'type', value: typeCode },
         { key: 'value', value: valueSpan },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -210,6 +211,13 @@ export class NewExpr extends Expr {
 
   clone(): NewExpr {
     return new NewExpr(this.type.clone(), this.value).withComment(this.comment);
+  }
+
+  /** Construction effects come from the type itself: init.run plus any
+   *  composite-slot Exprs the type knows how to walk. Each concrete
+   *  Type implements `newEffects(value)` for its own shape. */
+  effects(): Effects {
+    return this.type.newEffects(this.value);
   }
 }
 

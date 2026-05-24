@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, Engine, formatProblems } from '../index';
+import { createRegistry, Engine } from '../index';
 import type { ExprDef } from '../schema';
 
 /**
@@ -55,10 +55,10 @@ function showRender(label: string, expr: ExprDef, engine: Engine = e): void {
 
   const richCode = engine.toGinCode(expr);
   const jsonRichCode = engine.toJSONCode(expr);
-  section('formatProblems(richCode) — TS form with ^^^ pointers',
-    formatProblems(richCode, probs, { color: false }));
-  section('formatProblems(jsonCode) — JSON form with ^^^ pointers',
-    formatProblems(jsonRichCode, probs, { color: false }));
+  section('richCode.formatProblems() — TS form with ^^^ pointers',
+    richCode.formatProblems(probs, { color: false }));
+  section('jsonCode.formatProblems() — JSON form with ^^^ pointers',
+    jsonRichCode.formatProblems(probs, { color: false }));
 }
 
 describe('toGinCode / toJSONCode — visual rendering demo', () => {

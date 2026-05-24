@@ -3,6 +3,7 @@ import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
+import { Effects } from '../effects';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -97,6 +98,25 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return new Map();
   }
 
+  /** Each entry is `{key: Expr, value: Expr}` (or `[Expr, Expr]`).
+   *  Walk both slots of every entry through their respective types. */
+  newEffects(value: unknown): Effects {
+    const init = this.initEffects();
+    if (Array.isArray(value)) {
+      let acc = init;
+      for (const entry of value) {
+        const [rawK, rawV] = Array.isArray(entry)
+          ? entry
+          : [(entry as { key?: unknown; value?: unknown }).key,
+             (entry as { key?: unknown; value?: unknown }).value];
+        acc |= this.key.newEffects(rawK);
+        acc |= this.value.newEffects(rawV);
+      }
+      return acc;
+    }
+    return init | this.exprValueEffects(value);
+  }
+
   random(rnd: Rnd): Map<unknown, [Value<K>, Value<V>]> {
     const n = rnd(0, 5, true);
     const m = new Map<unknown, [Value<K>, Value<V>]>();
@@ -135,12 +155,13 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   }
 
   get(): GetSet {
+    const r = this.registry;
     return new GetSet({
       key: this.key,
       value: this.value,
-      get: { kind: 'native', id: 'map.indexGet' },
-      set: { kind: 'native', id: 'map.indexSet' },
-      loop: { kind: 'native', id: 'map.iterate' },
+      get: r.nativeExpr('map.indexGet'),
+      set: r.nativeExpr('map.indexSet'),
+      loop: r.nativeExpr('map.iterate'),
     });
   }
 

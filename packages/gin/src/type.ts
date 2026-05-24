@@ -1,9 +1,9 @@
 import type { Registry } from './registry';
-import type { TypeScope } from './type-scope';
+import { LocalScope, type TypeScope } from './type-scope';
 import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
-import type { Expr } from './expr';
+import { Expr } from './expr';
 import { Value, val } from './value';
-import { Code, span as spanCode, jsonObject, jsonString, type JSONEntry } from './code';
+import { Code, span as spanCode, type JSONEntry } from './code';
 import type { Node, CodeOptions } from './node';
 import type { Engine } from './engine';
 import { Problems } from './problem';
@@ -13,6 +13,7 @@ import type { Scope } from './scope';
 import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from './node';
+import { Effects } from './effects';
 
 // ============================================================================
 // RUNTIME SPEC SHAPES
@@ -33,17 +34,17 @@ import type { SchemaOptions, ValueSchemaOptions } from './node';
  */
 export interface PropSpec {
   type: Type;
-  get?: ExprDef;
-  set?: ExprDef;
-  default?: ExprDef;
+  get?: Expr;
+  set?: Expr;
+  default?: Expr;
   docs?: string;
 }
 
 export class Prop {
   readonly type: Type;
-  readonly get?: ExprDef;
-  readonly set?: ExprDef;
-  readonly default?: ExprDef;
+  readonly get?: Expr;
+  readonly set?: Expr;
+  readonly default?: Expr;
   readonly docs?: string;
 
   constructor(spec: PropSpec) {
@@ -54,19 +55,74 @@ export class Prop {
     this.docs = spec.docs;
   }
 
-  /** Idempotent normalizer: Prop stays, PropSpec becomes a new Prop. */
-  static from(x: Prop | PropSpec): Prop {
-    return x instanceof Prop ? x : new Prop(x);
+  /**
+   * Normalize any Prop-shaped input into a `Prop` instance.
+   *
+   * Accepts:
+   *   - `Prop` instance — returned as-is when fields are already
+   *     canonical, otherwise rebuilt with defensive re-parsing
+   *     (test fixtures sometimes bypass the type system with
+   *     `as any` and end up with raw `ExprDef` in `.get`/`.set`/
+   *     `.default`).
+   *   - `PropSpec` — plain object with parsed `Type` and `Expr` fields.
+   *   - `PropDef` — JSON-shape with `TypeDef` and `ExprDef` fields.
+   *     Requires `scope` so types/exprs can be parsed.
+   *
+   * `scope` is optional for instance/spec inputs whose fields are
+   * already parsed; mandatory when any field needs parsing.
+   */
+  static from(x: Prop | PropSpec | PropDef, scope?: TypeScope): Prop {
+    const rawType = (x as { type: unknown }).type;
+    const type = rawType instanceof Type
+      ? rawType
+      : (() => {
+          if (!scope) throw new Error('Prop.from: type is TypeDef but no scope provided to parse it');
+          return scope.parse(rawType as TypeDef);
+        })();
+    // `scope.parseExpr` is overloaded over `Expr | ExprDef | undefined`
+    // — passthrough for instances, parse for ExprDefs, undefined for
+    // missing. When no scope is passed (instance/spec passthrough call)
+    // an instance field survives directly while an ExprDef field is
+    // silently dropped — matches the legacy `as any` test-fixture
+    // tolerance without needing a parallel `parseExprMaybe` helper.
+    const toExpr = (v: Expr | ExprDef | undefined): Expr | undefined =>
+      v instanceof Expr ? v : scope?.parseExpr(v);
+    const get = toExpr((x as { get?: Expr | ExprDef }).get);
+    const set = toExpr((x as { set?: Expr | ExprDef }).set);
+    const def = toExpr((x as { default?: Expr | ExprDef }).default);
+    if (x instanceof Prop && x.type === type && x.get === get && x.set === set && x.default === def) {
+      return x;
+    }
+    return new Prop({ type, get, set, default: def, docs: (x as { docs?: string }).docs });
   }
 
-  /** Serialize to PropDef JSON. Inverse of `decodeProp` in spec.ts. */
+  /** Map a record of `PropDef` / `PropSpec` / `Prop` values into a
+   *  record of `Prop` instances. Idempotent per-entry via `Prop.from`. */
+  static fromMap(
+    defs: Record<string, Prop | PropSpec | PropDef>,
+    scope?: TypeScope,
+  ): Record<string, Prop> {
+    const out: Record<string, Prop> = {};
+    for (const [name, def] of Object.entries(defs)) out[name] = Prop.from(def, scope);
+    return out;
+  }
+
+  /** Inverse of `fromMap` — encode a record of Prop/PropSpec values
+   *  to their JSON `PropDef` form. */
+  static toJSONMap(props: Record<string, Prop | PropSpec>): Record<string, PropDef> {
+    const out: Record<string, PropDef> = {};
+    for (const [name, prop] of Object.entries(props)) out[name] = Prop.from(prop).toJSON();
+    return out;
+  }
+
+  /** Serialize to PropDef JSON. Inverse of `Prop.from`. */
   toJSON(): PropDef {
     return {
       docs: this.docs,
       type: this.type.toJSON(),
-      get: this.get,
-      default: this.default,
-      set: this.set,
+      get: this.get?.toJSON(),
+      default: this.default?.toJSON(),
+      set: this.set?.toJSON(),
     };
   }
 
@@ -79,7 +135,7 @@ export class Prop {
       const bindings: Record<string, Value> = { this: self };
       const sup = self.type.propSuperFor(self, name, 'get', scope, engine);
       if (sup) bindings.super = sup;
-      return engine.evaluate(this.get, scope.child(bindings));
+      return this.get.evaluate(engine, scope.child(bindings));
     }
     return self.type.propGet(self, name, this.type);
   }
@@ -104,7 +160,7 @@ export class Prop {
       const bindings: Record<string, Value> = { this: self, value };
       const sup = self.type.propSuperFor(self, name, 'set', scope, engine);
       if (sup) bindings.super = sup;
-      await engine.evaluate(this.set, scope.child(bindings));
+      await this.set.evaluate(engine, scope.child(bindings));
       return;
     }
     if (this.get && !this.type.call()) {
@@ -161,7 +217,7 @@ export class Prop {
       // boundary even though it's not literally wrapped in a
       // LambdaExpr — same semantics as Lambda.evaluate's catch.
       try {
-        return await engine.evaluate(getExpr, scope.child(bindings));
+        return await getExpr.evaluate(engine, scope.child(bindings));
       } catch (sig) {
         if (sig instanceof ReturnSignal) {
           return sig.value ?? new Value(engine.registry.void(), undefined);
@@ -195,7 +251,7 @@ export class Prop {
       };
       const sup = self.type.propSuperFor(self, name, 'callSet', scope, engine);
       if (sup) bindings.super = sup;
-      await engine.evaluate(callSpec.set!, scope.child(bindings));
+      await callSpec.set!.evaluate(engine, scope.child(bindings));
       return val(engine.registry.void(), undefined);
     };
     await setter(argsValue);
@@ -209,9 +265,9 @@ export class Prop {
 export class GetSet<K = any, V = any> {
   readonly key: Type<K>;
   readonly value: Type<V>;
-  readonly get?: ExprDef;
-  readonly set?: ExprDef;
-  readonly loop?: ExprDef;
+  readonly get?: Expr;
+  readonly set?: Expr;
+  readonly loop?: Expr;
   /** When true, `LoopExpr` re-evaluates `over` each iteration and
    *  exits on falsy `raw`. See `GetSetDef.loopDynamic`. */
   readonly loopDynamic?: boolean;
@@ -220,9 +276,9 @@ export class GetSet<K = any, V = any> {
   constructor(spec: {
     key: Type<K>;
     value: Type<V>;
-    get?: ExprDef;
-    set?: ExprDef;
-    loop?: ExprDef;
+    get?: Expr;
+    set?: Expr;
+    loop?: Expr;
     loopDynamic?: boolean;
     docs?: string;
   }) {
@@ -235,15 +291,56 @@ export class GetSet<K = any, V = any> {
     this.docs = spec.docs;
   }
 
-  /** Serialize to GetSetDef JSON. Inverse of `decodeGetSet` in spec.ts. */
+  /**
+   * Normalize any GetSet-shaped input into a `GetSet` instance.
+   * Mirrors `Prop.from`: accepts an instance, a spec (key/value as Type),
+   * or a GetSetDef (key/value as TypeDef). `scope` is required when any
+   * field needs parsing.
+   */
+  static from(
+    x: GetSet | {
+      key: Type;
+      value: Type;
+      get?: Expr | ExprDef;
+      set?: Expr | ExprDef;
+      loop?: Expr | ExprDef;
+      loopDynamic?: boolean;
+      docs?: string;
+    } | GetSetDef,
+    scope?: TypeScope,
+  ): GetSet {
+    const rawKey = (x as { key: unknown }).key;
+    const rawValue = (x as { value: unknown }).value;
+    const key = rawKey instanceof Type ? rawKey
+      : (() => { if (!scope) throw new Error('GetSet.from: key is TypeDef but no scope provided'); return scope.parse(rawKey as TypeDef); })();
+    const value = rawValue instanceof Type ? rawValue
+      : (() => { if (!scope) throw new Error('GetSet.from: value is TypeDef but no scope provided'); return scope.parse(rawValue as TypeDef); })();
+    const toExpr = (v: Expr | ExprDef | undefined): Expr | undefined =>
+      v instanceof Expr ? v : scope?.parseExpr(v);
+    const get = toExpr((x as { get?: Expr | ExprDef }).get);
+    const set = toExpr((x as { set?: Expr | ExprDef }).set);
+    const loop = toExpr((x as { loop?: Expr | ExprDef }).loop);
+    if (x instanceof GetSet
+      && x.key === key && x.value === value
+      && x.get === get && x.set === set && x.loop === loop) {
+      return x;
+    }
+    return new GetSet({
+      key, value, get, set, loop,
+      loopDynamic: (x as { loopDynamic?: boolean }).loopDynamic,
+      docs: (x as { docs?: string }).docs,
+    });
+  }
+
+  /** Serialize to GetSetDef JSON. Inverse of `GetSet.from`. */
   toJSON(): GetSetDef {
     return {
       docs: this.docs,
       key: this.key.toJSON(),
       value: this.value.toJSON(),
-      get: this.get,
-      set: this.set,
-      loop: this.loop,
+      get: this.get?.toJSON(),
+      set: this.set?.toJSON(),
+      loop: this.loop?.toJSON(),
       loopDynamic: this.loopDynamic,
     };
   }
@@ -254,7 +351,7 @@ export class GetSet<K = any, V = any> {
     const bindings: Record<string, Value> = { this: self, key: keyValue };
     const sup = self.type.indexSuperFor(self, 'get', scope, engine);
     if (sup) bindings.super = sup;
-    return engine.evaluate(this.get, scope.child(bindings));
+    return this.get.evaluate(engine, scope.child(bindings));
   }
 
   /** Write this[key] = value: runs set Expr with {this, key, value, super?}. */
@@ -263,7 +360,7 @@ export class GetSet<K = any, V = any> {
     const bindings: Record<string, Value> = { this: self, key: keyValue, value };
     const sup = self.type.indexSuperFor(self, 'set', scope, engine);
     if (sup) bindings.super = sup;
-    await engine.evaluate(this.set, scope.child(bindings));
+    await this.set.evaluate(engine, scope.child(bindings));
   }
 }
 
@@ -274,16 +371,16 @@ export class GetSet<K = any, V = any> {
  * scope (a `LocalScope` carrying any `CallDef.types` aliases plus
  * declared generics). Bare alias references inside those Types are
  * `AliasType` instances that resolve via that scope; their `toJSON()`
- * emits the bare-name form, which decodeCall then rebuilds against a
- * freshly constructed LocalScope on round-trip. No source-form
+ * emits the bare-name form, which `Call.from` then rebuilds against
+ * a freshly constructed LocalScope on round-trip. No source-form
  * preservation needed — the structure is symmetric.
  */
 export class Call<TArgs extends object = any, TResult = any, TError = any> {
   readonly args: Type<TArgs>;
   readonly returns?: Type<TResult>;
   readonly throws?: Type<TError>;
-  readonly get?: ExprDef;
-  readonly set?: ExprDef;
+  readonly get?: Expr;
+  readonly set?: Expr;
   readonly docs?: string;
 
   /** Call-local type aliases declared on `CallDef.types`, parsed.
@@ -295,8 +392,8 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     args: Type<TArgs>;
     returns?: Type<TResult>;
     throws?: Type<TError>;
-    get?: ExprDef;
-    set?: ExprDef;
+    get?: Expr;
+    set?: Expr;
     docs?: string;
     types?: Record<string, Type>;
   }) {
@@ -309,7 +406,74 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     this.types = spec.types;
   }
 
-  /** Serialize to CallDef JSON. Inverse of `decodeCall` in spec.ts. */
+  /**
+   * Normalize any Call-shaped input into a `Call` instance.
+   *
+   * Accepts an instance, a parsed spec (args/returns as Type), or a
+   * `CallDef` JSON. When `def.types` is non-empty a `LocalScope` is
+   * built and each alias is sequentially parsed — earlier aliases are
+   * visible to later ones AND to the call's args/returns/throws/get/set.
+   * The resolved alias map is retained on the Call so `toJSON()` can
+   * round-trip it.
+   *
+   * `scope` is required when args/returns/throws are TypeDefs or
+   * get/set are ExprDefs; optional when everything is already parsed.
+   */
+  static from(
+    x: Call | (ConstructorParameters<typeof Call>[0] & { get?: Expr | ExprDef; set?: Expr | ExprDef }) | CallDef,
+    scope?: TypeScope,
+  ): Call {
+    // Build the effective scope for nested resolution. When the input
+    // carries a `types` alias map (CallDef shape), bind each alias in
+    // a LocalScope layered on top of the caller's scope.
+    const rawTypes = (x as { types?: Record<string, Type | TypeDef> }).types;
+    let inner: TypeScope | undefined = scope;
+    let aliases: Record<string, Type> | undefined;
+    if (rawTypes && Object.keys(rawTypes).length > 0) {
+      // If every value is already a parsed Type, the instance/spec is
+      // pre-resolved — surface it verbatim. Otherwise build the
+      // LocalScope (requires scope).
+      const allParsed = Object.values(rawTypes).every((t) => t instanceof Type);
+      if (allParsed) {
+        aliases = rawTypes as Record<string, Type>;
+      } else {
+        if (!scope) throw new Error('Call.from: types contain TypeDef but no scope provided');
+        const local = new LocalScope(scope);
+        inner = local;
+        aliases = {};
+        for (const [name, aliasDef] of Object.entries(rawTypes)) {
+          const t = aliasDef instanceof Type ? aliasDef : local.parse(aliasDef);
+          local.bind(name, t);
+          aliases[name] = t;
+        }
+      }
+    }
+
+    const rawArgs = (x as { args: unknown }).args;
+    const rawReturns = (x as { returns?: unknown }).returns;
+    const rawThrows = (x as { throws?: unknown }).throws;
+    const args = rawArgs instanceof Type ? rawArgs
+      : (() => { if (!inner) throw new Error('Call.from: args is TypeDef but no scope provided'); return inner.parse(rawArgs as TypeDef); })();
+    const returns = rawReturns === undefined ? undefined
+      : rawReturns instanceof Type ? rawReturns
+      : (() => { if (!inner) throw new Error('Call.from: returns is TypeDef but no scope provided'); return inner.parse(rawReturns as TypeDef); })();
+    const throws = rawThrows === undefined ? undefined
+      : rawThrows instanceof Type ? rawThrows
+      : (() => { if (!inner) throw new Error('Call.from: throws is TypeDef but no scope provided'); return inner.parse(rawThrows as TypeDef); })();
+    const toExpr = (v: Expr | ExprDef | undefined): Expr | undefined =>
+      v instanceof Expr ? v : inner?.parseExpr(v);
+    const get = toExpr((x as { get?: Expr | ExprDef }).get);
+    const set = toExpr((x as { set?: Expr | ExprDef }).set);
+    const docs = (x as { docs?: string }).docs;
+    if (x instanceof Call
+      && x.args === args && x.returns === returns && x.throws === throws
+      && x.get === get && x.set === set && x.types === aliases) {
+      return x;
+    }
+    return new Call({ args: args as Type<any>, returns, throws, get, set, docs, types: aliases });
+  }
+
+  /** Serialize to CallDef JSON. Inverse of `Call.from`. */
   toJSON(): CallDef {
     const types = this.types && Object.keys(this.types).length > 0
       ? Object.fromEntries(
@@ -322,9 +486,33 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
       args: this.args.toJSON(),
       returns: this.returns?.toJSON(),
       throws: this.throws?.toJSON(),
-      get: this.get,
-      set: this.set,
+      get: this.get?.toJSON(),
+      set: this.set?.toJSON(),
     };
+  }
+
+  /**
+   * Render the call-local type aliases (`this.types`) as a header
+   * block `{a: <code>; b: <code>}`, suitable for placement between
+   * the fn-type's generic params and parameter list. Returns the
+   * empty string when there are no aliases.
+   */
+  renderTypes(options?: CodeOptions): string {
+    if (!this.types) return '';
+    const keys = Object.keys(this.types);
+    if (keys.length === 0) return '';
+    const parts = keys.map((k) => `${k}: ${this.types![k]!.toCode(undefined, options)}`);
+    return `{${joinAuto(parts, { sep: '; ' })}}`;
+  }
+
+  /** OR of effects from the parsed `get` / `set` bodies — invoking
+   *  this call runs one of them, so their `effects()` IS the call's
+   *  effects. Returns NONE for purely-declared (body-less) calls. */
+  effects(): Effects {
+    let acc: Effects = 0;
+    if (this.get) acc |= this.get.effects();
+    if (this.set) acc |= this.set.effects();
+    return acc;
   }
 }
 
@@ -333,21 +521,43 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
  */
 export class Init<TArgs extends object = any> {
   readonly args: Type<TArgs>;
-  readonly run: ExprDef;
+  readonly run: Expr;
   readonly docs?: string;
 
-  constructor(spec: { args: Type<TArgs>; run: ExprDef; docs?: string }) {
+  constructor(spec: { args: Type<TArgs>; run: Expr; docs?: string }) {
     this.args = spec.args;
     this.run = spec.run;
     this.docs = spec.docs;
   }
 
-  /** Serialize to InitDef JSON. Inverse of `decodeInit` in spec.ts. */
+  /**
+   * Normalize any Init-shaped input into an `Init` instance.
+   *
+   * Accepts an instance, a spec (args as Type, run as Expr), or an
+   * InitDef JSON (args as TypeDef, run as ExprDef). `scope` is
+   * required when any field needs parsing. Throws when `run`
+   * fundamentally can't be resolved — Init's body is mandatory.
+   */
+  static from(
+    x: Init | { args: Type; run: Expr | ExprDef; docs?: string } | NonNullable<TypeDef['init']>,
+    scope?: TypeScope,
+  ): Init {
+    const rawArgs = (x as { args: unknown }).args;
+    const args = rawArgs instanceof Type ? rawArgs
+      : (() => { if (!scope) throw new Error('Init.from: args is TypeDef but no scope provided'); return scope.parse(rawArgs as TypeDef); })();
+    const rawRun = (x as { run: unknown }).run;
+    const run = rawRun instanceof Expr ? rawRun
+      : (() => { if (!scope) throw new Error('Init.from: run is ExprDef but no scope provided'); return scope.parseExpr(rawRun as ExprDef); })();
+    if (x instanceof Init && x.args === args && x.run === run) return x;
+    return new Init({ args: args as Type<any>, run, docs: (x as { docs?: string }).docs });
+  }
+
+  /** Serialize to InitDef JSON. Inverse of `Init.from`. */
   toJSON(): NonNullable<TypeDef['init']> {
     return {
       docs: this.docs,
       args: this.args.toJSON(),
-      run: this.run,
+      run: this.run.toJSON(),
     };
   }
 }
@@ -671,7 +881,7 @@ export abstract class Type<T = any, O = any> implements Node {
   // ─── GENERIC RESOLUTION (scope-based; no bind/substitute) ───────────────
   //
   // Generic placeholders are AliasType instances whose `scope` chain
-  // includes the binding (see `FnType.from`'s LocalScope, decodeCall's
+  // includes the binding (see `FnType.from`'s LocalScope, `Call.from`'s
   // alias map, etc.). To specialize a generic at a call site, callers
   // pass an extra `scope: TypeScope` (a LocalScope layered on top of
   // the captured scope, with call-site bindings) into the methods
@@ -738,6 +948,64 @@ export abstract class Type<T = any, O = any> implements Node {
       return this.describeType(init.args.toValueSchema(opts), opts, 'NewValue_');
     }
     return this.toValueSchema(opts);
+  }
+
+  /**
+   * Effects produced when a `new <ThisType>{value}` expression is
+   * evaluated — used by `NewExpr.effects()`. The default impl combines
+   * two contributions:
+   *
+   *   1. `init.run` effects — if this Type has an `init` constructor,
+   *      parse its body and OR in its effects.
+   *   2. If `value` is itself a recognizable ExprDef (e.g. someone
+   *      threaded a `get` or another `new` directly into the value
+   *      slot), parse it and OR its effects.
+   *
+   * Composite Types (list, obj, tuple, map) override to additionally
+   * walk their declared slot structure and OR each slot's effects
+   * through the appropriate child type's `newEffects`. That keeps the
+   * walk type-driven — each Type knows the shape of its value payload,
+   * so we don't have to play "guess the ExprDef" on raw JSON.
+   *
+   * Performance: parses on every call. Effects analysis runs at
+   * validate time (once per write), not per-eval, so this is fine.
+   */
+  newEffects(value: unknown): Effects {
+    const init = this.initEffects();
+    return init | this.exprValueEffects(value);
+  }
+
+  /**
+   * Helper for `newEffects`: if `value` is shaped like an Expr (an
+   * object with `kind: string` matching a registered Expr class),
+   * parse and return its effects. Otherwise NONE. Used both by the
+   * base `newEffects` and by composite overrides handling "value slot
+   * is itself an ExprDef" before recursing.
+   */
+  protected exprValueEffects(value: unknown): Effects {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return Effects.NONE;
+    const kind = (value as { kind?: unknown }).kind;
+    if (typeof kind !== 'string') return Effects.NONE;
+    if (!this.registry.exprClass(kind)) return Effects.NONE;
+    try {
+      return this.registry.parseExpr(value as ExprDef, this.scope).effects();
+    } catch {
+      return Effects.NONE;
+    }
+  }
+
+  /**
+   * Helper for `newEffects`: parse the type's `init.run` and return
+   * its effects. NONE when the type has no init.
+   */
+  protected initEffects(): Effects {
+    const i = this.init();
+    if (!i) return Effects.NONE;
+    try {
+      return this.registry.parseExpr(i.run, this.scope).effects();
+    } catch {
+      return Effects.NONE;
+    }
   }
 
   /**
@@ -880,6 +1148,47 @@ export abstract class Type<T = any, O = any> implements Node {
     return '';
   }
 
+  /**
+   * Render a generic-parameter map as `<T, U: Bound>`. `T` alone when
+   * its bound is `any` (unconstrained) or a self-referencing
+   * `AliasType` placeholder; `T: code` otherwise. Shared by type
+   * headers (`type Foo<T> ...`) and fn signatures (`<T>(x: T): T`).
+   */
+  static renderGenerics(
+    generic: Record<string, Type>,
+    options?: CodeOptions,
+  ): string {
+    const keys = Object.keys(generic);
+    if (keys.length === 0) return '';
+    const parts = keys.map((k) => {
+      const t = generic[k]!;
+      const selfRef = t.name === 'alias'
+        && (t.options as { name?: string } | undefined)?.name === k;
+      return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode(undefined, options)}`;
+    });
+    return `<${joinAuto(parts)}>`;
+  }
+
+  /**
+   * Render a function-args type as a flattened param list for TS-ish
+   * signatures (`a: T, b?: U`). `r.method({...})` always builds an
+   * obj type for args, so duck-typing on `.fields` covers the common
+   * case; anything else falls back to a single `args: <code>` param.
+   */
+  static formatParams(args: Type, options?: CodeOptions): string {
+    const fields = (args as unknown as { fields?: Record<string, Prop> }).fields;
+    if (!fields) return args.name === 'void' || args.name === 'any'
+      ? ''
+      : `args: ${args.toCode(undefined, options)}`;
+    const parts = Object.entries(fields).map(([name, prop]) => {
+      const optional = prop.type.isOptional();
+      const t = optional ? prop.type.required() : prop.type;
+      const docs = prop.docs && options?.includeComments !== false ? `/* ${prop.docs} */ ` : '';
+      return `${docs}${name}${optional ? '?' : ''}: ${t.toCode(undefined, options)}`;
+    });
+    return joinAuto(parts);
+  }
+
   // ─── toCodeDefinition hooks (overridable in Extension) ─────────────
   //
   // An Extension's definition block shows ONLY its local additions —
@@ -925,13 +1234,13 @@ export abstract class Type<T = any, O = any> implements Node {
     const init = this.definitionInit();
     if (init) {
       if (init.docs && includeComments) lines.push(`  // ${init.docs}`);
-      lines.push(`  new(${formatParams(init.args, options)})`);
+      lines.push(`  new(${Type.formatParams(init.args, options)})`);
     }
 
     // Call signature (`fn` / iface with call / Extension with call).
     if (call) {
       const ret = call.returns?.toCode(undefined, options) ?? 'void';
-      lines.push(`  (${formatParams(call.args, options)}): ${ret}`);
+      lines.push(`  (${Type.formatParams(call.args, options)}): ${ret}`);
     }
 
     // Index signature.
@@ -962,15 +1271,15 @@ export abstract class Type<T = any, O = any> implements Node {
         const methodGen = Object.fromEntries(
           Object.entries(t.generic).filter(([k]) => !ownGenerics.has(k)),
         );
-        const gParams = renderGenerics(methodGen, options);
-        lines.push(`  ${name}${opt}${gParams}(${formatParams(propCall!.args, options)}): ${ret}`);
+        const gParams = Type.renderGenerics(methodGen, options);
+        lines.push(`  ${name}${opt}${gParams}(${Type.formatParams(propCall!.args, options)}): ${ret}`);
       } else {
         lines.push(`  ${name}${opt}: ${t.toCode(undefined, options)}`);
       }
     }
 
     const docLine = this.docs && includeComments ? `// ${this.docs}\n` : '';
-    const header = `${docLine}type ${this.name}${renderGenerics(this.generic, options)}${this.extendsClause(options)}`;
+    const header = `${docLine}type ${this.name}${Type.renderGenerics(this.generic, options)}${this.extendsClause(options)}`;
     return lines.length === 0 ? `${header} {}` : `${header} {\n${lines.join('\n')}\n}`;
   }
 
@@ -1158,62 +1467,13 @@ function deepEqual(a: unknown, b: unknown): boolean {
   catch { return false; }
 }
 
-/**
- * Render a Call's `types` (call-local type aliases) as a header block
- * `{a: <code>; b: <code>}` immediately after the generic params and
- * before the parameter list. Empty / missing map → empty string.
- */
-export function renderCallTypes(
-  types: Record<string, Type> | undefined,
-  options?: CodeOptions,
-): string {
-  if (!types) return '';
-  const keys = Object.keys(types);
-  if (keys.length === 0) return '';
-  const parts = keys.map((k) => `${k}: ${types[k]!.toCode(undefined, options)}`);
-  return `{${joinAuto(parts, { sep: '; ' })}}`;
-}
-
-/**
- * Render a type's generic-parameter map as `<T, U: Bound>`. `T` when
- * bound is `any` (unconstrained) or a self-referencing AliasType
- * placeholder, `T: code` otherwise. Shared by type headers and fn
- * signatures.
- */
-export function renderGenerics(
-  generic: Record<string, Type>,
-  options?: CodeOptions,
-): string {
-  const keys = Object.keys(generic);
-  if (keys.length === 0) return '';
-  const parts = keys.map((k) => {
-    const t = generic[k]!;
-    const selfRef = t.name === 'alias'
-      && (t.options as { name?: string } | undefined)?.name === k;
-    return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode(undefined, options)}`;
-  });
-  return `<${joinAuto(parts)}>`;
-}
-
-/**
- * Render a function-args type as a flattened param list for TS-ish
- * signatures (`a: T, b?: U`). `r.method({...})` always builds an obj
- * type for args, so duck-typing on `.fields` covers the common case;
- * anything else falls back to a single `args: <code>` param.
- */
-export function formatParams(args: Type, options?: CodeOptions): string {
-  const fields = (args as unknown as { fields?: Record<string, Prop> }).fields;
-  if (!fields) return args.name === 'void' || args.name === 'any'
-    ? ''
-    : `args: ${args.toCode(undefined, options)}`;
-  const parts = Object.entries(fields).map(([name, prop]) => {
-    const optional = prop.type.isOptional();
-    const t = optional ? prop.type.required() : prop.type;
-    const docs = prop.docs && options?.includeComments !== false ? `/* ${prop.docs} */ ` : '';
-    return `${docs}${name}${optional ? '?' : ''}: ${t.toCode(undefined, options)}`;
-  });
-  return joinAuto(parts);
-}
+// `renderCallTypes` moved to `Call.renderTypes()` instance method
+// (see the `Call` class above).
+//
+// `renderGenerics` moved to `Type.renderGenerics(generic, options?)`
+// static method, and `formatParams` to `Type.formatParams(args,
+// options?)` static method — both live on the `Type` class above as
+// shared rendering helpers for fn signatures and type headers.
 
 /**
  * Delimiter-join with automatic wrapping for long content. Used by
@@ -1317,12 +1577,12 @@ function validateTypeSurface(type: Type, engine: Engine, p: Problems): void {
       const callScope = new Map<string, Type>([
         ['this', type],
         ['args', call.args],
-        ['recurse', reg.fn(call.args, call.returns ?? reg.any())],
+        ['recurse', reg.fn({ args: call.args, returns: call.returns ?? reg.any() })],
       ]);
       validateEmbedded(call.get, callScope, call.returns, 'get', engine, p, { ...ctx, inLambda: true });
       const callSetScope = new Map<string, Type>([
         ['this', type], ['args', call.args], ['value', call.returns ?? reg.any()],
-        ['recurse', reg.fn(call.args, call.returns ?? reg.any())],
+        ['recurse', reg.fn({ args: call.args, returns: call.returns ?? reg.any() })],
       ]);
       validateEmbedded(call.set, callSetScope, reg.void(), 'set', engine, p, { ...ctx, inLambda: true });
     });
@@ -1361,7 +1621,7 @@ function propGetScope(prop: Prop, owner: Type, reg: Registry): Map<string, Type>
   const c = prop.type.call?.();
   if (c) {
     m.set('args', c.args);
-    m.set('recurse', reg.fn(c.args, c.returns ?? reg.any()));
+    m.set('recurse', reg.fn({ args: c.args, returns: c.returns ?? reg.any() }));
   }
   return m;
 }
@@ -1443,10 +1703,10 @@ function renderTypeDefJSONCode(
   const entries: JSONEntry[] = [];
 
   if (def.name !== undefined) {
-    entries.push({ key: 'name', value: jsonString(def.name) });
+    entries.push({ key: 'name', value: Code.jsonString(def.name) });
   }
   if (def.extends !== undefined) {
-    entries.push({ key: 'extends', value: jsonString(def.extends) });
+    entries.push({ key: 'extends', value: Code.jsonString(def.extends) });
   }
   if (def.satisfies !== undefined && def.satisfies.length > 0) {
     entries.push({
@@ -1455,7 +1715,7 @@ function renderTypeDefJSONCode(
     });
   }
   if (def.docs !== undefined) {
-    entries.push({ key: 'docs', value: jsonString(def.docs) });
+    entries.push({ key: 'docs', value: Code.jsonString(def.docs) });
   }
   if (def.options !== undefined && Object.keys(def.options as object).length > 0) {
     // Options are a free-form per-type record (no embedded Exprs in
@@ -1502,7 +1762,7 @@ function renderTypeDefJSONCode(
     });
   }
 
-  return jsonObject(entries, { path, type }, level, indent);
+  return Code.jsonObject(entries, { path, type }, level, indent);
 }
 
 /** Render `{name: TypeDef, …}` map (used by `generic` and `call.types`). */
@@ -1517,7 +1777,7 @@ function renderTypeMapJSON(
     key: name,
     value: renderTypeDefJSONCode(def, registry, [...path, name], indent, level + 1, undefined),
   }));
-  return jsonObject(entries, { path }, level, indent);
+  return Code.jsonObject(entries, { path }, level, indent);
 }
 
 /** Render `{name: PropDef, …}` map under `props`. */
@@ -1532,7 +1792,7 @@ function renderPropsMapJSON(
     key: name,
     value: renderPropDefJSON(prop, registry, [...path, name], indent, level + 1),
   }));
-  return jsonObject(entries, { path }, level, indent);
+  return Code.jsonObject(entries, { path }, level, indent);
 }
 
 /** Render a single `PropDef = { docs?, type, get?, set?, default? }`. */
@@ -1545,7 +1805,7 @@ function renderPropDefJSON(
 ): Code {
   const childLevel = level + 1;
   const entries: JSONEntry[] = [];
-  if (prop.docs !== undefined) entries.push({ key: 'docs', value: jsonString(prop.docs) });
+  if (prop.docs !== undefined) entries.push({ key: 'docs', value: Code.jsonString(prop.docs) });
   entries.push({
     key: 'type',
     value: renderTypeDefJSONCode(prop.type, registry, [...path, 'type'], indent, childLevel, undefined),
@@ -1568,7 +1828,7 @@ function renderPropDefJSON(
       value: renderEmbeddedExprJSON(prop.default, registry, [...path, 'default'], indent, childLevel),
     });
   }
-  return jsonObject(entries, { path }, level, indent);
+  return Code.jsonObject(entries, { path }, level, indent);
 }
 
 function renderGetSetJSON(
@@ -1580,7 +1840,7 @@ function renderGetSetJSON(
 ): Code {
   const childLevel = level + 1;
   const entries: JSONEntry[] = [];
-  if (gs.docs !== undefined) entries.push({ key: 'docs', value: jsonString(gs.docs) });
+  if (gs.docs !== undefined) entries.push({ key: 'docs', value: Code.jsonString(gs.docs) });
   entries.push({
     key: 'key',
     value: renderTypeDefJSONCode(gs.key, registry, [...path, 'key'], indent, childLevel, undefined),
@@ -1610,7 +1870,7 @@ function renderGetSetJSON(
   if (gs.loopDynamic !== undefined) {
     entries.push({ key: 'loopDynamic', value: String(gs.loopDynamic) });
   }
-  return jsonObject(entries, { path }, level, indent);
+  return Code.jsonObject(entries, { path }, level, indent);
 }
 
 function renderCallJSON(
@@ -1622,7 +1882,7 @@ function renderCallJSON(
 ): Code {
   const childLevel = level + 1;
   const entries: JSONEntry[] = [];
-  if (call.docs !== undefined) entries.push({ key: 'docs', value: jsonString(call.docs) });
+  if (call.docs !== undefined) entries.push({ key: 'docs', value: Code.jsonString(call.docs) });
   if (call.types !== undefined && Object.keys(call.types).length > 0) {
     entries.push({
       key: 'types',
@@ -1657,7 +1917,7 @@ function renderCallJSON(
       value: renderEmbeddedExprJSON(call.set, registry, [...path, 'set'], indent, childLevel),
     });
   }
-  return jsonObject(entries, { path }, level, indent);
+  return Code.jsonObject(entries, { path }, level, indent);
 }
 
 function renderInitJSON(
@@ -1669,7 +1929,7 @@ function renderInitJSON(
 ): Code {
   const childLevel = level + 1;
   const entries: JSONEntry[] = [];
-  if (init.docs !== undefined) entries.push({ key: 'docs', value: jsonString(init.docs) });
+  if (init.docs !== undefined) entries.push({ key: 'docs', value: Code.jsonString(init.docs) });
   entries.push({
     key: 'args',
     value: renderTypeDefJSONCode(init.args, registry, [...path, 'args'], indent, childLevel, undefined),
@@ -1678,7 +1938,7 @@ function renderInitJSON(
     key: 'run',
     value: renderEmbeddedExprJSON(init.run, registry, [...path, 'run'], indent, childLevel),
   });
-  return jsonObject(entries, { path }, level, indent);
+  return Code.jsonObject(entries, { path }, level, indent);
 }
 
 /** Render an embedded ExprDef. Parses through the registry and

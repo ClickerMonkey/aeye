@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { Type, TypeDef } from '@aeye/gin';
-import { formatParams, renderGenerics } from '@aeye/gin';
+import type { TypeDef } from '@aeye/gin';
+import { Type } from '@aeye/gin';
 import { ai } from '../ai';
 
 /**
@@ -61,8 +61,8 @@ export const printFn = ai.tool({
       ctx.loadedFns.add(input.name);
     }
 
-    const generics = renderGenerics(fnType.generic, codeOpts);
-    const params = formatParams(call.args, codeOpts);
+    const generics = Type.renderGenerics(fnType.generic, codeOpts);
+    const params = Type.formatParams(call.args, codeOpts);
     const returns = call.returns ? call.returns.toCode(undefined, codeOpts) : 'void';
 
     // Body lines: `type <alias> = ...;` declarations for each declared

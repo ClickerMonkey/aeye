@@ -119,6 +119,98 @@ export class Code {
     return new Code(newText, newSpans);
   }
 
+  // ─── JSON builders (for `toJSONCode` overrides) ─────────────────────────
+
+  /**
+   * Build a JSON object literal as a `Code` with the same indentation
+   * shape `JSON.stringify(obj, null, indent)` produces. Each entry's
+   * `value` is appended verbatim, so child `Code` values must already
+   * be rendered for the matching depth (`level + 1`). The outer
+   * `{ ... }` block is wrapped in a single span tagged with `meta`.
+   *
+   * Empty objects render as `{}` on one line, like JSON.stringify.
+   * Entries whose `value` is `undefined` are dropped (matching
+   * `JSON.stringify`'s behaviour with `undefined` properties).
+   */
+  static jsonObject(
+    entries: ReadonlyArray<JSONEntry>,
+    meta: { path: ReadonlyArray<string | number>; expr?: Expr; type?: Type },
+    level: number = 0,
+    indent: number = 2,
+  ): Code {
+    const filtered = entries.filter((e) => e.value !== undefined);
+    if (filtered.length === 0) return span('{}', meta);
+    const childIndent = ' '.repeat((level + 1) * indent);
+    const closeIndent = ' '.repeat(level * indent);
+    const lines: Code[] = filtered.map(({ key, value }) => {
+      const valueCode = typeof value === 'string' ? new Code(value) : value as Code;
+      return code`${childIndent}${JSON.stringify(key)}: ${valueCode}`;
+    });
+    return span(code`{\n${joinCode(lines, ',\n')}\n${closeIndent}}`, meta);
+  }
+
+  /**
+   * Build a JSON array literal. Items are rendered verbatim, comma-and-
+   * newline separated, with `(level + 1) * indent` spaces of leading
+   * indent on each item.
+   */
+  static jsonArray(
+    items: ReadonlyArray<Code | string>,
+    meta: { path: ReadonlyArray<string | number>; expr?: Expr; type?: Type },
+    level: number = 0,
+    indent: number = 2,
+  ): Code {
+    if (items.length === 0) return span('[]', meta);
+    const childIndent = ' '.repeat((level + 1) * indent);
+    const closeIndent = ' '.repeat(level * indent);
+    const itemCodes: Code[] = items.map((it) => {
+      const c = typeof it === 'string' ? new Code(it) : it;
+      return code`${childIndent}${c}`;
+    });
+    return span(code`[\n${joinCode(itemCodes, ',\n')}\n${closeIndent}]`, meta);
+  }
+
+  /** Quote-and-escape a JSON string value. Convenience for tagged-template
+   *  callers that want an inline literal without leaving the `code`/`span`
+   *  builder world. */
+  static jsonString(value: string): string {
+    return JSON.stringify(value);
+  }
+
+  /**
+   * Render every problem in `problems` as a sequence of sections.
+   * Each section is a contiguous block of source lines containing one
+   * or more problems plus a configurable buffer of surrounding
+   * context. Sections whose context windows overlap are merged so
+   * problems near each other share their surrounding code instead of
+   * repeating it. Output shape:
+   *
+   *   ── lines 5-7 ───────────────────
+   *     5 │ const x: num = "wrong";
+   *                        ^^^^^^^
+   *                        error: var 'x' value type 'text' not compatible with declared 'num'
+   *     6 │ x;
+   *     7 │ }
+   *
+   * Problems whose path resolves to no span fall through to a plain
+   * `<severity>: <message> @ <path>` line appended after the sections.
+   */
+  formatProblems(problems: Problems, opts: FormatProblemsOptions = {}): string {
+    return renderProblems(this, problems.list, opts);
+  }
+
+  /** Render a single problem against this Code. Convenience wrapper
+   *  that delegates to the section renderer with terser defaults (no
+   *  section header / no line numbers / no context). */
+  formatProblem(problem: Problem, opts: FormatOptions = {}): string {
+    return renderProblems(this, [problem], {
+      ...opts,
+      sectionHeaders: false,
+      lineNumbers: false,
+      contextLines: 0,
+    });
+  }
+
   /**
    * Find the span whose `path` is the longest prefix of `target`. Used
    * by `formatProblem` to map a Problem.path to its rendered range.
@@ -266,7 +358,8 @@ export function joinLines(parts: ReadonlyArray<Code | string>): Code {
   return joinCode(parts, '\n');
 }
 
-// ─── JSON builders (for `toJSONCode` overrides) ──────────────────────────────
+// JSON builders — `Code.jsonObject` / `jsonArray` / `jsonString` —
+// live as static methods on `Code` (above).
 
 export interface JSONEntry {
   key: string;
@@ -274,60 +367,6 @@ export interface JSONEntry {
    *  `undefined`, the entry is OMITTED — matches `JSON.stringify`'s
    *  behaviour of dropping `undefined` properties. */
   value: Code | string | undefined;
-}
-
-/**
- * Build a JSON object literal as a `Code` with the same indentation
- * shape `JSON.stringify(obj, null, indent)` produces. Each entry's
- * `value` is appended verbatim, so child `Code` values must already
- * be rendered for the matching depth (`level + 1`). The outer
- * `{ ... }` block is wrapped in a single span tagged with `meta`.
- *
- * Empty objects render as `{}` on one line, like JSON.stringify.
- */
-export function jsonObject(
-  entries: ReadonlyArray<JSONEntry>,
-  meta: { path: ReadonlyArray<string | number>; expr?: Expr; type?: Type },
-  level: number = 0,
-  indent: number = 2,
-): Code {
-  const filtered = entries.filter((e) => e.value !== undefined);
-  if (filtered.length === 0) return span('{}', meta);
-  const childIndent = ' '.repeat((level + 1) * indent);
-  const closeIndent = ' '.repeat(level * indent);
-  const lines: Code[] = filtered.map(({ key, value }) => {
-    const valueCode = typeof value === 'string' ? new Code(value) : value as Code;
-    return code`${childIndent}${JSON.stringify(key)}: ${valueCode}`;
-  });
-  return span(code`{\n${joinCode(lines, ',\n')}\n${closeIndent}}`, meta);
-}
-
-/**
- * Build a JSON array literal. Items are rendered verbatim, comma-and-
- * newline separated, with `(level + 1) * indent` spaces of leading
- * indent on each item.
- */
-export function jsonArray(
-  items: ReadonlyArray<Code | string>,
-  meta: { path: ReadonlyArray<string | number>; expr?: Expr; type?: Type },
-  level: number = 0,
-  indent: number = 2,
-): Code {
-  if (items.length === 0) return span('[]', meta);
-  const childIndent = ' '.repeat((level + 1) * indent);
-  const closeIndent = ' '.repeat(level * indent);
-  const itemCodes: Code[] = items.map((it) => {
-    const c = typeof it === 'string' ? new Code(it) : it;
-    return code`${childIndent}${c}`;
-  });
-  return span(code`[\n${joinCode(itemCodes, ',\n')}\n${closeIndent}]`, meta);
-}
-
-/** Quote-and-escape a JSON string value. Convenience for tagged-template
- *  callers that want an inline literal without leaving the `code`/`span`
- *  builder world. */
-export function jsonString(value: string): string {
-  return JSON.stringify(value);
 }
 
 // ─── Error formatting ──────────────────────────────────────────────────────
@@ -384,60 +423,6 @@ interface Section {
   firstLine: number;
   lastLine: number;
   problems: ResolvedProblem[];
-}
-
-/**
- * Render one Problem against `code`. Convenience wrapper that builds a
- * one-element Problems-like list and delegates to the section renderer
- * so the output stays consistent with `formatProblems`.
- */
-export function formatProblem(
-  code: Code,
-  problem: Problem,
-  opts: FormatOptions = {},
-): string {
-  return renderProblems(code, [problem], {
-    ...opts,
-    // Single-problem renders default to no section header / no line
-    // numbers — matches the older terse output callers expect.
-    sectionHeaders: false,
-    lineNumbers: false,
-    contextLines: 0,
-  });
-}
-
-/**
- * Render every Problem against `code` as a sequence of sections. Each
- * section is a contiguous block of source lines containing one or more
- * problems plus a configurable buffer of surrounding context. Sections
- * whose context windows overlap are merged so problems near each other
- * share their surrounding code instead of repeating it.
- *
- * Output shape (with defaults):
- *
- *   ── lines 5-7 ───────────────────
- *     5 │ const x: num = "wrong";
- *                        ^^^^^^^
- *                        error: var 'x' value type 'text' not compatible with declared 'num'
- *     6 │ x;
- *     7 │ }
- *
- *   ── lines 12-14 ──────────────────
- *    12 │ if (1) {
- *              ^
- *              warning: if condition should be bool, got 'num'
- *    13 │   x;
- *    14 │ }
- *
- * Problems whose path resolves to no span fall through to a plain
- * `<severity>: <message> @ <path>` line appended after the sections.
- */
-export function formatProblems(
-  code: Code,
-  problems: Problems,
-  opts: FormatProblemsOptions = {},
-): string {
-  return renderProblems(code, problems.list, opts);
 }
 
 function renderProblems(

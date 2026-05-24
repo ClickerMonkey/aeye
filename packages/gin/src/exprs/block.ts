@@ -10,10 +10,11 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
-import { Code, code, span, joinLines, jsonObject, jsonArray, jsonString } from '../code';
+import { Code, code, span, joinLines } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
+import { Effects } from '../effects';
 
 /**
  * BlockExpr — sequence of expressions; last one's value is the result.
@@ -121,11 +122,11 @@ export class BlockExpr extends Expr {
   ): Code {
     const childItems = this.lines.map((line, i) =>
       line.toJSONCode([...path, i], indent, level + 2));
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('block') },
-        { key: 'lines', value: jsonArray(childItems, { path: [...path, 'lines'] }, level + 1, indent) },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        { key: 'kind', value: Code.jsonString('block') },
+        { key: 'lines', value: Code.jsonArray(childItems, { path: [...path, 'lines'] }, level + 1, indent) },
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -139,6 +140,12 @@ export class BlockExpr extends Expr {
 
   forEachChild(visit: ChildVisitor): void {
     for (const line of this.lines) visit(line, 'inherit');
+  }
+
+  effects(): Effects {
+    let acc: Effects = Effects.NONE;
+    for (const line of this.lines) acc |= line.effects();
+    return acc;
   }
 }
 

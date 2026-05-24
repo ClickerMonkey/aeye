@@ -2,6 +2,7 @@ import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { ListType } from '../types/list';
 import { arg, self, selfValue, argValue, setupYield } from './helpers';
+import { Effects } from '../effects';
 
 const itemType = (scope: any) => (selfValue(scope).type as ListType).item;
 
@@ -242,4 +243,23 @@ export const listNatives: Record<string, NativeImpl> = {
     const a = self<Value[]>(scope);
     return val(reg.optional(itemType(scope)), a.length > 0 ? a[a.length - 1]!.raw : undefined);
   },
+};
+
+/**
+ * Effects overrides for list natives that aren't pure. Every native
+ * not listed here defaults to `Effects.NONE` at registration time.
+ *
+ * STATE entries mutate the underlying `Value<V>[]` in place — the
+ * iteration / accessor / transform variants (slice, concat, reverse,
+ * map, filter, sort, …) all return NEW arrays and stay NONE.
+ */
+export const listNativesEffects: Record<string, Effects> = {
+  'list.indexSet': Effects.STATE,
+  'list.push':     Effects.STATE,
+  'list.pop':      Effects.STATE,
+  'list.shift':    Effects.STATE,
+  'list.unshift':  Effects.STATE,
+  'list.insert':   Effects.STATE,
+  'list.remove':   Effects.STATE,
+  'list.clear':    Effects.STATE,
 };

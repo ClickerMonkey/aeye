@@ -1,6 +1,6 @@
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
-import type { LoopExprDef, ExprDef } from '../schema';
+import type { LoopExprDef } from '../schema';
 import { Value, val } from '../value';
 import { BreakSignal, ContinueSignal } from '../flow-control';
 import type { Registry } from '../registry';
@@ -11,7 +11,8 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
-import { Code, jsonObject, jsonString } from '../code';
+import { Code } from '../code';
+import { Effects } from '../effects';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -307,13 +308,27 @@ export class LoopExpr extends Expr {
     // If the loop overrides keyName / valueName, the user-chosen names
     // must follow the same rules as define vars: not reserved, not
     // already in scope. The default `key` / `value` names are reserved
-    // by gin precisely because loops bind them, so we don't check the
-    // defaults — only explicit overrides.
+    // by gin precisely because loops bind them, so the reserved-name
+    // check doesn't apply — but the SHADOW check still does: a nested
+    // loop using the defaults would silently rebind `key`/`value`
+    // already supplied by an enclosing loop, making the outer
+    // iteration indices unreachable. Treat that as an error and force
+    // the author to pick distinct names for nested loops.
     if (this.keyName !== undefined) {
       p.at('key', () => checkBindingName(this.keyName!, scope, p));
+    } else if (scope.has('key')) {
+      p.error(
+        'loop.key.shadow',
+        `loop's default 'key' is already in scope from an enclosing loop — set the \`key\` field on this loop to a distinct name (e.g. "i", "j", "outerKey") so the inner loop doesn't shadow the outer iteration index`,
+      );
     }
     if (this.valueName !== undefined) {
       p.at('value', () => checkBindingName(this.valueName!, scope, p));
+    } else if (scope.has('value')) {
+      p.error(
+        'loop.value.shadow',
+        `loop's default 'value' is already in scope from an enclosing loop — set the \`value\` field on this loop to a distinct name (e.g. "v", "row", "outerValue") so the inner loop doesn't shadow the outer iteration value`,
+      );
     }
 
     // Bind key/value from the iterable's GetSet. Both static and
@@ -327,6 +342,19 @@ export class LoopExpr extends Expr {
     child.set(this.keyName ?? 'key', keyType);
     child.set(this.valueName ?? 'value', valueType);
     p.at('body', () => walkValidate(engine, this.body, child, p, { ...ctx, inLoop: true }));
+
+    // No-effect heuristic: a loop returns void, so the body's value is
+    // discarded. If the body's `effects()` is NONE, the iteration
+    // produces nothing observable — a common LLM anti-pattern (the
+    // skeleton of a loop without the accumulator / mutation that gives
+    // it purpose). Warn so the author either adds the missing effect
+    // or removes the dead loop.
+    if (this.body.effects() === Effects.NONE) {
+      p.at('body', () => p.warn(
+        'loop.body.no-effect',
+        `loop body has no observable effect — the iteration's computed value is discarded. Add a \`set\` to accumulate into an outer var, a \`flow\` to control iteration, or invoke a side-effecting native (e.g. \`fns.log\`, \`fns.fetch\`)`,
+      ));
+    }
     return engine.registry.void();
   }
 
@@ -397,7 +425,7 @@ export class LoopExpr extends Expr {
     const overCode = this.over.toJSONCode([...path, 'over'], indent, level + 1);
     const bodyCode = this.body.toJSONCode([...path, 'body'], indent, level + 1);
     const parallelCode = this.parallel
-      ? jsonObject(
+      ? Code.jsonObject(
           [
             { key: 'concurrent', value: this.parallel.concurrent?.toJSONCode([...path, 'parallel', 'concurrent'], indent, level + 2) },
             { key: 'rate', value: this.parallel.rate?.toJSONCode([...path, 'parallel', 'rate'], indent, level + 2) },
@@ -407,15 +435,15 @@ export class LoopExpr extends Expr {
           indent,
         )
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('loop') },
+        { key: 'kind', value: Code.jsonString('loop') },
         { key: 'over', value: overCode },
         { key: 'body', value: bodyCode },
-        { key: 'key', value: this.keyName !== undefined ? jsonString(this.keyName) : undefined },
-        { key: 'value', value: this.valueName !== undefined ? jsonString(this.valueName) : undefined },
+        { key: 'key', value: this.keyName !== undefined ? Code.jsonString(this.keyName) : undefined },
+        { key: 'value', value: this.valueName !== undefined ? Code.jsonString(this.valueName) : undefined },
         { key: 'parallel', value: parallelCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -442,10 +470,17 @@ export class LoopExpr extends Expr {
     if (this.parallel?.concurrent) visit(this.parallel.concurrent, 'inherit');
     if (this.parallel?.rate) visit(this.parallel.rate, 'inherit');
   }
+
+  effects(): Effects {
+    return this.over.effects()
+      | this.body.effects()
+      | (this.parallel?.concurrent?.effects() ?? Effects.NONE)
+      | (this.parallel?.rate?.effects() ?? Effects.NONE);
+  }
 }
 
 async function runLoop(
-  loopExpr: ExprDef,
+  loopExpr: Expr,
   scope: Scope,
   engine: Engine,
   over: Value,
@@ -453,16 +488,16 @@ async function runLoop(
 ): Promise<void> {
   // `yield` in the loop scope is a callable Value with args
   // `obj({key, value})` and void return. The Value form is what makes
-  // it usable from a CUSTOM loop ExprDef (e.g. a `block`/`lambda`
+  // it usable from a CUSTOM loop Expr (e.g. a `block`/`lambda`
   // written by a dev that augments a type with their own iteration
   // shape) — path-walker call sites pass a single args-obj Value, so
   // yield's signature has to match. Native loop impls receive the
   // same Value via `scope.get('yield')` and unwrap the two fields.
   const r = engine.registry;
-  const yieldType = r.fn(
-    r.obj({ key: { type: r.any() }, value: { type: r.any() } }),
-    r.void(),
-  );
+  const yieldType = r.fn({
+    args: r.obj({ key: { type: r.any() }, value: { type: r.any() } }),
+    returns: r.void(),
+  });
   const wrappedYield = async (argsValue: Value): Promise<Value> => {
     const fields = argsValue.raw as Record<string, Value> | null | undefined;
     if (!fields) throw new Error('yield: missing args');
@@ -471,7 +506,7 @@ async function runLoop(
   const yieldValue = new Value(yieldType, wrappedYield);
   const loopScope = scope.child({ this: over, yield: yieldValue });
   try {
-    await engine.evaluate(loopExpr, loopScope);
+    await loopExpr.evaluate(engine, loopScope);
   } catch (sig) {
     if (!(sig instanceof BreakSignal)) throw sig;
   }

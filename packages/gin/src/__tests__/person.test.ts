@@ -27,7 +27,7 @@ describe('Person.fullName integration', () => {
       name: 'Person',
       props: {
         fullName: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: {
             kind: 'template',
             template: { kind: 'new', type: { name: 'text' }, value: '{first} {last}' },
@@ -100,7 +100,7 @@ describe('Person.fullName integration', () => {
       name: 'Person',
       props: {
         fullName: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: {
             kind: 'template',
             template: { kind: 'new', type: { name: 'text' }, value: '{first} {last}' },

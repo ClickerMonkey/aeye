@@ -2,17 +2,18 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import type { SetExprDef } from '../schema';
 import { Value, val } from '../value';
-import { Path, PropStep } from '../path';
+import { Path, PropStep, CallStep } from '../path';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { Code, code, span, jsonObject, jsonString } from '../code';
+import { Code, code, span } from '../code';
 import { z } from 'zod';
 import { baseExprFields, pathStepSchema } from '../schemas';
 import type { TypeScope } from '../type-scope';
+import { Effects, combine } from '../effects';
 
 /**
  * SetExpr — assign to a Path. Returns Value<bool>:
@@ -99,12 +100,12 @@ export class SetExpr extends Expr {
   ): Code {
     const pathCode = this.path.toJSONCode([...path, 'path'], indent, level + 1);
     const valueCode = this.value.toJSONCode([...path, 'value'], indent, level + 1);
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('set') },
+        { key: 'kind', value: Code.jsonString('set') },
         { key: 'path', value: pathCode },
         { key: 'value', value: valueCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -119,5 +120,21 @@ export class SetExpr extends Expr {
   forEachChild(visit: ChildVisitor): void {
     this.path.forEachExpr((e) => visit(e, 'inherit'));
     visit(this.value, 'inherit');
+  }
+
+  /** Set always mutates state — a scope variable, an indexed slot, or
+   *  a prop's setter hook. Plus any inner expressions in the path or
+   *  the assigned value, plus any `resolvedEffects` cached on path
+   *  CallSteps by the validator (e.g. a setter that ultimately dispatches
+   *  to `fns.*` adds EXTERNAL). */
+  effects(): Effects {
+    let acc: Effects = Effects.STATE | this.value.effects();
+    this.path.forEachExpr((e) => { acc |= e.effects(); });
+    for (const step of this.path.steps) {
+      if (step instanceof CallStep && step.resolvedEffects !== undefined) {
+        acc |= step.resolvedEffects;
+      }
+    }
+    return acc;
   }
 }

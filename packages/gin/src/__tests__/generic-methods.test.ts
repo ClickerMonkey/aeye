@@ -14,7 +14,7 @@ import { LocalScope } from '../type-scope';
 describe('method-level generics on fn/method', () => {
   test('r.fn accepts a generic map and stores it on FnType.generic', () => {
     const r = createRegistry();
-    const f = r.fn(r.obj({}), r.alias('T'), undefined, { T: r.any() }) as FnType;
+    const f = r.fn({ args: r.obj({}), returns: r.alias('T'), generic: { T: r.any() } }) as FnType;
     expect(f).toBeInstanceOf(FnType);
     expect(Object.keys(f.generic)).toEqual(['T']);
     expect(f.generic.T!.name).toBe('any');
@@ -42,38 +42,28 @@ describe('method-level generics on fn/method', () => {
 
   test('toCode renders method generics as <T> prefix on fn signatures', () => {
     const r = createRegistry();
-    const f = r.fn(
-      r.obj({ x: { type: r.alias('T') } }),
-      r.alias('T'),
-      undefined,
-      { T: r.any() },
-    );
+    const f = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.alias('T'), generic: { T: r.any() } });
     expect(f.toCode()).toBe('<T>(x: T): T');
   });
 
   test('toCode with bound generic renders <T: bound>', () => {
     const r = createRegistry();
     // Constraint: T extends num.
-    const f = r.fn(r.obj({ x: { type: r.alias('T') } }), r.alias('T'), undefined, {
+    const f = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.alias('T'), generic: {
       T: r.num(),
-    });
+    } });
     expect(f.toCode()).toBe('<T: num>(x: T): T');
   });
 
   test('toCode with multiple generics — mix of bound and unbound', () => {
     const r = createRegistry();
-    const f = r.fn(
-      r.obj({ a: { type: r.alias('A') }, b: { type: r.alias('B') } }),
-      r.alias('A'),
-      undefined,
-      { A: r.any(), B: r.num() },
-    );
+    const f = r.fn({ args: r.obj({ a: { type: r.alias('A') }, b: { type: r.alias('B') } }), returns: r.alias('A'), generic: { A: r.any(), B: r.num() } });
     expect(f.toCode()).toBe('<A, B: num>(a: A, b: B): A');
   });
 
   test('toCode without generics — no prefix', () => {
     const r = createRegistry();
-    const f = r.fn(r.obj({ x: { type: r.num() } }), r.text());
+    const f = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.text() });
     expect(f.toCode()).toBe('(x: num): text');
   });
 });
@@ -81,12 +71,7 @@ describe('method-level generics on fn/method', () => {
 describe('FnType.generic — JSON round-trip', () => {
   test('toJSON serializes generic map; parse reconstructs it', () => {
     const r = createRegistry();
-    const f = r.fn(
-      r.obj({ x: { type: r.alias('T') } }),
-      r.alias('T'),
-      undefined,
-      { T: r.num() },
-    );
+    const f = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.alias('T'), generic: { T: r.num() } });
     const json = f.toJSON();
     expect(json.generic).toEqual({ T: { name: 'num' } });
 
@@ -97,19 +82,14 @@ describe('FnType.generic — JSON round-trip', () => {
 
   test('empty generic map is omitted from JSON', () => {
     const r = createRegistry();
-    const f = r.fn(r.obj({}), r.num());
+    const f = r.fn({ args: r.obj({}), returns: r.num() });
     const json = f.toJSON();
     expect(json.generic).toBeUndefined();
   });
 
   test('round-trip preserves generic placeholders inside args/returns', () => {
     const r = createRegistry();
-    const f = r.fn(
-      r.obj({ fn: { type: r.fn(r.obj({ v: { type: r.alias('T') } }), r.bool()) } }),
-      r.alias('T'),
-      undefined,
-      { T: r.any() },
-    );
+    const f = r.fn({ args: r.obj({ fn: { type: r.fn({ args: r.obj({ v: { type: r.alias('T') } }), returns: r.bool() }) } }), returns: r.alias('T'), generic: { T: r.any() } });
     const back = r.parse(f.toJSON()) as FnType;
     expect(Object.keys(back.generic)).toEqual(['T']);
     // Inner fn arg type should still be a AliasType named 'T'.
@@ -144,12 +124,7 @@ describe('toCodeDefinition — method-level generics', () => {
     const r = createRegistry();
     // Type declares V; method redundantly declares V as well — the method
     // generic list should NOT include V (since it's inherited from outer).
-    const fn = r.fn(
-      r.obj({ x: { type: r.alias('V') } }),
-      r.alias('V'),
-      undefined,
-      { V: r.any() },
-    );
+    const fn = r.fn({ args: r.obj({ x: { type: r.alias('V') } }), returns: r.alias('V'), generic: { V: r.any() } });
     // When rendered by itself (no outer owner), V shows as a method generic.
     expect(fn.toCode()).toBe('<V>(x: V): V');
   });
@@ -165,12 +140,7 @@ describe('toCodeDefinition — method-level generics', () => {
 describe('runtime behavior — call-site generic resolution via TypeScope', () => {
   test('fn signature with extra-scope R=num resolves R through nested positions', () => {
     const r = createRegistry();
-    const f = r.fn(
-      r.obj({ v: { type: r.alias('R') } }),
-      r.list(r.alias('R')),
-      undefined,
-      { R: r.any() },
-    );
+    const f = r.fn({ args: r.obj({ v: { type: r.alias('R') } }), returns: r.list(r.alias('R')), generic: { R: r.any() } });
     const local = new LocalScope(r, { R: r.num() });
     // The fn type itself is unchanged — call() returns the same Call.
     // But when accessed with `local`, AliasTypes inside resolve.
@@ -187,12 +157,7 @@ describe('runtime behavior — call-site generic resolution via TypeScope', () =
 
   test('extra-scope without matching name leaves placeholders unresolved', () => {
     const r = createRegistry();
-    const f = r.fn(
-      r.obj({ v: { type: r.alias('R') } }),
-      r.alias('R'),
-      undefined,
-      { R: r.any() },
-    );
+    const f = r.fn({ args: r.obj({ v: { type: r.alias('R') } }), returns: r.alias('R'), generic: { R: r.any() } });
     const local = new LocalScope(r, { NOT_R: r.num() });
     const args = f.call(local).args as unknown as { fields?: Record<string, { type: AliasType }> };
     expect(args.fields!.v!.type).toBeInstanceOf(AliasType);
@@ -229,9 +194,9 @@ describe('invalid / edge cases', () => {
     // Build a bare FnType whose generic list happens to contain V — when
     // placed inside a list<V>'s definition, V would be filtered out.
     // Here we just verify the fn itself (standalone) shows <V>.
-    const f = r.fn(r.obj({ x: { type: r.alias('V') } }), r.alias('V'), undefined, {
+    const f = r.fn({ args: r.obj({ x: { type: r.alias('V') } }), returns: r.alias('V'), generic: {
       V: r.any(),
-    });
+    } });
     expect(f.toCode()).toContain('<V>');
   });
 

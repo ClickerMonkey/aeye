@@ -65,7 +65,7 @@ export interface CallDef {
    * the parent type's generics (so they may reference generic
    * placeholders) and BEFORE the call slots (so the slots resolve
    * against them). Sequential — later aliases may reference earlier.
-   * Inlining happens at parse time inside `decodeCall`.
+   * Inlining happens at parse time inside `Call.from`.
    */
   types?: Record<string, TypeDef>;
   args: TypeDef;

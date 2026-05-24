@@ -1,4 +1,5 @@
 import type { Extension, ExtensionLocal } from './extension';
+import type { Expr } from './expr';
 import type {
   Prop,
   PropSpec,
@@ -129,11 +130,13 @@ export interface TypeBuilder {
   color(options?: ColorOptions): Type<number>;
 
   // ─── callables ──────────────────────────────────────────────────────────
-  fn<A extends object = any, R = any, E = any>(
-    args: Type<A>,
-    returns?: Type<R>,
-    throws?: Type<E>,
-  ): Type;
+  fn<A extends object = any, R = any, E = any>(opts: {
+    args: Type<A>;
+    returns?: Type<R>;
+    throws?: Type<E>;
+    generic?: Record<string, Type>;
+    call?: Expr;
+  }): Type;
 
   // ─── interfaces ─────────────────────────────────────────────────────────
   iface(spec: IfaceSpec): Type;

@@ -3,6 +3,7 @@ import type { Registry } from '../registry';
 import type { PathStepDef, TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
+import { Effects } from '../effects';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -77,6 +78,18 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return this.elements.map((e) => new Value(e, e.create())) as [Value, ...Value[]];
   }
 
+  newEffects(value: unknown): Effects {
+    const init = this.initEffects();
+    if (Array.isArray(value)) {
+      let acc = init;
+      for (let i = 0; i < this.elements.length; i++) {
+        if (i < value.length) acc |= this.elements[i]!.newEffects(value[i]);
+      }
+      return acc;
+    }
+    return init | this.exprValueEffects(value);
+  }
+
   random(rnd: Rnd): [Value, ...Value[]] {
     return this.elements.map((e) => new Value(e, e.random(rnd))) as [Value, ...Value[]];
   }
@@ -120,12 +133,13 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     const valueUnion = this.elements.length === 1
       ? this.elements[0]!
       : this.registry.or(this.elements);
+    const r = this.registry;
     return new GetSet({
-      key: this.registry.num({ whole: true, min: 0, max: this.elements.length - 1 }),
+      key: r.num({ whole: true, min: 0, max: this.elements.length - 1 }),
       value: valueUnion,
-      get: { kind: 'native', id: 'tuple.at' },
-      set: { kind: 'native', id: 'tuple.setAt' },
-      loop: { kind: 'native', id: 'tuple.iterate' },
+      get: r.nativeExpr('tuple.at'),
+      set: r.nativeExpr('tuple.setAt'),
+      loop: r.nativeExpr('tuple.iterate'),
     });
   }
 

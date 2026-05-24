@@ -86,7 +86,7 @@ export class ColorType extends Type<number, ColorOptions> {
     const alpha = r.optional(r.num({ min: 0, max: 1 }));
     return new Init({
       args: r.obj({ r: { type: byte }, g: { type: byte }, b: { type: byte }, a: { type: alpha } }) as Type<any>,
-      run: { kind: 'native', id: 'color.init' },
+      run: r.nativeExpr('color.init'),
     });
   }
 

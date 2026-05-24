@@ -3,6 +3,7 @@ import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
+import { Effects } from '../effects';
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -97,6 +98,20 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return Array.from({ length: n }, () => new Value(this.item, this.item.random(rnd)));
   }
 
+  /** Walk each element slot through the item type's `newEffects` so
+   *  composite `new list<T>{values: [Expr, Expr, ...]}` payloads
+   *  surface every slot's effects. If `value` is itself an ExprDef
+   *  (e.g. a `get` returning a list) defer to base. */
+  newEffects(value: unknown): Effects {
+    const init = this.initEffects();
+    if (Array.isArray(value)) {
+      let acc = init;
+      for (const item of value) acc |= this.item.newEffects(item);
+      return acc;
+    }
+    return init | this.exprValueEffects(value);
+  }
+
   like(other: Type): Type {
     if (!(other instanceof ListType)) return this;
     const item = this.registry.like(other.item);
@@ -151,12 +166,13 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   }
 
   get(): GetSet {
+    const r = this.registry;
     return new GetSet({
-      key: this.registry.num({ whole: true, min: 0 }),
+      key: r.num({ whole: true, min: 0 }),
       value: this.item,
-      get: { kind: 'native', id: 'list.indexGet' },
-      set: { kind: 'native', id: 'list.indexSet' },
-      loop: { kind: 'native', id: 'list.iterate' },
+      get: r.nativeExpr('list.indexGet'),
+      set: r.nativeExpr('list.indexSet'),
+      loop: r.nativeExpr('list.iterate'),
     });
   }
 
@@ -170,7 +186,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     const optV = r.optional(V);
     const lstV = r.list(V);
     const fnValueIndex = (ret: Type) =>
-      r.fn(r.obj({ value: { type: V }, index: { type: num } }), ret);
+      r.fn({ args: r.obj({ value: { type: V }, index: { type: num } }), returns: ret });
 
     return {
       ...super.props(),
@@ -199,10 +215,10 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
       map:    r.method({ fn: fnValueIndex(r.alias('R')) }, r.list(r.alias('R')), 'list.map', { generic: { R: r.any() } }),
       filter: r.method({ fn: fnValueIndex(bool) },    lstV,            'list.filter'),
       find:   r.method({ fn: fnValueIndex(bool) },    optV,            'list.find'),
-      reduce: r.method({ fn: r.fn(r.obj({ acc: { type: r.alias('R') }, value: { type: V }, index: { type: num } }), r.alias('R')), initial: r.alias('R') }, r.alias('R'), 'list.reduce', { generic: { R: r.any() } }),
+      reduce: r.method({ fn: r.fn({ args: r.obj({ acc: { type: r.alias('R') }, value: { type: V }, index: { type: num } }), returns: r.alias('R') }), initial: r.alias('R') }, r.alias('R'), 'list.reduce', { generic: { R: r.any() } }),
       some:   r.method({ fn: fnValueIndex(bool) },    bool,            'list.some'),
       every:  r.method({ fn: fnValueIndex(bool) },    bool,            'list.every'),
-      sort:   r.method({ fn: r.optional(r.fn(r.obj({ a: { type: V }, b: { type: V } }), num)) }, lstV, 'list.sort'),
+      sort:   r.method({ fn: r.optional(r.fn({ args: r.obj({ a: { type: V }, b: { type: V } }), returns: num })) }, lstV, 'list.sort'),
 
       isEmpty:    r.method({}, bool, 'list.isEmpty'),
       isNotEmpty: r.method({}, bool, 'list.isNotEmpty'),

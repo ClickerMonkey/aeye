@@ -7,9 +7,10 @@ import type { ExprDef } from './schema';
 import type { Locals } from './analysis';
 import { Problems } from './problem';
 import type { Node, CodeOptions, SchemaOptions } from './node';
-import { Code, span } from './code';
+import { Code, code, span } from './code';
 import type { z } from 'zod';
 import type { TypeScope } from './type-scope';
+import type { Effects } from './effects';
 
 /**
  * Context flags carried through validate walks so handlers can report
@@ -155,6 +156,80 @@ export abstract class Expr implements Node {
   }
 
   /**
+   * Render this expression as the body of a statement-context branch
+   * (an if-arm, an else clause, a loop body, a switch case). The
+   * result is always multi-line braced for visual symmetry with sibling
+   * branches, with three exceptions:
+   *
+   *   - `flow` (return / break / continue / throw / exit) renders bare
+   *     plus `;` — `else return x;` is more readable than wrapping a
+   *     terminator in braces.
+   *   - With `chainElseIf=true` AND this is an `if`: render bare so the
+   *     enclosing `else <inner-if>` collapses to `else if (...) ...`.
+   *     Callers pass `true` only for the else clause of an enclosing if.
+   *   - `block` emits its lines bare; the wrapper here adds the `{`/`}`.
+   *
+   * Everything else (including sub-`if`/`switch`/`loop` in body
+   * position) wraps in braces so `if (cond) { for (...) {...} }` reads
+   * symmetrically with the else (which is braced).
+   */
+  renderStatementBody(
+    registry?: Registry,
+    options: CodeOptions = {},
+    chainElseIf: boolean = false,
+  ): string {
+    // Kind-based dispatch (instead of `instanceof`) avoids dragging
+    // concrete Expr classes into this base module.
+    const kind = this.kind;
+    if (kind === 'flow') {
+      return `${this.toCode(registry, { ...options, expectsValue: false })};`;
+    }
+    if (chainElseIf && kind === 'if') {
+      return this.toCode(registry, { ...options, expectsValue: false });
+    }
+    if (kind === 'block') {
+      const out = this.toCode(registry, { ...options, expectsValue: false });
+      return out.startsWith('{') ? out : `{\n  ${indentForBody(out)}\n}`;
+    }
+    if (kind === 'if' || kind === 'switch' || kind === 'loop') {
+      const inner = this.toCode(registry, { ...options, expectsValue: false });
+      return `{\n  ${indentForBody(inner)}\n}`;
+    }
+    return `{\n  ${indentForBody(this.toCode(registry, { ...options, expectsValue: true }))};\n}`;
+  }
+
+  /** `Code`-aware variant of `renderStatementBody`. Same dispatch but
+   *  spans flow through; `path` is the prefix where this expr sits in
+   *  its parent (e.g. `[...path, 'ifs', i, 'body']`). */
+  renderStatementBodyRich(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+    chainElseIf: boolean = false,
+  ): Code {
+    const kind = this.kind;
+    if (kind === 'flow') {
+      const inner = this.toGinCode(registry, { ...options, expectsValue: false }, path);
+      return code`${inner};`;
+    }
+    if (chainElseIf && kind === 'if') {
+      return this.toGinCode(registry, { ...options, expectsValue: false }, path);
+    }
+    if (kind === 'block') {
+      const body = this.toGinCode(registry, { ...options, expectsValue: false }, path);
+      return body.text.startsWith('{')
+        ? body
+        : code`{\n  ${body.indent('  ')}\n}`;
+    }
+    if (kind === 'if' || kind === 'switch' || kind === 'loop') {
+      const body = this.toGinCode(registry, { ...options, expectsValue: false }, path);
+      return code`{\n  ${body.indent('  ')}\n}`;
+    }
+    const inner = this.toGinCode(registry, { ...options, expectsValue: true }, path);
+    return code`{\n  ${inner.indent('  ')};\n}`;
+  }
+
+  /**
    * Default JSON-form rendering. Returns the indented JSON of
    * `toJSON()` wrapped in a coarse single span. Subclasses override
    * to thread child paths through.
@@ -216,6 +291,30 @@ export abstract class Expr implements Node {
    * to know when a child crosses a loop or lambda boundary.
    */
   forEachChild(_visit: ChildVisitor): void { /* default: leaf */ }
+
+  /**
+   * Categorical side-effect classification — the set of `Effects` bits
+   * this expression's evaluation can produce.
+   *
+   * Every concrete Expr subclass MUST implement this — no base default,
+   * intentionally. Forces each new Expr kind to think through what it
+   * does to scope, system, and the outside world rather than inheriting
+   * a one-size-fits-all walk. Most container classes (`block`, `if`,
+   * `switch`, `define`, ...) will be a one-liner OR-ing their children,
+   * but writing it out per-class catches surprises like `LambdaExpr`
+   * (NONE despite having a body) and `SetExpr` (STATE regardless of
+   * what it assigns).
+   */
+  abstract effects(): Effects;
+}
+
+/** Indent every line after the first by two spaces — string helper
+ *  used by `Expr.renderStatementBody`. Duplicated here (rather than
+ *  imported from `./exprs/code`) to keep `expr.ts` free of imports
+ *  that would create circular dependencies with the concrete Expr
+ *  classes. */
+function indentForBody(s: string): string {
+  return s.replace(/\n/g, '\n  ');
 }
 
 /**

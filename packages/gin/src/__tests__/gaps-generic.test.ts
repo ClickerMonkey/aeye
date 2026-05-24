@@ -9,10 +9,7 @@ describe('PathCall.generic — explicit generic bindings', () => {
     const e = new Engine(r);
 
     // Build identity as a standalone fn typed against T.
-    const identity = r.fn(
-      r.obj({ x: { type: r.alias('T') } }),
-      r.alias('T'),
-    );
+    const identity = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.alias('T') });
 
     // Run typeOf on a call with explicit generic binding; the returns
     // type should be specialized to num.

@@ -136,8 +136,8 @@ export function registerFetchType(registry: Registry) {
     registry.text(),
   );
 
-  return registry.fn(
-    registry.obj({
+  return registry.fn({
+    args: registry.obj({
       url:     { type: registry.text(), docs: 'URL to fetch.' },
       method:  { type: registry.optional(httpMethod), docs: 'HTTP method (default GET).' },
       headers: { type: registry.optional(registry.map(registry.text(), registry.text())), docs: 'Optional request headers.' },
@@ -155,8 +155,8 @@ export function registerFetchType(registry: Registry) {
         docs: 'REQUIRED. The gin Type the call site expects back. Two common shapes: `output: typ<text>` for free-form content (HTML pages, articles, PDFs, raw API responses) — pair with `convert: "markdown"` (default) or `convert: "raw"`. `output: typ<<some obj/list>>` for JSON APIs where the response shape is known — the body is JSON.parse-d and parsed against the type. Required so the fn\'s generic R is always bound; without it, declaring a return-type-annotated variable from the call site would mismatch.',
       },
     }),
-    registry.alias('R'),
-    undefined,
-    { R: registry.any() },
-  );
+    returns: registry.alias('R'),
+    generic: { R: registry.any() },
+    call: registry.nativeExpr('fns.fetch'),
+  });
 }

@@ -2,14 +2,15 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import type { GetExprDef } from '../schema';
 import type { Value } from '../value';
-import { Path } from '../path';
+import { Path, CallStep } from '../path';
+import { Effects, combine } from '../effects';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { Code, code, span, jsonObject, jsonString } from '../code';
+import { Code, code, span } from '../code';
 import { z } from 'zod';
 import { pathStepSchema } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -72,11 +73,11 @@ export class GetExpr extends Expr {
     level: number = 0,
   ): Code {
     const pathCode = this.path.toJSONCode([...path, 'path'], indent, level + 1);
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('get') },
+        { key: 'kind', value: Code.jsonString('get') },
         { key: 'path', value: pathCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -90,5 +91,26 @@ export class GetExpr extends Expr {
 
   forEachChild(visit: ChildVisitor): void {
     this.path.forEachExpr((e) => visit(e, 'inherit'));
+  }
+
+  /** Combine effects from (a) every inner Expr in the path —
+   *  `CallStep.args`, `IndexStep.key`, `catch_` handlers — with
+   *  (b) any `resolvedEffects` cached on `CallStep`s by
+   *  `Path.validateWalk`. The cache is populated once `engine.validate`
+   *  has walked the tree and resolved each call to its `Call`
+   *  declaration (whose `effects()` aggregates the parsed
+   *  `get`/`set` bodies — typically a `NativeExpr` for `fns.*`
+   *  fns). Before validation has run, `resolvedEffects` is
+   *  undefined and we contribute only inner-expr effects — same
+   *  as a structural-only walk. */
+  effects(): Effects {
+    const inner: Effects[] = [];
+    this.path.forEachExpr((e) => { inner.push(e.effects()); });
+    for (const step of this.path.steps) {
+      if (step instanceof CallStep && step.resolvedEffects !== undefined) {
+        inner.push(step.resolvedEffects);
+      }
+    }
+    return combine(...inner);
   }
 }

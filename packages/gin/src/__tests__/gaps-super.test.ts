@@ -15,7 +15,7 @@ describe('super in Extension overrides', () => {
       name: 'myNum',
       props: {
         add: {
-          type: r.fn(r.obj({ other: { type: r.num() } }), r.num()),
+          type: r.fn({ args: r.obj({ other: { type: r.num() } }), returns: r.num() }),
           get: {
             kind: 'get',
             path: [
@@ -58,7 +58,7 @@ describe('super in Extension overrides', () => {
       name: 'myNum',
       props: {
         brand: {
-          type: r.fn(r.obj({}), r.text()),
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
           get: { kind: 'get', path: [{ prop: 'super' }] },
         },
       },

@@ -2,6 +2,7 @@ import type { NativeImpl } from '../registry';
 import { Value, val } from '../value';
 import { MapType } from '../types/map';
 import { arg, self, selfValue, argValue, setupYield } from './helpers';
+import { Effects } from '../effects';
 
 type Entry = [Value, Value];
 type MapRaw = Map<any, Entry>;
@@ -77,3 +78,13 @@ export const mapNatives: Record<string, NativeImpl> = {
 
 // Re-export argValue for any future map ops.
 void argValue;
+
+/**
+ * Effects overrides for map natives that aren't pure. Every native
+ * not listed here defaults to `Effects.NONE` at registration time.
+ */
+export const mapNativesEffects: Record<string, Effects> = {
+  'map.indexSet': Effects.STATE,
+  'map.delete':   Effects.STATE,
+  'map.clear':    Effects.STATE,
+};

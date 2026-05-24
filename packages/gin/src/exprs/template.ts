@@ -10,9 +10,10 @@ import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { NewExpr } from './new';
-import { Code, jsonObject, jsonString } from '../code';
+import { Code } from '../code';
 import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
+import { Effects } from '../effects';
 
 /**
  * TemplateExpr — string interpolation.
@@ -241,12 +242,12 @@ export class TemplateExpr extends Expr {
     const paramsCode = this.params
       ? this.params.toJSONCode([...path, 'params'], indent, level + 1)
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('template') },
+        { key: 'kind', value: Code.jsonString('template') },
         { key: 'template', value: tmplCode },
         { key: 'params', value: paramsCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -261,6 +262,10 @@ export class TemplateExpr extends Expr {
   forEachChild(visit: ChildVisitor): void {
     visit(this.template, 'inherit');
     if (this.params) visit(this.params, 'inherit');
+  }
+
+  effects(): Effects {
+    return this.template.effects() | (this.params?.effects() ?? Effects.NONE);
   }
 }
 

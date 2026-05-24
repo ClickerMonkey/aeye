@@ -10,9 +10,10 @@ import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { Code, code, span, jsonObject, jsonString } from '../code';
+import { Code, code, span } from '../code';
 import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
+import { Effects } from '../effects';
 
 export type FlowAction = 'break' | 'return' | 'continue' | 'exit' | 'throw';
 
@@ -152,13 +153,13 @@ export class FlowExpr extends Expr {
     const errorCode = this.error
       ? this.error.toJSONCode([...path, 'error'], indent, level + 1)
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('flow') },
-        { key: 'action', value: jsonString(this.action) },
+        { key: 'kind', value: Code.jsonString('flow') },
+        { key: 'action', value: Code.jsonString(this.action) },
         { key: 'value', value: valueCode },
         { key: 'error', value: errorCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -180,5 +181,12 @@ export class FlowExpr extends Expr {
   forEachChild(visit: ChildVisitor): void {
     if (this.value) visit(this.value, 'inherit');
     if (this.error) visit(this.error, 'inherit');
+  }
+
+  /** Flow transfers control — always observable as program state. */
+  effects(): Effects {
+    return Effects.STATE
+      | (this.value?.effects() ?? Effects.NONE)
+      | (this.error?.effects() ?? Effects.NONE);
   }
 }

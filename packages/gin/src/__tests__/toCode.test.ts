@@ -97,15 +97,15 @@ describe('Type.toCode — wrappers and combinators', () => {
 describe('Type.toCode — functions and references', () => {
   const r = createRegistry();
   test('fn → flattened signature', () => {
-    const fn = r.fn(r.obj({ x: { type: r.num() } }), r.text());
+    const fn = r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.text() });
     expect(fn.toCode()).toBe('(x: num): text');
   });
   test('fn returning void', () => {
-    const fn = r.fn(r.obj({}), r.void());
+    const fn = r.fn({ args: r.obj({}), returns: r.void() });
     expect(fn.toCode()).toBe('(): void');
   });
   test('fn with generics', () => {
-    const fn = r.fn(r.obj({ x: { type: r.alias('T') } }), r.alias('T'), undefined, { T: r.any() });
+    const fn = r.fn({ args: r.obj({ x: { type: r.alias('T') } }), returns: r.alias('T'), generic: { T: r.any() } });
     expect(fn.toCode()).toBe('<T>(x: T): T');
   });
   test('ref → bare name', () => {

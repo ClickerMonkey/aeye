@@ -9,8 +9,9 @@ import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { indentCode, renderStatementBody, renderStatementBodyRich, findEscapingFlow } from './code';
-import { Code, code, span, jsonObject, jsonArray, jsonString } from '../code';
+import { indentCode, findEscapingFlow } from './code';
+import { Effects } from '../effects';
+import { Code, code, span } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
@@ -97,7 +98,29 @@ export class IfExpr extends Expr {
       }
       ts.push(p.at(['ifs', i, 'body'], () => walkValidate(engine, br.body, scope, p, ctx)));
     }
-    if (this.otherwise) ts.push(p.at('else', () => walkValidate(engine, this.otherwise!, scope, p, ctx)));
+    // Per-branch no-effect: each `if` body's value flows out only when
+    // its condition matches AND the if is in value position. When the
+    // branch produces no effect AND no value the caller cares about,
+    // the branch is dead — warn so the model either makes it do
+    // something or removes it. Same idea for the else clause.
+    for (let i = 0; i < this.ifs.length; i++) {
+      const br = this.ifs[i]!;
+      if (br.body.effects() === Effects.NONE) {
+        p.at(['ifs', i, 'body'], () => p.warn(
+          'if.branch.no-effect',
+          `if branch body has no observable effect — when this branch matches, nothing happens. Either give it a \`set\`/\`flow\`/native call, or drop the branch entirely`,
+        ));
+      }
+    }
+    if (this.otherwise) {
+      ts.push(p.at('else', () => walkValidate(engine, this.otherwise!, scope, p, ctx)));
+      if (this.otherwise.effects() === Effects.NONE) {
+        p.at('else', () => p.warn(
+          'if.else.no-effect',
+          `else arm has no observable effect — \`else\` is optional; OMIT it entirely when its only purpose is producing a placeholder value`,
+        ));
+      }
+    }
     return ts.length === 1 ? ts[0]! : engine.registry.or(ts);
   }
 
@@ -146,11 +169,15 @@ export class IfExpr extends Expr {
       const kw = i === 0 ? 'if' : 'else if';
       const leading = i === 0 ? '' : ' ';
       const cond = b.condition.toGinCode(registry, valueOpts, [...path, 'ifs', i, 'condition']);
-      const body = renderStatementBodyRich(b.body, registry, options, [...path, 'ifs', i, 'body']);
+      const body = b.body.renderStatementBodyRich(registry, options, [...path, 'ifs', i, 'body']);
       out = code`${out}${leading}${kw} (${cond}) ${body}`;
     }
     if (this.otherwise) {
-      const els = renderStatementBodyRich(this.otherwise, registry, options, [...path, 'else']);
+      // `chainElseIf: true` keeps `else if (...) ...` chains bare —
+      // without it, an else whose body is another `if` would render as
+      // `else { if (...) ... }`, which is correct but noisier than the
+      // chained idiom most readers expect.
+      const els = this.otherwise.renderStatementBodyRich(registry, options, [...path, 'else'], true);
       out = code`${out} else ${els}`;
     }
     return span(code`${prefix}${out}`, { path, expr: this });
@@ -171,7 +198,7 @@ export class IfExpr extends Expr {
   ): Code {
     const branchItems = this.ifs.map((b, i) => {
       const branchPath = [...path, 'ifs', i] as const;
-      return jsonObject(
+      return Code.jsonObject(
         [
           { key: 'condition', value: b.condition.toJSONCode([...branchPath, 'condition'], indent, level + 3) },
           { key: 'body', value: b.body.toJSONCode([...branchPath, 'body'], indent, level + 3) },
@@ -184,12 +211,12 @@ export class IfExpr extends Expr {
     const elseCode = this.otherwise
       ? this.otherwise.toJSONCode([...path, 'else'], indent, level + 1)
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('if') },
-        { key: 'ifs', value: jsonArray(branchItems, { path: [...path, 'ifs'] }, level + 1, indent) },
+        { key: 'kind', value: Code.jsonString('if') },
+        { key: 'ifs', value: Code.jsonArray(branchItems, { path: [...path, 'ifs'] }, level + 1, indent) },
         { key: 'else', value: elseCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -210,5 +237,12 @@ export class IfExpr extends Expr {
       visit(b.body, 'inherit');
     }
     if (this.otherwise) visit(this.otherwise, 'inherit');
+  }
+
+  effects(): Effects {
+    let acc: Effects = Effects.NONE;
+    for (const b of this.ifs) acc |= b.condition.effects() | b.body.effects();
+    if (this.otherwise) acc |= this.otherwise.effects();
+    return acc;
   }
 }

@@ -13,13 +13,13 @@ import {
   type TimestampOptions,
   type TypeBuilder,
 } from './builder';
-import { decodeCall, decodeGetSet, decodeInit, decodeProps } from './spec';
 import { Expr, type ExprClass } from './expr';
 import type { CodeOptions, SchemaOptions } from './node';
 import type { Code } from './code';
 import type { JSONValue } from './json-type';
 import type { Engine } from './engine';
 import { Problems } from './problem';
+import { Effects } from './effects';
 import type { z } from 'zod';
 
 import { AnyType } from './types/any';
@@ -149,6 +149,7 @@ export class Registry implements TypeBuilder, TypeScope {
   private readonly classes = new Map<string, TypeClass>();
   private readonly namedTypes = new Map<string, Type>();
   private readonly natives = new Map<string, NativeImpl>();
+  private readonly nativeEffectsMap = new Map<string, Effects>();
   private readonly exprClasses = new Map<string, ExprClass>();
   private readonly augments = new Map<string, TypeAugmentation>();
 
@@ -193,13 +194,24 @@ export class Registry implements TypeBuilder, TypeScope {
    * renders them in the type's surface block.
    */
   augment(name: string, addition: TypeAugmentation): this {
+    // Normalize each field through the class `.from()` factories so
+    // loosely-typed callers passing ExprDef literals in get/set/loop/run
+    // end up with parsed Exprs in storage. Idempotent for
+    // already-canonical instances.
+    const normalized: TypeAugmentation = {
+      props: addition.props ? Prop.fromMap(addition.props, this) : undefined,
+      get: addition.get ? GetSet.from(addition.get, this) : undefined,
+      call: addition.call ? Call.from(addition.call, this) : undefined,
+      init: addition.init ? Init.from(addition.init, this) : undefined,
+    };
+
     const cur = this.augments.get(name);
     if (!cur) {
       this.augments.set(name, {
-        props: addition.props ? { ...addition.props } : undefined,
-        get: addition.get,
-        call: addition.call,
-        init: addition.init,
+        props: normalized.props ? { ...normalized.props } : undefined,
+        get: normalized.get,
+        call: normalized.call,
+        init: normalized.init,
       });
       return this;
     }
@@ -208,10 +220,10 @@ export class Registry implements TypeBuilder, TypeScope {
     // type props still win at consumption time). get/call/init are
     // first-wins — once set, further attempts no-op.
     this.augments.set(name, {
-      props: addition.props ? { ...(cur.props ?? {}), ...addition.props } : cur.props,
-      get: cur.get ?? addition.get,
-      call: cur.call ?? addition.call,
-      init: cur.init ?? addition.init,
+      props: normalized.props ? { ...(cur.props ?? {}), ...normalized.props } : cur.props,
+      get: cur.get ?? normalized.get,
+      call: cur.call ?? normalized.call,
+      init: cur.init ?? normalized.init,
     });
     return this;
   }
@@ -240,13 +252,40 @@ export class Registry implements TypeBuilder, TypeScope {
 
   // ─── NATIVES ─────────────────────────────────────────────────────────────
 
-  setNative(id: string, impl: NativeImpl): this {
+  /**
+   * Register a native implementation by id, with its declared effects.
+   *
+   * `effects` defaults to the maximally conservative `STATE|SYSTEM|EXTERNAL`
+   * because an unregistered or under-declared native is assumed worst-case
+   * — better to false-positive a no-effect warning than to miss a real
+   * side effect at static analysis time. Built-in pure natives (`num.add`,
+   * `bool.eq`, list/map/text accessors, etc.) MUST opt in to `Effects.NONE`
+   * so they don't contaminate the effect propagation in user code.
+   */
+  setNative(
+    id: string,
+    impl: NativeImpl,
+    effects: Effects = Effects.STATE | Effects.SYSTEM | Effects.EXTERNAL,
+  ): this {
     this.natives.set(id, impl);
+    this.nativeEffectsMap.set(id, effects);
     return this;
   }
 
   getNative(id: string): NativeImpl | undefined {
     return this.natives.get(id);
+  }
+
+  /**
+   * Effects declared at `setNative(id, impl, effects)` time. Falls back to
+   * the same conservative default `setNative` uses when no entry exists
+   * — keeps `NativeExpr.effects()` truthy for any unregistered id rather
+   * than silently treating it as pure.
+   */
+  nativeEffects(id: string): Effects {
+    const e = this.nativeEffectsMap.get(id);
+    if (e !== undefined) return e;
+    return Effects.STATE | Effects.SYSTEM | Effects.EXTERNAL;
   }
 
   // ─── EXPR CLASSES ────────────────────────────────────────────────────────
@@ -280,13 +319,35 @@ export class Registry implements TypeBuilder, TypeScope {
     return Array.from(this.exprClasses.values());
   }
 
-  /** Parse an ExprDef (or already-parsed Expr) into an Expr instance.
-   *  Optional `scope` lets callers thread a `LocalScope` (with generic /
-   *  call.types aliases bound) through Expr.from implementations that
-   *  recurse into nested TypeDefs (`new`, `lambda`, `native`, `define`). */
-  parseExpr(json: unknown, scope: TypeScope = this): Expr {
+  /**
+   * Parse anything Expr-shaped into an `Expr` instance — overloaded for
+   * three input families:
+   *
+   *   1. `Expr` instance → returned as-is (idempotent passthrough).
+   *   2. `ExprDef` JSON → dispatched to the matching Expr class's
+   *      `from(def, scope)`. Throws on unknown kinds or malformed
+   *      shapes.
+   *   3. `null` / `undefined` → returned as `undefined`. Lets callers
+   *      pass through optional fields (e.g. `Prop.get`) without
+   *      ceremony — no need to guard the call site or wrap with a
+   *      `parseExprMaybe`-style helper.
+   *
+   * Optional `scope` is a `TypeScope` (defaults to the registry itself)
+   * threaded through Expr.from so nested TypeDefs / ExprDefs (`new`,
+   * `lambda`, `native`, `define`) resolve against the right alias /
+   * generic bindings.
+   *
+   * Anything that's not Expr / ExprDef / null / undefined throws — bad
+   * shape is a programmer error, not silently absorbed.
+   */
+  parseExpr(json: Expr, scope?: TypeScope): Expr;
+  parseExpr(json: ExprDef, scope?: TypeScope): Expr;
+  parseExpr(json: null | undefined, scope?: TypeScope): undefined;
+  parseExpr(json: Expr | ExprDef | null | undefined, scope?: TypeScope): Expr | undefined;
+  parseExpr(json: unknown, scope: TypeScope = this): Expr | undefined {
+    if (json === null || json === undefined) return undefined;
     if (json instanceof Expr) return json;
-    if (!json || typeof json !== 'object' || !('kind' in (json as object))) {
+    if (typeof json !== 'object' || !('kind' in (json as object))) {
       throw new Error(`registry.parseExpr: expected ExprDef with kind, got ${typeof json}`);
     }
     const def = json as ExprDef;
@@ -497,10 +558,10 @@ export class Registry implements TypeBuilder, TypeScope {
     const local: ExtensionLocal = {
       name: def.name,
       docs: def.docs,
-      props: leftover.includes('props') && def.props ? decodeProps(def.props, scope) : undefined,
-      get: leftover.includes('get') && def.get ? decodeGetSet(def.get, scope) : undefined,
-      call: leftover.includes('call') && def.call ? decodeCall(def.call, scope) : undefined,
-      init: leftover.includes('init') && def.init ? decodeInit(def.init, scope) : undefined,
+      props: leftover.includes('props') && def.props ? Prop.fromMap(def.props, scope) : undefined,
+      get: leftover.includes('get') && def.get ? GetSet.from(def.get, scope) : undefined,
+      call: leftover.includes('call') && def.call ? Call.from(def.call, scope) : undefined,
+      init: leftover.includes('init') && def.init ? Init.from(def.init, scope) : undefined,
     };
     return new Extension(this, base, local);
   }
@@ -554,10 +615,10 @@ export class Registry implements TypeBuilder, TypeScope {
       docs: def.docs,
       options: def.options,
       generic,
-      props: def.props ? decodeProps(def.props, scope) : undefined,
-      get: def.get ? decodeGetSet(def.get, scope) : undefined,
-      call: def.call ? decodeCall(def.call, scope) : undefined,
-      init: def.init ? decodeInit(def.init, scope) : undefined,
+      props: def.props ? Prop.fromMap(def.props, scope) : undefined,
+      get: def.get ? GetSet.from(def.get, scope) : undefined,
+      call: def.call ? Call.from(def.call, scope) : undefined,
+      init: def.init ? Init.from(def.init, scope) : undefined,
       constraint: def.constraint ? this.parseExpr(def.constraint, scope) : undefined,
     };
   }
@@ -606,20 +667,32 @@ export class Registry implements TypeBuilder, TypeScope {
 
   color(options?: ColorOptions) { return new ColorType(this, options ?? {}); }
 
-  fn<A extends object = any, R = any, E = any>(
-    args: Type<A>,
-    returns?: Type<R>,
-    throws?: Type<E>,
-    generic?: Record<string, Type>,
-  ) {
-    return new FnType(this, { args, returns, throws }, generic ?? {});
+  fn<A extends object = any, R = any, E = any>(opts: {
+    args: Type<A>;
+    returns?: Type<R>;
+    throws?: Type<E>;
+    /** Generic declarations local to this fn. Each entry's value is
+     *  the binding constraint that call-site bindings must satisfy. */
+    generic?: Record<string, Type>;
+    /** Optional pre-parsed `call.get` body. Use for fn types whose
+     *  invocation dispatches to a known native — the Expr's effects
+     *  flow up to `Call.effects()` and then into `GetExpr.effects()`
+     *  via `Path.validateWalk`'s cache, so callers see the call as
+     *  EXTERNAL / SYSTEM / etc. automatically. */
+    call?: Expr;
+  }) {
+    return new FnType(
+      this,
+      { args: opts.args, returns: opts.returns, throws: opts.throws, get: opts.call },
+      opts.generic ?? {},
+    );
   }
 
   iface(spec: IfaceSpec) {
     return new IfaceType(this, {
-      props: spec.props ? decodeProps(spec.props, this) : {},
-      get: spec.get ? decodeGetSet(spec.get, this) : undefined,
-      call: spec.call ? decodeCall(spec.call, this) : undefined,
+      props: spec.props ? Prop.fromMap(spec.props, this) : {},
+      get: spec.get ? GetSet.from(spec.get, this) : undefined,
+      call: spec.call ? Call.from(spec.call, this) : undefined,
     });
   }
 
@@ -708,8 +781,20 @@ export class Registry implements TypeBuilder, TypeScope {
 
   // ─── PROP BUILDERS ───────────────────────────────────────────────────────
 
+  /**
+   * Convenience for `Type` subclasses building `Prop` / `GetSet` /
+   * `Call` / `Init` specs that point at a built-in native. Returns a
+   * parsed `NativeExpr` referencing `id` so the surrounding spec field
+   * can hold a parsed `Expr` (per the runtime-stores-Expr rule)
+   * without the caller writing `this.parseExpr({kind:'native', id})`
+   * themselves.
+   */
+  nativeExpr(id: string): Expr {
+    return this.parseExpr({ kind: 'native', id });
+  }
+
   prop(type: Type, nativeId: string, docs?: string): Prop {
-    return new Prop({ type, get: { kind: 'native', id: nativeId } as ExprDef, docs });
+    return new Prop({ type, get: this.nativeExpr(nativeId), docs });
   }
 
   method<A extends Record<string, Type>>(
@@ -721,8 +806,8 @@ export class Registry implements TypeBuilder, TypeScope {
     const argFields: ObjPropsInput = {};
     for (const [k, t] of Object.entries(args)) argFields[k] = { type: t };
     return new Prop({
-      type: this.fn(this.obj(argFields), returns, undefined, options?.generic),
-      get: { kind: 'native', id: nativeId } as ExprDef,
+      type: this.fn({ args: this.obj(argFields), returns, generic: options?.generic }),
+      get: this.nativeExpr(nativeId),
       docs: options?.docs,
     });
   }

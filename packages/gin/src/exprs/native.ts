@@ -8,10 +8,11 @@ import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
-import { Code, jsonObject, jsonString } from '../code';
+import { Code } from '../code';
 import { z } from 'zod';
 import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
+import { Effects } from '../effects';
 
 /**
  * NativeExpr — escape hatch calling a registered native impl by id.
@@ -20,13 +21,23 @@ export class NativeExpr extends Expr {
   static readonly KIND = 'native';
   readonly kind = NativeExpr.KIND;
 
-  constructor(readonly id: string, readonly type?: Type) {
+  constructor(
+    readonly id: string,
+    readonly type?: Type,
+    /** Effects pre-resolved from the registry at parse time. Falls back
+     *  to the conservative `STATE|SYSTEM|EXTERNAL` when constructed
+     *  directly without a registry. */
+    private readonly resolvedEffects: Effects = Effects.STATE | Effects.SYSTEM | Effects.EXTERNAL,
+  ) {
     super();
   }
 
   static from(json: NativeExprDef, scope: TypeScope): NativeExpr {
-    return new NativeExpr(json.id, json.type ? scope.registry.parse(json.type, scope) : undefined)
-      .withComment(json.comment);
+    return new NativeExpr(
+      json.id,
+      json.type ? scope.registry.parse(json.type, scope) : undefined,
+      scope.registry.nativeEffects(json.id),
+    ).withComment(json.comment);
   }
 
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
@@ -80,12 +91,12 @@ export class NativeExpr extends Expr {
     const typeCode = this.type
       ? this.type.toJSONCode([...path, 'type'], indent, level + 1)
       : undefined;
-    return jsonObject(
+    return Code.jsonObject(
       [
-        { key: 'kind', value: jsonString('native') },
-        { key: 'id', value: jsonString(this.id) },
+        { key: 'kind', value: Code.jsonString('native') },
+        { key: 'id', value: Code.jsonString(this.id) },
         { key: 'type', value: typeCode },
-        ...(this.comment ? [{ key: 'comment', value: jsonString(this.comment) }] : []),
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
       ],
       { path, expr: this },
       level,
@@ -94,6 +105,10 @@ export class NativeExpr extends Expr {
   }
 
   clone(): NativeExpr {
-    return new NativeExpr(this.id, this.type?.clone()).withComment(this.comment);
+    return new NativeExpr(this.id, this.type?.clone(), this.resolvedEffects).withComment(this.comment);
   }
+
+  /** Effects come from the registry's per-native declaration (see
+   *  `setNative(id, impl, effects)`). Pre-resolved at parse time. */
+  effects(): Effects { return this.resolvedEffects; }
 }
