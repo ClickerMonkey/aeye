@@ -257,6 +257,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'reasonPartial', reasoning: Reasoning, request: Request } |
   { type: 'toolParseName', tool: PromptTools<TTools>, request: Request } |
   { type: 'toolParseArguments', tool: PromptTools<TTools>, args: string, request: Request } |
+  { type: 'toolArgRepaired', tool: PromptTools<TTools>, fields: ReadonlyArray<string>, request: Request } |
   PromptToolEvents<TTools> |
   { type: 'message', message: Message, request: Request } |
   { type: 'textComplete', content: string, request: Request } |
@@ -873,6 +874,9 @@ export class Prompt<
             // Non-blocking call, we don't want to hold up execution here. But if we can emit start or error early below this we will try.
             toolExecutor.parse();
           }
+          if (toolExecutor.emitRepaired()) {
+            yield emit({ type: 'toolArgRepaired', tool: toolExecutor.tool!, fields: toolExecutor.repairedFields!, request });
+          }
           if (toolExecutor.emitStart()) {
             yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
           }
@@ -898,6 +902,9 @@ export class Prompt<
               // removed by the time tool dispatch runs.
               if (ctx.signal?.aborted) break;
               await toolExecutor.parse();
+              if (toolExecutor.emitRepaired()) {
+                yield emit({ type: 'toolArgRepaired', tool: toolExecutor.tool!, fields: toolExecutor.repairedFields!, request });
+              }
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
@@ -930,6 +937,9 @@ export class Prompt<
               // listener was already removed before tool dispatch.)
               if (ctx.signal?.aborted) break;
               const toolExecutor = await toolCallPromise;
+              if (toolExecutor.emitRepaired()) {
+                yield emit({ type: 'toolArgRepaired', tool: toolExecutor.tool!, fields: toolExecutor.repairedFields!, request });
+              }
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
@@ -1589,11 +1599,18 @@ type ToolExecution<T> = {
   emitError(): boolean;
   emitInterrupt(): boolean;
   emitSuspend(): boolean;
+  /** Returns true exactly once when the arg-parse fallback fixed a
+   *  string-encoded field. Lets the surrounding prompt loop emit a
+   *  `toolArgRepaired` telemetry event. */
+  emitRepaired(): boolean;
   parse: () => Promise<ToolExecution<T>>;
   run: () => Promise<ToolExecution<T>>;
   args?: any;
   result?: any;
   error?: string;
+  /** Field names whose string-encoded values were JSON.parse-d by the
+   *  parse fallback. Populated only when repair fired. */
+  repairedFields?: ReadonlyArray<string>;
 }
 
 function once<R>(fn: () => Promise<R>): () => Promise<R> {
@@ -1637,6 +1654,7 @@ function newToolExecution<T extends AnyTool>(
   const error = emitter();
   const interrupt = emitter();
   const suspend = emitter();
+  const repaired = emitter();
 
   if (!toolInfo) {
     error.ready = true;
@@ -1653,6 +1671,7 @@ function newToolExecution<T extends AnyTool>(
     emitError: error.emit,
     emitInterrupt: interrupt.emit,
     emitSuspend: suspend.emit,
+    emitRepaired: repaired.emit,
     parse: once(async () => {
       // Already ran or failed earlier?
       if (execution.status !== 'ready') {
@@ -1667,6 +1686,14 @@ function newToolExecution<T extends AnyTool>(
           args,
           toolInfo!.definition.parameters,
           toolInfo!.definition.descriptor,
+          (fields) => {
+            // String-encoded-field fallback fired during parse. Stash
+            // the field names so the outer loop can emit
+            // `toolArgRepaired`. Keeps repair visible in telemetry
+            // instead of silently absorbing the model misbehavior.
+            execution.repairedFields = fields;
+            repaired.ready = true;
+          },
         );
         execution.status = 'parsed';
         start.ready = true;

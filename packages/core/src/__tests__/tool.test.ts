@@ -103,6 +103,71 @@ describe('Tool', () => {
       await expect(tool.parse(ctx, malformedArgs)).rejects.toThrow();
     });
 
+    it('should repair string-encoded top-level object fields (Claude Sonnet 4.x workaround)', async () => {
+      // Claude Sonnet 4.x has been observed JSON-stringifying nested
+      // object args when the structured tool call grows large. Core
+      // detects that on schema-rejection and JSON.parses any
+      // top-level string field that looks like JSON, retrying the
+      // schema once before giving up.
+      const tool = new Tool({
+        name: 'inner-obj',
+        description: 'Takes a nested obj',
+        instructions: 'Pass program as an object',
+        schema: z.object({
+          program: z.object({ kind: z.string(), value: z.number() }),
+        }),
+        call: (input) => input.program.value,
+      });
+      const ctx = {} as Context<{}, {}>;
+
+      // Model sent `program` as a JSON-encoded string. After core's
+      // initial JSON.parse, program is the inner string.
+      const doubleEncoded = JSON.stringify({
+        program: JSON.stringify({ kind: 'new', value: 42 }),
+      });
+      const repairs: string[][] = [];
+      const parsed = await tool.parse(
+        ctx, doubleEncoded, undefined, undefined,
+        (fields) => repairs.push([...fields]),
+      );
+      expect(parsed.program).toEqual({ kind: 'new', value: 42 });
+      expect(repairs).toEqual([['program']]);
+    });
+
+    it('should NOT fire repair for already-valid object args', async () => {
+      const tool = new Tool({
+        name: 'normal',
+        description: 'Normal usage',
+        instructions: '',
+        schema: z.object({ payload: z.object({ x: z.number() }) }),
+        call: (input) => input.payload.x,
+      });
+      const ctx = {} as Context<{}, {}>;
+      const repairs: string[][] = [];
+      const parsed = await tool.parse(
+        ctx, JSON.stringify({ payload: { x: 7 } }), undefined, undefined,
+        (fields) => repairs.push([...fields]),
+      );
+      expect(parsed.payload.x).toBe(7);
+      expect(repairs).toEqual([]);
+    });
+
+    it('should surface the original error when repair candidate also fails', async () => {
+      const tool = new Tool({
+        name: 'strict',
+        description: 'Strict numeric',
+        instructions: '',
+        schema: z.object({ payload: z.object({ x: z.number() }) }),
+        call: (input) => input.payload.x,
+      });
+      const ctx = {} as Context<{}, {}>;
+      // String-encoded but the inner object is also wrong shape.
+      const bad = JSON.stringify({
+        payload: JSON.stringify({ x: 'not-a-number' }),
+      });
+      await expect(tool.parse(ctx, bad, undefined, undefined, () => {})).rejects.toThrow();
+    });
+
     it('should use custom validation', async () => {
       const tool = new Tool({
         name: 'custom-validator',

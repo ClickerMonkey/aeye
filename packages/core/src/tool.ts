@@ -212,9 +212,23 @@ export class Tool<
    * Parses and validates the input arguments using the tool's Zod schema.
    * Also runs any custom validation defined in the tool configuration.
    *
+   * Tolerates one specific model misbehavior: a tool-call payload whose
+   * top-level fields are JSON-stringified instead of nested as objects
+   * (`{program: "{\"kind\":...}"}` instead of `{program: {kind:...}}`).
+   * Claude Sonnet 4.x has been observed doing this when its structured
+   * tool args grow large. When the strict schema rejects, we try one
+   * fallback pass: JSON.parse any top-level string field whose value
+   * starts with `{` or `[`, then revalidate. If that succeeds, fire
+   * `onRepair` with the field names so the caller can emit telemetry
+   * (we want visibility, not silent absorption).
+   *
    * @param ctx - The context for parsing.
    * @param args - The input arguments as a JSON string.
    * @param schema - Optional pre-compiled schema to use instead of resolving it again.
+   * @param descriptor - Provider wire-dialect descriptor for strictify.
+   * @param onRepair - Optional callback fired when the fallback parse
+   *   successfully recovered a string-encoded field. Receives the
+   *   list of repaired field names.
    * @returns The parsed and validated input parameters.
    * @throws Error if schema is not available or parsing/validation fails.
    */
@@ -223,6 +237,7 @@ export class Tool<
     args: string,
     schema?: ZodType<TParams>,
     descriptor?: FormatDescriptor | string,
+    onRepair?: (fields: ReadonlyArray<string>) => void,
   ): Promise<TParams> {
     let resolvedSchema = schema || await this.schema(ctx);
 
@@ -237,7 +252,25 @@ export class Tool<
       resolvedSchema = strictify(resolvedSchema, fd);
     }
 
-    const parsed = await resolvedSchema.parseAsync(JSON.parse(args));
+    const raw = JSON.parse(args);
+    let parsed: TParams;
+    try {
+      parsed = await resolvedSchema.parseAsync(raw);
+    } catch (e) {
+      const repair = repairStringEncodedFields(raw);
+      if (repair) {
+        try {
+          parsed = await resolvedSchema.parseAsync(repair.value);
+          onRepair?.(repair.fields);
+        } catch {
+          // Repair candidate didn't actually fix things — surface the
+          // ORIGINAL error so the model sees its real mistake.
+          throw e;
+        }
+      } else {
+        throw e;
+      }
+    }
 
     // Run post-validation hook if provided
     if (this.input.validate) {
@@ -375,4 +408,39 @@ export class Tool<
     } as TMetadata));
   }
 
+}
+
+/**
+ * Best-effort recovery for one specific model misbehavior: a tool-call
+ * args object whose TOP-LEVEL field values are JSON-encoded strings
+ * instead of nested objects/arrays. Walks the immediate fields of `raw`
+ * and, for each string-valued field that starts with `{` or `[` (after
+ * trimming leading whitespace), tries `JSON.parse`. On success the
+ * field is swapped for the parsed value. Returns the repaired clone +
+ * the list of swapped field names when at least one swap happened;
+ * `undefined` when nothing looked recoverable (caller should re-throw
+ * the original error in that case).
+ *
+ * Intentionally top-level only — descending deeper risks "repairing"
+ * legitimate JSON-shaped strings inside content fields. The fields we
+ * see this on (Claude / Anthropic tool args) are always at the top
+ * level of the args object.
+ */
+function repairStringEncodedFields(
+  raw: unknown,
+): { value: Record<string, unknown>; fields: string[] } | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const src = raw as Record<string, unknown>;
+  const repaired: Record<string, unknown> = { ...src };
+  const fields: string[] = [];
+  for (const [key, value] of Object.entries(src)) {
+    if (typeof value !== 'string') continue;
+    const head = value.trimStart()[0];
+    if (head !== '{' && head !== '[') continue;
+    try {
+      repaired[key] = JSON.parse(value);
+      fields.push(key);
+    } catch { /* not JSON — leave the original string */ }
+  }
+  return fields.length > 0 ? { value: repaired, fields } : undefined;
 }

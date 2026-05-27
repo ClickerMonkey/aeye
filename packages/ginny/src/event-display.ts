@@ -236,6 +236,20 @@ export class EventDisplay {
         break;
       }
 
+      case 'toolArgRepaired': {
+        // Core's parse-fallback fired — one or more top-level fields
+        // arrived as JSON-encoded strings (Claude Sonnet 4.x has been
+        // observed doing this when tool args grow large) and were
+        // recovered. Surface a one-liner so we keep visibility into
+        // the model misbehavior instead of silently absorbing it.
+        const fields = (event as { fields?: ReadonlyArray<string> }).fields ?? [];
+        const line = `~ ${event.tool.name} args repaired (fields: ${fields.join(', ')})`;
+        process.stderr.write(`${this.c(DIM, line)}\n`);
+        logger.log(line);
+        this.last = 'tool';
+        break;
+      }
+
       case 'toolError': {
         const started = this.toolStarts.get(event.args);
         const elapsed = started ? Date.now() - started : 0;
