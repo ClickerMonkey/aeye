@@ -23,7 +23,7 @@ export const markdownSlicer: ResourceSlicer = {
       }
 
       const text = part.text;
-      const headingMatches = [...text.matchAll(/^(#{1,6}) +(.+)$/gm)];
+      const headingMatches = [...text.matchAll(/^(#{1,6}) (.+)$/gm)];
       const sections = headingMatches.length === 0
         ? [{ start: 0, end: text.length, headings: [] as string[] }]
         : headingMatches.map((match, index) => {

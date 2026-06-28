@@ -9,13 +9,13 @@ import {
   htmlToMarkdown,
 } from "../utils";
 
-let mammothMod: any;
+let mammothModule: any;
 
 async function loadMammoth(): Promise<any> {
-  if (mammothMod) return mammothMod;
+  if (mammothModule) return mammothModule;
   try {
-    mammothMod = await import("mammoth");
-    return mammothMod;
+    mammothModule = await import("mammoth");
+    return mammothModule;
   } catch {
     return undefined;
   }

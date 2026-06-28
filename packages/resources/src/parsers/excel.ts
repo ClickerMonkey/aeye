@@ -8,13 +8,13 @@ import {
   extractLinksFromText,
 } from "../utils";
 
-let xlsxMod: any;
+let xlsxModule: any;
 
 async function loadXlsx(): Promise<any> {
-  if (xlsxMod) return xlsxMod;
+  if (xlsxModule) return xlsxModule;
   try {
-    xlsxMod = await import("xlsx");
-    return xlsxMod;
+    xlsxModule = await import("xlsx");
+    return xlsxModule;
   } catch {
     return undefined;
   }
