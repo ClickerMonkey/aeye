@@ -1,5 +1,5 @@
-export * from "./types.js";
-export * from "./registry.js";
+export * from "./types";
+export * from "./registry";
 export {
   CODE_TYPES,
   DEFAULT_MAX_CHARS,
@@ -13,4 +13,4 @@ export {
   extractLinksFromText,
   htmlToMarkdown,
   splitTextByBoundaries
-} from "./utils.js";
+} from "./utils";

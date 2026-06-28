@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { EmbedTextContext, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types.js";
+import type { EmbedTextContext, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types";
 
 export const DEFAULT_MAX_CHARS = 2000;
 export const DEFAULT_MIN_CHARS = 400;
@@ -101,7 +101,12 @@ const EXTENSION_TYPE_MAP: Record<string, ResourceType> = {
   ".webp": "image",
   ".bmp": "image",
   ".ico": "image",
-  ".avif": "image"
+  ".avif": "image",
+  ".pdf": "pdf",
+  ".xlsx": "excel",
+  ".xls": "excel",
+  ".docx": "docx",
+  ".doc": "docx"
 };
 
 const MIME_TYPE_MAP: Array<[RegExp, ResourceType]> = [
@@ -113,6 +118,11 @@ const MIME_TYPE_MAP: Array<[RegExp, ResourceType]> = [
   [/^text\/tab-separated-values/i, "tsv"],
   [/^application\/xml/i, "xml"],
   [/^text\/xml/i, "xml"],
+  [/^application\/pdf/i, "pdf"],
+  [/^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/i, "excel"],
+  [/^application\/vnd\.ms-excel/i, "excel"],
+  [/^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/i, "docx"],
+  [/^application\/msword/i, "docx"],
   [/^image\//i, "image"],
   [/^text\//i, "text"]
 ];
@@ -140,6 +150,31 @@ export async function collectInput(input: ResourceInput): Promise<Uint8Array> {
     return Buffer.from(input, "utf8");
   }
 
+  // Factory function that produces an async iterable (lazy streaming)
+  if (typeof input === "function") {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of input()) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  // Web ReadableStream
+  if (isReadableStream(input)) {
+    const chunks: Uint8Array[] = [];
+    const reader = input.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return Buffer.concat(chunks);
+  }
+
   if (input instanceof Readable || isAsyncIterable(input) || isIterable(input)) {
     const chunks: Uint8Array[] = [];
     for await (const chunk of input as AsyncIterable<string | Uint8Array>) {
@@ -157,6 +192,10 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<string | Uint8A
 
 function isIterable(value: unknown): value is Iterable<string | Uint8Array> {
   return Boolean(value && typeof (value as Iterable<string | Uint8Array>)[Symbol.iterator] === "function");
+}
+
+function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+  return Boolean(value && typeof (value as ReadableStream).getReader === "function" && typeof (value as ReadableStream).locked !== "undefined");
 }
 
 export async function readText(input: ResourceInput): Promise<string> {

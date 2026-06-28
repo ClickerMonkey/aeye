@@ -1,9 +1,12 @@
 import type { Readable } from "node:stream";
 
 export type ResourceType = string;
-export type ResourceInput = string | Uint8Array | ArrayBuffer | URL | Readable | AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array>;
+export type ResourceInput = string | Uint8Array | ArrayBuffer | URL | Readable | ReadableStream<Uint8Array> | AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array> | (() => AsyncIterable<Uint8Array>);
 export type ResourceLocation = string;
 export type ResourcePartKind = "text" | "image";
+
+/** A function that renders a URL to HTML (e.g. using puppeteer). */
+export type RenderUrlFn = (url: string, signal?: AbortSignal) => Promise<string>;
 
 export interface ResourceLink {
   id: string;
@@ -76,10 +79,21 @@ export interface EmbedTextContext {
   contextLines: string[];
 }
 
+export interface CodeParserOptions {
+  /** Pattern to detect top-level declarations in code. Defaults to export/function/class/interface/type/enum/const/let/var */
+  declarationPattern?: RegExp;
+  /** Pattern to detect import/require lines. */
+  importPattern?: RegExp;
+}
+
 export interface ParseOptions {
   signal?: AbortSignal;
   describeImage?: (image: Uint8Array, part: ResourcePart, source: ResourceSource) => Promise<string | undefined>;
   transcribeImage?: (image: Uint8Array, part: ResourcePart, source: ResourceSource) => Promise<string | undefined>;
+  /** Renders a URL to final HTML (e.g. after JS executes). Used for html resources when provided. */
+  renderUrl?: RenderUrlFn;
+  /** Options for code parsing/slicing behavior. */
+  code?: CodeParserOptions;
 }
 
 export interface SliceOptions {

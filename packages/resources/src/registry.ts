@@ -10,14 +10,15 @@ import type {
   ResourceParser,
   ResourceRegistryLike,
   ResourceResolver,
+  ResourceSlice,
   ResourceSlicer,
   ResourceSource,
   ResourceSupport,
   ResourceType,
   SliceOptions,
   SupportContext
-} from "./types.js";
-import { assertNotAborted, basenameFromLocation, createResourceId, dedupeLinks, inferTypeFromLocation } from "./utils.js";
+} from "./types";
+import { assertNotAborted, basenameFromLocation, createResourceId, dedupeLinks, inferTypeFromLocation } from "./utils";
 
 export class ResourceRegistry implements ResourceRegistryLike {
   private readonly parsers = new Map<string, ResourceParser>();
@@ -136,7 +137,7 @@ export class ResourceRegistry implements ResourceRegistryLike {
     return { source, resource };
   }
 
-  async slice(resource: ParsedResource, options: SliceOptions = {}): Promise<import("./types.js").ResourceSlice[]> {
+  async slice(resource: ParsedResource, options: SliceOptions = {}): Promise<ResourceSlice[]> {
     const slicerId = options.slicer ?? resource.defaultSlicer ?? this.getDefaultSlicer(resource.type);
     if (!slicerId) {
       throw new Error(`No default slicer registered for resource type: ${resource.type}`);
