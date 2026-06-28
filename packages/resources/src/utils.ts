@@ -337,18 +337,38 @@ export function finalizeSlice(resource: ParsedResource, part: ResourcePart, slic
 
 export function extractLinksFromMarkdown(text: string, location: string): ResourceLink[] {
   const links: ResourceLink[] = [];
-  const pattern = /!?\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g;
-  let match: RegExpExecArray | null;
   let index = 0;
 
-  while ((match = pattern.exec(text))) {
+  for (let cursor = 0; cursor < text.length; cursor++) {
+    if (text[cursor] !== "[") {
+      continue;
+    }
+
+    const labelEnd = text.indexOf("]", cursor + 1);
+    if (labelEnd === -1 || text[labelEnd + 1] !== "(") {
+      continue;
+    }
+
+    const valueEnd = text.indexOf(")", labelEnd + 2);
+    if (valueEnd === -1) {
+      continue;
+    }
+
+    const label = text.slice(cursor + 1, labelEnd).trim();
+    const rawValue = text.slice(labelEnd + 2, valueEnd).trim();
+    const value = rawValue.split(/\s+/, 1)[0]?.trim();
+    if (!value) {
+      continue;
+    }
+
     links.push({
-      id: createLinkId(location, match[2], index++),
-      value: match[2],
+      id: createLinkId(location, value, index++),
+      value,
       location,
-      title: match[3] || match[1] || undefined,
-      kind: isExternalLink(match[2]) ? "external" : "resource"
+      title: label || undefined,
+      kind: isExternalLink(value) ? "external" : "resource"
     });
+    cursor = valueEnd;
   }
 
   return links;
@@ -356,35 +376,14 @@ export function extractLinksFromMarkdown(text: string, location: string): Resour
 
 export function extractLinksFromHtml(text: string, location: string): ResourceLink[] {
   const links: ResourceLink[] = [];
-  const pattern = /<(a|img|script|link)\b[^>]*(href|src)=["']([^"']+)["'][^>]*>/gi;
-  let match: RegExpExecArray | null;
   let index = 0;
+  forEachHtmlTag(text, ({ attributes }) => {
+    for (const attribute of ["href", "src"]) {
+      const value = attributes[attribute];
+      if (!value) {
+        continue;
+      }
 
-  while ((match = pattern.exec(text))) {
-    links.push({
-      id: createLinkId(location, match[3], index++),
-      value: match[3],
-      location,
-      kind: isExternalLink(match[3]) ? "external" : "resource"
-    });
-  }
-
-  return links;
-}
-
-export function extractLinksFromCode(text: string, location: string): ResourceLink[] {
-  const links: ResourceLink[] = [];
-  const patterns = [
-    /(?:import|export)\s+(?:[^'"`]+?\s+from\s+)?["'`]([^"'`]+)["'`]/g,
-    /require\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
-    /from\s+["'`]([^"'`]+)["'`]/g
-  ];
-
-  let index = 0;
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text))) {
-      const value = match[1];
       links.push({
         id: createLinkId(location, value, index++),
         value,
@@ -392,9 +391,159 @@ export function extractLinksFromCode(text: string, location: string): ResourceLi
         kind: isExternalLink(value) ? "external" : "resource"
       });
     }
+  });
+
+  return dedupeLinks(links);
+}
+
+function readQuotedValue(text: string, start: number): { value: string; end: number } | undefined {
+  const quote = text[start];
+  if (quote !== "\"" && quote !== "'") {
+    return undefined;
+  }
+
+  const end = text.indexOf(quote, start + 1);
+  if (end === -1) {
+    return undefined;
+  }
+
+  return {
+    value: text.slice(start + 1, end),
+    end
+  };
+}
+
+function parseHtmlAttributes(input: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  let cursor = 0;
+
+  while (cursor < input.length) {
+    while (cursor < input.length && /\s/.test(input[cursor])) {
+      cursor++;
+    }
+
+    if (cursor >= input.length) {
+      break;
+    }
+
+    let nameEnd = cursor;
+    while (nameEnd < input.length && /[^\s=]/.test(input[nameEnd])) {
+      nameEnd++;
+    }
+
+    const name = input.slice(cursor, nameEnd).toLowerCase();
+    cursor = nameEnd;
+    while (cursor < input.length && /\s/.test(input[cursor])) {
+      cursor++;
+    }
+
+    if (input[cursor] !== "=") {
+      continue;
+    }
+
+    cursor++;
+    while (cursor < input.length && /\s/.test(input[cursor])) {
+      cursor++;
+    }
+
+    const quoted = readQuotedValue(input, cursor);
+    if (!quoted) {
+      continue;
+    }
+
+    attributes[name] = quoted.value;
+    cursor = quoted.end + 1;
+  }
+
+  return attributes;
+}
+
+function forEachHtmlTag(text: string, onTag: (tag: { name: string; closing: boolean; attributes: Record<string, string> }) => void): void {
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = text.indexOf("<", cursor);
+    if (start === -1) {
+      return;
+    }
+
+    const end = text.indexOf(">", start + 1);
+    if (end === -1) {
+      return;
+    }
+
+    const rawTag = text.slice(start + 1, end).trim();
+    const closing = rawTag.startsWith("/");
+    const normalized = closing ? rawTag.slice(1).trim() : rawTag;
+    const nameMatch = normalized.match(/^[a-zA-Z0-9:-]+/);
+    if (nameMatch) {
+      const name = nameMatch[0].toLowerCase();
+      const attributes = parseHtmlAttributes(normalized.slice(name.length));
+      onTag({ name, closing, attributes });
+    }
+
+    cursor = end + 1;
+  }
+}
+
+export function extractLinksFromCode(text: string, location: string): ResourceLink[] {
+  const links: ResourceLink[] = [];
+  let index = 0;
+
+  const addValue = (value?: string) => {
+    if (!value) {
+      return;
+    }
+
+    links.push({
+      id: createLinkId(location, value, index++),
+      value,
+      location,
+      kind: isExternalLink(value) ? "external" : "resource"
+    });
+  };
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    if (trimmed.startsWith("import ") || trimmed.startsWith("export ")) {
+      addValue(readQuotedSpecifier(trimmed));
+      continue;
+    }
+
+    if (trimmed.includes("require(")) {
+      addValue(readCallSpecifier(trimmed, "require"));
+    }
+
+    if (trimmed.includes("import(")) {
+      addValue(readCallSpecifier(trimmed, "import"));
+    }
   }
 
   return dedupeLinks(links);
+}
+
+function readQuotedSpecifier(line: string): string | undefined {
+  for (let cursor = 0; cursor < line.length; cursor++) {
+    const quoted = readQuotedValue(line, cursor);
+    if (quoted) {
+      return quoted.value;
+    }
+  }
+
+  return undefined;
+}
+
+function readCallSpecifier(line: string, callName: string): string | undefined {
+  const start = line.indexOf(`${callName}(`);
+  if (start === -1) {
+    return undefined;
+  }
+
+  const quoted = readQuotedValue(line, start + callName.length + 1);
+  return quoted?.value;
 }
 
 export function extractLinksFromText(text: string, location: string): ResourceLink[] {
@@ -420,23 +569,73 @@ export function isExternalLink(value: string): boolean {
 }
 
 export function htmlToMarkdown(html: string): string {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level, content) => `${"#".repeat(Number(level))} ${stripTags(content)}\n\n`)
-    .replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (_match, content) => `${stripTags(content)}\n\n`)
-    .replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_match, content) => `- ${stripTags(content)}\n`)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_match, href, content) => `[${stripTags(content) || href}](${href})`)
-    .replace(/<img\b[^>]*alt=["']([^"']*)["'][^>]*src=["']([^"']+)["'][^>]*>/gi, (_match, alt, src) => `![${alt || src}](${src})`)
-    .replace(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi, (_match, src) => `![](${src})`)
-    .replace(/<[^>]+>/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const safeHtml = stripHtmlBlocks(html, ["script", "style"]);
+  const parts: string[] = [];
+  let cursor = 0;
+
+  while (cursor < safeHtml.length) {
+    const tagStart = safeHtml.indexOf("<", cursor);
+    if (tagStart === -1) {
+      parts.push(safeHtml.slice(cursor));
+      break;
+    }
+
+    parts.push(safeHtml.slice(cursor, tagStart));
+    const tagEnd = safeHtml.indexOf(">", tagStart + 1);
+    if (tagEnd === -1) {
+      break;
+    }
+
+    const rawTag = safeHtml.slice(tagStart + 1, tagEnd).trim();
+    const closing = rawTag.startsWith("/");
+    const normalized = closing ? rawTag.slice(1).trim() : rawTag;
+    const name = normalized.split(/\s+/, 1)[0]?.toLowerCase();
+    const attributes = parseHtmlAttributes(normalized.slice(name?.length ?? 0));
+
+    if (name) {
+      if (!closing && /^h[1-6]$/.test(name)) {
+        parts.push(`\n\n${"#".repeat(Number(name[1]))} `);
+      } else if (!closing && name === "li") {
+        parts.push("\n- ");
+      } else if (!closing && name === "br") {
+        parts.push("\n");
+      } else if (!closing && name === "img" && attributes.src) {
+        parts.push(`![${attributes.alt || attributes.src}](${attributes.src})`);
+      } else if (closing && /^h[1-6]$/.test(name)) {
+        parts.push("\n\n");
+      } else if (closing && ["p", "div", "section", "article", "header", "footer", "ul", "ol", "li"].includes(name)) {
+        parts.push("\n\n");
+      }
+    }
+
+    cursor = tagEnd + 1;
+  }
+
+  return collapseWhitespace(decodeHtmlEntities(parts.join(""))).trim();
 }
 
 export function stripTags(value: string): string {
-  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  let output = "";
+  let insideTag = false;
+
+  for (const character of value) {
+    if (character === "<") {
+      insideTag = true;
+      output += " ";
+      continue;
+    }
+
+    if (character === ">") {
+      insideTag = false;
+      continue;
+    }
+
+    if (!insideTag) {
+      output += character;
+    }
+  }
+
+  return collapseInlineWhitespace(decodeHtmlEntities(output)).trim();
 }
 
 export function toFilePath(location: string): string {
@@ -453,4 +652,71 @@ export function toHeadingContext(pathSegments: string[]): SliceContext | undefin
   }
 
   return { headings: pathSegments.slice() };
+}
+
+function stripHtmlBlocks(html: string, tagNames: string[]): string {
+  const lower = html.toLowerCase();
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < html.length) {
+    let matchedTag: string | undefined;
+    let matchedStart = html.length;
+
+    for (const tagName of tagNames) {
+      const candidate = lower.indexOf(`<${tagName}`, cursor);
+      if (candidate !== -1 && candidate < matchedStart) {
+        matchedStart = candidate;
+        matchedTag = tagName;
+      }
+    }
+
+    if (!matchedTag) {
+      result += html.slice(cursor);
+      break;
+    }
+
+    result += html.slice(cursor, matchedStart);
+    const openEnd = html.indexOf(">", matchedStart);
+    if (openEnd === -1) {
+      break;
+    }
+
+    const closeTagStart = lower.indexOf(`</${matchedTag}`, openEnd + 1);
+    if (closeTagStart === -1) {
+      cursor = openEnd + 1;
+      continue;
+    }
+
+    const closeTagEnd = html.indexOf(">", closeTagStart + matchedTag.length + 2);
+    if (closeTagEnd === -1) {
+      break;
+    }
+
+    cursor = closeTagEnd + 1;
+  }
+
+  return result;
+}
+
+function collapseWhitespace(text: string): string {
+  return text
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function collapseInlineWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ");
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
 }
