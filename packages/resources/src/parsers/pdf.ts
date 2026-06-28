@@ -42,7 +42,7 @@ export const pdfParser: ResourceParser = {
 
     const pdfOptions = context.options.pdf;
     const renderPages = pdfOptions?.renderPages && context.options.renderPdfPages;
-    const transcribePages = pdfOptions?.transcribePages && context.options.transcribeImage;
+    const canTranscribePages = pdfOptions?.transcribePages && context.options.transcribeImage;
     const dpi = pdfOptions?.renderDpi ?? 150;
 
     // If renderPages is enabled, render all pages to a temp directory using the file path
@@ -85,10 +85,17 @@ export const pdfParser: ResourceParser = {
             pageResource.parts.push(imagePart);
 
             // If transcription is available, read the image file and transcribe it
-            if (transcribePages && context.options.transcribeImage) {
+            if (canTranscribePages && context.options.transcribeImage) {
               try {
                 const imageData = await readFile(renderedPage.filePath);
-                const transcript = await context.options.transcribeImage(imageData, imagePart, source);
+                const pageSource = {
+                  ...source,
+                  location: pageResource.location,
+                  name: pageResource.name,
+                  type: "image" as const,
+                  mimeType: renderedPage.mimeType,
+                };
+                const transcript = await context.options.transcribeImage(imageData, imagePart, pageSource);
                 if (transcript) {
                   const textPart: ResourcePart = {
                     id: createPartId(pageResource, 1, "transcript"),

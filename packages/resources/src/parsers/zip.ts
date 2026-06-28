@@ -105,7 +105,7 @@ export const zipParser: ResourceParser = {
       };
 
       const childPart: ResourcePart = {
-        id: `${childResource.id}::part/0`,
+        id: createPartId(childResource, 0),
         location: `${childLocation}#part/0`,
         kind: entryType === "image" ? "image" : "text",
         data: entryData,
@@ -142,8 +142,21 @@ export const zipParser: ResourceParser = {
   }
 };
 
+const IMAGE_EXT_TO_MIME: Record<string, string> = {
+  png: "png",
+  jpg: "jpeg",
+  jpeg: "jpeg",
+  gif: "gif",
+  webp: "webp",
+  bmp: "bmp",
+  ico: "x-icon",
+  avif: "avif",
+  tif: "tiff",
+  tiff: "tiff",
+  svg: "svg+xml",
+};
+
 function getImageExtension(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "png";
-  if (ext === "jpg") return "jpeg";
-  return ext;
+  return IMAGE_EXT_TO_MIME[ext] ?? "png";
 }
