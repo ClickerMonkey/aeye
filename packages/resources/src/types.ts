@@ -109,6 +109,8 @@ export interface SliceOptions {
   includeLinks?: boolean;
   embedSeparator?: string;
   buildEmbedText?: (context: EmbedTextContext) => string;
+  /** Options for code slicing behavior. */
+  code?: CodeParserOptions;
 }
 
 export interface ResolveOptions {

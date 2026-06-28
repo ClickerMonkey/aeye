@@ -11,7 +11,7 @@ import {
 } from "../utils";
 
 const DEFAULT_DECLARATION_PATTERN = /^(export\s+)?(async\s+)?(function|class|interface|type|enum|const|let|var)\s+([^=(<{]+)/;
-const DEFAULT_IMPORT_PATTERN = /^(import|export\s+.*from\s+|const\s+.*=\s*require\()/;
+const DEFAULT_IMPORT_PATTERN = /^(import\b|export\b[^;]*\bfrom\b|const\b[^;]*=\s*require\()/;
 
 export const codeSlicer: ResourceSlicer = {
   id: "code",
@@ -20,7 +20,7 @@ export const codeSlicer: ResourceSlicer = {
     const slices: ResourceSlice[] = [];
     const maxChars = context.options.maxChars ?? 2000;
     const minChars = context.options.minChars ?? 400;
-    const codeOpts: CodeParserOptions = (context.options as any).code ?? {};
+    const codeOpts: CodeParserOptions = context.options.code ?? {};
     const declarationPattern = codeOpts.declarationPattern ?? DEFAULT_DECLARATION_PATTERN;
     const importPattern = codeOpts.importPattern ?? DEFAULT_IMPORT_PATTERN;
 

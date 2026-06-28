@@ -1,6 +1,5 @@
 import type { ResourceResolver } from "../types";
-import { createUrlResourceSource } from "../registry";
-import { assertNotAborted } from "../utils";
+import { assertNotAborted, basenameFromLocation, inferTypeFromLocation } from "../utils";
 
 export const urlResolver: ResourceResolver = {
   id: "url",
@@ -19,16 +18,26 @@ export const urlResolver: ResourceResolver = {
     }
 
     const mimeType = response.headers.get("content-type") ?? undefined;
+    const type = inferTypeFromLocation(link, mimeType);
 
     // Use streaming body when available to avoid loading entire response into memory
     if (response.body) {
       return {
-        ...createUrlResourceSource(link, new Uint8Array(0), mimeType),
-        input: response.body as ReadableStream<Uint8Array>
+        location: link,
+        input: response.body as ReadableStream<Uint8Array>,
+        mimeType,
+        type,
+        name: basenameFromLocation(link)
       };
     }
 
     const input = new Uint8Array(await response.arrayBuffer());
-    return createUrlResourceSource(link, input, mimeType);
+    return {
+      location: link,
+      input,
+      mimeType,
+      type,
+      name: basenameFromLocation(link)
+    };
   }
 };

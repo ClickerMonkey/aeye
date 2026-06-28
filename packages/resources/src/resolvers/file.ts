@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import path from "node:path";
 import type { ResourceResolver } from "../types";
 import { assertNotAborted, toFilePath } from "../utils";
@@ -32,7 +33,7 @@ export const fileResolver: ResourceResolver = {
     }
 
     // Use a factory function for lazy streaming instead of eagerly reading
-    const input = () => createReadStream(resolvedPath) as unknown as AsyncIterable<Uint8Array>;
+    const input = (): AsyncIterable<Uint8Array> => Readable.toWeb(createReadStream(resolvedPath)) as AsyncIterable<Uint8Array>;
     return {
       location: resolvedPath,
       input,
