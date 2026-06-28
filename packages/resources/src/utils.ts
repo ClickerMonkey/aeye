@@ -106,7 +106,11 @@ const EXTENSION_TYPE_MAP: Record<string, ResourceType> = {
   ".xlsx": "excel",
   ".xls": "excel",
   ".docx": "docx",
-  ".doc": "docx"
+  ".doc": "docx",
+  ".zip": "zip",
+  ".tar.gz": "zip",
+  ".tgz": "zip",
+  ".jar": "zip"
 };
 
 const MIME_TYPE_MAP: Array<[RegExp, ResourceType]> = [
@@ -123,6 +127,10 @@ const MIME_TYPE_MAP: Array<[RegExp, ResourceType]> = [
   [/^application\/vnd\.ms-excel/i, "excel"],
   [/^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document/i, "docx"],
   [/^application\/msword/i, "docx"],
+  [/^application\/zip/i, "zip"],
+  [/^application\/x-zip-compressed/i, "zip"],
+  [/^application\/x-tar/i, "zip"],
+  [/^application\/gzip/i, "zip"],
   [/^image\//i, "image"],
   [/^text\//i, "text"]
 ];

@@ -49,6 +49,10 @@ export interface ParsedResource {
   defaultSlicer: string;
   parts: ResourcePart[];
   links: ResourceLink[];
+  /** Child resources (e.g. files inside a zip, rendered pages of a PDF). */
+  children?: ParsedResource[];
+  /** Location of the parent resource, if this resource is a child. */
+  parentLocation?: ResourceLocation;
 }
 
 export interface SliceContext {
@@ -86,6 +90,26 @@ export interface CodeParserOptions {
   importPattern?: RegExp;
 }
 
+export interface PdfParseOptions {
+  /** When true, render PDF pages to images and include as image parts/children. */
+  renderPages?: boolean;
+  /** DPI for rendered page images. Defaults to 150. */
+  renderDpi?: number;
+  /** When true, use transcription on rendered page images to produce markdown text parts. */
+  transcribePages?: boolean;
+  /** When true, extract embedded images from the PDF as image parts. */
+  extractImages?: boolean;
+}
+
+export interface RenderedPage {
+  /** Path to the rendered image file on disk. */
+  filePath: string;
+  /** 1-based page number. */
+  pageNumber: number;
+  /** MIME type of the image (e.g. "image/png"). */
+  mimeType: string;
+}
+
 export interface ParseOptions {
   signal?: AbortSignal;
   describeImage?: (image: Uint8Array, part: ResourcePart, source: ResourceSource) => Promise<string | undefined>;
@@ -94,6 +118,14 @@ export interface ParseOptions {
   renderUrl?: RenderUrlFn;
   /** Options for code parsing/slicing behavior. */
   code?: CodeParserOptions;
+  /** Options for PDF parsing behavior. */
+  pdf?: PdfParseOptions;
+  /**
+   * Renders all pages of a PDF to image files in a directory.
+   * Receives the PDF file path and an output directory; should write one image per page.
+   * Returns the list of rendered page files. This avoids loading the entire PDF into memory.
+   */
+  renderPdfPages?: (pdfFilePath: string, outputDir: string, dpi: number, signal?: AbortSignal) => Promise<RenderedPage[]>;
 }
 
 export interface SliceOptions {

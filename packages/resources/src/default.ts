@@ -8,6 +8,7 @@ import {
   pdfParser,
   excelParser,
   docxParser,
+  zipParser,
 } from "./parsers";
 import {
   textSlicer,
@@ -28,6 +29,7 @@ export {
   pdfParser,
   excelParser,
   docxParser,
+  zipParser,
   textSlicer,
   markdownSlicer,
   codeSlicer,
@@ -45,6 +47,7 @@ export function createDefaultResourceRegistry(): ResourceRegistry {
     .registerParser(pdfParser)
     .registerParser(excelParser)
     .registerParser(docxParser)
+    .registerParser(zipParser)
     .registerSlicer(textSlicer)
     .registerSlicer(markdownSlicer)
     .registerSlicer(codeSlicer)

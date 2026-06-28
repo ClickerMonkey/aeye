@@ -6,3 +6,4 @@ export { imageParser } from "./image";
 export { pdfParser } from "./pdf";
 export { excelParser } from "./excel";
 export { docxParser } from "./docx";
+export { zipParser } from "./zip";
