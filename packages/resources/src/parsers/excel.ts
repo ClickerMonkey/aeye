@@ -1,12 +1,16 @@
+import { Buffer } from "node:buffer";
+import { createReadStream } from "node:fs";
 import { createParsedResource } from "../registry";
-import type { ResourceParser, ResourcePart, SupportContext } from "../types";
+import type { ExtractedTable, ResourceParser, ResourcePart, SupportContext } from "../types";
 import {
   assertNotAborted,
   collectInput,
   createPartId,
   dedupeLinks,
   extractLinksFromText,
+  toFilePath,
 } from "../utils";
+import { pdfParser } from "./pdf";
 
 let xlsxModule: any;
 
@@ -20,27 +24,102 @@ async function loadXlsx(): Promise<any> {
   }
 }
 
+/**
+ * Detects separate table regions within a sheet's row data.
+ * A table region is delimited by one or more fully empty rows.
+ * The first non-empty row of each region is treated as headers.
+ */
+function extractTablesFromRows(rows: string[][], sheetName: string, sheetIndex: number): ExtractedTable[] {
+  const tables: ExtractedTable[] = [];
+  let regionStart = -1;
+
+  for (let i = 0; i <= rows.length; i++) {
+    const isEmpty = i === rows.length || rows[i].every((cell) => cell === "");
+
+    if (isEmpty) {
+      if (regionStart !== -1) {
+        const regionRows = rows.slice(regionStart, i);
+        if (regionRows.length >= 1) {
+          const headers = regionRows[0];
+          const dataRows = regionRows.slice(1);
+          tables.push({
+            name: tables.length === 0 ? sheetName : `${sheetName} - Table ${tables.length + 1}`,
+            headers,
+            rows: dataRows,
+            sheetName,
+            sheetIndex,
+          });
+        }
+        regionStart = -1;
+      }
+    } else if (regionStart === -1) {
+      regionStart = i;
+    }
+  }
+
+  return tables;
+}
+
+/** Renders a table into a markdown table string. */
+function tableToMarkdown(table: ExtractedTable): string {
+  const lines: string[] = [];
+  const headers = table.headers.map((h) => h || " ");
+  lines.push(`| ${headers.join(" | ")} |`);
+  lines.push(`| ${headers.map(() => "---").join(" | ")} |`);
+  for (const row of table.rows) {
+    const cells = headers.map((_, ci) => (row[ci] ?? "").replace(/\|/g, "\\|"));
+    lines.push(`| ${cells.join(" | ")} |`);
+  }
+  return lines.join("\n");
+}
+
 export const excelParser: ResourceParser = {
   id: "excel-parser",
-  supportedTypes: ["excel"],
+  supportedTypes: ["excel", "csv", "tsv"],
   defaultSlicer: "text",
   async isSupported(_type: string, _context: SupportContext) {
     return Boolean(await loadXlsx());
   },
   async parse(source, context) {
     assertNotAborted(context.options.signal);
+
+    // If convertToPdf is available and PDF rendering is enabled, convert to PDF for richer output
+    if (context.options.convertToPdf && context.options.pdf?.renderPages) {
+      try {
+        const sourceFilePath = toFilePath(source.location);
+        const pdfPath = await context.options.convertToPdf(sourceFilePath, context.options.signal);
+        const pdfSource = {
+          ...source,
+          location: pdfPath,
+          type: "pdf" as const,
+          mimeType: "application/pdf",
+          input: (() => createReadStream(pdfPath) as unknown as AsyncIterable<Uint8Array>)(),
+          metadata: { ...source.metadata, convertedFrom: source.location },
+        };
+        const result = await pdfParser.parse(pdfSource, context);
+        result.location = source.location;
+        result.name = source.name ?? result.name;
+        result.metadata = { ...result.metadata, convertedFrom: source.type, pdfPath };
+        return result;
+      } catch {
+        // Conversion failed; fall through to normal xlsx extraction
+      }
+    }
+
     const XLSX = await loadXlsx();
     if (!XLSX) {
-      throw new Error("xlsx is not installed. Install it to parse Excel resources: npm install xlsx");
+      throw new Error("xlsx is not installed. Install it to parse Excel/CSV resources: npm install xlsx");
     }
 
     const data = await collectInput(source.input);
-    const { Buffer: NodeBuffer } = await import("node:buffer");
-    const workbook = XLSX.read(NodeBuffer.from(data), { type: "buffer" });
+    const workbook = XLSX.read(Buffer.from(data), { type: "buffer" });
     const resource = createParsedResource(source);
     resource.defaultSlicer = "text";
 
+    const allTables: ExtractedTable[] = [];
+
     for (let i = 0; i < workbook.SheetNames.length; i++) {
+      assertNotAborted(context.options.signal);
       const sheetName = workbook.SheetNames[i];
       const worksheet = workbook.Sheets[sheetName];
       const jsonData: string[][] = XLSX.utils.sheet_to_json(worksheet, {
@@ -52,13 +131,25 @@ export const excelParser: ResourceParser = {
       const rows = jsonData.filter((row) => row.some((cell) => cell !== ""));
       if (rows.length === 0) continue;
 
-      const text = rows.map((row) => row.join("\t")).join("\n");
+      // Extract structured tables from this sheet
+      const tables = extractTablesFromRows(jsonData, sheetName, i);
+      allTables.push(...tables);
+
+      // Render tables as markdown for the text part
+      const text = tables.length > 0
+        ? tables.map((t) => tableToMarkdown(t)).join("\n\n")
+        : rows.map((row) => row.join("\t")).join("\n");
+
       const part: ResourcePart = {
         id: createPartId(resource, resource.parts.length),
         location: `${resource.location}#sheet/${i}`,
         kind: "text",
         text,
-        metadata: { sheetName, sheetIndex: i },
+        metadata: {
+          sheetName,
+          sheetIndex: i,
+          tables: tables.map((t) => ({ name: t.name, headers: t.headers, rowCount: t.rows.length })),
+        },
         links: dedupeLinks([
           ...extractLinksFromText(text, `${resource.location}#sheet/${i}`)
         ])
@@ -66,6 +157,10 @@ export const excelParser: ResourceParser = {
       resource.parts.push(part);
     }
 
+    resource.metadata = {
+      ...resource.metadata,
+      structuredTables: allTables,
+    };
     resource.links = dedupeLinks(resource.parts.flatMap((part) => part.links ?? []));
     return resource;
   }

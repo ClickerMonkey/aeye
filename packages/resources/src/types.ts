@@ -110,6 +110,20 @@ export interface RenderedPage {
   mimeType: string;
 }
 
+/** Structured table extracted from tabular data. */
+export interface ExtractedTable {
+  /** Optional name/title for the table. */
+  name?: string;
+  /** Column headers. */
+  headers: string[];
+  /** Rows of data (each row is an array of cell values). */
+  rows: string[][];
+  /** Sheet name if from a multi-sheet source. */
+  sheetName?: string;
+  /** 0-based sheet index if from a multi-sheet source. */
+  sheetIndex?: number;
+}
+
 export interface ParseOptions {
   signal?: AbortSignal;
   describeImage?: (image: Uint8Array, part: ResourcePart, source: ResourceSource) => Promise<string | undefined>;
@@ -126,6 +140,12 @@ export interface ParseOptions {
    * Returns the list of rendered page files. This avoids loading the entire PDF into memory.
    */
   renderPdfPages?: (pdfFilePath: string, outputDir: string, dpi: number, signal?: AbortSignal) => Promise<RenderedPage[]>;
+  /**
+   * Converts a document file to PDF for richer parsing (render pages, transcribe, etc.).
+   * Receives the source file path and should return the path to the converted PDF file.
+   * Supported for types like docx, excel, etc. that can be "pdfified" for better extraction.
+   */
+  convertToPdf?: (sourceFilePath: string, signal?: AbortSignal) => Promise<string>;
 }
 
 export interface SliceOptions {

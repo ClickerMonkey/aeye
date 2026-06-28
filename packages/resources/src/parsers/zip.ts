@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import { createParsedResource } from "../registry";
 import type { ParsedResource, ResourceParser, ResourcePart, SupportContext } from "../types";
@@ -115,8 +116,7 @@ export const zipParser: ResourceParser = {
       // For text-like files, decode the content
       if (childPart.kind === "text") {
         try {
-          const { Buffer: NodeBuffer } = await import("node:buffer");
-          childPart.text = NodeBuffer.from(entryData).toString("utf8");
+          childPart.text = Buffer.from(entryData).toString("utf8");
         } catch {
           // Binary file that isn't an image; leave data only
         }

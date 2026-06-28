@@ -1,9 +1,11 @@
-import { readFile } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createParsedResource } from "../registry";
 import type { ParsedResource, ResourceParser, ResourcePart, SupportContext } from "../types";
 import {
   assertNotAborted,
-  collectInput,
   createPartId,
   dedupeLinks,
   extractLinksFromText,
@@ -45,16 +47,13 @@ export const pdfParser: ResourceParser = {
     const canTranscribePages = pdfOptions?.transcribePages && context.options.transcribeImage;
     const dpi = pdfOptions?.renderDpi ?? 150;
 
+    // Resolve a file path for the PDF source (used by both render and fallback paths)
+    const pdfFilePath = toFilePath(source.location);
+
     // If renderPages is enabled, render all pages to a temp directory using the file path
     if (renderPages && context.options.renderPdfPages) {
       let renderedSuccessfully = false;
       try {
-        const { mkdtemp } = await import("node:fs/promises");
-        const { tmpdir } = await import("node:os");
-        const { join } = await import("node:path");
-
-        // Resolve a file path for the PDF source
-        const pdfFilePath = toFilePath(source.location);
         const outputDir = await mkdtemp(join(tmpdir(), "aeye-pdf-pages-"));
 
         const renderedPages = await context.options.renderPdfPages(pdfFilePath, outputDir, dpi, context.options.signal);
@@ -144,10 +143,9 @@ export const pdfParser: ResourceParser = {
       }
     }
 
-    // Fallback: normal text extraction from PDF (reads only what pdf-parse needs)
-    const data = await collectInput(source.input);
-    const { Buffer: NodeBuffer } = await import("node:buffer");
-    const pdfResult = await parse(NodeBuffer.from(data));
+    // Fallback: read the PDF from the file system and extract text via pdf-parse
+    const pdfBuffer = await readFile(pdfFilePath);
+    const pdfResult = await parse(pdfBuffer);
 
     const part: ResourcePart = {
       id: createPartId(resource, 0),
