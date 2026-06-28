@@ -26,7 +26,8 @@
       "@aeye/openrouter": ["./packages/openrouter/src/index.ts"],
       "@aeye/replicate": ["./packages/replicate/src/index.ts"],
       "@aeye/aws": ["./packages/aws/src/index.ts"],
-      "@aeye/models": ["./packages/models/src/index.ts"]
+      "@aeye/models": ["./packages/models/src/index.ts"],
+      "@aeye/resources": ["./packages/resources/src/index.ts"]
     }
   }
 }

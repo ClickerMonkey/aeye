@@ -13,6 +13,7 @@
     "packages/models",
     "packages/gin",
     "packages/ginny",
+    "packages/resources",
     "packages/cletus",
     "packages/test-integration"
   ],
