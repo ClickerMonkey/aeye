@@ -113,4 +113,8 @@ export class GetExpr extends Expr {
     }
     return combine(...inner);
   }
+
+  complexity(): number {
+    return this.path.complexity();
+  }
 }

@@ -70,6 +70,13 @@ export interface PathMode {
 export abstract class PathStep {
   abstract toJSON(): PathStepDef;
   abstract clone(): PathStep;
+  /**
+   * Structural cost the step contributes to the enclosing path. Each
+   * subclass implements this — see `Path.complexity()` for the
+   * helper-discount rationale (a `CallStep` pays for the call SITE,
+   * not the called body, so decomposition reduces caller cost).
+   */
+  abstract complexity(): number;
 
   static from(json: PathStepDef, scope: TypeScope): PathStep {
     if ('prop' in json) return new PropStep(json.prop);
@@ -92,6 +99,7 @@ export class PropStep extends PathStep {
   }
   toJSON(): PathPropDef { return { prop: this.prop }; }
   clone(): PropStep { return new PropStep(this.prop); }
+  complexity(): number { return 1; }
 }
 
 export class CallStep extends PathStep {
@@ -172,6 +180,16 @@ export class CallStep extends PathStep {
     return new LocalScope(calledType.scope, bindings);
   }
 
+  /** Call sites pay for the SIGNATURE (every arg Expr, the catch
+   *  handler), not the called fn's body. This is the helper discount
+   *  that makes decomposition genuinely reduce caller complexity. */
+  complexity(): number {
+    let cost = 1;
+    for (const arg of Object.values(this.args)) cost += arg.complexity();
+    if (this.catch_) cost += this.catch_.complexity();
+    return cost;
+  }
+
   /** Evaluate all arg Exprs against `scope` and return a Value<args>. */
   async buildArgsValue(calledType: Type, scope: Scope, engine: Engine): Promise<Value> {
     const callScope = this.callSiteScope(calledType);
@@ -191,6 +209,7 @@ export class IndexStep extends PathStep {
   }
   toJSON(): PathIndexDef { return { key: this.key.toJSON() }; }
   clone(): IndexStep { return new IndexStep(this.key.clone()); }
+  complexity(): number { return 1 + this.key.complexity(); }
 }
 
 // ─── Path ──────────────────────────────────────────────────────────────────
@@ -226,6 +245,16 @@ export class Path {
 
   clone(): Path {
     return new Path(this.steps.map((s) => s.clone()));
+  }
+
+  /** Sum of structural complexity over every step. Each step kind
+   *  defines its own cost contribution (see `PathStep.complexity()`).
+   *  The helper-discount lives on `CallStep`: a call pays for its
+   *  signature (args + catch), not the called fn's body. */
+  complexity(): number {
+    let cost = 0;
+    for (const step of this.steps) cost += step.complexity();
+    return cost;
   }
 
   /** Visit every Expr embedded in this Path's step arguments/keys. */

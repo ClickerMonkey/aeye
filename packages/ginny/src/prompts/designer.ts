@@ -8,6 +8,7 @@ import { ask } from '../tools/ask';
 import { printFn } from '../tools/print-fn';
 import { searchFns } from '../tools/search-fns';
 import { runSubagent } from '../progress';
+import { logger } from '../logger';
 import { MAX_PROGRAMMER_DEPTH, type ProgrammerChainEntry } from '../context';
 import { createRunState } from '../run-state';
 // `programmer` and `designer` form a circular import (programmer ↔
@@ -87,6 +88,12 @@ const createNewFn = ai.tool({
     _refs,
     ctx,
   ) => {
+    // Diagnostic anchors so an OOM inside the spawn boundary is
+    // localizable. Without these, the log truncates at the outer
+    // `→ create_new_fn` tool-start line and we have to guess which
+    // step ate the heap.
+    logger.mem(`createNewFn ${input.name} start`);
+
     // Parse the designer-supplied signature into runtime Types. When
     // the designer declared `types` aliases, args/returns may
     // reference them — we resolve those by parsing through a synthetic
@@ -127,8 +134,10 @@ const createNewFn = ai.tool({
       );
     }
 
+    logger.mem(`createNewFn ${input.name} signature parsed`);
     const argsCode = (() => { try { return argsType.toCode(); } catch { return JSON.stringify(input.args); } })();
     const returnsCode = (() => { try { return returnsType.toCode(); } catch { return JSON.stringify(input.returns); } })();
+    logger.mem(`createNewFn ${input.name} toCode done (args=${argsCode.length} returns=${returnsCode.length})`);
 
     // `argsType` is guaranteed to be an `ObjType` by the parse step
     // above, so its `fields` map is the parameter list directly.
@@ -247,11 +256,13 @@ const createNewFn = ai.tool({
       },
     };
 
+    logger.mem(`createNewFn ${input.name} request built (chars=${request.length}) — spawning inner programmer`);
     await runSubagent(
       `programmer: ${input.name} (depth ${childDepth})`,
       () => programmer.get('stream', {}, innerCtx),
       ctx.signal,
     );
+    logger.mem(`createNewFn ${input.name} inner programmer returned`);
 
     // Verify the inner programmer actually produced a working draft.
     // Return the failure as a string (not a `ToolInterrupt` throw) so

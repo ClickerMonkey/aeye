@@ -271,4 +271,14 @@ export class SwitchExpr extends Expr {
     if (this.otherwise) acc |= this.otherwise.effects();
     return acc;
   }
+
+  complexity(): number {
+    let acc = 1 + this.value.complexity();
+    for (const c of this.cases) {
+      for (const e of c.equals) acc += e.complexity();
+      acc += c.body.complexity();
+    }
+    if (this.otherwise) acc += this.otherwise.complexity();
+    return acc;
+  }
 }

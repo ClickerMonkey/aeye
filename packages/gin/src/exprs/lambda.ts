@@ -8,7 +8,7 @@ import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
-import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
+import { Expr, LAMBDA_COMPLEXITY_BASE, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { Code, code, span } from '../code';
 import { z } from 'zod';
@@ -221,6 +221,17 @@ export class LambdaExpr extends Expr {
   /** Constructing a lambda VALUE is pure — the body's effects fire
    *  only when the lambda is invoked, not at the construction site. */
   effects(): Effects { return Effects.NONE; }
+
+  /** Lambdas carry a baseline penalty (`LAMBDA_COMPLEXITY_BASE`)
+   *  beyond their body cost — declaring a closure has structural
+   *  overhead (arg binding, scope capture, recurse self-reference).
+   *  The baseline nudges the model away from inline-lambda spaghetti
+   *  toward saving a reusable fn instead. */
+  complexity(): number {
+    return LAMBDA_COMPLEXITY_BASE
+      + this.body.complexity()
+      + (this.constraint?.complexity() ?? 0);
+  }
 }
 
 /** Render a lambda's param list. When `args` is an obj-typed param bag

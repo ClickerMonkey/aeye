@@ -137,4 +137,8 @@ export class SetExpr extends Expr {
     }
     return acc;
   }
+
+  complexity(): number {
+    return this.path.complexity() + this.value.complexity();
+  }
 }

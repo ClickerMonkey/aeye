@@ -306,7 +306,42 @@ export abstract class Expr implements Node {
    * what it assigns).
    */
   abstract effects(): Effects;
+
+  /**
+   * Structural cost estimate — a scalar that grows roughly with how
+   * much work the expression represents. Each Expr subclass MUST
+   * implement this (no base default — same rationale as `effects()`).
+   *
+   * Used by the `finish` tool to enforce `GIN_MAX_COMPLEXITY`: when a
+   * draft's body exceeds the cap, finish rejects with a message asking
+   * the model to decompose into helper fns. The metric isn't a Big-O
+   * cost — it's a "how hard is this to author and test" proxy: nested
+   * loops are amplified, branches add per-arm cost, helper-function
+   * calls (resolved to a saved fn) cost 1 + arg costs (NOT the body
+   * of the called fn) so decomposition genuinely shrinks the metric.
+   *
+   * Tunable constants live on the subclass implementations; keep the
+   * exponents conservative — the goal is to push the model toward
+   * decomposition, not to punish reasonable programs.
+   */
+  abstract complexity(): number;
 }
+
+/** Per-loop additive penalty. A `loop` carries this on top of its
+ *  body cost — loops are structurally heavier than non-loops
+ *  (iteration bookkeeping, body re-execution semantics) so they
+ *  should weigh more, but nesting should NOT compound geometrically
+ *  because natural nested-iteration patterns (4-deep permutation
+ *  loops, etc.) are normal code, not pathological complexity. An
+ *  earlier draft used a multiplicative weight (`body × MULT^depth`);
+ *  empirically that made well-decomposed solve24 attempts land at
+ *  35,000+ for a draft that read naturally. Additive lands the same
+ *  draft near ~170. Tunable. */
+export const LOOP_COMPLEXITY_PENALTY = 5;
+/** Lambda baseline — declaring a closure has structural overhead
+ *  beyond its body (binding args, scope capture, the `recurse` self-
+ *  reference). Penalty discourages inline-lambda spaghetti. */
+export const LAMBDA_COMPLEXITY_BASE = 10;
 
 /** Indent every line after the first by two spaces — string helper
  *  used by `Expr.renderStatementBody`. Duplicated here (rather than

@@ -219,6 +219,14 @@ export class NewExpr extends Expr {
   effects(): Effects {
     return this.type.newEffects(this.value);
   }
+
+  /** Mirrors `effects` — defers to the Type's `newComplexity(value)`
+   *  so each composite Type (list/map/obj/tuple) walks its own
+   *  value-slot shape. Scalar / opaque types contribute a flat 1
+   *  plus any embedded ExprDefs found inside `value`. */
+  complexity(): number {
+    return this.type.newComplexity(this.value);
+  }
 }
 
 /**

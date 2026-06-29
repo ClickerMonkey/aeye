@@ -111,4 +111,9 @@ export class NativeExpr extends Expr {
   /** Effects come from the registry's per-native declaration (see
    *  `setNative(id, impl, effects)`). Pre-resolved at parse time. */
   effects(): Effects { return this.resolvedEffects; }
+
+  /** A native dispatch is a single opaque cost — the implementation
+   *  lives in JS and isn't part of the gin tree the model is
+   *  authoring. Effectively the helper-discount in primordial form. */
+  complexity(): number { return 1; }
 }

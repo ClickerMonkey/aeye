@@ -189,4 +189,10 @@ export class FlowExpr extends Expr {
       | (this.value?.effects() ?? Effects.NONE)
       | (this.error?.effects() ?? Effects.NONE);
   }
+
+  complexity(): number {
+    return 1
+      + (this.value?.complexity() ?? 0)
+      + (this.error?.complexity() ?? 0);
+  }
 }

@@ -267,6 +267,10 @@ export class TemplateExpr extends Expr {
   effects(): Effects {
     return this.template.effects() | (this.params?.effects() ?? Effects.NONE);
   }
+
+  complexity(): number {
+    return 1 + this.template.complexity() + (this.params?.complexity() ?? 0);
+  }
 }
 
 function tryInlineTemplateParams(params: Expr, registry: Registry): Record<string, string> | undefined {

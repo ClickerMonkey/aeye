@@ -133,6 +133,37 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return init | this.exprValueEffects(value);
   }
 
+  /** Each declared field's slot contributes its `elementComplexity`
+   *  (embedded Expr's cost, or 1 for a raw literal). Missing fields
+   *  contribute the parsed `default` Expr's complexity. Whole-value
+   *  Expr refs defer to `exprValueComplexity`. */
+  newComplexity(value: unknown): number {
+    const init = this.initComplexity();
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      // Whole-value Expr ref (e.g. `{kind:'get', path:[...]}` used in
+      // place of an inline obj literal). Detect by the `kind` field
+      // matching a registered Expr class — same probe as
+      // `exprValueComplexity` uses internally.
+      const kind = (value as { kind?: unknown }).kind;
+      if (typeof kind === 'string' && this.registry.exprClass(kind)) {
+        return 1 + init + this.exprValueComplexity(value);
+      }
+      const obj = value as Record<string, unknown>;
+      let acc = 1 + init;
+      for (const [name, prop] of Object.entries(this.fields)) {
+        if (name in obj) {
+          acc += prop.type.elementComplexity(obj[name]);
+        } else if (prop.default !== undefined) {
+          try {
+            acc += this.registry.parseExpr(prop.default, this.scope).complexity();
+          } catch { /* unparseable default — skip */ }
+        }
+      }
+      return acc;
+    }
+    return 1 + init + this.exprValueComplexity(value);
+  }
+
   like(other: Type): Type {
     if (!(other instanceof ObjType)) return this;
     const narrowed: Record<string, PropSpec> = {};

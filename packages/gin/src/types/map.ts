@@ -117,6 +117,27 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return init | this.exprValueEffects(value);
   }
 
+  /** Each entry's key + value slot contributes their
+   *  `elementComplexity` (embedded Expr's cost, or 1 per raw literal
+   *  slot). The map itself pays `1 + init` for the construction
+   *  envelope. */
+  newComplexity(value: unknown): number {
+    const init = this.initComplexity();
+    if (Array.isArray(value)) {
+      let acc = 1 + init;
+      for (const entry of value) {
+        const [rawK, rawV] = Array.isArray(entry)
+          ? entry
+          : [(entry as { key?: unknown; value?: unknown }).key,
+             (entry as { key?: unknown; value?: unknown }).value];
+        acc += this.key.elementComplexity(rawK);
+        acc += this.value.elementComplexity(rawV);
+      }
+      return acc;
+    }
+    return 1 + init + this.exprValueComplexity(value);
+  }
+
   random(rnd: Rnd): Map<unknown, [Value<K>, Value<V>]> {
     const n = rnd(0, 5, true);
     const m = new Map<unknown, [Value<K>, Value<V>]>();

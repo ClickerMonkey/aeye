@@ -251,6 +251,12 @@ export class DefineExpr extends Expr {
     for (const v of this.vars) acc |= v.value.effects();
     return acc;
   }
+
+  complexity(): number {
+    let acc = 1 + this.body.complexity();
+    for (const v of this.vars) acc += 1 + v.value.complexity();
+    return acc;
+  }
 }
 
 /** Render a Type's `toCode()` for use in error messages. Falls back to

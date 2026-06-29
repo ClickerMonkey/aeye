@@ -62,6 +62,18 @@ export interface ToolInput<
   call: (input: TParams, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
   /** Optional post-validation hook that runs after Zod parsing succeeds. Can throw to trigger re-prompting. */
   validate?: (input: TParams, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  /**
+   * Optional hard cap on the raw arguments STRING length. When set,
+   * `Tool.parse` rejects the call BEFORE attempting `JSON.parse` if
+   * `rawArgs.length > maxArgsLength`. Useful against provider wire
+   * dialects that corrupt large structured tool args (Claude Sonnet
+   * 4.5 over OpenRouter has been observed double-encoding the field
+   * AND mangling its inner JSON when args exceed ~5KB) — a pre-parse
+   * rejection with a clear "split this into smaller fns" message
+   * makes the model decompose instead of looping on the same broken
+   * payload. Unset = no cap.
+   */
+  maxArgsLength?: number;
   /** Optional function to determine if the component is applicable in the given context */
   applicable?: <
     TRuntimeContext extends TContext, 
@@ -226,9 +238,13 @@ export class Tool<
    * @param args - The input arguments as a JSON string.
    * @param schema - Optional pre-compiled schema to use instead of resolving it again.
    * @param descriptor - Provider wire-dialect descriptor for strictify.
-   * @param onRepair - Optional callback fired when the fallback parse
-   *   successfully recovered a string-encoded field. Receives the
-   *   list of repaired field names.
+   * @param onRepairAttempt - Optional callback fired whenever the
+   *   fallback found at least one string-encoded top-level field worth
+   *   trying. Fires on BOTH outcomes — `success: true` when the
+   *   repaired value validated, `success: false` when even the
+   *   repaired value failed the schema. The callback is the caller's
+   *   telemetry hook; we want repair attempts visible regardless of
+   *   outcome so silent absorption of model misbehavior never happens.
    * @returns The parsed and validated input parameters.
    * @throws Error if schema is not available or parsing/validation fails.
    */
@@ -237,8 +253,26 @@ export class Tool<
     args: string,
     schema?: ZodType<TParams>,
     descriptor?: FormatDescriptor | string,
-    onRepair?: (fields: ReadonlyArray<string>) => void,
+    onRepairAttempt?: (info: { fields: ReadonlyArray<string>; success: boolean }) => void,
   ): Promise<TParams> {
+    // Hard cap on raw args length, applied BEFORE JSON.parse. Some
+    // provider wire dialects (Claude Sonnet 4.5 via OpenRouter,
+    // observed) double-encode large tool args AND corrupt the inner
+    // content. Rather than burn iterations on unrecoverable parses,
+    // reject early and tell the model how to fix it. Unset = no cap.
+    const cap = this.input.maxArgsLength;
+    if (cap !== undefined && args.length > cap) {
+      throw new Error(
+        `Tool arguments exceeded the configured size limit (${args.length} chars > ${cap}). ` +
+        `Do NOT retry this same call — sending an even slightly trimmed version of the same program will hit the cap again. ` +
+        `The program is too large to be a single function body. ` +
+        `Pick the most self-contained piece of logic and factor it out via \`find_or_create_functions\` ` +
+        `(name + description + signature), then re-author the calling body referring to that helper by bare name — ` +
+        `e.g. \`helperFnName({args})\`. Each helper call costs ONE step in the body, regardless of the helper's internal size. ` +
+        `Repeat until the body fits.`,
+      );
+    }
+
     let resolvedSchema = schema || await this.schema(ctx);
 
     if (!resolvedSchema) {
@@ -259,12 +293,31 @@ export class Tool<
     } catch (e) {
       const repair = repairStringEncodedFields(raw);
       if (repair) {
+        if (repair.fields.length === 0) {
+          // Fields LOOKED string-encoded but the inner JSON itself was
+          // malformed (Claude Sonnet 4.5 has been observed double-
+          // encoding large tool args AND corrupting the inner content
+          // mid-stream — mismatched brackets, truncation). The zod
+          // error doesn't say WHY the model's input is broken; replace
+          // it with a targeted, actionable cue so the next iteration
+          // sends the field as a real JSON object instead of a string.
+          onRepairAttempt?.({ fields: repair.attempted, success: false });
+          throw new Error(
+            `Field${repair.attempted.length > 1 ? 's' : ''} ${repair.attempted.map((f) => `\`${f}\``).join(', ')} ` +
+            `arrived as a JSON-encoded string with malformed inner JSON (likely truncated or unbalanced brackets). ` +
+            `Send ${repair.attempted.length > 1 ? 'these fields' : 'this field'} as a JSON object directly — ` +
+            `do NOT wrap the value in quotes or escape its contents. ` +
+            `If the program is large, break it into smaller helper functions first.`,
+          );
+        }
         try {
           parsed = await resolvedSchema.parseAsync(repair.value);
-          onRepair?.(repair.fields);
+          onRepairAttempt?.({ fields: repair.fields, success: true });
         } catch {
           // Repair candidate didn't actually fix things — surface the
           // ORIGINAL error so the model sees its real mistake.
+          // Telemetry still fires so callers know repair was tried.
+          onRepairAttempt?.({ fields: repair.fields, success: false });
           throw e;
         }
       } else {
@@ -428,19 +481,28 @@ export class Tool<
  */
 function repairStringEncodedFields(
   raw: unknown,
-): { value: Record<string, unknown>; fields: string[] } | undefined {
+):
+  | { value: Record<string, unknown>; fields: string[]; attempted: string[] }
+  | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const src = raw as Record<string, unknown>;
   const repaired: Record<string, unknown> = { ...src };
   const fields: string[] = [];
+  const attempted: string[] = [];
   for (const [key, value] of Object.entries(src)) {
     if (typeof value !== 'string') continue;
     const head = value.trimStart()[0];
     if (head !== '{' && head !== '[') continue;
+    // Field LOOKS string-encoded — track it whether parse succeeds or
+    // not. Failed inner-parse is its own diagnostic signal (model
+    // double-encoded AND the inner content is malformed), distinct
+    // from "no encoded fields seen at all".
+    attempted.push(key);
     try {
       repaired[key] = JSON.parse(value);
       fields.push(key);
-    } catch { /* not JSON — leave the original string */ }
+    } catch { /* malformed inner JSON — keep tracking the attempt */ }
   }
-  return fields.length > 0 ? { value: repaired, fields } : undefined;
+  if (attempted.length === 0) return undefined;
+  return { value: repaired, fields, attempted };
 }

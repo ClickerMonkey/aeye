@@ -19,6 +19,23 @@ function maxWarnings(): number {
 }
 
 /**
+ * Maximum structural complexity tolerated on a saved fn body.
+ * Complexity counts ExprDef nodes weighted by kind — `loop` bodies
+ * multiply, branches sum, helper-fn calls cost 1 (the call site)
+ * regardless of the called body. A draft above this cap gets
+ * rejected at `finish` with a message telling the model to factor
+ * the work into helper fns. Configurable via `GIN_MAX_COMPLEXITY`;
+ * default 400 — empirically clears moderate single-fn drafts while
+ * forcing 24-game-class problems to decompose.
+ */
+function maxComplexity(): number {
+  const raw = process.env.GIN_MAX_COMPLEXITY;
+  if (!raw) return 400;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 400;
+}
+
+/**
  * Finalize the draft after a successful test. If `saveAs` is provided
  * the draft is persisted as a single TypeDef whose `call.get` is the
  * body — gin's native shape for a callable global (see
@@ -109,6 +126,29 @@ export const finish = ai.tool({
         throw new ToolInterrupt(
           `Refusing to save '${name}': ${errors} validation errors present. Fix and re-test before finish().\n${warningCodes.join('\n')}`,
         );
+      }
+
+      // Complexity gate — the draft is structurally too large to be
+      // a single fn body. Reject and point the model at decomposition.
+      // Saved fns called from the body cost 1 + args at the callsite,
+      // not the called body's complexity, so factoring genuinely
+      // reduces the metric (see Path.complexity / CallStep.complexity).
+      try {
+        const parsed = r.parseExpr(draft);
+        const complexity = parsed.complexity();
+        const cmax = maxComplexity();
+        if (complexity > cmax) {
+          throw new ToolInterrupt(
+            `Refusing to save '${name}': structural complexity ${complexity} exceeds the cap of ${cmax} (GIN_MAX_COMPLEXITY). ` +
+            `Decompose this work into smaller helper functions — call \`find_or_create_functions\` for the pieces, ` +
+            `then re-write the body in terms of those helpers (each helper call costs 1, regardless of its body size).`,
+          );
+        }
+      } catch (e: unknown) {
+        // Only rethrow ToolInterrupt — parse failures are surfaced
+        // elsewhere and shouldn't block finish on the complexity
+        // check alone.
+        if (e instanceof ToolInterrupt) throw e;
       }
 
       // When the designer set up this run via `create_new_fn`, the

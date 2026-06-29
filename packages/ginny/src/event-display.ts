@@ -136,6 +136,16 @@ export class EventDisplay {
           // each turn actually retains after GC.
           logger.mem(`turn ${(event.iterations ?? 0) + 1}`);
         }
+        // Message-history size telemetry. The agent loop appends
+        // tool_calls + tool_results every iteration, and zod errors
+        // can blow up an individual tool_result into kilobytes —
+        // we want to see when the history is the leak driver. Log
+        // both message count and serialized byte length.
+        try {
+          const msgs = event.request?.messages ?? [];
+          const bytes = JSON.stringify(msgs).length;
+          logger.log(`history turn=${(event.iterations ?? 0) + 1} messages=${msgs.length} bytes=${bytes}`);
+        } catch { /* ignore — telemetry shouldn't fail the run */ }
         break;
       }
 
@@ -236,14 +246,17 @@ export class EventDisplay {
         break;
       }
 
-      case 'toolArgRepaired': {
+      case 'toolArgRepairAttempt': {
         // Core's parse-fallback fired — one or more top-level fields
         // arrived as JSON-encoded strings (Claude Sonnet 4.x has been
-        // observed doing this when tool args grow large) and were
-        // recovered. Surface a one-liner so we keep visibility into
-        // the model misbehavior instead of silently absorbing it.
+        // observed doing this when tool args grow large). `success`
+        // tells us whether the repaired value actually validated;
+        // failed repair still surfaces so the model misbehavior is
+        // visible (silent absorption was the prior bug).
         const fields = (event as { fields?: ReadonlyArray<string> }).fields ?? [];
-        const line = `~ ${event.tool.name} args repaired (fields: ${fields.join(', ')})`;
+        const success = (event as { success?: boolean }).success ?? false;
+        const verb = success ? 'repaired' : 'repair-failed';
+        const line = `~ ${event.tool.name} args ${verb} (fields: ${fields.join(', ')})`;
         process.stderr.write(`${this.c(DIM, line)}\n`);
         logger.log(line);
         this.last = 'tool';
@@ -264,6 +277,12 @@ export class EventDisplay {
         const stack = (event.error as { stack?: string } | undefined)?.stack;
         if (stack) logger.log(`[${id}] stack:\n${stack}`);
         try { logger.log(`[${id}] args: ${JSON.stringify(event.args)}`); } catch { /* ignore */ }
+        // The model-facing `event.error` is truncated to keep the
+        // next-turn prompt reasonable; `event.rawArgs` is the full
+        // untruncated payload the model actually sent. Log it
+        // separately so post-mortems get the complete picture.
+        const rawArgs = (event as { rawArgs?: string }).rawArgs;
+        if (rawArgs) logger.log(`[${id}] rawArgs (${rawArgs.length} chars):\n${rawArgs}`);
         this.last = 'tool';
         break;
       }

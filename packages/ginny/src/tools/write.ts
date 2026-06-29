@@ -4,6 +4,24 @@ import type { ExprDef, Problem } from '@aeye/gin';
 import { ai } from '../ai';
 import { logger, genId } from '../logger';
 
+/**
+ * Hard cap on the raw `write`-tool arguments string length. Set via
+ * `GIN_WRITE_MAX_ARGS_LENGTH` (bytes); default 16384. Backstop against
+ * provider wire dialects (Claude Sonnet 4.5 over OpenRouter has been
+ * observed double-encoding very large tool args AND corrupting the
+ * inner JSON). The real structural pressure for "this is too much
+ * work for one fn body" lives on the complexity gate at `finish()` —
+ * which is shape-aware (loop multipliers, lambda baselines, helper
+ * discounts), not just a byte count. The byte cap exists only to
+ * keep the wire-corruption case from burning iterations.
+ */
+const WRITE_MAX_ARGS_LENGTH = (() => {
+  const raw = process.env['GIN_WRITE_MAX_ARGS_LENGTH'];
+  if (!raw) return 16384;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 16384;
+})();
+
 export const write = ai.tool({
   name: 'write',
   description: 'Write a gin program expression and store it as the draft.',
@@ -13,6 +31,7 @@ export const write = ai.tool({
     'plus any validation problems found by static analysis. ' +
     'ERRORS block the next step — fix them before calling test(). ' +
     'WARNINGS are advisory — review and address what you can; a fn whose saved warnings exceed the threshold will be rejected at finish().',
+  maxArgsLength: WRITE_MAX_ARGS_LENGTH,
   schema: (ctx) => {
     const opts = buildSchemas(ctx.registry, { newStrict: true });
     return z.object({ program: opts.Expr as z.ZodType<ExprDef> });
@@ -121,11 +140,36 @@ export const write = ai.tool({
       logger.log(`write:\n${codeStr}`);
     }
 
+    // Complexity report — give the model continuous feedback on how
+    // close the draft is to the `finish()` cap. Seeing the number
+    // grow on every write encourages decomposition BEFORE the cap
+    // rejects (rather than after, when the model has already burned
+    // an iteration). The cap comes from the same env var `finish`
+    // reads (default 400) so the two stay aligned.
+    let complexityNote = '';
+    try {
+      const draftExpr = ctx.registry.parseExpr(input.program);
+      const complexity = draftExpr.complexity();
+      const complexityCap = (() => {
+        const raw = process.env.GIN_MAX_COMPLEXITY;
+        if (!raw) return 400;
+        const n = Number.parseInt(raw, 10);
+        return Number.isFinite(n) && n > 0 ? n : 400;
+      })();
+      const pct = Math.round((complexity / complexityCap) * 100);
+      const tag = complexity > complexityCap
+        ? `OVER CAP — finish() will reject. Factor work into helper fns via find_or_create_functions; each helper call costs 1 + args at the callsite, regardless of the helper's body size.`
+        : complexity > complexityCap * 0.75
+          ? `approaching cap (${pct}%) — consider factoring a piece into a helper fn before adding more`
+          : `well under cap (${pct}%)`;
+      complexityNote = `\n\nComplexity: ${complexity} / ${complexityCap} — ${tag}`;
+    } catch { /* parse failures already surface via validation */ }
+
     // Tool result the model sees + the `← write (Xms): ...` preview
     // line both pull from this string. The TS-form pointers carry
     // enough signal for the model to fix the program; the matching
     // JSON-form block is in ginny.log under the same `[id]`.
-    return `Draft saved. Call test() to evaluate it.\n\n${codeStr}${problemsTsNote}`;
+    return `Draft saved. Call test() to evaluate it.\n\n${codeStr}${problemsTsNote}${complexityNote}`;
   },
 });
 

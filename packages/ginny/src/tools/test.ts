@@ -86,7 +86,19 @@ export const test = ai.tool({
       const persistedNote = persisted.length ? ` (persisted vars: ${persisted.join(', ')})` : '';
 
       ctx.runState.lastTest = { success: true, value: rawResult };
-      return `SUCCESS: ${JSON.stringify(rawResult)}${persistedNote}`;
+      // When authoring a fn (designer-driven flow), the immediate
+      // next call MUST be `finish({ saveAs: <name> })` — without
+      // saveAs the inner programmer "succeeds" but the designer
+      // sees `lastTest.success === true && saved === false` and
+      // reports `// FAILED: programmer reached a passing test but
+      // didn't call finish({ saveAs: '<name>' })`. The model has
+      // been observed forgetting this step; embedding the cue
+      // directly in the test-success result is the highest-signal
+      // place to remind it.
+      const finishCue = ctx.targetFn
+        ? `\n\n→ NEXT: call \`finish({ saveAs: '${ctx.targetFn.name}' })\` to persist this function. Without \`saveAs\`, the designer treats this attempt as unsuccessful.`
+        : '';
+      return `SUCCESS: ${JSON.stringify(rawResult)}${persistedNote}${finishCue}`;
 
     } catch (err: unknown) {
       const errMsg = formatError(err);

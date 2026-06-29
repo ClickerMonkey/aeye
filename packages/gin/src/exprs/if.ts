@@ -245,4 +245,11 @@ export class IfExpr extends Expr {
     if (this.otherwise) acc |= this.otherwise.effects();
     return acc;
   }
+
+  complexity(): number {
+    let acc = 1;
+    for (const b of this.ifs) acc += b.condition.complexity() + b.body.complexity();
+    if (this.otherwise) acc += this.otherwise.complexity();
+    return acc;
+  }
 }

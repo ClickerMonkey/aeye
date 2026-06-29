@@ -27,17 +27,32 @@ export function genId(): string {
 export class Logger {
   private stream: fs.WriteStream;
 
+  /** Raw fd for synchronous appends. We use a write stream for the
+   *  bulk path but fall back to `fs.writeSync(this.fd, ...)` on each
+   *  log line — buffered writes are useless when a process OOMs
+   *  mid-task: the post-mortem needs the tail of the log, not
+   *  whatever happened to be flushed minutes ago. The fd is the same
+   *  underlying file as the stream; writing through both is safe
+   *  because every log line is `\n`-terminated. */
+  private fd: number;
+
   constructor(cwd: string) {
     const filePath = path.join(cwd, 'ginny.log');
     // 'w' truncates on open (vs. 'a' which appends). One file per
     // session keeps the post-mortem signal-to-noise ratio high.
     this.stream = fs.createWriteStream(filePath, { flags: 'w' });
+    this.fd = fs.openSync(filePath, 'a');
     this.log(`=== ginny session start: ${new Date().toISOString()} ===`);
   }
 
   log(message: string): void {
     const ts = new Date().toISOString();
-    this.stream.write(`[${ts}] ${message}\n`);
+    const line = `[${ts}] ${message}\n`;
+    // Synchronous append so an imminent OOM doesn't drop the line.
+    // The buffered stream is also written to keep behavior identical
+    // for downstream stat/tail tooling.
+    try { fs.writeSync(this.fd, line); } catch { /* ignore */ }
+    this.stream.write(line);
   }
 
   // ─── memory instrumentation ──────────────────────────────────────────────
@@ -114,17 +129,29 @@ export class Logger {
 
   /**
    * Serialize an object for the log. Circular refs become `[circular]`
-   * and functions become `[function]`; otherwise the full payload is
-   * written verbatim. ginny.log is a post-mortem artifact — preserving
-   * complete prompts, responses, and tool args is more valuable than
-   * a hard byte cap. Disk space is cheap; truncated logs leave you
-   * unable to reproduce the failure.
+   * and functions become `[function]`. Individual string fields longer
+   * than `STRING_FIELD_MAX` get truncated with a `… (N chars)` marker
+   * so a streaming-accumulated multi-megabyte tool-call argument or
+   * response payload can't blow the heap mid-serialization. Disk space
+   * is cheap, but the post-mortem is useless if the process OOMs while
+   * trying to write the log line.
    */
   logObject(label: string, obj: unknown): void {
     try {
       const seen = new WeakSet<object>();
+      // 256 KB per string field is plenty for diagnostic post-mortems
+      // (the model's full reasoning chain, a fully-rendered tool call,
+      // a typical response payload all fit). When the model produces
+      // pathological 100KB+ tool args, this caps the explosion: a
+      // single 8MB string serialized with JSON.stringify allocates
+      // O(size) bytes for the output, and a response with a dozen
+      // such strings runs into hundreds of MB.
+      const STRING_FIELD_MAX = 256 * 1024;
       const serialized = JSON.stringify(obj, (_, v) => {
         if (typeof v === 'function') return '[function]';
+        if (typeof v === 'string' && v.length > STRING_FIELD_MAX) {
+          return `${v.slice(0, STRING_FIELD_MAX)}… (${v.length - STRING_FIELD_MAX} chars truncated)`;
+        }
         if (v && typeof v === 'object') {
           if (seen.has(v)) return '[circular]';
           seen.add(v);
@@ -140,6 +167,7 @@ export class Logger {
   close(): void {
     this.log(`=== ginny session end: ${new Date().toISOString()} ===`);
     this.stream.end();
+    try { fs.closeSync(this.fd); } catch { /* ignore */ }
   }
 }
 

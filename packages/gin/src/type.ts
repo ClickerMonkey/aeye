@@ -1009,6 +1009,65 @@ export abstract class Type<T = any, O = any> implements Node {
   }
 
   /**
+   * Structural complexity of a `new <T>{value: ...}` construction.
+   * Composite types (`list`, `map`, `obj`, `tuple`) override to walk
+   * their value-slot shape and sum nested-Expr complexity; scalar /
+   * opaque types fall through to this base implementation which adds
+   * a flat 1 + `initComplexity()` + any Expr embedded directly in
+   * `value`. Mirrors the `newEffects` / `exprValueEffects` /
+   * `initEffects` pattern.
+   */
+  newComplexity(value: unknown): number {
+    return 1 + this.initComplexity() + this.exprValueComplexity(value);
+  }
+
+  /**
+   * Helper for `newComplexity`: if `value` is an embedded ExprDef,
+   * parse it and return its complexity. 0 otherwise. Used both by
+   * the base `newComplexity` and by composite overrides that need to
+   * handle the "value slot is itself an Expr" case before walking
+   * their container shape.
+   */
+  protected exprValueComplexity(value: unknown): number {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return 0;
+    const kind = (value as { kind?: unknown }).kind;
+    if (typeof kind !== 'string') return 0;
+    if (!this.registry.exprClass(kind)) return 0;
+    try {
+      return this.registry.parseExpr(value as ExprDef, this.scope).complexity();
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Complexity of the type's own `init.run` body. 0 when the type
+   *  has no init. */
+  protected initComplexity(): number {
+    const i = this.init();
+    if (!i) return 0;
+    try {
+      return this.registry.parseExpr(i.run, this.scope).complexity();
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Per-element / per-slot complexity contribution used by composite
+   * Types (`list`, `map`, `obj`, `tuple`) when walking their value
+   * shape. If the slot is an embedded Expr (`{kind:..., ...}`), parse
+   * it and return its complexity. Otherwise the slot is a raw
+   * literal — treat it as cost 1. This is distinct from
+   * `newComplexity`, which always adds a `1` for the construction
+   * envelope; element slots inside a composite already have their
+   * envelope cost counted by the parent's `1 + init`.
+   */
+  protected elementComplexity(value: unknown): number {
+    const exprCost = this.exprValueComplexity(value);
+    return exprCost > 0 ? exprCost : 1;
+  }
+
+  /**
    * Attach the Type's own `.docs` as a Zod `.describe()` when opts ask for
    * it, and optionally a stable `aid` so the schema lands in `$defs` under
    * a readable name. `aidPrefix` distinguishes the value-schema aid

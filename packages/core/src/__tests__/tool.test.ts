@@ -125,13 +125,13 @@ describe('Tool', () => {
       const doubleEncoded = JSON.stringify({
         program: JSON.stringify({ kind: 'new', value: 42 }),
       });
-      const repairs: string[][] = [];
+      const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
       const parsed = await tool.parse(
         ctx, doubleEncoded, undefined, undefined,
-        (fields) => repairs.push([...fields]),
+        (info) => repairs.push({ fields: [...info.fields], success: info.success }),
       );
       expect(parsed.program).toEqual({ kind: 'new', value: 42 });
-      expect(repairs).toEqual([['program']]);
+      expect(repairs).toEqual([{ fields: ['program'], success: true }]);
     });
 
     it('should NOT fire repair for already-valid object args', async () => {
@@ -143,16 +143,78 @@ describe('Tool', () => {
         call: (input) => input.payload.x,
       });
       const ctx = {} as Context<{}, {}>;
-      const repairs: string[][] = [];
+      const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
       const parsed = await tool.parse(
         ctx, JSON.stringify({ payload: { x: 7 } }), undefined, undefined,
-        (fields) => repairs.push([...fields]),
+        (info) => repairs.push({ fields: [...info.fields], success: info.success }),
       );
       expect(parsed.payload.x).toBe(7);
       expect(repairs).toEqual([]);
     });
 
-    it('should surface the original error when repair candidate also fails', async () => {
+    it('should reject pre-parse when args exceed maxArgsLength', async () => {
+      // Pre-parse hard cap: shields the schema parse from wire-
+      // corrupted payloads. The error names the size, gives the cap,
+      // and tells the model to split the work — never mentions
+      // "parse" since the rejection happens before any parsing.
+      const tool = new Tool({
+        name: 'capped',
+        description: 'Has an args size cap',
+        instructions: '',
+        schema: z.object({ payload: z.string() }),
+        call: (input) => input.payload.length,
+        maxArgsLength: 100,
+      });
+      const ctx = {} as Context<{}, {}>;
+      const big = JSON.stringify({ payload: 'x'.repeat(200) });
+      await expect(tool.parse(ctx, big)).rejects.toThrow(/exceeded the configured size limit/);
+      await expect(tool.parse(ctx, big)).rejects.toThrow(/find_or_create_functions/);
+      // Stays under the cap → normal parse path.
+      const small = JSON.stringify({ payload: 'x'.repeat(10) });
+      const parsed = await tool.parse(ctx, small);
+      expect(parsed.payload.length).toBe(10);
+    });
+
+    it('should signal repair-failed AND throw a targeted error when inner JSON is malformed', async () => {
+      // Real-world failure mode (Claude Sonnet 4.5 over OpenRouter):
+      // the model double-encodes `program` AND the inner JSON itself
+      // is broken (mismatched brackets / truncation). Repair detects
+      // the encoding attempt but inner JSON.parse throws — instead of
+      // burying the model in a huge zod aggregate error, we surface a
+      // pinpointed message naming the field and the encoding mistake.
+      const tool = new Tool({
+        name: 'big-prog',
+        description: 'Takes a program',
+        instructions: '',
+        schema: z.object({
+          program: z.object({ kind: z.string() }),
+        }),
+        call: (input) => input.program.kind,
+      });
+      const ctx = {} as Context<{}, {}>;
+      // Outer envelope is valid JSON; the inner program field is a
+      // JSON-encoded string but the encoded content is malformed
+      // (extra closing bracket).
+      const malformedDoubleEncoded = JSON.stringify({
+        program: '{"kind": "block", "lines": []]}',
+      });
+      const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
+      let thrownMessage = '';
+      try {
+        await tool.parse(ctx, malformedDoubleEncoded, undefined, undefined,
+          (info) => repairs.push({ fields: [...info.fields], success: info.success }));
+      } catch (e: any) {
+        thrownMessage = e.message;
+      }
+      expect(repairs).toEqual([{ fields: ['program'], success: false }]);
+      // Targeted message — names the field, calls out the encoding,
+      // tells the model what to send instead.
+      expect(thrownMessage).toContain('program');
+      expect(thrownMessage).toContain('JSON-encoded string');
+      expect(thrownMessage).toContain('as a JSON object directly');
+    });
+
+    it('should surface the original error when repair candidate also fails (and signal repair-failed)', async () => {
       const tool = new Tool({
         name: 'strict',
         description: 'Strict numeric',
@@ -165,7 +227,15 @@ describe('Tool', () => {
       const bad = JSON.stringify({
         payload: JSON.stringify({ x: 'not-a-number' }),
       });
-      await expect(tool.parse(ctx, bad, undefined, undefined, () => {})).rejects.toThrow();
+      const repairs: Array<{ fields: ReadonlyArray<string>; success: boolean }> = [];
+      await expect(
+        tool.parse(ctx, bad, undefined, undefined,
+          (info) => repairs.push({ fields: [...info.fields], success: info.success })),
+      ).rejects.toThrow();
+      // Repair WAS attempted (visibility into model misbehavior) — but
+      // it failed, so success=false. Caller sees the original schema
+      // error AND knows repair was tried.
+      expect(repairs).toEqual([{ fields: ['payload'], success: false }]);
     });
 
     it('should use custom validation', async () => {

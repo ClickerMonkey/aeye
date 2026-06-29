@@ -112,6 +112,19 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return init | this.exprValueEffects(value);
   }
 
+  /** Each element slot contributes its `elementComplexity` (the
+   *  embedded Expr's cost, or 1 for a raw literal). The list itself
+   *  pays a base `1 + init` for the construction envelope. */
+  newComplexity(value: unknown): number {
+    const init = this.initComplexity();
+    if (Array.isArray(value)) {
+      let acc = 1 + init;
+      for (const item of value) acc += this.item.elementComplexity(item);
+      return acc;
+    }
+    return 1 + init + this.exprValueComplexity(value);
+  }
+
   like(other: Type): Type {
     if (!(other instanceof ListType)) return this;
     const item = this.registry.like(other.item);

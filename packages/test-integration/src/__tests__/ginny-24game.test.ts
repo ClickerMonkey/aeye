@@ -99,13 +99,27 @@ maybe('Ginny 24-game reproducer', () => {
       // we can call that CLI module directly to skip the cmd shell.
       const tsxCli = path.join(REPO_ROOT, 'node_modules/tsx/dist/cli.mjs');
       const useDirect = existsSync(tsxCli);
+      // Diagnostic env: large heap so a long run doesn't OOM before
+      // we capture telemetry; full request/response payloads in the
+      // log so we can see what the model actually sent; iteration
+      // cap so a runaway loop terminates inside the 15-min window.
+      const diagEnv: Record<string, string> = {
+        ...process.env,
+        FORCE_COLOR: '0',
+        NODE_OPTIONS: [
+          process.env.NODE_OPTIONS ?? '',
+          '--max-old-space-size=8192',
+        ].filter(Boolean).join(' '),
+        GIN_LOG_FULL_PAYLOAD: process.env.GIN_LOG_FULL_PAYLOAD ?? '1',
+        GIN_TOOL_ITERATIONS: process.env.GIN_TOOL_ITERATIONS ?? '20',
+      };
       const child = useDirect
         ? spawn(
             process.execPath,
             [tsxCli, '--conditions=source', GINNY_ENTRY, REQUEST],
             {
               cwd: workDir,
-              env: { ...process.env, FORCE_COLOR: '0' },
+              env: diagEnv,
               shell: false,
               stdio: ['ignore', 'pipe', 'pipe'],
             },
@@ -115,7 +129,7 @@ maybe('Ginny 24-game reproducer', () => {
             ['--conditions=source', GINNY_ENTRY, REQUEST],
             {
               cwd: workDir,
-              env: { ...process.env, FORCE_COLOR: '0' },
+              env: diagEnv,
               shell: true,
               stdio: ['ignore', 'pipe', 'pipe'],
             },
@@ -142,12 +156,9 @@ maybe('Ginny 24-game reproducer', () => {
     // Print the analysis report; jest's reporter shows test-level logs.
     const report = analyze({ workDir, exitCode, killed, stdout, stderr, log });
     console.log('\n========= GINNY 24-GAME REPORT =========\n' + report);
-    // Keep workDir on failure for post-mortem; clean on full success.
-    if (!killed && exitCode === 0) {
-      try { rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
-    } else {
-      console.log(`(working dir kept for inspection: ${workDir})`);
-    }
+    // Always preserve workDir — the log + any saved fns/types are the
+    // whole diagnostic payload. Cleanup happens manually after a run.
+    console.log(`(working dir kept for inspection: ${workDir})`);
   });
 
   it('runs to completion or controlled timeout', () => {
@@ -179,16 +190,37 @@ function analyze(input: AnalyzeInput): string {
 
   const lines = log.split(/\r?\n/);
   const toolWriteErrors = lines.filter((l) => /tool=write.*error: Error parsing tool arguments/.test(l));
-  const toolArgRepaired = lines.filter((l) => /toolArgRepaired|tool[- ]?arg[- ]?repaired/i.test(l));
+  const repairSuccess = lines.filter((l) => /args repaired \(fields:/.test(l));
+  const repairFailed = lines.filter((l) => /args repair-failed \(fields:/.test(l));
   const validationRuns = lines.filter((l) => /\bwrite validation \(/.test(l));
-  const cancelledLines = lines.filter((l) => /\[cancelled\]|FAILED|onError/i.test(l));
-  const ddrPanic = lines.filter((l) => /unhandled|UnhandledRejection|fatal/i.test(l));
+  // Tool-boundary failures (one line each) — short, prefixed with the
+  // `[ts] tool=... (...ms): // FAILED:` shape that comes back from
+  // designer/programmer sub-agent return values. Also count
+  // `[mem] ... onError` mem snapshots emitted by `ai.ts` for each
+  // upstream failure. Excludes:
+  //   - system-prompt dumps that happen to contain "FAILED" inside
+  //     prose (those are huge single-line JSON dumps from
+  //     GIN_LOG_FULL_PAYLOAD=1)
+  //   - quoted echoes of failure markers inside response payloads
+  //     (`"text": "// FAILED: ..."` from logged tool_call results)
+  const subagentFailures = lines.filter(
+    (l) => l.length < 600 && /^\[[\d:.TZ-]+\]\s+\S.*\/\/ FAILED:/.test(l),
+  );
+  const upstreamErrors = lines.filter(
+    (l) => l.length < 400 && /\b(?:chat onError|\[mem\][^\n]*onError)\b/.test(l),
+  );
+  const cancelledLines = [...subagentFailures, ...upstreamErrors];
+  const ddrPanic = lines.filter((l) => l.length < 500 && /\b(?:UnhandledRejection|FATAL ERROR|uncaughtException)\b/.test(l));
+  const historyLines = lines.filter((l) => /history turn=\d+ messages=/.test(l));
+  const rawArgsLines = lines.filter((l) => /rawArgs \(\d+ chars\):/.test(l));
 
   out.push(`tool=write parse errors:        ${toolWriteErrors.length}`);
-  out.push(`toolArgRepaired events:         ${toolArgRepaired.length}`);
+  out.push(`repair success / failed:        ${repairSuccess.length} / ${repairFailed.length}`);
   out.push(`write-validation runs:          ${validationRuns.length}`);
   out.push(`cancelled / FAILED / onError:   ${cancelledLines.length}`);
   out.push(`unhandled / fatal markers:      ${ddrPanic.length}`);
+  out.push(`message-history snapshots:      ${historyLines.length}`);
+  out.push(`rawArgs payloads captured:      ${rawArgsLines.length}`);
   out.push('');
 
   if (validationRuns.length) {
@@ -204,9 +236,18 @@ function analyze(input: AnalyzeInput): string {
     out.push('');
   }
 
-  if (toolArgRepaired.length) {
+  if (repairSuccess.length || repairFailed.length) {
     out.push('-- tool-arg repair events --');
-    for (const r of toolArgRepaired.slice(0, 10)) out.push('  ' + r.trim());
+    for (const r of [...repairSuccess, ...repairFailed].slice(0, 10)) out.push('  ' + r.trim());
+    out.push('');
+  }
+
+  if (historyLines.length) {
+    out.push('-- message-history growth (first + last 3) --');
+    const slice = historyLines.length > 6
+      ? [...historyLines.slice(0, 1), '  …', ...historyLines.slice(-3)]
+      : historyLines;
+    for (const h of slice) out.push('  ' + h.trim());
     out.push('');
   }
 

@@ -8,7 +8,7 @@ import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import { checkBindingName, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
-import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
+import { Expr, LOOP_COMPLEXITY_PENALTY, type ValidateContext, type ChildVisitor } from '../expr';
 import type { CodeOptions, SchemaOptions } from '../node';
 import { indentCode } from './code';
 import { Code } from '../code';
@@ -476,6 +476,21 @@ export class LoopExpr extends Expr {
       | this.body.effects()
       | (this.parallel?.concurrent?.effects() ?? Effects.NONE)
       | (this.parallel?.rate?.effects() ?? Effects.NONE);
+  }
+
+  /** Loops add a flat `LOOP_COMPLEXITY_PENALTY` on top of their body
+   *  cost. The penalty captures the extra structural weight (iteration
+   *  semantics, body re-execution) without geometric blowup across
+   *  natural nesting — a 4-deep permutation loop should not register
+   *  as 90× a 1-deep loop with the same body. Parallel concurrency /
+   *  rate exprs add their plain cost (they're evaluated once each). */
+  complexity(): number {
+    return 1
+      + LOOP_COMPLEXITY_PENALTY
+      + this.over.complexity()
+      + this.body.complexity()
+      + (this.parallel?.concurrent?.complexity() ?? 0)
+      + (this.parallel?.rate?.complexity() ?? 0);
   }
 }
 

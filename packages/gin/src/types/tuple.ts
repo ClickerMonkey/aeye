@@ -90,6 +90,20 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return init | this.exprValueEffects(value);
   }
 
+  /** Each positional slot contributes its `elementComplexity` — the
+   *  embedded Expr's cost or 1 for a raw literal. */
+  newComplexity(value: unknown): number {
+    const init = this.initComplexity();
+    if (Array.isArray(value)) {
+      let acc = 1 + init;
+      for (let i = 0; i < this.elements.length; i++) {
+        if (i < value.length) acc += this.elements[i]!.elementComplexity(value[i]);
+      }
+      return acc;
+    }
+    return 1 + init + this.exprValueComplexity(value);
+  }
+
   random(rnd: Rnd): [Value, ...Value[]] {
     return this.elements.map((e) => new Value(e, e.random(rnd))) as [Value, ...Value[]];
   }

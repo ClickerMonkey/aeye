@@ -241,7 +241,7 @@ export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
       | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, request: Request }
       | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
       | { type: 'toolSuspend', tool: TTool, args: any, request: Request }
-      | { type: 'toolError', tool: TTool, args: any, error: string, request: Request }
+      | { type: 'toolError', tool: TTool, args: any, error: string, rawArgs?: string, request: Request }
       : never
     : never;
 
@@ -257,7 +257,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'reasonPartial', reasoning: Reasoning, request: Request } |
   { type: 'toolParseName', tool: PromptTools<TTools>, request: Request } |
   { type: 'toolParseArguments', tool: PromptTools<TTools>, args: string, request: Request } |
-  { type: 'toolArgRepaired', tool: PromptTools<TTools>, fields: ReadonlyArray<string>, request: Request } |
+  { type: 'toolArgRepairAttempt', tool: PromptTools<TTools>, fields: ReadonlyArray<string>, success: boolean, request: Request } |
   PromptToolEvents<TTools> |
   { type: 'message', message: Message, request: Request } |
   { type: 'textComplete', content: string, request: Request } |
@@ -805,7 +805,7 @@ export class Prompt<
               yield emitTool({ type: 'toolSuspend', tool: toolCall.tool!, args: toolCall.args, request });
             }
             if (toolCall.emitError()) {
-              yield emitTool({ type: 'toolError', tool: toolCall.tool!, args: toolCall.args, error: toolCall.error!, request })
+              yield emitTool({ type: 'toolError', tool: toolCall.tool!, args: toolCall.args, error: toolCall.error!, rawArgs: toolCall.rawArgs, request })
             }
           }
         }
@@ -874,14 +874,14 @@ export class Prompt<
             // Non-blocking call, we don't want to hold up execution here. But if we can emit start or error early below this we will try.
             toolExecutor.parse();
           }
-          if (toolExecutor.emitRepaired()) {
-            yield emit({ type: 'toolArgRepaired', tool: toolExecutor.tool!, fields: toolExecutor.repairedFields!, request });
+          if (toolExecutor.emitRepairAttempt()) {
+            yield emit({ type: 'toolArgRepairAttempt', tool: toolExecutor.tool!, fields: toolExecutor.repairAttempt!.fields, success: toolExecutor.repairAttempt!.success, request });
           }
           if (toolExecutor.emitStart()) {
             yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
           }
           if (toolExecutor.emitError()) {
-            yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, request })
+            yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, rawArgs: toolExecutor.rawArgs, request })
           }
         }
 
@@ -902,8 +902,8 @@ export class Prompt<
               // removed by the time tool dispatch runs.
               if (ctx.signal?.aborted) break;
               await toolExecutor.parse();
-              if (toolExecutor.emitRepaired()) {
-                yield emit({ type: 'toolArgRepaired', tool: toolExecutor.tool!, fields: toolExecutor.repairedFields!, request });
+              if (toolExecutor.emitRepairAttempt()) {
+                yield emit({ type: 'toolArgRepairAttempt', tool: toolExecutor.tool!, fields: toolExecutor.repairAttempt!.fields, success: toolExecutor.repairAttempt!.success, request });
               }
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -919,7 +919,7 @@ export class Prompt<
                 yield emitTool({ type: 'toolSuspend', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
               if (toolExecutor.emitError()) {
-                yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, request })
+                yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, rawArgs: toolExecutor.rawArgs, request })
               }
             }
             break;
@@ -937,8 +937,8 @@ export class Prompt<
               // listener was already removed before tool dispatch.)
               if (ctx.signal?.aborted) break;
               const toolExecutor = await toolCallPromise;
-              if (toolExecutor.emitRepaired()) {
-                yield emit({ type: 'toolArgRepaired', tool: toolExecutor.tool!, fields: toolExecutor.repairedFields!, request });
+              if (toolExecutor.emitRepairAttempt()) {
+                yield emit({ type: 'toolArgRepairAttempt', tool: toolExecutor.tool!, fields: toolExecutor.repairAttempt!.fields, success: toolExecutor.repairAttempt!.success, request });
               }
               if (toolExecutor.emitStart()) {
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -953,7 +953,7 @@ export class Prompt<
                 yield emitTool({ type: 'toolSuspend', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
               if (toolExecutor.emitError()) {
-                yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, request })
+                yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, rawArgs: toolExecutor.rawArgs, request })
               }
             }
             break;
@@ -1599,18 +1599,27 @@ type ToolExecution<T> = {
   emitError(): boolean;
   emitInterrupt(): boolean;
   emitSuspend(): boolean;
-  /** Returns true exactly once when the arg-parse fallback fixed a
-   *  string-encoded field. Lets the surrounding prompt loop emit a
-   *  `toolArgRepaired` telemetry event. */
-  emitRepaired(): boolean;
+  /** Returns true exactly once after the arg-parse fallback ran a
+   *  repair attempt. Lets the surrounding prompt loop emit a
+   *  `toolArgRepairAttempt` telemetry event regardless of outcome
+   *  (we WANT visibility into model misbehavior; the prior name
+   *  `emitRepaired` suggested success-only, which was wrong). */
+  emitRepairAttempt(): boolean;
   parse: () => Promise<ToolExecution<T>>;
   run: () => Promise<ToolExecution<T>>;
   args?: any;
   result?: any;
   error?: string;
-  /** Field names whose string-encoded values were JSON.parse-d by the
-   *  parse fallback. Populated only when repair fired. */
-  repairedFields?: ReadonlyArray<string>;
+  /** Diagnostic info from the parse-fallback when it ran a repair
+   *  attempt. `fields` lists which top-level string fields were
+   *  JSON.parse-d; `success` says whether the schema accepted the
+   *  repaired value (false → original error was rethrown). */
+  repairAttempt?: { fields: ReadonlyArray<string>; success: boolean };
+  /** Raw, untruncated argument string the model sent. Populated when
+   *  arg parsing fails so the surrounding loop can attach the full
+   *  payload to the `toolError` event for log post-mortems — the
+   *  model-facing `error` string is truncated, but our log isn't. */
+  rawArgs?: string;
 }
 
 function once<R>(fn: () => Promise<R>): () => Promise<R> {
@@ -1654,7 +1663,7 @@ function newToolExecution<T extends AnyTool>(
   const error = emitter();
   const interrupt = emitter();
   const suspend = emitter();
-  const repaired = emitter();
+  const repairAttempt = emitter();
 
   if (!toolInfo) {
     error.ready = true;
@@ -1671,7 +1680,7 @@ function newToolExecution<T extends AnyTool>(
     emitError: error.emit,
     emitInterrupt: interrupt.emit,
     emitSuspend: suspend.emit,
-    emitRepaired: repaired.emit,
+    emitRepairAttempt: repairAttempt.emit,
     parse: once(async () => {
       // Already ran or failed earlier?
       if (execution.status !== 'ready') {
@@ -1686,19 +1695,25 @@ function newToolExecution<T extends AnyTool>(
           args,
           toolInfo!.definition.parameters,
           toolInfo!.definition.descriptor,
-          (fields) => {
-            // String-encoded-field fallback fired during parse. Stash
-            // the field names so the outer loop can emit
-            // `toolArgRepaired`. Keeps repair visible in telemetry
-            // instead of silently absorbing the model misbehavior.
-            execution.repairedFields = fields;
-            repaired.ready = true;
+          (info) => {
+            // String-encoded-field fallback ran a repair attempt
+            // (success OR failure). Stash the outcome so the outer
+            // loop can emit `toolArgRepairAttempt`. Keeping failures
+            // visible matters as much as successes — they tell us the
+            // model double-encoded AND the inner content was also
+            // bad, which is a different bug than either alone.
+            execution.repairAttempt = info;
+            repairAttempt.ready = true;
           },
         );
         execution.status = 'parsed';
         start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
+        // Preserve the untruncated raw args alongside the truncated
+        // model-facing error so the diagnostic log gets the full
+        // payload (post-mortem reproduction is impossible without it).
+        execution.rawArgs = args;
         // Distinguish "model sent no arguments at all" from "model sent
         // bad arguments". The former is usually a streaming-relay issue
         // (OpenRouter/Anthropic) or a genuine model gaffe — calling it

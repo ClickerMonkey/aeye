@@ -147,5 +147,11 @@ export class BlockExpr extends Expr {
     for (const line of this.lines) acc |= line.effects();
     return acc;
   }
+
+  complexity(): number {
+    let acc = 1;
+    for (const line of this.lines) acc += line.complexity();
+    return acc;
+  }
 }
 

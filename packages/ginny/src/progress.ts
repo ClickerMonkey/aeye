@@ -109,12 +109,14 @@ export async function runSubagent<
           logger.log(line.trim());
           break;
         }
-        case 'toolArgRepaired': {
+        case 'toolArgRepairAttempt': {
           // Same parse-fallback signal as the top-level event-display.
           // See `event-display.ts` for the rationale — surface it so
           // the recursion log shows when the model misbehaved.
           const fields = (event as { fields?: ReadonlyArray<string> }).fields ?? [];
-          const line = `    ~ ${event.tool.name} args repaired (fields: ${fields.join(', ')})`;
+          const success = (event as { success?: boolean }).success ?? false;
+          const verb = success ? 'repaired' : 'repair-failed';
+          const line = `    ~ ${event.tool.name} args ${verb} (fields: ${fields.join(', ')})`;
           process.stderr.write(`${c(DIM, line)}\n`);
           logger.log(line.trim());
           break;
@@ -133,6 +135,8 @@ export async function runSubagent<
           const stack = (event.error as { stack?: string } | undefined)?.stack;
           if (stack) logger.log(`[${id}] stack:\n${stack}`);
           try { logger.log(`[${id}] args: ${JSON.stringify(event.args)}`); } catch { /* ignore */ }
+          const rawArgs = (event as { rawArgs?: string }).rawArgs;
+          if (rawArgs) logger.log(`[${id}] rawArgs (${rawArgs.length} chars):\n${rawArgs}`);
           break;
         }
         case 'complete': {
