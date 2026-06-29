@@ -1,26 +1,36 @@
 import type { ResourceSlice, ResourceSlicer } from "../types";
 import {
+  DEFAULT_MAX_CHARS,
+  DEFAULT_MIN_CHARS,
   createSliceId,
   dedupeLinks,
   extractLinksFromText,
   finalizeSlice,
-  splitTextByBoundaries,
 } from "../utils";
+import { defaultTextSegmenter } from "../segmenters";
 
 export const textSlicer: ResourceSlicer = {
   id: "text",
   supportedTypes: ["*"],
   async slice(resource, context) {
     const slices: ResourceSlice[] = [];
-    const maxChars = context.options.maxChars ?? 2000;
-    const minChars = context.options.minChars ?? 400;
+    const maxChars = context.options.maxChars ?? DEFAULT_MAX_CHARS;
+    const minChars = context.options.minChars ?? DEFAULT_MIN_CHARS;
+    const segment = context.options.segmenter ?? defaultTextSegmenter;
 
     for (const part of resource.parts) {
       if (!part.text) {
         continue;
       }
 
-      const segments = splitTextByBoundaries(part.text, maxChars, minChars);
+      const segments = await segment(part.text, {
+        maxChars,
+        minChars,
+        boundaries: context.options.boundaries,
+        type: resource.type,
+        slicerId: "text",
+        signal: context.options.signal,
+      });
       segments.forEach((segment, index) => {
         const rawSlice = {
           id: createSliceId(part, slices.length),

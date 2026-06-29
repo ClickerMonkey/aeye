@@ -1,21 +1,27 @@
 import type { ResourceSlice, ResourceSlicer } from "../types";
 import {
+  DEFAULT_MAX_CHARS,
+  DEFAULT_MIN_CHARS,
   createSliceId,
   dedupeLinks,
   extractLinksFromMarkdown,
   extractLinksFromText,
   finalizeSlice,
-  splitTextByBoundaries,
   toHeadingContext,
 } from "../utils";
+import { defaultTextSegmenter } from "../segmenters";
+
+const DEFAULT_MARKDOWN_BOUNDARIES = ["\n\n", "\n", ". ", " "];
 
 export const markdownSlicer: ResourceSlicer = {
   id: "markdown",
   supportedTypes: ["markdown", "html"],
   async slice(resource, context) {
     const slices: ResourceSlice[] = [];
-    const maxChars = context.options.maxChars ?? 2000;
-    const minChars = context.options.minChars ?? 400;
+    const maxChars = context.options.maxChars ?? DEFAULT_MAX_CHARS;
+    const minChars = context.options.minChars ?? DEFAULT_MIN_CHARS;
+    const boundaries = context.options.boundaries ?? DEFAULT_MARKDOWN_BOUNDARIES;
+    const segment = context.options.segmenter ?? defaultTextSegmenter;
 
     for (const part of resource.parts) {
       if (!part.text) {
@@ -44,27 +50,34 @@ export const markdownSlicer: ResourceSlicer = {
             return { start, end, headings: headings.length > 0 ? headings : [title] };
           });
 
-      sections.forEach((section, sectionIndex) => {
+      for (const [sectionIndex, section] of sections.entries()) {
         const sectionText = text.slice(section.start, section.end);
-        const segments = splitTextByBoundaries(sectionText, maxChars, minChars, ["\n\n", "\n", ". ", " "]);
-        segments.forEach((segment, index) => {
+        const segments = await segment(sectionText, {
+          maxChars,
+          minChars,
+          boundaries,
+          type: resource.type,
+          slicerId: "markdown",
+          signal: context.options.signal,
+        });
+        segments.forEach((seg, index) => {
           const rawSlice = {
             id: createSliceId(part, slices.length),
             resourceId: resource.id,
             partId: part.id,
             location: `${part.location}#section/${sectionIndex}/slice/${index}`,
-            text: segment.text,
-            start: section.start + segment.start,
-            end: section.start + segment.end,
+            text: seg.text,
+            start: section.start + seg.start,
+            end: section.start + seg.end,
             context: toHeadingContext(section.headings),
             links: dedupeLinks([
-              ...extractLinksFromMarkdown(segment.text, `${part.location}#section/${sectionIndex}/slice/${index}`),
-              ...extractLinksFromText(segment.text, `${part.location}#section/${sectionIndex}/slice/${index}`)
+              ...extractLinksFromMarkdown(seg.text, `${part.location}#section/${sectionIndex}/slice/${index}`),
+              ...extractLinksFromText(seg.text, `${part.location}#section/${sectionIndex}/slice/${index}`)
             ])
           };
           slices.push(finalizeSlice(resource, part, rawSlice, context.options));
         });
-      });
+      }
     }
 
     return slices;

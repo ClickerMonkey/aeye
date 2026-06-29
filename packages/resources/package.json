@@ -53,8 +53,25 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "aeye-*.md"
   ],
+  "peerDependencies": {
+    "@langchain/textsplitters": "^0.1.0",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.9.1",
+    "node-poppler": "^8.0.4",
+    "pdf-parse": "^1.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/textsplitters": { "optional": true },
+    "jszip": { "optional": true },
+    "mammoth": { "optional": true },
+    "node-poppler": { "optional": true },
+    "pdf-parse": { "optional": true },
+    "xlsx": { "optional": true }
+  },
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^24.9.1",

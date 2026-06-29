@@ -1,28 +1,35 @@
 import type { CodeParserOptions, ResourceSlice, ResourceSlicer } from "../types";
 import {
   CODE_TYPES,
+  DEFAULT_MAX_CHARS,
+  DEFAULT_MIN_CHARS,
   createSliceId,
   dedupeLinks,
   extractLinksFromCode,
   extractLinksFromText,
   finalizeSlice,
   normalizeDeclaration,
-  splitTextByBoundaries,
 } from "../utils";
+import { defaultTextSegmenter } from "../segmenters";
 
 const DEFAULT_DECLARATION_PATTERN = /^(export\s+)?(async\s+)?(function|class|interface|type|enum|const|let|var)\s+([^=(<{]+)/;
 const DEFAULT_IMPORT_PATTERN = /^(import\b|export\b[^;]*\bfrom\b|const\b[^;]*=\s*require\()/;
+const DEFAULT_CODE_BOUNDARIES = ["\n\n", "\n", " "];
+const DEFAULT_MAX_IMPORT_PREFIXES = 5;
 
 export const codeSlicer: ResourceSlicer = {
   id: "code",
   supportedTypes: [...CODE_TYPES],
   async slice(resource, context) {
     const slices: ResourceSlice[] = [];
-    const maxChars = context.options.maxChars ?? 2000;
-    const minChars = context.options.minChars ?? 400;
+    const maxChars = context.options.maxChars ?? DEFAULT_MAX_CHARS;
+    const minChars = context.options.minChars ?? DEFAULT_MIN_CHARS;
+    const boundaries = context.options.boundaries ?? DEFAULT_CODE_BOUNDARIES;
+    const segment = context.options.segmenter ?? defaultTextSegmenter;
     const codeOpts: CodeParserOptions = context.options.code ?? {};
     const declarationPattern = codeOpts.declarationPattern ?? DEFAULT_DECLARATION_PATTERN;
     const importPattern = codeOpts.importPattern ?? DEFAULT_IMPORT_PATTERN;
+    const maxImportPrefixes = codeOpts.maxImportPrefixes ?? DEFAULT_MAX_IMPORT_PREFIXES;
 
     for (const part of resource.parts) {
       if (!part.text) {
@@ -46,35 +53,42 @@ export const codeSlicer: ResourceSlicer = {
       });
 
       const starts = declarationIndexes.length > 0 ? declarationIndexes : [0];
-      starts.forEach((start, index) => {
+      for (const [index, start] of starts.entries()) {
         const end = starts[index + 1] ?? part.text!.length;
         const block = part.text!.slice(start, end);
         const declaration = normalizeDeclaration(block.split(/\r?\n/, 1)[0] ?? "");
-        const segments = splitTextByBoundaries(block, maxChars, minChars, ["\n\n", "\n", " "]);
+        const segments = await segment(block, {
+          maxChars,
+          minChars,
+          boundaries,
+          type: resource.type,
+          slicerId: "code",
+          signal: context.options.signal,
+        });
 
-        segments.forEach((segment, segmentIndex) => {
+        segments.forEach((seg, segmentIndex) => {
           const location = `${part.location}#block/${index}/slice/${segmentIndex}`;
           const rawSlice = {
             id: createSliceId(part, slices.length),
             resourceId: resource.id,
             partId: part.id,
             location,
-            text: segment.text,
-            start: start + segment.start,
-            end: start + segment.end,
+            text: seg.text,
+            start: start + seg.start,
+            end: start + seg.end,
             context: {
               declaration,
-              prefixes: importLines.slice(0, 5)
+              prefixes: importLines.slice(0, maxImportPrefixes)
             },
             links: dedupeLinks([
               ...(part.links ?? []),
-              ...extractLinksFromCode(segment.text, location),
-              ...extractLinksFromText(segment.text, location)
+              ...extractLinksFromCode(seg.text, location),
+              ...extractLinksFromText(seg.text, location)
             ])
           };
           slices.push(finalizeSlice(resource, part, rawSlice, context.options));
         });
-      });
+      }
     }
 
     return slices;

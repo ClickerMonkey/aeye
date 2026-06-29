@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { EmbedTextContext, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types";
+import type { EmbedTextContext, LoadResourceOptions, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types";
 
 export const DEFAULT_MAX_CHARS = 2000;
 export const DEFAULT_MIN_CHARS = 400;
@@ -36,7 +36,8 @@ export const CODE_TYPES = [
   "dart"
 ] as const;
 
-const EXTENSION_TYPE_MAP: Record<string, ResourceType> = {
+/** Default file-extension → resource type mappings. Seeds the registry; override via the registry. */
+export const DEFAULT_EXTENSION_TYPES: Record<string, ResourceType> = {
   ".txt": "text",
   ".text": "text",
   ".log": "text",
@@ -113,7 +114,11 @@ const EXTENSION_TYPE_MAP: Record<string, ResourceType> = {
   ".jar": "zip"
 };
 
-const MIME_TYPE_MAP: Array<[RegExp, ResourceType]> = [
+/** Built-in lookup map for the default extension types (used by the standalone inference helpers). */
+const DEFAULT_EXTENSION_TYPE_MAP = new Map<string, ResourceType>(Object.entries(DEFAULT_EXTENSION_TYPES));
+
+/** Default mime-pattern → resource type mappings. Seeds the registry; override via the registry. */
+export const DEFAULT_MIME_TYPE_PATTERNS: Array<[RegExp, ResourceType]> = [
   [/^text\/markdown/i, "markdown"],
   [/^text\/html/i, "html"],
   [/^application\/json/i, "json"],
@@ -134,6 +139,26 @@ const MIME_TYPE_MAP: Array<[RegExp, ResourceType]> = [
   [/^image\//i, "image"],
   [/^text\//i, "text"]
 ];
+
+/**
+ * Merges per-type registry options (the base) with per-call options (the overrides). Per-call options
+ * win at the top level; the nested `pdf` and `code` option objects are shallow merged so a caller can
+ * override a single flag without dropping registry-configured defaults. Works across parse and slice
+ * options alike, enabling per-type configuration of any behavior from the registry.
+ */
+export function mergeOptions<T extends Partial<LoadResourceOptions>>(base: T | undefined, overrides: T | undefined): T {
+  if (!base) return { ...(overrides ?? {}) } as T;
+  if (!overrides) return { ...base } as T;
+
+  const merged: T = { ...base, ...overrides };
+  if (base.pdf || overrides.pdf) {
+    merged.pdf = { ...base.pdf, ...overrides.pdf };
+  }
+  if (base.code || overrides.code) {
+    merged.code = { ...base.code, ...overrides.code };
+  }
+  return merged;
+}
 
 export function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -225,33 +250,46 @@ export function basenameFromLocation(location: string): string {
   return path.basename(location) || location;
 }
 
-export function inferTypeFromLocation(location: string, mimeType?: string): ResourceType | undefined {
-  const mimeGuess = inferTypeFromMimeType(mimeType);
-  if (mimeGuess) {
-    return mimeGuess;
-  }
-
+/**
+ * Infers a resource type from a location using the supplied extension map. Recognizes Dockerfiles and
+ * compound extensions (e.g. `.tar.gz`) by scanning suffixes from the longest match.
+ */
+export function inferTypeFromExtension(location: string, extensionTypes: Map<string, ResourceType>): ResourceType | undefined {
   const lower = location.toLowerCase();
   if (lower.endsWith("/dockerfile") || path.basename(lower) === "dockerfile") {
     return "dockerfile";
   }
 
-  const extension = path.extname(lower);
-  return EXTENSION_TYPE_MAP[extension];
+  const base = path.basename(lower);
+  for (let dot = base.indexOf("."); dot !== -1; dot = base.indexOf(".", dot + 1)) {
+    const type = extensionTypes.get(base.slice(dot));
+    if (type) {
+      return type;
+    }
+  }
+  return undefined;
 }
 
-export function inferTypeFromMimeType(mimeType?: string): ResourceType | undefined {
+/** Infers a resource type from a mime type using the supplied pattern list. */
+export function inferTypeFromMimePatterns(mimeType: string | undefined, patterns: Array<[RegExp, ResourceType]>): ResourceType | undefined {
   if (!mimeType) {
     return undefined;
   }
-
-  for (const [pattern, type] of MIME_TYPE_MAP) {
+  for (const [pattern, type] of patterns) {
     if (pattern.test(mimeType)) {
       return type;
     }
   }
-
   return undefined;
+}
+
+export function inferTypeFromLocation(location: string, mimeType?: string): ResourceType | undefined {
+  return inferTypeFromMimePatterns(mimeType, DEFAULT_MIME_TYPE_PATTERNS)
+    ?? inferTypeFromExtension(location, DEFAULT_EXTENSION_TYPE_MAP);
+}
+
+export function inferTypeFromMimeType(mimeType?: string): ResourceType | undefined {
+  return inferTypeFromMimePatterns(mimeType, DEFAULT_MIME_TYPE_PATTERNS);
 }
 
 export function createResourceId(location: string, type: ResourceType): string {
@@ -615,6 +653,24 @@ export function isExternalLink(value: string): boolean {
   return /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value) || /^mailto:/i.test(value);
 }
 
+/** True for absolute http(s) URLs. */
+export function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+/** True when the link carries an explicit URI scheme (e.g. `http:`, `mailto:`, `data:`, `ftp:`). */
+export function hasUriScheme(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:/i.test(value);
+}
+
+/**
+ * Resolves a relative link against an http(s) base URL, returning an absolute URL.
+ * Handles relative paths, root-relative paths (`/x`), protocol-relative (`//host/x`), and fragments.
+ */
+export function resolveAgainstUrl(link: string, baseUrl: string): string {
+  return new URL(link, baseUrl).toString();
+}
+
 export function htmlToMarkdown(html: string): string {
   const safeHtml = stripHtmlBlocks(html, ["script", "style"]);
   const parts: string[] = [];
@@ -687,6 +743,101 @@ export function stripTags(value: string): string {
 
 export function toFilePath(location: string): string {
   return location.startsWith("file://") ? fileURLToPath(location) : location;
+}
+
+/**
+ * How a resource location should be fetched. `relative` means the location is NOT self-contained and
+ * needs a base location to be resolved; the others can be fetched from the location string alone.
+ */
+export type LocationScheme = "url" | "zip-entry" | "file" | "relative";
+
+/**
+ * Classifies a resource location so a caller can know exactly how to fetch it from the string alone:
+ * an http(s) URL, an entry inside a (self-contained) zip archive, an absolute file path / file:// URL,
+ * or a `relative` link that still requires a base location to resolve.
+ */
+export function inferLocationScheme(location: string): LocationScheme {
+  if (isHttpUrl(location)) {
+    return "url";
+  }
+  if (isZipEntryLocation(location)) {
+    const parsed = parseZipEntryLocation(location)!;
+    return isSelfContainedLocation(parsed.zipLocation) ? "zip-entry" : "relative";
+  }
+  if (location.startsWith("file://") || path.isAbsolute(location)) {
+    return "file";
+  }
+  return "relative";
+}
+
+/** True when a location can be fetched without a base location (URL, absolute file, or zip entry). */
+export function isSelfContainedLocation(location: string): boolean {
+  return inferLocationScheme(location) !== "relative";
+}
+
+/** Default resource types treated as markup (href/src links extracted) by the text parser. */
+export const DEFAULT_MARKUP_TYPES: ResourceType[] = ["xml", "svg"];
+
+/** Default image file-extension → mime sub-type mappings, used to label binary image parts. */
+export const DEFAULT_IMAGE_EXTENSION_MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  avif: "image/avif",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  svg: "image/svg+xml",
+};
+
+/** Resolves an image mime type from a file name's extension, falling back to image/png. */
+export function imageMimeTypeFromLocation(fileName: string, fallback = "image/png"): string {
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return DEFAULT_IMAGE_EXTENSION_MIME[ext] ?? fallback;
+}
+
+/** Separator embedded in a resource location to address an entry inside a zip archive. */
+export const ZIP_ENTRY_MARKER = "#entry/";
+
+/** True when a location points at an entry inside a zip archive (e.g. `bundle.zip#entry/doc.md`). */
+export function isZipEntryLocation(location: string): boolean {
+  return location.includes(ZIP_ENTRY_MARKER);
+}
+
+/** Builds the canonical location for an entry inside a zip archive. */
+export function buildZipEntryLocation(zipLocation: string, entryName: string): string {
+  return `${zipLocation}${ZIP_ENTRY_MARKER}${entryName}`;
+}
+
+/** Splits a zip-entry location into the archive location and the entry name within it. */
+export function parseZipEntryLocation(location: string): { zipLocation: string; entryName: string } | undefined {
+  const index = location.indexOf(ZIP_ENTRY_MARKER);
+  if (index === -1) {
+    return undefined;
+  }
+  return {
+    zipLocation: location.slice(0, index),
+    entryName: location.slice(index + ZIP_ENTRY_MARKER.length),
+  };
+}
+
+/**
+ * Resolves a (possibly relative) link found inside a zip entry to a normalized entry name within the
+ * same archive. Entry paths use POSIX separators; `..`/`.` are resolved, query/fragment are dropped,
+ * and a leading `/` is treated as the archive root. A pure fragment resolves to the same entry.
+ */
+export function resolveZipEntryName(baseEntryName: string, link: string): string {
+  const clean = link.split("#")[0].split("?")[0];
+  if (clean === "") {
+    return baseEntryName;
+  }
+  const target = clean.startsWith("/")
+    ? clean
+    : path.posix.join(path.posix.dirname(baseEntryName), clean);
+  return path.posix.normalize(target).replace(/^(\.\/)+/, "").replace(/^\/+/, "");
 }
 
 export function normalizeDeclaration(line: string): string {

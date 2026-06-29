@@ -2,10 +2,12 @@ import { Buffer } from "node:buffer";
 import { createParsedResource } from "../registry";
 import type { ResourceParser, ResourcePart } from "../types";
 import {
+  DEFAULT_MARKUP_TYPES,
   assertNotAborted,
   collectInput,
   createPartId,
   dedupeLinks,
+  extractLinksFromHtml,
   extractLinksFromText,
 } from "../utils";
 
@@ -30,13 +32,17 @@ export const textParser: ResourceParser = {
     const rawText = Buffer.from(await collectInput(source.input)).toString("utf8");
     const resource = createParsedResource(source);
     resource.defaultSlicer = "text";
+    const partLocation = `${resource.location}#part/0`;
+    const markupTypes = context.options.markupTypes ?? DEFAULT_MARKUP_TYPES;
     const part: ResourcePart = {
       id: createPartId(resource, 0),
-      location: `${resource.location}#part/0`,
+      location: partLocation,
       kind: "text",
       text: rawText,
       links: dedupeLinks([
-        ...extractLinksFromText(rawText, `${resource.location}#part/0`)
+        // Markup formats (e.g. xml/svg) may reference resources via href/src attributes.
+        ...(markupTypes.includes(resource.type) ? extractLinksFromHtml(rawText, partLocation) : []),
+        ...extractLinksFromText(rawText, partLocation)
       ])
     };
     resource.parts.push(part);

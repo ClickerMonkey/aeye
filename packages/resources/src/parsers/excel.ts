@@ -10,7 +10,6 @@ import {
   extractLinksFromText,
   toFilePath,
 } from "../utils";
-import { pdfParser } from "./pdf";
 
 let xlsxModule: any;
 
@@ -73,6 +72,47 @@ function tableToMarkdown(table: ExtractedTable): string {
   return lines.join("\n");
 }
 
+/**
+ * Higher-priority spreadsheet parser that converts to PDF and delegates to the PDF parser stack when
+ * PDF rendering is enabled. Declines (falls back to {@link excelParser}) when conversion/rendering is
+ * not configured or conversion fails.
+ */
+export const excelPdfParser: ResourceParser = {
+  id: "excel-pdf-parser",
+  supportedTypes: ["excel", "csv", "tsv"],
+  defaultSlicer: "text",
+  priority: 10,
+  async isSupported(_type: string, context: SupportContext) {
+    const config = context.registry.getTypeConfig?.(_type);
+    return Boolean(config?.convertToPdf && config?.pdf?.renderPages);
+  },
+  async parse(source, context) {
+    assertNotAborted(context.options.signal);
+
+    // Only convert when both conversion and PDF rendering are enabled; otherwise decline.
+    if (!context.options.convertToPdf || !context.options.pdf?.renderPages) {
+      return undefined;
+    }
+
+    const sourceFilePath = toFilePath(source.location);
+    const pdfPath = await context.options.convertToPdf(sourceFilePath, context.options.signal);
+    const pdfSource = {
+      ...source,
+      location: pdfPath,
+      type: "pdf" as const,
+      mimeType: "application/pdf",
+      input: (() => createReadStream(pdfPath) as unknown as AsyncIterable<Uint8Array>)(),
+      metadata: { ...source.metadata, convertedFrom: source.location },
+    };
+    // Delegate through the registry so the full PDF parser stack (render + text) applies.
+    const result = await context.registry.parseSource(pdfSource, context.options);
+    result.location = source.location;
+    result.name = source.name ?? result.name;
+    result.metadata = { ...result.metadata, convertedFrom: source.type, pdfPath };
+    return result;
+  }
+};
+
 export const excelParser: ResourceParser = {
   id: "excel-parser",
   supportedTypes: ["excel", "csv", "tsv"],
@@ -82,29 +122,6 @@ export const excelParser: ResourceParser = {
   },
   async parse(source, context) {
     assertNotAborted(context.options.signal);
-
-    // If convertToPdf is available and PDF rendering is enabled, convert to PDF for richer output
-    if (context.options.convertToPdf && context.options.pdf?.renderPages) {
-      try {
-        const sourceFilePath = toFilePath(source.location);
-        const pdfPath = await context.options.convertToPdf(sourceFilePath, context.options.signal);
-        const pdfSource = {
-          ...source,
-          location: pdfPath,
-          type: "pdf" as const,
-          mimeType: "application/pdf",
-          input: (() => createReadStream(pdfPath) as unknown as AsyncIterable<Uint8Array>)(),
-          metadata: { ...source.metadata, convertedFrom: source.location },
-        };
-        const result = await pdfParser.parse(pdfSource, context);
-        result.location = source.location;
-        result.name = source.name ?? result.name;
-        result.metadata = { ...result.metadata, convertedFrom: source.type, pdfPath };
-        return result;
-      } catch {
-        // Conversion failed; fall through to normal xlsx extraction
-      }
-    }
 
     const XLSX = await loadXlsx();
     if (!XLSX) {

@@ -34,7 +34,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "aeye-*.md"
   ],
   "dependencies": {
     "@tavily/core": "^0.5.13",

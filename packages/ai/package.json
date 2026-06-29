@@ -41,7 +41,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "aeye-*.md"
   ],
   "dependencies": {
     "@aeye/core": "^0.3.8"

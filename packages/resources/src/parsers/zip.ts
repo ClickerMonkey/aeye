@@ -1,35 +1,16 @@
 import { Buffer } from "node:buffer";
-import { readFile } from "node:fs/promises";
 import { createParsedResource } from "../registry";
-import type { ParsedResource, ResourceParser, ResourcePart, SupportContext } from "../types";
+import type { ParsedResource, ResourceParser, ResourcePart, ResourceSource, SupportContext } from "../types";
 import {
   assertNotAborted,
+  buildZipEntryLocation,
   createPartId,
   createResourceId,
   dedupeLinks,
-  inferTypeFromLocation,
+  imageMimeTypeFromLocation,
   toFilePath,
 } from "../utils";
-
-/** Zip bomb protection limits. */
-const ZIP_LIMITS = {
-  MAX_FILES: 1000,
-  MAX_TOTAL_SIZE: 100 * 1024 * 1024, // 100MB total uncompressed
-  MAX_FILE_SIZE: 50 * 1024 * 1024, // 50MB per file
-};
-
-let jszip: { loadAsync(data: Uint8Array | Buffer): Promise<{ files: Record<string, { name: string; dir: boolean; async(type: "uint8array"): Promise<Uint8Array> }> }> } | undefined;
-
-async function loadJSZip(): Promise<typeof jszip> {
-  if (jszip) return jszip;
-  try {
-    const mod = await import("jszip");
-    jszip = mod.default ?? mod;
-    return jszip;
-  } catch {
-    return undefined;
-  }
-}
+import { ZIP_LIMITS, getCachedZip, loadJSZip } from "../zip-internal";
 
 export const zipParser: ResourceParser = {
   id: "zip-parser",
@@ -40,15 +21,16 @@ export const zipParser: ResourceParser = {
   },
   async parse(source, context) {
     assertNotAborted(context.options.signal);
-    const JSZip = await loadJSZip();
-    if (!JSZip) {
+    if (!(await loadJSZip())) {
       throw new Error("jszip is not installed. Install it to parse ZIP resources: npm install jszip");
     }
 
-    // Read from file system to avoid holding the entire zip in JS heap
+    // Read (and cache) the zip from the file system to avoid holding the entire zip in JS heap.
     const filePath = toFilePath(source.location);
-    const zipBuffer = await readFile(filePath);
-    const zip = await JSZip.loadAsync(zipBuffer);
+    const zip = await getCachedZip(filePath);
+    if (!zip) {
+      throw new Error("jszip is not installed. Install it to parse ZIP resources: npm install jszip");
+    }
 
     const resource = createParsedResource(source);
     resource.defaultSlicer = "text";
@@ -90,39 +72,37 @@ export const zipParser: ResourceParser = {
       listing.push(entry.name);
 
       // Create a child resource for each file entry
-      const childLocation = `${source.location}#entry/${entry.name}`;
-      const entryType = inferTypeFromLocation(entry.name);
+      const childLocation = buildZipEntryLocation(source.location, entry.name);
+      const entryType = context.registry.inferType(entry.name);
+      const modifiedAt = entry.date instanceof Date ? entry.date.getTime() : undefined;
 
-      const childResource: ParsedResource = {
-        id: createResourceId(childLocation, entryType ?? "unknown"),
-        location: childLocation,
-        type: entryType ?? "unknown",
-        name: entry.name,
-        metadata: { size: uncompressedSize },
-        defaultSlicer: "text",
-        parts: [],
-        links: [],
-        parentLocation: source.location,
-      };
-
-      const childPart: ResourcePart = {
-        id: createPartId(childResource, 0),
-        location: `${childLocation}#part/0`,
-        kind: entryType === "image" ? "image" : "text",
-        data: entryData,
-        mimeType: entryType === "image" ? `image/${getImageExtension(entry.name)}` : undefined,
-      };
-
-      // For text-like files, decode the content
-      if (childPart.kind === "text") {
+      // Try to parse the entry through the registry so its links/parts join the resource graph.
+      // Parsers that read from the filesystem (e.g. nested pdf/zip) cannot handle in-memory entries
+      // and will throw, in which case we fall back to a raw representation below.
+      let childResource: ParsedResource | undefined;
+      if (entryType) {
+        const childSource: ResourceSource = {
+          location: childLocation,
+          input: entryData,
+          type: entryType,
+          name: entry.name,
+          modifiedAt,
+          size: uncompressedSize,
+          metadata: { size: uncompressedSize, parentLocation: source.location },
+        };
         try {
-          childPart.text = Buffer.from(entryData).toString("utf8");
+          childResource = await context.registry.parseSource(childSource, context.options);
         } catch {
-          // Binary file that isn't an image; leave data only
+          childResource = undefined;
         }
       }
 
-      childResource.parts.push(childPart);
+      if (!childResource) {
+        childResource = createRawEntryResource(childLocation, entry.name, entryType, entryData, uncompressedSize, modifiedAt);
+      }
+
+      childResource.parentLocation = source.location;
+      childResource.modifiedAt = childResource.modifiedAt ?? modifiedAt;
       resource.children.push(childResource);
     }
 
@@ -142,21 +122,45 @@ export const zipParser: ResourceParser = {
   }
 };
 
-const IMAGE_EXT_TO_MIME: Record<string, string> = {
-  png: "png",
-  jpg: "jpeg",
-  jpeg: "jpeg",
-  gif: "gif",
-  webp: "webp",
-  bmp: "bmp",
-  ico: "x-icon",
-  avif: "avif",
-  tif: "tiff",
-  tiff: "tiff",
-  svg: "svg+xml",
-};
+/** Builds a minimal child resource for an entry that could not be parsed by a registered parser. */
+function createRawEntryResource(
+  childLocation: string,
+  name: string,
+  entryType: string | undefined,
+  entryData: Uint8Array,
+  size: number,
+  modifiedAt: number | undefined,
+): ParsedResource {
+  const childResource: ParsedResource = {
+    id: createResourceId(childLocation, entryType ?? "unknown"),
+    location: childLocation,
+    type: entryType ?? "unknown",
+    name,
+    modifiedAt,
+    size,
+    metadata: { size },
+    defaultSlicer: "text",
+    parts: [],
+    links: [],
+  };
 
-function getImageExtension(fileName: string): string {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "png";
-  return IMAGE_EXT_TO_MIME[ext] ?? "png";
+  const childPart: ResourcePart = {
+    id: createPartId(childResource, 0),
+    location: `${childLocation}#part/0`,
+    kind: entryType === "image" ? "image" : "text",
+    data: entryData,
+    mimeType: entryType === "image" ? imageMimeTypeFromLocation(name) : undefined,
+  };
+
+  // For text-like files, decode the content
+  if (childPart.kind === "text") {
+    try {
+      childPart.text = Buffer.from(entryData).toString("utf8");
+    } catch {
+      // Binary file that isn't an image; leave data only
+    }
+  }
+
+  childResource.parts.push(childPart);
+  return childResource;
 }

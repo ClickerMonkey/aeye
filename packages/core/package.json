@@ -46,7 +46,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "aeye-*.md"
   ],
   "dependencies": {
     "handlebars": "^4.7.0",
