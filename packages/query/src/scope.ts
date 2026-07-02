@@ -14,6 +14,7 @@
  * for problems / JSON.
  */
 import type { ResolvedType } from './resolved-type';
+import type { Expr } from './expr';
 import { ParamSet } from './param';
 
 /** A lexical resolution scope: bound sources + a shared {@link ParamSet}, chained to an optional parent. */
@@ -24,6 +25,16 @@ export class QueryScope {
   readonly params: ParamSet;
   /** source name → its resolved type, for THIS level only. */
   private readonly bindings = new Map<string, ResolvedType>();
+  /**
+   * SELECT output field name → its (parsed) projection `Expr`, bound at THIS
+   * level ONLY (never inherited up the parent chain) when a SELECT resolves its
+   * `groupBy` / `orderBy` / `having` clauses. An `output` reference reads its
+   * delegate target from here. Local-only binding is deliberate: a nested
+   * subquery's own scope must NOT see the enclosing SELECT's outputs, and a
+   * WHERE / JOIN-ON scope (which never binds outputs) makes an `output`
+   * reference there fail validation.
+   */
+  private outputs?: ReadonlyMap<string, Expr>;
 
   /**
    * Create a scope. A child reuses its `parent`'s `ParamSet` (or the explicitly
@@ -58,6 +69,34 @@ export class QueryScope {
   /** All source names bound at this level (not including ancestors). */
   localSources(): string[] {
     return Array.from(this.bindings.keys());
+  }
+
+  /**
+   * Bind the enclosing SELECT's output fields (name → projection `Expr`) at
+   * this scope level, so an `output` reference in a `groupBy` / `orderBy` /
+   * `having` clause can delegate to its target expression. Chainable.
+   */
+  bindOutputs(outputs: ReadonlyMap<string, Expr>): this {
+    this.outputs = outputs;
+    return this;
+  }
+
+  /**
+   * The SELECT output projection `Expr` named `name`, or `undefined` when no
+   * such output is bound here. NOT inherited from ancestors (see `outputs`).
+   */
+  output(name: string): Expr | undefined {
+    return this.outputs?.get(name);
+  }
+
+  /** Whether ANY outputs are bound at this level (a SELECT clause scope). */
+  hasOutputs(): boolean {
+    return this.outputs !== undefined;
+  }
+
+  /** The bound output field names at this level (empty when none are bound). */
+  outputNames(): string[] {
+    return this.outputs ? Array.from(this.outputs.keys()) : [];
   }
 
   /** Create a child scope sharing this scope's ParamSet. */

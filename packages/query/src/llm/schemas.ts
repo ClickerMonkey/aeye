@@ -448,6 +448,24 @@ export function buildSchemas(
     })
     .describe('An ORDER BY entry.');
 
+  // An `output` reference — a SELECT output field named by string — is offered
+  // ONLY in a SELECT's groupBy / orderBy / having (never in the general Expr
+  // union, so it can't appear in WHERE / expr args). `name` is QUERY-LOCAL, so
+  // it stays a plain string regardless of depth.
+  const OutputRef: z.ZodTypeAny = z
+    .object({ kind: z.literal('output'), name: z.string() })
+    .describe('A reference to a SELECT output field by name (its `as`, or the natural derived name).');
+  // A groupBy / having expression OR an output-field reference.
+  const GroupExpr: z.ZodTypeAny = Expr.or(OutputRef);
+  // A SELECT ORDER BY entry whose `expr` may also be an output-field reference.
+  const SelectOrder: z.ZodTypeAny = z
+    .object({
+      expr: GroupExpr,
+      dir: enumOf(['asc', 'desc']),
+      nulls: enumOf(['first', 'last']).optional(),
+    })
+    .describe('An ORDER BY entry (its `expr` may reference a SELECT output field by name).');
+
   const SelectField: z.ZodTypeAny = z
     .object({ expr: Expr, as: z.string().optional() })
     .describe('A selected output field.');
@@ -464,9 +482,9 @@ export function buildSchemas(
       from: Source,
       joins: joinsField,
       where: z.array(Expr).optional(),
-      groupBy: z.array(Expr).optional(),
-      having: z.array(Expr).optional(),
-      order: z.array(Order).optional(),
+      groupBy: z.array(GroupExpr).optional(),
+      having: z.array(GroupExpr).optional(),
+      order: z.array(SelectOrder).optional(),
       limit: limitOffset.optional(),
       offset: limitOffset.optional(),
       // `includeTotal` is an EXECUTION-time option (engine.run / engine.toSQL),

@@ -125,6 +125,7 @@ export class QuerySource {
         inWindow: false,
         allowAggregate: false,
         groupKeys: [],
+        inGroupBy: false,
       });
       return;
     }
@@ -140,6 +141,7 @@ export class QuerySource {
         inWindow: false,
         allowAggregate: true,
         groupKeys: [],
+        inGroupBy: false,
       });
     }
   }

@@ -549,6 +549,12 @@ export function exprKindApplicable(
       // kept OUT of the general Expr union and folded into that position alone
       // (see the `OnConflict.update` schema in `llm/schemas.ts`).
       return false;
+    case 'output':
+      // A reference to a SELECT output field by name, only valid in a SELECT's
+      // groupBy / orderBy / having — so it is kept OUT of the general Expr union
+      // (never offered in WHERE / expr args) and folded into those clause
+      // positions alone (see the `Select` schema in `llm/schemas.ts`).
+      return false;
     default:
       return true;
   }

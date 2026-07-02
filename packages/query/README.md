@@ -160,6 +160,44 @@ type, or a join hop rebinding the FROM / DML target type — the engine reports 
 > whose hop rebinds `user`) currently errors with `source.duplicate`; an
 > aliased-DML target mechanism is a deferred follow-up.
 
+### Output references (`groupBy` / `orderBy` / `having`)
+
+A SELECT's `groupBy`, `order`, and `having` can reference a **projected output
+field by name** instead of repeating its expression — via
+`{ kind: 'output', name }`. The `name` is the output's `as`, or its natural
+derived name (a field-ref's field, a relation-path's last segment, an
+aggregate's function name). The reference **EXPANDS to** (delegates to) the
+referenced select item's expression: the SQL emits the target's SQL (portable
+across dialects, in every clause), and the runtime re-evaluates the target — so
+a group key re-computes over the source row while an ORDER BY / HAVING ref
+re-computes over the group (including an aggregate target). This keeps queries
+smaller and removes a whole class of GROUP BY / ORDER BY mismatches.
+
+```ts
+// Revenue per user, grouped + ordered by output name — the `sum` / `userId`
+// expressions are written ONCE, in `fields`.
+const revenuePerUser = {
+  kind: 'select',
+  fields: [
+    { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
+    { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } }, as: 'revenue' },
+  ],
+  from: { kind: 'type', type: 'order' },
+  groupBy: [{ kind: 'output', name: 'userId' }],   // ← by output name, not the expr
+  having:  [{ kind: 'comparison', op: '>', left: { kind: 'output', name: 'revenue' }, right: { kind: 'literal', value: 100 } }],
+  order:   [{ expr: { kind: 'output', name: 'revenue' }, dir: 'desc' }],
+} as const;
+```
+
+It is valid **only** in those three clause positions — in WHERE, a join `on`, or
+any general expression argument (where no outputs are bound) it fails validation
+with `output.not-available`. An unknown name reports `output.unknown`, and using
+one as a GROUP BY key whose target is an aggregate reports `output.aggregate`
+(you cannot group BY an aggregate). The LLM schema offers `output` in exactly
+those `groupBy` / `orderBy` / `having` positions and nowhere else. `drillDown`
+expands any `output` references against the original projection before it
+un-ravels the aggregates, so a drilled query never dangles.
+
 ## Execution model
 
 There is ONE execution contract: **run a query, optionally with param values

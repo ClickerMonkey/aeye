@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { ExprClass } from '../expr';
 import type { SchemaOptions } from '../node';
 import { LiteralExpr } from './literal';
+import { OutputRefExpr } from './output-ref';
 import { FieldRefExpr } from './field-ref';
 import { RelationPathExpr } from './relation-path';
 import { ParamExpr } from './param';
@@ -32,6 +33,7 @@ import { ExcludedExpr } from './excluded';
 
 export {
   LiteralExpr,
+  OutputRefExpr,
   FieldRefExpr,
   RelationPathExpr,
   ParamExpr,
@@ -61,6 +63,7 @@ export type { FilterFieldOps } from './filters';
 /** All built-in Expr classes, in a stable order for registry / docs. */
 export const BUILTIN_EXPRS: readonly ExprClass[] = [
   LiteralExpr,
+  OutputRefExpr,
   FieldRefExpr,
   RelationPathExpr,
   ParamExpr,

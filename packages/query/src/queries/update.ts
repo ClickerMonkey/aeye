@@ -147,7 +147,7 @@ export class UpdateQuery extends Query {
     // collides with the DML target → reported as `source.duplicate`.
     reportDuplicateSources(p, this.boundSources(engine));
     const { scope: inner } = this.bind(engine, scope);
-    const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [] };
+    const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [], inGroupBy: false };
     p.at('set', () => {
       this.set.forEach((s, i) => {
         if (!type.field(s.field)) p.at([i, 'field'], () => p.error('update.unknown-field', `Type '${this.type}' has no field '${s.field}'.`));

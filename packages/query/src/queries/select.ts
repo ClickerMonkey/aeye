@@ -125,6 +125,24 @@ export class SelectQuery extends Query {
     return `col${i}`;
   }
 
+  /**
+   * The enclosing SELECT's output projections keyed by OUTPUT NAME (each field's
+   * `as`, else its natural name). This is the map an `output` reference in
+   * `groupBy` / `orderBy` / `having` delegates through — bound onto the scope
+   * (`bindOutputs`) at validate / SQL time and onto the runtime context
+   * (`withOutputs`) at execute time.
+   */
+  private outputExprs(): Map<string, Expr> {
+    const m = new Map<string, Expr>();
+    this.fields.forEach((c, i) => m.set(this.fieldName(c, i), c.expr));
+    return m;
+  }
+
+  /** A child of `inner` exposing this SELECT's outputs to `output` references. */
+  private outputScope(inner: QueryScope): QueryScope {
+    return inner.child().bindOutputs(this.outputExprs());
+  }
+
   /** Bind FROM + joins into a fresh child scope; also collect alias → Type. */
   private bind(engine: QueryEngine, scope: QueryScope): {
     scope: QueryScope;
@@ -205,8 +223,15 @@ export class SelectQuery extends Query {
         }
       });
     });
-    const colCtx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [] };
+    const colCtx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
     const predCtx: ValidateContext = { ...colCtx, allowAggregate: false };
+    // GROUP BY keys may not aggregate, and an `output` ref there rejects an
+    // aggregate target (`output.aggregate`) — flagged via `inGroupBy`.
+    const groupCtx: ValidateContext = { ...predCtx, inGroupBy: true };
+    // GROUP BY / HAVING / ORDER BY resolve against a child scope exposing this
+    // SELECT's outputs, so an `output` reference can delegate to its target.
+    // WHERE / fields do NOT (an `output` ref there ⇒ `output.not-available`).
+    const outScope = this.outputScope(inner);
     p.at('fields', () => {
       this.fields.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, colCtx)));
     });
@@ -214,13 +239,13 @@ export class SelectQuery extends Query {
       this.where.forEach((w, i) => p.at(i, () => w.validateWalk(engine, inner, p, predCtx)));
     });
     p.at('groupBy', () => {
-      this.groupBy.forEach((g, i) => p.at(i, () => g.validateWalk(engine, inner, p, predCtx)));
+      this.groupBy.forEach((g, i) => p.at(i, () => g.validateWalk(engine, outScope, p, groupCtx)));
     });
     p.at('having', () => {
-      this.having.forEach((h, i) => p.at(i, () => h.validateWalk(engine, inner, p, colCtx)));
+      this.having.forEach((h, i) => p.at(i, () => h.validateWalk(engine, outScope, p, colCtx)));
     });
     p.at('order', () => {
-      this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, inner, p, colCtx)));
+      this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, colCtx)));
     });
   }
 
@@ -350,10 +375,14 @@ export class SelectQuery extends Query {
       rows = kept;
     }
 
+    // The output projections `output` references delegate through — installed
+    // on the context for the duration of GROUP BY / HAVING / ORDER BY below.
+    const outputs = this.outputExprs();
+
     // 4. GROUP BY + projection.
     let projected: ProjectedRow[];
     if (this.groupBy.length) {
-      const groups = await this.groupRows(rows, ctx);
+      const groups = await ctx.withOutputs(outputs, () => this.groupRows(rows, ctx));
       projected = [];
       for (const g of groups) {
         projected.push({ record: await this.project(ctx, g[0]!, g), row: g[0]!, group: g });
@@ -379,9 +408,11 @@ export class SelectQuery extends Query {
     // 5. HAVING (over the group rows).
     if (this.having.length) {
       const kept: ProjectedRow[] = [];
-      for (const pr of projected) {
-        if (await this.allTrue(this.having, ctx, pr.row, pr.group)) kept.push(pr);
-      }
+      await ctx.withOutputs(outputs, async () => {
+        for (const pr of projected) {
+          if (await this.allTrue(this.having, ctx, pr.row, pr.group)) kept.push(pr);
+        }
+      });
       projected = kept;
     }
 
@@ -404,7 +435,7 @@ export class SelectQuery extends Query {
         row: pr.row,
         group: pr.group,
       }));
-      outRows = await sortEntries(entries, this.order, ctx);
+      outRows = await ctx.withOutputs(outputs, () => sortEntries(entries, this.order, ctx));
     } else {
       outRows = projected.map((pr) => pr.record);
     }
@@ -559,10 +590,13 @@ export class SelectQuery extends Query {
       if (fromRls) wherePreds.push(fromRls);
     }
 
-    // 4. GROUP BY / HAVING / ORDER BY (may also register joins).
-    const groupSqls = this.groupBy.map((g) => g.toSQL(dialect, selCtx));
-    const havingSqls = this.having.map((h) => h.toSQL(dialect, selCtx));
-    const orderSqls = this.order.map((o) => this.orderTermSQL(dialect, selCtx, o));
+    // 4. GROUP BY / HAVING / ORDER BY (may also register joins). These resolve
+    //    against a child scope exposing this SELECT's outputs (same planner), so
+    //    an `output` reference EXPANDS to its target's SQL.
+    const outCtx = selCtx.withScope(this.outputScope(inner));
+    const groupSqls = this.groupBy.map((g) => g.toSQL(dialect, outCtx));
+    const havingSqls = this.having.map((h) => h.toSQL(dialect, outCtx));
+    const orderSqls = this.order.map((o) => this.orderTermSQL(dialect, outCtx, o));
 
     // 5. FROM + LIMIT/OFFSET.
     const fromSql = this.fromSQL(dialect, selCtx);

@@ -569,9 +569,31 @@ export interface ExcludedExprDef {
   field: string;
 }
 
+/**
+ * A reference to a SELECT OUTPUT FIELD by its name — either the field's
+ * explicit `as`, or the natural derived name (see `fieldNameOf`: a field-ref's
+ * field, a relation-path's last segment, an aggregate's function name, else
+ * `col<i>`). It lets a SELECT's `groupBy` / `orderBy` / `having` reference a
+ * projected output BY NAME instead of repeating its whole expression — smaller
+ * queries and fewer GROUP BY / ORDER BY mismatches.
+ *
+ * It EXPANDS to (delegates to) the referenced select item's expression: SQL
+ * emits the target's SQL and the runtime re-evaluates the target expr, so a
+ * group key re-computes over the source row and an ORDER BY / HAVING ref
+ * re-computes over the group (including an aggregate target). It is ONLY valid
+ * in those clause positions — used in WHERE / a JOIN `on` / a general expr
+ * argument (where no outputs are bound) it fails validation.
+ */
+export interface OutputRefExprDef {
+  kind: 'output';
+  /** The referenced output field's name (a select item's `as` or natural name). */
+  name: string;
+}
+
 /** Discriminated union of every expression shape. */
 export type ExprDef =
   | LiteralExprDef
+  | OutputRefExprDef
   | FieldRefExprDef
   | RelationPathExprDef
   | ParamExprDef

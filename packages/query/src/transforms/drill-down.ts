@@ -55,6 +55,7 @@ import {
 import {
   AggregateExpr,
   FieldRefExpr,
+  OutputRefExpr,
   RelationPathExpr,
   WindowExpr,
 } from '../exprs/index';
@@ -112,6 +113,139 @@ export interface DrillDownIntoSuccess {
 function asSelectQuery(select: SelectQuery | SelectDef, engine: QueryEngine): SelectQuery {
   if (select instanceof SelectQuery) return select;
   return SelectQuery.from(select, engine.registry);
+}
+
+/** Whether an expr tree contains an `output` reference anywhere. */
+function containsOutputRef(expr: Expr): boolean {
+  let found = false;
+  expr.walk((e) => {
+    if (e instanceof OutputRefExpr) found = true;
+  });
+  return found;
+}
+
+/** Map every value of a named-args record through `expandOutputDef`. */
+function expandArgs(
+  args: Record<string, ExprDef>,
+  outputs: ReadonlyMap<string, ExprDef>,
+): Record<string, ExprDef> {
+  const out: Record<string, ExprDef> = {};
+  for (const [k, v] of Object.entries(args)) out[k] = expandOutputDef(v, outputs);
+  return out;
+}
+
+/**
+ * Replace every `output` reference in `def` with the referenced select item's
+ * expression (`outputs`, name → the original select's projection def), so the
+ * rebuilt drill-down query never DANGLES a reference to an output that the
+ * un-ravelling removed. Recurses through every expr child position but STOPS at
+ * an embedded subquery (`exists` / `subquery` / an `in` sub-select), which
+ * carries its OWN outputs. Exhaustive over `ExprKind` so a new kind can't slip
+ * an output reference past the expansion.
+ */
+function expandOutputDef(def: ExprDef, outputs: ReadonlyMap<string, ExprDef>): ExprDef {
+  switch (def.kind) {
+    case 'output':
+      // The target is a plain select item (it cannot itself hold an output ref).
+      return outputs.get(def.name) ?? def;
+    case 'binary':
+    case 'comparison':
+      return { ...def, left: expandOutputDef(def.left, outputs), right: expandOutputDef(def.right, outputs) };
+    case 'unary':
+      return { ...def, operand: expandOutputDef(def.operand, outputs) };
+    case 'logical':
+      return { ...def, operands: def.operands.map((o) => expandOutputDef(o, outputs)) };
+    case 'in':
+      return {
+        ...def,
+        value: expandOutputDef(def.value, outputs),
+        // A value LIST is expanded; a sub-SELECT (`in` as a QueryDef) is opaque.
+        in: Array.isArray(def.in) ? def.in.map((e) => expandOutputDef(e, outputs)) : def.in,
+      };
+    case 'between':
+      return {
+        ...def,
+        value: expandOutputDef(def.value, outputs),
+        lower: expandOutputDef(def.lower, outputs),
+        upper: expandOutputDef(def.upper, outputs),
+      };
+    case 'is-null':
+      return { ...def, value: expandOutputDef(def.value, outputs) };
+    case 'array-op':
+      return {
+        ...def,
+        target: expandOutputDef(def.target, outputs),
+        value: Array.isArray(def.value)
+          ? def.value.map((e) => expandOutputDef(e, outputs))
+          : def.value !== undefined
+            ? expandOutputDef(def.value, outputs)
+            : def.value,
+      };
+    case 'case':
+      return {
+        ...def,
+        branches: def.branches.map((b) => ({
+          when: expandOutputDef(b.when, outputs),
+          then: expandOutputDef(b.then, outputs),
+        })),
+        else: def.else !== undefined ? expandOutputDef(def.else, outputs) : def.else,
+      };
+    case 'aggregate':
+    case 'function-call':
+    case 'tabular-function-call':
+      return { ...def, args: expandArgs(def.args, outputs) };
+    case 'window':
+      return {
+        ...def,
+        args: expandArgs(def.args, outputs),
+        partitionBy: def.partitionBy?.map((e) => expandOutputDef(e, outputs)),
+        orderBy: def.orderBy?.map((o) => ({ ...o, expr: expandOutputDef(o.expr, outputs) })),
+      };
+    // Leaves + subquery-holders (their embedded QueryDef carries its own
+    // outputs, so it is left untouched): return unchanged.
+    case 'literal':
+    case 'field-ref':
+    case 'relation-path':
+    case 'param':
+    case 'exists':
+    case 'subquery':
+    case 'semantic':
+    case 'text-search':
+    case 'filters':
+    case 'excluded':
+      return def;
+    /* v8 ignore next 2 -- unreachable: `def.kind` exhaustively covers ExprKind (compile-time guard) */
+    default:
+      return assertNeverExprKind(def);
+  }
+}
+
+/**
+ * Expand every `output` reference in a SELECT's `groupBy` / `orderBy` / `having`
+ * against its ORIGINAL projection items, returning an equivalent `SelectQuery`
+ * whose those clauses reference the underlying expressions directly. A no-op
+ * (returns the input) when no clause uses an `output` reference.
+ */
+function expandSelectOutputs(sq: SelectQuery, engine: QueryEngine): SelectQuery {
+  const usesOutput =
+    sq.groupBy.some(containsOutputRef) ||
+    sq.having.some(containsOutputRef) ||
+    sq.order.some((o) => containsOutputRef(o.expr));
+  if (!usesOutput) return sq;
+
+  const outputs = new Map<string, ExprDef>();
+  sq.fields.forEach((c, i) => outputs.set(fieldNameOf(c.expr, c.as, i), c.expr.toJSON()));
+
+  const def = sq.toJSON();
+  if (def.groupBy) def.groupBy = def.groupBy.map((d) => expandOutputDef(d, outputs));
+  if (def.having) def.having = def.having.map((d) => expandOutputDef(d, outputs));
+  if (def.order) def.order = def.order.map((o) => ({ ...o, expr: expandOutputDef(o.expr, outputs) }));
+  return SelectQuery.from(def, engine.registry);
+}
+
+/* v8 ignore next 3 -- compile-time exhaustiveness guard over ExprKind; never invoked at runtime */
+function assertNeverExprKind(value: never): never {
+  throw new Error(`drill-down: unhandled expr kind ${JSON.stringify(value)}`);
 }
 
 /** Whether `value` is a scalar a `literal` / param value can carry. */
@@ -212,7 +346,10 @@ export function drillDown(
   select: SelectQuery | SelectDef,
   engine: QueryEngine,
 ): DrillDownResult {
-  const sq = asSelectQuery(select, engine);
+  // Expand any `output` references in GROUP BY / ORDER BY / HAVING against the
+  // ORIGINAL projection FIRST, so the un-ravelling (which rewrites the SELECT
+  // items) never leaves a reference dangling at a removed aggregate output.
+  const sq = expandSelectOutputs(asSelectQuery(select, engine), engine);
   const errors = new Problems();
   const warnings = new Problems();
 

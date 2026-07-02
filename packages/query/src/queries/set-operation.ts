@@ -105,7 +105,7 @@ export class SetOperationQuery extends Query {
     p.at('right', () => this.right.validateWalk(engine, scope, p, ctx));
     if (this.order.length) {
       const inner = this.orderScope(engine, scope);
-      const colCtx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [] };
+      const colCtx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [], inGroupBy: false };
       p.at('order', () => {
         this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, inner, p, colCtx)));
       });

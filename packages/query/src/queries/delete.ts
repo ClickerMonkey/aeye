@@ -139,7 +139,7 @@ export class DeleteQuery extends Query {
     // collides with the DML target → reported as `source.duplicate`.
     reportDuplicateSources(p, this.boundSources(engine));
     const { scope: inner } = this.bind(engine, scope);
-    const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [] };
+    const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [], inGroupBy: false };
     p.at('where', () => this.where.forEach((w, i) => p.at(i, () => w.validateWalk(engine, inner, p, ctx))));
     const colCtx: ValidateContext = { ...ctx, allowAggregate: true };
     p.at('returning', () => this.returning.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, colCtx))));

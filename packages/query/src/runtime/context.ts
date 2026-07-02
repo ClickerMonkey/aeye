@@ -94,6 +94,14 @@ export class RuntimeContext {
   readonly embeddingCache = new Map<string, number[]>();
   /** Outer row visible to a correlated subquery (null at top level). */
   correlation: SourceRow | null = null;
+  /**
+   * The enclosing SELECT's output projections (name → `Expr`), installed for
+   * the duration of its `groupBy` / `orderBy` / `having` evaluation via
+   * `withOutputs`. An `output` reference reads its delegate target from here at
+   * runtime. Empty outside a SELECT clause (so an `output` reference elsewhere
+   * evaluates to NULL — it is already rejected by validation).
+   */
+  private outputs: ReadonlyMap<string, Expr> = new Map();
   /** Cap on recursive-CTE iterations. */
   readonly maxCteIterations: number;
   /** Whether a top-level SELECT should report its pre-limit `total`. */
@@ -259,6 +267,30 @@ export class RuntimeContext {
     } finally {
       this.correlation = prev;
     }
+  }
+
+  // ─── SELECT output projections (for `output` references) ──────────────
+
+  /**
+   * Run `fn` with `outputs` (name → projection `Expr`) installed as the
+   * enclosing SELECT's outputs, restoring the previous set afterwards. A SELECT
+   * wraps its GROUP BY / HAVING / ORDER BY evaluation in this so an `output`
+   * reference can delegate to its target. Save/restore keeps nested SELECTs
+   * (subqueries) correct — each installs and restores its own outputs.
+   */
+  async withOutputs<T>(outputs: ReadonlyMap<string, Expr>, fn: () => Promise<T>): Promise<T> {
+    const prev = this.outputs;
+    this.outputs = outputs;
+    try {
+      return await fn();
+    } finally {
+      this.outputs = prev;
+    }
+  }
+
+  /** The enclosing SELECT's projection `Expr` named `name`, or `undefined`. */
+  outputExpr(name: string): Expr | undefined {
+    return this.outputs.get(name);
   }
 
   // ─── Embedding ────────────────────────────────────────────────────────

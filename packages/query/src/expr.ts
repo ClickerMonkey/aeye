@@ -57,12 +57,16 @@ import { Value } from './runtime/value';
  *                      aggregate).
  *  - `groupKeys`     — the GROUP BY key expressions in scope (reserved for
  *                      Phase 3's grouped-select validation).
+ *  - `inGroupBy`     — currently inside a GROUP BY key position. Lets an
+ *                      `output` reference reject a target that is an aggregate
+ *                      (`output.aggregate` — you cannot group BY an aggregate).
  */
 export interface ValidateContext {
   readonly inAggregate: boolean;
   readonly inWindow: boolean;
   readonly allowAggregate: boolean;
   readonly groupKeys: readonly Expr[];
+  readonly inGroupBy: boolean;
 }
 
 /** The default top-level context: a bare expression may aggregate freely. */
@@ -71,6 +75,7 @@ export const ROOT_VALIDATE_CONTEXT: ValidateContext = {
   inWindow: false,
   allowAggregate: true,
   groupKeys: [],
+  inGroupBy: false,
 };
 
 /**

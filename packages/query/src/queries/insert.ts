@@ -145,7 +145,7 @@ export class InsertQuery extends Query {
       });
     }
     const inner = this.targetScope(engine, scope);
-    const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [] };
+    const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
     p.at('returning', () => {
       this.returning.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, ctx)));
     });
