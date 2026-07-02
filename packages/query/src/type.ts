@@ -1,0 +1,244 @@
+/**
+ * Type — a type-like entity: a named collection of `Field`s plus
+ * `Index`es and cardinality estimates (`count` rows, `bytes` per row) that
+ * drive cost estimation. The query-language analogue of gin's `Type`, but
+ * relational rather than a value-type algebra.
+ */
+import { z } from 'zod';
+import type { FieldDef, IndexDef, TypeDef } from './schema';
+import type { CodeOptions, Node, SchemaOptions } from './node';
+import type { Registry } from './registry';
+import { Field } from './field';
+import { Index } from './index-spec';
+import { QueryTypeError } from './problem';
+import { ArrayFieldType, RelationFieldType, TextFieldType, fieldTypeDefSchema } from './field-types/index';
+
+/** Constructor spec for a {@link Type} — name, metadata, fields, indexes, and cost estimates. */
+export interface TypeSpec {
+  /** Type name (unique within the registry). */
+  name: string;
+  /** Short human-readable label. */
+  label?: string;
+  /** Longer human / LLM-facing description. */
+  description?: string;
+  /** The fields declared on this Type. */
+  fields: Field[];
+  /** The (composite) indexes declared on this Type. */
+  indexes: Index[];
+  /** Estimated row count. */
+  count: number;
+  /** Estimated average bytes per row. */
+  bytes: number;
+  /** Eligible for embedding-based semantic similarity across the type's data. */
+  semantic?: boolean;
+  /** Eligible for full-text search across the type's data. */
+  search?: boolean;
+}
+
+/**
+ * A type-like entity: a named collection of {@link Field}s plus {@link Index}es
+ * and cardinality estimates (`count` rows, `bytes` per row) that drive cost.
+ */
+export class Type implements Node {
+  /** Type name (unique within the registry). */
+  readonly name: string;
+  /** Short human-readable label, if any. */
+  readonly label?: string;
+  /** Longer human / LLM-facing description, if any. */
+  readonly description?: string;
+  /** The fields declared on this Type. */
+  readonly fields: Field[];
+  /** The (composite) indexes declared on this Type. */
+  readonly indexes: Index[];
+  /** Estimated total row count (drives cost estimation). */
+  readonly count: number;
+  /** Estimated average bytes per row (drives byte-cost estimation). */
+  readonly bytes: number;
+  /** Whether the whole type is flagged semantic-eligible. */
+  readonly semantic: boolean;
+  /** Whether the whole type is flagged full-text-search-eligible. */
+  readonly search: boolean;
+
+  /** Construct a Type from its spec, defaulting `semantic`/`search` to false. */
+  constructor(spec: TypeSpec) {
+    this.name = spec.name;
+    this.label = spec.label;
+    this.description = spec.description;
+    this.fields = spec.fields;
+    this.indexes = spec.indexes;
+    this.count = spec.count;
+    this.bytes = spec.bytes;
+    this.semantic = spec.semantic ?? false;
+    this.search = spec.search ?? false;
+  }
+
+  /** Look up a field by name. */
+  field(name: string): Field | undefined {
+    return this.fields.find((f) => f.name === name);
+  }
+
+  /** Fields whose type is a relation to another Type. */
+  relationFields(): Field[] {
+    return this.fields.filter((f) => f.fieldType instanceof RelationFieldType);
+  }
+
+  /** Fields whose type is `text` (the candidates a narrowed text-search targets). */
+  textFields(): Field[] {
+    return this.fields.filter((f) => f.fieldType instanceof TextFieldType);
+  }
+
+  /**
+   * Fields that expose at least one filter operator — the allowlist candidates a
+   * `filters` placeholder may name. Every shipped field type has a non-empty
+   * catalog, so in practice this is "every field", but deriving it from the
+   * catalog keeps it honest if a future field type opts out.
+   */
+  filterableFields(): Field[] {
+    return this.fields.filter((f) => f.fieldType.filterOps().length > 0);
+  }
+
+  /** Whether this Type declares any `array`-valued field (gates `array-op`). */
+  hasArrayField(): boolean {
+    return this.fields.some((f) => f.fieldType instanceof ArrayFieldType);
+  }
+
+  /**
+   * The IDENTITY field used as the join key on this Type's side of a relation:
+   * the field referenced by the first single-part UNIQUE index (one part,
+   * `count === 1`, whose expr is a field-ref), else the field named `id`, else
+   * a clear error. Relations resolve their keys through this.
+   */
+  identityField(): Field {
+    for (const idx of this.indexes) {
+      if (idx.parts.length !== 1) continue;
+      const part = idx.parts[0]!;
+      if (part.count !== 1) continue;
+      if (part.expr.kind !== 'field-ref') continue;
+      const field = this.field(part.expr.field);
+      if (field) return field;
+    }
+    const byName = this.field('id');
+    if (byName) return byName;
+    throw new QueryTypeError({
+      path: [], code: 'type.no-identity', severity: 'error',
+      message:
+        `Type '${this.name}' needs an identity field (a unique single-field index ` +
+        `or an 'id' field) to participate in relations.`,
+    });
+  }
+
+  /**
+   * Fields eligible for semantic-aware querying: text fields flagged
+   * `semantic` or `search`, plus all relation fields (which can drive
+   * cross-entity semantic joins).
+   */
+  semanticFields(): Field[] {
+    return this.fields.filter((f) => {
+      const ft = f.fieldType;
+      if (ft instanceof TextFieldType) return ft.options.semantic === true || ft.options.search === true;
+      return ft instanceof RelationFieldType;
+    });
+  }
+
+  /** Whether this Type is eligible for embedding-based semantic similarity. */
+  isSemantic(): boolean {
+    return this.semantic || this.semanticFields().length > 0;
+  }
+
+  /** Whether this Type is eligible for full-text search. */
+  isSearchable(): boolean {
+    if (this.search) return true;
+    return this.fields.some(
+      (f) => f.fieldType instanceof TextFieldType && f.fieldType.options.search === true,
+    );
+  }
+
+  /** Build a Type from its JSON, parsing fields/indexes via `registry`. */
+  static from(json: TypeDef, registry: Registry): Type {
+    const fields = json.fields.map((fd) => Field.from(fd, registry));
+    const indexes = (json.indexes ?? []).map((id) => Index.from(id));
+    return new Type({
+      name: json.name,
+      label: json.label,
+      description: json.description,
+      fields,
+      indexes,
+      count: json.count,
+      bytes: json.bytes,
+      semantic: json.semantic,
+      search: json.search,
+    });
+  }
+
+  /** Zod schema for the `TypeDef` JSON shape. */
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    const fieldDefSchema: z.ZodTypeAny = z.object({
+      name: z.string(),
+      label: z.string().optional(),
+      description: z.string().optional(),
+      type: fieldTypeDefSchema(),
+      nullable: z.boolean().optional(),
+    }).meta({ aid: 'FieldDef' }).describe('A field (field) definition.');
+    // Index expr references the (phase-2) ExprDef union; accept the caller's
+    // lazy Expr schema when supplied, else a permissive object.
+    const exprSchema = opts?.Expr ?? z.object({ kind: z.string() }).loose();
+    const indexPartDefSchema = z.object({
+      expr: exprSchema,
+      count: z.number().describe('Prefix distinct rows up to & including this part; last part 1 ⇒ unique.'),
+    }).meta({ aid: 'IndexPartDef' }).describe('One ordered part of a composite index.');
+    const indexDefSchema = z.object({
+      exprs: z.array(indexPartDefSchema).describe('Ordered composite-index parts.'),
+    }).meta({ aid: 'IndexDef' }).describe('A composite index definition.');
+    return z.object({
+      name: z.string(),
+      label: z.string().optional(),
+      description: z.string().optional(),
+      fields: z.array(fieldDefSchema),
+      indexes: z.array(indexDefSchema).optional(),
+      count: z.number().describe('Estimated total row count.'),
+      bytes: z.number().describe('Estimated average bytes per row.'),
+      semantic: z.boolean().optional().describe('Eligible for semantic similarity across the type.'),
+      search: z.boolean().optional().describe('Eligible for full-text search across the type.'),
+    }).meta({ aid: 'TypeDef' }).describe('A type-like Type definition.');
+  }
+
+  /** Serialize to its `TypeDef` JSON shape (omits synthetic fields and false flags). */
+  toJSON(): TypeDef {
+    // Synthetic (materialized) fields are omitted so an authored schema
+    // round-trips cleanly; the registry re-materializes them on finalize.
+    const fields: FieldDef[] = this.fields.filter((f) => !f.synthetic).map((f) => f.toJSON());
+    const indexes: IndexDef[] = this.indexes.map((i) => i.toJSON());
+    return {
+      name: this.name,
+      label: this.label,
+      description: this.description,
+      fields,
+      indexes: indexes.length > 0 ? indexes : undefined,
+      count: this.count,
+      bytes: this.bytes,
+      semantic: this.semantic ? true : undefined,
+      search: this.search ? true : undefined,
+    };
+  }
+
+  /** Deep-copy this Type (cloning every field and index). */
+  clone(): Type {
+    return new Type({
+      name: this.name,
+      label: this.label,
+      description: this.description,
+      fields: this.fields.map((f) => f.clone()),
+      indexes: this.indexes.map((i) => i.clone()),
+      count: this.count,
+      bytes: this.bytes,
+      semantic: this.semantic,
+      search: this.search,
+    });
+  }
+
+  /** Render a short `type Name { ...fields }` description. */
+  toCode(_registry?: Registry, _options?: CodeOptions): string {
+    const fieldList = this.fields.map((f) => `  ${f.toCode()}`).join('\n');
+    return `type ${this.name} {\n${fieldList}\n}`;
+  }
+}

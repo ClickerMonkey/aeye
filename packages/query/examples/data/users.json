@@ -1,0 +1,6 @@
+[
+  { "id": 1, "name": "Ada Lovelace", "age": 36, "email": "ada@example.com", "city": "London" },
+  { "id": 2, "name": "Bob Martin", "age": 42, "email": "bob@example.com", "city": "Austin" },
+  { "id": 3, "name": "Cleo Nguyen", "age": 29, "email": "cleo@example.com", "city": "London" },
+  { "id": 4, "name": "Dane Olsen", "age": 51, "email": "dane@example.com", "city": "Oslo" }
+]

@@ -1,0 +1,874 @@
+/**
+ * `@aeye/query` JSON Schema — THE central JSON-shape contract.
+ *
+ * This is the single source of truth for the serialized shape of every
+ * meta-model node in the package: types, fields, indexes, field-types,
+ * every expression kind, every query kind, plus functions and params.
+ *
+ * It is deliberately TYPES-ONLY (no runtime code beyond a couple of string
+ * literal unions). Defining the WHOLE package's `*Def` shapes up front —
+ * even the ones whose runtime classes only land in later phases — fixes the
+ * contract so later phases implement classes against shapes that never move.
+ *
+ * Conventions:
+ *  - Every polymorphic node is a discriminated union keyed by a single
+ *    literal field (`kind` for field-types / exprs / queries / sources).
+ *    This makes exhaustive handling compiler-checkable with zero casts.
+ *  - All shapes are pure JSON (string / number / boolean / null / arrays /
+ *    plain objects), so any def round-trips through `JSON.stringify`.
+ *  - Optional-and-omitted is preferred over `| null`; where a field is
+ *    semantically nullable in storage we say so explicitly.
+ */
+
+// ============================================================================
+// JSON PRIMITIVES
+// ============================================================================
+
+/** Any JSON value. The recursive object branch uses an index signature so
+ *  arbitrary JSON trees are representable without `any`. */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+/** A scalar (leaf) JSON value — the payload of a literal expression and of
+ *  filter values. */
+export type ScalarValue = string | number | boolean | null;
+
+// ============================================================================
+// FIELD TYPE SCHEMA
+// ============================================================================
+
+/**
+ * Numeric option bag, shared by the `number` field type and by `money`'s
+ * inner numeric configuration.
+ *  - `whole`     — integral values only.
+ *  - `minPlaces` / `maxPlaces` — decimal-place bounds (display / precision).
+ */
+export interface NumberOptions {
+  min?: number;
+  max?: number;
+  whole?: boolean;
+  minPlaces?: number;
+  maxPlaces?: number;
+}
+
+/** The `number` field type — a numeric value with the shared `NumberOptions`. */
+export interface NumberFieldTypeDef extends NumberOptions {
+  kind: 'number';
+}
+
+/** The `text` field type — a string with optional length / pattern / search config. */
+export interface TextFieldTypeDef {
+  kind: 'text';
+  minLength?: number;
+  maxLength?: number;
+  /** Source regex (without slashes); compiled at use time. */
+  pattern?: string;
+  /** Eligible for embedding-based semantic similarity. */
+  semantic?: boolean;
+  /** Eligible for full-text search. */
+  search?: boolean;
+  /**
+   * When true, textual matching / comparison on this field is CASE-SENSITIVE.
+   * Default false ⇒ case-insensitive (text operators lower-case both operands).
+   */
+  sensitive?: boolean;
+}
+
+/** The `money` field type — a monetary amount plus optional currency. */
+export interface MoneyFieldTypeDef {
+  kind: 'money';
+  /** Numeric configuration of the underlying amount. */
+  number?: NumberOptions;
+  /** ISO 4217 currency code (e.g. 'USD'); omit for currency-agnostic. */
+  currency?: string;
+}
+
+/** The `bool` field type — a boolean value. */
+export interface BoolFieldTypeDef {
+  kind: 'bool';
+}
+
+/** The `relation` field type — a typed link to another Type (see `to` / `count`). */
+export interface RelationFieldTypeDef {
+  kind: 'relation';
+  /** Name of the target Type this relation points to. */
+  to: string;
+  /**
+   * Expected cardinality of the related rows. `1` ⇒ belongs-to / one-to-one
+   * (flatten-safe); `>1` ⇒ has-many fan-out (aggregations must wrap). Used by
+   * cost estimation and join planning.
+   *
+   * The relation field's NAME is the key for ALL purposes — there are no
+   * exposed foreign-key fields. `owns` (the FK living on THIS type) is
+   * INFERRED as `count === 1`; `count > 1` means the FK lives on the target.
+   */
+  count: number;
+  /**
+   * If set, the Type named by `to` automatically gains a one-to-many relation
+   * field with THIS name pointing back at the declaring Type. Only meaningful
+   * on a belongs-to (`count === 1`) relation: it materializes the inverse
+   * has-many side so the target can be queried back across the same key.
+   */
+  inverseRelation?: string;
+}
+
+/** A timezone policy: a fixed IANA name, `true` (store with tz), or
+ *  `false` (naive / local). */
+export type TimezonePolicy = string | boolean;
+
+/** The `date` field type — a calendar date with an optional timezone policy. */
+export interface DateFieldTypeDef {
+  kind: 'date';
+  timezone?: TimezonePolicy;
+}
+
+/** The `timestamp` field type — a date+time with an optional timezone policy. */
+export interface TimestampFieldTypeDef {
+  kind: 'timestamp';
+  timezone?: TimezonePolicy;
+}
+
+/** The `json` field type — an arbitrary JSON value with an optional schema constraint. */
+export interface JsonFieldTypeDef {
+  kind: 'json';
+  /** Optional JSON-Schema-shaped constraint for the stored value. */
+  schema?: JsonValue;
+}
+
+/**
+ * An ordered collection (SQL array / JSON array) field type.
+ *  - `minItems` / `maxItems` — element-count bounds (inclusive).
+ *  - `item` — the element field type. ABSENT ⇒ heterogeneous / unknown
+ *    elements (any JSON value is accepted). Because `item` is itself a
+ *    `FieldTypeDef`, arrays nest (e.g. `array<array<number>>`).
+ */
+export interface ArrayFieldTypeDef {
+  kind: 'array';
+  minItems?: number;
+  maxItems?: number;
+  item?: FieldTypeDef;
+}
+
+/** Discriminated union of all 9 field-type shapes. */
+export type FieldTypeDef =
+  | NumberFieldTypeDef
+  | TextFieldTypeDef
+  | MoneyFieldTypeDef
+  | BoolFieldTypeDef
+  | RelationFieldTypeDef
+  | DateFieldTypeDef
+  | TimestampFieldTypeDef
+  | JsonFieldTypeDef
+  | ArrayFieldTypeDef;
+
+/** The set of `kind` discriminants for field types. */
+export type FieldTypeKind = FieldTypeDef['kind'];
+
+// ============================================================================
+// TYPE / FIELD / INDEX SCHEMA
+// ============================================================================
+
+/** One field of a Type: a name, optional label/description, its field type, and nullability. */
+export interface FieldDef {
+  name: string;
+  /** Short human-readable label. */
+  label?: string;
+  /** Longer human / LLM-facing description. */
+  description?: string;
+  type: FieldTypeDef;
+  /** When true, the field may hold null / be absent. Default false. */
+  nullable?: boolean;
+}
+
+/**
+ * One ordered part (field) of a composite index.
+ *  - `expr`  — the indexed expression (commonly a single field-ref).
+ *  - `count` — the distinct-row count when the index is used UP TO AND
+ *    INCLUDING this part: a PREFIX cardinality, non-increasing across parts
+ *    (each added part can only narrow the result further).
+ */
+export interface IndexPartDef {
+  expr: ExprDef;
+  count: number;
+}
+
+/**
+ * An ordered composite index: a list of parts. Equality on a leading PREFIX of
+ * the parts collapses the row estimate to that prefix's `count`. The index is
+ * UNIQUE iff its LAST part's `count === 1` (the fully-specified key yields at
+ * most one row).
+ */
+export interface IndexDef {
+  exprs: IndexPartDef[];
+}
+
+/**
+ * A named Type (the query meta-model's analogue of a table): its fields,
+ * optional indexes, row/byte estimates for cost, and search/semantic eligibility.
+ */
+export interface TypeDef {
+  name: string;
+  /** Short human-readable label. */
+  label?: string;
+  /** Longer human / LLM-facing description. */
+  description?: string;
+  fields: FieldDef[];
+  indexes?: IndexDef[];
+  /** Estimated total row count — drives cost estimation. */
+  count: number;
+  /** Estimated average bytes per row — drives byte-cost estimation. */
+  bytes: number;
+  /** Eligible for embedding-based semantic similarity across the type's data. */
+  semantic?: boolean;
+  /** Eligible for full-text search across the type's data. */
+  search?: boolean;
+}
+
+// ============================================================================
+// REUSABLE REFERENCE SHAPES
+// ============================================================================
+//
+// A single family of reference shapes shared across `field-ref`, `join`,
+// `semantic`, `text-search`, and `filters`. The cross-cutting NAMING RULE
+// (author-confirmed) distinguishes the two key names precisely:
+//
+//  - `type`   — the value MUST be a REGISTERED Type name (a Type in the
+//               registry). Used wherever only a real Type makes sense:
+//               relation `to`, FROM `TypeSourceDef.type` / `AliasedSourceDef
+//               .type`, DML `into` / `type` / `from`, function output `{type}`,
+//               and `TypeFieldRef` below.
+//  - `source` — the value is a BOUND name in the query's scope, which could be
+//               a Type name OR a join alias / CTE name / aliased source. Used
+//               wherever a previously-bound source is referenced: `field-ref`,
+//               `semantic` / `text-search` / `filters`, a join's `on.source`.
+//
+// Reusing these shapes keeps every `{source,field}` / `{type,field}` position
+// declared EXACTLY ONCE.
+
+/** A reference to a registered Type plus one of ITS fields (both required). */
+export interface TypeFieldRef {
+  /** A registered Type name. */
+  type: string;
+  /** A field declared on that Type. */
+  field: string;
+}
+
+/** A reference to a bound source (alias-capable) plus a field on it. */
+export interface SourceFieldRef {
+  /** A bound source name (Type name / join alias / CTE / aliased source). */
+  source: string;
+  /** A field on that source. */
+  field: string;
+}
+
+/** A bound source plus an OPTIONAL field (omit to mean the whole source). */
+export interface SourceFieldOptionalRef {
+  /** A bound source name. */
+  source: string;
+  /** A field on that source; omit to target the source as a whole. */
+  field?: string;
+}
+
+/** A bound source plus an OPTIONAL field allowlist. */
+export interface SourceFieldsRef {
+  /** A bound source name. */
+  source: string;
+  /** When set, the only fields the reference is permitted to touch. */
+  fields?: string[];
+}
+
+// ============================================================================
+// EXPRESSION SCHEMA
+// ============================================================================
+//
+// One `*ExprDef` interface per expr kind named in the plan. These are JUST
+// TYPES this phase — the runtime `Expr` classes (and the `canonicalize`
+// digest) arrive in Phase 2 and will be built against exactly these shapes.
+
+/** Binary arithmetic operators. */
+export type BinaryOp = '+' | '-' | '*' | '/' | '%';
+/** Unary arithmetic operators. */
+export type UnaryOp = '-' | '+';
+/** Scalar comparison operators. */
+export type ComparisonOp =
+  | '='
+  | '<>'
+  | '<'
+  | '<='
+  | '>'
+  | '>='
+  | 'like'
+  | 'notLike'
+  | 'ilike';
+/** Boolean connectives. `not` takes exactly one operand. */
+export type LogicalOp = 'and' | 'or' | 'not';
+
+/** A literal scalar value. */
+export interface LiteralExprDef {
+  kind: 'literal';
+  value: ScalarValue;
+}
+
+/**
+ * A direct field reference: `<source>.<field>`. Reuses `SourceFieldRef` — the
+ * canonical "bound source + its field" shape.
+ */
+export type FieldRefExprDef = { kind: 'field-ref' } & SourceFieldRef;
+
+/**
+ * A relation-path reference — walks one or more relation fields from a
+ * source, optionally ending at a scalar field. Eg `{ source: 'u', path:
+ * ['orders', 'total'] }` reads `total` across the `orders` relation. The
+ * planner synthesizes the joins; the author never writes ON.
+ */
+export interface RelationPathExprDef {
+  kind: 'relation-path';
+  source: string;
+  /** Relation field names, optionally ending in a scalar field name. */
+  path: string[];
+}
+
+/** A named bind parameter whose type is inferred from its usage context. */
+export interface ParamExprDef {
+  kind: 'param';
+  name: string;
+}
+
+/** A binary arithmetic expression: `left <op> right`. */
+export interface BinaryExprDef {
+  kind: 'binary';
+  op: BinaryOp;
+  left: ExprDef;
+  right: ExprDef;
+}
+
+/** A unary arithmetic expression: `<op> operand` (e.g. negation). */
+export interface UnaryExprDef {
+  kind: 'unary';
+  op: UnaryOp;
+  operand: ExprDef;
+}
+
+/** A scalar comparison expression: `left <op> right` yielding a boolean. */
+export interface ComparisonExprDef {
+  kind: 'comparison';
+  op: ComparisonOp;
+  left: ExprDef;
+  right: ExprDef;
+}
+
+/** Boolean connective. For `not`, `operands` holds exactly one element. */
+export interface LogicalExprDef {
+  kind: 'logical';
+  op: LogicalOp;
+  operands: ExprDef[];
+}
+
+/** `value IN (...)` — list of exprs or a subquery. */
+export interface InExprDef {
+  kind: 'in';
+  value: ExprDef;
+  /** Either an explicit value list or a subquery yielding one field. */
+  in: ExprDef[] | QueryDef;
+  /** Negate to `NOT IN`. */
+  not?: boolean;
+}
+
+/** `value BETWEEN lower AND upper`. */
+export interface BetweenExprDef {
+  kind: 'between';
+  value: ExprDef;
+  lower: ExprDef;
+  upper: ExprDef;
+  not?: boolean;
+}
+
+/** `value IS [NOT] NULL`. */
+export interface IsNullExprDef {
+  kind: 'is-null';
+  value: ExprDef;
+  not?: boolean;
+}
+
+/** `[NOT] EXISTS (subquery)`. */
+export interface ExistsExprDef {
+  kind: 'exists';
+  query: QueryDef;
+  not?: boolean;
+}
+
+/** The array predicate operators (see `ArrayOpExprDef`). */
+export type ArrayOp =
+  | 'contains'
+  | 'containsAny'
+  | 'containsAll'
+  | 'isEmpty'
+  | 'notEmpty';
+
+/**
+ * A predicate over an array-valued `target`:
+ *  - `contains`     — `target` contains the single element `value`.
+ *  - `containsAny`  — `target` overlaps any element of the `value` list.
+ *  - `containsAll`  — `target` contains every element of the `value` list.
+ *  - `isEmpty`      — `target` has no elements (takes no `value`).
+ *  - `notEmpty`     — `target` has at least one element (takes no `value`).
+ *
+ * `value` is a single `ExprDef` for `contains`, an `ExprDef[]` for
+ * `containsAny` / `containsAll`, and OMITTED for `isEmpty` / `notEmpty`.
+ */
+export interface ArrayOpExprDef {
+  kind: 'array-op';
+  op: ArrayOp;
+  target: ExprDef;
+  value?: ExprDef | ExprDef[];
+}
+
+/** One `WHEN ... THEN ...` branch of a `CASE` expression. */
+export interface CaseBranchDef {
+  when: ExprDef;
+  then: ExprDef;
+}
+
+/** `CASE WHEN ... THEN ... [ELSE ...] END`. */
+export interface CaseExprDef {
+  kind: 'case';
+  branches: CaseBranchDef[];
+  else?: ExprDef;
+}
+
+/**
+ * An aggregate function call, dispatched through the registry like every other
+ * function shape. `function` names a registered AGGREGATE-shaped function and
+ * `args` supplies its arguments BY PARAMETER NAME (e.g. the builtin aggregates
+ * declare a single `value` param). The `count(*)` form is `function: 'count'`
+ * with an EMPTY `args` object — there is no `'*'` sentinel; count over rows is
+ * simply count with no `value` argument.
+ */
+export interface AggregateExprDef {
+  kind: 'aggregate';
+  /** Registered aggregate function name. */
+  function: string;
+  /** Arguments keyed by declared parameter name (empty for `count(*)`). */
+  args: Record<string, ExprDef>;
+  distinct?: boolean;
+}
+
+/** One ORDER BY term: an expression, a direction, and an optional nulls placement. */
+export interface OrderDef {
+  expr: ExprDef;
+  dir: 'asc' | 'desc';
+  nulls?: 'first' | 'last';
+}
+
+/**
+ * A window function over a partition / order. `function` names a registered
+ * WINDOW-shaped function (e.g. `row_number`, `rank`, `lag`) — or an
+ * AGGREGATE-shaped function used as a windowed aggregate (`sum(...) OVER (...)`)
+ * — and `args` supplies its arguments BY PARAMETER NAME.
+ */
+export interface WindowExprDef {
+  kind: 'window';
+  /** Registered window (or aggregate) function name. */
+  function: string;
+  /** Arguments keyed by declared parameter name. */
+  args: Record<string, ExprDef>;
+  partitionBy?: ExprDef[];
+  orderBy?: OrderDef[];
+}
+
+/** A scalar function call. `args` are keyed by declared parameter name. */
+export interface FunctionCallExprDef {
+  kind: 'function-call';
+  function: string;
+  /** Arguments keyed by declared parameter name. */
+  args: Record<string, ExprDef>;
+}
+
+/**
+ * A type-valued function call (produces rows; usable as a source). `args` are
+ * keyed by declared parameter name.
+ */
+export interface TabularFunctionCallExprDef {
+  kind: 'tabular-function-call';
+  function: string;
+  /** Arguments keyed by declared parameter name. */
+  args: Record<string, ExprDef>;
+}
+
+/**
+ * The query a `semantic` expr compares the row against:
+ *  - a literal natural-language `string`;
+ *  - a `param` whose bound value supplies the text; or
+ *  - a `TypeFieldRef` pointing at ANOTHER semantic-eligible Type + field (the
+ *    referenced field's embedding becomes the query vector).
+ */
+export type SemanticQueryDef = string | ParamExprDef | TypeFieldRef;
+
+/**
+ * Semantic-similarity score of a bound source's row against a query (returns a
+ * number, roughly 1 = most similar). Requires an embedder. `source` is the
+ * bound source whose row is scored; `field` (optional) narrows the score to a
+ * single semantic field, otherwise the whole source's embedding is used.
+ */
+export type SemanticExprDef = { kind: 'semantic' } & SourceFieldOptionalRef & {
+  /** Text / param / another Type+field whose embedding is the query vector. */
+  query: SemanticQueryDef;
+};
+
+/**
+ * Full-text search predicate over a bound source (optionally one field). The
+ * query is a literal string or a `param` whose value supplies the search text.
+ */
+export type TextSearchExprDef = { kind: 'text-search' } & SourceFieldOptionalRef & {
+  /** The search query: a literal string or a bound param. */
+  query: string | ParamExprDef;
+};
+
+/**
+ * A single filter clause supplied at EXECUTION time (NOT part of the LLM-facing
+ * `filters` expr). The developer wires these per source via `RuntimeOptions
+ * .filters`; `FiltersExpr` validates + compiles them against the bound source.
+ */
+export interface FilterClauseDef {
+  /** Field name (relative to the filters' source). */
+  field: string;
+  /** Operator name from the field type's filter-op catalog. */
+  op: string;
+  /** Operand value(s); shape depends on the op's arity. Omitted for
+   *  unary ops like `isNull`. */
+  value?: ScalarValue | ScalarValue[];
+}
+
+/**
+ * A structured filter placeholder bound to a source, with an optional `fields`
+ * allowlist. The clauses themselves are NOT authored here (the LLM never emits
+ * them): they are supplied at execution time and validated against this
+ * source + allowlist. Reuses `SourceFieldsRef`.
+ */
+export type FiltersExprDef = { kind: 'filters' } & SourceFieldsRef;
+
+/** A subquery used in value position (typically scalar / single-field). */
+export interface SubqueryExprDef {
+  kind: 'subquery';
+  query: QueryDef;
+}
+
+/**
+ * A reference to the PROPOSED (excluded) row inside an `INSERT … ON CONFLICT DO
+ * UPDATE`. `field` names a column of the row that WOULD have been inserted; SQL
+ * emits `EXCLUDED."field"` and the runtime reads the proposed value. Only valid
+ * inside an on-conflict update assignment (the `excluded` source is bound there).
+ */
+export interface ExcludedExprDef {
+  kind: 'excluded';
+  field: string;
+}
+
+/** Discriminated union of every expression shape. */
+export type ExprDef =
+  | LiteralExprDef
+  | FieldRefExprDef
+  | RelationPathExprDef
+  | ParamExprDef
+  | BinaryExprDef
+  | UnaryExprDef
+  | ComparisonExprDef
+  | LogicalExprDef
+  | InExprDef
+  | BetweenExprDef
+  | IsNullExprDef
+  | ExistsExprDef
+  | ArrayOpExprDef
+  | CaseExprDef
+  | AggregateExprDef
+  | WindowExprDef
+  | FunctionCallExprDef
+  | TabularFunctionCallExprDef
+  | SemanticExprDef
+  | TextSearchExprDef
+  | FiltersExprDef
+  | SubqueryExprDef
+  | ExcludedExprDef;
+
+/** The set of `kind` discriminants for expressions. */
+export type ExprKind = ExprDef['kind'];
+
+// ============================================================================
+// QUERY STRUCTURE SCHEMA
+// ============================================================================
+//
+// Modelled on cletus's `dba.ts` Query/Statement union, but RELATION-JOIN
+// based: a `JoinDef` references a relation field path plus an optional
+// extra predicate, never an explicit ON clause.
+
+/**
+ * A FROM / join source: a type (Type), an explicitly-aliased type, or a
+ * subquery.
+ *
+ * The model is "reference everything by its TYPE NAME": the plain `type`
+ * source is bound under its type name and is NOT aliasable — this removes the
+ * common authoring/LLM bug where a `FROM { type:'order', as:'o' }` is then
+ * referenced by `field-ref.source:'order'` (or vice-versa). When you genuinely
+ * need a custom name — two instances of the same type (a self-join), or to
+ * disambiguate a collision — use the explicit `aliased` escape hatch.
+ */
+export type SourceDef = TypeSourceDef | AliasedSourceDef | SubquerySourceDef | FunctionSourceDef;
+
+/** A plain Type source: `FROM <type>`, bound (non-aliasable) under its Type name. */
+export interface TypeSourceDef {
+  kind: 'type';
+  /** Name of the Type to read from. The source is bound under THIS name. */
+  type: string;
+}
+
+/**
+ * An explicitly-aliased type source — the discouraged escape hatch. Bound
+ * under `as` (which becomes the source name field-refs use), reading the Type
+ * named `type`. Use only when the plain `type` source can't express the query:
+ * a self-join (the same type twice) or breaking a `source.duplicate` collision.
+ */
+export interface AliasedSourceDef {
+  kind: 'aliased';
+  /** Name of the Type to read from. */
+  type: string;
+  /** The source name this instance is bound under (field-refs use this). */
+  as: string;
+}
+
+/** A derived (subquery) source: `FROM (<query>) AS <as>`. */
+export interface SubquerySourceDef {
+  kind: 'subquery';
+  query: QueryDef;
+  /** Required alias for the derived source. */
+  as: string;
+}
+
+/**
+ * A TABLE-VALUED FUNCTION source: `FROM <function>(args) AS <as>`. `function`
+ * names a registered TABULAR-shaped function whose output Type defines the
+ * source's columns; `args` supplies its arguments BY DECLARED PARAMETER NAME.
+ * The runtime invokes the function's registered `tabular` implementation for
+ * rows; SQL emits the `<function>(args) AS <alias>` form.
+ */
+export interface FunctionSourceDef {
+  kind: 'function';
+  /** Name of a registered tabular function. */
+  function: string;
+  /** Arguments keyed by declared parameter name. */
+  args: Record<string, ExprDef>;
+  /** Required alias the produced rows bind under. */
+  as: string;
+}
+
+/**
+ * A relation-based join over a SINGLE relation hop. `on` is a `SourceFieldRef`:
+ * `on.source` is the bound source to join FROM, `on.field` its relation field.
+ * The join key is synthesized from the relation, NOT written explicitly.
+ * Multi-hop joins are expressed as CHAINED single-hop joins (the
+ * `relation-path` EXPR still covers multi-hop value access). `and` adds an
+ * optional extra predicate.
+ */
+export interface JoinDef {
+  /** The bound source + its relation field to join across (a single hop). */
+  on: SourceFieldRef;
+  /** Alias for the joined source; defaults to the target Type name. */
+  as?: string;
+  /** Optional additional join predicate, ANDed with the synthesized key. */
+  and?: ExprDef;
+  /** Join type; defaults to `left`. (Renamed from `type` to free that key
+   *  for the Type-name naming rule.) */
+  joinType?: 'inner' | 'left' | 'right' | 'full';
+}
+
+/** A selected output field. */
+export interface SelectFieldDef {
+  expr: ExprDef;
+  /** Output alias; required when the expr has no natural name. */
+  as?: string;
+}
+
+/** Field assignment for INSERT-on-conflict / UPDATE. */
+export interface FieldValueDef {
+  field: string;
+  value: ExprDef;
+}
+
+/**
+ * The `ON CONFLICT` clause of an INSERT: the conflict-target `fields`, plus
+ * either `doNothing` or an `update` assignment list (DO UPDATE SET …).
+ */
+export interface OnConflictDef {
+  /** Conflict-target columns (the unique key being upserted on). */
+  fields: string[];
+  /** DO NOTHING on conflict. */
+  doNothing?: boolean;
+  /** DO UPDATE SET assignments (may reference the `excluded` row). */
+  update?: FieldValueDef[];
+}
+
+/** A `SELECT` statement: projected fields, source, joins, filters, grouping, ordering, paging. */
+export interface SelectDef {
+  kind: 'select';
+  distinct?: boolean;
+  fields: SelectFieldDef[];
+  from: SourceDef;
+  joins?: JoinDef[];
+  /** WHERE conditions, ANDed together. */
+  where?: ExprDef[];
+  groupBy?: ExprDef[];
+  /** HAVING conditions, ANDed together. */
+  having?: ExprDef[];
+  order?: OrderDef[];
+  /** Row cap — a literal count, or a named param (see the auto-paginate
+   *  transform, which binds pagination to params for reuse). */
+  limit?: number | ParamExprDef;
+  /** Row skip — a literal count, or a named param. */
+  offset?: number | ParamExprDef;
+  // NOTE: `includeTotal` is an EXECUTION-time option (see `RuntimeOptions
+  // .includeTotal` / `engine.toSQL`), NOT a build-time SELECT field.
+}
+
+/** An `INSERT` statement: target Type, columns, value tuples or a select, plus optional RETURNING / ON CONFLICT. */
+export interface InsertDef {
+  kind: 'insert';
+  /** Target Type name. The statement references the target by THIS name. */
+  into: string;
+  fields: string[];
+  /** Row tuples (each inner array matches `fields`), OR a select. */
+  values?: ExprDef[][];
+  select?: QueryDef;
+  returning?: SelectFieldDef[];
+  onConflict?: OnConflictDef;
+}
+
+/** An `UPDATE` statement: target Type, SET assignments, optional joins / WHERE / RETURNING. */
+export interface UpdateDef {
+  kind: 'update';
+  /** Target Type name. The statement references the target by THIS name. */
+  type: string;
+  set: FieldValueDef[];
+  joins?: JoinDef[];
+  where?: ExprDef[];
+  returning?: SelectFieldDef[];
+}
+
+/** A `DELETE` statement: target Type, optional joins / WHERE / RETURNING. */
+export interface DeleteDef {
+  kind: 'delete';
+  /** Target Type name. The statement references the target by THIS name. */
+  from: string;
+  joins?: JoinDef[];
+  where?: ExprDef[];
+  returning?: SelectFieldDef[];
+}
+
+/** A set operation (`UNION` / `INTERSECT` / `EXCEPT`) over two queries, with set-level order/limit/offset. */
+export interface SetOperationDef {
+  kind: 'union' | 'intersect' | 'except';
+  left: QueryDef;
+  right: QueryDef;
+  /** Keep duplicates (UNION ALL, etc.). */
+  all?: boolean;
+  /**
+   * SET-LEVEL ordering applied AFTER the set operation, over the COMBINED rows.
+   * Each term's `expr` references an OUTPUT COLUMN (a `field-ref` whose `field`
+   * is the output column name — the `source` is ignored; a set operation has no
+   * table to qualify). Emitted as a trailing `ORDER BY` on the whole set.
+   */
+  order?: OrderDef[];
+  /** SET-LEVEL row cap applied after the set op — a literal count or a param. */
+  limit?: number | ParamExprDef;
+  /** SET-LEVEL row skip applied after the set op — a literal count or a param. */
+  offset?: number | ParamExprDef;
+}
+
+/** A plain (non-recursive) common-table-expression entry. */
+export interface CTEDef {
+  name: string;
+  query: QueryDef;
+}
+
+/**
+ * A RECURSIVE common-table-expression entry: a `base` seed query UNION-ed with
+ * a `recursive` arm that reads the CTE's own accumulated rows until a fixpoint
+ * (iteration-capped). Structurally discriminated from `CTEDef` by the presence
+ * of `base` + `recursive` (vs `query`).
+ */
+export interface CTERecursiveDef {
+  name: string;
+  /** The seed (anchor) query. */
+  base: QueryDef;
+  /** The recursive arm (reads the CTE's own rows). */
+  recursive: QueryDef;
+}
+
+/** A `WITH` statement: a list of (possibly recursive) CTE entries plus the `final` query that consumes them. */
+export interface CTEStatementDef {
+  kind: 'cte';
+  ctes: (CTEDef | CTERecursiveDef)[];
+  /** The final statement that consumes the CTEs. */
+  final: QueryDef;
+}
+
+/** A query that is a single expression (e.g. a scalar computation). */
+export interface ExprQueryDef {
+  kind: 'expr';
+  expr: ExprDef;
+}
+
+/** Discriminated union of every query shape. */
+export type QueryDef =
+  | SelectDef
+  | InsertDef
+  | UpdateDef
+  | DeleteDef
+  | SetOperationDef
+  | CTEStatementDef
+  | ExprQueryDef;
+
+/** The set of `kind` discriminants for queries. */
+export type QueryKind = QueryDef['kind'];
+
+// ============================================================================
+// FUNCTION / PARAM SCHEMA
+// ============================================================================
+
+/** What category of function this is (drives output resolution + SQL emit). */
+export type FunctionShape = 'scalar' | 'tabular' | 'window' | 'aggregate';
+
+/** A declared function parameter. `type: 'any'` accepts any field type. */
+export interface FunctionParamDef {
+  name: string;
+  type: FieldTypeDef | 'any';
+  optional?: boolean;
+}
+
+/**
+ * Serializable description of a callable. The runtime `FunctionDef` class
+ * (later phase) may also carry an `output`-resolver function and a `run`
+ * implementation; the JSON shape captures the declarable parts.
+ */
+export interface FunctionDef {
+  name: string;
+  shape: FunctionShape;
+  params: FunctionParamDef[];
+  /**
+   * Declared output: a concrete field type, a reference to a Type (for
+   * tabular functions), or `'inferred'` when computed from the args at
+   * resolve time.
+   */
+  output: FieldTypeDef | { type: string } | 'inferred';
+  /** Optional SQL template / function name for emission. */
+  sql?: string;
+}
+
+/** A resolved bind parameter — name plus the field type inferred for it. */
+export interface ParamDef {
+  name: string;
+  type: FieldTypeDef;
+}

@@ -1,0 +1,109 @@
+/**
+ * SubqueryExpr — a subquery in value position (typically a scalar / single
+ * field). Its output type is inferred via the Phase-2 structural seam
+ * (`inferSubqueryOutput`); when Phase 3's query classes land, that seam swaps
+ * to real query resolution and this class needs no change.
+ */
+import { z } from 'zod';
+import type { ExprDef, QueryDef, SubqueryExprDef } from '../schema';
+import type { SchemaOptions } from '../node';
+import type { Registry } from '../registry';
+import type { QueryEngine } from '../engine';
+import type { QueryScope } from '../scope';
+import type { ResolvedType } from '../resolved-type';
+import type { Problems } from '../problem';
+import { Expr, type ExprClass, type ValidateContext } from '../expr';
+import { childQuerySchema, emitSubquerySQL } from './_shared';
+import { inferSubqueryOutput } from './_subquery';
+import type { Dialect } from '../sql/dialect';
+import type { SqlContext, SqlText } from '../sql/emit';
+import { Value } from '../runtime/value';
+import { firstField } from '../runtime/record';
+import type { RuntimeContext } from '../runtime/context';
+import type { SourceRow } from '../runtime/row';
+import type { Cost } from '../cost';
+
+/** A subquery in value position (typically a scalar / single-column result). */
+export class SubqueryExpr extends Expr {
+  static readonly KIND = 'subquery' as const;
+  readonly kind = SubqueryExpr.KIND;
+
+  /** Wrap the inner query def evaluated in value position. */
+  constructor(readonly query: QueryDef) {
+    super();
+  }
+
+  /** Reconstruct a SubqueryExpr from its JSON def (validates the `kind` discriminant). */
+  static from(json: ExprDef, _registry: Registry): SubqueryExpr {
+    if (json.kind !== 'subquery') {
+      throw new Error(`SubqueryExpr.from: expected 'subquery', got '${json.kind}'`);
+    }
+    return new SubqueryExpr(json.query);
+  }
+
+  /** Zod schema for this expr kind's JSON shape. */
+  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return z
+      .object({
+        kind: z.literal('subquery'),
+        query: childQuerySchema(opts.Query),
+      })
+      .meta({ aid: 'Expr_subquery' })
+      .describe('A subquery used in value position.');
+  }
+
+  /** Infer the subquery's output type via the structural seam. */
+  resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {
+    return inferSubqueryOutput(engine, scope, this.query);
+  }
+
+  /** Infer the output type (full subquery validation is deferred to Phase 3). */
+  validateWalk(
+    engine: QueryEngine,
+    scope: QueryScope,
+    _p: Problems,
+    _ctx: ValidateContext,
+  ): ResolvedType {
+    // Phase 3 will validate the subquery in full; this phase only infers the
+    // output type (surfacing structural errors via the seam).
+    return inferSubqueryOutput(engine, scope, this.query);
+  }
+
+  /** Cost of running the inner query in a child scope. */
+  cost(engine: QueryEngine, scope: QueryScope): Cost {
+    return engine.parseQuery(this.query).cost(engine, scope.child());
+  }
+
+  /** Execute the subquery (correlated to `row` when present) and return its first field. */
+  async evaluate(ctx: RuntimeContext, row: SourceRow | null): Promise<Value> {
+    const q = ctx.engine.parseQuery(this.query);
+    const result = row
+      ? await ctx.withCorrelation(row, () => q.execute(ctx))
+      : await q.execute(ctx);
+    const first = result.rows[0];
+    return first ? Value.of(firstField(first)) : Value.null();
+  }
+
+  /** Emit the inner query as a parenthesized SQL subquery. */
+  toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    return emitSubquerySQL(dialect, ctx, this.query);
+  }
+
+  /** Serialize back to its JSON ExprDef. */
+  toJSON(): SubqueryExprDef {
+    return { kind: 'subquery', query: structuredClone(this.query) };
+  }
+
+  /** Deep-copy this expr. */
+  clone(): SubqueryExpr {
+    return new SubqueryExpr(structuredClone(this.query));
+  }
+
+  /** Render as a `(subquery)` placeholder in the readable DSL form. */
+  override toCode(): string {
+    return '(subquery)';
+  }
+}
+
+const _check: ExprClass = SubqueryExpr;
+void _check;

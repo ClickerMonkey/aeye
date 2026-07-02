@@ -1,0 +1,366 @@
+/**
+ * Type backing — the DEV-SIDE layer that gives a conceptual `Type` (the simple,
+ * LLM-facing `TypeDef`) a richer implementation behind the scenes: computed
+ * fields, row-level security (RLS), field-level security (FLS), and a real
+ * underlying source name. None of this appears in the JSON `TypeDef` / `FieldDef`
+ * — it is plain TypeScript the developer registers alongside the `Type`
+ * (`registry.registerType(type, backing?)`), so the schema the LLM sees stays
+ * minimal while the data model can be arbitrarily complex underneath.
+ *
+ * Two orthogonal primitives compose everything:
+ *  - `Access` — a SECURITY PREDICATE (RLS at the Type level, FLS at the field
+ *    level). It resolves to: a predicate (apply it), `true` (visible), `false`
+ *    (not visible), or `undefined` (no-op / fall through to normal).
+ *  - `Computed` — a VALUE producer (a field's value, replacing the stored
+ *    column). It ALWAYS yields a value.
+ *
+ * Each primitive offers a dual `expr` path plus per-mode overrides:
+ *  - SQL emission resolves `sql` first, else `expr`;
+ *  - in-memory runtime resolves `run` first, else `expr`.
+ * The `expr` path is the primary one — a single `Expr` is BOTH emitted to SQL
+ * (`toSQL`) and evaluated in memory (`evaluate`), so a dual-`expr` backing yields
+ * the same logical result in both modes.
+ *
+ * This module imports its collaborators (`Expr`, `SqlContext`, `SqlText`,
+ * `RuntimeContext`, `SourceRow`, `Value`) TYPE-ONLY, so it sits at the bottom of
+ * the dependency graph: the registry / engine import it, and it imports nothing
+ * as a runtime value (no cycles). Method calls on instances typed as `Expr`
+ * (`.toSQL` / `.evaluate`) are fine; only CONSTRUCTING those values would need a
+ * runtime import, which this module never does (the caller supplies them).
+ */
+import type { Expr } from './expr';
+import type { QueryDef } from './schema';
+import type { Query } from './queries/query';
+import type { SqlContext, SqlText } from './sql/emit';
+import type { RuntimeContext } from './runtime/context';
+import type { SourceRow, SourceRecord } from './runtime/row';
+import type { Value } from './runtime/value';
+
+/**
+ * A security predicate, evaluated per occurrence of a Type (RLS) or per read of
+ * a field (FLS). Supply at most one path; SQL prefers `sql` then `expr`, the
+ * runtime prefers `run` then `expr`. Every path resolves to one of FOUR meanings:
+ *  - a predicate value (an `Expr` / `SqlText`) ⇒ APPLY it (gate the row/field);
+ *  - `true`      ⇒ visible (allow, no predicate needed);
+ *  - `false`     ⇒ not visible (deny — RLS drops the row, FLS nulls the field);
+ *  - `undefined` ⇒ no-op (nothing to apply; behave as if no `access` were set).
+ */
+export interface Access {
+  /**
+   * The DUAL predicate path: given the alias the Type is bound under, return a
+   * boolean `Expr` (applied in BOTH SQL and runtime), or a static `true` /
+   * `false`, or `undefined` for no-op. Field references inside the returned
+   * `Expr` should use `alias` as their source.
+   */
+  expr?: (alias: string) => Expr | boolean | undefined;
+  /** SQL-only override: a raw predicate `SqlText`, a static `true`/`false`, or `undefined`. */
+  sql?: (alias: string, ctx: SqlContext) => SqlText | boolean | undefined;
+  /**
+   * Runtime-only override: whether the row/field is visible (`true`/`false`), or
+   * `undefined` for no-op. `row` is the current evaluation row (keyed by source).
+   */
+  run?: (row: SourceRow, ctx: RuntimeContext) => boolean | undefined | Promise<boolean | undefined>;
+}
+
+/**
+ * A computed VALUE for a field — it replaces the stored column. Unlike `Access`
+ * it ALWAYS produces a value (never `undefined`). SQL prefers `sql` then `expr`;
+ * the runtime prefers `run` then `expr`. With only `expr`, the SAME expression is
+ * emitted to SQL and evaluated in memory.
+ */
+export interface Computed {
+  /** The DUAL value path: an `Expr` emitted to SQL AND evaluated in memory. */
+  expr?: (alias: string) => Expr;
+  /** SQL-only override: emit a raw value `SqlText`. */
+  sql?: (alias: string, ctx: SqlContext) => SqlText;
+  /** Runtime-only override: produce the value in memory. */
+  run?: (row: SourceRow, ctx: RuntimeContext) => Value | Promise<Value>;
+}
+
+/**
+ * The deterministic alias a NAMED JOIN binds under, given the SOURCE alias the
+ * backed Type occupies and the join's name in `TypeBacking.joins`. Stable and
+ * collision-resistant (the `__` separator never appears in a relation-path's
+ * single-`_` alias), so a dev who writes a `compute` / `access` `Expr` that
+ * reads a named join references its columns via `joinAlias(source, name)`, and
+ * every field sharing that join collapses to ONE planned join (deduped on this
+ * exact alias).
+ */
+export function joinAlias(sourceAlias: string, name: string): string {
+  return `${sourceAlias}__${name}`;
+}
+
+/**
+ * A STRUCTURED join the planner can lower AND dedup — the primary (`expr`) path
+ * of a `JoinBacking`. A clean discriminated union over the two join shapes the
+ * backing layer supports:
+ *  - `'relation'` — follow a relation field on `source`'s Type, reusing the
+ *    planner's shared relation-join machinery (`requireJoin`), so it dedups with
+ *    any other reference walking the same relation.
+ *  - `'lateral'`  — a correlated subquery attached as a LATERAL / CROSS-APPLY
+ *    join, evaluated per outer row.
+ */
+export type JoinSpec = RelationJoinSpec | LateralJoinSpec;
+
+/** A named join that follows a relation field on the backed Type. */
+export interface RelationJoinSpec {
+  /** Discriminant. */
+  readonly kind: 'relation';
+  /** The bound source alias whose Type declares `relation`. */
+  readonly source: string;
+  /** The relation field on `source`'s Type to join through. */
+  readonly relation: string;
+  /** SQL join type (default `'left'`). */
+  readonly joinType?: 'left' | 'inner';
+}
+
+/** A named join that attaches a correlated subquery as a LATERAL join. */
+export interface LateralJoinSpec {
+  /** Discriminant. */
+  readonly kind: 'lateral';
+  /**
+   * Build the correlated subquery. `outer` is the SOURCE alias the backed Type
+   * occupies — reference it inside the subquery (`<outer>.<field>`) to correlate
+   * to the current outer row. Either a JSON `QueryDef` or an already-parsed
+   * `Query`.
+   */
+  readonly query: (outer: string) => QueryDef | Query;
+  /**
+   * The subquery column the backed field reads. When the referencing field has
+   * NO `compute`, its value defaults to `<joinAlias>.<pick>`; an explicit
+   * `compute` overrides that (and may read any of the lateral's columns).
+   */
+  readonly pick?: string;
+  /** SQL join type (default `'left'`). */
+  readonly joinType?: 'left' | 'inner';
+}
+
+/**
+ * How a NAMED JOIN attaches its data at runtime — the resolved `run` path of a
+ * `JoinBacking`. The runtime binds the joined record under `alias` on each outer
+ * row (so a `compute` / `access` `Expr` reading `<alias>.<col>` resolves), then
+ * `attach` produces that record for a given outer row. Returning `null` means
+ * "no match" (a LEFT-JOIN miss) — columns read off the alias then yield NULL.
+ */
+export interface RuntimeJoin {
+  /** The alias the joined record binds under on each outer row. */
+  readonly alias: string;
+  /** Produce the joined record correlated to `outer`, or `null` for no match. */
+  attach(outer: SourceRow, ctx: RuntimeContext): SourceRecord | null | Promise<SourceRecord | null>;
+}
+
+/**
+ * A named, hidden join producer — like `Computed`, but it contributes a JOIN
+ * (shared across every field that references it, added ONCE if-and-only-if some
+ * referencing field is in the query). Supply at most one path:
+ *  - `expr` is the PRIMARY (dual) path: a structured `JoinSpec` the planner
+ *    lowers to SQL AND the runtime attaches in memory;
+ *  - `sql`  is a SQL-only raw join fragment (e.g. a hand-written
+ *    `LEFT JOIN LATERAL …` / `CROSS APPLY …`);
+ *  - `run`  is a runtime-only attach producing the joined rows per outer row.
+ * Resolution: SQL prefers `sql` then `expr`; the runtime prefers `run` then
+ * `expr`.
+ */
+export interface JoinBacking {
+  /** The DUAL path: a structured `JoinSpec` lowered to SQL and attached in memory. */
+  expr?: (alias: string) => JoinSpec;
+  /** SQL-only override: a raw join fragment (incl. LATERAL / CROSS APPLY). */
+  sql?: (alias: string, ctx: SqlContext) => SqlText;
+  /** Runtime-only override: attach the joined rows per outer row. */
+  run?: (ctx: RuntimeContext) => RuntimeJoin;
+}
+
+/**
+ * The dev-side backing for a single conceptual field. A field absent from
+ * `TypeBacking.fields` is a plain stored column (zero overhead). When present:
+ *  - `name`    remaps the stored column read for this conceptual field
+ *              (default = the conceptual field name); it is NOT a table/column
+ *              path, just the underlying field name.
+ *  - `compute` supplies the field's VALUE (replacing the stored column).
+ *  - `access`  is FIELD-level security: a gate that nulls the value when denied.
+ *  - `joins`   names the `TypeBacking.joins` this field needs; each is added to
+ *              the query ONCE if-and-only-if this (or another referencing) field
+ *              is emitted, and deduped by name. A `compute` / `access` `Expr`
+ *              reads a named join's columns via `joinAlias(source, name)`. A
+ *              field with `joins` but no `compute` whose (first) named join is a
+ *              LATERAL with a `pick` defaults its value to that picked column.
+ */
+export interface FieldBacking {
+  /** Underlying stored field name (default = the conceptual field name). */
+  name?: string;
+  /** The field's computed value, when present; otherwise the stored field. */
+  compute?: Computed;
+  /** Field-level security: `CASE WHEN <access> THEN <value> ELSE NULL`. */
+  access?: Access;
+  /** Names of `TypeBacking.joins` this field needs (added once-if-referenced). */
+  joins?: string[];
+}
+
+/**
+ * The dev-side backing for a whole Type. All members are optional:
+ *  - `name`   is the real underlying source name (default = the Type name); SQL
+ *             emits `<name> AS <typeName>` so references still use the Type name.
+ *  - `access` is ROW-level security: ANDed into the WHERE (SQL) and applied as a
+ *             row filter on load (runtime).
+ *  - `joins`  maps a join NAME → its `JoinBacking`. A join is hidden and shared:
+ *             it appears in a query only when some referenced field opts into it
+ *             via `FieldBacking.joins`, and many fields sharing one collapse to a
+ *             single planned join (deduped by name).
+ *  - `fields` maps a conceptual field name → its `FieldBacking`.
+ */
+export interface TypeBacking {
+  /** Real underlying source name (default = the Type name). */
+  name?: string;
+  /** Row-level security predicate for every occurrence of this Type. */
+  access?: Access;
+  /** Named hidden joins, shared + deduped by name (added once-if-referenced). */
+  joins?: Record<string, JoinBacking>;
+  /** Per-field backing, keyed by conceptual field name. */
+  fields?: Record<string, FieldBacking>;
+}
+
+// ─── Resolved interpretations (discriminated unions) ─────────────────────────
+
+/** The SQL-mode meaning of an `Access` result. */
+export type AccessSql =
+  | { readonly kind: 'noop' }
+  | { readonly kind: 'allow' }
+  | { readonly kind: 'deny' }
+  | { readonly kind: 'predicate'; readonly sql: SqlText };
+
+/** The runtime meaning of an `Access` result (predicate already collapsed to a boolean). */
+export type AccessRun =
+  | { readonly kind: 'noop' }
+  | { readonly kind: 'visible'; readonly visible: boolean };
+
+/** The SQL-mode resolution of a `Computed` value (`stored` ⇒ read the column). */
+export type ComputeSql = { readonly kind: 'stored' } | { readonly kind: 'sql'; readonly sql: SqlText };
+
+/** The runtime resolution of a `Computed` value (`stored` ⇒ read the record). */
+export type ComputeRun = { readonly kind: 'stored' } | { readonly kind: 'value'; readonly value: Value };
+
+/** Collapse a raw `Access.sql` / `Access.expr` SQL result into an `AccessSql`. */
+function interpretAccessSql(r: SqlText | boolean | undefined): AccessSql {
+  if (r === undefined) return { kind: 'noop' };
+  if (typeof r === 'boolean') return r ? { kind: 'allow' } : { kind: 'deny' };
+  return { kind: 'predicate', sql: r };
+}
+
+/**
+ * Resolve an `Access` for SQL emission against `alias` (SQL prefers `sql`, then
+ * the dual `expr`, then no-op).
+ */
+export function resolveAccessSql(access: Access, alias: string, ctx: SqlContext): AccessSql {
+  if (access.sql) return interpretAccessSql(access.sql(alias, ctx));
+  if (access.expr) {
+    const r = access.expr(alias);
+    if (r === undefined) return { kind: 'noop' };
+    if (typeof r === 'boolean') return r ? { kind: 'allow' } : { kind: 'deny' };
+    return { kind: 'predicate', sql: r.toSQL(ctx.dialect, ctx) };
+  }
+  return { kind: 'noop' };
+}
+
+/**
+ * Resolve an `Access` for the in-memory runtime against `alias` (runtime prefers
+ * `run`, then the dual `expr`, then no-op). A predicate `expr` is evaluated over
+ * `row` and collapsed to a boolean.
+ */
+export async function resolveAccessRun(
+  access: Access,
+  alias: string,
+  row: SourceRow,
+  ctx: RuntimeContext,
+): Promise<AccessRun> {
+  if (access.run) {
+    const r = await access.run(row, ctx);
+    return r === undefined ? { kind: 'noop' } : { kind: 'visible', visible: r };
+  }
+  if (access.expr) {
+    const r = access.expr(alias);
+    if (r === undefined) return { kind: 'noop' };
+    if (typeof r === 'boolean') return { kind: 'visible', visible: r };
+    const v = await r.evaluate(ctx, row);
+    return { kind: 'visible', visible: v.toBoolean() };
+  }
+  return { kind: 'noop' };
+}
+
+/** Resolve a `Computed` value for SQL emission (SQL prefers `sql`, then `expr`). */
+export function resolveComputeSql(compute: Computed, alias: string, ctx: SqlContext): ComputeSql {
+  if (compute.sql) return { kind: 'sql', sql: compute.sql(alias, ctx) };
+  if (compute.expr) return { kind: 'sql', sql: compute.expr(alias).toSQL(ctx.dialect, ctx) };
+  return { kind: 'stored' };
+}
+
+/** Resolve a `Computed` value for the runtime (runtime prefers `run`, then `expr`). */
+export async function resolveComputeRun(
+  compute: Computed,
+  alias: string,
+  row: SourceRow,
+  ctx: RuntimeContext,
+): Promise<ComputeRun> {
+  if (compute.run) return { kind: 'value', value: await compute.run(row, ctx) };
+  if (compute.expr) return { kind: 'value', value: await compute.expr(alias).evaluate(ctx, row) };
+  return { kind: 'stored' };
+}
+
+/** The SQL-mode resolution of a `JoinBacking` (`sql` raw fragment, else a `JoinSpec`). */
+export type JoinSqlPlan =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'sql'; readonly sql: SqlText }
+  | { readonly kind: 'spec'; readonly spec: JoinSpec };
+
+/** The runtime resolution of a `JoinBacking` (a `run` attach, else a `JoinSpec`). */
+export type JoinRunPlan =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'attach'; readonly join: RuntimeJoin }
+  | { readonly kind: 'spec'; readonly spec: JoinSpec };
+
+/** Resolve a `JoinBacking` for SQL emission against `alias` (SQL prefers `sql`, then `expr`). */
+export function resolveJoinSql(join: JoinBacking, alias: string, ctx: SqlContext): JoinSqlPlan {
+  if (join.sql) return { kind: 'sql', sql: join.sql(alias, ctx) };
+  if (join.expr) return { kind: 'spec', spec: join.expr(alias) };
+  return { kind: 'none' };
+}
+
+/** Resolve a `JoinBacking` for the runtime against `alias` (runtime prefers `run`, then `expr`). */
+export function resolveJoinRun(join: JoinBacking, alias: string, ctx: RuntimeContext): JoinRunPlan {
+  if (join.run) return { kind: 'attach', join: join.run(ctx) };
+  if (join.expr) return { kind: 'spec', spec: join.expr(alias) };
+  return { kind: 'none' };
+}
+
+/**
+ * A parsed wrapper around a Type's `TypeBacking`, cached per Type by the engine.
+ * It exposes the lookups the engine / `FieldRefExpr` / RLS injection need, so
+ * callers never reach into the raw `TypeBacking` shape directly.
+ */
+export class Backing {
+  constructor(
+    /** The conceptual Type name this backing belongs to. */
+    readonly typeName: string,
+    /** The raw backing definition the developer registered. */
+    readonly def: TypeBacking,
+  ) {}
+
+  /** The real underlying source name (`def.name ?? typeName`). */
+  sourceName(): string {
+    return this.def.name ?? this.typeName;
+  }
+
+  /** The backing for conceptual field `field`, or `undefined` for a plain column. */
+  fieldBacking(field: string): FieldBacking | undefined {
+    return this.def.fields?.[field];
+  }
+
+  /** The row-level-security `Access` for this Type, or `undefined`. */
+  rls(): Access | undefined {
+    return this.def.access;
+  }
+
+  /** The named `JoinBacking` `name`, or `undefined` when this Type declares none. */
+  join(name: string): JoinBacking | undefined {
+    return this.def.joins?.[name];
+  }
+}
