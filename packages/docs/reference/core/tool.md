@@ -5,8 +5,10 @@ The `Tool` class represents a function that AI models can call.
 ## Constructor
 
 ```typescript
-new Tool<TContext, TMetadata, TName, TParams, TOutput, TRefs>(input: ToolInput)
+new Tool<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded = TParams>(input: ToolInput)
 ```
+
+`TDecoded` is the decoded type a custom `parse` produces from the raw wire args (e.g. a built class instance); it types `call`, `validate`, and `metadataFn`. It defaults to the wire `TParams` when no custom `parse` is supplied — `schema` always stays the wire type.
 
 ### `ToolInput`
 

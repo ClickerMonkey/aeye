@@ -529,8 +529,10 @@ You don't need to set every field — spread an existing descriptor and override
 ### Prompt
 
 ```typescript
-class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools extends Tuple<ToolCompatible<TContext, TMetadata>>>
+class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools extends Tuple<ToolCompatible<TContext, TMetadata>>, TDecoded extends object | string = TOutput>
 ```
+
+`TDecoded` is the type a custom `parse` produces from the model's structured output (e.g. a built AST/class instance); it types `validate` and the decoded output. It defaults to `TOutput` (the wire type) when no custom `parse` is supplied — `schema` always stays the wire type.
 
 **Constructor Options (`PromptInput`):**
 - `name: string` - Unique identifier
@@ -558,8 +560,10 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 ### Tool
 
 ```typescript
-class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>>
+class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>, TDecoded extends object = TParams>
 ```
+
+`TDecoded` is the type a custom `parse` produces from the raw wire args (e.g. a built class instance); it types `call`, `validate`, and `metadataFn`. It defaults to `TParams` (the wire type) when no custom `parse` is supplied — `schema` always stays the wire type.
 
 **Constructor Options (`ToolInput`):**
 - `name: string` - Unique identifier (shown to the AI model)

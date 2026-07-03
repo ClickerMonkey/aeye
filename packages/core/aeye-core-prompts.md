@@ -5,9 +5,12 @@
 ```typescript
 class Prompt<TContext = {}, TMetadata = {}, TName extends string = string,
   TInput extends object = {}, TOutput extends object | string = string,
-  TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = []>
+  TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
+  TDecoded extends object | string = TOutput>
   implements Component<...>
 ```
+
+`TDecoded` is the decoded type a custom `parse` produces from the model's structured output (e.g. a built AST/class instance); it types `validate` and the decoded output. It defaults to the wire `TOutput` when no custom `parse` is supplied — `schema` always stays the wire type.
 
 A `Prompt` only does real work when the context supplies `execute` and/or `stream` (see [types doc](./aeye-core-types.md)). Without them, get/run yields nothing.
 
@@ -20,6 +23,7 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 | `content` | `string` | Handlebars template. `{{tools}}` is auto-appended (wrapped in `<tools>`) when tools exist and you didn't include it. |
 | `input?` | `Fn<Record<string,any>, [TInput?, ctx]>` | Maps raw input → template variables. |
 | `schema?` | `Fn<ZodType<TOutput> \| false, [TInput?, ctx]>` | Output schema. `false` → plain-text output. Omitted → text. |
+| `parse?` | `(raw, ctx) => TDecoded \| Error \| Promise<…>` | **Custom output parser that REPLACES Zod.** Receives the raw `JSON.parse`-d structured value and fully owns turning it into the decoded `TDecoded`; return (or throw) an `Error` to reject it — routed through the same `outputRetries` channel a Zod failure would, surfacing the error's own `.message` (no Zod vocabulary, since Zod never runs). Lets a caller (e.g. `@aeye/query`'s parser) return a built AST plus compiler-style diagnostics. Only runs where Zod validation runs today (a structured, non-`ZodString` `schema` is present); `schema` is still required and still drives the model wire format. Absent ⇒ unchanged Zod path. |
 | `strict?` | `boolean \| number` | Strict-mode policy, default `1`. See [schema doc](./aeye-core-schema.md). |
 | `config?` | `Fn<Partial<Request> \| false, [TInput?, ctx]>` | Per-request overrides (temperature, model, toolChoice, …). `false` ⇒ prompt not compatible. |
 | `reconfig?` | `(stats: PromptReconfigInput, ctx) => PromptReconfig` | Adapt config after each iteration based on runtime stats. |

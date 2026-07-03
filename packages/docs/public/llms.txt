@@ -291,8 +291,11 @@ class PromptSuspend extends Error {
   constructor(message?: string);
 }
 
-class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs> implements Component {
-  constructor(input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs>);
+// TDecoded is the decoded type a custom `parse` produces from the raw wire args (e.g. a built
+// class instance); it types call/validate/metadataFn. Defaults to the wire TParams when no custom
+// `parse` is supplied — `schema` always stays the wire type.
+class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs, TDecoded extends object = TParams> implements Component {
+  constructor(input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>);
   get kind(): 'tool';
   get name(): TName;
   get description(): string;
@@ -377,8 +380,11 @@ type PromptEvent<TOutput, TTools> =
   | { type: 'responseTokens'; tokens: number; request: Request }
   | { type: 'usage'; usage: Usage; request: Request };
 
-class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools> implements Component {
-  constructor(input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>);
+// TDecoded is the decoded type a custom `parse` produces from the model's structured output (e.g. a
+// built AST/class instance); it types validate and the decoded output. Defaults to the wire TOutput
+// when no custom `parse` is supplied — `schema` always stays the wire type.
+class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools, TDecoded extends object | string = TOutput> implements Component {
+  constructor(input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded>);
   get kind(): 'prompt';
   get name(): TName;
   get description(): string;

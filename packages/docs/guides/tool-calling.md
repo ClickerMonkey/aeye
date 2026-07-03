@@ -165,6 +165,26 @@ const riskyTool = ai.tool({
 // The model can try again with a different ID
 ```
 
+## Custom Argument Parser (bring your own)
+
+A tool can supply a `parse` function that **replaces Zod** for argument validation. It receives the raw `JSON.parse`-d args and fully owns turning them into the decoded value; **its return type drives what `call`/`validate` receive** (the trailing `TDecoded` type parameter). Return (or throw) an `Error` to reject the call — the error's `.message` flows back to the model instead of Zod's.
+
+```typescript
+const runQuery = ai.tool({
+  name: 'runQuery',
+  description: 'Run a structured query',
+  schema: querySchema,                    // still required — drives the model wire format
+  parse: (raw, ctx) => {
+    const result = buildQuery(raw);        // your parser → a built, runnable object
+    if (result.problems) return new Error(result.report); // compiler-style diagnostics
+    return result.query;                   // decoded value; `call` receives this
+  },
+  call: async (query) => query.run(),      // `query` is the decoded type, not the wire args
+});
+```
+
+The pipeline becomes `JSON.parse` → `parse` → `validate` (Zod skipped). `schema` is still required and still drives `compile()` / the model wire format. Absent ⇒ the unchanged Zod path. `@aeye/query`'s `buildQueryTool` uses this to surface engine diagnostics.
+
 ## Raw Tool Call API
 
 Use tool calling at the Chat API level without prompts:

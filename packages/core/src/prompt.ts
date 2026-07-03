@@ -86,6 +86,7 @@ export interface PromptInput<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
+  TDecoded extends object | string = TOutput,
 > {
   // The name of the prompt.
   name: TName;
@@ -181,14 +182,47 @@ export interface PromptInput<
   metadataFn?: (input: TInput, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
   // If messages on the context should be excluded when rendering the prompt.
   excludeMessages?: boolean;
-  // Optional post-validation hook that runs after Zod parsing succeeds on the final output. Can throw to trigger re-prompting.
-  validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  /**
+   * Optional custom parser that REPLACES Zod validation of the model's
+   * STRUCTURED OUTPUT entirely.
+   *
+   * By default the structured-output path runs `JSON.parse` → Zod schema
+   * (`safeParseAsync`, after the wire `strictify`) → `validate`. When
+   * `parse` is supplied it takes Zod's place: the pipeline becomes
+   * `JSON.parse` → `parse` → `validate`, and the Zod schema (plus the
+   * descriptor `strictify` normalization) is SKIPPED for validation.
+   *
+   * The function receives the raw `JSON.parse`-d structured value and
+   * fully owns turning it into the typed `TOutput`. It returns EITHER:
+   * - the typed value `TOutput` on success, or
+   * - an `Error` to signal validation failure (equivalently, it may
+   *   `throw` that error) — the output is rejected and flows through the
+   *   SAME output-retry channel a Zod failure would (`outputRetries`),
+   *   surfacing the error's own `.message` back to the model.
+   *
+   * This mirrors `Tool.parse`'s `parse` hook, letting a caller (e.g.
+   * `@aeye/query`'s expr/query parser, which produces a typed AST plus
+   * `Problems`/`Code` diagnostics) return concise, compiler-style errors
+   * with source underlines INSTEAD of Zod's aggregate messages. The
+   * returned/thrown `Error` can be a rich subclass carrying structured
+   * diagnostics (its `message` is what the model-facing channel surfaces;
+   * no Zod vocabulary appears since Zod never runs).
+   *
+   * Only runs where Zod validation runs today: when a structured
+   * (non-`ZodString`) `schema` is present. The `schema` field is still
+   * required and continues to drive the model wire format. Absent ⇒
+   * unchanged behavior (Zod path).
+   */
+  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
+  // Optional post-validation hook that runs after parsing succeeds (Zod or custom `parse`) on the final DECODED output (`TDecoded`). Can throw to trigger re-prompting.
+  validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   // Optional function to determine if the component is applicable in the given context. If this is defined it is used over the default check.
   applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
   // Optional way to explicitly declare the types used in this component.
   types?: {
     input?: TInput;
     output?: TOutput;
+    decoded?: TDecoded;
     context?: TContext;
     metadata?: TMetadata;
   },
@@ -201,7 +235,7 @@ export interface PromptInput<
  */
 export type PromptToolOutput<TTools extends AnyTool[]> =
   TTools extends Array<infer TI>
-    ? TI extends Tool<any, any, infer TName, any, infer TO, any>
+    ? TI extends Tool<any, any, infer TName, any, infer TO, any, any>
       ? { tool: TName, result: Resolved<TO> }
       : never
     : never
@@ -213,7 +247,7 @@ export type PromptToolOutput<TTools extends AnyTool[]> =
  * 'name1' | 'name2' | ...
  */
 export type PromptToolNames<TTools extends AnyTool[]> =
-  TTools extends Tool<any, any, infer TName, any, any, any>[]
+  TTools extends Tool<any, any, infer TName, any, any, any, any>[]
     ? TName
     : never
 ;
@@ -236,7 +270,7 @@ export type PromptTools<TTools extends AnyTool[]> =
  */
 export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
   TTools extends Array<infer TTool>
-    ? TTool extends Tool<infer t0, infer t1, infer t2, infer t3, infer TOutput, infer t4>
+    ? TTool extends Tool<infer t0, infer t1, infer t2, infer t3, infer TOutput, infer t4, infer t5>
       ? { type: 'toolStart', tool: TTool, args: any, request: Request }
       | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, request: Request }
       | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
@@ -271,7 +305,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
 /**
  * A type representing any prompt component.
  */
-export type AnyPrompt = Prompt<any, any, any, any, any, any>;
+export type AnyPrompt = Prompt<any, any, any, any, any, any, any>;
 
 /**
  * The different modes for retrieving prompt output from the convenience get() method.
@@ -322,12 +356,13 @@ export class Prompt<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
+  TDecoded extends object | string = TOutput,
 > implements Component<
   TContext,
   TMetadata,
   TName,
   TInput,
-  AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>,
+  AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>,
   TTools
 > {
 
@@ -348,7 +383,7 @@ export class Prompt<
   }
 
   constructor(
-    public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>,
+    public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded>,
     private retool = resolveFn(input.retool),
     // Schema stays raw. The matching strictify is applied lazily at validation
     // time using the descriptor pinned on `request.responseFormat.descriptor`
@@ -408,8 +443,8 @@ export class Prompt<
   >(
     mode: TGetType = 'result' as TGetType,
     ...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>
-  ): PromptGet<TGetType, TOutput, TTools> {
-    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>;
+  ): PromptGet<TGetType, TDecoded, TTools> {
+    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>;
     const input = (inputMaybe || {}) as TInput;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
     const preferStream = (mode || 'result').startsWith('stream');
@@ -427,7 +462,7 @@ export class Prompt<
             return event.output;
           }
         }
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'tools':
       return (async function() {
         const tools: PromptToolOutput<TTools>[] = [];
@@ -437,10 +472,10 @@ export class Prompt<
           }
         }
         return tools;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'stream':
       return (async function*() {
-        let output: TOutput | undefined = undefined;
+        let output: TDecoded | undefined = undefined;
         for await (const event of stream) {
           yield event;
           if (event.type === 'complete') {
@@ -448,10 +483,10 @@ export class Prompt<
           }
         }
         return output;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'streamTools':
       return (async function*() {
-        let output: TOutput | undefined = undefined;
+        let output: TDecoded | undefined = undefined;
         for await (const event of stream) {
           if (event.type === 'toolOutput') {
             yield { tool: event.tool.name, result: event.result } as PromptToolOutput<TTools>;
@@ -461,10 +496,10 @@ export class Prompt<
           }
         }
         return output;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'streamContent':
       return (async function*() {
-        let output: TOutput | undefined = undefined;
+        let output: TDecoded | undefined = undefined;
         for await (const event of stream) {
           if (event.type === 'textPartial') {
             yield event.content;
@@ -474,7 +509,7 @@ export class Prompt<
           }
         }
         return output;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     }
   }
 
@@ -489,10 +524,10 @@ export class Prompt<
     TRuntimeContext extends TContext, 
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>): AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown> {
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>): AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown> {
     const input = (inputMaybe || {}) as TInput;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
-    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>;
+    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>;
 
     return ctx.runner
       // @ts-ignore
@@ -582,12 +617,12 @@ export class Prompt<
       boolean,
       boolean,
       // @ts-ignore
-      Events<Component<TRuntimeContext, TRuntimeMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>> | undefined,
+      Events<Component<TRuntimeContext, TRuntimeMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>> | undefined,
       TCoreContext, 
     ]>
-  ): AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown> {
+  ): AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown> {
     const input = (inputMaybe || {}) as TInput;
-    const events = (eventsMaybe || {}) as Events<Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>>;
+    const events = (eventsMaybe || {}) as Events<Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>>;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
 
     const streamer = ctx.stream && preferStream 
@@ -645,7 +680,7 @@ export class Prompt<
     let toolRetries = this.input.toolRetries ?? ctx.toolRetries ?? 2;
     const toolsComplete = this.input.toolsComplete ?? true;
 
-    let result: TOutput | undefined = undefined;
+    let result: TDecoded | undefined = undefined;
     let lastError: string | undefined = undefined;
     let completeText: string = '';
     let maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + 1;
@@ -663,13 +698,13 @@ export class Prompt<
 
     // Emit is a helper to optionally emit events and return the value passed in so it can be yielded.
     const emit = events?.onPromptEvent && ctx.instance
-      ? (ev: PromptEvent<TOutput, TTools>) => {
+      ? (ev: PromptEvent<TDecoded, TTools>) => {
           // @ts-ignore
           events.onPromptEvent!(ctx.instance!, ev as any);
           return ev;
         }
-      : (ev: PromptEvent<TOutput, TTools>) => ev;
-    const emitTool = (ev: PromptToolEvents<[AnyTool]>) => emit(ev as PromptEvent<TOutput, TTools>);
+      : (ev: PromptEvent<TDecoded, TTools>) => ev;
+    const emitTool = (ev: PromptToolEvents<[AnyTool]>) => emit(ev as PromptEvent<TDecoded, TTools>);
     const emitMessage = (message: Message) => {
       request.messages.push(message);
       return emit({ type: 'message', message, request });
@@ -1074,7 +1109,7 @@ export class Prompt<
       // If we are finished, parse the output
       if (stop) {
         if (!schema || (schema instanceof ZodString)) {
-          result = content as unknown as TOutput;
+          result = content as unknown as TDecoded;
 
           break; // All good!
         } else {
@@ -1090,6 +1125,39 @@ export class Prompt<
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
+            if (this.input.parse) {
+              // Custom parser REPLACES Zod validation of the structured
+              // output entirely. Mirrors Tool.parse's `parse` hook: the raw
+              // JSON.parse-d value goes straight to the caller's parser,
+              // which returns the typed TOutput on success or an Error
+              // (returned OR thrown) carrying rich, compiler-style
+              // diagnostics. Zod (and the descriptor strictify) is skipped.
+              // A returned/thrown Error flows through the SAME output-retry
+              // channel a Zod failure would, surfacing its own `.message`
+              // (no Zod vocabulary — Zod never ran). Absent ⇒ unchanged.
+              let customResult: TDecoded | Error;
+              try {
+                customResult = await this.input.parse(parsedJSON, ctx);
+              } catch (customError: any) {
+                customResult = customError instanceof Error ? customError : new Error(String(customError));
+              }
+              if (customResult instanceof Error) {
+                errorMessage = this.truncateValidationError(customResult.message, errMax);
+                resetReason = 'schema-parsing';
+              } else {
+                result = customResult;
+
+                try {
+                  await this.input.validate?.(result, ctx);
+                } catch (validationError: any) {
+                  errorMessage = this.truncateValidationError(
+                    `The output failed validation:\n${validationError.message}`,
+                    errMax,
+                  );
+                  resetReason = 'validation';
+                }
+              }
+            } else {
             // Apply the same strictify rewrite the provider used for the wire
             // shape, so array-of-pairs records / numeric-key tuples / etc.
             // normalize back into the natural Zod shape before validation.
@@ -1113,7 +1181,7 @@ export class Prompt<
               );
               resetReason = 'schema-parsing';
             } else {
-              result = parsedSafe.data as unknown as TOutput;
+              result = parsedSafe.data as unknown as TDecoded;
 
               try {
                 await this.input.validate?.(result, ctx);
@@ -1124,6 +1192,7 @@ export class Prompt<
                 );
                 resetReason = 'validation';
               }
+            }
             }
           } catch (parseError: any) {
             errorMessage = this.truncateValidationError(

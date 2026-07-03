@@ -7,9 +7,12 @@ Both are `Component`s. A **Tool** is a single callable function exposed to the m
 ```typescript
 class Tool<TContext = {}, TMetadata = {}, TName extends string = string,
   TParams extends object = {}, TOutput = string,
-  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = []>
+  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],
+  TDecoded extends object = TParams>
   implements Component<...>
 ```
+
+`TDecoded` is the decoded type a custom `parse` produces from the raw wire args (e.g. a built class instance); it types `call`, `validate`, and `metadataFn`. It defaults to the wire `TParams` when no custom `parse` is supplied — `schema` always stays the wire type.
 
 ### `ToolInput` (constructor config)
 
