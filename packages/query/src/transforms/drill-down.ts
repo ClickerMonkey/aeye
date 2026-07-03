@@ -211,6 +211,7 @@ function expandOutputDef(def: ExprDef, outputs: ReadonlyMap<string, ExprDef>): E
     case 'subquery':
     case 'semantic':
     case 'text-search':
+    case 'text-score':
     case 'filters':
     case 'excluded':
       return def;

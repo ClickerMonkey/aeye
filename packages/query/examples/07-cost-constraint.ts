@@ -10,6 +10,7 @@
  * non-indexed `city` field still estimates in the hundreds, so a
  * `maxRows: 100` cap rejects it — exactly the intended outcome.
  */
+import { e } from '../src/index';
 import type { SelectDef } from '../src/index';
 import { createExampleFixture } from './schema';
 import type { ExampleReport } from './_util';
@@ -20,16 +21,9 @@ export async function run(): Promise<ExampleReport> {
 
   const scan: SelectDef = {
     kind: 'select',
-    fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
+    fields: [{ expr: e.ref('user', 'name').toJSON() }],
     from: { kind: 'type', type: 'user' },
-    where: [
-      {
-        kind: 'comparison',
-        op: '=',
-        left: { kind: 'field-ref', source: 'user', field: 'city' },
-        right: { kind: 'literal', value: 'London' },
-      },
-    ],
+    where: [e.eq(e.ref('user', 'city'), e.value('London')).toJSON()],
   };
 
   const cost = engine.cost(scan);

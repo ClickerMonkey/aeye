@@ -10,10 +10,10 @@
  *  - tabular   — `rangeRows(count)`→ produces `count` rows.
  */
 import {
+  e,
   Value,
   RuntimeContext,
   type SelectDef,
-  type ExprDef,
   type NamedArgs,
 } from '../src/index';
 import { createExampleFixture } from './schema';
@@ -102,11 +102,11 @@ export async function run(): Promise<ExampleReport> {
   const scalarSelect: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' },
-      { expr: { kind: 'function-call', function: 'initials', args: { value: { kind: 'field-ref', source: 'user', field: 'name' } } }, as: 'initials' },
+      { expr: e.ref('user', 'name').toJSON(), as: 'name' },
+      { expr: e.fn('initials', { value: e.ref('user', 'name') }).toJSON(), as: 'initials' },
     ],
     from: { kind: 'type', type: 'user' },
-    order: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, dir: 'asc' }],
+    order: [{ expr: e.ref('user', 'id').toJSON(), dir: 'asc' }],
     limit: 3,
   };
   errors += engine.validateQuery(scalarSelect).list.filter((p) => p.severity === 'error').length;
@@ -118,12 +118,12 @@ export async function run(): Promise<ExampleReport> {
   const aggSelect: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
-      { expr: { kind: 'aggregate', function: 'span', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } }, as: 'span' },
+      { expr: e.ref('order', 'userId').toJSON(), as: 'userId' },
+      { expr: e.agg('span', { value: e.ref('order', 'total') }).toJSON(), as: 'span' },
     ],
     from: { kind: 'type', type: 'order' },
-    groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
-    order: [{ expr: { kind: 'field-ref', source: 'order', field: 'userId' }, dir: 'asc' }],
+    groupBy: [e.ref('order', 'userId').toJSON()],
+    order: [{ expr: e.ref('order', 'userId').toJSON(), dir: 'asc' }],
     limit: 3,
   };
   errors += engine.validateQuery(aggSelect).list.filter((p) => p.severity === 'error').length;
@@ -135,19 +135,19 @@ export async function run(): Promise<ExampleReport> {
   const winSelect: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' },
+      { expr: e.ref('order', 'id').toJSON(), as: 'id' },
       {
-        expr: {
-          kind: 'window',
-          function: 'cume',
-          args: { value: { kind: 'field-ref', source: 'order', field: 'total' } },
-          orderBy: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, dir: 'asc' }],
-        },
+        expr: e
+          .window('cume', {
+            args: { value: e.ref('order', 'total') },
+            orderBy: [{ expr: e.ref('order', 'id'), dir: 'asc' }],
+          })
+          .toJSON(),
         as: 'running',
       },
     ],
     from: { kind: 'type', type: 'order' },
-    order: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, dir: 'asc' }],
+    order: [{ expr: e.ref('order', 'id').toJSON(), dir: 'asc' }],
     limit: 4,
   };
   errors += engine.validateQuery(winSelect).list.filter((p) => p.severity === 'error').length;
@@ -156,7 +156,7 @@ export async function run(): Promise<ExampleReport> {
   for (const r of winRows) output.push(`  ${JSON.stringify(r)}`);
 
   // ── Run TABULAR: evaluate the type-valued function directly ───────────────
-  const tabExpr: ExprDef = { kind: 'tabular-function-call', function: 'rangeRows', args: { count: { kind: 'literal', value: 3 } } };
+  const tabExpr = e.tableFn('rangeRows', { count: e.value(3) });
   const ctx = new RuntimeContext(engine);
   const tabValue = await registry.parseExpr(tabExpr).evaluate(ctx, null);
   output.push(`tabular rangeRows(3): ${JSON.stringify(tabValue.raw)}`);

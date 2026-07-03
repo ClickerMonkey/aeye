@@ -29,6 +29,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A constant scalar value (`string | number | boolean | null`). */
 export class LiteralExpr extends Expr {
   static readonly KIND = 'literal' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A constant scalar value." as const;
   readonly kind = LiteralExpr.KIND;
 
   /** Wrap a constant scalar value (`string | number | boolean | null`). */

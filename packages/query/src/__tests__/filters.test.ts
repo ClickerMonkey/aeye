@@ -1,105 +1,21 @@
 /**
- * Phase 4 — per-FieldType filter-operator catalog + `FiltersExpr` compilation.
+ * `filters` placeholders — validation, execution-time bool-expr binding, and the
+ * `query.filters(engine)` / `walkExprs` introspection surface.
+ *
+ * A `filters` placeholder authors just `{ source, fields? }`; the actual bool
+ * predicate is supplied per source at EXECUTION time (`engine.run({ filters })`),
+ * and `query.filters(engine)` reports which sources a query exposes + the fields
+ * each offers.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, typeScope, runtimeFixture } from './_utils';
-import { catalogForFieldType, compileFilters } from '../filters';
-import { FiltersExpr } from '../exprs/index';
-import {
-  NumberFieldType,
-  MoneyFieldType,
-  BoolFieldType,
-  DateFieldType,
-  TimestampFieldType,
-  JsonFieldType,
-  RelationFieldType,
-  TextFieldType,
-  ArrayFieldType,
-} from '../field-types/index';
-import type { FieldType } from '../field-type';
+import { fixture, runtimeFixture, ref, lit, cmp } from './_utils';
+import type { Expr } from '../expr';
 import type { ExprDef, QueryDef } from '../schema';
-
-/** Op names of a field type's catalog, in catalog order. */
-const opNames = (ft: FieldType): string[] => catalogForFieldType(ft).map((o) => o.op);
-
-describe('filters: per-FieldType operator catalog', () => {
-  it('number / money / date / timestamp share the comparable op set', () => {
-    const expected = ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'notIn', 'between', 'isNull', 'notNull'];
-    expect(opNames(new NumberFieldType())).toEqual(expected);
-    expect(opNames(new MoneyFieldType())).toEqual(expected);
-    expect(opNames(new DateFieldType())).toEqual(expected);
-    expect(opNames(new TimestampFieldType())).toEqual(expected);
-  });
-
-  it('text has the string op set; search/similar only when flagged', () => {
-    const base = ['eq', 'neq', 'contains', 'startsWith', 'endsWith', 'like', 'ilike', 'in', 'notIn', 'isNull', 'notNull'];
-    expect(opNames(new TextFieldType())).toEqual(base);
-    expect(opNames(new TextFieldType({ search: true }))).toEqual([...base, 'search']);
-    expect(opNames(new TextFieldType({ semantic: true }))).toEqual([...base, 'similar']);
-    expect(opNames(new TextFieldType({ search: true, semantic: true }))).toEqual([...base, 'search', 'similar']);
-  });
-
-  it('bool / relation / json have their narrow op sets', () => {
-    expect(opNames(new BoolFieldType())).toEqual(['eq', 'neq', 'isNull', 'notNull']);
-    expect(opNames(new RelationFieldType('order', 5))).toEqual(['exists', 'notExists', 'anyMatch']);
-    expect(opNames(new JsonFieldType())).toEqual(['eq', 'isNull', 'notNull', 'hasKey', 'pathEq']);
-  });
-
-  it('array has the containment / length / null op set', () => {
-    expect(opNames(new ArrayFieldType(new TextFieldType()))).toEqual([
-      'contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty',
-      'lengthEq', 'lengthGt', 'lengthGte', 'lengthLt', 'lengthLte',
-      'isNull', 'notNull',
-    ]);
-  });
-
-  it('FieldType.filterOps() delegates to the catalog', () => {
-    expect(new NumberFieldType().filterOps().map((o) => o.op)).toEqual(opNames(new NumberFieldType()));
-  });
-
-  it('each op exposes an arity and a value schema', () => {
-    const num = new NumberFieldType();
-    const ops = catalogForFieldType(num);
-    const eq = ops.find((o) => o.op === 'eq');
-    const between = ops.find((o) => o.op === 'between');
-    const isNull = ops.find((o) => o.op === 'isNull');
-    const inOp = ops.find((o) => o.op === 'in');
-    expect(eq?.arity).toBe('binary');
-    expect(between?.arity).toBe('range');
-    expect(isNull?.arity).toBe('unary');
-    expect(inOp?.arity).toBe('list');
-    // value schemas accept / reject correctly
-    expect(eq?.valueSchema(num).safeParse(5).success).toBe(true);
-    expect(inOp?.valueSchema(num).safeParse([1, 2]).success).toBe(true);
-    expect(between?.valueSchema(num).safeParse([1, 2]).success).toBe(true);
-    expect(between?.valueSchema(num).safeParse([1]).success).toBe(false);
-  });
-});
-
-describe('filters: expand (builder menu)', () => {
-  it('lists each field with its allowed ops', () => {
-    const fx = fixture();
-    const scope = typeScope(fx);
-    const expr = FiltersExpr.from({ kind: 'filters', source: 'u' }, fx.registry);
-    const menu = expr.expand(fx.engine, scope);
-    const byField = new Map(menu.map((m) => [m.field.name, m.ops.map((o) => o.op)]));
-    expect(byField.get('age')).toContain('between');
-    expect(byField.get('email')).toContain('search'); // email is search-flagged
-    expect(byField.get('orders')).toEqual(['exists', 'notExists', 'anyMatch']);
-  });
-
-  it('honors the `fields` allowlist (menu restricted to listed fields)', () => {
-    const fx = fixture();
-    const scope = typeScope(fx);
-    const expr = FiltersExpr.from({ kind: 'filters', source: 'u', fields: ['age', 'email'] }, fx.registry);
-    const menu = expr.expand(fx.engine, scope);
-    expect(menu.map((m) => m.field.name).sort()).toEqual(['age', 'email']);
-  });
-});
 
 describe('filters: validation problems', () => {
   const fx = fixture();
-  const scope = typeScope(fx);
+  const scope = fx.engine.globalScope();
+  scope.bind('u', { kind: 'type', type: fx.user, source: 'u', synthetic: false });
   const validate = (filters: ExprDef) => fx.engine.validateExpr(filters, scope);
 
   it('reports an unknown source', () => {
@@ -119,50 +35,6 @@ describe('filters: validation problems', () => {
   });
 });
 
-describe('filters: compileFilters builds the bool Expr', () => {
-  it('compiles a single clause to the op\'s boolean expr (comparison)', () => {
-    const fx = fixture();
-    const expr = compileFilters('u', [{ field: 'age', op: 'gte', value: 40 }], fx.registry);
-    expect(expr.toJSON()).toEqual({
-      kind: 'comparison',
-      op: '>=',
-      left: { kind: 'field-ref', source: 'u', field: 'age' },
-      right: { kind: 'literal', value: 40 },
-    });
-  });
-
-  it('AND-combines multiple clauses into a logical `and`', () => {
-    const fx = fixture();
-    const expr = compileFilters(
-      'u',
-      [
-        { field: 'age', op: 'gte', value: 18 },
-        { field: 'name', op: 'contains', value: 'o' },
-      ],
-      fx.registry,
-    );
-    const def = expr.toJSON();
-    expect(def.kind).toBe('logical');
-    if (def.kind === 'logical') {
-      expect(def.op).toBe('and');
-      expect(def.operands.length).toBe(2);
-      expect(def.operands[0]!.kind).toBe('comparison');
-      // `contains` lowers to a LIKE comparison with `%o%`.
-      expect(def.operands[1]!.kind).toBe('comparison');
-    }
-  });
-
-  it('zero clauses ⇒ a constant TRUE literal', () => {
-    const fx = fixture();
-    expect(compileFilters('u', [], fx.registry).toJSON()).toEqual({ kind: 'literal', value: true });
-  });
-
-  it('an unknown op throws', () => {
-    const fx = fixture();
-    expect(() => compileFilters('u', [{ field: 'age', op: 'nope', value: 1 }], fx.registry)).toThrow(/unknown filter op/);
-  });
-});
-
 describe('filters: execution-time bool expr over the in-memory dataset', () => {
   /** SELECT name FROM user WHERE <filters placeholder over `user`>. */
   const usersDef = (fields?: string[]): QueryDef => ({
@@ -178,24 +50,133 @@ describe('filters: execution-time bool expr over the in-memory dataset', () => {
     expect(result.rows.length).toBe(3);
   });
 
-  it('filters users by age >= 40 (bool expr supplied at run time)', async () => {
+  it('filters users by age >= 40 (bool ExprDef supplied at run time)', async () => {
     const fx = runtimeFixture();
-    const filter = compileFilters('user', [{ field: 'age', op: 'gte', value: 40 }], fx.registry);
+    const filter: ExprDef = cmp('>=', ref('user', 'age'), lit(40));
     const result = await fx.engine.run(usersDef(), { filters: { user: filter } });
     expect(result.rows.map((r) => r['name'])).toEqual(['Bob']);
   });
 
-  it('filters users by a name substring (contains)', async () => {
+  it('filters users by a name substring (LIKE)', async () => {
     const fx = runtimeFixture();
-    const filter = compileFilters('user', [{ field: 'name', op: 'contains', value: 'o' }], fx.registry);
+    const filter: ExprDef = cmp('like', ref('user', 'name'), lit('%o%'));
     const result = await fx.engine.run(usersDef(), { filters: { user: filter } });
     expect(result.rows.map((r) => r['name']).sort()).toEqual(['Bob', 'Cleo']);
   });
 
-  it('the `search` op compiles to text-search (email is search-flagged)', async () => {
+  it('a text-search bool expr binds (email is search-flagged)', async () => {
     const fx = runtimeFixture();
-    const filter = compileFilters('user', [{ field: 'email', op: 'search', value: 'ada' }], fx.registry);
+    const filter: ExprDef = { kind: 'text-search', source: 'user', field: 'email', query: 'ada' };
     const result = await fx.engine.run(usersDef(), { filters: { user: filter } });
     expect(result.rows.map((r) => r['name'])).toEqual(['Ada']);
+  });
+});
+
+describe('query.filters(engine) introspection', () => {
+  /** A SELECT whose WHERE carries a `filters` placeholder over `user`. */
+  const withFilters = (fields?: string[]): QueryDef => ({
+    kind: 'select',
+    fields: [{ expr: ref('user', 'name') }],
+    from: { kind: 'type', type: 'user' },
+    where: [fields ? { kind: 'filters', source: 'user', fields } : { kind: 'filters', source: 'user' }],
+  });
+
+  it('reports the source → its bound Type fields (no allowlist ⇒ every field)', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery(withFilters());
+    const exposed = q.filters(fx.engine);
+    expect(Object.keys(exposed)).toEqual(['user']);
+    const names = exposed['user']!.fields.map((f) => f.name).sort();
+    // `orders` is the materialized inverse relation, so it appears too.
+    expect(names).toEqual(['age', 'email', 'id', 'name', 'orders', 'tags'].sort());
+    const byName = new Map(exposed['user']!.fields.map((f) => [f.name, f]));
+    expect(byName.get('age')!.fieldType).toBe('number');
+    expect(byName.get('age')!.nullable).toBe(true);
+    expect(byName.get('orders')!.fieldType).toBe('relation');
+  });
+
+  it('honors the `fields` allowlist (restricted to listed fields)', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery(withFilters(['age', 'email']));
+    // Pass an explicit scope (exercises the non-default scope path too).
+    const exposed = q.filters(fx.engine, fx.engine.globalScope());
+    expect(exposed['user']!.fields.map((f) => f.name).sort()).toEqual(['age', 'email']);
+  });
+
+  it('a query with no `filters` placeholder returns {}', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery({
+      kind: 'select',
+      fields: [{ expr: ref('user', 'name') }],
+      from: { kind: 'type', type: 'user' },
+      where: [cmp('>', ref('user', 'age'), lit(0))],
+    });
+    expect(q.filters(fx.engine)).toEqual({});
+  });
+
+  it('skips a placeholder whose source does not resolve to a bound Type', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery({
+      kind: 'select',
+      fields: [{ expr: ref('user', 'name') }],
+      from: { kind: 'type', type: 'user' },
+      where: [{ kind: 'filters', source: 'nope' }],
+    });
+    expect(q.filters(fx.engine)).toEqual({});
+  });
+
+  it('last-wins when one source appears in two placeholders', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery({
+      kind: 'select',
+      fields: [{ expr: ref('user', 'name') }],
+      from: { kind: 'type', type: 'user' },
+      where: [
+        { kind: 'filters', source: 'user', fields: ['age'] },
+        { kind: 'filters', source: 'user', fields: ['email'] },
+      ],
+    });
+    expect(q.filters(fx.engine)['user']!.fields.map((f) => f.name)).toEqual(['email']);
+  });
+
+  it('a non-SELECT query (base walkExprs / filterScope) exposes no filters', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery({ kind: 'expr', expr: lit(true) });
+    expect(q.filters(fx.engine)).toEqual({});
+  });
+});
+
+describe('Query.walkExprs', () => {
+  it('visits every clause expr (fields / where / groupBy / having / order / join.and)', () => {
+    const fx = fixture();
+    const def: QueryDef = {
+      kind: 'select',
+      fields: [{ expr: ref('user', 'name') }],
+      from: { kind: 'type', type: 'user' },
+      joins: [{ on: { source: 'user', field: 'orders' }, and: cmp('>', ref('order', 'total'), lit(0)) }],
+      where: [{ kind: 'filters', source: 'user' }],
+      groupBy: [ref('user', 'name')],
+      having: [cmp('>', ref('user', 'age'), lit(0))],
+      order: [{ expr: ref('user', 'name'), dir: 'asc' }],
+    };
+    const kinds: string[] = [];
+    fx.registry.parseQuery(def).walkExprs((e: Expr) => kinds.push(e.kind));
+    // A `filters` placeholder in WHERE, plus exprs from every other clause.
+    expect(kinds).toContain('filters');
+    expect(kinds).toContain('comparison'); // having / join.and
+    expect(kinds.filter((k) => k === 'field-ref').length).toBeGreaterThan(0);
+  });
+
+  it('handles a join without an `and` predicate', () => {
+    const fx = fixture();
+    const q = fx.registry.parseQuery({
+      kind: 'select',
+      fields: [{ expr: ref('user', 'name') }],
+      from: { kind: 'type', type: 'user' },
+      joins: [{ on: { source: 'user', field: 'orders' } }],
+    });
+    const kinds: string[] = [];
+    q.walkExprs((e: Expr) => kinds.push(e.kind));
+    expect(kinds).toEqual(['field-ref']);
   });
 });

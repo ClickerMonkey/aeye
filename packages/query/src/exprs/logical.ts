@@ -22,6 +22,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A boolean connective `and` / `or` / `not`. A `BoolExpr`. */
 export class LogicalExpr extends BoolExpr {
   static readonly KIND = 'logical' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Boolean connective `and` / `or` / `not` over operands." as const;
   readonly kind = LogicalExpr.KIND;
 
   /** Wrap a boolean connective (`and` / `or` / `not`) over its operands. */

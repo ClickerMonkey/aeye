@@ -1,6 +1,6 @@
 /**
  * Coverage: llm/schemas depth resolution + auto-degrade, depthInstructions
- * notes per axis, the tabular function source branch, and filtersForType.
+ * notes per axis, and the tabular function source branch.
  */
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../registry';
@@ -69,11 +69,11 @@ describe('depthInstructions notes per axis', () => {
     expect(depthInstructions(engine, { depth: { typeNames: 'enum' } })).toMatch(/Type-name positions/);
     expect(depthInstructions(engine, { depth: { functions: 'typed' } })).toMatch(/declared NAMED parameters/);
     expect(depthInstructions(engine, { depth: { functions: 'names' } })).toMatch(/Function names/);
-    expect(depthInstructions(engine, { depth: { filters: 'paired' } })).toMatch(/`\(field, op\)` pairs/);
+    expect(depthInstructions(engine, { depth: { filters: 'paired' } })).toMatch(/`filters` placeholder/);
   });
 });
 
-describe('tabular function source branch + filtersForType', () => {
+describe('tabular function source branch', () => {
   function tabularEngine() {
     const registry = createRegistry();
     registry.registerType(registry.parseType({ name: 'user', fields: [{ name: 'id', type: { kind: 'number', whole: true } }], count: 1, bytes: 1 }));
@@ -87,12 +87,6 @@ describe('tabular function source branch + filtersForType', () => {
     expect(openS.Source.safeParse({ kind: 'function', function: 'genRows', args: { n: { kind: 'literal', value: 1 } }, as: 'g' }).success).toBe(true);
     const pairedS = buildSchemas(tabularEngine(), { depth: 'paired' });
     expect(pairedS.Source.safeParse({ kind: 'function', function: 'genRows', args: { n: { kind: 'literal', value: 1 } }, as: 'g' }).success).toBe(true);
-  });
-
-  it('filtersForType throws for an unknown Type', () => {
-    const schemas = buildSchemas(tabularEngine());
-    expect(schemas.filtersForType('user')).toBeTruthy();
-    expect(() => schemas.filtersForType('nope')).toThrow(/unknown type/);
   });
 
   it('shouldUseStringSchema flags over-budget Type counts', () => {

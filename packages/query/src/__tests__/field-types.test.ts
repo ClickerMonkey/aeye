@@ -99,7 +99,7 @@ describe('field-types: toValueSchema accept / reject', () => {
   });
 });
 
-describe('field-types: avgBytes / resolve / filterOps', () => {
+describe('field-types: avgBytes / resolve', () => {
   it('avgBytes positive for every kind', () => {
     const defs: FieldTypeDef[] = [
       { kind: 'number' },
@@ -128,16 +128,5 @@ describe('field-types: avgBytes / resolve / filterOps', () => {
     const rB = new RelationFieldType('B', 1);
     expect(rA.comparableWith(new RelationFieldType('A', 5))).toBe(true);
     expect(rA.comparableWith(rB)).toBe(false);
-  });
-
-  it('text filterOps add search/similar when flagged', () => {
-    const plain = registry.parseFieldType({ kind: 'text' });
-    const rich = registry.parseFieldType({ kind: 'text', search: true, semantic: true });
-    // filterOps() now returns the FilterOp catalog; compare by op name.
-    const names = (ft: ReturnType<typeof registry.parseFieldType>): string[] =>
-      ft.filterOps().map((o) => o.op);
-    expect(names(plain)).not.toContain('search');
-    expect(names(rich)).toContain('search');
-    expect(names(rich)).toContain('similar');
   });
 });

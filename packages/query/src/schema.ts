@@ -467,7 +467,7 @@ export interface OrderDef {
 
 /**
  * A window function over a partition / order. `function` names a registered
- * WINDOW-shaped function (e.g. `row_number`, `rank`, `lag`) — or an
+ * WINDOW-shaped function (e.g. `rowNumber`, `rank`, `lag`) — or an
  * AGGREGATE-shaped function used as a windowed aggregate (`sum(...) OVER (...)`)
  * — and `args` supplies its arguments BY PARAMETER NAME.
  */
@@ -503,11 +503,16 @@ export interface TabularFunctionCallExprDef {
 /**
  * The query a `semantic` expr compares the row against:
  *  - a literal natural-language `string`;
- *  - a `param` whose bound value supplies the text; or
- *  - a `TypeFieldRef` pointing at ANOTHER semantic-eligible Type + field (the
- *    referenced field's embedding becomes the query vector).
+ *  - a `param` whose bound value supplies the text;
+ *  - a `SourceFieldRef` (`{ source, field }`) pointing at ANOTHER BOUND source +
+ *    semantic field whose embedding becomes the query vector — the primary
+ *    cross-source PAIRING form (both sides must be bound in the query scope); or
+ *  - a `TypeFieldRef` (`{ type, field }`) naming a semantic Type + field; it
+ *    resolves to the SINGLE bound source of that Type in scope (unbound ⇒
+ *    `semantic.query-unbound`, bound more than once ⇒ `semantic.query-ambiguous`,
+ *    which steers the author to the unambiguous `{ source }` form).
  */
-export type SemanticQueryDef = string | ParamExprDef | TypeFieldRef;
+export type SemanticQueryDef = string | ParamExprDef | SourceFieldRef | TypeFieldRef;
 
 /**
  * Semantic-similarity score of a bound source's row against a query (returns a
@@ -530,19 +535,16 @@ export type TextSearchExprDef = { kind: 'text-search' } & SourceFieldOptionalRef
 };
 
 /**
- * A single filter clause supplied at EXECUTION time (NOT part of the LLM-facing
- * `filters` expr). The developer wires these per source via `RuntimeOptions
- * .filters`; `FiltersExpr` validates + compiles them against the bound source.
+ * NUMERIC full-text relevance SCORE of a bound source (optionally one field)
+ * against a query — the ranking counterpart of the `text-search` predicate.
+ * Resolves to a non-null number (usable in SELECT + ORDER BY, so "top N by text
+ * relevance" works). `query` is a literal string or a `param`. Postgres emits
+ * `ts_rank`; the base (ANSI) dialect degrades to a numeric 0/1 match.
  */
-export interface FilterClauseDef {
-  /** Field name (relative to the filters' source). */
-  field: string;
-  /** Operator name from the field type's filter-op catalog. */
-  op: string;
-  /** Operand value(s); shape depends on the op's arity. Omitted for
-   *  unary ops like `isNull`. */
-  value?: ScalarValue | ScalarValue[];
-}
+export type TextScoreExprDef = { kind: 'text-score' } & SourceFieldOptionalRef & {
+  /** The search query: a literal string or a bound param. */
+  query: string | ParamExprDef;
+};
 
 /**
  * A structured filter placeholder bound to a source, with an optional `fields`
@@ -613,6 +615,7 @@ export type ExprDef =
   | TabularFunctionCallExprDef
   | SemanticExprDef
   | TextSearchExprDef
+  | TextScoreExprDef
   | FiltersExprDef
   | SubqueryExprDef
   | ExcludedExprDef;
@@ -878,6 +881,11 @@ export interface FunctionParamDef {
 export interface FunctionDef {
   name: string;
   shape: FunctionShape;
+  /**
+   * Optional terse, LLM-facing usage note (what it does / arg meaning / any
+   * gotcha) — the canonical concise doc surfaced to a model choosing functions.
+   */
+  instructions?: string;
   params: FunctionParamDef[];
   /**
    * Declared output: a concrete field type, a reference to a Type (for
@@ -887,6 +895,15 @@ export interface FunctionDef {
   output: FieldTypeDef | { type: string } | 'inferred';
   /** Optional SQL template / function name for emission. */
   sql?: string;
+  /**
+   * DECLARED-PARAMETER INDICES whose argument must be emitted as an INLINE SQL
+   * literal (a bare field token) rather than a bound parameter. Used by the
+   * date-field selectors (`datePart` / `dateAdd` / `dateDiff` / `dateTrunc`)
+   * whose `field` argument becomes an `EXTRACT`/`date_part` field name — a value
+   * the dialect must splice literally, never bind as `$1`. Validated (the arg
+   * must be a literal from the allowed date-field set) by `FunctionCallExpr`.
+   */
+  rawArgs?: readonly number[];
 }
 
 /** A resolved bind parameter — name plus the field type inferred for it. */

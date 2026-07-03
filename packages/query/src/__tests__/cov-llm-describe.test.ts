@@ -72,8 +72,8 @@ describe('describeFunctions / describeDialects / describeEngine / describeTypes'
     const fns = describeFunctions(engine, 'all');
     expect(fns).toContain('scalar:');
     expect(fns).toContain('tabular:');
-    expect(fns).toContain('genRows(n: number): widget'); // {type} output
-    expect(fns).toContain('sum(value: number): inferred'); // inferred output
+    expect(fns).toContain('genRows(n): widget'); // {type} output, no instructions
+    expect(fns).toContain('sum(value): inferred — Sum of the non-null values.'); // inferred + instructions
     const none = describeFunctions(engine.registry, { scalar: 'none', aggregate: 'none', window: 'none', tabular: 'none' });
     expect(none).toBe('functions: (none selected)');
   });

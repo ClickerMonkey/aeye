@@ -452,13 +452,21 @@ describe('SemanticExpr', () => {
     expect(okField.filter((c) => c.startsWith('semantic.'))).toEqual([]);
   });
 
-  it('validateWalk: typeField query codes + cross-entity-unsupported; param observation', () => {
+  it('validateWalk: pairing query codes (unbound / unknown-field / not-semantic) + valid self-pair; param observation', () => {
     const scope = () => customScope();
-    // unknown-query-type
+    // query-unbound (a `{ type }` referencing a Type not bound in scope)
     expect(
       codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { type: 'nope', field: 'x' } }, scope())),
-    ).toContain('semantic.unknown-query-type');
-    // unknown-query-field
+    ).toContain('semantic.query-unbound');
+    // query-unbound (a `{ source }` naming an unbound source)
+    expect(
+      codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { source: 'ghost', field: 'x' } }, scope())),
+    ).toContain('semantic.query-unbound');
+    // query-unbound (a `{ source }` naming a NON-type binding)
+    expect(
+      codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { source: 'c', field: 'x' } }, scope())),
+    ).toContain('semantic.query-unbound');
+    // unknown-query-field (bound Type, missing field)
     expect(
       codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { type: 'item', field: 'nope' } }, scope())),
     ).toContain('semantic.unknown-query-field');
@@ -466,10 +474,16 @@ describe('SemanticExpr', () => {
     expect(
       codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { type: 'item', field: 'plain' } }, scope())),
     ).toContain('semantic.query-not-semantic');
-    // cross-entity-unsupported (a well-formed semantic type+field)
+    // A well-formed self-pairing (`item` bound once) ⇒ clean.
     expect(
-      codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { type: 'item', field: 'title' } }, scope())),
-    ).toContain('semantic.cross-entity-unsupported');
+      codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { type: 'item', field: 'title' } }, scope()))
+        .filter((x) => x.startsWith('semantic.')),
+    ).toEqual([]);
+    // The `{ source, field }` form over a bound semantic source ⇒ clean.
+    expect(
+      codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: { source: 'item', field: 'title' } }, scope()))
+        .filter((x) => x.startsWith('semantic.')),
+    ).toEqual([]);
     // Param query observation ⇒ no semantic error.
     const c = codes(cfx.engine.validateExpr({ kind: 'semantic', source: 'item', query: param('q') }, scope()));
     expect(c.filter((x) => x.startsWith('semantic.'))).toEqual([]);
@@ -491,18 +505,24 @@ describe('SemanticExpr', () => {
     expect((await e.evaluate(ctx, null)).raw).toBe(0);
   });
 
-  it('evaluate: empty param query vector ⇒ 0; typeField query ⇒ 0', async () => {
+  it('evaluate: empty param query vector ⇒ 0; pairing with an absent query source ⇒ 0', async () => {
     // Param query whose bound value is empty ⇒ queryVector null ⇒ 0.
     const emptyParam = new RuntimeContext(cfx.engine, { embedder: fakeEmbedder, params: { q: '' } });
     const ep = cfx.engine.parse({ kind: 'semantic', source: 'item', query: param('q') });
     expect((await ep.evaluate(emptyParam, { item: { id: 1, title: 'cat' } })).raw).toBe(0);
-    // typeField query ⇒ no in-memory query vector ⇒ 0.
+    // A `{ type }` pairing whose paired Type is NOT present in the row ⇒ 0.
     const ctx = new RuntimeContext(cfx.engine, { embedder: fakeEmbedder });
     const tf = SemanticExpr.from(
-      { kind: 'semantic', source: 'item', query: { type: 'item', field: 'title' } } as ExprDef,
+      { kind: 'semantic', source: 'item', query: { type: 'plainType', field: 'title' } } as ExprDef,
       cfx.registry,
     );
     expect((await tf.evaluate(ctx, { item: { id: 1, title: 'cat' } })).raw).toBe(0);
+    // A `{ source }` pairing whose paired source is absent from the row ⇒ 0.
+    const sf = SemanticExpr.from(
+      { kind: 'semantic', source: 'item', query: { source: 'gone', field: 'title' } } as ExprDef,
+      cfx.registry,
+    );
+    expect((await sf.evaluate(ctx, { item: { id: 1, title: 'cat' } })).raw).toBe(0);
   });
 
   it('evaluate: missing record ⇒ 0; correlation fallback supplies the record', async () => {
@@ -579,13 +599,14 @@ describe('SemanticExpr', () => {
     expect(par.pg).toContain('<=>');
   });
 
-  it('toSQL: a typeField query short-circuits to a constant 0 (both dialects)', () => {
+  it('toSQL: a typeField pairing query pairs both bound sides (self-pair over the single bound source)', () => {
     const def = selValue('item', { kind: 'semantic', source: 'item', query: { type: 'item', field: 'title' } });
     const base = cfx.engine.toSQL(def, 'base').sql;
     const pg = cfx.engine.toSQL(def, 'postgres').sql;
-    expect(base).toContain('0');
-    // The Postgres form must NOT reference an unbound embedding column for this case.
-    expect(pg).not.toContain('<=>');
+    // Base similarity degrades to a constant 0.
+    expect(base).toContain('0 AS "s"');
+    // Postgres pairs the single bound source's vector against itself.
+    expect(pg).toContain('(1 - ("item"."embedding" <=> "item"."embedding"))');
   });
 
   it('toJSON / clone / toCode for text, param, and typeField queries (with/without field)', () => {

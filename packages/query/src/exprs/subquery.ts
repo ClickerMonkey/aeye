@@ -26,6 +26,8 @@ import type { Cost } from '../cost';
 /** A subquery in value position (typically a scalar / single-column result). */
 export class SubqueryExpr extends Expr {
   static readonly KIND = 'subquery' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A scalar / single-field subquery in value position." as const;
   readonly kind = SubqueryExpr.KIND;
 
   /** Wrap the inner query def evaluated in value position. */

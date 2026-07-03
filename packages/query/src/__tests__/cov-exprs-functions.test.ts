@@ -319,7 +319,7 @@ describe('WindowExpr', () => {
   });
 
   it('validate: window.in-aggregate', () => {
-    const p = fx.engine.validateExpr(win('row_number', {}), scope, { inAggregate: true });
+    const p = fx.engine.validateExpr(win('rowNumber', {}), scope, { inAggregate: true });
     expect(p.list.some((x) => x.code === 'window.in-aggregate')).toBe(true);
   });
 
@@ -349,12 +349,12 @@ describe('WindowExpr', () => {
   });
 
   it('containsWindow is true', () => {
-    expect(fx.engine.parse(win('row_number', {})).containsWindow()).toBe(true);
+    expect(fx.engine.parse(win('rowNumber', {})).containsWindow()).toBe(true);
   });
 
   it('toJSON / clone round-trip, with and without partition/order/nulls', () => {
-    const bare = fx.engine.parse(win('row_number', {}));
-    expect(bare.toJSON()).toEqual({ kind: 'window', function: 'row_number', args: {} });
+    const bare = fx.engine.parse(win('rowNumber', {}));
+    expect(bare.toJSON()).toEqual({ kind: 'window', function: 'rowNumber', args: {} });
     const full = win(
       'sum',
       { value: ref('o', 'total') },
@@ -367,7 +367,7 @@ describe('WindowExpr', () => {
   });
 
   it('toCode renders the OVER clause (partition + order, and the bare form)', () => {
-    expect(fx.engine.parse(win('row_number', {})).toCode()).toContain('OVER (');
+    expect(fx.engine.parse(win('rowNumber', {})).toCode()).toContain('OVER (');
     const code = fx.engine
       .parse(win('sum', { value: ref('o', 'total') }, [ref('o', 'userId')], [{ expr: ref('o', 'id'), dir: 'asc' }]))
       .toCode();
@@ -391,10 +391,10 @@ describe('WindowExpr', () => {
       expect(sql).toContain('NULLS FIRST');
     }
     // The no-partition / no-order shape too.
-    expect(fx.engine.toSQL(selOf(win('row_number', {})), 'base').sql).toContain('row_number() OVER ()');
+    expect(fx.engine.toSQL(selOf(win('rowNumber', {})), 'base').sql).toContain('row_number() OVER ()');
     // An ORDER BY term WITHOUT a NULLS clause ⇒ the `SqlText.empty()` else-leg.
     const noNulls = fx.engine.toSQL(
-      selOf(win('row_number', {}, undefined, [{ expr: ref('order', 'id'), dir: 'asc' }])),
+      selOf(win('rowNumber', {}, undefined, [{ expr: ref('order', 'id'), dir: 'asc' }])),
       'base',
     ).sql;
     expect(noNulls).toContain('ORDER BY');
@@ -413,15 +413,15 @@ describe('WindowExpr runtime', () => {
     order: [{ expr: ref('order', 'id'), dir: 'asc' }],
   });
 
-  it('row_number partitioned + ordered', async () => {
+  it('rowNumber partitioned + ordered', async () => {
     const rfx = runtimeFixture();
     const r = await rfx.engine.run(
-      winSel(win('row_number', {}, [ref('order', 'userId')], [{ expr: ref('order', 'id'), dir: 'asc' }])),
+      winSel(win('rowNumber', {}, [ref('order', 'userId')], [{ expr: ref('order', 'id'), dir: 'asc' }])),
     );
     expect(r.rows.map((x) => x['w'])).toEqual([1, 2, 1, 2]);
   });
 
-  it('rank + dense_rank over a tied, descending order key', async () => {
+  it('rank + denseRank over a tied, descending order key', async () => {
     const rfx = runtimeFixture();
     // userId asc-grouped values are tied (1,1,2,2); ranked DESC.
     const rank = await rfx.engine.run(
@@ -432,7 +432,7 @@ describe('WindowExpr runtime', () => {
     expect(byId.get(10)).toBe(3);
     expect(byId.get(12)).toBe(1);
     const dense = await rfx.engine.run(
-      winSel(win('dense_rank', {}, undefined, [{ expr: ref('order', 'userId'), dir: 'asc' }])),
+      winSel(win('denseRank', {}, undefined, [{ expr: ref('order', 'userId'), dir: 'asc' }])),
     );
     const denseById = new Map(dense.rows.map((x) => [x['id'], x['w']]));
     expect(denseById.get(10)).toBe(1);
@@ -473,7 +473,7 @@ describe('WindowExpr runtime', () => {
   it('evaluate returns NULL for a null row and index 0 for a row outside the group', async () => {
     const rfx = runtimeFixture();
     const e = WindowExpr.from(
-      win('row_number', {}, undefined, [{ expr: ref('order', 'id'), dir: 'asc' }]),
+      win('rowNumber', {}, undefined, [{ expr: ref('order', 'id'), dir: 'asc' }]),
       rfx.registry,
     );
     const ctx = new RuntimeContext(rfx.engine);
@@ -482,7 +482,7 @@ describe('WindowExpr runtime', () => {
     const outside: SourceRow = { order: { id: 99 } };
     expect((await e.evaluate(ctx, outside, group)).raw).toBe(1); // idx<0 ⇒ index 0
     // No group supplied ⇒ the `group ?? [row]` fallback treats the lone row as
-    // the whole partition (row_number ⇒ 1).
+    // the whole partition (rowNumber ⇒ 1).
     expect((await e.evaluate(ctx, { order: { id: 5 } })).raw).toBe(1);
   });
 });

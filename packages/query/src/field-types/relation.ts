@@ -4,10 +4,6 @@ import type { ValueSchemaOptions } from '../node';
 import type { Type } from '../type';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
-
-/** Filter operators valid on relation fields. */
-export const RELATION_FILTER_OPS: readonly string[] = ['exists', 'notExists', 'anyMatch'];
 
 /**
  * Resolved join key for a relation, relative to the two Types a join relates:
@@ -117,11 +113,6 @@ export class RelationFieldType extends FieldType {
   /** A relation is only comparable with another relation to the same Type. */
   override comparableWith(other: FieldType): boolean {
     return other instanceof RelationFieldType && other.to === this.to;
-  }
-
-  /** The filter operators valid on relation fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size (a short id string). */

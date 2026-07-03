@@ -3,7 +3,6 @@ import type { DateFieldTypeDef, FieldTypeDef, TimezonePolicy } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
 import { timezoneSchema } from './timestamp';
 
 /** ISO calendar-date pattern (YYYY-MM-DD, optionally with more). */
@@ -48,11 +47,6 @@ export class DateFieldType extends FieldType {
   /** Resolve to the `date` scalar comparison category. */
   resolve(): ScalarKind {
     return 'date';
-  }
-
-  /** The filter operators valid on date fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size. */

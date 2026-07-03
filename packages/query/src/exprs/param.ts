@@ -27,6 +27,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A named bind parameter; its type is inferred from usage. */
 export class ParamExpr extends Expr {
   static readonly KIND = 'param' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A named bind parameter; type inferred from use, bound at run/emit time." as const;
   readonly kind = ParamExpr.KIND;
 
   /** Wrap a named bind parameter (its type is inferred from usage). */

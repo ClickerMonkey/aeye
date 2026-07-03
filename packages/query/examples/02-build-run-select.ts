@@ -5,6 +5,7 @@
  * bundled data. Shows the returned rows plus the result metadata (resolved
  * output fields + their types).
  */
+import { e } from '../src/index';
 import type { SelectDef } from '../src/index';
 import { createExampleFixture } from './schema';
 import type { ExampleReport } from './_util';
@@ -16,20 +17,13 @@ export async function run(): Promise<ExampleReport> {
   const select: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
-      { expr: { kind: 'field-ref', source: 'user', field: 'age' } },
-      { expr: { kind: 'field-ref', source: 'user', field: 'city' } },
+      { expr: e.ref('user', 'name').toJSON() },
+      { expr: e.ref('user', 'age').toJSON() },
+      { expr: e.ref('user', 'city').toJSON() },
     ],
     from: { kind: 'type', type: 'user' },
-    where: [
-      {
-        kind: 'comparison',
-        op: '>',
-        left: { kind: 'field-ref', source: 'user', field: 'age' },
-        right: { kind: 'literal', value: 30 },
-      },
-    ],
-    order: [{ expr: { kind: 'field-ref', source: 'user', field: 'age' }, dir: 'asc' }],
+    where: [e.gt(e.ref('user', 'age'), e.value(30)).toJSON()],
+    order: [{ expr: e.ref('user', 'age').toJSON(), dir: 'asc' }],
   };
 
   const problems = engine.validateQuery(select);

@@ -3,7 +3,6 @@ import type { FieldTypeDef, TextFieldTypeDef } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
 
 /** Options bag for a text field type (instance-side). */
 export interface TextOptions {
@@ -20,12 +19,6 @@ export interface TextOptions {
   /** When true, text matching is case-sensitive (default: case-insensitive). */
   sensitive?: boolean;
 }
-
-/** Base text filter operators (before search/semantic extensions). */
-export const TEXT_FILTER_OPS: readonly string[] = [
-  'eq', 'neq', 'contains', 'startsWith', 'endsWith', 'like', 'ilike',
-  'in', 'notIn', 'isNull', 'notNull',
-];
 
 function compact(o: TextOptions): TextOptions {
   const out: TextOptions = {};
@@ -95,11 +88,6 @@ export class TextFieldType extends FieldType {
   /** Resolve to the `text` scalar comparison category. */
   resolve(): ScalarKind {
     return 'text';
-  }
-
-  /** The filter operators valid on text fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size (half the max length, else 32). */

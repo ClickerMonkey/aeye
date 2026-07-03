@@ -31,6 +31,7 @@ import {
   evaluateNamedArgs,
   orderedArgSql,
   observeNamedParams,
+  validateRawArgs,
   namedArgsToJSON,
   namedArgsToCode,
 } from './_function-args';
@@ -41,6 +42,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A scalar function call `fn(name: arg, …)` with named arguments. */
 export class FunctionCallExpr extends Expr {
   static readonly KIND = 'function-call' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A scalar function call by name with named args." as const;
   readonly kind = FunctionCallExpr.KIND;
 
   /** Wrap a registered scalar `fn` with its named `args`. */
@@ -114,6 +117,7 @@ export class FunctionCallExpr extends Expr {
     }
 
     fn.validateCall(argTypes, p);
+    validateRawArgs(fn, this.args, p);
     observeNamedParams(this.args, fn, scope, here);
 
     return fn.resolveOutput(argTypes);

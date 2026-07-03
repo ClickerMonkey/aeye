@@ -4,7 +4,7 @@
  *  - `buildSchemas` / `querySchema` — strict-or-string Zod schemas.
  *  - `describe*` — compact, promptable descriptions of Types / functions.
  *  - `selectTypes` — semantic Type pre-selection.
- *  - `buildQueryTool` — a framework-neutral tool descriptor + builder.
+ *  - `buildQueryTool` — a ready-wired `@aeye/core` `Tool`.
  */
 export {
   buildSchemas,
@@ -31,17 +31,29 @@ export {
   describeType,
   describeTypes,
   describeFunctions,
+  describeExprs,
   describeDialects,
   describeEngine,
   exampleQueriesText,
+  type DescribeEngineOptions,
 } from './describe';
+
+export {
+  humanize,
+  fieldMeta,
+  typeMeta,
+  generatedFieldLabel,
+  generatedFieldDescription,
+  generatedTypeLabel,
+  generatedTypeDescription,
+  type Meta,
+} from './describe-generate';
 
 export { selectTypes, type SelectTypesOptions } from './select-types';
 
 export {
   buildQueryTool,
-  type QueryTool,
+  QueryToolError,
   type QueryToolInput,
-  type QueryToolBuildResult,
   type BuildQueryToolOptions,
 } from './tool';

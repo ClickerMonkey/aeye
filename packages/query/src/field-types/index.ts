@@ -14,19 +14,18 @@ import { TimestampFieldType } from './timestamp';
 import { JsonFieldType } from './json';
 import { ArrayFieldType } from './array';
 
-export { NumberFieldType, NUMERIC_FILTER_OPS } from './number';
-export { TextFieldType, TEXT_FILTER_OPS, type TextOptions } from './text';
+export { NumberFieldType } from './number';
+export { TextFieldType, type TextOptions } from './text';
 export { MoneyFieldType, type MoneyOptions } from './money';
-export { BoolFieldType, BOOL_FILTER_OPS } from './bool';
+export { BoolFieldType } from './bool';
 export {
   RelationFieldType,
-  RELATION_FILTER_OPS,
   type RelationKey,
 } from './relation';
 export { DateFieldType } from './date';
-export { TimestampFieldType, TEMPORAL_FILTER_OPS, timezoneSchema } from './timestamp';
-export { JsonFieldType, JSON_FILTER_OPS, jsonValueSchema } from './json';
-export { ArrayFieldType, ARRAY_FILTER_OPS } from './array';
+export { TimestampFieldType, timezoneSchema } from './timestamp';
+export { JsonFieldType, jsonValueSchema } from './json';
+export { ArrayFieldType } from './array';
 
 /** All built-in FieldType classes, in a stable order for tests / docs. */
 export const BUILTIN_FIELD_TYPES: readonly FieldTypeClass[] = [

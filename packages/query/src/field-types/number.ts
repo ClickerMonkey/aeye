@@ -3,12 +3,6 @@ import type { FieldTypeDef, NumberFieldTypeDef, NumberOptions } from '../schema'
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
-
-/** Filter operators valid on numeric fields (shared by money). */
-export const NUMERIC_FILTER_OPS: readonly string[] = [
-  'eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'notIn', 'between', 'isNull', 'notNull',
-];
 
 /**
  * Zod schema for a `NumberOptions` bag — reused by `money`'s nested numeric
@@ -88,11 +82,6 @@ export class NumberFieldType extends FieldType {
   /** Resolve to the `number` scalar comparison category. */
   resolve(): ScalarKind {
     return 'number';
-  }
-
-  /** The filter operators valid on numeric fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size. */

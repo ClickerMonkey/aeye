@@ -61,18 +61,19 @@ describe('SQL — postgres dialect', () => {
     expect(out.params).toEqual(['curious people']);
   });
 
-  it('semantic Type+field query is rejected and degrades to 0, never an unbound alias (BUG P0-7)', () => {
+  it('semantic Type+field query resolves to the single bound source and pairs both vectors', () => {
     const def: SelectDef = {
       kind: 'select',
       fields: [{ expr: { kind: 'semantic', source: 'user', query: { type: 'user', field: 'email' } }, as: 'score' }],
       from: { kind: 'type', type: 'user' },
     };
-    // Validation rejects the cross-entity embedding query (runtime + SQL agree).
+    // `user` is bound exactly once, so the `{ type }` query resolves to it: a
+    // valid self-pairing (no cross-entity error).
     const problems = fx.engine.validateQuery(def);
-    expect(problems.list.some((p) => p.code === 'semantic.cross-entity-unsupported')).toBe(true);
-    // SQL degrades to a constant 0 — no reference to an unbound alias.
+    expect(problems.list.some((p) => p.code.startsWith('semantic.'))).toBe(false);
+    // SQL pairs both bound sides' vectors (no unbound alias, no `email` column).
     const out = pg(def);
-    expect(out.sql).toBe('SELECT 0 AS "score" FROM "user" AS "user"');
+    expect(out.sql).toBe('SELECT (1 - ("user"."embedding" <=> "user"."embedding")) AS "score" FROM "user" AS "user"');
     expect(out.sql).not.toContain('"user"."email"');
   });
 

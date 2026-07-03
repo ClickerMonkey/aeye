@@ -42,6 +42,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A reference to a SELECT output field by name; delegates to that field's expr. */
 export class OutputRefExpr extends Expr {
   static readonly KIND = 'output' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "References a projected SELECT output field by name (valid ONLY in groupBy/orderBy/having); expands to that item's expr." as const;
   readonly kind = OutputRefExpr.KIND;
 
   /** Wrap the referenced output field name. */

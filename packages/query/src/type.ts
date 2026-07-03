@@ -87,16 +87,6 @@ export class Type implements Node {
     return this.fields.filter((f) => f.fieldType instanceof TextFieldType);
   }
 
-  /**
-   * Fields that expose at least one filter operator — the allowlist candidates a
-   * `filters` placeholder may name. Every shipped field type has a non-empty
-   * catalog, so in practice this is "every field", but deriving it from the
-   * catalog keeps it honest if a future field type opts out.
-   */
-  filterableFields(): Field[] {
-    return this.fields.filter((f) => f.fieldType.filterOps().length > 0);
-  }
-
   /** Whether this Type declares any `array`-valued field (gates `array-op`). */
   hasArrayField(): boolean {
     return this.fields.some((f) => f.fieldType instanceof ArrayFieldType);

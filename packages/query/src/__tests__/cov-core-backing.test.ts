@@ -95,7 +95,7 @@ describe('Backing.rls()', () => {
 
 describe('backing runtime RLS via run override drops rows', () => {
   it('keeps only rows the run predicate admits', async () => {
-    const f = fx(() => ({ access: { run: (r) => (r['acct']!['owner'] === 1) } }));
+    const f = fx(() => ({ access: { run: (alias, r) => r[alias]!['owner'] === 1 } }));
     const result = await f.engine.run(selId);
     expect(result.rows.map((x) => x['id'])).toEqual([1]);
   });

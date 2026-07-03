@@ -17,6 +17,7 @@ import type { Problems } from '../problem';
 import type { Expr, ValidateContext } from '../expr';
 import type { QueryFunction } from '../function';
 import { ParamExpr } from './param';
+import { LiteralExpr } from './literal';
 import type { Value } from '../runtime/value';
 import type { NamedArgs } from '../runtime/functions';
 import type { RuntimeContext } from '../runtime/context';
@@ -93,9 +94,69 @@ export async function evaluateNamedArgsRow(
   return out;
 }
 
+/** The string value of a string LITERAL expr, or `undefined` otherwise (used to
+ *  read a `rawArgs` inline-literal field token). */
+export function rawStringLiteral(e: Expr): string | undefined {
+  return e instanceof LiteralExpr && typeof e.value === 'string' ? e.value : undefined;
+}
+
+/**
+ * The date-field tokens a `rawArgs` field argument may take (the
+ * `EXTRACT`/`date_part` field names). Not every token is meaningful for every
+ * selector (e.g. `dateAdd('dow', …)` has no interval unit); the set is the
+ * union the extractors accept, and callers document per-function semantics.
+ */
+export const ALLOWED_DATE_FIELDS: ReadonlySet<string> = new Set<string>([
+  'year',
+  'quarter',
+  'month',
+  'week',
+  'day',
+  'hour',
+  'minute',
+  'second',
+  'dow',
+  'isodow',
+  'doy',
+  'epoch',
+]);
+
+/**
+ * Validate a call's `rawArgs` (inline-literal field) positions: each must be a
+ * string LITERAL drawn from {@link ALLOWED_DATE_FIELDS}. Pushes a
+ * `function.raw-arg` Problem at `['args', <param>]` otherwise. A position with
+ * no supplied arg is skipped (a missing REQUIRED arg is reported separately by
+ * `validateCall`).
+ */
+export function validateRawArgs(
+  fn: QueryFunction,
+  args: ReadonlyMap<string, Expr>,
+  p: Problems,
+): void {
+  if (!fn.rawArgs) return;
+  for (const idx of fn.rawArgs) {
+    const param = fn.params[idx];
+    const e = args.get(param.name);
+    if (!e) continue;
+    const token = rawStringLiteral(e);
+    if (token === undefined || !ALLOWED_DATE_FIELDS.has(token)) {
+      p.at(['args', param.name], () =>
+        p.error(
+          'function.raw-arg',
+          `Argument '${param.name}' of '${fn.name}' must be a literal date field (one of: ${[...ALLOWED_DATE_FIELDS].join(', ')}).`,
+        ),
+      );
+    }
+  }
+}
+
 /**
  * Render the args as SQL in DECLARED parameter order (falling back to the
  * authored order for unknown functions / extra args), so emission is stable.
+ * A declared `rawArgs` position whose arg is a string literal is emitted as an
+ * INLINE literal via `dialect.rawArgLiteral` (a spliced field token) rather than
+ * a bound parameter; a non-literal there falls back to the normal param path
+ * (validation has already flagged it).
  */
 export function orderedArgSql(
   fnName: string,
@@ -105,14 +166,16 @@ export function orderedArgSql(
 ): SqlText[] {
   const fn = ctx.engine.lookupFunction(fnName);
   const order = fn ? fn.params.map((param) => param.name) : [...args.keys()];
+  const rawSet = new Set<number>(fn?.rawArgs ?? []);
   const seen = new Set<string>();
   const out: SqlText[] = [];
-  for (const name of order) {
+  order.forEach((name, i) => {
     const e = args.get(name);
-    if (!e) continue;
+    if (!e) return;
     seen.add(name);
-    out.push(e.toSQL(dialect, ctx));
-  }
+    const token = rawSet.has(i) ? rawStringLiteral(e) : undefined;
+    out.push(token !== undefined ? dialect.rawArgLiteral(token) : e.toSQL(dialect, ctx));
+  });
   // Any authored args not declared by the function trail in authored order.
   for (const [name, e] of args) {
     if (!seen.has(name)) out.push(e.toSQL(dialect, ctx));

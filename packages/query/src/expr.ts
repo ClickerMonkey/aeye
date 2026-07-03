@@ -87,6 +87,12 @@ export const ROOT_VALIDATE_CONTEXT: ValidateContext = {
 export interface ExprClass {
   /** The `kind` discriminant this class handles (e.g. `'comparison'`). */
   readonly KIND: ExprKind;
+  /**
+   * A concise, LLM-facing one-line description of this expression kind (what it
+   * is / when to use it) — the canonical terse doc, enumerable from the registry
+   * (`registry.exprClassList()`) to build a self-describing expr catalog.
+   */
+  readonly INSTRUCTIONS: string;
   /** Build an instance from its JSON branch, recursing into child defs via `registry.parseExpr`. */
   from(json: ExprDef, registry: Registry): Expr;
   /** Zod schema for this expr kind's JSON `ExprDef` branch. */

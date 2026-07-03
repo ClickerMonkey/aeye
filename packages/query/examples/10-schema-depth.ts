@@ -17,6 +17,7 @@
  * It asserts nothing; it just illustrates how the knobs change the schema.
  */
 import {
+  e,
   buildSchemas,
   resolveSchemaDepth,
   type BuildSchemasOptions,
@@ -27,13 +28,9 @@ import { createExampleFixture } from './schema';
 import type { ExampleReport } from './_util';
 
 /** The three probe exprs (each is INVALID under a sufficiently tight depth). */
-const CROSS_TYPE_REF: ExprDef = { kind: 'field-ref', source: 'user', field: 'price' };
-const UNKNOWN_FN: ExprDef = { kind: 'function-call', function: 'bogus', args: {} };
-const UNKNOWN_ARG: ExprDef = {
-  kind: 'function-call',
-  function: 'upper',
-  args: { wrong: { kind: 'literal', value: 'x' } },
-};
+const CROSS_TYPE_REF: ExprDef = e.ref('user', 'price').toJSON();
+const UNKNOWN_FN: ExprDef = e.fn('bogus').toJSON();
+const UNKNOWN_ARG: ExprDef = e.fn('upper', { wrong: e.value('x') }).toJSON();
 
 /** `accept` / `reject` for one probe against a built Expr schema. */
 function probe(schemas: QuerySchemas, def: ExprDef): string {

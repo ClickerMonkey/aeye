@@ -21,6 +21,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A `value IS [NOT] NULL` predicate. A `BoolExpr`. */
 export class IsNullExpr extends BoolExpr {
   static readonly KIND = 'is-null' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`value IS [NOT] NULL`." as const;
   readonly kind = IsNullExpr.KIND;
 
   /** Wrap `value IS [NOT] NULL` as a null test. */

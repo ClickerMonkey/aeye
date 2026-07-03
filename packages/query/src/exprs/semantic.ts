@@ -6,14 +6,18 @@
  *    (optional) narrows the score to a single semantic field, otherwise the
  *    whole source's embedding is used.
  *  - `query` is one of: a literal text string, a `param` whose bound value
- *    supplies the text, or a `TypeFieldRef` pointing at another semantic
- *    Type+field whose embedding is the query vector.
+ *    supplies the text, a `SourceFieldRef` (`{ source, field }`) pairing this
+ *    score against ANOTHER bound source's semantic field, or a `TypeFieldRef`
+ *    (`{ type, field }`) that resolves to the single bound source of that Type.
  *  - `evaluate` cosine-compares the query's embedding against the row's
  *    embedding (runtime-supplied vector, else one built from the row's text).
+ *    A pairing query (`sourceField` / `typeField`) reads BOTH sides' vectors
+ *    from the two bound rows and cosine-compares them.
  *  - `validateWalk` requires the source resolve to a semantic-eligible Type
- *    (and the field, if given, be semantic); a `TypeFieldRef` query must point
- *    at a semantic-eligible Type + field.
- *  - `toSQL` emits the dialect's `similarity`.
+ *    (and the field, if given, be semantic); a pairing query must reference a
+ *    BOUND, semantic-eligible source + field (both sides bound).
+ *  - `toSQL` emits the dialect's `similarity` — over the query param for a
+ *    literal/param query, or over BOTH bound sides' vectors for a pairing query.
  */
 import { z } from 'zod';
 import type { ExprDef, SemanticExprDef, SemanticQueryDef } from '../schema';
@@ -29,6 +33,9 @@ import { numberResult } from './_shared';
 import { ParamExpr } from './param';
 import { TextFieldType } from '../field-types/index';
 import type { Field } from '../field';
+import type { Type } from '../type';
+import type { Embedder } from '../engine';
+import { resolveSemanticSql, resolveSemanticRun, readFieldVector, type SemanticBacking } from '../backing';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord, SourceRow } from '../runtime/row';
@@ -46,7 +53,27 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export type SemanticQuery =
   | { kind: 'text'; text: string }
   | { kind: 'param'; param: ParamExpr }
+  | SemanticPairingQuery;
+
+/**
+ * A cross-source PAIRING query: this row is scored against ANOTHER bound
+ * source's embedding. `sourceField` names its bound source directly;
+ * `typeField` resolves to the single bound source of a Type. Both carry a
+ * required `field`.
+ */
+export type SemanticPairingQuery =
+  | { kind: 'sourceField'; source: string; field: string }
   | { kind: 'typeField'; type: string; field: string };
+
+/**
+ * The outcome of resolving a pairing query to a bound source's Type: `ok` (a
+ * single bound source + its Type), `unbound` (nothing usable is bound), or
+ * `ambiguous` (a `{ type }` form matches more than one bound source).
+ */
+type QueryTypeResolution =
+  | { kind: 'ok'; source: string; type: Type }
+  | { kind: 'unbound' }
+  | { kind: 'ambiguous' };
 
 /** Cosine similarity of two equal-length vectors (0 when degenerate). */
 function cosine(a: readonly number[], b: readonly number[]): number {
@@ -79,9 +106,35 @@ function fieldIsSemantic(field: Field): boolean {
   return ft instanceof TextFieldType && (ft.options.semantic === true || ft.options.search === true);
 }
 
+/**
+ * Resolve a pairing query to its bound source's Type against `scope`: a
+ * `{ source }` form looks up its source directly; a `{ type }` form resolves to
+ * the single bound source of that Type. `unbound` ⇒ nothing (usable) is bound;
+ * `ambiguous` ⇒ a `{ type }` form matches more than one bound source.
+ */
+function resolveQueryType(scope: QueryScope, q: SemanticPairingQuery): QueryTypeResolution {
+  if (q.kind === 'sourceField') {
+    const bound = scope.lookup(q.source);
+    if (!bound || bound.kind !== 'type') return { kind: 'unbound' };
+    return { kind: 'ok', source: q.source, type: bound.type };
+  }
+  const matches = scope.sourcesForType(q.type);
+  if (matches.length === 0) return { kind: 'unbound' };
+  if (matches.length > 1) return { kind: 'ambiguous' };
+  const only = matches[0]!;
+  return { kind: 'ok', source: only.source, type: only.type };
+}
+
+/** A short readable label of a pairing query's referenced source / Type. */
+function queryLabel(q: SemanticPairingQuery): string {
+  return q.kind === 'sourceField' ? `${q.source}.${q.field}` : q.type;
+}
+
 /** Parse a `SemanticQueryDef` into the runtime `SemanticQuery` union. */
 function parseQuery(def: SemanticQueryDef, registry: Registry): SemanticQuery {
   if (typeof def === 'string') return { kind: 'text', text: def };
+  // A `SourceFieldRef` (`{ source, field }`) — the bound-source pairing form.
+  if ('source' in def) return { kind: 'sourceField', source: def.source, field: def.field };
   if ('kind' in def) {
     // A `ParamExprDef` (`{ kind:'param', name }`).
     const expr = registry.parseExpr(def);
@@ -99,6 +152,8 @@ function queryToJSON(q: SemanticQuery): SemanticQueryDef {
       return q.text;
     case 'param':
       return q.param.toJSON();
+    case 'sourceField':
+      return { source: q.source, field: q.field };
     case 'typeField':
       return { type: q.type, field: q.field };
     /* v8 ignore next 2 -- exhaustiveness guard: `SemanticQuery` has no other kind. */
@@ -110,6 +165,8 @@ function queryToJSON(q: SemanticQuery): SemanticQueryDef {
 /** A semantic-similarity score of a bound source's row against a query (requires an embedder). */
 export class SemanticExpr extends Expr {
   static readonly KIND = 'semantic' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Embedding-similarity score of a source’s row vs a query (string / param / pairing ref) → number." as const;
   readonly kind = SemanticExpr.KIND;
 
   /** Wrap a bound `source` (optional `field`) and the query it is scored against. */
@@ -179,47 +236,53 @@ export class SemanticExpr extends Expr {
         }
       }
     }
-    // A `TypeFieldRef` query must reference a semantic Type + field; a `param`
-    // query observes itself into the param set.
-    if (this.query.kind === 'typeField') {
-      p.at('query', () => this.validateTypeFieldQuery(engine, p));
-    } else if (this.query.kind === 'param') {
-      const param = this.query.param;
+    // A pairing query (`sourceField` / `typeField`) must reference a BOUND,
+    // semantic-eligible source + field; a `param` query observes itself.
+    const q = this.query;
+    if (q.kind === 'sourceField' || q.kind === 'typeField') {
+      p.at('query', () => this.validateQuerySide(scope, p, q));
+    } else if (q.kind === 'param') {
+      const param = q.param;
       p.at('query', () => param.validateWalk(engine, scope, p, ctx));
     }
     return this.resolve(engine, scope);
   }
 
   /**
-   * Validate a `{ type, field }` query references a semantic Type + field, then
-   * REJECT it as unsupported (BUG P0-7). The referenced Type is not joined into
-   * the query's scope, so SQL would emit a reference to an UNBOUND alias, and
-   * the runtime has no row from which to build the query vector (it yields 0).
-   * Rather than emit invalid SQL / silently diverge, reject the cross-entity
-   * embedding query with a clear Problem so SQL and runtime agree.
+   * Validate a PAIRING query (`{ source, field }` / `{ type, field }`) — the
+   * cross-source form that scores this row against ANOTHER bound source's
+   * embedding. BOTH sides must be bound in the query's scope: a `{ source }`
+   * form names its bound source directly; a `{ type }` form resolves to the
+   * SINGLE bound source of that Type (`semantic.query-unbound` when none is
+   * bound, `semantic.query-ambiguous` when more than one is — steering the
+   * author to the unambiguous `{ source }` form). The resolved query source's
+   * Type must expose the named `field` as semantic-eligible.
    */
-  private validateTypeFieldQuery(engine: QueryEngine, p: Problems): void {
-    /* v8 ignore next -- type-narrowing guard: only ever called from the `typeField` branch. */
-    if (this.query.kind !== 'typeField') return;
-    const type = engine.type(this.query.type);
-    if (!type) {
-      p.error('semantic.unknown-query-type', `Unknown Type '${this.query.type}' in semantic query.`);
+  private validateQuerySide(scope: QueryScope, p: Problems, q: SemanticPairingQuery): void {
+    const resolved = resolveQueryType(scope, q);
+    if (resolved.kind === 'unbound') {
+      p.error(
+        'semantic.query-unbound',
+        `The semantic pairing query references '${queryLabel(q)}', which is not bound in this query's scope; both sides of a pairing must be bound (join / cross-join them first).`,
+      );
       return;
     }
-    const field = type.field(this.query.field);
+    if (resolved.kind === 'ambiguous') {
+      p.error(
+        'semantic.query-ambiguous',
+        `The semantic pairing query Type '${queryLabel(q)}' is bound more than once in scope; use the '{ source, field }' form to name exactly one bound source.`,
+      );
+      return;
+    }
+    const { type } = resolved;
+    const field = type.field(q.field);
     if (!field) {
-      p.error('semantic.unknown-query-field', `Type '${this.query.type}' has no field '${this.query.field}'.`);
+      p.error('semantic.unknown-query-field', `Type '${type.name}' has no field '${q.field}'.`);
       return;
     }
     if (!fieldIsSemantic(field)) {
-      p.error('semantic.query-not-semantic', `Field '${this.query.field}' of '${this.query.type}' is not semantic.`);
-      return;
+      p.error('semantic.query-not-semantic', `Field '${q.field}' of '${type.name}' is not semantic.`);
     }
-    // Well-formed but unsupported: no join brings '<type>' into scope.
-    p.error(
-      'semantic.cross-entity-unsupported',
-      `A Type+field embedding query ('${this.query.type}.${this.query.field}') is not supported: '${this.query.type}' is not joined into this query's scope, so neither SQL nor the runtime can resolve it. Use a literal-text or param query instead.`,
-    );
   }
 
   /** Per-row embedding penalty approximating the scoring work. */
@@ -228,37 +291,61 @@ export class SemanticExpr extends Expr {
     return { rows: 0, bytes: SEMANTIC_ROW_PENALTY };
   }
 
-  /** Embed the query side into a vector (null when unavailable). */
-  private async queryVector(ctx: RuntimeContext): Promise<number[] | null> {
-    switch (this.query.kind) {
-      case 'text':
-        return ctx.embed(this.query.text);
-      case 'param': {
-        const text = ctx.param(this.query.param.name).toText();
-        return text.length > 0 ? ctx.embed(text) : null;
-      }
-      case 'typeField':
-        // Cross-Type field embedding is a best-effort runtime concern; without
-        // a concrete row to read there is no query vector in-memory.
-        return null;
-      /* v8 ignore next 2 -- exhaustiveness guard: `SemanticQuery` has no other kind. */
-      default:
-        return assertNever(this.query);
-    }
+  /**
+   * Embed the query side into a vector (null when unavailable), using the
+   * `SemanticBacking`'s `embedder` override when supplied, else the run / engine
+   * embedder.
+   */
+  private async queryVector(
+    ctx: RuntimeContext,
+    q: { kind: 'text'; text: string } | { kind: 'param'; param: ParamExpr },
+    embedder: Embedder | undefined,
+  ): Promise<number[] | null> {
+    if (q.kind === 'text') return this.embedText(ctx, q.text, embedder);
+    const text = ctx.param(q.param.name).toText();
+    return text.length > 0 ? this.embedText(ctx, text, embedder) : null;
+  }
+
+  /** Embed `text` via the backing's `embedder` override, else the run's embedder (cached). */
+  private async embedText(ctx: RuntimeContext, text: string, embedder: Embedder | undefined): Promise<number[] | null> {
+    return embedder ? embedder.embed(text) : ctx.embed(text);
+  }
+
+  /** The Type bound under `source`, when known (for field metadata + backing lookup). */
+  private boundType(ctx: RuntimeContext): Type | undefined {
+    return ctx.sourceType(this.source) ?? ctx.engine.type(this.source);
   }
 
   /**
    * Cosine similarity of the row's embedding against the query's embedding.
-   * The row embedding is the runtime-supplied vector when present, else one
-   * built from the row's text fields and cached per `(source, row)`. Returns
-   * 0 when no embedder is configured or no text/query is available.
+   * When a `SemanticBacking` is in effect its `run` override yields the score
+   * directly, or its `vector` / hidden `vectorField` supplies the row vector;
+   * otherwise the row embedding is the runtime-supplied vector when present, else
+   * one built from the row's text fields and cached per `(source, row)`. The
+   * query is embedded with the backing's `embedder` override when set. Returns 0
+   * when no embedder is available or no text / query is present.
    */
   async evaluate(ctx: RuntimeContext, row: SourceRow | null): Promise<Value> {
-    if (!ctx.hasEmbedder() || !row) return Value.of(0);
-    const queryVec = await this.queryVector(ctx);
+    if (!row) return Value.of(0);
+    const q = this.query;
+    if (q.kind === 'sourceField' || q.kind === 'typeField') {
+      return this.evaluatePairing(ctx, row, q);
+    }
+    const type = this.boundType(ctx);
+    const backing = type ? ctx.engine.semanticBacking(type.name, this.field) : undefined;
+    const embedder = backing?.embedder;
+    if (!embedder && !ctx.hasEmbedder()) return Value.of(0);
+    const queryVec = await this.queryVector(ctx, q, embedder);
     if (!queryVec) return Value.of(0);
     const rec = row[this.source] ?? ctx.correlation?.[this.source];
     if (!rec) return Value.of(0);
+
+    if (backing) {
+      const res = await resolveSemanticRun(backing, this.source, row, queryVec, ctx);
+      if (res.kind === 'score') return Value.of(res.score);
+      if (res.kind === 'vector') return Value.of(res.vector ? cosine(queryVec, res.vector) : 0);
+      // 'default' ⇒ fall through to the per-record / embed-the-text path below.
+    }
 
     const id = rec['id'];
     // 1. A runtime-provided per-record embedding wins when available.
@@ -272,8 +359,8 @@ export class SemanticExpr extends Expr {
       if (cached) {
         recVec = cached;
       } else {
-        const v = await ctx.embed(text);
-        /* v8 ignore next -- defensive: ctx.embed only returns null with no embedder, already guarded by hasEmbedder() above. */
+        const v = await this.embedText(ctx, text, embedder);
+        /* v8 ignore next -- defensive: embedText only returns null with no embedder, already guarded above. */
         if (!v) return Value.of(0);
         ctx.embeddingCache.set(cacheKey, v);
         recVec = v;
@@ -283,38 +370,130 @@ export class SemanticExpr extends Expr {
   }
 
   /**
-   * Similarity of the source's embedding column against the query embedding.
-   * The dialect chooses the form (base degrades to 0; Postgres emits cosine
+   * Cosine similarity of the scored row's embedding against the PAIRED query
+   * source's embedding — the cross-source form. Both sources are bound
+   * (join / cross-join), so both rows are present under their aliases in `row`.
+   * Each side's vector comes from its `SemanticBacking` (`vector` / hidden
+   * `vectorField`), else one embedded from its text. Returns 0 when the query
+   * source is not present or either side has no vector.
+   */
+  private async evaluatePairing(ctx: RuntimeContext, row: SourceRow, q: SemanticPairingQuery): Promise<Value> {
+    const qAlias = this.queryAliasFromRow(ctx, row, q);
+    if (qAlias === undefined) return Value.of(0);
+    const queryVec = await this.sideVector(ctx, row, qAlias, q.field);
+    if (!queryVec) return Value.of(0);
+    const scoredVec = await this.sideVector(ctx, row, this.source, this.field);
+    if (!scoredVec) return Value.of(0);
+    return Value.of(cosine(queryVec, scoredVec));
+  }
+
+  /**
+   * The bound alias the pairing query reads from: a `{ source }` form names it
+   * directly; a `{ type }` form finds the single row alias whose bound Type
+   * matches (`undefined` when none is present).
+   */
+  private queryAliasFromRow(ctx: RuntimeContext, row: SourceRow, q: SemanticPairingQuery): string | undefined {
+    if (q.kind === 'sourceField') return q.source;
+    const wanted = q.type;
+    for (const key of Object.keys(row)) {
+      const type = ctx.sourceType(key) ?? ctx.engine.type(key);
+      if (type?.name === wanted) return key;
+    }
+    return undefined;
+  }
+
+  /**
+   * Read one bound side's embedding vector off `row[source]` for a pairing
+   * score: the `SemanticBacking`'s `vector` producer, then its hidden
+   * `vectorField`, else a vector embedded from the side's text (whole record, or
+   * the named `field`). Returns `null` when no vector / text / embedder applies.
+   */
+  private async sideVector(
+    ctx: RuntimeContext,
+    row: SourceRow,
+    source: string,
+    field: string | undefined,
+  ): Promise<number[] | null> {
+    const type = ctx.sourceType(source) ?? ctx.engine.type(source);
+    const backing = type ? ctx.engine.semanticBacking(type.name, field) : undefined;
+    if (backing?.vector) return backing.vector(source, row, ctx);
+    if (backing?.vectorField !== undefined) return readFieldVector(row, source, backing.vectorField);
+    const rec = row[source];
+    if (!rec) return null;
+    const embedder = backing?.embedder;
+    if (!embedder && !ctx.hasEmbedder()) return null;
+    const text = field !== undefined ? String(rec[field] ?? '') : semanticText(rec);
+    if (text.length === 0) return null;
+    return this.embedText(ctx, text, embedder);
+  }
+
+  /**
+   * Similarity of the source's embedding against the query embedding. When a
+   * `SemanticBacking` is in effect its `sql` override or hidden `vectorField`
+   * (the dialect's `similarity` over that field) is emitted against the BOUND
+   * alias, with the query vector bound as the dialect's vector PARAM (kept
+   * synchronous — the async embedder is never called here). Otherwise the
+   * dialect chooses the default form (base degrades to 0; Postgres emits cosine
    * `1 - (embedding <=> query)`).
    */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    if (this.query.kind === 'typeField') {
-      // A Type+field embedding query is unsupported (validateWalk reports
-      // `semantic.cross-entity-unsupported`): the referenced Type is not in
-      // scope, so referencing it would emit an UNBOUND alias. Degrade to a
-      // constant 0 — matching the runtime's `Value.of(0)` for this case — so
-      // any SQL that slips past validation is still valid and agrees with the
-      // runtime (BUG P0-7).
-      return SqlText.raw('0');
+    const q = this.query;
+    if (q.kind === 'sourceField' || q.kind === 'typeField') {
+      return this.pairingSQL(dialect, ctx, q);
+    }
+    const backing = this.backingForAlias(ctx, this.source, this.field);
+    if (backing) {
+      const queryVector = dialect.queryVectorParam(this.querySQL(dialect, ctx));
+      const res = resolveSemanticSql(backing, this.source, queryVector, ctx);
+      if (res.kind === 'sql') return res.sql;
+      // 'default' ⇒ fall through to the default embedding-column similarity.
     }
     const col = dialect.field(this.source, 'embedding');
     return dialect.similarity(col, this.querySQL(dialect, ctx));
   }
 
+  /**
+   * Emit a PAIRING score: `dialect.similarity(<scoredVec>, <queryVec>)` over BOTH
+   * bound sides' vectors — each side's hidden `SemanticBacking.vectorField` when
+   * backed, else the default `<alias>."embedding"` fragment — referenced by each
+   * side's BOUND alias (alias-correct; supports self-pairing of two aliases of
+   * one Type). NO async: neither side embeds text here. Base degrades to 0.
+   */
+  private pairingSQL(dialect: Dialect, ctx: SqlContext, q: SemanticPairingQuery): SqlText {
+    const scoredVec = this.sideVectorSQL(dialect, ctx, this.source, this.field);
+    const side = this.resolveQuerySideSql(ctx, q);
+    const queryVec = this.sideVectorSQL(dialect, ctx, side.alias, side.field);
+    return dialect.similarity(scoredVec, queryVec);
+  }
+
+  /** The bound alias + field the pairing query's vector is read from, for SQL. */
+  private resolveQuerySideSql(ctx: SqlContext, q: SemanticPairingQuery): { alias: string; field: string } {
+    if (q.kind === 'sourceField') return { alias: q.source, field: q.field };
+    const matches = ctx.scope.sourcesForType(q.type);
+    const alias = matches[0]?.source ?? q.type;
+    return { alias, field: q.field };
+  }
+
+  /** One side's vector fragment: its hidden `vectorField`, else `<alias>."embedding"`. */
+  private sideVectorSQL(dialect: Dialect, ctx: SqlContext, alias: string, field: string | undefined): SqlText {
+    const backing = this.backingForAlias(ctx, alias, field);
+    if (backing?.vectorField !== undefined) return dialect.field(alias, backing.vectorField);
+    return dialect.field(alias, 'embedding');
+  }
+
+  /** The `SemanticBacking` in effect for a bound `alias` (+ field), or `undefined`. */
+  private backingForAlias(ctx: SqlContext, alias: string, field: string | undefined): SemanticBacking | undefined {
+    const bound = ctx.scope.lookup(alias);
+    if (!bound || bound.kind !== 'type') return undefined;
+    return ctx.engine.semanticBacking(bound.type.name, field);
+  }
+
   /** The query side of the similarity, emitted for SQL (text / param only). */
   private querySQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    switch (this.query.kind) {
-      case 'text':
-        return SqlText.param(this.query.text);
-      case 'param':
-        return this.query.param.toSQL(dialect, ctx);
-      /* v8 ignore next 5 -- unreachable: `toSQL` short-circuits typeField, and the exhaustiveness default has no other kind. */
-      case 'typeField':
-        // Unreachable: `toSQL` short-circuits the unsupported typeField query.
-        return SqlText.raw('0');
-      default:
-        return assertNever(this.query);
-    }
+    if (this.query.kind === 'text') return SqlText.param(this.query.text);
+    /* v8 ignore next 2 -- unreachable: `toSQL` routes pairing queries to `pairingSQL`; only text / param reach here. */
+    if (this.query.kind !== 'param') return SqlText.raw('0');
+    return this.query.param.toSQL(dialect, ctx);
   }
 
   /** Serialize back to its JSON ExprDef. */
@@ -345,6 +524,8 @@ function queryCode(q: SemanticQuery): string {
       return JSON.stringify(q.text);
     case 'param':
       return `:${q.param.name}`;
+    case 'sourceField':
+      return `${q.source}.${q.field}`;
     case 'typeField':
       return `${q.type}.${q.field}`;
     /* v8 ignore next 2 -- exhaustiveness guard: `SemanticQuery` has no other kind. */

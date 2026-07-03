@@ -54,8 +54,8 @@ export interface RuntimeOptions {
    * `ExprDef` / `Expr`, or `null` (no filter). The `filters` placeholder bound
    * to a `source` reads its expr here and AND-folds it into the WHERE; a source
    * with no entry (or `null`) yields a vacuous TRUE. The caller's query is never
-   * mutated. Build the bool expr from `{field,op,value}` clauses with
-   * `compileFilters` if a filter-builder UI needs the legacy clause shape.
+   * mutated. Use `query.filters(engine)` to introspect which sources a query
+   * exposes and their filterable fields.
    */
   filters?: Record<string, ExprDef | Expr | null>;
   /**

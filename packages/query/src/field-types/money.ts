@@ -3,7 +3,6 @@ import type { FieldTypeDef, MoneyFieldTypeDef, NumberOptions } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
 import {
   compactNumberOptions,
   numberOptionsSchema,
@@ -67,11 +66,6 @@ export class MoneyFieldType extends FieldType {
   /** Resolve to the `money` scalar comparison category. */
   resolve(): ScalarKind {
     return 'money';
-  }
-
-  /** The filter operators valid on money fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size. */

@@ -35,6 +35,7 @@
  * the data + the backing predicate, showing how backing hides complexity.
  */
 import {
+  e,
   createRegistry,
   QueryEngine,
   arrayExecutor,
@@ -61,10 +62,9 @@ function loadRows(file: string): SourceRecord[] {
   return parsed;
 }
 
-// ─── Tiny expr-JSON builders (the developer's backing exprs) ─────────────────
+// A tiny field-ref helper for the raw `TypeDef` index exprs below (the LLM-facing
+// schema stays plain JSON; the backing exprs further down use the `e.*` builder).
 const ref = (source: string, field: string): ExprDef => ({ kind: 'field-ref', source, field });
-const lit = (value: string | number): ExprDef => ({ kind: 'literal', value });
-const cmp = (op: '=' | '<>', left: ExprDef, right: ExprDef): ExprDef => ({ kind: 'comparison', op, left, right });
 
 /**
  * The CONCEPTUAL `project` Type — exactly what the LLM is shown. It is a simple
@@ -142,7 +142,9 @@ export async function run(): Promise<ExampleReport> {
     // org. Dual `expr` ⇒ a runtime row filter AND a SQL WHERE. `orgId` is not a
     // conceptual field — it lives only here + in the data.
     access: {
-      expr: () => registry.parseExpr(cmp('=', ref('project', 'orgId'), lit(currentOrg))),
+      // Use the bound `alias` (never the literal type name) so an aliased /
+      // self-joined `project` gates the correct source. Here `alias === 'project'`.
+      expr: (alias) => e.eq(e.ref(alias, 'orgId'), e.value(currentOrg)),
     },
 
     // Named hidden joins — each added to a query ONCE, and only if a referenced
@@ -156,32 +158,35 @@ export async function run(): Promise<ExampleReport> {
       //     correlated sub-select. Shared by `taskCount` AND `totalHours`, so the
       //     planner emits it ONCE.
       taskStats: {
-        expr: () => ({
+        expr: (alias) => ({
           kind: 'lateral',
           joinType: 'left',
+          // The lateral correlates via `outer` — the SOURCE alias the planner
+          // passes to `query`, i.e. this backed Type's bound `alias`. The inner
+          // subquery's own FROM (`task`) is a separate scope, referenced by name.
           query: (outer) => ({
             kind: 'select',
             fields: [
-              { expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'cnt' },
-              { expr: { kind: 'aggregate', function: 'sum', args: { value: ref('task', 'hours') } }, as: 'hrs' },
+              { expr: e.countStar().toJSON(), as: 'cnt' },
+              { expr: e.sum(e.ref('task', 'hours')).toJSON(), as: 'hrs' },
             ],
             from: { kind: 'type', type: 'task' },
-            where: [cmp('=', ref('task', 'projectId'), ref(outer, 'id'))],
+            where: [e.eq(e.ref('task', 'projectId'), e.ref(outer, 'id')).toJSON()],
           }),
         }),
       },
       // (c) A LATERAL sub-select for the most-recent task title (a `pick`ed col).
       latestTask: {
-        expr: () => ({
+        expr: (alias) => ({
           kind: 'lateral',
           pick: 'title',
           joinType: 'left',
           query: (outer) => ({
             kind: 'select',
-            fields: [{ expr: ref('task', 'title'), as: 'title' }],
+            fields: [{ expr: e.ref('task', 'title').toJSON(), as: 'title' }],
             from: { kind: 'type', type: 'task' },
-            where: [cmp('=', ref('task', 'projectId'), ref(outer, 'id'))],
-            order: [{ expr: ref('task', 'doneAt'), dir: 'desc' }],
+            where: [e.eq(e.ref('task', 'projectId'), e.ref(outer, 'id')).toJSON()],
+            order: [{ expr: e.ref('task', 'doneAt').toJSON(), dir: 'desc' }],
             limit: 1,
           }),
         }),
@@ -192,23 +197,27 @@ export async function run(): Promise<ExampleReport> {
       // ownerName: dual COMPUTE reading the auto-joined owner's name.
       ownerName: {
         joins: ['owner'],
-        compute: { expr: () => registry.parseExpr(ref(joinAlias('project', 'owner'), 'name')) },
+        // Read the named join off the BOUND alias (`joinAlias(alias, 'owner')`),
+        // never a literal type name, so an aliased instance reads its own join.
+        compute: { expr: (alias) => e.ref(joinAlias(alias, 'owner'), 'name') },
       },
       // taskCount / totalHours: two computes SHARING the single `taskStats` join.
       taskCount: {
         joins: ['taskStats'],
-        compute: { expr: () => registry.parseExpr(ref(joinAlias('project', 'taskStats'), 'cnt')) },
+        compute: { expr: (alias) => e.ref(joinAlias(alias, 'taskStats'), 'cnt') },
       },
       totalHours: {
         joins: ['taskStats'],
-        compute: { expr: () => registry.parseExpr(ref(joinAlias('project', 'taskStats'), 'hrs')) },
+        compute: { expr: (alias) => e.ref(joinAlias(alias, 'taskStats'), 'hrs') },
       },
       // budgetLabel: per-mode COMPUTE — `sql` formats in SQL, `run` in memory.
       budgetLabel: {
         compute: {
           sql: (alias, ctx) => SqlText.concat([SqlText.raw("'$' || "), ctx.dialect.field(alias, 'budget')]),
-          run: (row) => {
-            const budget = row['project']?.['budget'];
+          run: (alias, row) => {
+            // Read `row[alias]` (never a hardcoded key) so an aliased instance
+            // formats its own row's budget.
+            const budget = row[alias]?.['budget'];
             const n = typeof budget === 'number' ? budget : 0;
             return Value.of(`$${n.toLocaleString('en-US')}`);
           },
@@ -218,7 +227,7 @@ export async function run(): Promise<ExampleReport> {
       // The stored column is `secret`; the gate nulls it otherwise.
       secretField: {
         name: 'secret',
-        access: { expr: () => registry.parseExpr(cmp('=', ref('project', 'status'), lit('active'))) },
+        access: { expr: (alias) => e.eq(e.ref(alias, 'status'), e.value('active')) },
       },
       // latestTaskTitle: no `compute` ⇒ its value defaults to the lateral `pick`.
       latestTaskTitle: { joins: ['latestTask'] },
@@ -251,9 +260,9 @@ export async function run(): Promise<ExampleReport> {
       'budgetLabel',
       'secretField',
       'latestTaskTitle',
-    ].map((f) => ({ expr: ref('project', f), as: f })),
+    ].map((f) => ({ expr: e.ref('project', f).toJSON(), as: f })),
     from: { kind: 'type', type: 'project' },
-    order: [{ expr: ref('project', 'id'), dir: 'asc' }],
+    order: [{ expr: e.ref('project', 'id').toJSON(), dir: 'asc' }],
   };
 
   errors += engine.validateQuery(select).list.filter((p) => p.severity === 'error').length;

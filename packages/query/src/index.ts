@@ -69,19 +69,13 @@ export {
 } from './expr';
 export * from './exprs/index';
 
+// Ergonomic expression builder (Phase 2) — `e.*` factories returning real Exprs
+export * from './builder';
+
 // Scope / params / functions (Phase 2)
 export { QueryScope } from './scope';
 export { ParamSet } from './param';
 export { QueryFunction } from './function';
-
-// Filters (Phase 4) — per-FieldType FilterOp catalog + compile-to-BoolExpr
-export {
-  type FilterOp,
-  catalogForFieldType,
-  filterOpByName,
-  compileFilters,
-  SIMILARITY_THRESHOLD,
-} from './filters';
 
 // Type backing (Phase H1) — dev-side computed fields + RLS/FLS
 // Named hidden joins + LATERAL / CROSS APPLY (Phase H2)
@@ -209,7 +203,9 @@ export {
   type SqlValue,
   type RenderedSql,
   raw,
-  param,
+  // NOTE: the SQL `param` combinator is intentionally NOT re-exported here — it
+  // would collide with the expression builder's `param` leaf (see `./builder`).
+  // Import it from `@aeye/query/sql` / `./sql/emit` when authoring dialects.
   concat,
   join,
   Dialect,

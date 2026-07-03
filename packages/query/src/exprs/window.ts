@@ -1,7 +1,7 @@
 /**
  * WindowExpr — a window function `fn(args) OVER (PARTITION BY … ORDER BY …)`,
  * dispatched through the registry. `function` names a registered WINDOW-shaped
- * function (`row_number`, `rank`, `lag`, …) OR an AGGREGATE-shaped function used
+ * function (`rowNumber`, `rank`, `lag`, …) OR an AGGREGATE-shaped function used
  * as a windowed aggregate (`sum(value) OVER (…)`); `args` carries its arguments
  * BY NAME. Unlike an aggregate it does NOT collapse rows, so its result is NOT
  * flagged `aggregate` (one value per row) and is nullable.
@@ -57,6 +57,8 @@ interface WindowOrder {
 /** A window function `fn(args) OVER (PARTITION BY … ORDER BY …)`. */
 export class WindowExpr extends Expr {
   static readonly KIND = 'window' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A window (or windowed-aggregate) function over `partitionBy` / `orderBy`." as const;
   readonly kind = WindowExpr.KIND;
 
   /** Wrap a registered window/aggregate `fn` with its named args and PARTITION BY / ORDER BY clauses. */
@@ -253,10 +255,14 @@ export class WindowExpr extends Expr {
 
   /** Emit `fn(args) OVER (PARTITION BY … ORDER BY …)`. */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    const inner = SqlText.join(
-      [...this.args.values()].map((a) => a.toSQL(dialect, ctx)),
-      ', ',
-    );
+    const argSql = [...this.args.values()].map((a) => a.toSQL(dialect, ctx));
+    // A dialect may emit a builtin window with a special form (e.g. `nth_value`);
+    // otherwise emit the generic `name(args)` call, using the function's SQL
+    // NAME override (`rowNumber` → `row_number`) when it differs from the name.
+    const name = ctx.engine.lookupFunction(this.fn)?.sql ?? this.fn;
+    const call =
+      dialect.emitBuiltinCall(this.fn, argSql) ??
+      SqlText.concat([SqlText.raw(`${name}(`), SqlText.join(argSql, ', '), SqlText.raw(')')]);
     const over: SqlText[] = [];
     if (this.partitionBy.length) {
       over.push(
@@ -277,9 +283,8 @@ export class WindowExpr extends Expr {
       over.push(SqlText.concat([SqlText.raw('ORDER BY '), SqlText.join(terms, ', ')]));
     }
     return SqlText.concat([
-      SqlText.raw(`${this.fn}(`),
-      inner,
-      SqlText.raw(') OVER ('),
+      call,
+      SqlText.raw(' OVER ('),
       SqlText.join(over, ' '),
       SqlText.raw(')'),
     ]);

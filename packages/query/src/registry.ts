@@ -17,7 +17,7 @@
  */
 import type { ExprDef, FieldTypeDef, FunctionDef, QueryDef, TypeDef } from './schema';
 import type { FieldType, FieldTypeClass } from './field-type';
-import type { Expr, ExprClass } from './expr';
+import { Expr, type ExprClass } from './expr';
 import type { Query, QueryClass } from './queries/query';
 import type { FunctionRun } from './runtime/functions';
 import type { Dialect } from './sql/dialect';
@@ -297,8 +297,13 @@ export class Registry {
    * Parse an `ExprDef` into an `Expr` instance by dispatching on `kind` to
    * the registered class's static `from`. Children are parsed recursively by
    * the class's `from` calling back into this method.
+   *
+   * An already-built `Expr` instance (e.g. from the `e.*` builder) is a
+   * PASS-THROUGH — returned as-is. This is a runtime-boundary widening only: the
+   * JSON `ExprDef` types stay pure, but built and parsed exprs compose freely.
    */
-  parseExpr(json: ExprDef): Expr {
+  parseExpr(json: ExprDef | Expr): Expr {
+    if (json instanceof Expr) return json;
     const cls = this.exprClasses.get(json.kind);
     if (!cls) {
       throw new Error(`registry.parseExpr: unknown expr kind '${json.kind}'`);

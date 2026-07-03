@@ -5,8 +5,15 @@
  */
 import { describe, it, expect } from 'vitest';
 import { fixture, typeScope, runtimeFixture, ref, lit } from './_utils';
-import { catalogForFieldType, compileFilters } from '../filters';
-import type { ArrayOp, ExprDef, QueryDef, SelectDef } from '../schema';
+import type { ArrayOp, ComparisonOp, ExprDef, QueryDef, SelectDef } from '../schema';
+
+/** A `<comparison> arrayLength(user.tags) <op> <value>` predicate (no filter catalog). */
+const arrayLenCmp = (op: ComparisonOp, value: number): ExprDef => ({
+  kind: 'comparison',
+  op,
+  left: { kind: 'function-call', function: 'arrayLength', args: { arr: ref('user', 'tags') } },
+  right: lit(value),
+});
 
 /** Build an `array-op` ExprDef (no cast — `op` is typed as `ArrayOp`). */
 const arrayOp = (op: ArrayOp, target: ExprDef, value?: ExprDef | ExprDef[]): ExprDef =>
@@ -86,64 +93,24 @@ describe('array-op: in-memory evaluation', () => {
   });
 });
 
-describe('array filter ops: catalog compile + value schemas', () => {
-  const fx = fixture();
-  const arrayFt = fx.registry.parseFieldType({ kind: 'array', item: { kind: 'text' } });
-  const ops = catalogForFieldType(arrayFt);
-  const op = (name: string) => ops.find((o) => o.op === name)!;
-  const field = fx.registry.parseExpr(ref('u', 'tags'));
-  const val = (v: string | number) => fx.registry.parseExpr(lit(v));
-
-  it('contains compiles to an array-op', () => {
-    expect(op('contains').compile(field, [val('x')], fx.registry).toJSON()).toEqual({
-      kind: 'array-op', op: 'contains', target: ref('u', 'tags'), value: lit('x'),
-    });
-  });
-
-  it('containsAny compiles to an array-op with a value list', () => {
-    expect(op('containsAny').compile(field, [val('a'), val('b')], fx.registry).toJSON()).toEqual({
-      kind: 'array-op', op: 'containsAny', target: ref('u', 'tags'), value: [lit('a'), lit('b')],
-    });
-  });
-
-  it('lengthGte compiles to a comparison over arrayLength(field)', () => {
-    expect(op('lengthGte').compile(field, [val(2)], fx.registry).toJSON()).toEqual({
-      kind: 'comparison',
-      op: '>=',
-      left: { kind: 'function-call', function: 'arrayLength', args: { arr: ref('u', 'tags') } },
-      right: lit(2),
-    });
-  });
-
-  it('value schemas match the operand shape', () => {
-    expect(op('contains').valueSchema(arrayFt).safeParse('x').success).toBe(true);
-    expect(op('contains').valueSchema(arrayFt).safeParse(5).success).toBe(false);
-    expect(op('containsAny').valueSchema(arrayFt).safeParse(['a', 'b']).success).toBe(true);
-    expect(op('lengthGte').valueSchema(arrayFt).safeParse(3).success).toBe(true);
-    expect(op('lengthGte').valueSchema(arrayFt).safeParse('x').success).toBe(false);
-    expect(op('isEmpty').valueSchema(arrayFt).safeParse(undefined).success).toBe(true);
-  });
-});
-
-describe('array length filter ops: end-to-end run', () => {
-  const names = async (op: string, value: number): Promise<string[]> => {
+describe('arrayLength predicate: end-to-end run', () => {
+  const names = async (op: ComparisonOp, value: number): Promise<string[]> => {
     const fx = runtimeFixture();
     const def: QueryDef = {
       kind: 'select',
       fields: [{ expr: ref('user', 'name') }],
       from: { kind: 'type', type: 'user' },
-      where: [{ kind: 'filters', source: 'user' }],
+      where: [arrayLenCmp(op, value)],
     };
-    const filter = compileFilters('user', [{ field: 'tags', op, value }], fx.registry);
-    const r = await fx.engine.run(def, { filters: { user: filter } });
+    const r = await fx.engine.run(def);
     return r.rows.map((row) => String(row['name'])).sort();
   };
 
-  it('lengthGte / lengthEq filter by element count', async () => {
+  it('filters by element count', async () => {
     // Ada=2, Bob=1, Cleo=0.
-    expect(await names('lengthGte', 1)).toEqual(['Ada', 'Bob']);
-    expect(await names('lengthEq', 2)).toEqual(['Ada']);
-    expect(await names('lengthLt', 1)).toEqual(['Cleo']);
+    expect(await names('>=', 1)).toEqual(['Ada', 'Bob']);
+    expect(await names('=', 2)).toEqual(['Ada']);
+    expect(await names('<', 1)).toEqual(['Cleo']);
   });
 });
 
@@ -170,12 +137,7 @@ describe('array-op: SQL emission (postgres-native vs base degrade)', () => {
   });
 
   it('postgres array length filter → cardinality(...)', () => {
-    const def: SelectDef = {
-      ...select(arrayOp('isEmpty', ref('user', 'tags'))),
-      where: [{ kind: 'filters', source: 'user' }],
-    };
-    const filter = compileFilters('user', [{ field: 'tags', op: 'lengthGte', value: 2 }], fx.registry);
-    const out = fx.engine.toSQL(def, 'postgres', { filters: { user: filter } });
+    const out = fx.engine.toSQL(select(arrayLenCmp('>=', 2)), 'postgres');
     expect(out.sql).toContain('cardinality("user"."tags") >= $1');
     expect(out.params).toEqual([2]);
   });

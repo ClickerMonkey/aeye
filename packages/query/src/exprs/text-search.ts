@@ -23,30 +23,33 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult } from './_shared';
-import { ParamExpr } from './param';
-import { TextFieldType } from '../field-types/index';
-import type { Type } from '../type';
+import { resolveSearchSql, resolveSearchRun } from '../backing';
 import type { RuntimeContext } from '../runtime/context';
-import type { SourceRecord, SourceRow } from '../runtime/row';
+import type { SourceRow } from '../runtime/row';
 import type { Cost } from '../cost';
 import { addCost, TEXT_SEARCH_ROW_PENALTY } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
+import {
+  type TextSearchQuery,
+  parseTextQuery,
+  queryRunText,
+  querySqlText,
+  boundTypeOf,
+  searchColumn,
+  searchSensitive,
+  searchBackingOf,
+  haystackText,
+  tokenMatch,
+} from './text-common';
 
-/** The parsed query text source: a literal or a bound param. */
-export type TextSearchQuery = { kind: 'text'; text: string } | { kind: 'param'; param: ParamExpr };
-
-/** Parse the JSON query (`string | ParamExprDef`) into the runtime union. */
-function parseQuery(def: string | { kind: 'param'; name: string }, registry: Registry): TextSearchQuery {
-  if (typeof def === 'string') return { kind: 'text', text: def };
-  const expr = registry.parseExpr(def);
-  if (expr instanceof ParamExpr) return { kind: 'param', param: expr };
-  throw new Error(`TextSearchExpr: expected a param query, got '${expr.kind}'.`);
-}
+export type { TextSearchQuery } from './text-common';
 
 /** A full-text search predicate over a bound source (optionally one field). A `BoolExpr`. */
 export class TextSearchExpr extends BoolExpr {
   static readonly KIND = 'text-search' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Full-text predicate over a source (optionally one field) → boolean." as const;
   readonly kind = TextSearchExpr.KIND;
 
   /** Wrap the bound `source` (optional `field`) and the search query text. */
@@ -63,7 +66,7 @@ export class TextSearchExpr extends BoolExpr {
     if (json.kind !== 'text-search') {
       throw new Error(`TextSearchExpr.from: expected 'text-search', got '${json.kind}'`);
     }
-    return new TextSearchExpr(json.source, json.field, parseQuery(json.query, registry));
+    return new TextSearchExpr(json.source, json.field, parseTextQuery(json.query, registry));
   }
 
   /** Zod schema for this expr kind's JSON shape. */
@@ -125,21 +128,13 @@ export class TextSearchExpr extends BoolExpr {
     return addCost(this.childCost(engine, scope), { rows: 0, bytes: TEXT_SEARCH_ROW_PENALTY });
   }
 
-  /** The query text for this run (a literal, or a param's bound value). */
-  private queryText(ctx: RuntimeContext): string {
-    return this.query.kind === 'text' ? this.query.text : ctx.param(this.query.param.name).toText();
-  }
-
-  /** The Type bound under `source`, when known (for field metadata). */
-  private boundType(ctx: RuntimeContext): Type | undefined {
-    return ctx.sourceType(this.source) ?? ctx.engine.type(this.source);
-  }
-
   /**
    * Basic token match: the searched text matches when it contains every
    * whitespace-separated token of the query. CASE-INSENSITIVE unless the
-   * searched field is `sensitive`. The dialect tsvector / ranking forms are a
-   * SQL-emission concern.
+   * searched field is `sensitive`. When a `SearchBacking` is in effect its `run`
+   * override decides the boolean, or its hidden `vectorField`'s stored text is
+   * token-matched; otherwise today's whole-record / field text is matched. The
+   * dialect tsvector / ranking forms are a SQL-emission concern.
    */
   async evaluateBool(
     ctx: RuntimeContext,
@@ -148,66 +143,35 @@ export class TextSearchExpr extends BoolExpr {
   ): Promise<boolean> {
     const rec = row[this.source] ?? ctx.correlation?.[this.source];
     if (!rec) return false;
-    const type = this.boundType(ctx);
+    const type = boundTypeOf(ctx, this.source);
     const sensitive = this.field !== undefined ? type?.field(this.field)?.fieldType.textCaseSensitive() ?? false : false;
-    const fold = (s: string): string => (sensitive ? s : s.toLowerCase());
-    const haystack = fold(this.haystackText(rec));
-    const tokens = fold(this.queryText(ctx)).split(/\s+/).filter((t) => t.length > 0);
-    if (tokens.length === 0) return false;
-    return tokens.every((t) => haystack.includes(t));
+    const query = queryRunText(ctx, this.query);
+    const backing = type ? ctx.engine.searchBacking(type.name, this.field) : undefined;
+    if (backing) {
+      const res = await resolveSearchRun(backing, this.source, row, query, ctx);
+      if (res.kind === 'match') return res.matched;
+      if (res.kind === 'text') return tokenMatch(res.text, query, sensitive);
+      // 'default' ⇒ fall through to the whole-record / field token match.
+    }
+    return tokenMatch(haystackText(rec, this.field), query, sensitive);
   }
 
-  /** The searched text of a record: one field, or all string values. */
-  private haystackText(rec: SourceRecord): string {
-    if (this.field !== undefined) {
-      const v = rec[this.field];
-      return typeof v === 'string' ? v : v == null ? '' : String(v);
-    }
-    const parts: string[] = [];
-    for (const key of Object.keys(rec)) {
-      const v = rec[key];
-      if (typeof v === 'string') parts.push(v);
-    }
-    return parts.join(' ');
-  }
-
-  /** Emit the dialect's `textSearch` over the resolved column. */
+  /**
+   * Emit the search predicate. When a `SearchBacking` is in effect its `sql`
+   * override or hidden `vectorField` (the dialect's precomputed-tsvector
+   * predicate) is emitted against the BOUND alias; otherwise the dialect's
+   * `textSearch` over the resolved column.
+   */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    const col = this.column(dialect, ctx);
-    const sensitive = this.sensitiveColumn(ctx);
-    return dialect.textSearch(col, this.querySQLText(ctx), sensitive);
-  }
-
-  /** The SQL column to search: the named field, else the source's first
-   *  searchable text field (fallback: a `search` pseudo-column). */
-  private column(dialect: Dialect, ctx: SqlContext): SqlText {
-    if (this.field !== undefined) return dialect.field(this.source, this.field);
-    const bound = ctx.scope.lookup(this.source);
-    if (bound && bound.kind === 'type') {
-      const searchable = bound.type.fields.find(
-        (f) => f.fieldType instanceof TextFieldType && f.fieldType.options.search === true,
-      );
-      if (searchable) return dialect.field(this.source, searchable.name);
-      const text = bound.type.fields.find((f) => f.fieldType.resolve() === 'text');
-      if (text) return dialect.field(this.source, text.name);
+    const backing = searchBackingOf(ctx, this.source, this.field);
+    if (backing) {
+      const res = resolveSearchSql(backing, this.source, SqlText.param(querySqlText(ctx, this.query)), ctx);
+      if (res.kind === 'sql') return res.sql;
+      // 'default' ⇒ fall through to the conceptual-field text search below.
     }
-    return dialect.field(this.source, 'search');
-  }
-
-  /** Case-sensitivity of the searched field (false for whole-source search). */
-  private sensitiveColumn(ctx: SqlContext): boolean {
-    if (this.field === undefined) return false;
-    const bound = ctx.scope.lookup(this.source);
-    if (!bound || bound.kind !== 'type') return false;
-    return bound.type.field(this.field)?.fieldType.textCaseSensitive() ?? false;
-  }
-
-  /** The query text as a plain string for the dialect's `textSearch`. */
-  private querySQLText(ctx: SqlContext): string {
-    if (this.query.kind === 'text') return this.query.text;
-    const name = this.query.param.name;
-    const v = Object.prototype.hasOwnProperty.call(ctx.params, name) ? ctx.params[name] : null;
-    return v == null ? '' : String(v);
+    const col = searchColumn(dialect, ctx, this.source, this.field);
+    const sensitive = searchSensitive(ctx, this.source, this.field);
+    return dialect.textSearch(col, querySqlText(ctx, this.query), sensitive);
   }
 
   /** Serialize back to its JSON ExprDef. */

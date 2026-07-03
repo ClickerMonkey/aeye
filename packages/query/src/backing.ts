@@ -31,6 +31,7 @@
 import type { Expr } from './expr';
 import type { QueryDef } from './schema';
 import type { Query } from './queries/query';
+import type { Embedder } from './engine';
 import type { SqlContext, SqlText } from './sql/emit';
 import type { RuntimeContext } from './runtime/context';
 import type { SourceRow, SourceRecord } from './runtime/row';
@@ -49,17 +50,29 @@ export interface Access {
   /**
    * The DUAL predicate path: given the alias the Type is bound under, return a
    * boolean `Expr` (applied in BOTH SQL and runtime), or a static `true` /
-   * `false`, or `undefined` for no-op. Field references inside the returned
-   * `Expr` should use `alias` as their source.
+   * `false`, or `undefined` for no-op. The factory is given the ALIAS the Type
+   * is bound under and MUST use it for every reference (never hardcode the Type
+   * name), so aliased / self-joined sources (multiple joins to the same Type, an
+   * `{kind:'aliased'}` FROM) resolve to the correct source.
    */
   expr?: (alias: string) => Expr | boolean | undefined;
-  /** SQL-only override: a raw predicate `SqlText`, a static `true`/`false`, or `undefined`. */
+  /**
+   * SQL-only override: a raw predicate `SqlText`, a static `true`/`false`, or
+   * `undefined`. Given the bound `alias`; MUST reference it (never a literal Type
+   * name) so aliased occurrences gate the correct source.
+   */
   sql?: (alias: string, ctx: SqlContext) => SqlText | boolean | undefined;
   /**
    * Runtime-only override: whether the row/field is visible (`true`/`false`), or
-   * `undefined` for no-op. `row` is the current evaluation row (keyed by source).
+   * `undefined` for no-op. Given the bound `alias` (which it MUST use — read
+   * `row[alias]`, never a hardcoded key — so aliased / self-joined sources read
+   * the correct record) and the current evaluation row (keyed by source).
    */
-  run?: (row: SourceRow, ctx: RuntimeContext) => boolean | undefined | Promise<boolean | undefined>;
+  run?: (
+    alias: string,
+    row: SourceRow,
+    ctx: RuntimeContext,
+  ) => boolean | undefined | Promise<boolean | undefined>;
 }
 
 /**
@@ -69,12 +82,25 @@ export interface Access {
  * emitted to SQL and evaluated in memory.
  */
 export interface Computed {
-  /** The DUAL value path: an `Expr` emitted to SQL AND evaluated in memory. */
+  /**
+   * The DUAL value path: an `Expr` emitted to SQL AND evaluated in memory. The
+   * factory is given the ALIAS the Type is bound under and MUST use it for every
+   * reference (never hardcode the Type name), so aliased / self-joined sources
+   * resolve to the correct source.
+   */
   expr?: (alias: string) => Expr;
-  /** SQL-only override: emit a raw value `SqlText`. */
+  /**
+   * SQL-only override: emit a raw value `SqlText`. Given the bound `alias`; MUST
+   * reference it (never a literal Type name) so aliased occurrences read the
+   * correct source.
+   */
   sql?: (alias: string, ctx: SqlContext) => SqlText;
-  /** Runtime-only override: produce the value in memory. */
-  run?: (row: SourceRow, ctx: RuntimeContext) => Value | Promise<Value>;
+  /**
+   * Runtime-only override: produce the value in memory. Given the bound `alias`
+   * (which it MUST use — read `row[alias]`, never a hardcoded key — so aliased /
+   * self-joined sources read the correct record) and the current evaluation row.
+   */
+  run?: (alias: string, row: SourceRow, ctx: RuntimeContext) => Value | Promise<Value>;
 }
 
 /**
@@ -162,12 +188,27 @@ export interface RuntimeJoin {
  * `expr`.
  */
 export interface JoinBacking {
-  /** The DUAL path: a structured `JoinSpec` lowered to SQL and attached in memory. */
+  /**
+   * The DUAL path: a structured `JoinSpec` lowered to SQL and attached in memory.
+   * The factory is given the ALIAS the backed Type is bound under and MUST use it
+   * for every reference (its `source`, and the OUTER correlation an `{kind:'lateral'}`
+   * receives) — never hardcode the Type name — so aliased / self-joined sources
+   * correlate to the correct source.
+   */
   expr?: (alias: string) => JoinSpec;
-  /** SQL-only override: a raw join fragment (incl. LATERAL / CROSS APPLY). */
+  /**
+   * SQL-only override: a raw join fragment (incl. LATERAL / CROSS APPLY). Given
+   * the bound `alias`; MUST reference it (never a literal Type name) so aliased
+   * occurrences correlate to the correct source.
+   */
   sql?: (alias: string, ctx: SqlContext) => SqlText;
-  /** Runtime-only override: attach the joined rows per outer row. */
-  run?: (ctx: RuntimeContext) => RuntimeJoin;
+  /**
+   * Runtime-only override: attach the joined rows per outer row. Given the bound
+   * `alias` the backed Type occupies (which it MUST use — bind under / correlate
+   * to `alias`, never a hardcoded key — so aliased / self-joined sources attach
+   * against the correct source).
+   */
+  run?: (alias: string, ctx: RuntimeContext) => RuntimeJoin;
 }
 
 /**
@@ -194,6 +235,16 @@ export interface FieldBacking {
   access?: Access;
   /** Names of `TypeBacking.joins` this field needs (added once-if-referenced). */
   joins?: string[];
+  /**
+   * How a `search`-flagged field is searched. Overrides this Type's whole-type
+   * `TypeBacking.search` for a field-narrowed `text-search` over this field.
+   */
+  search?: SearchBacking;
+  /**
+   * How a `semantic`-flagged field is scored. Overrides this Type's whole-type
+   * `TypeBacking.semantic` for a field-narrowed `semantic` score over this field.
+   */
+  semantic?: SemanticBacking;
 }
 
 /**
@@ -217,6 +268,124 @@ export interface TypeBacking {
   joins?: Record<string, JoinBacking>;
   /** Per-field backing, keyed by conceptual field name. */
   fields?: Record<string, FieldBacking>;
+  /**
+   * How WHOLE-TYPE full-text search is performed for this Type (a `text-search`
+   * with no `field`). A field-level `FieldBacking.search` overrides this for a
+   * field-narrowed search.
+   */
+  search?: SearchBacking;
+  /**
+   * How WHOLE-TYPE semantic (embedding) similarity is performed for this Type (a
+   * `semantic` with no `field`). A field-level `FieldBacking.semantic` overrides
+   * this for a field-narrowed score.
+   */
+  semantic?: SemanticBacking;
+}
+
+// ─── Search + semantic backing ───────────────────────────────────────────────
+//
+// A conceptual field flagged `search: true` / `semantic: true` (in the plain,
+// LLM-facing `TypeDef` / `FieldDef`, which these backings NEVER change) very
+// often has a PHYSICAL field HIDDEN from the type system that already holds a
+// precomputed `tsvector` (full-text) or `pgvector` embedding. These backings let
+// a dev say HOW search / similarity runs per Type or field — most importantly by
+// pointing at that hidden field via `vectorField`. Like `Access` / `Computed`,
+// each offers per-mode overrides; every factory takes the bound `alias` FIRST
+// and MUST reference it (never a literal Type name) so aliased / self-joined
+// sources resolve to the correct source.
+
+/**
+ * How full-text search is performed for a backed Type / field. Precedence (both
+ * modes): a full `sql` / `run` OVERRIDE wins; else a hidden `vectorField` (a
+ * physical field the type system does not expose, holding a precomputed
+ * `tsvector`) is used directly; else the engine's DEFAULT (the dialect's
+ * `textSearch` over the conceptual text fields, or an in-memory token match).
+ */
+export interface SearchBacking {
+  /**
+   * A HIDDEN physical `tsvector` field (NOT a conceptual `TypeDef` field),
+   * referenced as `<alias>."<vectorField>"`. In SQL it emits the dialect's
+   * "the field IS ALREADY a tsvector" predicate (Postgres:
+   * `<alias>."<vectorField>" @@ plainto_tsquery(<language>, <query>)`); in memory
+   * its stored value is token-matched against the query.
+   */
+  vectorField?: string;
+  /**
+   * The text-search configuration for `to_tsvector` / `plainto_tsquery` (Postgres
+   * default `'english'`). Only consulted for the `vectorField` SQL form; the base
+   * dialect (which degrades to `LIKE`) ignores it.
+   */
+  language?: string;
+  /**
+   * SQL-only OVERRIDE producing a BOOLEAN predicate. Given the bound `alias`, the
+   * `query` text already emitted as a bind param, and the emit context. MUST
+   * reference `alias` (never a literal Type name) so aliased occurrences search
+   * the correct source.
+   */
+  sql?: (alias: string, query: SqlText, ctx: SqlContext) => SqlText;
+  /**
+   * Runtime-only OVERRIDE producing whether `row` matches `query`. Given the
+   * bound `alias` (which it MUST use — read `row[alias]`, never a hardcoded key —
+   * so aliased / self-joined sources read the correct record), the current
+   * evaluation row, and the query text.
+   */
+  run?: (
+    alias: string,
+    row: SourceRow,
+    query: string,
+    ctx: RuntimeContext,
+  ) => boolean | Promise<boolean>;
+}
+
+/**
+ * How semantic (embedding) similarity is performed for a backed Type / field.
+ * Precedence — SQL: a full `sql` OVERRIDE wins; else a hidden `vectorField` (the
+ * dialect's `similarity` over that field + the query-vector param); else the
+ * engine DEFAULT. Runtime: a full `run` OVERRIDE wins; else a row vector from
+ * `vector` / `vectorField`; else the engine DEFAULT (per-record embedding, then
+ * embedding the row's text).
+ */
+export interface SemanticBacking {
+  /**
+   * A HIDDEN physical `pgvector` field (NOT a conceptual `TypeDef` field) holding
+   * the row's embedding, referenced as `<alias>."<vectorField>"`. In SQL it is
+   * the left operand of the dialect's `similarity`; in memory its stored array is
+   * read as the row vector and cosine-compared to the query embedding.
+   */
+  vectorField?: string;
+  /**
+   * A per-Type / per-field embedder OVERRIDE used to embed the QUERY text (else
+   * the run / engine embedder). Lets one Type embed against a different model.
+   */
+  embedder?: Embedder;
+  /**
+   * SQL-only OVERRIDE producing a NUMERIC score. Given the bound `alias`, the
+   * query vector already emitted as a param (the dialect's vector param form),
+   * and the emit context. MUST reference `alias` (never a literal Type name) so
+   * aliased occurrences score the correct source.
+   */
+  sql?: (alias: string, queryVector: SqlText, ctx: SqlContext) => SqlText;
+  /**
+   * Runtime-only OVERRIDE producing the score directly. Given the bound `alias`
+   * (which it MUST use — read `row[alias]`, never a hardcoded key), the current
+   * evaluation row, and the already-embedded query vector.
+   */
+  run?: (
+    alias: string,
+    row: SourceRow,
+    queryVector: number[],
+    ctx: RuntimeContext,
+  ) => number | Promise<number>;
+  /**
+   * Where the ROW's embedding comes from at runtime (an alternative to
+   * `vectorField` — e.g. a provider lookup). Given the bound `alias` and the row;
+   * returns the row vector, or `null` when unavailable (⇒ a score of 0).
+   */
+  vector?: (
+    alias: string,
+    row: SourceRow,
+    ctx: RuntimeContext,
+  ) => number[] | null | Promise<number[] | null>;
 }
 
 // ─── Resolved interpretations (discriminated unions) ─────────────────────────
@@ -273,7 +442,7 @@ export async function resolveAccessRun(
   ctx: RuntimeContext,
 ): Promise<AccessRun> {
   if (access.run) {
-    const r = await access.run(row, ctx);
+    const r = await access.run(alias, row, ctx);
     return r === undefined ? { kind: 'noop' } : { kind: 'visible', visible: r };
   }
   if (access.expr) {
@@ -300,7 +469,7 @@ export async function resolveComputeRun(
   row: SourceRow,
   ctx: RuntimeContext,
 ): Promise<ComputeRun> {
-  if (compute.run) return { kind: 'value', value: await compute.run(row, ctx) };
+  if (compute.run) return { kind: 'value', value: await compute.run(alias, row, ctx) };
   if (compute.expr) return { kind: 'value', value: await compute.expr(alias).evaluate(ctx, row) };
   return { kind: 'stored' };
 }
@@ -326,9 +495,146 @@ export function resolveJoinSql(join: JoinBacking, alias: string, ctx: SqlContext
 
 /** Resolve a `JoinBacking` for the runtime against `alias` (runtime prefers `run`, then `expr`). */
 export function resolveJoinRun(join: JoinBacking, alias: string, ctx: RuntimeContext): JoinRunPlan {
-  if (join.run) return { kind: 'attach', join: join.run(ctx) };
+  if (join.run) return { kind: 'attach', join: join.run(alias, ctx) };
   if (join.expr) return { kind: 'spec', spec: join.expr(alias) };
   return { kind: 'none' };
+}
+
+// ─── Search + semantic resolution (discriminated unions) ─────────────────────
+
+/**
+ * The SQL-mode resolution of a `SearchBacking` (a BOOLEAN predicate). `default`
+ * ⇒ no backing form applied; the caller emits today's `Dialect.textSearch` over
+ * the conceptual text fields.
+ */
+export type SearchSql =
+  | { readonly kind: 'default' }
+  | { readonly kind: 'sql'; readonly sql: SqlText };
+
+/**
+ * The runtime resolution of a `SearchBacking`. `match` ⇒ an override decided the
+ * boolean; `text` ⇒ the caller token-matches this (hidden-field) text against
+ * the query; `default` ⇒ today's whole-record / field token match.
+ */
+export type SearchRun =
+  | { readonly kind: 'default' }
+  | { readonly kind: 'match'; readonly matched: boolean }
+  | { readonly kind: 'text'; readonly text: string };
+
+/**
+ * Resolve a `SearchBacking` for SQL emission against `alias` (prefers `sql`, then
+ * a hidden `vectorField` via the dialect's tsvector predicate, then `default`).
+ * `query` is the search text already emitted as a bind param.
+ */
+export function resolveSearchSql(
+  search: SearchBacking,
+  alias: string,
+  query: SqlText,
+  ctx: SqlContext,
+): SearchSql {
+  if (search.sql) return { kind: 'sql', sql: search.sql(alias, query, ctx) };
+  if (search.vectorField !== undefined) {
+    const field = ctx.dialect.field(alias, search.vectorField);
+    return { kind: 'sql', sql: ctx.dialect.tsvectorSearch(field, query, search.language) };
+  }
+  return { kind: 'default' };
+}
+
+/**
+ * Resolve a `SearchBacking` for the runtime against `alias` (prefers `run`, then
+ * a hidden `vectorField` whose stored text is token-matched, then `default`).
+ */
+export async function resolveSearchRun(
+  search: SearchBacking,
+  alias: string,
+  row: SourceRow,
+  query: string,
+  ctx: RuntimeContext,
+): Promise<SearchRun> {
+  if (search.run) return { kind: 'match', matched: await search.run(alias, row, query, ctx) };
+  if (search.vectorField !== undefined) return { kind: 'text', text: readFieldText(row, alias, search.vectorField) };
+  return { kind: 'default' };
+}
+
+/**
+ * The SQL-mode resolution of a `SemanticBacking` (a NUMERIC score). `default` ⇒
+ * the caller emits today's `Dialect.similarity` over the default embedding
+ * fragment.
+ */
+export type SemanticSql =
+  | { readonly kind: 'default' }
+  | { readonly kind: 'sql'; readonly sql: SqlText };
+
+/**
+ * The runtime resolution of a `SemanticBacking`. `score` ⇒ an override produced
+ * the score directly; `vector` ⇒ the caller cosine-compares this row vector (or
+ * scores 0 when `null`) to the query embedding; `default` ⇒ today's per-record /
+ * embed-the-text path.
+ */
+export type SemanticRun =
+  | { readonly kind: 'default' }
+  | { readonly kind: 'score'; readonly score: number }
+  | { readonly kind: 'vector'; readonly vector: number[] | null };
+
+/**
+ * Resolve a `SemanticBacking` for SQL emission against `alias` (prefers `sql`,
+ * then a hidden `vectorField` via the dialect's `similarity`, then `default`).
+ * `queryVector` is the query vector already emitted as the dialect's vector param.
+ */
+export function resolveSemanticSql(
+  semantic: SemanticBacking,
+  alias: string,
+  queryVector: SqlText,
+  ctx: SqlContext,
+): SemanticSql {
+  if (semantic.sql) return { kind: 'sql', sql: semantic.sql(alias, queryVector, ctx) };
+  if (semantic.vectorField !== undefined) {
+    const field = ctx.dialect.field(alias, semantic.vectorField);
+    return { kind: 'sql', sql: ctx.dialect.similarity(field, queryVector) };
+  }
+  return { kind: 'default' };
+}
+
+/**
+ * Resolve a `SemanticBacking` for the runtime against `alias` (prefers `run`,
+ * then a `vector` producer, then a hidden `vectorField` read off the row, then
+ * `default`). `queryVector` is the already-embedded query vector.
+ */
+export async function resolveSemanticRun(
+  semantic: SemanticBacking,
+  alias: string,
+  row: SourceRow,
+  queryVector: number[],
+  ctx: RuntimeContext,
+): Promise<SemanticRun> {
+  if (semantic.run) return { kind: 'score', score: await semantic.run(alias, row, queryVector, ctx) };
+  if (semantic.vector) return { kind: 'vector', vector: await semantic.vector(alias, row, ctx) };
+  if (semantic.vectorField !== undefined) return { kind: 'vector', vector: readFieldVector(row, alias, semantic.vectorField) };
+  return { kind: 'default' };
+}
+
+/** Read a hidden field's stored text off `row[alias]` (string / string[] / ''). */
+function readFieldText(row: SourceRow, alias: string, field: string): string {
+  const rec = row[alias];
+  if (!rec) return '';
+  const cell = rec[field];
+  if (typeof cell === 'string') return cell;
+  if (Array.isArray(cell)) return cell.filter((x): x is string => typeof x === 'string').join(' ');
+  return '';
+}
+
+/** Read a hidden field's stored embedding off `row[alias]` (a `number[]`, else `null`). */
+export function readFieldVector(row: SourceRow, alias: string, field: string): number[] | null {
+  const rec = row[alias];
+  if (!rec) return null;
+  const cell = rec[field];
+  if (!Array.isArray(cell)) return null;
+  const out: number[] = [];
+  for (const v of cell) {
+    if (typeof v !== 'number') return null;
+    out.push(v);
+  }
+  return out;
 }
 
 /**

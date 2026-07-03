@@ -44,6 +44,8 @@ function exempt(e: Expr): boolean {
 /** An arithmetic binary expression `left <op> right` (`+ - * / %`). */
 export class BinaryExpr extends Expr {
   static readonly KIND = 'binary' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Arithmetic `left <op> right` (`+ - * / %`)." as const;
   readonly kind = BinaryExpr.KIND;
 
   /** Wrap an arithmetic operation over its operator and left/right operand exprs. */

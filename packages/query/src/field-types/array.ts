@@ -4,16 +4,8 @@ import type { ValueSchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
 import { jsonValueSchema } from './json';
 import { fieldTypeDefSchema } from './index';
-
-/** Filter operators valid on array fields (the contains-family + length + null). */
-export const ARRAY_FILTER_OPS: readonly string[] = [
-  'contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty',
-  'lengthEq', 'lengthGt', 'lengthGte', 'lengthLt', 'lengthLte',
-  'isNull', 'notNull',
-];
 
 /**
  * Average element count assumed for an UNBOUNDED array (no min/max declared),
@@ -96,11 +88,6 @@ export class ArrayFieldType extends FieldType {
     if (!(other instanceof ArrayFieldType)) return false;
     if (this.item && other.item) return this.item.comparableWith(other.item);
     return true;
-  }
-
-  /** The filter operators valid on array fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size (midpoint count × per-element bytes). */

@@ -258,6 +258,20 @@ ginny
 - Fn / type / var catalog persisted as JSON under `./fns`, `./types`, `./vars` for reuse across sessions
 - Works with any provider configured for `@aeye/ai` — OpenAI, OpenRouter, AWS Bedrock; web research via Tavily
 
+#### [@aeye/query](./packages/query)
+An LLM-authorable relational query language, in-memory runtime, and SQL converter. You register *Types* (table-like entities) with *Fields*; an LLM builds a typed, validated, runnable query (select / insert / update / delete / set-op / CTE) as plain JSON against a depth-graduated, capability-gated schema. Standalone (depends only on `zod`).
+
+```bash
+npm install @aeye/query zod
+```
+
+**Features:**
+- Typed queries with relation-path joins, aggregates / grouping / window functions, set operations, recursive CTEs, and DML with `ON CONFLICT`
+- Runs in-memory AND emits dialect SQL (base ANSI + Postgres) identically; cost estimation, auto-pagination, and aggregate drill-down
+- Semantic + full-text search with numeric scoring / ranking (cross-Type pairing, `ts_rank`), array fields, and a 60+ function library (`e.*` builder)
+- Type *backing* keeps the model's schema minimal while RLS / FLS / computed fields / hidden vector columns live in dev-side code
+- `buildQueryTool` returns a ready-wired `@aeye/core` `Tool` whose custom `parse` replaces Zod with compiler-style diagnostics
+
 ## Usage Examples
 
 ### Chat Completion
@@ -799,6 +813,7 @@ aeye/
 │   ├── aws/           # AWS Bedrock provider
 │   ├── gin/           # JSON-typed program language for LLMs
 │   ├── ginny/         # CLI agent that authors gin programs
+│   ├── query/         # LLM-authorable relational query language + SQL converter
 │   └── cletus/        # Example CLI agent
 ├── package.json       # Root package configuration
 └── tsconfig.json      # TypeScript configuration

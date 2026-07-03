@@ -47,6 +47,8 @@ const LIST_VALUE_OPS: ReadonlySet<ArrayOp> = new Set<ArrayOp>(['containsAny', 'c
 /** A predicate over an array-valued target (`contains` / `containsAny` / `isEmpty` / …). A `BoolExpr`. */
 export class ArrayOpExpr extends BoolExpr {
   static readonly KIND = 'array-op' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Predicate over an array field: `contains` / `containsAny` / `containsAll` / `isEmpty` / `notEmpty`." as const;
   readonly kind = ArrayOpExpr.KIND;
 
   /** Wrap an array predicate `op` over `target` with its element operand(s). */

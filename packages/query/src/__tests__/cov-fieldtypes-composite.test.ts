@@ -15,7 +15,6 @@ import {
 import { FieldType, type ScalarKind } from '../field-type';
 import type { FieldTypeDef } from '../schema';
 import type { ValueSchemaOptions } from '../node';
-import type { FilterOp } from '../filters';
 import { fixture } from './_utils';
 
 describe('cov array field type', () => {
@@ -43,10 +42,9 @@ describe('cov array field type', () => {
     expect(s.safeParse({ kind: 'text' }).success).toBe(false);
   });
 
-  it('resolve / filterOps / toSQLType neutral', () => {
+  it('resolve / toSQLType neutral', () => {
     const ft = new ArrayFieldType();
     expect(ft.resolve()).toBe('array');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.toSQLType()).toBe('json');
   });
 
@@ -133,7 +131,7 @@ describe('cov relation resolveKey', () => {
 });
 
 /** A minimal concrete FieldType that overrides NOTHING optional — exercises the
- *  abstract base defaults (`filterOps` → [], `comparableWith`, `validValue`). */
+ *  abstract base defaults (`comparableWith`, `validValue`, `textCaseSensitive`). */
 class PlainFieldType extends FieldType {
   readonly kind = 'number' as const;
   toJSON(): FieldTypeDef {
@@ -157,12 +155,6 @@ class PlainFieldType extends FieldType {
 }
 
 describe('cov FieldType base defaults', () => {
-  it('base filterOps returns empty catalog', () => {
-    const ft = new PlainFieldType();
-    const ops: FilterOp[] = ft.filterOps();
-    expect(ops).toEqual([]);
-  });
-
   it('base comparableWith / validValue / textCaseSensitive / toCode', () => {
     const ft = new PlainFieldType();
     expect(ft.comparableWith(new NumberFieldType())).toBe(true);

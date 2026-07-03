@@ -90,6 +90,8 @@ function lower(operand: SqlText): SqlText {
 /** A scalar comparison `left <op> right` (`=`, `<>`, `<`, `like`, …). A `BoolExpr`. */
 export class ComparisonExpr extends BoolExpr {
   static readonly KIND = 'comparison' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`)." as const;
   readonly kind = ComparisonExpr.KIND;
 
   /** Wrap `left <op> right` as a scalar comparison predicate. */

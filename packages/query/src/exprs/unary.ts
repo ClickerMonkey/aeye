@@ -26,6 +26,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A unary arithmetic expression (`-x` / `+x`). */
 export class UnaryExpr extends Expr {
   static readonly KIND = 'unary' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`<op> operand` (`-` / `+`)." as const;
   readonly kind = UnaryExpr.KIND;
 
   /** Wrap a unary operation over its operator and operand expr. */

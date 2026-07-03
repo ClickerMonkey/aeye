@@ -16,7 +16,14 @@
 import type { ExprDef, QueryDef } from './schema';
 import type { Registry } from './registry';
 import type { Type } from './type';
-import { Backing, type TypeBacking, type FieldBacking, type JoinBacking } from './backing';
+import {
+  Backing,
+  type TypeBacking,
+  type FieldBacking,
+  type JoinBacking,
+  type SearchBacking,
+  type SemanticBacking,
+} from './backing';
 import type { ResolvedType } from './resolved-type';
 import type { ValidateContext } from './expr';
 import type { Cost, CostConstraints } from './cost';
@@ -30,9 +37,11 @@ import { QueryScope } from './scope';
 import { Problems } from './problem';
 import { QueryFunction } from './function';
 import { RuntimeContext, type RuntimeOptions } from './runtime/context';
+import type { SourceRow } from './runtime/row';
+import type { Value } from './runtime/value';
 import type { Dialect } from './sql/dialect';
 import type { RlsProvider } from './sql/rls';
-import type { SqlValue } from './sql/emit';
+import type { SqlValue, RenderedSql } from './sql/emit';
 import { SqlContext } from './sql/emit';
 import { JoinCtePlanner } from './sql/planner';
 
@@ -141,6 +150,38 @@ export class QueryEngine {
   /** The named `JoinBacking` `name` declared on `typeName`'s backing, or `undefined`. */
   joinBacking(typeName: string, name: string): JoinBacking | undefined {
     return this.backing(typeName)?.join(name);
+  }
+
+  /**
+   * The `SearchBacking` in effect for `typeName` (optionally its `field`), or
+   * `undefined` when none. A FIELD-level `FieldBacking.search` overrides the
+   * whole-type `TypeBacking.search`; a whole-type / fieldless lookup uses only
+   * the type-level backing.
+   */
+  searchBacking(typeName: string, field?: string): SearchBacking | undefined {
+    const backing = this.backing(typeName);
+    if (!backing) return undefined;
+    if (field !== undefined) {
+      const fieldSearch = backing.fieldBacking(field)?.search;
+      if (fieldSearch) return fieldSearch;
+    }
+    return backing.def.search;
+  }
+
+  /**
+   * The `SemanticBacking` in effect for `typeName` (optionally its `field`), or
+   * `undefined` when none. A FIELD-level `FieldBacking.semantic` overrides the
+   * whole-type `TypeBacking.semantic`; a whole-type / fieldless lookup uses only
+   * the type-level backing.
+   */
+  semanticBacking(typeName: string, field?: string): SemanticBacking | undefined {
+    const backing = this.backing(typeName);
+    if (!backing) return undefined;
+    if (field !== undefined) {
+      const fieldSemantic = backing.fieldBacking(field)?.semantic;
+      if (fieldSemantic) return fieldSemantic;
+    }
+    return backing.def.semantic;
   }
 
   /**
@@ -377,5 +418,51 @@ export class QueryEngine {
     e.validateWalk(this, s, p, { ...ROOT_VALIDATE_CONTEXT, ...ctx });
     s.params.problems(p);
     return p;
+  }
+
+  /**
+   * Evaluate a standalone expression against the in-memory runtime, returning
+   * its `Value`. Accepts either a built `Expr` (e.g. from the `e.*` builder) or
+   * a raw `ExprDef` (parsed first). The optional `row` binds source records the
+   * expression reads (`{ task: { done: true } }`); it defaults to an empty row
+   * so a constant / predicate expr still evaluates. `opts` seeds the
+   * `RuntimeContext` (bound params, filters, embedder, …).
+   */
+  async evaluateExpr(
+    expr: Expr | ExprDef,
+    row?: SourceRow,
+    opts?: RuntimeOptions,
+  ): Promise<Value> {
+    const e = this.toExpr(expr);
+    const ctx = new RuntimeContext(this, opts);
+    return e.evaluate(ctx, row ?? {});
+  }
+
+  /**
+   * Emit a standalone expression as SQL for a named (or supplied) dialect,
+   * returning the rendered SQL string + ordered bind params. Accepts either a
+   * built `Expr` or a raw `ExprDef` (parsed first). Reuses the same context
+   * construction path as `toSQL`: `opts.params` supplies bound param values,
+   * `opts.rls` a predicate provider, `opts.filters` (keyed by source) the
+   * `filters` placeholders' clauses. Literals / params emit bind parameters
+   * (never string-interpolated).
+   */
+  exprToSQL(
+    expr: Expr | ExprDef,
+    dialect: string | Dialect,
+    opts?: {
+      rls?: RlsProvider;
+      params?: Readonly<Record<string, SqlValue>>;
+      filters?: Record<string, ExprDef | Expr | null>;
+    },
+  ): RenderedSql {
+    const d = typeof dialect === 'string' ? this.registry.dialect(dialect) : dialect;
+    if (!d) throw new Error(`QueryEngine.exprToSQL: unknown dialect '${String(dialect)}'.`);
+    const e = this.toExpr(expr);
+    const scope = this.globalScope();
+    const params = opts?.params ?? {};
+    const planner = new JoinCtePlanner(d, this, opts?.rls, params);
+    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), false);
+    return e.toSQL(d, ctx).render(d);
   }
 }

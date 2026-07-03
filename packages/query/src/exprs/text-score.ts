@@ -1,0 +1,207 @@
+/**
+ * TextScoreExpr — NUMERIC full-text RELEVANCE of a BOUND SOURCE (optionally one
+ * field) against a query. The ranking counterpart of the `text-search`
+ * predicate: it resolves to a non-null number, so it is usable in SELECT and
+ * ORDER BY ("top 10 by text relevance").
+ *
+ *  - `source` (required) is the bound source to rank; `field` (optional) narrows
+ *    to a single text field, otherwise the whole source's searchable text.
+ *  - `query` is a literal string or a `param` whose bound value supplies the text.
+ *  - `validateWalk` requires the source be searchable (whole-source) or the named
+ *    field be a text field — identical eligibility to `text-search`.
+ *  - `toSQL` emits the dialect's `textRank` / `tsvectorRank` (Postgres `ts_rank`),
+ *    honoring a `SearchBacking` (`vectorField` / `language` / boolean `sql`
+ *    override lifted to a numeric 0/1 via `matchScore`); the base dialect
+ *    degrades to a numeric 0/1 match (never throws).
+ *  - `evaluate` returns a deterministic in-memory relevance (the fraction of
+ *    query tokens present), honoring `SearchBacking.run` (boolean ⇒ 1/0).
+ */
+import { z } from 'zod';
+import type { ExprDef, TextScoreExprDef } from '../schema';
+import type { SchemaOptions } from '../node';
+import { textScoreSchema } from '../schema-build';
+import type { Registry } from '../registry';
+import type { QueryEngine } from '../engine';
+import type { QueryScope } from '../scope';
+import type { ComputedResolved } from '../resolved-type';
+import type { Problems } from '../problem';
+import { Expr, type ExprClass, type ValidateContext } from '../expr';
+import { numberResult } from './_shared';
+import { resolveSearchRun } from '../backing';
+import { Value } from '../runtime/value';
+import type { RuntimeContext } from '../runtime/context';
+import type { SourceRow } from '../runtime/row';
+import type { Cost } from '../cost';
+import { addCost, TEXT_SEARCH_ROW_PENALTY } from '../cost';
+import type { Dialect } from '../sql/dialect';
+import { type SqlContext, SqlText } from '../sql/emit';
+import {
+  type TextSearchQuery,
+  parseTextQuery,
+  queryRunText,
+  querySqlText,
+  boundTypeOf,
+  searchColumn,
+  searchSensitive,
+  searchBackingOf,
+  haystackText,
+  relevanceScore,
+} from './text-common';
+
+/** A NUMERIC full-text relevance score over a bound source (optionally one field). */
+export class TextScoreExpr extends Expr {
+  static readonly KIND = 'text-score' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Numeric full-text relevance score of a source (optionally one field) → number (`ts_rank`)." as const;
+  readonly kind = TextScoreExpr.KIND;
+
+  /** Wrap the bound `source` (optional `field`) and the query text to rank against. */
+  constructor(
+    readonly source: string,
+    readonly field: string | undefined,
+    readonly query: TextSearchQuery,
+  ) {
+    super();
+  }
+
+  /** Reconstruct a TextScoreExpr from its JSON def (validates the `kind` discriminant). */
+  static from(json: ExprDef, registry: Registry): TextScoreExpr {
+    if (json.kind !== 'text-score') {
+      throw new Error(`TextScoreExpr.from: expected 'text-score', got '${json.kind}'`);
+    }
+    return new TextScoreExpr(json.source, json.field, parseTextQuery(json.query, registry));
+  }
+
+  /** Zod schema for this expr kind's JSON shape. */
+  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return textScoreSchema(opts.types ?? [], opts.depth?.refs ?? 'open');
+  }
+
+  override forEachChild(visit: (child: Expr) => void): void {
+    if (this.query.kind === 'param') visit(this.query.param);
+  }
+
+  /** Resolve to a non-null numeric computed type (a relevance score). */
+  resolve(_engine: QueryEngine, _scope: QueryScope): ComputedResolved {
+    return numberResult([], false, false);
+  }
+
+  /** Validate the source is searchable (or the named field is text), and the query side. */
+  validateWalk(
+    engine: QueryEngine,
+    scope: QueryScope,
+    p: Problems,
+    ctx: ValidateContext,
+  ): ComputedResolved {
+    const bound = scope.lookup(this.source);
+    if (!bound) {
+      p.error('text-score.unknown-source', `Unknown source '${this.source}' for text score.`);
+    } else if (bound.kind !== 'type') {
+      p.error('text-score.not-a-type', `Source '${this.source}' is not a type, so it cannot be scored.`);
+    } else if (this.field === undefined) {
+      // Whole-source score ⇒ the Type itself must be full-text-search-eligible.
+      if (!bound.type.isSearchable()) {
+        p.error('text-score.not-searchable', `Type '${bound.type.name}' is not full-text-search-eligible.`);
+      }
+    } else {
+      // Field-narrowed score ⇒ the field must exist and be text.
+      const field = bound.type.field(this.field);
+      if (!field) {
+        p.at('field', () =>
+          p.error('text-score.unknown-field', `Type '${bound.type.name}' has no field '${this.field}'.`),
+        );
+      } else if (field.fieldType.resolve() !== 'text') {
+        p.at('field', () =>
+          p.error('text-score.non-text', `Text score requires a text field; '${this.field}' is ${field.fieldType.resolve()}.`),
+        );
+      }
+    }
+    if (this.query.kind === 'param') {
+      const param = this.query.param;
+      p.at('query', () => param.validateWalk(engine, scope, p, ctx));
+    }
+    return this.resolve(engine, scope);
+  }
+
+  /** Child cost plus a per-row text-scan penalty. */
+  cost(engine: QueryEngine, scope: QueryScope): Cost {
+    return addCost(this.childCost(engine, scope), { rows: 0, bytes: TEXT_SEARCH_ROW_PENALTY });
+  }
+
+  /**
+   * A deterministic in-memory relevance in [0, 1]: the FRACTION of the query's
+   * tokens present in the searched text (case-insensitive unless the field is
+   * `sensitive`). When a `SearchBacking` is in effect its `run` override decides
+   * a boolean (⇒ 1/0), or its hidden `vectorField`'s stored text is scored;
+   * otherwise the whole-record / field text is scored.
+   */
+  async evaluate(ctx: RuntimeContext, row: SourceRow | null): Promise<Value> {
+    if (!row) return Value.of(0);
+    const rec = row[this.source] ?? ctx.correlation?.[this.source];
+    if (!rec) return Value.of(0);
+    const type = boundTypeOf(ctx, this.source);
+    const sensitive = this.field !== undefined ? type?.field(this.field)?.fieldType.textCaseSensitive() ?? false : false;
+    const query = queryRunText(ctx, this.query);
+    const backing = type ? ctx.engine.searchBacking(type.name, this.field) : undefined;
+    if (backing) {
+      const res = await resolveSearchRun(backing, this.source, row, query, ctx);
+      if (res.kind === 'match') return Value.of(res.matched ? 1 : 0);
+      if (res.kind === 'text') return Value.of(relevanceScore(res.text, query, sensitive));
+      // 'default' ⇒ fall through to the whole-record / field relevance.
+    }
+    return Value.of(relevanceScore(haystackText(rec, this.field), query, sensitive));
+  }
+
+  /**
+   * Emit the numeric relevance. When a `SearchBacking` is in effect: a boolean
+   * `sql` override is lifted to a numeric 0/1 (`matchScore`); a hidden
+   * `vectorField` ranks that precomputed tsvector (`tsvectorRank`). Otherwise the
+   * dialect's `textRank` over the resolved column (Postgres `ts_rank`; base a
+   * numeric 0/1 match).
+   */
+  toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    const backing = searchBackingOf(ctx, this.source, this.field);
+    if (backing) {
+      if (backing.sql) {
+        const pred = backing.sql(this.source, SqlText.param(querySqlText(ctx, this.query)), ctx);
+        return dialect.matchScore(pred);
+      }
+      if (backing.vectorField !== undefined) {
+        const tsv = dialect.field(this.source, backing.vectorField);
+        return dialect.tsvectorRank(tsv, SqlText.param(querySqlText(ctx, this.query)), backing.language);
+      }
+      // 'default' (an empty backing) ⇒ fall through to the conceptual-field rank.
+    }
+    const col = searchColumn(dialect, ctx, this.source, this.field);
+    const sensitive = searchSensitive(ctx, this.source, this.field);
+    return dialect.textRank(col, querySqlText(ctx, this.query), sensitive);
+  }
+
+  /** Serialize back to its JSON ExprDef. */
+  toJSON(): TextScoreExprDef {
+    const def: TextScoreExprDef = {
+      kind: 'text-score',
+      source: this.source,
+      query: this.query.kind === 'text' ? this.query.text : this.query.param.toJSON(),
+    };
+    if (this.field !== undefined) def.field = this.field;
+    return def;
+  }
+
+  /** Deep-copy this expr. */
+  clone(): TextScoreExpr {
+    const query: TextSearchQuery =
+      this.query.kind === 'param' ? { kind: 'param', param: this.query.param.clone() } : { ...this.query };
+    return new TextScoreExpr(this.source, this.field, query);
+  }
+
+  /** Render as the readable `textScore(...)` DSL form. */
+  override toCode(): string {
+    const target = this.field !== undefined ? `${this.source}.${this.field}` : this.source;
+    const q = this.query.kind === 'text' ? JSON.stringify(this.query.text) : `:${this.query.param.name}`;
+    return `textScore(${target}, ${q})`;
+  }
+}
+
+const _check: ExprClass = TextScoreExpr;
+void _check;

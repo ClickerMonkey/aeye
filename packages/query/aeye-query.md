@@ -1,0 +1,197 @@
+# @aeye/query — LLM relational query language
+
+**Purpose:** A JSON, LLM-authorable relational query language with an in-memory runtime and a SQL converter. You register *Types* (table-like entities) made of *Fields*; from those an LLM (or a developer) builds a **typed, validated, runnable** query — a `select` / `insert` / `update` / `delete` / set-operation / CTE / single-expression statement. A built query resolves to an output type, has typed bind params, can be cost-bounded, run in-memory, emitted to SQL (base + Postgres), auto-paginated, and drilled down.
+
+It is standalone (only depends on `zod`) and exhaustively type-safe: every polymorphic node is a discriminated union, so handling is compiler-checkable with no `any`/casts.
+
+## When to use it
+
+- You want an LLM to author a **structured, validated** query over a schema you control — and get compiler-style diagnostics instead of free-form SQL you have to trust.
+- You need the SAME query to run in-memory AND emit dialect SQL (base ANSI + Postgres) identically.
+- You want the conceptual schema the model sees to stay minimal while the physical reality (real tables, RLS/FLS, computed fields, hidden vector/tsvector columns, extra joins) lives in dev-side backing code.
+- You need cost bounding, aggregate drill-down, pagination, semantic/full-text ranking, or execution-time filters over model-authored queries.
+
+## The query/expr JSON contract (state once)
+
+A query is a `QueryDef` and an expression is an `ExprDef` — plain JSON discriminated unions (keyed by `kind`) that round-trip through `JSON.stringify`. **The LLM does not hand-write these shapes from memory:** `buildSchemas` / `querySchema` generate a Zod schema the model emits against, and that schema is both **depth-graduated** (how tightly Type names / field refs / function args / filters are locked — see *Schema depth*) and **capability-gated** (expr kinds an available Type/function can't use are omitted). The doc below therefore describes *what is supported*; the schema tells the model *how to shape it*. `schema.ts` is the single source of truth for every `*Def`.
+
+Developers compose the same trees ergonomically with the **`e.*` builder** (one builder per expr kind); each `e.*` returns a real `Expr` instance and `.toJSON()` is its wire `ExprDef`. `registry.parseExpr` is a pass-through for an already-built `Expr`, so built and parsed exprs compose freely.
+
+```ts
+import { e } from '@aeye/query';
+const cond = e.and(e.eq(e.ref('task', 'done'), e.value(true)), e.gt(e.ref('task', 'hours'), e.value(0)));
+```
+
+Builders, by group: leaves (`value`/`lit`, `param`, `ref`, `path`, `output`, `excluded`, `filters`), arithmetic (`add`/`sub`/`mul`/`div`/`mod`, `neg`/`pos`), comparison (`eq`/`neq`/`lt`/`lte`/`gt`/`gte`/`like`/`notLike`/`ilike`), logical (`and`/`or`/`not`), predicates (`isNull`/`notNull`, `between`/`notBetween`, `inList`/`notInList`, `inSubquery`/`notInSubquery`, `exists`/`notExists`), array (`contains`/`containsAny`/`containsAll`/`isEmpty`/`notEmpty`), `case`/`when`, calls (`fn`, `agg`/`count`/`countStar`/`sum`/`avg`/`min`/`max`, `window`, `tableFn`), `subquery`, search (`textSearch`, `textScore`, `semantic`). Every builder is also a named export.
+
+## The type / field model
+
+A `Type` is a named collection of `Field`s plus index + cardinality estimates (`count` rows, `bytes`/row for cost). Each field has a `FieldType` — one of `number`, `text`, `money`, `bool`, `relation`, `date`, `timestamp`, `json`, `array` (nine kinds). Nullability lives on the field, not the type.
+
+- **Text** is case-insensitive by default; set `sensitive: true` for case-sensitive matching. Fields may be flagged `semantic` (embedding-eligible) and/or `search` (full-text-eligible); a whole Type may carry the same `semantic` / `search` flags.
+- **Relations** carry a target `to` Type and cardinality `count`: the relation field's **name IS the join key** (there are no explicit FK fields). `count === 1` is belongs-to; `count > 1` is has-many. A belongs-to may set `inverseRelation` so its target auto-gains the matching has-many. Join keys resolve through each Type's identity field (first unique single-field index, else `id`).
+- **Indexes** are composite (ordered parts, each with a non-increasing prefix distinct-row `count`); unique iff the last part's `count === 1`. They drive cost estimation.
+- **Arrays** are ordered collections with optional `minItems`/`maxItems` and an optional `item` element field type (omit `item` for heterogeneous); they nest (`array<array<number>>`).
+
+`createRegistry()` bootstraps the Type/expr/function catalog; `registry.parseType(def)` + `registerType` add Types. `inferType(name, rows)` derives a `TypeDef` (field types + nullability, array detection) straight from sampled JSON rows.
+
+## Expression kinds
+
+Every kind is one branch of the `ExprDef` union. Availability in the LLM schema is depth-graduated and capability-gated; the always-usable core is never gated. Each Expr class also exposes a concise `static INSTRUCTIONS` one-liner (enumerable via `registry.exprClassList()`) — the canonical terse doc mirrored by the table below.
+
+| kind | one-line meaning |
+| ---- | ---------------- |
+| `literal` | A constant scalar value. |
+| `param` | A named bind parameter; type inferred from use, bound at run/emit time. |
+| `field-ref` | `<source>.<field>` — a field's value from a bound source. |
+| `relation-path` | Walks relation fields from a source (optionally ending at a scalar); planner synthesizes the joins. |
+| `binary` | Arithmetic `left <op> right` (`+ - * / %`). |
+| `unary` | `<op> operand` (`-` / `+`). |
+| `comparison` | `left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`). |
+| `logical` | Boolean connective `and` / `or` / `not` over operands. |
+| `is-null` | `value IS [NOT] NULL`. |
+| `between` | `value BETWEEN lower AND upper` (negatable). |
+| `in` | `value IN (list \| subquery)` (negatable). |
+| `case` | `CASE WHEN … THEN … [ELSE …] END`. |
+| `function-call` | A scalar function call by name with named args. |
+| `aggregate` | An aggregate function over a group (`count(*)` = empty args); optional `distinct`. |
+| `window` | A window (or windowed-aggregate) function over `partitionBy` / `orderBy`. |
+| `subquery` | A scalar / single-field subquery in value position. |
+| `exists` | `[NOT] EXISTS (subquery)` → boolean. |
+| `array-op` | Predicate over an array field: `contains` / `containsAny` / `containsAll` / `isEmpty` / `notEmpty`. |
+| `text-search` | Full-text predicate over a source (optionally one field) → boolean. |
+| `text-score` | Numeric full-text relevance score of a source (optionally one field) → number (`ts_rank`). |
+| `semantic` | Embedding-similarity score of a source's row vs a query (string / param / pairing ref) → number. |
+| `filters` | An execution-time filter placeholder bound to a source (optional `fields` allowlist); predicate supplied at run time. |
+| `excluded` | `EXCLUDED."field"` — the proposed row inside `INSERT … ON CONFLICT DO UPDATE`. |
+| `output` | References a projected SELECT output field by name (valid ONLY in `groupBy`/`orderBy`/`having`); expands to that item's expr. |
+| `tabular-function-call` | A row-producing (table-valued) function call, usable as a source. |
+
+## Sources & aliasing
+
+Everything is referenced by its **Type name** — there is no alias to invent or keep in sync.
+
+- **FROM** — `{ kind: 'type', type: 'user' }` binds under `source: 'user'` (not aliasable). Also available: `aliased` (escape hatch), `subquery`, and `function` (a tabular-function source).
+- **Joins** — a `JoinDef` crosses a **single relation hop**: `on` is a `{ source, field }` ref (the bound source + its relation field). Joined rows bind under the target Type name; the join key is synthesized from the relation (you never write ON). Multi-hop = chained single-hop joins (or a `relation-path` expr for value access). `joinType` (`inner`/`left`/`right`/`full`, default `left`) is renamed from `type` to free that key. `and` adds an optional extra predicate.
+- **DML** targets (`insert.into` / `update.type` / `delete.from`) bind under the Type name; DML targets take no alias.
+- **`type` vs `source` rule.** `type` = a registered Type name (FROM `type`, DML targets, relation `to`, a `{ type, field }` semantic ref). `source` = a bound name in scope (Type name / join alias / CTE / aliased source) — used by `field-ref`, `semantic`/`text-search`/`text-score`/`filters`, and a join's `on.source`.
+- **Disambiguation.** For a self-join or two instances of one Type, use `{ kind: 'aliased', type, as }` on FROM, or `as` on a join to override its hop's bound name. Two sources bound under one name → a `source.duplicate` validation error.
+
+## What queries can do
+
+- **SELECT** — `fields` (each `{ expr, as? }`), `from`, `joins`, `where` (ANDed), `groupBy`, `having` (ANDed), `order` (`{ expr, dir, nulls? }`), `limit`/`offset` (a literal or a `param`), and `distinct`.
+- **Output references** — `groupBy` / `order` / `having` may use `{ kind: 'output', name }` to reference a projected field by name (its `as`, or a natural derived name) instead of repeating the expression. It EXPANDS to the target item's expr in both SQL and runtime (a group key re-computes over the source row; an ORDER BY / HAVING ref re-computes over the group, incl. an aggregate target). Valid **only** in those three positions (`output.not-available` elsewhere; `output.unknown` / `output.aggregate` on misuse). `drillDown` expands `output` refs before un-ravelling.
+- **Aggregates & grouping** — any registered aggregate over a `groupBy`; `count(*)` is `count` with empty args; `distinct` on the aggregate. `having` filters groups.
+- **Set operations** — `union` / `intersect` / `except` over two queries, `all?` to keep duplicates, plus **set-level** `order` / `limit` / `offset` applied to the combined rows (ORDER BY terms reference output columns by name).
+- **CTEs** — `{ kind: 'cte', ctes, final }`. Each entry is either non-recursive (`{ name, query }`) or **recursive** (`{ name, base, recursive }` — a seed UNION-ed with an arm reading the CTE's own accumulating rows to a fixpoint, iteration-capped). Recursion is its own structural shape (no `recursive?` flag).
+- **DML** — `insert` (row tuples or a `select`, optional `returning`, optional `onConflict`), `update` (`set` assignments, optional `joins`/`where`/`returning`), `delete` (optional `joins`/`where`/`returning`). `onConflict` = conflict-target `fields` plus `doNothing` or an `update` assignment list (which may reference the `excluded` proposed row).
+- **Single-expression query** — `{ kind: 'expr', expr }` for a scalar computation.
+- **Params** — `{ kind: 'param', name }` infers its type from use; bound at run/emit via `options.params`. Introspect with `query.params(engine)` → `ParamDef[]`.
+- **Filters** — a `filters` placeholder (`{ source, fields? }`) is authored by the LLM but the **predicate is supplied at execution time** by the developer: `options.filters` is a `Record<source, boolean Expr | ExprDef | null>`. The placeholder evaluates/emits it (vacuously `TRUE` when none). Introspect exposed sources + fields with `query.filters(engine)` → `Record<source, { fields: QueryField[] }>` (name + resolved type + nullability + kind, restricted to any `fields` allowlist); `query.filterSources()` lists targetable sources.
+- **Cost** — every query has a bottom-up `{ rows, bytes }` estimate (`engine.cost(query)`); `validateQuery(query, _, { maxRows })` rejects over-budget queries (`cost.rows-exceeded`).
+
+## Semantic & text search + scoring / ranking
+
+All three search exprs bind to a **source** with an OPTIONAL `field` (omit ⇒ whole source); eligibility requires a `semantic`/`search`-flagged Type or field.
+
+- **`text-search`** — full-text **predicate** (boolean). `query` is a literal string or a `param`.
+- **`text-score`** — the **numeric** relevance counterpart (same eligibility): usable in SELECT + ORDER BY, so "top N by text relevance" works. Postgres emits `ts_rank(to_tsvector(col), plainto_tsquery(query))`; base (ANSI) degrades to `CASE WHEN <LIKE> THEN 1 ELSE 0 END`; in-memory is a deterministic token-overlap fraction. Build with `e.textScore(source, query, field?)`.
+- **`semantic`** — embedding-similarity **score** (≈1 = most similar; requires an embedder). `query` is a literal string, a `param`, a `{ source, field }` ref to ANOTHER bound source + semantic field (the **cross-source pairing** form), or a `{ type, field }` ref resolving to the single bound source of that Type (`semantic.query-unbound` / `semantic.query-ambiguous` steer you to the `{ source }` form).
+
+**Cross-Type pairing + ranking.** Join (or cross-join) two Types so both are bound, score one against the other's embedding, then `ORDER BY score DESC LIMIT N`. Postgres emits the dialect's `similarity` over both bound aliases' vectors (each side's hidden `vectorField` if backed, else `<alias>."embedding"`); the base dialect degrades similarity to `0` and never throws.
+
+## Array fields & operations
+
+Query an `array` field with the `array-op` predicate: `contains` (a single element present), `containsAny` / `containsAll` (overlap / superset vs an element list), `isEmpty` / `notEmpty`. Element count is a `comparison` over the builtin `arrayLength(arr)`. Non-`sensitive` text elements match case-insensitively.
+
+**Dialects.** Array ops are Postgres-native: `contains` → `value = ANY(col)`, `containsAll` → `col @> ARRAY[…]`, `containsAny` → `col && ARRAY[…]`, length → `cardinality(col)`. The base (ANSI) dialect has no array operators, so containment throws a clear `array-op.unsupported-dialect` `QueryTypeError` rather than emit wrong SQL; emptiness / length still work via `COALESCE(json_array_length(col), 0)`.
+
+## Type backing (physical reality behind the conceptual schema)
+
+The flat `TypeDef` the LLM sees can be arbitrarily richer behind the scenes. A `TypeBacking` is dev-side TypeScript registered alongside the Type (`registerType(type, backing)` or `new QueryEngine(registry, { backings })`); the JSON `TypeDef`/`FieldDef` are never touched. All of it resolves IDENTICALLY in `engine.run` and `engine.toSQL`. Every factory receives the **bound `alias`** for the occurrence and must reference it (never hardcode the Type name), so aliased/self-joined sources resolve correctly.
+
+- **Real table remap** — `TypeBacking.name` maps to the physical table (`FROM "projects" AS "project"`); `FieldBacking.name` remaps a stored column.
+- **Computed fields** — `FieldBacking.compute` supplies a field's value: a dual `{ expr }` (one `Expr` emitted to SQL AND evaluated in memory), with `sql` / `run` per-mode overrides. Compute/access exprs reaching into other sources flow through the join planner (fields sharing a join collapse to one join).
+- **RLS** (`TypeBacking.access`) — a row predicate ANDed into WHERE and filtering executor rows; `false` ⇒ no rows, `true`/`undefined` ⇒ no filter; combines with any `RlsProvider` passed to run/toSQL.
+- **FLS** (`FieldBacking.access`) — a per-field gate emitting `CASE WHEN <pred> THEN <value> ELSE NULL END`; `false` ⇒ constant `NULL`.
+- **Named joins & LATERAL** (`TypeBacking.joins`, opted into by `FieldBacking.joins: [name]`) — hidden joins added once per query only when a referencing field is emitted, deduped by name. A `JoinSpec` is a `relation` (reuses relation-join machinery) or a `lateral` (a correlated sub-select; Postgres `LEFT JOIN LATERAL (…) ON true`, base degrades to `ON 1 = 1` and evaluates per outer row; a `lateral.pick` names the default column).
+- **Search / semantic backing** — a `search`/`semantic`-flagged Type/field usually has a physical field hidden from the type system holding a precomputed `tsvector` / `pgvector`. `TypeBacking` and `FieldBacking` each take optional `search?: SearchBacking` / `semantic?: SemanticBacking` (field-level overrides type-level). Knobs (each factory takes the bound `alias` first): `vectorField` (the hidden physical field — a `SearchBacking.vectorField` emits `<alias>."f" @@ plainto_tsquery('<language>', $n)` without re-wrapping in `to_tsvector`; a `SemanticBacking.vectorField` is the left operand of the dialect's `similarity`, query vector bound as `$n::vector`), `language` (default `'english'`), `sql` (full override → boolean/numeric), `run` (runtime override), plus `SemanticBacking.vector` (row embedding source) and `embedder` (per-Type/field query embedder). Precedence (both modes): full `sql`/`run` override wins; else the hidden `vectorField`/`vector`; else the engine default. `toSQL` stays synchronous — the async embedder is never called there (the query vector is a bound param). The base dialect degrades (tsvector → `LIKE`, similarity → `0`) and never throws.
+
+## Function library
+
+`createRegistry()` ships a default library (60+ functions across all four shapes), registered as `FunctionDef` (name + shape + **named** params + output) paired with a shape-tagged runtime. Calls use named args (`args: { paramName: <expr> }`). Register your own with `registerFunction` + `registerFunctionRun`. Introspect with `registry.functionList()`; get a promptable by-shape listing with `describeFunctions(engine)`. Every builtin `FunctionDef` carries a terse `instructions` one-liner (what it does / arg meaning / gotcha), surfaced on `QueryFunction.instructions`.
+
+Shapes: `scalar` `(args, ctx)→value`, `tabular` `(args, ctx)→rows`, `aggregate` `(rows, ctx)→value`, `window` `(partition, index, ctx)→value/row`. All builtin names are **camelCase**; where the emitted SQL name differs it is noted. The base (ANSI) dialect degrades where noted and never throws.
+
+**Scalar — string:** `concat`, `lower`, `upper`, `trim`, `length`, `substring`, `replace`, `trimLeft`(→`ltrim`), `trimRight`(→`rtrim`), `left`, `right`, `padLeft`(→`lpad`), `padRight`(→`rpad`), `repeat`, `reverse`, `indexOf`(→`strpos`, 1-based, 0=absent), `startsWith`(→`starts_with`), `splitPart`(→`split_part`, 1-based), `concatWs`(→`concat_ws`).
+
+**Scalar — math:** `abs`, `ceil`, `floor`, `round`, `sqrt`, `power`, `mod`, `sign`, `exp`, `ln`, `log`(base, value), `log10`(→`log`), `trunc`, `pi()`, `degrees`, `radians`, `random()`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`(y, x).
+
+**Scalar — conditional / other:** `coalesce`, `nullif`, `greatest`, `least`, `arrayLength`, `iif`(cond, then, else → `CASE WHEN`), `now()`, `currentDate()`(→`CURRENT_DATE`, bare).
+
+**Scalar — date / time:** `currentTime()`, `currentTimestamp()`, `datePart(field, d)`, `year`/`month`/`day`/`hour`/`minute`/`second(d)`, `dayOfWeek(d)`(0=Sun…6=Sat), `dayOfYear(d)`, `week(d)`(ISO week), `dateAdd(field, n, d)`, `dateDiff(field, a, b)`(component difference), `dateTrunc(field, d)`, `makeDate(year, month, day)`, `dateFormat(d, format)`(→`to_char`; tokens `YYYY/MM/DD/HH24/HH/MI/SS`), `epoch(ts)`, `fromEpoch(value)`(→`to_timestamp`), `age(a, b)`(runtime = whole-day span). The selectors' `field` arg is an inline literal token (`year`/`month`/`day`/`dow`/`doy`/`week`/`hour`/`minute`/`second`/`quarter`/`isodow`/`epoch`), spliced not bound.
+
+**Scalar — array** (Postgres-native; base degrades): `arrayContains`, `arrayAppend`, `arrayPrepend`, `arrayConcat`, `arrayIndexOf`(1-based), `arraySlice`(1-based inclusive), `arrayRemove`, `arrayDistinct`, `arrayToString`, `stringToArray`.
+
+**Aggregate:** `count`, `sum`, `avg`, `min`, `max`, `stddev`, `variance` (both sample/n-1), `stringAgg`(→`string_agg`), `arrayAgg`(→`array_agg`; base degrades to `NULL`), `boolAnd`(→`bool_and`), `boolOr`(→`bool_or`), `countIf`(→ portable `sum(CASE WHEN … THEN 1 ELSE 0 END)`).
+
+**Window:** `rowNumber`(→`row_number`), `rank`, `denseRank`(→`dense_rank`), `lag(value, offset?, default?)`, `lead(value, offset?, default?)`, `percentRank`(→`percent_rank`), `cumeDist`(→`cume_dist`), `ntile(n)`, `firstValue`(→`first_value`), `lastValue`(→`last_value`; full-partition frame), `nthValue`(→`nth_value`; 1-based).
+
+## Schema depth & capability gating
+
+`buildSchemas` / `querySchema` / `buildQueryTool` constrain the LLM-facing schema along **four independent axes**, each dialed by `depth`:
+
+| axis | levels (loose → tight) | constrains |
+| ---- | ---------------------- | ---------- |
+| `refs` | `open` · `types` · `fields` · `both` · `paired` | `field-ref` / `relation-path` source + field |
+| `typeNames` | `open` · `enum` | bare Type-name positions (`from`, `into`, …) |
+| `functions` | `open` · `names` · `typed` | function name + named-arg objects |
+| `filters` | `open` · `paired` | the `filters` clause `(field, op)` pairs |
+
+Pass a full/partial `SchemaDepth` object, or a preset string: `'open'` (every axis loose) / `'paired'` (every axis tight); the deprecated `strict: true`/`false` are sugar for those. A `FunctionSelector` (`{ scalar: [...], … }`) picks which functions appear; `maxEnumSize` auto-degrades any axis whose enumeration overflows the budget one level looser so a large catalog never yields an unusable schema.
+
+**Capability gating** (independent of depth) omits any expr kind the available Types/functions can't use: `semantic` (some Type `isSemantic()`), `text-search`/`text-score` (`isSearchable()`), `array-op` (a Type has an array field), `relation-path` + `joins` (a Type has a relation), `tabular-function-call` (≥1 tabular fn), `aggregate`/`window`/`function-call` (≥1 fn of that shape), `filters` (a Type has filterable fields). The always-usable core (`literal`/`param`/`binary`/`unary`/`comparison`/`logical`/`in`/`between`/`is-null`/`exists`/`case`/`field-ref`/`subquery`) is never gated.
+
+## Execution model
+
+One contract: **run a query, optionally with params + filters, and get back `{ rows, fields, total }`.**
+
+```ts
+const result = await engine.run(query, { params, filters, includeTotal });
+//   result.rows   — output rows (objects; pass { rows: 'array' } for arrays)
+//   result.fields — resolved output fields (name + type + summary metadata)
+//   result.total  — pre-limit count, when run with includeTotal: true
+```
+
+- **`includeTotal`** is an execution-time option (not a `SelectDef` field): `run` captures the pre-limit count; `toSQL(query, dialect, { includeTotal: true })` emits `COUNT(*) OVER () AS "$total"`.
+- **`autoPaginate(query)`** adds `limit`/`offset` as bind params idempotently, so paging is just supplying values: `run(paged, { params: { limit, offset } })`.
+- **Drill-down.** `drillDown(query, engine)` rebuilds the underlying-rows query behind an aggregate, parameterized (each GROUP BY key pinned to a bind param) — returns `{ query, params, warnings }`. `drillDownInto(query, groupRow, engine)` extracts one aggregated row's key values; then it is the same `run` call. Failures return LLM-friendly `Problems` (`drill.no-aggregation` / `non-invertible` / `having-aggregate` / `window-unsupported`).
+- **Standalone exprs.** `engine.evaluateExpr(expr, row?)` evaluates an `Expr`/`ExprDef` against a row; `engine.exprToSQL(expr, dialect)` emits `{ sql, params }` (params never interpolated).
+
+### SQL conversion
+
+`engine.toSQL(query, dialect, options?)` emits `{ sql, params }` for any registered dialect. Base uses `?` placeholders; Postgres uses `$1, $2, …`. Relation joins synthesize their ON clause from the relation key. `toSQL` accepts the same `params` / `filters` / `includeTotal` options as `run`, so emitted SQL matches what would run.
+
+## The LLM tool
+
+`buildQueryTool(engine, options?)` returns a **ready-wired `@aeye/core` `Tool`** — drop it straight into any core/`@aeye/ai` agent's tool set. Its wire `schema` is the engine's query schema (depth-graduated + capability-gated), and its **custom `parse` REPLACES Zod**: it validates the envelope, parses the structured `query` into a runnable `Query`, and runs full engine validation (structure + params + per-Type validators). On any problem it returns a rich `QueryToolError` whose `.message` is a concise compiler-style report (`formatProblems`), so the model sees real diagnostics instead of Zod's. When clean, the decoded value is the built `Query`, and the tool's `call` handler RUNS it and returns a `QueryResult`. Its `instructions` reflect the active depth + selected functions, and (past `max` Types via `shouldUseStringSchema`) it falls back to a prose-description schema.
+
+```ts
+import { selectTypes, buildSchemas, querySchema, buildQueryTool } from '@aeye/query';
+
+const types = await selectTypes(engine, 'revenue by customer last month'); // narrow the schema
+const tool = buildQueryTool(engine, { depth: 'paired', types });
+const query = await tool.parse(ctx, JSON.stringify({ query: someQueryDef })); // built Query (throws QueryToolError on failure)
+const result = await tool.run(query, ctx);                                    // runs it → QueryResult
+```
+
+`buildSchemas` / `querySchema` expose the schema directly when you drive your own LLM loop.
+
+## Self-describing the engine to a model
+
+The `describe*` helpers render a compact, promptable capability summary (plain text, deliberately terse to protect the context budget):
+
+- **`describeEngine(engine, { types?, functions? })`** composes ONE block a model can read to know everything it may use: every (supplied) Type, then `describeExprs`, then `describeFunctions`, then `describeDialects`. `functions` narrows both the expr gating and the function listing to the schema's selection; `types` narrows the Type list + gating.
+- **`describeExprs(engine, types?, functions?)`** lists the CAPABILITY-GATED expression kinds — one `kind — INSTRUCTIONS` line per kind actually usable for the current Types/functions, filtered by the SAME gate the schema uses (`exprKindApplicable`). The always-usable core is never gated; `semantic` / `text-search` / `text-score` / `array-op` / `relation-path` / `tabular-function-call` appear only when an eligible Type/function exists (`excluded` / `output` are position-only and never listed).
+- **`describeFunctions`** renders each function as `name(a, b?): output — instructions` (named params, a trailing `?` marks optional), grouped by shape.
+- **Generated Type / Field docs.** `describeType` / `describeField` always emit a short `label` + long `description`: the developer's `TypeDef.label` / `FieldDef.description` when set, otherwise a sensible default GENERATED on demand from the meta-model — a Field from its FieldType (kind, bounds, `sensitive` / `semantic` / `search` flags, array item/bounds, a relation's `to` + `count` → belongs-to / has-many, nullability), a Type from its name + field/relation/index summary. Read the (possibly-generated) pair directly with `fieldMeta(field)` / `typeMeta(type)` (`{ label, description }`); nothing mutates the stored def — the strings are computed fresh per call.

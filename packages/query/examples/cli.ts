@@ -8,11 +8,15 @@
  *
  *   1. (optionally) narrows the schema to the relevant Types via `selectTypes`,
  *   2. asks an LLM for a STRUCTURED query against `buildQueryTool().schema`,
- *   3. runs the model output through `buildQueryTool().build(...)` — which
- *      validates + parses it into a runnable `Query` (or LLM-friendly
- *      `Problems`); on failure it does ONE repair round feeding the formatted
- *      errors back,
- *   4. runs the query in-memory and prints the rows + resolved output fields.
+ *      with the prompt fully informed by `describeEngine(engine)` (every Type,
+ *      every usable expr kind, every function) threaded through the prompt's
+ *      context,
+ *   3. parses the model output with `tool.parse(...)` — which validates +
+ *      parses it into a runnable `Query`, throwing a `QueryToolError` (its
+ *      `.report` is LLM-friendly `Problems`) on failure; on that failure it does
+ *      ONE repair round feeding the formatted errors back,
+ *   4. runs the built query via `tool.run(...)` in-memory and prints the rows +
+ *      resolved output fields.
  *
  * This file is DEV-ONLY (it lives under `examples/` and is never published).
  * The non-LLM pieces (`loadDataDir`, `buildQuery`, `runBuiltQuery`) are
@@ -40,22 +44,27 @@ import { OpenRouterProvider } from '@aeye/openrouter';
 import { AWSBedrockProvider } from '@aeye/aws';
 import { models, strictSupport } from '@aeye/models';
 
+import type { Context } from '@aeye/core';
 import {
   createRegistry,
   QueryEngine,
   arrayExecutor,
   inferType,
   buildQueryTool,
+  QueryToolError,
+  querySchema,
   describeTypes,
   describeFunctions,
+  describeEngine,
+  exampleQueriesText,
   depthInstructions,
   selectTypes,
   DEFAULT_MAX_QUERY_SCHEMA_TYPES,
   type Type,
   type TypeDef,
   type QueryDef,
+  type Query,
   type QueryResult,
-  type QueryToolBuildResult,
   type SourceRecord,
   type SchemaDepth,
   type FunctionSelector,
@@ -174,18 +183,41 @@ export function loadDataDir(dir: string): LoadedData {
 // Query build + run (no LLM — exported for the offline test)
 // ════════════════════════════════════════════════════════════════════════
 
+/** A minimal, cast-free context for the tool's `parse` / `run` calls. */
+const TOOL_CTX: Context<{}, {}> = {};
+
+/** The outcome of building a query def through the tool (no throw on failure). */
+export interface BuiltQuery {
+  /** The parsed, runnable query — `null` when the def was invalid. */
+  query: Query | null;
+  /** LLM-friendly diagnostics report (empty string when valid). */
+  report: string;
+  /** True when the def failed to validate. */
+  hasErrors: boolean;
+}
+
 /**
- * Run a query DEF (as an LLM would emit) through `buildQueryTool().build` —
- * validating + parsing it into a runnable `Query` and collecting any
- * LLM-friendly `Problems`. `types` optionally narrows the tool's schema.
+ * Run a query DEF (as an LLM would emit) through `buildQueryTool().parse` —
+ * validating + parsing it into a runnable `Query`. On failure the tool's
+ * `parse` throws a `QueryToolError` (its `.message` is the formatted report);
+ * we CATCH it and return the report so the REPL / test can inspect it without a
+ * throw. `types` optionally narrows the tool's schema.
  */
 export async function buildQuery(
   engine: QueryEngine,
   queryDef: QueryDef,
   types?: Type[],
-): Promise<QueryToolBuildResult> {
+): Promise<BuiltQuery> {
   const tool = buildQueryTool(engine, types ? { types } : {});
-  return tool.build({ query: queryDef });
+  try {
+    const query = await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef }));
+    return { query, report: '', hasErrors: false };
+  } catch (err) {
+    if (err instanceof QueryToolError) {
+      return { query: null, report: err.report, hasErrors: err.problems.hasErrors };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -198,11 +230,9 @@ export async function runBuiltQuery(
   queryDef: QueryDef,
   types?: Type[],
 ): Promise<QueryResult> {
-  const built = await buildQuery(engine, queryDef, types);
-  if (!built.query || built.problems.hasErrors) {
-    throw new Error(built.report || 'Query failed validation.');
-  }
-  return engine.run(built.query);
+  const tool = buildQueryTool(engine, types ? { types } : {});
+  const query = await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef }));
+  return tool.run(query, TOOL_CTX);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -271,9 +301,17 @@ function modelMetadata(): { model: { id: string } } {
   return { model: { id: effectiveModelId() } };
 }
 
-/** The minimal AI surface the REPL needs: ask the model for a structured query. */
+/** The minimal AI surface the REPL needs: ask the model for a structured query.
+ *  `engine` + `types` flow into the prompt's CONTEXT so its instructions render
+ *  `describeEngine(engine, { types })` — a fully-informed model (every Type,
+ *  usable expr kind, and function). */
 interface QueryAsker {
-  ask(content: string, schema: z.ZodType<object>): Promise<unknown>;
+  ask(
+    content: string,
+    schema: z.ZodTypeAny,
+    engine: QueryEngine,
+    types: readonly Type[],
+  ): Promise<unknown>;
 }
 
 /** Build the AI instance + a `QueryAsker` over it. */
@@ -298,20 +336,34 @@ async function createAsker(
       modelOverrides: [...strictSupport],
     });
 
-  // One hoisted prompt — per-call data (the content + the output schema) flows
-  // through `input`, exactly like ginny's `gin_llm_call`.
-  type PromptInput = { prompt: string; schema?: z.ZodType<object> };
+  // One hoisted prompt — per-call data (the content + output schema + the ENGINE
+  // it targets) flows through `input`, exactly like ginny's `gin_llm_call`. The
+  // engine + narrowed Types ride the context so the prompt's `{{instructions}}`
+  // are rendered from `describeEngine` — the model is told every Type, every
+  // usable expr kind (with its INSTRUCTIONS), and every function (args +
+  // instructions) — followed by the per-request user text in `{{userPrompt}}`.
+  type PromptInput = {
+    prompt: string;
+    schema?: z.ZodTypeAny;
+    engine?: QueryEngine;
+    types?: readonly Type[];
+  };
+  const promptInstructions = (i: PromptInput): string =>
+    i.engine
+      ? `${describeEngine(i.engine, { types: i.types, functions: CLI_FUNCTIONS })}\n\n${exampleQueriesText()}`
+      : '';
   const prompt = ai.prompt({
     name: 'query_build',
     description: 'Build a structured query from a natural-language request',
-    content: '{{userPrompt}}',
-    input: (i: PromptInput) => ({ userPrompt: i.prompt }),
+    content: '{{instructions}}\n\n{{userPrompt}}',
+    input: (i: PromptInput) => ({ instructions: promptInstructions(i), userPrompt: i.prompt }),
     schema: (i: PromptInput | undefined) => i?.schema ?? false,
     metadata,
   });
 
   return {
-    ask: (content, schema) => prompt.get('result', { prompt: content, schema }),
+    ask: (content, schema, engine, types) =>
+      prompt.get('result', { prompt: content, schema, engine, types }),
   };
 }
 
@@ -343,17 +395,16 @@ function pick(row: SourceRecord, fields: string[]): Record<string, unknown> {
   return out;
 }
 
-/** Build the prompt content from the (narrowed) Types + the user request. */
-function buildContent(
-  tool: ReturnType<typeof buildQueryTool>,
-  request: string,
-  repairReport?: string,
-): string {
-  // `tool.instructions` already embeds describeEngine(selected types) + example
-  // query JSON, so the prompt is self-contained. We add the user request and,
-  // on a repair round, the formatted validation errors from the prior attempt.
+/**
+ * Build the per-request USER text: the schema-shape reminder + active
+ * constraints, the user request, and (on a repair round) the prior attempt's
+ * formatted validation errors. The engine's full capability summary
+ * (`describeEngine` + example JSON) is supplied SEPARATELY by the prompt's
+ * `{{instructions}}` (see `createAsker`), so it is not repeated here.
+ */
+function buildContent(schemaNote: string, request: string, repairReport?: string): string {
   return [
-    tool.instructions,
+    schemaNote,
     '',
     'Return ONLY the structured query as the `query` field of the schema.',
     '',
@@ -370,6 +421,23 @@ function extractQueryDef(modelOutput: unknown): QueryDef | undefined {
     return (modelOutput as { query: QueryDef }).query;
   }
   return undefined;
+}
+
+/**
+ * Parse a query def through the tool WITHOUT throwing: `tool.parse` throws a
+ * `QueryToolError` (its `.message` is the formatted report) on failure, which we
+ * catch and surface as `{ query: null, report }`.
+ */
+async function tryBuild(
+  tool: ReturnType<typeof buildQueryTool>,
+  queryDef: QueryDef,
+): Promise<{ query: Query | null; report: string }> {
+  try {
+    return { query: await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef })), report: '' };
+  } catch (err) {
+    if (err instanceof QueryToolError) return { query: null, report: err.report };
+    throw err;
+  }
 }
 
 /**
@@ -394,41 +462,55 @@ async function handleRequest(
   // Build the tool at the active depth: enumerated Type names / paired field
   // refs / typed function args, with the function library in scope and an
   // enum-size budget that degrades oversized axes.
-  const tool = buildQueryTool(engine, {
+  const options = {
     types: selected,
     depth,
     functions: CLI_FUNCTIONS,
     maxEnumSize: CLI_MAX_ENUM_SIZE,
-  });
-  const schema = tool.schema as z.ZodType<object>;
+  };
+  const tool = buildQueryTool(engine, options);
+  // The model-facing schema is the same wire schema the tool validates against.
+  const schema = querySchema(engine, options);
+  // The engine's full capability summary rides the prompt CONTEXT (see
+  // `createAsker`); the per-request text carries only the schema-shape reminder
+  // + the active depth constraints, the user request, and any repair report.
+  const note = depthInstructions(engine, options);
+  const schemaNote = note
+    ? `Emit the query as a structured JSON object matching the schema.\nSchema constraints:\n${note}`
+    : 'Emit the query as a structured JSON object matching the schema.';
 
   // ── First attempt ────────────────────────────────────────────────────────
-  let modelOutput = await asker.ask(buildContent(tool, request), schema);
+  let modelOutput = await asker.ask(buildContent(schemaNote, request), schema, engine, selected);
   let queryDef = extractQueryDef(modelOutput);
   if (!queryDef) {
     console.log('The model did not return a structured query. Try rephrasing.');
     return;
   }
-  let built = await tool.build({ query: queryDef });
+  let built = await tryBuild(tool, queryDef);
 
   // ── One repair round on validation problems ───────────────────────────────
-  if (!built.query || built.problems.hasErrors) {
+  if (!built.query) {
     console.log('\nFirst attempt had problems; asking the model to repair…');
     console.log(built.report);
-    modelOutput = await asker.ask(buildContent(tool, request, built.report), schema);
+    modelOutput = await asker.ask(
+      buildContent(schemaNote, request, built.report),
+      schema,
+      engine,
+      selected,
+    );
     queryDef = extractQueryDef(modelOutput);
-    if (queryDef) built = await tool.build({ query: queryDef });
+    if (queryDef) built = await tryBuild(tool, queryDef);
   }
 
-  if (!built.query || built.problems.hasErrors) {
+  if (!built.query) {
     console.log('\nStill could not build a valid query:');
     console.log(built.report);
     return;
   }
 
   // ── Run + print ────────────────────────────────────────────────────────────
-  if (showSql) printSql(engine, queryDef!);
-  const result = await engine.run(built.query);
+  if (showSql && queryDef) printSql(engine, queryDef);
+  const result = await tool.run(built.query, TOOL_CTX);
   printResult(result);
 }
 

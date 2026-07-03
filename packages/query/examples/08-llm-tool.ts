@@ -7,17 +7,19 @@
  * whose Type-name / field positions are enum-locked, so an LLM literally
  * cannot reference a Type or field that doesn't exist.
  */
+import type { Context } from '@aeye/core';
 import type { SelectDef } from '../src/index';
-import { buildQueryTool, buildSchemas } from '../src/index';
+import { buildQueryTool, QueryToolError, buildSchemas } from '../src/index';
 import { createExampleFixture } from './schema';
 import type { ExampleReport } from './_util';
 
 export async function run(): Promise<ExampleReport> {
   const { engine } = createExampleFixture();
   const output: string[] = [];
+  const ctx: Context<{}, {}> = {};
 
   // ── The tool ────────────────────────────────────────────────────────────
-  const tool = buildQueryTool(engine, { run: true });
+  const tool = buildQueryTool(engine);
   output.push(`tool: ${tool.name} — ${tool.description}`);
 
   const goodQuery: SelectDef = {
@@ -31,12 +33,22 @@ export async function run(): Promise<ExampleReport> {
     limit: 3,
   };
 
-  const built = await tool.build({ query: goodQuery });
-  const errors = built.problems.list.filter((p) => p.severity === 'error').length;
-  output.push(`build problems: ${built.problems.list.length} (errors: ${errors})`);
-  if (built.result) {
+  // `tool.parse` validates + builds the runnable Query (throwing a
+  // QueryToolError with the formatted report on failure); `tool.run` executes it.
+  let errors = 0;
+  try {
+    const query = await tool.parse(ctx, JSON.stringify({ query: goodQuery }));
+    const result = await tool.run(query, ctx);
+    output.push('build problems: 0 (errors: 0)');
     output.push('tool ran the query, top products by price:');
-    for (const row of built.result.rows) output.push(`  ${JSON.stringify(row)}`);
+    for (const row of result.rows) output.push(`  ${JSON.stringify(row)}`);
+  } catch (err) {
+    if (err instanceof QueryToolError) {
+      errors = err.problems.list.filter((p) => p.severity === 'error').length;
+      output.push(`build problems: ${err.problems.list.length} (errors: ${errors})`);
+    } else {
+      throw err;
+    }
   }
 
   // ── Strict schema ─────────────────────────────────────────────────────────
@@ -49,11 +61,11 @@ export async function run(): Promise<ExampleReport> {
   const badParse = schemas.Select.safeParse(badQuery);
   output.push(`strict schema rejects unknown Type 'nope': ${!badParse.success}`);
 
-  const productFilters = schemas.filtersForType('product');
-  const goodClause = productFilters.safeParse({ field: 'price', op: 'gte', value: 30 });
-  const badClause = productFilters.safeParse({ field: 'price', op: 'contains', value: 'x' });
-  output.push(`strict filters accept (price,gte): ${goodClause.success}`);
-  output.push(`strict filters reject (price,contains): ${!badClause.success}`);
+  // A `filters` placeholder is locked to a known source + its field-name allowlist.
+  const goodFilter = schemas.Expr.safeParse({ kind: 'filters', source: 'product', fields: ['price', 'category'] });
+  const badFilter = schemas.Expr.safeParse({ kind: 'filters', source: 'product', fields: ['nope'] });
+  output.push(`strict filters accept a known source + fields: ${goodFilter.success}`);
+  output.push(`strict filters reject an unknown field: ${!badFilter.success}`);
 
   return { title: 'LLM query tool + strict schema', output, errors };
 }

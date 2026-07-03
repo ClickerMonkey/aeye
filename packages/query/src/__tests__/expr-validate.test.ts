@@ -70,7 +70,7 @@ describe('expr validation', () => {
   it('window cannot appear inside an aggregate', () => {
     const def: ExprDef = {
       kind: 'aggregate',
-      function: 'sum', args: { value: { kind: 'window', function: 'row_number', args: {}, orderBy: [{ expr: ref('o', 'id'), dir: 'asc' }] } },
+      function: 'sum', args: { value: { kind: 'window', function: 'rowNumber', args: {}, orderBy: [{ expr: ref('o', 'id'), dir: 'asc' }] } },
     };
     const p = fx.engine.validateExpr(def, scope);
     expect(codes(p)).toContain('window.in-aggregate');

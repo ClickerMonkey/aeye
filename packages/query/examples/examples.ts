@@ -16,6 +16,8 @@ import { run as llmTool } from './08-llm-tool';
 import { run as customFunctions } from './09-custom-functions';
 import { run as schemaDepth } from './10-schema-depth';
 import { run as computedFields } from './11-computed-fields';
+import { run as searchBacking } from './12-search-backing';
+import { run as scoringRanking } from './13-scoring-ranking';
 
 /** Every example's `run`, in display order. */
 export const EXAMPLES: ReadonlyArray<() => Promise<ExampleReport>> = [
@@ -30,6 +32,8 @@ export const EXAMPLES: ReadonlyArray<() => Promise<ExampleReport>> = [
   customFunctions,
   schemaDepth,
   computedFields,
+  searchBacking,
+  scoringRanking,
 ];
 
 async function main(): Promise<void> {

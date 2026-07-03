@@ -49,6 +49,8 @@ import { RelationPathExpr } from './relation-path';
 /** An aggregate function call (e.g. `sum`, `count`), dispatched through the registry. */
 export class AggregateExpr extends Expr {
   static readonly KIND = 'aggregate' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "An aggregate function over a group (`count(*)` = empty args); optional `distinct`." as const;
   readonly kind = AggregateExpr.KIND;
 
   /** Wrap a registered aggregate `fn` with its named `args` and a DISTINCT flag. */
@@ -201,17 +203,23 @@ export class AggregateExpr extends Expr {
         return this.fn === 'count' ? SqlText.concat([SqlText.raw('COALESCE('), ref, SqlText.raw(', 0)')]) : ref;
       }
     }
-    const inner =
-      this.args.size === 0
-        ? SqlText.raw('*')
-        : SqlText.join(
-            [...this.args.values()].map((a) => a.toSQL(dialect, ctx.asAggregate(true))),
-            ', ',
-          );
+    const distinctSql = this.distinct ? SqlText.raw('DISTINCT ') : SqlText.empty();
+    // `count(*)` — the arg-less star form (no builtin override applies).
+    if (this.args.size === 0) {
+      return SqlText.concat([SqlText.raw(`${this.fn}(`), distinctSql, SqlText.raw('*'), SqlText.raw(')')]);
+    }
+    const argSql = [...this.args.values()].map((a) => a.toSQL(dialect, ctx.asAggregate(true)));
+    // A dialect may emit a builtin aggregate with a special / portable form
+    // (e.g. `countIf` → `sum(CASE … END)`, or the base `boolAnd`/`arrayAgg`
+    // degrades); otherwise emit the generic `name(args)` call, honoring the
+    // function's SQL-name override (`stringAgg` → `string_agg`).
+    const override = dialect.emitBuiltinCall(this.fn, argSql);
+    if (override) return override;
+    const name = ctx.engine.lookupFunction(this.fn)?.sql ?? this.fn;
     return SqlText.concat([
-      SqlText.raw(`${this.fn}(`),
-      this.distinct ? SqlText.raw('DISTINCT ') : SqlText.empty(),
-      inner,
+      SqlText.raw(`${name}(`),
+      distinctSql,
+      SqlText.join(argSql, ', '),
       SqlText.raw(')'),
     ]);
   }

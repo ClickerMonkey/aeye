@@ -38,6 +38,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A type-valued (table-returning) function call usable as a source. */
 export class TabularFunctionCallExpr extends Expr {
   static readonly KIND = 'tabular-function-call' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A row-producing (table-valued) function call, usable as a source." as const;
   readonly kind = TabularFunctionCallExpr.KIND;
 
   /** Wrap a registered tabular `fn` with its named `args`. */

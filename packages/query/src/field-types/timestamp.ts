@@ -3,12 +3,6 @@ import type { FieldTypeDef, TimestampFieldTypeDef, TimezonePolicy } from '../sch
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
-
-/** Filter operators valid on temporal fields (date / timestamp). Shared. */
-export const TEMPORAL_FILTER_OPS: readonly string[] = [
-  'eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'in', 'notIn', 'between', 'isNull', 'notNull',
-];
 
 /** ISO datetime pattern — date with a `T` time component. */
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
@@ -60,11 +54,6 @@ export class TimestampFieldType extends FieldType {
   /** Resolve to the `timestamp` scalar comparison category. */
   resolve(): ScalarKind {
     return 'timestamp';
-  }
-
-  /** The filter operators valid on timestamp fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size. */

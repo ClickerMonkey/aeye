@@ -3,10 +3,6 @@ import type { BoolFieldTypeDef, FieldTypeDef } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
-
-/** Filter operators valid on boolean fields. */
-export const BOOL_FILTER_OPS: readonly string[] = ['eq', 'neq', 'isNull', 'notNull'];
 
 /** BoolFieldType — a boolean field. Carries no options. */
 export class BoolFieldType extends FieldType {
@@ -36,11 +32,6 @@ export class BoolFieldType extends FieldType {
   /** Resolve to the `bool` scalar comparison category. */
   resolve(): ScalarKind {
     return 'bool';
-  }
-
-  /** The filter operators valid on boolean fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size. */

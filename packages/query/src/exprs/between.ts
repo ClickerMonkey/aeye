@@ -25,6 +25,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 /** A `value BETWEEN lower AND upper` predicate. A `BoolExpr`. */
 export class BetweenExpr extends BoolExpr {
   static readonly KIND = 'between' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`value BETWEEN lower AND upper` (negatable)." as const;
   readonly kind = BetweenExpr.KIND;
 
   /** Wrap `value [NOT] BETWEEN lower AND upper` as a range predicate. */

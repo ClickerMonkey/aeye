@@ -15,7 +15,6 @@ import type { z } from 'zod';
 import type { FieldTypeDef, FieldTypeKind, JsonValue } from './schema';
 import type { CodeOptions, Node, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Registry } from './registry';
-import type { FilterOp } from './filters';
 
 /**
  * The underlying primitive category a field type resolves to. This is the
@@ -121,18 +120,6 @@ export abstract class FieldType implements Node {
    */
   validValue(raw: JsonValue): boolean {
     return this.toValueSchema().safeParse(raw).success;
-  }
-
-  // ─── Filter operator catalog ──────────────────────────────────────────
-
-  /**
-   * The `FilterOp[]` catalog applicable to this field type — each op knows
-   * how to compile a filter clause to a boolean expr and how to schema its
-   * operand(s). Concrete subclasses override to delegate to
-   * `catalogForFieldType(this)` (see `filters.ts`); the base returns none.
-   */
-  filterOps(): FilterOp[] {
-    return [];
   }
 
   // ─── Cost / storage ───────────────────────────────────────────────────

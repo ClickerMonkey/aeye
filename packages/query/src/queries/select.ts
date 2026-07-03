@@ -41,8 +41,8 @@ import { QuerySource } from './source';
 import { QueryJoin } from './join';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { QueryOrder, sortEntries, type OrderEntry } from './order';
-import type { Cost } from '../cost';
-import { scanCost, applyWhere, distinctEstimate } from './_cost';
+import { type Cost, addCost } from '../cost';
+import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost } from './_cost';
 import { canonicalize } from '../expr';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -280,6 +280,25 @@ export class SelectQuery extends Query {
   }
 
   /**
+   * Walk every clause expr — select fields, WHERE, GROUP BY, HAVING, ORDER BY,
+   * and each join's `and` predicate — recursing into descendants via `Expr.walk`.
+   * Powers `filters()`'s search for `filters` placeholders across the whole query.
+   */
+  override walkExprs(visit: (e: Expr) => void): void {
+    for (const c of this.fields) c.expr.walk(visit);
+    for (const w of this.where) w.walk(visit);
+    for (const g of this.groupBy) g.walk(visit);
+    for (const h of this.having) h.walk(visit);
+    for (const o of this.order) o.expr.walk(visit);
+    for (const j of this.joins) if (j.and) j.and.walk(visit);
+  }
+
+  /** Bind FROM + joins so a `filters` placeholder's `source` resolves for `filters()`. */
+  protected override filterScope(engine: QueryEngine, scope: QueryScope): QueryScope {
+    return this.bind(engine, scope).scope;
+  }
+
+  /**
    * `limit` / `offset` may be bound to a `param` (see `autoPaginate`), but they
    * live outside the walked expr tree, so `params()` never observes them. They
    * are always integer row counts, so observe each against a number field type
@@ -297,12 +316,37 @@ export class SelectQuery extends Query {
 
   // ─── Cost estimation ─────────────────────────────────────────────────────
 
-  /** Estimate result `{ rows, bytes }`: base scan × join fan-out, reduced by WHERE / GROUP BY / LIMIT. */
+  /**
+   * Estimate result `{ rows, bytes }` the way a SQL engine PROCESSES the query.
+   *
+   * Structure (documented assumptions — this is an explainable guard-rail, not a
+   * real planner):
+   *  - BASE SCAN reads `Type.count` rows at the Type's per-row byte size.
+   *  - JOINS MULTIPLY: each relation join fans the running row count out by its
+   *    relation cardinality (`expansionFactor`: belongs-to / has-one ⇒ ×1,
+   *    has-many ⇒ ×N). Chained joins therefore COMPOUND multiplicatively, and
+   *    each hop's target adds to the per-row byte width. (INNER vs LEFT is not
+   *    distinguished — both are approximated by the fan-out, floored at ×1 so a
+   *    LEFT join never drops below the outer row count.)
+   *  - WHERE reduces rows via an index-prefix bound or a fixed selectivity.
+   *  - GROUP BY / a bare aggregate / DISTINCT reduce OUTPUT rows to the estimated
+   *    distinct groups (the upstream scan work is unchanged).
+   *  - LIMIT caps OUTPUT rows. ASSUMPTION: a literal LIMIT also caps how many
+   *    times a select-position subquery runs (it is evaluated once per RETURNED
+   *    row); we do not model an ORDER BY forcing a larger upstream scan.
+   *  - PER-OUTER-ROW work: a subquery / EXISTS / IN-subquery in a SELECT item
+   *    runs ONCE PER OUTPUT ROW, so its cost is multiplied by the output row
+   *    count; the same expr in WHERE / HAVING is treated as uncorrelated and
+   *    counted ONCE. Hidden joins a computed field / RLS inject are added via
+   *    `backingCost` (a LATERAL multiplies per outer row; a shared relation join
+   *    is counted once).
+   */
   cost(engine: QueryEngine, scope: QueryScope): Cost {
     const { scope: inner, aliasTypes } = this.bind(engine, scope);
     const fromType = this.from.resolvedType(engine, inner).type;
 
-    // Base scan, then fan out by each relation join's cardinality.
+    // Base scan, then fan out MULTIPLICATIVELY by each relation join's
+    // cardinality (compounding down the join chain).
     let rows = fromType.count;
     let perRowBytes = fromType.bytes;
     for (const join of this.joins) {
@@ -317,12 +361,16 @@ export class SelectQuery extends Query {
     baseScan.bytes = rows * perRowBytes;
     let cost = applyWhere(baseScan, fromType, this.where, perRowBytes);
 
-    // GROUP BY ⇒ distinct(keys); a bare aggregate ⇒ a single output row.
+    // GROUP BY ⇒ distinct(keys); a bare aggregate ⇒ one row; else DISTINCT ⇒ the
+    // estimated distinct projection. Each reduces OUTPUT rows, not scan work.
     if (this.groupBy.length) {
       const distinct = distinctEstimate(fromType, this.groupBy, cost.rows);
       cost = { rows: distinct, bytes: distinct * perRowBytes };
     } else if (this.fields.some((c) => c.expr.containsAggregate())) {
       cost = { rows: 1, bytes: perRowBytes };
+    } else if (this.distinct) {
+      const distinct = distinctEstimate(fromType, this.fields.map((c) => c.expr), cost.rows);
+      cost = { rows: distinct, bytes: distinct * perRowBytes };
     }
 
     // LIMIT caps the OUTPUT rows (only a literal cap is known statically).
@@ -330,6 +378,17 @@ export class SelectQuery extends Query {
       const capped = Math.min(cost.rows, this.limit);
       cost = { rows: capped, bytes: capped * perRowBytes };
     }
+
+    // Per-outer-row expr work: a SELECT-position subquery / EXISTS runs once per
+    // OUTPUT row; a WHERE / HAVING subquery is uncorrelated and runs once.
+    const outputRows = cost.rows;
+    for (const c of this.fields) cost = addCost(cost, fanOutCost(c.expr.cost(engine, inner), outputRows));
+    for (const w of this.where) cost = addCost(cost, fanOutCost(w.cost(engine, inner), 1));
+    for (const h of this.having) cost = addCost(cost, fanOutCost(h.cost(engine, inner), 1));
+
+    // Hidden joins / LATERALs / RLS the planner injects for computed & secured
+    // fields (shared joins counted once; a LATERAL multiplies per outer row).
+    cost = addCost(cost, backingCost(engine, inner, this.fields.map((c) => c.expr), fromType, outputRows));
     return cost;
   }
 

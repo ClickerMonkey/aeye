@@ -144,11 +144,6 @@ export interface QuerySchemas {
   ExprQuery: z.ZodTypeAny;
   /** "Any query" — the union over every query kind. */
   Query: z.ZodTypeAny;
-  /**
-   * The strict `(field, filter-op)` discriminated union for one Type's
-   * `filters` clause. Throws if the Type isn't registered.
-   */
-  filtersForType(typeName: string): z.ZodTypeAny;
 }
 
 /** Narrow a `QueryEngine | Registry` to its `Registry` without a cast. */
@@ -261,29 +256,6 @@ function resolveDepth(options: BuildSchemasOptions, counts: DepthCounts): Resolv
     // is governed by the field count; over budget it drops to the loose clause.
     filters: d.filters === 'paired' && counts.fieldCount > max ? 'open' : d.filters,
   };
-}
-
-/**
- * The strict `filters` clause union for one Type: one discriminated branch
- * per `(field, op)` the field's filter-op catalog allows, with the op's own
- * operand schema.
- */
-function strictFilterClauseSchema(type: Type): z.ZodTypeAny {
-  const branches: z.ZodTypeAny[] = [];
-  for (const field of type.fields) {
-    for (const op of field.fieldType.filterOps()) {
-      const valueSchema = op.valueSchema(field.fieldType);
-      branches.push(
-        z.object({
-          field: z.literal(field.name),
-          op: z.literal(op.op),
-          // Unary ops (isNull / notNull / exists) take no value.
-          value: op.arity === 'unary' ? valueSchema.optional() : valueSchema,
-        }),
-      );
-    }
-  }
-  return orFold(branches).describe(`A filter clause valid for type '${type.name}'.`);
 }
 
 /** The join `on` schema at a `RefDepth` — `source` + its relation `field`. */
@@ -591,12 +563,6 @@ export function buildSchemas(
     ExprQuery,
   ]).describe('Any query: select / insert / update / delete / set-op / cte / expr.');
 
-  const filtersForType = (typeName: string): z.ZodTypeAny => {
-    const type = registry.type(typeName);
-    if (!type) throw new Error(`buildSchemas.filtersForType: unknown type '${typeName}'.`);
-    return strictFilterClauseSchema(type);
-  };
-
   return {
     Type: typeRef,
     Expr,
@@ -612,7 +578,6 @@ export function buildSchemas(
     CTE,
     ExprQuery,
     Query: QueryUnion,
-    filtersForType,
   };
 }
 
@@ -734,7 +699,7 @@ export function depthInstructions(
   }
 
   if (depth.filters === 'paired') {
-    notes.push('Filter clauses are locked to valid `(field, op)` pairs for the field’s type.');
+    notes.push('A `filters` placeholder’s `source` must be a known Type name and its optional `fields` allowlist must name that Type’s fields.');
   }
 
   return notes.join('\n');

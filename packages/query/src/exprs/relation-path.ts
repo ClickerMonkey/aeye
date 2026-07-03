@@ -36,6 +36,8 @@ import { emitRelationPathValue } from '../sql/relation-walk';
 /** Walks one or more relation fields from a source, optionally ending at a scalar field. */
 export class RelationPathExpr extends Expr {
   static readonly KIND = 'relation-path' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "Walks relation fields from a source (optionally ending at a scalar); planner synthesizes the joins." as const;
   readonly kind = RelationPathExpr.KIND;
 
   /** Wrap a relation walk by its root source alias and the segment path to traverse. */

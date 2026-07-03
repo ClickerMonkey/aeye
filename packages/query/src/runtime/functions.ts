@@ -49,7 +49,7 @@ export type AggregateRun = (
  * A window implementation: the ORDERED partition (each row's evaluated named
  * args) plus the CURRENT row's `index` within it, in; the per-row `Value` out.
  *
- * Order-sensitive window functions (`rank` / `dense_rank`) read each partition
+ * Order-sensitive window functions (`rank` / `denseRank`) read each partition
  * row's ORDER-BY key from a reserved `$order` named arg (a `Value` whose `raw`
  * is the JSON array of that row's order values) which `WindowExpr` injects.
  */

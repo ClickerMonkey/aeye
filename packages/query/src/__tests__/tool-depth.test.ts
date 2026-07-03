@@ -18,14 +18,16 @@ function selectOf(expr: ExprDef): SelectDef {
 describe('buildQueryTool — depth threading', () => {
   it("depth:'paired' makes the tool schema reject a cross-type field-ref", async () => {
     const fx = fixture();
-    const tool = buildQueryTool(fx.engine, { depth: 'paired' });
+    const opts = { depth: 'paired' } as const;
+    // The tool's wire schema is `querySchema(engine, opts)` — assert against it.
+    const schema = querySchema(fx.engine, opts);
     // `total` is an `order` field; pairing it with a `user` source is rejected.
-    const bad = tool.schema.safeParse({
+    const bad = schema.safeParse({
       query: selectOf({ kind: 'field-ref', source: 'user', field: 'total' }),
     });
     expect(bad.success).toBe(false);
     // The correct pairing validates.
-    const good = tool.schema.safeParse({
+    const good = schema.safeParse({
       query: selectOf({ kind: 'field-ref', source: 'user', field: 'name' }),
     });
     expect(good.success).toBe(true);
@@ -34,11 +36,11 @@ describe('buildQueryTool — depth threading', () => {
   it("instructions reflect the active depth (paired note present, open empty)", () => {
     const fx = fixture();
     const paired = buildQueryTool(fx.engine, { depth: 'paired' });
-    expect(paired.instructions).toContain('registered Type names');
-    expect(paired.instructions).toContain('Schema constraints:');
+    expect(paired.input.instructions ?? '').toContain('registered Type names');
+    expect(paired.input.instructions ?? '').toContain('Schema constraints:');
 
     const open = buildQueryTool(fx.engine, { depth: 'open' });
-    expect(open.instructions).not.toContain('Schema constraints:');
+    expect(open.input.instructions ?? '').not.toContain('Schema constraints:');
     // `depthInstructions` itself is empty in fully-open mode.
     expect(depthInstructions(fx.engine, { depth: 'open' })).toBe('');
   });

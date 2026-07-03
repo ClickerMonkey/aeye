@@ -18,6 +18,8 @@ import { run as llmTool } from '../../examples/08-llm-tool';
 import { run as customFunctions } from '../../examples/09-custom-functions';
 import { run as schemaDepth } from '../../examples/10-schema-depth';
 import { run as computedFields } from '../../examples/11-computed-fields';
+import { run as searchBacking } from '../../examples/12-search-backing';
+import { run as scoringRanking } from '../../examples/13-scoring-ranking';
 
 const EXAMPLES = {
   '01-define-types': defineTypes,
@@ -31,14 +33,20 @@ const EXAMPLES = {
   '09-custom-functions': customFunctions,
   '10-schema-depth': schemaDepth,
   '11-computed-fields': computedFields,
+  '12-search-backing': searchBacking,
+  '13-scoring-ranking': scoringRanking,
 };
 
 describe('examples', () => {
   for (const [name, run] of Object.entries(EXAMPLES)) {
+    // Some examples (e.g. 10-schema-depth) build the full LLM schema over the
+    // whole default function library several times; that is intentionally heavy,
+    // so allow generous headroom over the default 5s timeout (esp. under the
+    // coverage instrumentation the CI gate runs with).
     it(`${name} runs with zero unexpected errors`, async () => {
       const report = await run();
       expect(report.errors).toBe(0);
       expect(report.output.length).toBeGreaterThan(0);
-    });
+    }, 30000);
   }
 });

@@ -35,10 +35,9 @@ describe('cov number field type', () => {
     expect(s.safeParse({ kind: 'text' }).success).toBe(false);
   });
 
-  it('resolve / filterOps / avgBytes', () => {
+  it('resolve / avgBytes', () => {
     const ft = new NumberFieldType();
     expect(ft.resolve()).toBe('number');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.avgBytes()).toBe(8);
   });
 
@@ -145,12 +144,11 @@ describe('cov money field type', () => {
     expect(MoneyFieldType.toSchema().safeParse({ kind: 'text' }).success).toBe(false);
   });
 
-  it('resolve / avgBytes / toSQLType / filterOps', () => {
+  it('resolve / avgBytes / toSQLType', () => {
     const ft = new MoneyFieldType();
     expect(ft.resolve()).toBe('money');
     expect(ft.avgBytes()).toBe(8);
     expect(ft.toSQLType()).toBe('numeric');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
   });
 
   it('toValueSchema with and without number options', () => {
@@ -180,12 +178,11 @@ describe('cov bool field type', () => {
     expect(() => BoolFieldType.from({ kind: 'json' })).toThrow(/expected kind 'bool'/);
   });
 
-  it('toSchema / resolve / filterOps / avgBytes / toSQLType', () => {
+  it('toSchema / resolve / avgBytes / toSQLType', () => {
     expect(BoolFieldType.toSchema().safeParse({ kind: 'bool' }).success).toBe(true);
     expect(BoolFieldType.toSchema().safeParse({ kind: 'text' }).success).toBe(false);
     const ft = new BoolFieldType();
     expect(ft.resolve()).toBe('bool');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.avgBytes()).toBe(1);
     expect(ft.toSQLType()).toBe('boolean');
   });
@@ -212,12 +209,11 @@ describe('cov date field type', () => {
     expect(() => DateFieldType.from({ kind: 'timestamp' })).toThrow(/expected kind 'date'/);
   });
 
-  it('toSchema / resolve / filterOps / avgBytes / toSQLType', () => {
+  it('toSchema / resolve / avgBytes / toSQLType', () => {
     expect(DateFieldType.toSchema().safeParse({ kind: 'date', timezone: true }).success).toBe(true);
     expect(DateFieldType.toSchema().safeParse({ kind: 'bool' }).success).toBe(false);
     const ft = new DateFieldType();
     expect(ft.resolve()).toBe('date');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.avgBytes()).toBe(4);
     expect(ft.toSQLType()).toBe('date');
   });
@@ -246,12 +242,11 @@ describe('cov timestamp field type', () => {
     expect(() => TimestampFieldType.from({ kind: 'date' })).toThrow(/expected kind 'timestamp'/);
   });
 
-  it('toSchema / resolve / filterOps / avgBytes', () => {
+  it('toSchema / resolve / avgBytes', () => {
     expect(TimestampFieldType.toSchema().safeParse({ kind: 'timestamp' }).success).toBe(true);
     expect(TimestampFieldType.toSchema().safeParse({ kind: 'date' }).success).toBe(false);
     const ft = new TimestampFieldType();
     expect(ft.resolve()).toBe('timestamp');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.avgBytes()).toBe(8);
   });
 
@@ -287,12 +282,11 @@ describe('cov json field type', () => {
     expect(() => JsonFieldType.from({ kind: 'number' })).toThrow(/expected kind 'json'/);
   });
 
-  it('toSchema / resolve / filterOps / avgBytes / toSQLType', () => {
+  it('toSchema / resolve / avgBytes / toSQLType', () => {
     expect(JsonFieldType.toSchema().safeParse({ kind: 'json' }).success).toBe(true);
     expect(JsonFieldType.toSchema().safeParse({ kind: 'bool' }).success).toBe(false);
     const ft = new JsonFieldType();
     expect(ft.resolve()).toBe('json');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.avgBytes()).toBe(128);
     expect(ft.toSQLType()).toBe('jsonb');
   });
@@ -335,12 +329,11 @@ describe('cov relation field type', () => {
     expect(() => RelationFieldType.from({ kind: 'bool' })).toThrow(/expected kind 'relation'/);
   });
 
-  it('toSchema / resolve / filterOps / avgBytes / toSQLType', () => {
+  it('toSchema / resolve / avgBytes / toSQLType', () => {
     expect(RelationFieldType.toSchema().safeParse({ kind: 'relation', to: 'X', count: 1 }).success).toBe(true);
     expect(RelationFieldType.toSchema().safeParse({ kind: 'relation' }).success).toBe(false);
     const ft = new RelationFieldType('X', 1);
     expect(ft.resolve()).toBe('relation');
-    expect(ft.filterOps().length).toBeGreaterThan(0);
     expect(ft.avgBytes()).toBe(16);
     expect(ft.toSQLType()).toBe('text');
   });

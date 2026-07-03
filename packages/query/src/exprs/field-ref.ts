@@ -51,6 +51,8 @@ interface LateralPick {
 /** A direct field reference `<source>.<field>`. */
 export class FieldRefExpr extends Expr {
   static readonly KIND = 'field-ref' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`<source>.<field>` — a field’s value from a bound source." as const;
   readonly kind = FieldRefExpr.KIND;
 
   /** Wrap a `<source>.<field>` reference by its source alias and field name. */

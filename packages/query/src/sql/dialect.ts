@@ -97,6 +97,53 @@ export abstract class Dialect implements DialectEntry {
   abstract similarity(a: SqlText, b: SqlText): SqlText;
 
   /**
+   * Full-text search where `tsv` is a field that ALREADY HOLDS A TSVECTOR (a
+   * precomputed, hidden physical field), against the (already-emitted) `query`
+   * param — NOT wrapped in `to_tsvector`. Postgres emits
+   * `<tsv> @@ plainto_tsquery(<language>, <query>)` (default `language`
+   * `'english'`); the base dialect has no tsvector type and DEGRADES to a
+   * case-insensitive substring `LIKE` (ignoring `language`).
+   */
+  abstract tsvectorSearch(tsv: SqlText, query: SqlText, language?: string): SqlText;
+
+  /**
+   * Wrap an (already-emitted) query `param` as this dialect's QUERY-VECTOR form
+   * for `similarity` over a hidden `pgvector` field. Postgres casts it to the
+   * vector type (`<param>::vector`); the base dialect (whose `similarity`
+   * degrades to `0`) passes it through unchanged.
+   */
+  abstract queryVectorParam(param: SqlText): SqlText;
+
+  /**
+   * NUMERIC full-text RELEVANCE of `col` against the literal `query` — the
+   * ranking counterpart of `textSearch`. Postgres emits
+   * `ts_rank(to_tsvector(col), plainto_tsquery(query))`; the base (ANSI) dialect
+   * has no ranking, so it DEGRADES to a numeric match
+   * `CASE WHEN <textSearch predicate> THEN 1 ELSE 0 END` (never throws).
+   */
+  abstract textRank(col: SqlText, query: string, sensitive?: boolean): SqlText;
+
+  /**
+   * NUMERIC full-text RELEVANCE where `tsv` is a field that ALREADY HOLDS A
+   * TSVECTOR (a precomputed, hidden physical field), against the (already-emitted)
+   * `query` param — the ranking counterpart of `tsvectorSearch`. Postgres emits
+   * `ts_rank(<tsv>, plainto_tsquery(<language>, <query>))` (default `language`
+   * `'english'`); the base dialect DEGRADES to a numeric match over its
+   * `tsvectorSearch` degrade (ignoring `language`).
+   */
+  abstract tsvectorRank(tsv: SqlText, query: SqlText, language?: string): SqlText;
+
+  /**
+   * Wrap an (already-emitted) BOOLEAN predicate as a NUMERIC 0/1 match score —
+   * `CASE WHEN <pred> THEN 1 ELSE 0 END`. Portable ANSI SQL, shared by every
+   * dialect; used to lift a `SearchBacking.sql` boolean override into a numeric
+   * `text-score`, and by the base dialect's ranking degrade.
+   */
+  matchScore(pred: SqlText): SqlText {
+    return SqlText.concat([SqlText.raw('CASE WHEN '), pred, SqlText.raw(' THEN 1 ELSE 0 END')]);
+  }
+
+  /**
    * A LATERAL join attaching the (already-emitted) correlated `subquery` under
    * `alias`.
    *
@@ -158,13 +205,130 @@ export abstract class Dialect implements DialectEntry {
   abstract arrayOverlaps(col: SqlText, elements: readonly SqlText[]): SqlText;
 
   /**
-   * Dialect-specific SQL for a recognized builtin scalar function (currently
-   * `arrayLength`), or `undefined` to fall back to the generic `name(args)`
-   * form. Mirrors how `textSearch` / `similarity` route engine-neutral
-   * operations to the dialect; consumed by `FunctionCallExpr.toSQL`.
+   * Render a builtin's INLINE-LITERAL argument (a `rawArgs` position — see
+   * {@link import('../schema').FunctionDef.rawArgs}) as a dialect-appropriate SQL
+   * fragment, so it is spliced literally rather than bound as a parameter. The
+   * only current use is the date-field selectors: the base dialect emits the
+   * token as a BARE SQL word (an `EXTRACT(<field> FROM …)` keyword like `day`
+   * or `dow`); Postgres overrides to a QUOTED STRING (`date_part('day', …)`).
+   * The token is validated (allowed date-field set) by `FunctionCallExpr`.
+   */
+  rawArgLiteral(token: string): SqlText {
+    return SqlText.raw(token);
+  }
+
+  /**
+   * Dialect-specific SQL for a recognized builtin scalar function, or
+   * `undefined` to fall back to the generic `name(args)` form. Mirrors how
+   * `textSearch` / `similarity` route engine-neutral operations to the dialect;
+   * consumed by `FunctionCallExpr.toSQL`. Handles array length, the bare
+   * date/time keywords, the `EXTRACT`-expressible date-part functions, and the
+   * PORTABLE (base) forms of the date-field selectors; Postgres overrides the
+   * selectors with its native `date_part` / `date_trunc` / interval forms.
    */
   emitBuiltinCall(name: string, args: readonly SqlText[]): SqlText | undefined {
     if (name === 'arrayLength' && args.length === 1) return this.arrayLength(args[0]!);
+    // `CURRENT_DATE` / `CURRENT_TIME` / `CURRENT_TIMESTAMP` are bare special
+    // forms (no parentheses); the generic `name(args)` path would wrongly emit
+    // `current_date()`.
+    if (args.length === 0) {
+      if (name === 'currentDate') return SqlText.raw('CURRENT_DATE');
+      if (name === 'currentTime') return SqlText.raw('CURRENT_TIME');
+      if (name === 'currentTimestamp') return SqlText.raw('CURRENT_TIMESTAMP');
+    }
+    // Single-arg date-part extractors: `EXTRACT(<PART> FROM d)` (portable on
+    // both dialects). `dayOfWeek`/`dayOfYear`/`week`/`epoch` use the pg field
+    // names (`DOW`/`DOY`/`WEEK`/`EPOCH`) — a documented base degrade.
+    if (args.length === 1) {
+      const part = EXTRACT_PART[name];
+      if (part) return extract(SqlText.raw(part), args[0]!);
+    }
+    // `datePart(field, d)` — the field arrives as an inline keyword (rawArg), so
+    // the portable form is `EXTRACT(<field> FROM d)`.
+    if (name === 'datePart' && args.length === 2) return extract(args[0]!, args[1]!);
+    // `dateDiff(field, a, b)` — the difference of the two extracted field
+    // components (NOT a true calendar span); portable via `EXTRACT`.
+    if (name === 'dateDiff' && args.length === 3) {
+      return SqlText.concat([
+        SqlText.raw('('),
+        extract(args[0]!, args[2]!),
+        SqlText.raw(' - '),
+        extract(args[0]!, args[1]!),
+        SqlText.raw(')'),
+      ]);
+    }
+    // `dateAdd` / `dateTrunc` have no portable ANSI form: the base dialect
+    // DEGRADES to the input date unchanged (documented; never throws). Postgres
+    // overrides both with native forms.
+    if (name === 'dateAdd' && args.length === 3) return args[2]!;
+    if (name === 'dateTrunc' && args.length === 2) return args[1]!;
+    // Array builtins: the base (ANSI) dialect has no native array type, so these
+    // DEGRADE gracefully (never throw). Scalar-returning ops yield a neutral
+    // constant; array/string-returning ops emit the first argument unchanged.
+    if (name === 'arrayContains' && args.length === 2) return SqlText.raw('(1 = 0)');
+    if (name === 'arrayIndexOf' && args.length === 2) return SqlText.raw('0');
+    if (name === 'arrayToString' && args.length === 2) return SqlText.raw("''");
+    if (name === 'arrayAppend' && args.length === 2) return args[0]!;
+    if (name === 'arrayPrepend' && args.length === 2) return args[0]!;
+    if (name === 'arrayConcat' && args.length === 2) return args[0]!;
+    if (name === 'arrayRemove' && args.length === 2) return args[0]!;
+    if (name === 'arraySlice' && args.length === 3) return args[0]!;
+    if (name === 'arrayDistinct' && args.length === 1) return args[0]!;
+    if (name === 'stringToArray' && args.length === 2) return args[0]!;
+    // Aggregate builtins. `countIf` has no native SQL form, so BOTH dialects emit
+    // the portable `sum(CASE WHEN cond THEN 1 ELSE 0 END)`. `boolAnd`/`boolOr`/
+    // `arrayAgg` are postgres-native; the base dialect DEGRADES here — the bool
+    // aggregates to a portable MIN/MAX-over-CASE, and `arrayAgg` (no portable
+    // array construction) to `NULL` (never throws).
+    if (name === 'countIf' && args.length === 1) return caseCount('sum', args[0]!);
+    if (name === 'boolAnd' && args.length === 1) {
+      return SqlText.concat([SqlText.raw('('), caseCount('MIN', args[0]!), SqlText.raw(' = 1)')]);
+    }
+    if (name === 'boolOr' && args.length === 1) {
+      return SqlText.concat([SqlText.raw('('), caseCount('MAX', args[0]!), SqlText.raw(' = 1)')]);
+    }
+    if (name === 'arrayAgg' && args.length === 1) return SqlText.raw('NULL');
+    // `iif(cond, then, else)` has no portable function form, so both dialects
+    // emit the equivalent searched CASE expression.
+    if (name === 'iif' && args.length === 3) {
+      return SqlText.concat([
+        SqlText.raw('(CASE WHEN '),
+        args[0]!,
+        SqlText.raw(' THEN '),
+        args[1]!,
+        SqlText.raw(' ELSE '),
+        args[2]!,
+        SqlText.raw(' END)'),
+      ]);
+    }
     return undefined;
   }
+}
+
+/** Single-arg date-part builtins → their `EXTRACT(<PART> FROM …)` field. */
+const EXTRACT_PART: Readonly<Record<string, string>> = {
+  year: 'YEAR',
+  month: 'MONTH',
+  day: 'DAY',
+  hour: 'HOUR',
+  minute: 'MINUTE',
+  second: 'SECOND',
+  dayOfWeek: 'DOW',
+  dayOfYear: 'DOY',
+  week: 'WEEK',
+  epoch: 'EPOCH',
+};
+
+/** `EXTRACT(<part> FROM <arg>)` over already-emitted fragments. */
+function extract(part: SqlText, arg: SqlText): SqlText {
+  return SqlText.concat([SqlText.raw('EXTRACT('), part, SqlText.raw(' FROM '), arg, SqlText.raw(')')]);
+}
+
+/** `<agg>(CASE WHEN <pred> THEN 1 ELSE 0 END)` — a portable count/bool aggregate. */
+function caseCount(agg: string, pred: SqlText): SqlText {
+  return SqlText.concat([
+    SqlText.raw(`${agg}(CASE WHEN `),
+    pred,
+    SqlText.raw(' THEN 1 ELSE 0 END)'),
+  ]);
 }

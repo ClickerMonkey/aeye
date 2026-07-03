@@ -13,7 +13,7 @@
  * sub-expression accumulates into the same set the top-level walk later asks
  * for problems / JSON.
  */
-import type { ResolvedType } from './resolved-type';
+import type { ResolvedType, TypeResolved } from './resolved-type';
 import type { Expr } from './expr';
 import { ParamSet } from './param';
 
@@ -69,6 +69,29 @@ export class QueryScope {
   /** All source names bound at this level (not including ancestors). */
   localSources(): string[] {
     return Array.from(this.bindings.keys());
+  }
+
+  /**
+   * Every BOUND source (across the whole chain) whose resolved binding is the
+   * Type named `typeName` — i.e. the sources under which that Type is currently
+   * in scope. A child binding SHADOWS a same-named ancestor binding (the first
+   * one seen walking up wins), so a source is reported at most once. Drives the
+   * semantic pairing `{ type, field }` query's resolution to a single bound
+   * source (empty ⇒ unbound; more than one ⇒ ambiguous).
+   */
+  sourcesForType(typeName: string): TypeResolved[] {
+    const out: TypeResolved[] = [];
+    const seen = new Set<string>();
+    let scope: QueryScope | null = this;
+    while (scope) {
+      for (const [name, rt] of scope.bindings) {
+        if (seen.has(name)) continue;
+        seen.add(name);
+        if (rt.kind === 'type' && rt.type.name === typeName) out.push(rt);
+      }
+      scope = scope.parent;
+    }
+    return out;
   }
 
   /**

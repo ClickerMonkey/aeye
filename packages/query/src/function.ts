@@ -73,6 +73,18 @@ export class QueryFunction {
   readonly output: ResolvedOutput;
   /** Optional SQL template / function name (consumed by Phase 5). */
   readonly sql?: string;
+  /**
+   * Declared-parameter indices whose argument is emitted as an INLINE SQL
+   * literal (an `EXTRACT`/`date_part` field token) instead of a bound
+   * parameter. See {@link FunctionDef.rawArgs}.
+   */
+  readonly rawArgs?: readonly number[];
+  /**
+   * Terse, LLM-facing usage note (what it does / arg meaning / any gotcha).
+   * See {@link FunctionDef.instructions}. Read from the def by `from`, written
+   * back by `toJSON`, and exposed here as the public accessor.
+   */
+  readonly instructions?: string;
 
   /** Construct from already-parsed parts; use `from` to build from JSON. */
   constructor(spec: {
@@ -81,12 +93,16 @@ export class QueryFunction {
     params: ResolvedParam[];
     output: ResolvedOutput;
     sql?: string;
+    rawArgs?: readonly number[];
+    instructions?: string;
   }) {
     this.name = spec.name;
     this.shape = spec.shape;
     this.params = spec.params;
     this.output = spec.output;
     this.sql = spec.sql;
+    this.rawArgs = spec.rawArgs;
+    this.instructions = spec.instructions;
   }
 
   /** Build a runtime function from its JSON, parsing field/Type references. */
@@ -121,7 +137,35 @@ export class QueryFunction {
       params,
       output,
       sql: json.sql,
+      rawArgs: json.rawArgs,
+      instructions: json.instructions,
     });
+  }
+
+  /**
+   * Serialize back to the JSON `FunctionDef` shape (inverse of `from`):
+   * re-emits each param / the output declaration and carries the optional
+   * `sql` / `rawArgs` / `instructions` through unchanged.
+   */
+  toJSON(): FunctionDef {
+    const params: FunctionParamDef[] = this.params.map((p) => ({
+      name: p.name,
+      type: p.fieldType ? p.fieldType.toJSON() : 'any',
+      ...(p.optional ? { optional: true } : {}),
+    }));
+    let output: FunctionDef['output'];
+    if (this.output.tag === 'field') output = this.output.fieldType.toJSON();
+    else if (this.output.tag === 'type') output = { type: this.output.type.name };
+    else output = 'inferred';
+    return {
+      name: this.name,
+      shape: this.shape,
+      params,
+      output,
+      ...(this.sql ? { sql: this.sql } : {}),
+      ...(this.rawArgs ? { rawArgs: this.rawArgs } : {}),
+      ...(this.instructions ? { instructions: this.instructions } : {}),
+    };
   }
 
   /**

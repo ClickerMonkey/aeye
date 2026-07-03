@@ -8,6 +8,7 @@
  * pulls those param values out of ONE chosen aggregated row, so we can run the
  * drilled query for that user with `engine.run(query, { params })`.
  */
+import { e } from '../src/index';
 import type { SelectDef } from '../src/index';
 import { drillDown, drillDownInto } from '../src/index';
 import { createExampleFixture } from './schema';
@@ -20,15 +21,12 @@ export async function run(): Promise<ExampleReport> {
   const revenuePerUser: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
-      {
-        expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } },
-        as: 'revenue',
-      },
+      { expr: e.ref('order', 'userId').toJSON(), as: 'userId' },
+      { expr: e.sum(e.ref('order', 'total')).toJSON(), as: 'revenue' },
     ],
     from: { kind: 'type', type: 'order' },
-    groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
-    order: [{ expr: { kind: 'field-ref', source: 'order', field: 'userId' }, dir: 'asc' }],
+    groupBy: [e.ref('order', 'userId').toJSON()],
+    order: [{ expr: e.ref('order', 'userId').toJSON(), dir: 'asc' }],
   };
 
   const errors = engine.validateQuery(revenuePerUser).list.filter((p) => p.severity === 'error').length;

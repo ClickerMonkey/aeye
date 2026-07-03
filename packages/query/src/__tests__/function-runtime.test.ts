@@ -146,8 +146,8 @@ describe('custom function runtime — all four shapes', () => {
     const fx = customFixture();
     const names = fx.registry.functionList().map((f) => f.name);
     expect(names).toEqual(expect.arrayContaining(['exclaim', 'product', 'cume', 'rangeRows']));
-    // A windowed builtin (row_number) is registered by the default library too.
-    expect(names).toEqual(expect.arrayContaining(['row_number', 'sum', 'concat']));
+    // A windowed builtin (rowNumber) is registered by the default library too.
+    expect(names).toEqual(expect.arrayContaining(['rowNumber', 'sum', 'concat']));
     void orderRows; // dataset import kept for parity with other runtime tests.
   });
 });

@@ -366,8 +366,8 @@ describe('output-ref: drill-down expansion', () => {
       groupBy: [outRef('uid')],
       having: [{ kind: 'logical', op: 'and', operands: havingOperands }],
       order: [
-        { expr: { kind: 'window', function: 'row_number', args: {}, partitionBy: [ref('order', 'userId')], orderBy: [{ expr: ref('order', 'total'), dir: 'asc' }] }, dir: 'asc' }, // window (optionals)
-        { expr: { kind: 'window', function: 'row_number', args: {} }, dir: 'asc' }, // window (no optionals)
+        { expr: { kind: 'window', function: 'rowNumber', args: {}, partitionBy: [ref('order', 'userId')], orderBy: [{ expr: ref('order', 'total'), dir: 'asc' }] }, dir: 'asc' }, // window (optionals)
+        { expr: { kind: 'window', function: 'rowNumber', args: {} }, dir: 'asc' }, // window (no optionals)
       ],
     };
     const d = drillDown(def, fx.engine);

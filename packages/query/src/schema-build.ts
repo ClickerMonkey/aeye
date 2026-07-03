@@ -65,8 +65,6 @@ export const relationFieldsOf: FieldEligibility = (t) => t.relationFields();
 export const semanticFieldsOf: FieldEligibility = (t) => t.semanticFields();
 /** Eligibility: only text fields (a narrowed text-search target). */
 export const textFieldsOf: FieldEligibility = (t) => t.textFields();
-/** Eligibility: only filterable fields (the `filters` allowlist). */
-export const filterableFieldsOf: FieldEligibility = (t) => t.filterableFields();
 
 // ─── The unified depth-aware reference schema helper ──────────────────────────
 //
@@ -231,19 +229,26 @@ export function relationPathSchema(types: readonly Type[], depth: RefDepth): z.Z
   });
 }
 
-/** The semantic `query` schema: text, a param, or another semantic Type+field. */
+/** The semantic `query` schema: text, a param, a bound source+field, or a semantic Type+field. */
 function semanticQuerySchema(types: readonly Type[], depth: RefDepth): z.ZodTypeAny {
+  const sourceField = refSchema(types, depth, {
+    keyName: 'source',
+    fieldMode: 'one',
+    eligible: semanticFieldsOf,
+    describe: 'Another BOUND source + semantic field whose embedding is the query vector (cross-source pairing).',
+  });
   const typeField = refSchema(types, depth, {
     keyName: 'type',
     fieldMode: 'one',
     eligible: semanticFieldsOf,
-    describe: 'Another semantic Type + field whose embedding is the query vector.',
+    describe: 'A semantic Type + field, resolved to that Type\'s single bound source, whose embedding is the query vector.',
   });
   return orFold([
     z.string().describe('A literal natural-language query.'),
     paramSchema(),
+    sourceField,
     typeField,
-  ]).describe('The query: text, a param, or another semantic Type+field.');
+  ]).describe('The query: text, a param, a bound source+field, or a semantic Type+field.');
 }
 
 /** The `semantic` schema at a `RefDepth` — `source` + optional `field` + query. */
@@ -273,17 +278,33 @@ export function textSearchSchema(types: readonly Type[], depth: RefDepth): z.Zod
   });
 }
 
+/** The `text-score` schema at a `RefDepth` — `source` + optional `field` + query. */
+export function textScoreSchema(types: readonly Type[], depth: RefDepth): z.ZodTypeAny {
+  return refSchema(types, depth, {
+    keyName: 'source',
+    fieldMode: 'optional',
+    eligible: textFieldsOf,
+    extras: {
+      kind: z.literal('text-score'),
+      query: z.string().or(paramSchema()).describe('Search query: a literal string or a param.'),
+    },
+    aid: 'Expr_text-score',
+    describe: 'Numeric full-text relevance score (usable in SELECT / ORDER BY).',
+  });
+}
+
 /**
  * The `filters` placeholder schema. The `filters` axis is two-level (`open` /
  * `paired`), mapped onto the ref ladder: `open` leaves `source` + `fields` free,
  * `paired` pins `source` to a Type and the `fields` allowlist to that Type's
- * filterable fields. NO clause shapes appear — clauses are execution-time only.
+ * fields (every field is filterable). NO clause shapes appear — clauses are
+ * execution-time only.
  */
 export function filtersSchema(types: readonly Type[], depth: 'open' | 'paired'): z.ZodTypeAny {
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'list',
-    eligible: filterableFieldsOf,
+    eligible: allFields,
     extras: { kind: z.literal('filters') },
     aid: 'Expr_filters',
     describe: 'A structured filter placeholder; clauses are supplied at execution time.',
@@ -530,6 +551,8 @@ export function exprKindApplicable(
       return types.some((t) => t.isSemantic());
     case 'text-search':
       return types.some((t) => t.isSearchable());
+    case 'text-score':
+      return types.some((t) => t.isSearchable());
     case 'array-op':
       return types.some((t) => t.hasArrayField());
     case 'relation-path':
@@ -543,7 +566,7 @@ export function exprKindApplicable(
     case 'function-call':
       return selected.scalar.length > 0;
     case 'filters':
-      return types.some((t) => t.filterableFields().length > 0);
+      return types.some((t) => t.fields.length > 0);
     case 'excluded':
       // Only valid inside an INSERT ON CONFLICT DO UPDATE assignment, so it is
       // kept OUT of the general Expr union and folded into that position alone

@@ -3,10 +3,6 @@ import type { FieldTypeDef, JsonFieldTypeDef, JsonValue } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
-import { catalogForFieldType, type FilterOp } from '../filters';
-
-/** Filter operators valid on JSON fields. */
-export const JSON_FILTER_OPS: readonly string[] = ['eq', 'isNull', 'notNull', 'hasKey', 'pathEq'];
 
 /** A recursive Zod schema matching any JSON value. */
 export function jsonValueSchema(): z.ZodType<JsonValue> {
@@ -68,11 +64,6 @@ export class JsonFieldType extends FieldType {
   /** JSON only compares meaningfully with other JSON. */
   override comparableWith(other: FieldType): boolean {
     return other.resolve() === 'json';
-  }
-
-  /** The filter operators valid on JSON fields. */
-  filterOps(): FilterOp[] {
-    return catalogForFieldType(this);
   }
 
   /** Estimated average stored byte size. */

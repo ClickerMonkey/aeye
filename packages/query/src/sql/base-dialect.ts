@@ -50,6 +50,36 @@ export class BaseDialect extends Dialect {
   }
 
   /**
+   * No tsvector type in portable SQL: a precomputed-tsvector field degrades to a
+   * case-insensitive substring `LIKE` over the field's text (`language` ignored).
+   */
+  tsvectorSearch(tsv: SqlText, query: SqlText, _language?: string): SqlText {
+    return SqlText.join(
+      [
+        SqlText.concat([SqlText.raw('LOWER('), tsv, SqlText.raw(')')]),
+        SqlText.raw('LIKE'),
+        SqlText.concat([SqlText.raw("('%' || LOWER("), query, SqlText.raw(") || '%')")]),
+      ],
+      ' ',
+    );
+  }
+
+  /** No vector type in portable SQL: the query param passes through unchanged. */
+  queryVectorParam(param: SqlText): SqlText {
+    return param;
+  }
+
+  /** No ranking in portable SQL: degrade to a numeric match over the `LIKE` predicate. */
+  textRank(col: SqlText, query: string, sensitive: boolean = false): SqlText {
+    return this.matchScore(this.textSearch(col, query, sensitive));
+  }
+
+  /** No ranking in portable SQL: degrade to a numeric match over the tsvector degrade (`LIKE`). */
+  tsvectorRank(tsv: SqlText, query: SqlText, _language?: string): SqlText {
+    return this.matchScore(this.tsvectorSearch(tsv, query));
+  }
+
+  /**
    * Map a field type to a portable ANSI field type. Dispatches on the
    * scalar category, refining with concrete-class options where it matters
    * (integer vs decimal, bounded varchar). No casts: each branch narrows via

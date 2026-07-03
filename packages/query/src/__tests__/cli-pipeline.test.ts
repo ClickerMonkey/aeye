@@ -127,7 +127,8 @@ describe('cli pipeline (offline)', () => {
       from: { kind: 'type', type: 'User' },
     };
     const built = await buildQuery(engine, bad);
-    expect(built.problems.hasErrors).toBe(true);
+    expect(built.query).toBeNull();
+    expect(built.hasErrors).toBe(true);
     expect(built.report.length).toBeGreaterThan(0);
   });
 

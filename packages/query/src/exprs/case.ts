@@ -32,6 +32,8 @@ interface CaseBranch {
 /** A `CASE WHEN … THEN … [ELSE …] END` expression. */
 export class CaseExpr extends Expr {
   static readonly KIND = 'case' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`CASE WHEN … THEN … [ELSE …] END`." as const;
   readonly kind = CaseExpr.KIND;
 
   /** Wrap the `WHEN/THEN` branches and an optional `ELSE` result. */

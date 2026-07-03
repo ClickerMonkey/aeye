@@ -27,6 +27,7 @@ import { FunctionCallExpr } from './function-call';
 import { TabularFunctionCallExpr } from './tabular-function-call';
 import { SemanticExpr } from './semantic';
 import { TextSearchExpr } from './text-search';
+import { TextScoreExpr } from './text-score';
 import { FiltersExpr } from './filters';
 import { SubqueryExpr } from './subquery';
 import { ExcludedExpr } from './excluded';
@@ -53,12 +54,11 @@ export {
   TabularFunctionCallExpr,
   SemanticExpr,
   TextSearchExpr,
+  TextScoreExpr,
   FiltersExpr,
   SubqueryExpr,
   ExcludedExpr,
 };
-
-export type { FilterFieldOps } from './filters';
 
 /** All built-in Expr classes, in a stable order for registry / docs. */
 export const BUILTIN_EXPRS: readonly ExprClass[] = [
@@ -83,6 +83,7 @@ export const BUILTIN_EXPRS: readonly ExprClass[] = [
   TabularFunctionCallExpr,
   SemanticExpr,
   TextSearchExpr,
+  TextScoreExpr,
   FiltersExpr,
   SubqueryExpr,
   ExcludedExpr,

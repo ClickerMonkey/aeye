@@ -243,8 +243,8 @@ const richBacking = (r: Registry): TypeBacking => ({
     },
     // a run-only join: runtime ⇒ 'attach'; SQL ⇒ 'none' (no sql/expr)
     runJoin: {
-      run: () => ({
-        alias: joinAlias('account', 'runJoin'),
+      run: (alias) => ({
+        alias: joinAlias(alias, 'runJoin'),
         attach: () => null,
       }),
     },
@@ -722,14 +722,6 @@ describe('subquery', () => {
 describe('filters', () => {
   const fx = fixture();
   const scope = typeScope(fx);
-
-  it('expand: lists fields+ops, honors the allowlist, and is empty for a non-type source', () => {
-    const all = FiltersExpr.from({ kind: 'filters', source: 'u' }, fx.registry).expand(fx.engine, scope);
-    expect(all.length).toBeGreaterThan(0);
-    const allow = FiltersExpr.from({ kind: 'filters', source: 'u', fields: ['age'] }, fx.registry).expand(fx.engine, scope);
-    expect(allow.map((m) => m.field.name)).toEqual(['age']);
-    expect(FiltersExpr.from({ kind: 'filters', source: 'nope' }, fx.registry).expand(fx.engine, scope)).toEqual([]);
-  });
 
   it('resolves to a boolean predicate', () => {
     expect(asFieldType(fx.engine.resolveExpr({ kind: 'filters', source: 'u' }, scope))?.resolve()).toBe('bool');

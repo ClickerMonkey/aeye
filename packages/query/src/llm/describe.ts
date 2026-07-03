@@ -4,10 +4,16 @@
  * `describeType(type)` renders one Type as a short block an LLM can read to
  * understand what it may query: the Type's name / label / description, then
  * each field (name, type, nullability, label, description), then its
- * relations and indexes. `describeEngine(engine)` summarizes everything a
- * caller can use — every registered Type plus the available functions and SQL
- * dialects — and `exampleQueriesText()` returns ready-to-paste example query
- * JSON for a tool's prompt.
+ * relations and indexes. `describeExprs(engine)` lists the CAPABILITY-GATED
+ * expression kinds usable for the current Types / functions (each with its
+ * `static INSTRUCTIONS`). `describeEngine(engine)` composes everything a caller
+ * can use — every registered Type, the usable expr kinds, the available
+ * functions, and the SQL dialects — into one block; `exampleQueriesText()`
+ * returns ready-to-paste example query JSON for a tool's prompt.
+ *
+ * Type / Field `label` (short) + `description` (long) are DEV-OVERRIDABLE and
+ * fall back to sensible generated defaults (see `describe-generate.ts`), so
+ * every rendered node carries a doc even when none was authored.
  *
  * Output is plain text (markdown-ish), deliberately terse to keep token cost
  * low; nothing here is parsed, so the format is free to evolve.
@@ -18,6 +24,8 @@ import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
+import { exprKindApplicable } from '../schema-build';
+import { fieldMeta, typeMeta } from './describe-generate';
 import { selectFunctions, type FunctionSelector } from './schemas';
 
 /** A readable label for an index's stored `ExprDef` (raw JSON this phase). */
@@ -49,21 +57,22 @@ function fieldTypeTag(field: Field): string {
   return ft.kind;
 }
 
-/** One field line: `- name: type [nullable] — label/description`. */
+/** One field line: `- name: type [nullable] — label: description`. The label +
+ *  description are the dev's when set, else generated (see `describe-generate`). */
 function describeField(field: Field): string {
   const parts = [`  - ${field.name}: ${fieldTypeTag(field)}`];
   if (field.nullable) parts.push('(nullable)');
-  const docs = field.label ?? field.description;
-  if (docs) parts.push(`— ${docs}`);
+  const meta = fieldMeta(field);
+  parts.push(`— ${meta.label}: ${meta.description}`);
   return parts.join(' ');
 }
 
 /** Render one Type as a compact description block. */
 export function describeType(type: Type): string {
   const lines: string[] = [];
-  const header = type.label ? `${type.name} (${type.label})` : type.name;
-  lines.push(`## ${header}`);
-  if (type.description) lines.push(type.description);
+  const meta = typeMeta(type);
+  lines.push(`## ${type.name} (${meta.label})`);
+  lines.push(meta.description);
   lines.push(`rows≈${type.count}, bytes/row≈${type.bytes}`);
   lines.push('fields:');
   for (const field of type.fields) lines.push(describeField(field));
@@ -100,18 +109,21 @@ export function describeTypes(engine: QueryEngine | Registry, types?: readonly T
   return list.map(describeType).join('\n\n');
 }
 
-/** A one-line `name(params): output` signature for one function. */
+/**
+ * A one-line `name(a, b?): output — instructions` signature for one function:
+ * named params (a trailing `?` marks optional), the output type, and the
+ * function's terse `instructions` (Pass 1) when present.
+ */
 function functionSignature(fn: FunctionDef): string {
-  const params = fn.params
-    .map((p) => `${p.name}: ${p.type === 'any' ? 'any' : p.type.kind}${p.optional ? '?' : ''}`)
-    .join(', ');
+  const params = fn.params.map((p) => `${p.name}${p.optional ? '?' : ''}`).join(', ');
   const out =
     fn.output === 'inferred'
       ? 'inferred'
       : 'kind' in fn.output
         ? fn.output.kind
         : fn.output.type;
-  return `${fn.name}(${params}): ${out}`;
+  const sig = `${fn.name}(${params}): ${out}`;
+  return fn.instructions ? `${sig} — ${fn.instructions}` : sig;
 }
 
 /**
@@ -143,6 +155,30 @@ export function describeFunctions(
   return ['functions:', ...lines].join('\n');
 }
 
+/**
+ * The CAPABILITY-GATED expression catalog: one `kind — INSTRUCTIONS` line per
+ * expr kind actually USABLE for the current engine's Types / functions. It
+ * iterates `registry.exprClassList()` and filters by the SAME gate the schema
+ * uses (`exprKindApplicable` — the always-usable core is never gated; kinds like
+ * `semantic` / `array-op` appear only when an eligible Type / function exists),
+ * so the prompt lists exactly the kinds the generated schema offers. `types`
+ * defaults to every registered Type; `functions` narrows the shape gates.
+ */
+export function describeExprs(
+  engine: QueryEngine | Registry,
+  types?: readonly Type[],
+  functions: FunctionSelector = 'all',
+): string {
+  const registry = toRegistry(engine);
+  const scope = types ?? registry.typeList();
+  const selected = selectFunctions(registry, functions);
+  const lines = registry
+    .exprClassList()
+    .filter((c) => exprKindApplicable(c.KIND, scope, selected))
+    .map((c) => `  - ${c.KIND} — ${c.INSTRUCTIONS}`);
+  return ['expressions:', ...lines].join('\n');
+}
+
 /** The names of the registered SQL dialects. */
 export function describeDialects(engine: QueryEngine | Registry): string {
   const registry = toRegistry(engine);
@@ -150,18 +186,29 @@ export function describeDialects(engine: QueryEngine | Registry): string {
   return names.length > 0 ? `dialects: ${names.join(', ')}` : 'dialects: (none registered)';
 }
 
+/** Options for `describeEngine` — narrow the Types and/or the function listing. */
+export interface DescribeEngineOptions {
+  /** The Types to describe + gate against; defaults to every registered Type. */
+  types?: readonly Type[];
+  /** Narrows the function listing + shape gating to the schema's selection. */
+  functions?: FunctionSelector;
+}
+
 /**
- * Full capability summary: every (supplied) Type, plus the selected functions
- * and the registered dialects. `functions` narrows the function listing to the
- * same selection the schema enumerates (defaults to all).
+ * Full capability summary a model can read to know EVERYTHING it may use: every
+ * (supplied) Type with its generated/overridden docs, the usable expr kinds
+ * (`describeExprs`), the selected functions (`describeFunctions`), and the
+ * registered dialects. `functions` narrows the expr gating + function listing to
+ * the same selection the schema enumerates (defaults to all).
  */
 export function describeEngine(
   engine: QueryEngine | Registry,
-  types?: readonly Type[],
-  functions: FunctionSelector = 'all',
+  options: DescribeEngineOptions = {},
 ): string {
+  const { types, functions = 'all' } = options;
   return [
     describeTypes(engine, types),
+    describeExprs(engine, types, functions),
     describeFunctions(engine, functions),
     describeDialects(engine),
   ].join('\n\n');

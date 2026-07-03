@@ -30,6 +30,8 @@ export const EXCLUDED_SOURCE = 'excluded';
 /** A reference to the proposed (EXCLUDED) row inside an `INSERT … ON CONFLICT DO UPDATE`. */
 export class ExcludedExpr extends Expr {
   static readonly KIND = 'excluded' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`EXCLUDED.\"field\"` — the proposed row inside `INSERT … ON CONFLICT DO UPDATE`." as const;
   readonly kind = ExcludedExpr.KIND;
 
   /** Wrap the proposed-row column name this reference reads. */

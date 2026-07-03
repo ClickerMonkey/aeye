@@ -80,7 +80,7 @@ describe('builtin scalars', () => {
     const now = await scalar('now', {});
     expect(typeof now).toBe('string');
     expect(String(now)).toContain('T');
-    const today = await scalar('current_date', {});
+    const today = await scalar('currentDate', {});
     expect(String(today)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
@@ -109,9 +109,9 @@ describe('builtin aggregates', () => {
 describe('builtin windows', () => {
   const ord = (k: unknown): NamedArgs => ({ [WINDOW_ORDER_ARG]: Value.of(JSON.parse(JSON.stringify([k]))) });
 
-  it('row_number is 1-based position', async () => {
-    expect(await win('row_number', [{}, {}], 0)).toBe(1);
-    expect(await win('row_number', [{}, {}], 1)).toBe(2);
+  it('rowNumber is 1-based position', async () => {
+    expect(await win('rowNumber', [{}, {}], 0)).toBe(1);
+    expect(await win('rowNumber', [{}, {}], 1)).toBe(2);
   });
 
   it('rank handles ties, partition edges, and missing $order', async () => {
@@ -123,9 +123,9 @@ describe('builtin windows', () => {
     expect(await win('rank', [ord('a')], 3)).toBe(2); // index beyond length -> walk over `?? {}`
   });
 
-  it('dense_rank counts distinct order signatures up to index', async () => {
-    expect(await win('dense_rank', [ord('a'), ord('b'), ord('b')], 2)).toBe(2);
-    expect(await win('dense_rank', [ord('a')], 2)).toBe(2); // out-of-range rows -> {} sig
+  it('denseRank counts distinct order signatures up to index', async () => {
+    expect(await win('denseRank', [ord('a'), ord('b'), ord('b')], 2)).toBe(2);
+    expect(await win('denseRank', [ord('a')], 2)).toBe(2); // out-of-range rows -> {} sig
   });
 
   it('lag / lead honor offset, default, and null targets', async () => {

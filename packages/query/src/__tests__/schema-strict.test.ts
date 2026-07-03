@@ -113,16 +113,15 @@ describe('buildSchemas — strict', () => {
     expect(Expr.safeParse({ kind: 'text-search', source: 'user', field: 'id', query: 'x' }).success).toBe(false);
   });
 
-  it('locks filter clauses to valid field/op pairs per Type', () => {
+  it('locks a `filters` placeholder to a known source + its field-name allowlist', () => {
     const fx = fixture();
-    const schemas = buildSchemas(fx.engine, { strict: true });
-    const userFilters = schemas.filtersForType('user');
-    // `email` is searchable text → `contains` is valid.
-    expect(userFilters.safeParse({ field: 'email', op: 'contains', value: 'ada' }).success).toBe(true);
-    // `id` is a number → `contains` is NOT in its catalog.
-    expect(userFilters.safeParse({ field: 'id', op: 'contains', value: 'x' }).success).toBe(false);
-    // Unknown field is rejected outright.
-    expect(userFilters.safeParse({ field: 'nope', op: 'eq', value: 1 }).success).toBe(false);
+    const { Expr } = buildSchemas(fx.engine, { strict: true });
+    // A bare placeholder over a known source is valid.
+    expect(Expr.safeParse({ kind: 'filters', source: 'user' }).success).toBe(true);
+    // The `fields` allowlist may only name that Type's fields.
+    expect(Expr.safeParse({ kind: 'filters', source: 'user', fields: ['email', 'age'] }).success).toBe(true);
+    // An unknown field in the allowlist is rejected.
+    expect(Expr.safeParse({ kind: 'filters', source: 'user', fields: ['nope'] }).success).toBe(false);
   });
 
   it('accepts a field-ref into a JOINED source keyed by the target TYPE name', () => {

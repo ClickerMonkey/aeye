@@ -5,13 +5,10 @@
  * caller supplies a BOOLEAN `Expr` (or `ExprDef`) at execution time, keyed by
  * source (`run(query, { filters: { <source>: <boolExpr> } })`). The placeholder
  * emits/evaluates it — the query is never mutated. `null` / absent ⇒ a vacuous
- * TRUE. A filter-builder UI builds the bool expr from clauses with
- * `compileFilters`.
+ * TRUE.
  */
 import { describe, it, expect } from 'vitest';
 import type { ExprDef, SelectDef } from '../schema';
-import { compileFilters } from '../filters';
-import type { Registry } from '../registry';
 import { runtimeFixture } from './_utils';
 
 /** All orders (id + total) with a `filters` placeholder over `order`. */
@@ -27,9 +24,16 @@ function allOrders(fields?: string[]): SelectDef {
   };
 }
 
-/** A `total >= n` bool ExprDef on the `order` source (built from a clause). */
-function totalAtLeast(registry: Registry, n: number): Record<string, ExprDef> {
-  return { order: compileFilters('order', [{ field: 'total', op: 'gte', value: n }], registry).toJSON() };
+/** A `total >= n` bool ExprDef on the `order` source. */
+function totalAtLeast(n: number): Record<string, ExprDef> {
+  return {
+    order: {
+      kind: 'comparison',
+      op: '>=',
+      left: { kind: 'field-ref', source: 'order', field: 'total' },
+      right: { kind: 'literal', value: n },
+    },
+  };
 }
 
 describe('engine.run — execution filters', () => {
@@ -41,7 +45,7 @@ describe('engine.run — execution filters', () => {
     expect(all.rows.length).toBe(4);
 
     // Filtered: only totals >= 100 (the 100 and 200 orders).
-    const filtered = await fx.engine.run(allOrders(), { filters: totalAtLeast(fx.registry, 100) });
+    const filtered = await fx.engine.run(allOrders(), { filters: totalAtLeast(100) });
     expect(filtered.rows.length).toBe(2);
     expect(filtered.rows.every((r) => Number(r['total']) >= 100)).toBe(true);
     // `fields` carry over unchanged.
@@ -56,7 +60,7 @@ describe('engine.run — execution filters', () => {
 
   it('accepts an Expr instance (not just an ExprDef)', async () => {
     const fx = runtimeFixture();
-    const expr = compileFilters('order', [{ field: 'total', op: 'gte', value: 100 }], fx.registry);
+    const expr = fx.engine.registry.parseExpr(totalAtLeast(100)['order']!);
     const result = await fx.engine.run(allOrders(), { filters: { order: expr } });
     expect(result.rows.length).toBe(2);
   });
@@ -64,7 +68,7 @@ describe('engine.run — execution filters', () => {
   it('does not mutate the caller query', async () => {
     const fx = runtimeFixture();
     const def = allOrders();
-    await fx.engine.run(def, { filters: totalAtLeast(fx.registry, 100) });
+    await fx.engine.run(def, { filters: totalAtLeast(100) });
     // The placeholder is the only WHERE entry, untouched by the run.
     expect(def.where).toEqual([{ kind: 'filters', source: 'order' }]);
   });
@@ -73,9 +77,9 @@ describe('engine.run — execution filters', () => {
 describe('engine.toSQL — execution filters', () => {
   it('emits the supplied filter into WHERE (golden)', () => {
     const fx = runtimeFixture();
-    const { sql, params } = fx.engine.toSQL(allOrders(), 'base', { filters: totalAtLeast(fx.registry, 100) });
+    const { sql, params } = fx.engine.toSQL(allOrders(), 'base', { filters: totalAtLeast(100) });
     expect(sql).toContain('WHERE');
-    // The compiled `order.total >= ?` predicate emits a `>=` against a bind param.
+    // The `order.total >= ?` predicate emits a `>=` against a bind param.
     expect(sql).toContain('>=');
     expect(sql).toContain('?');
     expect(params).toEqual([100]);

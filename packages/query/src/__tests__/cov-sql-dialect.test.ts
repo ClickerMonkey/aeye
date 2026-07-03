@@ -46,6 +46,17 @@ describe('cov base dialect', () => {
     expect(s(base.similarity(base.ident('a'), base.ident('b')))).toBe('0');
   });
 
+  it('tsvectorSearch degrades to a case-insensitive LIKE (language ignored)', () => {
+    const col = base.field('u', 'search_tsv');
+    const out = base.tsvectorSearch(col, SqlText.param('hi'), 'english');
+    expect(s(out)).toBe("LOWER(\"u\".\"search_tsv\") LIKE ('%' || LOWER(?) || '%')");
+    expect(out.render(base).params).toEqual(['hi']);
+  });
+
+  it('queryVectorParam passes the param through unchanged (no vector type)', () => {
+    expect(s(base.queryVectorParam(SqlText.param('[1,2]')))).toBe('?');
+  });
+
   it('sqlTypeFor across every scalar kind', () => {
     expect(base.sqlTypeFor(new NumberFieldType({ whole: true }))).toBe('integer');
     expect(base.sqlTypeFor(new NumberFieldType())).toBe('numeric');
@@ -91,6 +102,20 @@ describe('cov postgres dialect', () => {
 
   it('cosine similarity', () => {
     expect(s(pg.similarity(pg.ident('a'), pg.ident('b')), pg)).toBe('(1 - ("a" <=> "b"))');
+  });
+
+  it('tsvectorSearch matches a precomputed tsvector field (default + custom language)', () => {
+    const col = pg.field('acct', 'search_tsv');
+    const def = pg.tsvectorSearch(col, SqlText.param('cat'));
+    expect(s(def, pg)).toBe(`"acct"."search_tsv" @@ plainto_tsquery('english', $1)`);
+    expect(def.render(pg).params).toEqual(['cat']);
+    // A custom language is emitted as a quoted regconfig literal (quotes doubled).
+    const sp = pg.tsvectorSearch(col, SqlText.param('perro'), "span'ish");
+    expect(s(sp, pg)).toBe(`"acct"."search_tsv" @@ plainto_tsquery('span''ish', $1)`);
+  });
+
+  it('queryVectorParam casts the param to the pgvector type', () => {
+    expect(s(pg.queryVectorParam(SqlText.param('[1,2,3]')), pg)).toBe('$1::vector');
   });
 
   it('native lateral join (left + inner) ON true', () => {
@@ -165,6 +190,15 @@ describe('cov Dialect base contract', () => {
     expect(s(got!)).toBe('COALESCE(json_array_length("u"."tags"), 0)');
     expect(base.emitBuiltinCall('arrayLength', [])).toBeUndefined();
     expect(base.emitBuiltinCall('unknownFn', [base.ident('a')])).toBeUndefined();
+  });
+
+  it('emitBuiltinCall routes currentDate to the bare CURRENT_DATE form', () => {
+    const got = base.emitBuiltinCall('currentDate', []);
+    expect(got).toBeDefined();
+    expect(s(got!)).toBe('CURRENT_DATE');
+    expect(s(pg.emitBuiltinCall('currentDate', [])!, pg)).toBe('CURRENT_DATE');
+    // The arg-count guard: a stray arg falls through to the generic path.
+    expect(base.emitBuiltinCall('currentDate', [base.ident('x')])).toBeUndefined();
   });
 });
 

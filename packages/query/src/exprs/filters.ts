@@ -12,11 +12,10 @@
  *  - if absent, resolves to a vacuous TRUE — so a WHERE over only a `filters`
  *    placeholder is always well-formed.
  *
- * A filter-builder UI that prefers the legacy `{ field, op, value }[]` clause
- * shape turns those clauses into the bool `Expr` it passes in via the
- * `compileFilters` helper (`src/filters.ts`). `expand(engine, scope)` still
- * yields the per-field op MENU (honoring the `fields` allowlist); `validateWalk`
- * checks the source resolves and each listed field exists.
+ * A caller supplies that bool `Expr` / `ExprDef` per source at execution time;
+ * `Query.filters(engine)` introspects the placeholders a query exposes (each
+ * source → its filterable fields). `validateWalk` checks the source resolves and
+ * each listed field exists.
  */
 import { z } from 'zod';
 import type { ExprDef, FiltersExprDef } from '../schema';
@@ -27,25 +26,19 @@ import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
-import type { Field } from '../field';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult } from './_shared';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { triOf } from '../runtime/tri';
-import type { FilterOp } from '../filters';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
-
-/** One entry of the filter-builder menu: a field and the ops it supports. */
-export interface FilterFieldOps {
-  field: Field;
-  ops: FilterOp[];
-}
 
 /** A structured filter placeholder bound to a source (clauses supplied at execution time). A `BoolExpr`. */
 export class FiltersExpr extends BoolExpr {
   static readonly KIND = 'filters' as const;
+  /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "An execution-time filter placeholder bound to a source (optional `fields` allowlist); predicate supplied at run time." as const;
   readonly kind = FiltersExpr.KIND;
 
   /** Wrap the bound `source` and its optional `fields` allowlist. */
@@ -69,22 +62,6 @@ export class FiltersExpr extends BoolExpr {
     // Depth-aware on the `filters` axis: `open` (or a bare call) leaves source +
     // fields free; `paired` pins them to a Type's filterable fields.
     return filtersSchema(opts.types ?? [], opts.depth?.filters ?? 'open');
-  }
-
-  // ─── Builder menu ────────────────────────────────────────────────────────
-
-  /**
-   * The filter-builder menu for this source: for each field of the bound Type
-   * (restricted to the `fields` allowlist when set), the `FilterOp[]` an author
-   * may apply. Empty when the source isn't a bound type.
-   */
-  expand(_engine: QueryEngine, scope: QueryScope): FilterFieldOps[] {
-    const bound = scope.lookup(this.source);
-    if (!bound || bound.kind !== 'type') return [];
-    const allow = this.fields ? new Set(this.fields) : undefined;
-    return bound.type.fields
-      .filter((field) => !allow || allow.has(field.name))
-      .map((field) => ({ field, ops: field.fieldType.filterOps() }));
   }
 
   // ─── Resolution / validation ─────────────────────────────────────────────

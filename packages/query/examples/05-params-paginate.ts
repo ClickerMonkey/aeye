@@ -7,6 +7,7 @@
  * named params (when absent), and is IDEMPOTENT — applying it twice changes
  * nothing further.
  */
+import { e } from '../src/index';
 import type { SelectDef } from '../src/index';
 import { autoPaginate } from '../src/index';
 import { createExampleFixture } from './schema';
@@ -26,19 +27,12 @@ export async function run(): Promise<ExampleReport> {
   const base: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: { kind: 'field-ref', source: 'order', field: 'id' } },
-      { expr: { kind: 'field-ref', source: 'order', field: 'total' } },
+      { expr: e.ref('order', 'id').toJSON() },
+      { expr: e.ref('order', 'total').toJSON() },
     ],
     from: { kind: 'type', type: 'order' },
-    where: [
-      {
-        kind: 'comparison',
-        op: '>=',
-        left: { kind: 'field-ref', source: 'order', field: 'total' },
-        right: { kind: 'param', name: 'minTotal' },
-      },
-    ],
-    order: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, dir: 'asc' }],
+    where: [e.gte(e.ref('order', 'total'), e.param('minTotal')).toJSON()],
+    order: [{ expr: e.ref('order', 'id').toJSON(), dir: 'asc' }],
   };
 
   const paged = autoPaginate(base);

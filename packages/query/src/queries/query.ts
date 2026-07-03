@@ -15,7 +15,7 @@ import type { JsonValue, ParamDef, QueryDef, QueryKind } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
-import type { ResolvedType, TypeResolved } from '../resolved-type';
+import type { ResolvedType, TypeResolved, FieldResolved } from '../resolved-type';
 import { asFieldType } from '../resolved-type';
 import type { ScalarKind } from '../field-type';
 import type { Cost } from '../cost';
@@ -31,7 +31,7 @@ import type { SqlContext, SqlText } from '../sql/emit';
 import { Type } from '../type';
 import { Field } from '../field';
 import { TextFieldType } from '../field-types/index';
-import { FieldRefExpr, RelationPathExpr, AggregateExpr } from '../exprs/index';
+import { FieldRefExpr, RelationPathExpr, AggregateExpr, FiltersExpr } from '../exprs/index';
 
 /**
  * One output field of a query.
@@ -198,6 +198,67 @@ export abstract class Query {
    */
   filterSources(_engine: QueryEngine): string[] {
     return [];
+  }
+
+  /**
+   * Enumerate EVERY expression across this query's clauses, recursing into each
+   * expr's descendants via `Expr.walk` (pre-order). The base query owns no clause
+   * exprs, so it visits nothing; a query kind with clauses overrides this to walk
+   * its own — select fields / where / groupBy / having / order / join `and`, DML
+   * set / where / returning, and so on. The traversal primitive `filters()` is
+   * built on.
+   */
+  walkExprs(_visit: (e: Expr) => void): void {
+    /* default: no clause exprs */
+  }
+
+  /**
+   * The lexical scope in which a `filters` placeholder's `source` resolves — the
+   * query's own FROM / JOIN / target bindings. The base binds nothing (returns
+   * `scope` unchanged); a query kind that binds sources overrides this. Consumed
+   * only by `filters()`.
+   */
+  protected filterScope(_engine: QueryEngine, scope: QueryScope): QueryScope {
+    return scope;
+  }
+
+  /**
+   * Introspect the execution-time `filters` this query exposes: every `filters`
+   * placeholder found in any clause (via `walkExprs`), keyed by its bound
+   * `source`, mapped to the filterable `fields` of that source's Type — resolved
+   * as `QueryField[]` and restricted to the placeholder's `fields` allowlist when
+   * it sets one. A caller uses this to know which sources it may supply a bool
+   * `ExprDef` / `Expr` for via `engine.run(query, { filters })`, and which fields
+   * each exposes. A query with no `filters` placeholder returns `{}`; a source
+   * whose placeholder appears more than once is LAST-WINS.
+   */
+  filters(engine: QueryEngine, scope?: QueryScope): Record<string, { fields: QueryField[] }> {
+    // Materialize inverse relations first (idempotent) so a source's fields
+    // resolve, exactly as the other introspection entry points do.
+    engine.registry.finalize();
+    const s = scope ?? engine.globalScope();
+    const bound = this.filterScope(engine, s);
+    const out: Record<string, { fields: QueryField[] }> = {};
+    this.walkExprs((e) => {
+      if (!(e instanceof FiltersExpr)) return;
+      const b = bound.lookup(e.source);
+      if (!b || b.kind !== 'type') return;
+      const allow = e.fields ? new Set(e.fields) : undefined;
+      const fields = b.type.fields
+        .filter((f) => !allow || allow.has(f.name))
+        .map((f): QueryField => {
+          const resolved: FieldResolved = {
+            kind: 'field',
+            field: f,
+            type: b.type,
+            source: b.source,
+            nullable: f.nullable,
+          };
+          return makeField(f.name, resolved);
+        });
+      out[e.source] = { fields };
+    });
+    return out;
   }
 
   // ─── Cost estimation (Phase 4) ───────────────────────────────────────────
