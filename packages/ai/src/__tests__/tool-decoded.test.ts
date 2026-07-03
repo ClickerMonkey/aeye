@@ -89,4 +89,67 @@ describe('AI.tool() TDecoded forwarding', () => {
 
     expect(true).toBe(true);
   });
+
+  it('surfaces a PRIMITIVE decoded value through ai.tool() (runtime + type)', async () => {
+    // The widened `TDecoded extends unknown` constraint lets a custom
+    // `parse` decode to a non-object. Proven through the `ai.tool(...)`
+    // convenience layer: `parse` returns a bare `number` and `call`
+    // receives that number.
+    const provider1 = createMockProvider({ name: 'provider1' });
+    const ai = AI.with().providers({ provider1 }).create({});
+
+    let receivedInCall: unknown;
+
+    const tool = ai.tool({
+      name: 'count',
+      description: 'Return a count',
+      schema: z.object({ n: z.number() }),
+      // Custom parse REPLACES zod: its return type (number) drives TDecoded.
+      parse: (raw) => (raw as { n: number }).n + 1,
+      call: (input) => {
+        // Type-level: `input` must be exactly `number`, not the wire object.
+        type _CallArgIsNumber = Expect<Equal<typeof input, number>>;
+        receivedInCall = input;
+        return input * 10;
+      },
+    });
+
+    const decoded = await tool.parse({} as any, JSON.stringify({ n: 41 }));
+    expect(decoded).toBe(42);
+
+    const result = await tool.run(42, {} as any);
+    expect(result).toBe(420);
+    expect(receivedInCall).toBe(42);
+  });
+});
+
+describe('AI.prompt() TDecoded forwarding', () => {
+  it('surfaces a PRIMITIVE decoded output through ai.prompt() (runtime + type)', async () => {
+    // The structured-output `parse` decodes the wire shape to a bare
+    // `number`. The widened constraint lets `TDecoded` be that primitive,
+    // and `ai.prompt(...)` forwards the custom parse through to the Prompt.
+    const provider1 = createMockProvider({ name: 'provider1' });
+    const ai = AI.with().providers({ provider1 }).create({});
+
+    const prompt = ai.prompt({
+      name: 'counter',
+      description: 'Produce a number',
+      content: 'Test',
+      schema: z.object({ value: z.number() }),
+      parse: (raw) => Number((raw as { value: number }).value) + 1,
+      validate: (output) => {
+        // Compile-time: `output` is `number` (arithmetic type-checks).
+        if (output < 0) throw new Error('negative');
+      },
+    });
+
+    // Type-level: `get('result')` resolves to the DECODED `number`.
+    type ResultType = Awaited<ReturnType<typeof prompt.get<'result', any, any, any>>>;
+    type _ResultIsNumber = Expect<Equal<ResultType, number | undefined>>;
+
+    // Runtime: the custom parse was forwarded through the wrapper and
+    // decodes the wire value to the primitive.
+    const decoded = await prompt.input.parse!({ value: 41 }, {} as any);
+    expect(decoded).toBe(42);
+  });
 });

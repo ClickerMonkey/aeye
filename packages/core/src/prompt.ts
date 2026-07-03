@@ -86,7 +86,7 @@ export interface PromptInput<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
-  TDecoded extends object | string = TOutput,
+  TDecoded extends unknown = TOutput,
 > {
   // The name of the prompt.
   name: TName;
@@ -356,7 +356,7 @@ export class Prompt<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
-  TDecoded extends object | string = TOutput,
+  TDecoded extends unknown = TOutput,
 > implements Component<
   TContext,
   TMetadata,

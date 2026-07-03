@@ -56,7 +56,7 @@ type AIToolInput<
   TParams extends object = {},
   TOutput = unknown,
   TRefs extends Tuple<ComponentFor<T>> = [],
-  TDecoded extends object = TParams
+  TDecoded extends unknown = TParams
 > = Omit<ToolInput<
   AIContext<T>,
   AIMetadata<T>,
@@ -74,7 +74,7 @@ type AIPromptInput<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = [],
-  TDecoded extends object | string = TOutput
+  TDecoded extends unknown = TOutput
 > = Omit<PromptInput<
   AIContext<T>,
   AIMetadata<T>,
@@ -782,7 +782,7 @@ export class AI<T extends AIBaseTypes> {
     TInput extends object = {},
     TOutput extends object | string = string,
     TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = [],
-    TDecoded extends object | string = TOutput
+    TDecoded extends unknown = TOutput
   >(
     options: AIPromptInput<T, TName, TInput, TOutput, TTools, TDecoded>
   ) {
@@ -880,7 +880,7 @@ export class AI<T extends AIBaseTypes> {
     TParams extends object = {},
     TOutput = unknown,
     TRefs extends Tuple<ComponentFor<T>> = [],
-    TDecoded extends object = TParams
+    TDecoded extends unknown = TParams
   >(
     options: AIToolInput<T, TName, TParams, TOutput, TRefs, TDecoded>
   ) {

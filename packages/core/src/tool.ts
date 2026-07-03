@@ -22,7 +22,7 @@ export interface ToolInput<
   TParams extends object,
   TOutput,
   TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>,
-  TDecoded extends object = TParams,
+  TDecoded extends unknown = TParams,
 > {
   /** The unique name of the tool */
   name: TName;
@@ -204,7 +204,7 @@ export class Tool<
   TParams extends object = {},
   TOutput = string,
   TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],
-  TDecoded extends object = TParams,
+  TDecoded extends unknown = TParams,
 > implements Component<TContext, TMetadata, TName, TDecoded, TOutput, TRefs> {
 
   /**

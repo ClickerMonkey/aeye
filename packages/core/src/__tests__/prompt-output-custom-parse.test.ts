@@ -250,4 +250,54 @@ describe('Prompt structured-output custom parse (Zod replacement)', () => {
     const bad: Built = { value: 1 };
     void bad;
   });
+
+  it('should drive the DECODED output type from parse when it returns a PRIMITIVE (number)', async () => {
+    // The widened `TDecoded extends unknown` constraint lets a Prompt's
+    // structured-output `parse` return a non-object. The Zod `schema` is the
+    // WIRE shape ({ value: number }); `parse` collapses it to a bare number.
+    // The prompt's result (and `get('result')`) must be typed/returned as the
+    // decoded `number`.
+    const prompt = new Prompt({
+      name: 'byo-output-number',
+      description: 'parse returns a bare number',
+      content: 'Test',
+      schema: z.object({ value: z.number() }),
+      parse: (raw) => Number((raw as { value: number }).value) + 1,
+      validate: (output) => {
+        // Compile-time: `output` is `number` (arithmetic type-checks).
+        if (output < 0) throw new Error('negative');
+      },
+    });
+
+    const executor = createMockExecutor({
+      response: { content: JSON.stringify({ value: 41 }), finishReason: 'stop' },
+    });
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    const result = await prompt.get('result', {}, ctx);
+    // Type-level: `result` is `number | undefined`.
+    const asNumber: number | undefined = result;
+    expect(asNumber).toBe(42);
+  });
+
+  it('should drive the DECODED output type from parse when it returns an ARRAY', async () => {
+    const prompt = new Prompt({
+      name: 'byo-output-array',
+      description: 'parse returns an array',
+      content: 'Test',
+      schema: z.object({ csv: z.string() }),
+      parse: (raw) => (raw as { csv: string }).csv.split(',').map(Number),
+    });
+
+    const executor = createMockExecutor({
+      response: { content: JSON.stringify({ csv: '1,2,3' }), finishReason: 'stop' },
+    });
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    const result = await prompt.get('result', {}, ctx);
+    // Type-level: `result` is `number[] | undefined`.
+    const asArray: number[] | undefined = result;
+    expect(asArray).toEqual([1, 2, 3]);
+    expect(asArray?.reduce((a, b) => a + b, 0)).toBe(6);
+  });
 });

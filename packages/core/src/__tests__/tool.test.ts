@@ -8,6 +8,11 @@ import { z } from 'zod';
 import { Tool } from '../tool';
 import type { Context } from '../types';
 
+// ---- Type-level assertion helpers -----------------------------------------
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type Expect<T extends true> = T;
+
 describe('Tool', () => {
   describe('Construction', () => {
     it('should create a tool with required fields', () => {
@@ -432,6 +437,63 @@ describe('Tool', () => {
       // @ts-expect-error — the wire shape is not assignable to the decoded type.
       const bad: Built = { value: 1 };
       void bad;
+    });
+
+    it('should allow a custom parse that decodes to a PRIMITIVE (number)', async () => {
+      // The widened `TDecoded extends unknown` constraint lets a custom
+      // `parse` return a non-object. Here `parse` collapses the wire shape
+      // to a bare `number`; `call` must therefore receive a `number`.
+      let seenInCall: unknown;
+
+      // No explicit generics: `TParams` infers from `schema` (the wire
+      // shape), `TDecoded` infers from `parse`'s return type (`number`).
+      const tool = new Tool({
+        name: 'decoded-number',
+        description: 'parse returns a bare number',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: (raw) => (raw as { value: number }).value + 1,
+        call: (input) => {
+          // Type-level: `input` is exactly `number`, not the wire object.
+          type _CallArgIsNumber = Expect<Equal<typeof input, number>>;
+          seenInCall = input;
+          return input * 10;
+        },
+      });
+
+      const ctx = {} as Context<{}, {}>;
+
+      // parse() yields the decoded primitive at runtime.
+      const parsed = await tool.parse(ctx, JSON.stringify({ value: 41 }));
+      expect(parsed).toBe(42);
+
+      // run() feeds the decoded number straight to the handler.
+      const result = await tool.run(42, ctx);
+      expect(result).toBe(420);
+      expect(seenInCall).toBe(42);
+    });
+
+    it('should allow a custom parse that decodes to an ARRAY', async () => {
+      // Another non-object decoded type: an array. Proves the widening is
+      // not special-cased to primitives.
+      const tool = new Tool({
+        name: 'decoded-array',
+        description: 'parse returns an array',
+        instructions: '',
+        schema: z.object({ csv: z.string() }),
+        parse: (raw) => (raw as { csv: string }).csv.split(',').map(Number),
+        call: (input) => {
+          // Type-level: `input` is `number[]`.
+          type _CallArgIsNumberArray = Expect<Equal<typeof input, number[]>>;
+          return input.reduce((a, b) => a + b, 0);
+        },
+      });
+
+      const ctx = {} as Context<{}, {}>;
+      const parsed = await tool.parse(ctx, JSON.stringify({ csv: '1,2,3' }));
+      expect(parsed).toEqual([1, 2, 3]);
+      const result = await tool.run([1, 2, 3], ctx);
+      expect(result).toBe(6);
     });
   });
 
