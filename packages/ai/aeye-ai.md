@@ -159,6 +159,8 @@ const out = await ai.run(assistant, { question: '...' }, { userId: 'u1' });
 
 `ai.agent({ name, description, refs, call })` composes other components; `call(input, [..refs], ctx)` receives the resolved refs tuple and the full AI context.
 
+`ai.tool()` and `ai.prompt()` forward a trailing **`TDecoded`** generic to the underlying core `Tool`/`Prompt`, so a custom `parse` (which replaces Zod — see the [structured-output](../docs/guides/structured-output.md) / [tool-calling](../docs/guides/tool-calling.md) guides) has its **return type surface through the wrapper**: `call`/`validate` receive the decoded value, not the wire params/output. Absent a custom `parse`, `TDecoded` defaults to the wire type.
+
 ## Provider & core integration
 
 - **Provider packages** export classes implementing the core `Provider` interface, e.g. `new OpenAIProvider({ apiKey })`, `new OpenRouterProvider({ apiKey })`, `new AWSProvider(...)`, `new ReplicateProvider(...)`. You map them under arbitrary keys in `.providers({ ... })`; the key is the provider identifier used in `metadata.providers.allow/deny`, model IDs (`provider/model`), and `ai.providers`.
