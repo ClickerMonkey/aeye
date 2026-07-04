@@ -1,6 +1,6 @@
 /**
  * CTE cases: a non-recursive CTE feeding a final query, plus two RECURSIVE CTEs
- * that walk the self-referential `category.parentId` tree (descendants and
+ * that walk the self-referential `category.parent` tree (descendants and
  * ancestors). The tree is 4 levels deep under Electronics
  * (Electronics → Laptops → Gaming Laptops → RGB Laptops), so a shallow /
  * single-hop query CANNOT reproduce the transitive closure — only the recursion
@@ -20,12 +20,12 @@ export const cteCases: EvalCase[] = [
       const perCustomer: QueryDef = {
         kind: 'select',
         fields: [
-          { expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'cid' },
+          { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
           { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'rev' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
         where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-        groupBy: [e.path('salesOrder', 'customerId', 'id').toJSON()],
+        groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
       };
       return {
         kind: 'cte',
@@ -53,7 +53,7 @@ export const cteCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('category', 'id').toJSON(), as: 'id' }],
         from: { kind: 'type', type: 'category' },
-        where: [e.eq(e.path('category', 'parentId', 'id'), e.value(1)).toJSON()],
+        where: [e.eq(e.path('category', 'parent', 'id'), e.value(1)).toJSON()],
       };
       const recursive: QueryDef = {
         kind: 'select',
@@ -61,7 +61,7 @@ export const cteCases: EvalCase[] = [
         from: { kind: 'type', type: 'category' },
         where: [
           e
-            .inSubquery(e.path('category', 'parentId', 'id'), {
+            .inSubquery(e.path('category', 'parent', 'id'), {
               kind: 'select',
               fields: [{ expr: e.ref('descendants', 'id').toJSON(), as: 'id' }],
               from: { kind: 'type', type: 'descendants' },
@@ -79,7 +79,7 @@ export const cteCases: EvalCase[] = [
         },
       };
     },
-    note: 'Recursive closure over parentId — {5,6,9,10,11,12}. A one-hop “children of Electronics” query returns only {5,6}; the grandchildren (9,10,11) and great-grandchild (12) require the recursion.',
+    note: 'Recursive closure over parent — {5,6,9,10,11,12}. A one-hop “children of Electronics” query returns only {5,6}; the grandchildren (9,10,11) and great-grandchild (12) require the recursion.',
   },
   {
     id: 'cte-recursive-ancestors-rgb-laptops',
@@ -91,7 +91,7 @@ export const cteCases: EvalCase[] = [
         kind: 'select',
         fields: [
           { expr: e.ref('category', 'id').toJSON(), as: 'id' },
-          { expr: e.path('category', 'parentId', 'id').toJSON(), as: 'pid' },
+          { expr: e.path('category', 'parent', 'id').toJSON(), as: 'pid' },
         ],
         from: { kind: 'type', type: 'category' },
         where: [e.eq(e.ref('category', 'id'), e.value(12)).toJSON()],
@@ -100,7 +100,7 @@ export const cteCases: EvalCase[] = [
         kind: 'select',
         fields: [
           { expr: e.ref('category', 'id').toJSON(), as: 'id' },
-          { expr: e.path('category', 'parentId', 'id').toJSON(), as: 'pid' },
+          { expr: e.path('category', 'parent', 'id').toJSON(), as: 'pid' },
         ],
         from: { kind: 'type', type: 'category' },
         where: [
@@ -124,6 +124,6 @@ export const cteCases: EvalCase[] = [
         },
       };
     },
-    note: 'Walks parentId UPWARD carrying each row’s parent pointer: RGB Laptops(12) → Gaming Laptops(9) → Laptops(5) → Electronics(1). Returning only the direct parent (9) is the wrong, non-recursive answer.',
+    note: 'Walks parent UPWARD carrying each row’s parent pointer: RGB Laptops(12) → Gaming Laptops(9) → Laptops(5) → Electronics(1). Returning only the direct parent (9) is the wrong, non-recursive answer.',
   },
 ];

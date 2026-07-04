@@ -2,7 +2,7 @@
   {
     "id": 1,
     "name": "Alice Reyes",
-    "departmentId": 1,
+    "department_id": 1,
     "title": "Account Executive",
     "hiredAt": "2022-03-01",
     "salary": 85000,
@@ -15,7 +15,7 @@
   {
     "id": 2,
     "name": "Bob Chen",
-    "departmentId": 1,
+    "department_id": 1,
     "title": "Account Executive",
     "hiredAt": "2021-06-15",
     "salary": 90000,
@@ -28,7 +28,7 @@
   {
     "id": 3,
     "name": "Carol White",
-    "departmentId": 1,
+    "department_id": 1,
     "title": "Sales Manager",
     "hiredAt": "2020-01-10",
     "salary": 120000,
@@ -41,7 +41,7 @@
   {
     "id": 4,
     "name": "Dan Lee",
-    "departmentId": 2,
+    "department_id": 2,
     "title": "Engineer",
     "hiredAt": "2023-02-01",
     "salary": 130000,
@@ -54,7 +54,7 @@
   {
     "id": 5,
     "name": "Eve Moss",
-    "departmentId": 2,
+    "department_id": 2,
     "title": "Engineer",
     "hiredAt": "2022-08-20",
     "salary": 125000,
@@ -67,7 +67,7 @@
   {
     "id": 6,
     "name": "Frank Ito",
-    "departmentId": 3,
+    "department_id": 3,
     "title": "Support Agent",
     "hiredAt": "2023-05-05",
     "salary": 60000,
@@ -79,7 +79,7 @@
   {
     "id": 7,
     "name": "Grace Hall",
-    "departmentId": 3,
+    "department_id": 3,
     "title": "Support Agent",
     "hiredAt": "2021-11-11",
     "salary": 62000,
@@ -92,7 +92,7 @@
   {
     "id": 8,
     "name": "Heidi Vos",
-    "departmentId": 4,
+    "department_id": 4,
     "title": "Accountant",
     "hiredAt": "2020-09-09",
     "salary": 95000,
@@ -105,7 +105,7 @@
   {
     "id": 9,
     "name": "Ivan Petro",
-    "departmentId": 4,
+    "department_id": 4,
     "title": "Controller",
     "hiredAt": "2019-04-04",
     "salary": 140000,
@@ -117,7 +117,7 @@
   {
     "id": 10,
     "name": "Judy Kim",
-    "departmentId": 5,
+    "department_id": 5,
     "title": "Marketer",
     "hiredAt": "2023-07-07",
     "salary": 70000,
@@ -130,7 +130,7 @@
   {
     "id": 11,
     "name": "Karl Ohm",
-    "departmentId": 1,
+    "department_id": 1,
     "title": "Account Executive",
     "hiredAt": "2024-01-15",
     "salary": 80000,
@@ -142,7 +142,7 @@
   {
     "id": 12,
     "name": "Lena Fox",
-    "departmentId": 2,
+    "department_id": 2,
     "title": "Engineer",
     "hiredAt": "2024-03-03",
     "salary": 118000,

@@ -17,10 +17,10 @@ const custIdsWhere = (pred: ReturnType<typeof e.eq>): QueryDef => ({
   where: [pred.toJSON()],
 });
 
-/** The customer ids that appear as a customerId on some sales order. */
+/** The customer ids that appear as a customer on some sales order. */
 const customersWithOrders: QueryDef = {
   kind: 'select',
-  fields: [{ expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'id' }],
+  fields: [{ expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'id' }],
   from: { kind: 'type', type: 'salesOrder' },
 };
 

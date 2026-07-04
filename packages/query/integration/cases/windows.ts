@@ -9,7 +9,7 @@ import { e } from '../model';
 import type { EvalCase } from './types';
 
 /** Customer 1's orders (the tie set: orders 2 and 3 are both February 2026). */
-const customer1 = [e.eq(e.path('salesOrder', 'customerId', 'id'), e.value(1)).toJSON()];
+const customer1 = [e.eq(e.path('salesOrder', 'customer', 'id'), e.value(1)).toJSON()];
 
 export const windowCases: EvalCase[] = [
   {
@@ -64,7 +64,7 @@ export const windowCases: EvalCase[] = [
         },
       ],
       from: { kind: 'type', type: 'salesOrder' },
-      where: [e.eq(e.path('salesOrder', 'customerId', 'id'), e.value(6)).toJSON()],
+      where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.value(6)).toJSON()],
     }),
     note: 'lead(total) looks FORWARD: order 13→2500, 14→2200, and the last order 23 gets the default 0. lag (looking back) would shift every value the other way.',
   },
@@ -131,7 +131,7 @@ export const windowCases: EvalCase[] = [
         {
           expr: e
             .window('cumeDist', {
-              partitionBy: [e.ref('employee', 'departmentId')],
+              partitionBy: [e.path('employee', 'department', 'id')],
               orderBy: [{ expr: e.ref('employee', 'salary'), dir: 'asc' }],
             })
             .toJSON(),
@@ -156,7 +156,7 @@ export const windowCases: EvalCase[] = [
           expr: e
             .window('firstValue', {
               args: { value: e.ref('employee', 'salary') },
-              partitionBy: [e.ref('employee', 'departmentId')],
+              partitionBy: [e.path('employee', 'department', 'id')],
               orderBy: [{ expr: e.ref('employee', 'salary'), dir: 'desc' }],
             })
             .toJSON(),
@@ -180,7 +180,7 @@ export const windowCases: EvalCase[] = [
           expr: e
             .window('lastValue', {
               args: { value: e.ref('employee', 'salary') },
-              partitionBy: [e.ref('employee', 'departmentId')],
+              partitionBy: [e.path('employee', 'department', 'id')],
               orderBy: [{ expr: e.ref('employee', 'salary'), dir: 'desc' }],
             })
             .toJSON(),

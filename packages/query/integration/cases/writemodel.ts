@@ -21,7 +21,7 @@ export const writeModelCases: EvalCase[] = [
     oracle: () => ({
       kind: 'insert',
       into: 'product',
-      fields: ['name', 'categoryId', 'sku', 'price', 'active'],
+      fields: ['name', 'category', 'sku', 'price', 'active'],
       values: [
         [
           e.value('Test Widget').toJSON(),
@@ -46,7 +46,7 @@ export const writeModelCases: EvalCase[] = [
     oracle: () => ({
       kind: 'insert',
       into: 'product',
-      fields: ['name', 'categoryId', 'sku', 'price'],
+      fields: ['name', 'category', 'sku', 'price'],
       values: [
         [
           e.value('Defaulted Widget').toJSON(),
@@ -67,7 +67,7 @@ export const writeModelCases: EvalCase[] = [
     oracle: () => ({
       kind: 'insert',
       into: 'product',
-      fields: ['id', 'name', 'categoryId', 'sku', 'price'],
+      fields: ['id', 'name', 'category', 'sku', 'price'],
       values: [
         [
           e.value(999).toJSON(),

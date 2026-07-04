@@ -12,12 +12,12 @@ export const groupByCases: EvalCase[] = [
     oracle: () => ({
       kind: 'select',
       fields: [
-        { expr: e.path('salesOrder', 'customerId', 'region').toJSON(), as: 'region' },
+        { expr: e.path('salesOrder', 'customer', 'region').toJSON(), as: 'region' },
         { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'revenue' },
       ],
       from: { kind: 'type', type: 'salesOrder' },
       where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-      groupBy: [e.path('salesOrder', 'customerId', 'region').toJSON()],
+      groupBy: [e.path('salesOrder', 'customer', 'region').toJSON()],
     }),
     note: 'Groups across a relation and filters status; non-paid orders must not contribute to any region.',
   },
@@ -44,11 +44,11 @@ export const groupByCases: EvalCase[] = [
     oracle: () => ({
       kind: 'select',
       fields: [
-        { expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'customerId' },
+        { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'customer' },
         { expr: e.countStar().toJSON(), as: 'orderCount' },
       ],
       from: { kind: 'type', type: 'salesOrder' },
-      groupBy: [e.path('salesOrder', 'customerId', 'id').toJSON()],
+      groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
       having: [e.gt(e.countStar(), e.value(2)).toJSON()],
     }),
     note: 'HAVING must use a strict > 2; customers with exactly 2 orders and the order-less customer 12 are excluded.',
@@ -61,13 +61,13 @@ export const groupByCases: EvalCase[] = [
     oracle: () => ({
       kind: 'select',
       fields: [
-        { expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'cid' },
+        { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
         { expr: e.countStar().toJSON(), as: 'cnt' },
         { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'rev' },
       ],
       from: { kind: 'type', type: 'salesOrder' },
       where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-      groupBy: [e.path('salesOrder', 'customerId', 'id').toJSON()],
+      groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
       having: [
         e.gte(e.countStar(), e.value(2)).toJSON(),
         e.lt(e.sum(e.ref('salesOrder', 'total')), e.value(5000)).toJSON(),

@@ -14,7 +14,7 @@ export const subqueryCases: EvalCase[] = [
     oracle: () => {
       const placed: QueryDef = {
         kind: 'select',
-        fields: [{ expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'cid' }],
+        fields: [{ expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' }],
         from: { kind: 'type', type: 'salesOrder' },
       };
       return {
@@ -35,7 +35,7 @@ export const subqueryCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.value(1).toJSON(), as: 'one' }],
         from: { kind: 'type', type: 'salesOrder' },
-        where: [e.eq(e.path('salesOrder', 'customerId', 'id'), e.ref('customer', 'id')).toJSON()],
+        where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.ref('customer', 'id')).toJSON()],
       };
       return {
         kind: 'select',
@@ -78,7 +78,7 @@ export const subqueryCases: EvalCase[] = [
         fields: [{ expr: e.value(1).toJSON(), as: 'one' }],
         from: { kind: 'type', type: 'invoice' },
         where: [
-          e.eq(e.path('invoice', 'customerId', 'id'), e.ref('customer', 'id')).toJSON(),
+          e.eq(e.path('invoice', 'customer', 'id'), e.ref('customer', 'id')).toJSON(),
           e.neq(e.ref('invoice', 'status'), e.value('paid')).toJSON(),
         ],
       };
@@ -99,7 +99,7 @@ export const subqueryCases: EvalCase[] = [
     oracle: () => {
       const purchased: QueryDef = {
         kind: 'select',
-        fields: [{ expr: e.path('purchaseOrderLine', 'productId', 'id').toJSON(), as: 'pid' }],
+        fields: [{ expr: e.path('purchaseOrderLine', 'product', 'id').toJSON(), as: 'pid' }],
         from: { kind: 'type', type: 'purchaseOrderLine' },
       };
       return {
@@ -126,7 +126,7 @@ export const subqueryCases: EvalCase[] = [
               kind: 'select',
               fields: [{ expr: e.countStar().toJSON(), as: 'c' }],
               from: { kind: 'type', type: 'salesOrder' },
-              where: [e.eq(e.path('salesOrder', 'customerId', 'id'), e.ref('customer', 'id')).toJSON()],
+              where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.ref('customer', 'id')).toJSON()],
             })
             .toJSON(),
           as: 'orderCount',
@@ -154,7 +154,7 @@ export const subqueryCases: EvalCase[] = [
               kind: 'select',
               fields: [{ expr: e.max(e.ref('inner', 'total')).toJSON(), as: 'm' }],
               from: { kind: 'aliased', type: 'salesOrder', as: 'inner' },
-              where: [e.eq(e.path('inner', 'customerId', 'id'), e.path('salesOrder', 'customerId', 'id')).toJSON()],
+              where: [e.eq(e.path('inner', 'customer', 'id'), e.path('salesOrder', 'customer', 'id')).toJSON()],
             }),
           )
           .toJSON(),

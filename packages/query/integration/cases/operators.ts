@@ -72,7 +72,7 @@ export const operatorCases: EvalCase[] = [
     request: 'How many distinct products appear across all sales order lines?',
     oracle: () => ({
       kind: 'select',
-      fields: [{ expr: e.agg('count', { value: e.path('salesOrderLine', 'productId', 'id') }, true).toJSON(), as: 'productCount' }],
+      fields: [{ expr: e.agg('count', { value: e.path('salesOrderLine', 'product', 'id') }, true).toJSON(), as: 'productCount' }],
       from: { kind: 'type', type: 'salesOrderLine' },
     }),
     note: 'COUNT(DISTINCT product) across 48 lines = 12; counting rows (or non-distinct) inflates it to the line count.',

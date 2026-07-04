@@ -28,7 +28,7 @@ export const aggregateCases: EvalCase[] = [
       kind: 'select',
       fields: [{ expr: e.countStar().toJSON(), as: 'orderCount' }],
       from: { kind: 'type', type: 'salesOrder' },
-      where: [e.eq(e.path('salesOrder', 'customerId', 'id'), e.value(1)).toJSON()],
+      where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.value(1)).toJSON()],
     }),
     note: 'Customer 7 ("Acme Corporation") is a name-collision distractor; the 2025 order still counts.',
   },
@@ -53,7 +53,7 @@ export const aggregateCases: EvalCase[] = [
       kind: 'select',
       fields: [{ expr: e.sum(e.ref('salesOrderLine', 'lineTotal')).toJSON(), as: 'lineRevenue' }],
       from: { kind: 'type', type: 'salesOrderLine' },
-      where: [e.eq(e.path('salesOrderLine', 'orderId', 'id'), e.value(17)).toJSON()],
+      where: [e.eq(e.path('salesOrderLine', 'order', 'id'), e.value(17)).toJSON()],
     }),
     note: 'Order 17 has several lines; summing salesOrder.total across a lines join would double-count.',
   },
@@ -68,7 +68,7 @@ export const aggregateCases: EvalCase[] = [
       from: { kind: 'type', type: 'salesOrder' },
       where: [
         e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON(),
-        e.eq(e.path('salesOrder', 'currencyCode', 'code'), e.value('EUR')).toJSON(),
+        e.eq(e.path('salesOrder', 'currency', 'code'), e.value('EUR')).toJSON(),
       ],
     }),
     note: 'Currency-mixed trap: only the paid EUR orders (9,10,15,20) contribute (6400); ignoring the currency hop and summing all paid orders wildly overstates it.',
@@ -96,14 +96,14 @@ export const aggregateCases: EvalCase[] = [
     oracle: () => ({
       kind: 'select',
       fields: [
-        { expr: e.path('salesOrderLine', 'productId', 'id').toJSON(), as: 'productId' },
+        { expr: e.path('salesOrderLine', 'product', 'id').toJSON(), as: 'product' },
         { expr: e.sum(e.ref('salesOrderLine', 'lineTotal')).toJSON(), as: 'revenue' },
       ],
       from: { kind: 'type', type: 'salesOrderLine' },
-      groupBy: [e.path('salesOrderLine', 'productId', 'id').toJSON()],
+      groupBy: [e.path('salesOrderLine', 'product', 'id').toJSON()],
       order: [
         { expr: e.output('revenue').toJSON(), dir: 'desc' },
-        { expr: e.output('productId').toJSON(), dir: 'asc' },
+        { expr: e.output('product').toJSON(), dir: 'asc' },
       ],
       limit: 1,
     }),
@@ -118,12 +118,12 @@ export const aggregateCases: EvalCase[] = [
       const perCustomer: QueryDef = {
         kind: 'select',
         fields: [
-          { expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'cid' },
+          { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
           { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'rev' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
         where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-        groupBy: [e.path('salesOrder', 'customerId', 'id').toJSON()],
+        groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
       };
       return {
         kind: 'select',
@@ -141,12 +141,12 @@ export const aggregateCases: EvalCase[] = [
     oracle: () => ({
       kind: 'select',
       fields: [
-        { expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'cid' },
+        { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
         { expr: e.countStar().toJSON(), as: 'orderCount' },
       ],
       from: { kind: 'type', type: 'salesOrder' },
       where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-      groupBy: [e.path('salesOrder', 'customerId', 'id').toJSON()],
+      groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
       having: [e.gt(e.avg(e.ref('salesOrder', 'total')), e.value(2000)).toJSON()],
     }),
     note: 'HAVING references avg(total) which is NOT in the SELECT list (only the count is): customers 4 (avg 2100, cnt 2), 6 (avg 2900, cnt 3), 8 (avg 4600, cnt 2) qualify. Big-count-but-low-avg customer 1 (avg 850) is the trap.',

@@ -30,15 +30,15 @@ export const topNCases: EvalCase[] = [
     oracle: () => ({
       kind: 'select',
       fields: [
-        { expr: e.path('salesOrder', 'customerId', 'id').toJSON(), as: 'customerId' },
+        { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'customer' },
         { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'revenue' },
       ],
       from: { kind: 'type', type: 'salesOrder' },
       where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-      groupBy: [e.path('salesOrder', 'customerId', 'id').toJSON()],
+      groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
       order: [
         { expr: e.output('revenue').toJSON(), dir: 'desc' },
-        { expr: e.output('customerId').toJSON(), dir: 'asc' },
+        { expr: e.output('customer').toJSON(), dir: 'asc' },
       ],
       limit: 2,
     }),

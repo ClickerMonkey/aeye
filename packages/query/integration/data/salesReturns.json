@@ -1,8 +1,8 @@
 [
   {
     "id": 1,
-    "salesOrderId": 8,
-    "customerId": 3,
+    "sales_order_id": 8,
+    "customer_id": 3,
     "reason": "defective",
     "amount": 1500,
     "returnedAt": "2026-02-12",
@@ -10,8 +10,8 @@
   },
   {
     "id": 2,
-    "salesOrderId": 24,
-    "customerId": 2,
+    "sales_order_id": 24,
+    "customer_id": 2,
     "reason": "wrong item",
     "amount": 300,
     "returnedAt": "2026-03-25",
@@ -19,8 +19,8 @@
   },
   {
     "id": 3,
-    "salesOrderId": 2,
-    "customerId": 1,
+    "sales_order_id": 2,
+    "customer_id": 1,
     "reason": "partial return",
     "amount": 200,
     "returnedAt": "2026-02-28",
@@ -28,8 +28,8 @@
   },
   {
     "id": 4,
-    "salesOrderId": 13,
-    "customerId": 6,
+    "sales_order_id": 13,
+    "customer_id": 6,
     "reason": "damaged in transit",
     "amount": 400,
     "returnedAt": "2026-01-20",
@@ -37,8 +37,8 @@
   },
   {
     "id": 5,
-    "salesOrderId": 20,
-    "customerId": 10,
+    "sales_order_id": 20,
+    "customer_id": 10,
     "reason": "changed mind",
     "amount": 1300,
     "returnedAt": "2026-03-15",

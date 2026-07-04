@@ -9,11 +9,14 @@
  * `buildEngine()` wires an in-memory `QueryEngine` over that data via
  * `arrayExecutor`, exactly like `examples/schema.ts` does for its 3-Type demo.
  *
- * Naming convention (matches the package examples): Type names are SINGULAR
- * (`salesOrder`), a relation field's NAME holds the foreign key value
- * (`customerId` stores the target customer's `id`), and a belongs-to relation
- * (`count: 1`) with an `inverseRelation` materializes the has-many side on the
- * target (so `customer.salesOrders` is queryable).
+ * Naming convention: Type names are SINGULAR (`salesOrder`) and a belongs-to
+ * relation FIELD carries a CLEAN, LLM-facing name (`customer`, `order`,
+ * `category`, …) — the physical foreign-key COLUMN it joins on
+ * (`customer_id`, `order_id`, …, emitted by the generator) is hidden in
+ * `FieldBacking.relation` (see `buildBackings`), NOT the field name. A
+ * belongs-to relation (`count: 1`) with an `inverseRelation` materializes the
+ * has-many side on the target (so `customer.salesOrders` is queryable), reusing
+ * the same physical FK.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +35,7 @@ import {
   type ExprDef,
   type IndexDef,
   type TypeBacking,
+  type FieldBacking,
   type SourceRecord,
 } from '../src/index';
 
@@ -100,7 +104,7 @@ const categoryDef: TypeDef = {
     { name: 'name', type: { kind: 'text', search: true } },
     { name: 'slug', type: { kind: 'text' } },
     {
-      name: 'parentId',
+      name: 'parent',
       type: { kind: 'relation', to: 'category', count: 1, inverseRelation: 'children' },
       label: 'Parent category',
       nullable: true,
@@ -136,7 +140,7 @@ const employeeDef: TypeDef = {
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     { name: 'name', type: { kind: 'text', search: true } },
     {
-      name: 'departmentId',
+      name: 'department',
       type: { kind: 'relation', to: 'department', count: 1, inverseRelation: 'employees' },
       label: 'Department',
     },
@@ -146,7 +150,7 @@ const employeeDef: TypeDef = {
     { name: 'skills', type: { kind: 'array', item: { kind: 'text' } }, nullable: true },
     { name: 'active', type: { kind: 'bool' } },
   ],
-  indexes: [idIndex('employee'), index('employee', 'departmentId', 3)],
+  indexes: [idIndex('employee'), index('employee', 'department', 3)],
   count: 40,
   bytes: 96,
 };
@@ -180,7 +184,7 @@ const contactDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'customerId',
+      name: 'customer',
       type: { kind: 'relation', to: 'customer', count: 1, inverseRelation: 'contacts' },
       label: 'Customer',
     },
@@ -190,7 +194,7 @@ const contactDef: TypeDef = {
     { name: 'isPrimary', type: { kind: 'bool' }, label: 'Primary contact' },
     { name: 'notes', type: { kind: 'text', search: true }, nullable: true },
   ],
-  indexes: [idIndex('contact'), index('contact', 'customerId', 4)],
+  indexes: [idIndex('contact'), index('contact', 'customer', 4)],
   count: 1200,
   bytes: 128,
 };
@@ -221,7 +225,7 @@ const productDef: TypeDef = {
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     { name: 'name', type: { kind: 'text', search: true } },
     {
-      name: 'categoryId',
+      name: 'category',
       type: { kind: 'relation', to: 'category', count: 1, inverseRelation: 'products' },
       label: 'Category',
     },
@@ -235,7 +239,7 @@ const productDef: TypeDef = {
     // Backed: computed display label (never stored; formatted from `price`).
     { name: 'priceLabel', type: { kind: 'text' }, nullable: true, insertable: false, updatable: false },
   ],
-  indexes: [idIndex('product'), index('product', 'categoryId', 4)],
+  indexes: [idIndex('product'), index('product', 'category', 4)],
   count: 300,
   bytes: 200,
 };
@@ -248,15 +252,15 @@ const priceListItemDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'productId',
+      name: 'product',
       type: { kind: 'relation', to: 'product', count: 1, inverseRelation: 'prices' },
       label: 'Product',
     },
-    { name: 'currencyCode', type: { kind: 'relation', to: 'currency', count: 1 }, label: 'Currency' },
+    { name: 'currency', type: { kind: 'relation', to: 'currency', count: 1 }, label: 'Currency' },
     { name: 'price', type: { kind: 'money' } },
     { name: 'minQty', type: { kind: 'number', whole: true }, label: 'Minimum quantity' },
   ],
-  indexes: [idIndex('priceListItem'), index('priceListItem', 'productId', 3)],
+  indexes: [idIndex('priceListItem'), index('priceListItem', 'product', 3)],
   count: 900,
   bytes: 56,
 };
@@ -285,19 +289,19 @@ const inventoryDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'productId',
+      name: 'product',
       type: { kind: 'relation', to: 'product', count: 1, inverseRelation: 'stock' },
       label: 'Product',
     },
     {
-      name: 'warehouseId',
+      name: 'warehouse',
       type: { kind: 'relation', to: 'warehouse', count: 1, inverseRelation: 'stock' },
       label: 'Warehouse',
     },
     { name: 'quantity', type: { kind: 'number', whole: true }, label: 'On hand' },
     { name: 'reorderLevel', type: { kind: 'number', whole: true } },
   ],
-  indexes: [idIndex('inventory'), index('inventory', 'productId', 3)],
+  indexes: [idIndex('inventory'), index('inventory', 'product', 3)],
   count: 1800,
   bytes: 48,
 };
@@ -310,23 +314,23 @@ const salesOrderDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'customerId',
+      name: 'customer',
       type: { kind: 'relation', to: 'customer', count: 1, inverseRelation: 'salesOrders' },
       label: 'Customer',
     },
     {
-      name: 'salesRepId',
+      name: 'salesRep',
       type: { kind: 'relation', to: 'employee', count: 1, inverseRelation: 'repOrders' },
       label: 'Sales rep',
     },
-    { name: 'currencyCode', type: { kind: 'relation', to: 'currency', count: 1 }, label: 'Currency' },
+    { name: 'currency', type: { kind: 'relation', to: 'currency', count: 1 }, label: 'Currency' },
     { name: 'status', type: { kind: 'text' }, description: 'draft | open | paid | cancelled | refunded' },
     { name: 'orderedAt', type: { kind: 'date' }, label: 'Order date' },
     { name: 'createdAt', type: { kind: 'timestamp', timezone: true } },
     { name: 'total', type: { kind: 'money', currency: 'USD' }, label: 'Order total' },
     { name: 'notes', type: { kind: 'text' }, nullable: true },
   ],
-  indexes: [idIndex('salesOrder'), index('salesOrder', 'customerId', 12), index('salesOrder', 'status', 5)],
+  indexes: [idIndex('salesOrder'), index('salesOrder', 'customer', 12), index('salesOrder', 'status', 5)],
   count: 5000,
   bytes: 160,
 };
@@ -339,17 +343,17 @@ const salesOrderLineDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'orderId',
+      name: 'order',
       type: { kind: 'relation', to: 'salesOrder', count: 1, inverseRelation: 'lines' },
       label: 'Sales order',
     },
-    { name: 'productId', type: { kind: 'relation', to: 'product', count: 1 }, label: 'Product' },
+    { name: 'product', type: { kind: 'relation', to: 'product', count: 1 }, label: 'Product' },
     { name: 'quantity', type: { kind: 'number', whole: true } },
     { name: 'unitPrice', type: { kind: 'money', currency: 'USD' } },
     { name: 'discount', type: { kind: 'money', currency: 'USD' } },
     { name: 'lineTotal', type: { kind: 'money', currency: 'USD' }, label: 'Line total' },
   ],
-  indexes: [idIndex('salesOrderLine'), index('salesOrderLine', 'orderId', 40)],
+  indexes: [idIndex('salesOrderLine'), index('salesOrderLine', 'order', 40)],
   count: 15000,
   bytes: 64,
 };
@@ -362,11 +366,11 @@ const purchaseOrderDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'vendorId',
+      name: 'vendor',
       type: { kind: 'relation', to: 'vendor', count: 1, inverseRelation: 'purchaseOrders' },
       label: 'Vendor',
     },
-    { name: 'warehouseId', type: { kind: 'relation', to: 'warehouse', count: 1, inverseRelation: 'inboundPOs' }, label: 'Warehouse' },
+    { name: 'warehouse', type: { kind: 'relation', to: 'warehouse', count: 1, inverseRelation: 'inboundPOs' }, label: 'Warehouse' },
     { name: 'status', type: { kind: 'text' }, description: 'draft | sent | received | cancelled' },
     { name: 'orderedAt', type: { kind: 'date' } },
     { name: 'total', type: { kind: 'money', currency: 'USD' } },
@@ -384,15 +388,15 @@ const purchaseOrderLineDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'poId',
+      name: 'purchaseOrder',
       type: { kind: 'relation', to: 'purchaseOrder', count: 1, inverseRelation: 'lines' },
       label: 'Purchase order',
     },
-    { name: 'productId', type: { kind: 'relation', to: 'product', count: 1 }, label: 'Product' },
+    { name: 'product', type: { kind: 'relation', to: 'product', count: 1 }, label: 'Product' },
     { name: 'quantity', type: { kind: 'number', whole: true } },
     { name: 'unitCost', type: { kind: 'money', currency: 'USD' } },
   ],
-  indexes: [idIndex('purchaseOrderLine'), index('purchaseOrderLine', 'poId', 12)],
+  indexes: [idIndex('purchaseOrderLine'), index('purchaseOrderLine', 'purchaseOrder', 12)],
   count: 8000,
   bytes: 56,
 };
@@ -405,12 +409,12 @@ const invoiceDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'salesOrderId',
+      name: 'salesOrder',
       type: { kind: 'relation', to: 'salesOrder', count: 1, inverseRelation: 'invoices' },
       label: 'Sales order',
     },
     {
-      name: 'customerId',
+      name: 'customer',
       type: { kind: 'relation', to: 'customer', count: 1, inverseRelation: 'invoices' },
       label: 'Customer',
     },
@@ -436,14 +440,14 @@ const paymentDef: TypeDef = {
   description: 'A payment received against an invoice. Append-only: never updated or deleted.',
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
-    { name: 'invoiceId', type: { kind: 'relation', to: 'invoice', count: 1, inverseRelation: 'payments' }, label: 'Invoice' },
-    { name: 'customerId', type: { kind: 'relation', to: 'customer', count: 1, inverseRelation: 'payments' }, label: 'Customer' },
+    { name: 'invoice', type: { kind: 'relation', to: 'invoice', count: 1, inverseRelation: 'payments' }, label: 'Invoice' },
+    { name: 'customer', type: { kind: 'relation', to: 'customer', count: 1, inverseRelation: 'payments' }, label: 'Customer' },
     { name: 'amount', type: { kind: 'money', currency: 'USD' } },
     { name: 'method', type: { kind: 'text' }, description: 'card | wire | check | cash' },
     { name: 'paidAt', type: { kind: 'date' }, label: 'Payment date' },
     { name: 'createdAt', type: { kind: 'timestamp', timezone: true }, updatable: false },
   ],
-  indexes: [idIndex('payment'), index('payment', 'invoiceId', 2)],
+  indexes: [idIndex('payment'), index('payment', 'invoice', 2)],
   updatable: false,
   deletable: false,
   count: 6000,
@@ -458,7 +462,7 @@ const shipmentDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'salesOrderId',
+      name: 'salesOrder',
       type: { kind: 'relation', to: 'salesOrder', count: 1, inverseRelation: 'shipments' },
       label: 'Sales order',
     },
@@ -480,14 +484,23 @@ const salesReturnDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true }, updatable: false, insertable: false },
     {
-      name: 'salesOrderId',
+      name: 'salesOrder',
       type: { kind: 'relation', to: 'salesOrder', count: 1, inverseRelation: 'returns' },
       label: 'Sales order',
     },
     {
-      name: 'customerId',
+      name: 'customer',
       type: { kind: 'relation', to: 'customer', count: 1, inverseRelation: 'returns' },
       label: 'Customer',
+    },
+    // Composite-FK relation (DEMO): the invoice for the SAME sales order AND the
+    // SAME customer as this return — its ON ANDs two physical FK pairs
+    // (`sales_order_id`, `customer_id`). Nullable: a refunded order has no invoice.
+    {
+      name: 'invoice',
+      type: { kind: 'relation', to: 'invoice', count: 1 },
+      label: 'Matching invoice',
+      nullable: true,
     },
     { name: 'reason', type: { kind: 'text' } },
     { name: 'amount', type: { kind: 'money', currency: 'USD' }, label: 'Refund amount' },
@@ -555,28 +568,90 @@ const DATA_FILE: Readonly<Record<string, string>> = {
  * (materialized to `true` on INSERT when omitted). Exercises the compute +
  * insert-default surface of the write-model.
  */
-const productBacking: TypeBacking = {
-  fields: {
-    priceLabel: {
-      compute: {
-        run: (alias, row) => {
-          const price = row[alias]?.['price'];
-          const n = typeof price === 'number' ? price : 0;
-          return Value.of(`$${n.toFixed(2)}`);
-        },
-        sql: (alias, ctx) => SqlText.concat([SqlText.raw("'$' || "), ctx.dialect.field(alias, 'price')]),
+const productComputeBacking: Record<string, FieldBacking> = {
+  priceLabel: {
+    compute: {
+      run: (alias, row) => {
+        const price = row[alias]?.['price'];
+        const n = typeof price === 'number' ? price : 0;
+        return Value.of(`$${n.toFixed(2)}`);
       },
+      sql: (alias, ctx) => SqlText.concat([SqlText.raw("'$' || "), ctx.dialect.field(alias, 'price')]),
     },
-    active: {
-      default: Value.of(true),
-    },
+  },
+  active: {
+    default: Value.of(true),
   },
 };
 
-/** Backings keyed by Type name (only `product` is backed). */
-export const BACKINGS: Readonly<Record<string, TypeBacking>> = {
-  product: productBacking,
-};
+/**
+ * RELATION-JOIN BACKING for the whole ERP. Every belongs-to relation FIELD now
+ * carries a clean, LLM-facing NAME (`customer`, `order`, `category`, …), while
+ * its physical foreign-key COLUMN stays hidden in `FieldBacking.relation` — the
+ * generator emits those columns as snake_case (`customer_id`, `order_id`, …).
+ * The name convention alone would NOT resolve these joins (there is no
+ * `customer` column), so the backing is what makes them work. A materialized
+ * inverse has-many (e.g. `customer.salesOrders`, `category.children`) REUSES the
+ * owning FK — no extra backing on the inverse.
+ *
+ * Two richer forms are demonstrated:
+ *  - a COMPOSITE FK on `salesReturn.invoice` (two ANDed key pairs), and
+ *  - a custom `on` (dual `expr`) on `salesOrderLine.order`.
+ *
+ * Built with the `registry` in scope so the custom `on.expr` can parse its dual
+ * predicate `Expr`.
+ */
+export function buildBackings(registry: Registry): Readonly<Record<string, TypeBacking>> {
+  /** A belongs-to relation whose ON is the hidden physical FK `<local>` → target `<foreign>`. */
+  const fk = (local: string, foreign = 'id'): FieldBacking => ({ relation: { keys: [{ local, foreign }] } });
+
+  return {
+    category: { fields: { parent: fk('parent_id') } },
+    employee: { fields: { department: fk('department_id') } },
+    contact: { fields: { customer: fk('customer_id') } },
+    product: { fields: { category: fk('category_id'), ...productComputeBacking } },
+    priceListItem: { fields: { product: fk('product_id'), currency: fk('currency_code', 'code') } },
+    inventory: { fields: { product: fk('product_id'), warehouse: fk('warehouse_id') } },
+    salesOrder: {
+      fields: { customer: fk('customer_id'), salesRep: fk('sales_rep_id'), currency: fk('currency_code', 'code') },
+    },
+    salesOrderLine: {
+      fields: {
+        // Custom `on` (DEMO): a DUAL `expr` ON matching the hidden physical
+        // `order_id` → salesOrder `id`. It drives BOTH the SQL emission and the
+        // in-memory runtime; the inverse `salesOrder.lines` has-many reuses this
+        // same predicate (ON is symmetric).
+        order: {
+          relation: {
+            on: { expr: (l, j) => registry.parseExpr(e.eq(e.ref(l, 'order_id'), e.ref(j, 'id')).toJSON()) },
+          },
+        },
+        product: fk('product_id'),
+      },
+    },
+    purchaseOrder: { fields: { vendor: fk('vendor_id'), warehouse: fk('warehouse_id') } },
+    purchaseOrderLine: { fields: { purchaseOrder: fk('po_id'), product: fk('product_id') } },
+    invoice: { fields: { salesOrder: fk('sales_order_id'), customer: fk('customer_id') } },
+    payment: { fields: { invoice: fk('invoice_id'), customer: fk('customer_id') } },
+    shipment: { fields: { salesOrder: fk('sales_order_id') } },
+    salesReturn: {
+      fields: {
+        salesOrder: fk('sales_order_id'),
+        customer: fk('customer_id'),
+        // Composite FK (DEMO): the invoice for the SAME order AND customer — two
+        // physical key pairs, ANDed in the ON.
+        invoice: {
+          relation: {
+            keys: [
+              { local: 'sales_order_id', foreign: 'sales_order_id' },
+              { local: 'customer_id', foreign: 'customer_id' },
+            ],
+          },
+        },
+      },
+    },
+  };
+}
 
 // ─── engine assembly ─────────────────────────────────────────────────────────
 
@@ -602,11 +677,11 @@ export interface ErpModel {
  */
 export function buildEngine(): ErpModel {
   const registry = createRegistry();
+  const backings = buildBackings(registry);
   const types: Type[] = [];
   for (const def of TYPE_DEFS) {
     const type = registry.parseType(def);
-    const backing = BACKINGS[def.name];
-    registry.registerType(type, backing);
+    registry.registerType(type, backings[def.name]);
     types.push(type);
   }
   registry.finalize();

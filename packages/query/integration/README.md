@@ -17,7 +17,27 @@ A natural-language → structured-query **integration and evaluation harness** f
 | Path | What it is |
 | --- | --- |
 | `model.ts` | A made-up but coherent **20-Type ERP** (the conceptual schema the LLM sees) + `buildEngine()` wiring an in-memory `QueryEngine` over the JSON data. |
-| `data/*.json` | Deterministic, referentially-consistent fixture rows, one file per Type. |
+| `data/*.json` | Deterministic, referentially-consistent fixture rows, one file per Type. Physical foreign-key columns are **snake_case** (`customer_id`, `order_id`, `parent_id`, …) — hidden from the schema and mapped by relation-join backing. |
+
+### Relation-join backing (clean names, hidden physical FKs)
+
+Every belongs-to relation FIELD carries a **clean, LLM-facing name** (`customer`,
+`order`, `product`, `category`, `parent`, `salesRep`, `warehouse`, `vendor`,
+`department`, `invoice`, …) — the physical foreign-key COLUMN it actually joins
+on stays hidden in `FieldBacking.relation` (see `buildBackings` in `model.ts`).
+The generator emits those columns as snake_case (`customer_id`, `order_id`, …);
+the name convention alone would NOT resolve the joins (there is no `customer`
+column), so the backing is what makes them work. A materialized inverse has-many
+(`customer.salesOrders`, `category.children`, …) reuses the same physical FK.
+
+Two richer forms are exercised for realistic coverage:
+
+- a **composite FK** on `salesReturn.invoice` — its `ON` ANDs *two* physical key
+  pairs (`sales_order_id` **and** `customer_id`), matching the invoice for the
+  same order and customer (`join-return-matching-invoice`);
+- a custom **`on`** (a dual `expr` predicate) on `salesOrderLine.order`, matching
+  the hidden `order_id` → salesOrder `id` in both SQL and the in-memory runtime
+  (`agg-line-total-order17`, `join-lines-eu-3hop`).
 | `data/generate.ts` | The deterministic generator that writes those JSON files (no randomness). |
 | `cases/*.ts` | The seed evaluation cases, one file per category, concatenated by `cases/index.ts`. |
 | `run.ts` | The runner: `--check` self-validation, the LLM eval, the comparator, and logging. |
@@ -129,8 +149,9 @@ model's attempt is rejected (or is not a write to the protected Type).
    unique.
 2. Write the **minimal, obviously-correct** `oracle`. Prefer explicit filters and
    `e.*` builders. A few idioms this schema requires:
-   - filter a relation FK by the target's id via a relation path:
-     `e.eq(e.path('salesOrder','customerId','id'), e.value(1))`;
+   - filter a relation by the target's id via a relation path (the field is the
+     CLEAN relation name, not the hidden FK column):
+     `e.eq(e.path('salesOrder','customer','id'), e.value(1))`;
    - compare a `date` field against a date-typed literal built with `makeDate`:
      `e.gte(e.ref('salesOrder','orderedAt'), e.makeDate(e.value(2026), e.value(1), e.value(1)))`.
 3. Write a `note` naming the **trap** the case exercises.

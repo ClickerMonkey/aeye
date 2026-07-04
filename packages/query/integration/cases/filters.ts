@@ -40,7 +40,7 @@ export const filterCases: EvalCase[] = [
       fields: [{ expr: e.ref('salesOrder', 'id').toJSON() }, { expr: e.ref('salesOrder', 'total').toJSON() }],
       from: { kind: 'type', type: 'salesOrder' },
       where: [
-        e.eq(e.path('salesOrder', 'customerId', 'id'), e.value(1)).toJSON(),
+        e.eq(e.path('salesOrder', 'customer', 'id'), e.value(1)).toJSON(),
         e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON(),
       ],
     }),
@@ -110,8 +110,8 @@ export const filterCases: EvalCase[] = [
       from: { kind: 'type', type: 'salesOrder' },
       where: [
         e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON(),
-        e.eq(e.path('salesOrder', 'currencyCode', 'code'), e.value('EUR')).toJSON(),
-        e.eq(e.path('salesOrder', 'customerId', 'tier'), e.value('gold')).toJSON(),
+        e.eq(e.path('salesOrder', 'currency', 'code'), e.value('EUR')).toJSON(),
+        e.eq(e.path('salesOrder', 'customer', 'tier'), e.value('gold')).toJSON(),
       ],
     }),
     note: 'Status×currency×tier triple cross across two relation hops: only orders 9 and 10 (Umbrella, gold, EUR, paid) survive; the other paid EUR orders 15 & 20 belong to silver customers — dropping the tier hop wrongly keeps them.',
