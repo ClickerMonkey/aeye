@@ -1,0 +1,150 @@
+[
+  {
+    "id": 1,
+    "name": "Acme Corp",
+    "region": "West",
+    "tier": "gold",
+    "email": "ada@acme.com",
+    "createdAt": "2024-01-15T12:00:00Z",
+    "creditLimit": 100000,
+    "metadata": {
+      "industry": "manufacturing"
+    },
+    "active": true
+  },
+  {
+    "id": 2,
+    "name": "Globex LLC",
+    "region": "East",
+    "tier": "silver",
+    "email": "ops@globex.com",
+    "createdAt": "2024-02-20T12:00:00Z",
+    "creditLimit": 50000,
+    "metadata": {
+      "industry": "energy"
+    },
+    "active": true
+  },
+  {
+    "id": 3,
+    "name": "Initech",
+    "region": "West",
+    "tier": "bronze",
+    "email": "hi@initech.com",
+    "createdAt": "2024-03-05T12:00:00Z",
+    "creditLimit": 25000,
+    "metadata": null,
+    "active": true
+  },
+  {
+    "id": 4,
+    "name": "Umbrella Co",
+    "region": "EU",
+    "tier": "gold",
+    "email": "contact@umbrella.eu",
+    "createdAt": "2023-11-11T12:00:00Z",
+    "creditLimit": 200000,
+    "metadata": {
+      "industry": "pharma"
+    },
+    "active": true
+  },
+  {
+    "id": 5,
+    "name": "Hooli",
+    "region": "West",
+    "tier": "silver",
+    "email": "team@hooli.com",
+    "createdAt": "2024-05-01T12:00:00Z",
+    "creditLimit": 75000,
+    "metadata": {
+      "industry": "tech"
+    },
+    "active": true
+  },
+  {
+    "id": 6,
+    "name": "Stark Industries",
+    "region": "East",
+    "tier": "gold",
+    "email": "tony@stark.com",
+    "createdAt": "2023-09-09T12:00:00Z",
+    "creditLimit": 300000,
+    "metadata": {
+      "industry": "defense"
+    },
+    "active": true
+  },
+  {
+    "id": 7,
+    "name": "Acme Corporation",
+    "region": "EU",
+    "tier": "silver",
+    "email": "eu@acme-corp.eu",
+    "createdAt": "2024-06-18T12:00:00Z",
+    "creditLimit": 60000,
+    "metadata": {
+      "industry": "manufacturing"
+    },
+    "active": true
+  },
+  {
+    "id": 8,
+    "name": "Wayne Enterprises",
+    "region": "East",
+    "tier": "gold",
+    "email": "bruce@wayne.com",
+    "createdAt": "2023-12-25T12:00:00Z",
+    "creditLimit": 250000,
+    "metadata": null,
+    "active": true
+  },
+  {
+    "id": 9,
+    "name": "Cyberdyne",
+    "region": "West",
+    "tier": "bronze",
+    "email": "sky@cyberdyne.com",
+    "createdAt": "2024-04-14T12:00:00Z",
+    "creditLimit": 15000,
+    "metadata": {
+      "industry": "robotics"
+    },
+    "active": false
+  },
+  {
+    "id": 10,
+    "name": "Soylent Corp",
+    "region": "EU",
+    "tier": "silver",
+    "email": "green@soylent.eu",
+    "createdAt": "2024-07-22T12:00:00Z",
+    "creditLimit": 40000,
+    "metadata": null,
+    "active": true
+  },
+  {
+    "id": 11,
+    "name": "Tyrell Corp",
+    "region": "West",
+    "tier": "bronze",
+    "email": "eye@tyrell.com",
+    "createdAt": "2024-08-30T12:00:00Z",
+    "creditLimit": 20000,
+    "metadata": {
+      "industry": "biotech"
+    },
+    "active": true
+  },
+  {
+    "id": 12,
+    "name": "Vandelay Ind",
+    "region": "East",
+    "tier": "bronze",
+    "email": "art@vandelay.com",
+    "createdAt": "2025-01-05T12:00:00Z",
+    "creditLimit": 10000,
+    "metadata": null,
+    "active": true
+  }
+]

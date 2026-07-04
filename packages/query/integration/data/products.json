@@ -1,0 +1,184 @@
+[
+  {
+    "id": 1,
+    "name": "Aurora Laptop",
+    "categoryId": 5,
+    "sku": "SKU-L1",
+    "price": 1200,
+    "weight": 1.8,
+    "tags": [
+      "electronics",
+      "portable"
+    ],
+    "attributes": {
+      "ram": 16
+    },
+    "active": true
+  },
+  {
+    "id": 2,
+    "name": "Nimbus Phone",
+    "categoryId": 6,
+    "sku": "SKU-P1",
+    "price": 800,
+    "weight": 0.2,
+    "tags": [
+      "electronics",
+      "mobile"
+    ],
+    "attributes": {
+      "5g": true
+    },
+    "active": true
+  },
+  {
+    "id": 3,
+    "name": "Ergo Chair",
+    "categoryId": 7,
+    "sku": "SKU-C1",
+    "price": 350,
+    "weight": 12.5,
+    "tags": [
+      "furniture",
+      "office"
+    ],
+    "attributes": {
+      "color": "black"
+    },
+    "active": true
+  },
+  {
+    "id": 4,
+    "name": "Standing Desk",
+    "categoryId": 8,
+    "sku": "SKU-D1",
+    "price": 600,
+    "weight": 30,
+    "tags": [
+      "furniture",
+      "office"
+    ],
+    "attributes": {
+      "adjustable": true
+    },
+    "active": true
+  },
+  {
+    "id": 5,
+    "name": "Paper Ream",
+    "categoryId": 3,
+    "sku": "SKU-O1",
+    "price": 8,
+    "weight": 2.5,
+    "tags": [
+      "office",
+      "paper"
+    ],
+    "attributes": null,
+    "active": true
+  },
+  {
+    "id": 6,
+    "name": "Ink Cartridge",
+    "categoryId": 3,
+    "sku": "SKU-O2",
+    "price": 25,
+    "weight": 0.3,
+    "tags": [
+      "office"
+    ],
+    "attributes": null,
+    "active": true
+  },
+  {
+    "id": 7,
+    "name": "Aurora Laptop",
+    "categoryId": 5,
+    "sku": "SKU-L2",
+    "price": 1500,
+    "weight": 2,
+    "tags": [
+      "electronics",
+      "portable",
+      "pro"
+    ],
+    "attributes": {
+      "ram": 32
+    },
+    "active": true
+  },
+  {
+    "id": 8,
+    "name": "Cloud IDE License",
+    "categoryId": 4,
+    "sku": "SKU-S1",
+    "price": 300,
+    "weight": null,
+    "tags": [
+      "software"
+    ],
+    "attributes": {
+      "seats": 1
+    },
+    "active": true
+  },
+  {
+    "id": 9,
+    "name": "Analytics Suite",
+    "categoryId": 4,
+    "sku": "SKU-S2",
+    "price": 900,
+    "weight": null,
+    "tags": [
+      "software",
+      "data"
+    ],
+    "attributes": {
+      "seats": 5
+    },
+    "active": true
+  },
+  {
+    "id": 10,
+    "name": "Mini Phone",
+    "categoryId": 6,
+    "sku": "SKU-P2",
+    "price": 500,
+    "weight": 0.15,
+    "tags": [
+      "electronics",
+      "mobile"
+    ],
+    "attributes": {
+      "5g": false
+    },
+    "active": false
+  },
+  {
+    "id": 11,
+    "name": "Bookshelf",
+    "categoryId": 2,
+    "sku": "SKU-F1",
+    "price": 220,
+    "weight": 22,
+    "tags": [
+      "furniture"
+    ],
+    "attributes": null,
+    "active": true
+  },
+  {
+    "id": 12,
+    "name": "Desk Lamp",
+    "categoryId": 3,
+    "sku": "SKU-O3",
+    "price": 45,
+    "weight": 1.1,
+    "tags": [
+      "office",
+      "lighting"
+    ],
+    "attributes": null,
+    "active": true
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "name": "Sales",
+    "code": "SAL",
+    "budget": 500000
+  },
+  {
+    "id": 2,
+    "name": "Engineering",
+    "code": "ENG",
+    "budget": 900000
+  },
+  {
+    "id": 3,
+    "name": "Support",
+    "code": "SUP",
+    "budget": 300000
+  },
+  {
+    "id": 4,
+    "name": "Finance",
+    "code": "FIN",
+    "budget": 250000
+  },
+  {
+    "id": 5,
+    "name": "Marketing",
+    "code": "MKT",
+    "budget": 400000
+  }
+]

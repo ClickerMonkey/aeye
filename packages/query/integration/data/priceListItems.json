@@ -1,0 +1,128 @@
+[
+  {
+    "id": 1,
+    "productId": 1,
+    "currencyCode": "USD",
+    "price": 1200,
+    "minQty": 1
+  },
+  {
+    "id": 2,
+    "productId": 1,
+    "currencyCode": "EUR",
+    "price": 1296,
+    "minQty": 1
+  },
+  {
+    "id": 3,
+    "productId": 1,
+    "currencyCode": "GBP",
+    "price": 1524,
+    "minQty": 1
+  },
+  {
+    "id": 4,
+    "productId": 2,
+    "currencyCode": "USD",
+    "price": 800,
+    "minQty": 1
+  },
+  {
+    "id": 5,
+    "productId": 2,
+    "currencyCode": "EUR",
+    "price": 864,
+    "minQty": 1
+  },
+  {
+    "id": 6,
+    "productId": 3,
+    "currencyCode": "USD",
+    "price": 350,
+    "minQty": 1
+  },
+  {
+    "id": 7,
+    "productId": 4,
+    "currencyCode": "USD",
+    "price": 600,
+    "minQty": 1
+  },
+  {
+    "id": 8,
+    "productId": 4,
+    "currencyCode": "EUR",
+    "price": 648,
+    "minQty": 1
+  },
+  {
+    "id": 9,
+    "productId": 5,
+    "currencyCode": "USD",
+    "price": 8,
+    "minQty": 1
+  },
+  {
+    "id": 10,
+    "productId": 6,
+    "currencyCode": "USD",
+    "price": 25,
+    "minQty": 1
+  },
+  {
+    "id": 11,
+    "productId": 7,
+    "currencyCode": "USD",
+    "price": 1500,
+    "minQty": 1
+  },
+  {
+    "id": 12,
+    "productId": 8,
+    "currencyCode": "USD",
+    "price": 300,
+    "minQty": 1
+  },
+  {
+    "id": 13,
+    "productId": 8,
+    "currencyCode": "EUR",
+    "price": 324,
+    "minQty": 1
+  },
+  {
+    "id": 14,
+    "productId": 9,
+    "currencyCode": "USD",
+    "price": 900,
+    "minQty": 1
+  },
+  {
+    "id": 15,
+    "productId": 9,
+    "currencyCode": "EUR",
+    "price": 972,
+    "minQty": 1
+  },
+  {
+    "id": 16,
+    "productId": 10,
+    "currencyCode": "USD",
+    "price": 500,
+    "minQty": 1
+  },
+  {
+    "id": 17,
+    "productId": 11,
+    "currencyCode": "USD",
+    "price": 220,
+    "minQty": 1
+  },
+  {
+    "id": 18,
+    "productId": 12,
+    "currencyCode": "USD",
+    "price": 45,
+    "minQty": 1
+  }
+]

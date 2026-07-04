@@ -1,0 +1,47 @@
+[
+  {
+    "id": 1,
+    "salesOrderId": 8,
+    "customerId": 3,
+    "reason": "defective",
+    "amount": 1500,
+    "returnedAt": "2026-02-12",
+    "restocked": false
+  },
+  {
+    "id": 2,
+    "salesOrderId": 24,
+    "customerId": 2,
+    "reason": "wrong item",
+    "amount": 300,
+    "returnedAt": "2026-03-25",
+    "restocked": true
+  },
+  {
+    "id": 3,
+    "salesOrderId": 2,
+    "customerId": 1,
+    "reason": "partial return",
+    "amount": 200,
+    "returnedAt": "2026-02-28",
+    "restocked": true
+  },
+  {
+    "id": 4,
+    "salesOrderId": 13,
+    "customerId": 6,
+    "reason": "damaged in transit",
+    "amount": 400,
+    "returnedAt": "2026-01-20",
+    "restocked": false
+  },
+  {
+    "id": 5,
+    "salesOrderId": 20,
+    "customerId": 10,
+    "reason": "changed mind",
+    "amount": 1300,
+    "returnedAt": "2026-03-15",
+    "restocked": true
+  }
+]

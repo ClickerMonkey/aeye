@@ -23,6 +23,8 @@
     "typecheck": "tsc --noEmit",
     "examples": "tsx examples/examples.ts",
     "cli": "tsx examples/cli.ts",
+    "integration": "tsx integration/run.ts",
+    "integration:check": "tsx integration/run.ts --check",
     "clean": "rimraf dist"
   },
   "dependencies": {

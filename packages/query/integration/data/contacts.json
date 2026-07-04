@@ -1,0 +1,146 @@
+[
+  {
+    "id": 1,
+    "customerId": 1,
+    "name": "Ada Byron",
+    "email": "ada@acme.com",
+    "phone": "555-0101",
+    "isPrimary": true,
+    "notes": "Prefers email contact; decision maker"
+  },
+  {
+    "id": 2,
+    "customerId": 1,
+    "name": "Charles B",
+    "email": "charles@acme.com",
+    "phone": null,
+    "isPrimary": false,
+    "notes": "Accounts payable"
+  },
+  {
+    "id": 3,
+    "customerId": 2,
+    "name": "Grace Ops",
+    "email": "ops@globex.com",
+    "phone": "555-0102",
+    "isPrimary": true,
+    "notes": "Renewal in Q3"
+  },
+  {
+    "id": 4,
+    "customerId": 3,
+    "name": "Peter G",
+    "email": "peter@initech.com",
+    "phone": null,
+    "isPrimary": true,
+    "notes": null
+  },
+  {
+    "id": 5,
+    "customerId": 4,
+    "name": "Alice U",
+    "email": "alice@umbrella.eu",
+    "phone": "555-0104",
+    "isPrimary": true,
+    "notes": "Large pharma account; net-60 terms"
+  },
+  {
+    "id": 6,
+    "customerId": 5,
+    "name": "Richard H",
+    "email": "richard@hooli.com",
+    "phone": "555-0105",
+    "isPrimary": true,
+    "notes": "Technical buyer"
+  },
+  {
+    "id": 7,
+    "customerId": 6,
+    "name": "Tony S",
+    "email": "tony@stark.com",
+    "phone": "555-0106",
+    "isPrimary": true,
+    "notes": "VIP; escalate quickly"
+  },
+  {
+    "id": 8,
+    "customerId": 6,
+    "name": "Pepper P",
+    "email": "pepper@stark.com",
+    "phone": null,
+    "isPrimary": false,
+    "notes": "Executive assistant"
+  },
+  {
+    "id": 9,
+    "customerId": 7,
+    "name": "Euan A",
+    "email": "eu@acme-corp.eu",
+    "phone": "555-0107",
+    "isPrimary": true,
+    "notes": "EU branch; not the same as Acme Corp"
+  },
+  {
+    "id": 10,
+    "customerId": 8,
+    "name": "Bruce W",
+    "email": "bruce@wayne.com",
+    "phone": "555-0108",
+    "isPrimary": true,
+    "notes": "Prefers phone contact"
+  },
+  {
+    "id": 11,
+    "customerId": 9,
+    "name": "Miles D",
+    "email": "sky@cyberdyne.com",
+    "phone": null,
+    "isPrimary": true,
+    "notes": "Account inactive"
+  },
+  {
+    "id": 12,
+    "customerId": 10,
+    "name": "Green S",
+    "email": "green@soylent.eu",
+    "phone": "555-0110",
+    "isPrimary": true,
+    "notes": null
+  },
+  {
+    "id": 13,
+    "customerId": 11,
+    "name": "Eldon T",
+    "email": "eye@tyrell.com",
+    "phone": "555-0111",
+    "isPrimary": true,
+    "notes": "Prefers email newsletters"
+  },
+  {
+    "id": 14,
+    "customerId": 12,
+    "name": "Art V",
+    "email": "art@vandelay.com",
+    "phone": null,
+    "isPrimary": true,
+    "notes": "Importer/exporter; no orders yet"
+  },
+  {
+    "id": 15,
+    "customerId": 2,
+    "name": "Second Globex",
+    "email": "two@globex.com",
+    "phone": null,
+    "isPrimary": false,
+    "notes": "Secondary buyer"
+  },
+  {
+    "id": 16,
+    "customerId": 4,
+    "name": "Backup Umbrella",
+    "email": "backup@umbrella.eu",
+    "phone": null,
+    "isPrimary": false,
+    "notes": null
+  }
+]

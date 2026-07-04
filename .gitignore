@@ -33,6 +33,11 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Query integration/eval harness run artifacts (never commit)
+packages/query/integration/logs/
+packages/query/integration/report.json
+packages/query/integration/report.md
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

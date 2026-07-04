@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "name": "West DC",
+    "region": "West",
+    "capacity": 100000
+  },
+  {
+    "id": 2,
+    "name": "East DC",
+    "region": "East",
+    "capacity": 80000
+  },
+  {
+    "id": 3,
+    "name": "EU DC",
+    "region": "EU",
+    "capacity": 60000
+  },
+  {
+    "id": 4,
+    "name": "Overflow",
+    "region": "West",
+    "capacity": 20000
+  }
+]
