@@ -24,6 +24,7 @@ import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
+import { hasFieldDefault, type FieldBacking, type TypeBacking } from '../backing';
 import { exprKindApplicable } from '../schema-build';
 import { fieldMeta, typeMeta } from './describe-generate';
 import { selectFunctions, type FunctionSelector } from './schemas';
@@ -57,25 +58,52 @@ function fieldTypeTag(field: Field): string {
   return ft.kind;
 }
 
-/** One field line: `- name: type [nullable] — label: description`. The label +
+/** A terse `write:` clause for a Type's restricted write permissions, or `''`. */
+function typeWriteNote(type: Type): string {
+  if (!type.insertable && !type.updatable && !type.deletable) return 'write: read-only';
+  const w: string[] = [];
+  if (!type.insertable) w.push('no-insert');
+  if (!type.updatable) w.push('no-update');
+  if (!type.deletable) w.push('no-delete');
+  return w.length ? `write: ${w.join(', ')}` : '';
+}
+
+/** A terse `[…]` clause of a field's write-model deviations from the permissive default, or `''`. */
+function fieldWriteNote(field: Field, fb: FieldBacking | undefined): string {
+  const notes: string[] = [];
+  if (!field.insertableFor(fb)) notes.push('non-insertable');
+  if (!field.updatableFor(fb)) notes.push('non-updatable');
+  if (hasFieldDefault(fb)) notes.push('has-default');
+  if (field.exprs) {
+    notes.push('only' in field.exprs ? `exprs:only(${field.exprs.only.join('|')})` : `exprs:not(${field.exprs.not.join('|')})`);
+  }
+  return notes.length ? `[${notes.join(', ')}]` : '';
+}
+
+/** One field line: `- name: type [nullable] [write] — label: description`. The label +
  *  description are the dev's when set, else generated (see `describe-generate`). */
-function describeField(field: Field): string {
+function describeField(field: Field, fb?: FieldBacking): string {
   const parts = [`  - ${field.name}: ${fieldTypeTag(field)}`];
   if (field.nullable) parts.push('(nullable)');
+  const write = fieldWriteNote(field, fb);
+  if (write) parts.push(write);
   const meta = fieldMeta(field);
   parts.push(`— ${meta.label}: ${meta.description}`);
   return parts.join(' ');
 }
 
-/** Render one Type as a compact description block. */
-export function describeType(type: Type): string {
+/** Render one Type as a compact description block. `backing` (when supplied) surfaces
+ *  per-field write deviations (computed / default) the plain `TypeDef` can't carry. */
+export function describeType(type: Type, backing?: TypeBacking): string {
   const lines: string[] = [];
   const meta = typeMeta(type);
   lines.push(`## ${type.name} (${meta.label})`);
   lines.push(meta.description);
   lines.push(`rows≈${type.count}, bytes/row≈${type.bytes}`);
+  const write = typeWriteNote(type);
+  if (write) lines.push(write);
   lines.push('fields:');
-  for (const field of type.fields) lines.push(describeField(field));
+  for (const field of type.fields) lines.push(describeField(field, backing?.fields?.[field.name]));
 
   const relations = type.relationFields();
   if (relations.length > 0) {
@@ -106,7 +134,7 @@ export function describeType(type: Type): string {
 export function describeTypes(engine: QueryEngine | Registry, types?: readonly Type[]): string {
   const registry = toRegistry(engine);
   const list = types ?? registry.typeList();
-  return list.map(describeType).join('\n\n');
+  return list.map((t) => describeType(t, registry.backing(t.name))).join('\n\n');
 }
 
 /**

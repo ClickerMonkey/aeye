@@ -18,6 +18,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL } from './_shared';
+import { operandCtx } from './_field-guard';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { ParamExpr } from './param';
@@ -87,13 +88,13 @@ export class InExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, ctx));
+    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'in', ctx)));
     const vft = asFieldType(v);
 
     if (this.list) {
       p.at('in', () => {
         this.list!.forEach((el, i) => {
-          const rt = p.at(i, () => el.validateWalk(engine, scope, p, ctx));
+          const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx)));
           const eft = asFieldType(rt);
           const skip = el instanceof ParamExpr || this.value instanceof ParamExpr;
           if (!skip && vft && eft && !vft.comparableWith(eft)) {

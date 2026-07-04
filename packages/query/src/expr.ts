@@ -67,6 +67,14 @@ export interface ValidateContext {
   readonly allowAggregate: boolean;
   readonly groupKeys: readonly Expr[];
   readonly inGroupBy: boolean;
+  /**
+   * The expr KIND a DIRECT field-ref operand is being gated as. A gating
+   * operator (`comparison` / `between` / `in` / `is-null` / `array-op`) sets this
+   * when validating a direct field-ref operand, so the field-ref checks its
+   * `exprs` restriction against the OPERATOR's kind rather than `'field-ref'`.
+   * Undefined (the default) means a standalone field-ref, gated as `'field-ref'`.
+   */
+  readonly fieldExprKind?: ExprKind;
 }
 
 /** The default top-level context: a bare expression may aggregate freely. */

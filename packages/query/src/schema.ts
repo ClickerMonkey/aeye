@@ -173,6 +173,17 @@ export type FieldTypeKind = FieldTypeDef['kind'];
 // TYPE / FIELD / INDEX SCHEMA
 // ============================================================================
 
+/**
+ * A per-field restriction on which expression KINDS may TARGET the field. It can
+ * only NARROW what the field's TYPE already allows (it never enables an
+ * unsupported kind):
+ *  - `not`  — exclude exactly these kinds (allow all others the type permits);
+ *  - `only` — restrict to exactly these kinds (deny every other kind).
+ * A discriminated union (exactly one of `not` / `only`) keyed by which key is
+ * present. See `Field.allowsExpr`.
+ */
+export type FieldExprRestriction = { not: ExprKind[] } | { only: ExprKind[] };
+
 /** One field of a Type: a name, optional label/description, its field type, and nullability. */
 export interface FieldDef {
   name: string;
@@ -183,6 +194,12 @@ export interface FieldDef {
   type: FieldTypeDef;
   /** When true, the field may hold null / be absent. Default false. */
   nullable?: boolean;
+  /** Whether the field may be supplied on INSERT. Default true. */
+  insertable?: boolean;
+  /** Whether the field may be assigned on UPDATE. Default true. */
+  updatable?: boolean;
+  /** Restrict which expr KINDS may target this field (narrows the type's set). */
+  exprs?: FieldExprRestriction;
 }
 
 /**
@@ -227,6 +244,12 @@ export interface TypeDef {
   semantic?: boolean;
   /** Eligible for full-text search across the type's data. */
   search?: boolean;
+  /** Whether rows of this Type may be INSERTed. Default true. */
+  insertable?: boolean;
+  /** Whether rows of this Type may be UPDATEd. Default true. */
+  updatable?: boolean;
+  /** Whether rows of this Type may be DELETEd. Default true. */
+  deletable?: boolean;
 }
 
 // ============================================================================

@@ -18,6 +18,8 @@ import type { Registry } from './registry';
 import type { Type } from './type';
 import {
   Backing,
+  hasFieldDefault,
+  resolveFieldDefault,
   type TypeBacking,
   type FieldBacking,
   type JoinBacking,
@@ -150,6 +152,22 @@ export class QueryEngine {
   /** The named `JoinBacking` `name` declared on `typeName`'s backing, or `undefined`. */
   joinBacking(typeName: string, name: string): JoinBacking | undefined {
     return this.backing(typeName)?.join(name);
+  }
+
+  /**
+   * Whether `typeName.field` has a `FieldBacking.default` (making it
+   * optional-on-insert and runtime-materialized when omitted).
+   */
+  fieldHasDefault(typeName: string, field: string): boolean {
+    return hasFieldDefault(this.fieldBacking(typeName, field));
+  }
+
+  /**
+   * Materialize `typeName.field`'s `FieldBacking.default` into a `Value`
+   * (awaiting a factory), or `undefined` when the field has no default.
+   */
+  fieldDefault(typeName: string, field: string): Promise<Value | undefined> {
+    return resolveFieldDefault(this.fieldBacking(typeName, field));
   }
 
   /**

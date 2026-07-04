@@ -23,6 +23,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult } from './_shared';
+import { checkFieldExpr } from '../write-model';
 import { resolveSearchSql, resolveSearchRun } from '../backing';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -113,6 +114,9 @@ export class TextSearchExpr extends BoolExpr {
         p.at('field', () =>
           p.error('text-search.non-text', `Text search requires a text field; '${this.field}' is ${field.fieldType.resolve()}.`),
         );
+      } else {
+        // WRITE-MODEL: honor the field's `exprs` restriction for this kind.
+        checkFieldExpr('text-search', field, this.source, p);
       }
     }
     if (this.query.kind === 'param') {

@@ -11,7 +11,7 @@ import type { Registry } from './registry';
 import { Field } from './field';
 import { Index } from './index-spec';
 import { QueryTypeError } from './problem';
-import { ArrayFieldType, RelationFieldType, TextFieldType, fieldTypeDefSchema } from './field-types/index';
+import { RelationFieldType, TextFieldType, fieldTypeDefSchema } from './field-types/index';
 
 /** Constructor spec for a {@link Type} — name, metadata, fields, indexes, and cost estimates. */
 export interface TypeSpec {
@@ -33,6 +33,12 @@ export interface TypeSpec {
   semantic?: boolean;
   /** Eligible for full-text search across the type's data. */
   search?: boolean;
+  /** Whether rows of this Type may be INSERTed. Default true. */
+  insertable?: boolean;
+  /** Whether rows of this Type may be UPDATEd. Default true. */
+  updatable?: boolean;
+  /** Whether rows of this Type may be DELETEd. Default true. */
+  deletable?: boolean;
 }
 
 /**
@@ -58,8 +64,14 @@ export class Type implements Node {
   readonly semantic: boolean;
   /** Whether the whole type is flagged full-text-search-eligible. */
   readonly search: boolean;
+  /** Whether rows of this Type may be INSERTed (default true). */
+  readonly insertable: boolean;
+  /** Whether rows of this Type may be UPDATEd (default true). */
+  readonly updatable: boolean;
+  /** Whether rows of this Type may be DELETEd (default true). */
+  readonly deletable: boolean;
 
-  /** Construct a Type from its spec, defaulting `semantic`/`search` to false. */
+  /** Construct a Type from its spec, defaulting `semantic`/`search` to false and the write flags to true. */
   constructor(spec: TypeSpec) {
     this.name = spec.name;
     this.label = spec.label;
@@ -70,6 +82,9 @@ export class Type implements Node {
     this.bytes = spec.bytes;
     this.semantic = spec.semantic ?? false;
     this.search = spec.search ?? false;
+    this.insertable = spec.insertable ?? true;
+    this.updatable = spec.updatable ?? true;
+    this.deletable = spec.deletable ?? true;
   }
 
   /** Look up a field by name. */
@@ -85,11 +100,6 @@ export class Type implements Node {
   /** Fields whose type is `text` (the candidates a narrowed text-search targets). */
   textFields(): Field[] {
     return this.fields.filter((f) => f.fieldType instanceof TextFieldType);
-  }
-
-  /** Whether this Type declares any `array`-valued field (gates `array-op`). */
-  hasArrayField(): boolean {
-    return this.fields.some((f) => f.fieldType instanceof ArrayFieldType);
   }
 
   /**
@@ -157,17 +167,28 @@ export class Type implements Node {
       bytes: json.bytes,
       semantic: json.semantic,
       search: json.search,
+      insertable: json.insertable,
+      updatable: json.updatable,
+      deletable: json.deletable,
     });
   }
 
   /** Zod schema for the `TypeDef` JSON shape. */
   static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    const exprKindSchema = z.string().describe('An expression kind (e.g. `comparison`, `array-op`).');
+    const fieldExprsSchema = z.union([
+      z.object({ not: z.array(exprKindSchema).describe('Expr kinds to EXCLUDE for this field.') }),
+      z.object({ only: z.array(exprKindSchema).describe('The ONLY expr kinds allowed for this field.') }),
+    ]).describe('Restrict which expr kinds may target this field (narrows the type\'s set).');
     const fieldDefSchema: z.ZodTypeAny = z.object({
       name: z.string(),
       label: z.string().optional(),
       description: z.string().optional(),
       type: fieldTypeDefSchema(),
       nullable: z.boolean().optional(),
+      insertable: z.boolean().optional().describe('Whether the field may be supplied on INSERT (default true).'),
+      updatable: z.boolean().optional().describe('Whether the field may be assigned on UPDATE (default true).'),
+      exprs: fieldExprsSchema.optional(),
     }).meta({ aid: 'FieldDef' }).describe('A field (field) definition.');
     // Index expr references the (phase-2) ExprDef union; accept the caller's
     // lazy Expr schema when supplied, else a permissive object.
@@ -189,6 +210,9 @@ export class Type implements Node {
       bytes: z.number().describe('Estimated average bytes per row.'),
       semantic: z.boolean().optional().describe('Eligible for semantic similarity across the type.'),
       search: z.boolean().optional().describe('Eligible for full-text search across the type.'),
+      insertable: z.boolean().optional().describe('Whether rows may be INSERTed (default true).'),
+      updatable: z.boolean().optional().describe('Whether rows may be UPDATEd (default true).'),
+      deletable: z.boolean().optional().describe('Whether rows may be DELETEd (default true).'),
     }).meta({ aid: 'TypeDef' }).describe('A type-like Type definition.');
   }
 
@@ -208,6 +232,10 @@ export class Type implements Node {
       bytes: this.bytes,
       semantic: this.semantic ? true : undefined,
       search: this.search ? true : undefined,
+      // Only emit a write flag when RESTRICTED (false), keeping the default implicit.
+      insertable: this.insertable ? undefined : false,
+      updatable: this.updatable ? undefined : false,
+      deletable: this.deletable ? undefined : false,
     };
   }
 
@@ -223,6 +251,9 @@ export class Type implements Node {
       bytes: this.bytes,
       semantic: this.semantic,
       search: this.search,
+      insertable: this.insertable,
+      updatable: this.updatable,
+      deletable: this.deletable,
     });
   }
 

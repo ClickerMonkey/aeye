@@ -27,6 +27,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { numberResult } from './_shared';
+import { checkFieldExpr } from '../write-model';
 import { resolveSearchRun } from '../backing';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -114,6 +115,9 @@ export class TextScoreExpr extends Expr {
         p.at('field', () =>
           p.error('text-score.non-text', `Text score requires a text field; '${this.field}' is ${field.fieldType.resolve()}.`),
         );
+      } else {
+        // WRITE-MODEL: honor the field's `exprs` restriction for this kind.
+        checkFieldExpr('text-score', field, this.source, p);
       }
     }
     if (this.query.kind === 'param') {

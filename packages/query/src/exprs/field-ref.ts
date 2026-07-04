@@ -16,6 +16,7 @@ import type { ResolvedType, FieldResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
+import { checkFieldExpr } from '../write-model';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow, SourceRecord } from '../runtime/row';
@@ -103,7 +104,7 @@ export class FieldRefExpr extends Expr {
     _engine: QueryEngine,
     scope: QueryScope,
     p: Problems,
-    _ctx: ValidateContext,
+    ctx: ValidateContext,
   ): ResolvedType {
     const bound = scope.lookup(this.source);
     if (!bound) {
@@ -128,6 +129,9 @@ export class FieldRefExpr extends Expr {
       );
       return textResult([], true);
     }
+    // WRITE-MODEL: gate the field against the operator kind supplied by a
+    // containing gating operator (else `'field-ref'` for a standalone ref).
+    checkFieldExpr(ctx.fieldExprKind ?? 'field-ref', field, this.source, p);
     const resolved: FieldResolved = {
       kind: 'field',
       field,

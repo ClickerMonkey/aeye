@@ -15,6 +15,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
+import { operandCtx } from './_field-guard';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
@@ -142,8 +143,8 @@ export class ComparisonExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, ctx));
-    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, ctx));
+    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, operandCtx(this.left, 'comparison', ctx)));
+    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, operandCtx(this.right, 'comparison', ctx)));
 
     const lft = asFieldType(l);
     const rft = asFieldType(r);

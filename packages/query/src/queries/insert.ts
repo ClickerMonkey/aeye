@@ -29,7 +29,10 @@ import {
   makeResult,
 } from './query';
 import { insertRecord, updateRecord } from './_type';
+import { requiredOnInsert } from '../write-model';
+import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
+import type { Type } from '../type';
 import type { Cost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -130,11 +133,32 @@ export class InsertQuery extends Query {
       p.error('insert.unknown-type', `Unknown target type '${this.into}'.`);
       return;
     }
+    // WRITE-MODEL: the Type as a whole must be insertable.
+    if (!type.insertable) {
+      p.error('insert.type-readonly', `Type '${this.into}' is not insertable.`);
+      return;
+    }
     p.at('fields', () => {
       this.fields.forEach((c, i) => {
-        if (!type.field(c)) p.at(i, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${c}'.`));
+        const field = type.field(c);
+        if (!field) {
+          p.at(i, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${c}'.`));
+        } else if (!field.insertableFor(engine.fieldBacking(this.into, c))) {
+          // WRITE-MODEL: a non-insertable (read-only / computed) field can't be supplied.
+          p.at(i, () => p.error('insert.field-readonly', `Field '${c}' of '${this.into}' is not insertable.`));
+        }
       });
     });
+    // WRITE-MODEL: every required-on-insert field must be present in `fields`.
+    const provided = new Set(this.fields);
+    const missing = type.fields
+      .filter((f) => !provided.has(f.name) && requiredOnInsert(f, engine.fieldBacking(this.into, f.name)))
+      .map((f) => f.name);
+    if (missing.length) {
+      p.at('fields', () =>
+        p.error('insert.missing-required', `INSERT into '${this.into}' is missing required field(s): ${missing.join(', ')}.`),
+      );
+    }
     if (this.values) {
       p.at('values', () => {
         this.values!.forEach((tuple, i) => {
@@ -189,6 +213,14 @@ export class InsertQuery extends Query {
     const type = engine.type(this.into);
     const fields = this.outputFields(engine, engine.globalScope());
     if (!type) return makeResult('insert', [], fields, 0);
+    // WRITE-MODEL (belt-and-suspenders): never write a read-only Type / field.
+    if (!type.insertable) throw typeReadonly('insert', this.into);
+    for (const c of this.fields) {
+      const field = type.field(c);
+      if (field && !field.insertableFor(engine.fieldBacking(this.into, c))) {
+        throw fieldReadonly('insert', this.into, c);
+      }
+    }
     const state = await ctx.typeState(type);
     // Register the target alias → its Type so RETURNING field-refs recover
     // metadata. INSERT has a single target and no joins, so no `source.duplicate`
@@ -196,6 +228,10 @@ export class InsertQuery extends Query {
     ctx.bindSourceType(this.into, type);
 
     const tuples = await this.gatherTuples(ctx);
+    // WRITE-MODEL: materialize a `FieldBacking.default` for every insertable field
+    // OMITTED from `fields` (value / factory, per row). SQL relies on the DB's own
+    // column DEFAULT instead — a JS-factory default is a runtime-only concern.
+    await this.materializeDefaults(ctx, type, tuples);
     const stored: SourceRecord[] = [];
     for (const fields of tuples) {
       const existing = this.onConflict ? this.findConflict(state.current, fields) : undefined;
@@ -220,6 +256,27 @@ export class InsertQuery extends Query {
 
     const rows = await this.projectReturning(ctx, stored);
     return makeResult('insert', rows, fields, stored.length);
+  }
+
+  /**
+   * Fill each gathered record's OMITTED insertable fields from their
+   * `FieldBacking.default` (a ready value or a per-row factory). Fields the caller
+   * supplied are left untouched; fields with no default resolve to `undefined`
+   * and stay absent (nullable ⇒ NULL; required-missing ⇒ caught by validation).
+   */
+  private async materializeDefaults(ctx: RuntimeContext, type: Type, records: SourceRecord[]): Promise<void> {
+    const engine = ctx.engine;
+    const provided = new Set(this.fields);
+    const omitted = type.fields.filter(
+      (f) => !provided.has(f.name) && f.insertableFor(engine.fieldBacking(this.into, f.name)),
+    );
+    if (omitted.length === 0) return;
+    for (const rec of records) {
+      for (const f of omitted) {
+        const v = await engine.fieldDefault(this.into, f.name);
+        if (v !== undefined) rec[f.name] = v.raw;
+      }
+    }
   }
 
   /** Materialize the tuples to insert (from VALUES or a SELECT). */

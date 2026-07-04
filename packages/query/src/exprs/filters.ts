@@ -28,6 +28,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult } from './_shared';
+import { checkFieldExpr } from '../write-model';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { triOf } from '../runtime/tri';
@@ -87,10 +88,14 @@ export class FiltersExpr extends BoolExpr {
     if (this.fields) {
       p.at('fields', () => {
         this.fields!.forEach((field, i) => {
-          if (!type.field(field)) {
+          const f = type.field(field);
+          if (!f) {
             p.at(i, () =>
               p.error('filters.unknown-field', `Type '${type.name}' has no field '${field}'.`),
             );
+          } else {
+            // WRITE-MODEL: honor the field's `exprs` restriction for this kind.
+            p.at(i, () => checkFieldExpr('filters', f, this.source, p));
           }
         });
       });

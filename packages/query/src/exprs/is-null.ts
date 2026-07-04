@@ -13,6 +13,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult, gatherSources, anyAggregate, childExprSchema } from './_shared';
+import { operandCtx } from './_field-guard';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Dialect } from '../sql/dialect';
@@ -70,7 +71,7 @@ export class IsNullExpr extends BoolExpr {
     p: Problems,
     ctx: ValidateContext,
   ): ComputedResolved {
-    p.at('value', () => this.value.validateWalk(engine, scope, p, ctx));
+    p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'is-null', ctx)));
     return this.resolve(engine, scope);
   }
 

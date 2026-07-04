@@ -39,6 +39,8 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
 import type { SchemaOptions, ResolvedSchemaDepth, RefDepth, NameDepth, FnDepth, FilterDepth, SelectedFunctions } from '../node';
+import type { FieldBacking } from '../backing';
+import { requiredOnInsert } from '../write-model';
 import {
   enumOf,
   orFold,
@@ -479,35 +481,112 @@ export function buildSchemas(
     update: z.array(ConflictFieldValue).optional(),
   });
 
-  const Insert: z.ZodTypeAny = z
-    .object({
-      kind: z.literal('insert'),
-      into: typeRef,
-      fields: z.array(z.string()),
-      values: z.array(z.array(Expr)).optional(),
-      select: Query.optional(),
-      returning: z.array(SelectField).optional(),
-      onConflict: OnConflict.optional(),
-    })
-    .meta({ aid: 'Query_insert' })
-    .describe('An INSERT statement.');
+  // ─── WRITE MODEL: per-Type write permissions drive the DML schemas ─────────
+  //
+  // A Type/field is INSERTABLE / UPDATABLE / DELETABLE (default true); a field's
+  // backing (computed / default) further shapes its effective write status +
+  // insert-requiredness. These schemas: (1) restrict each DML target's Type-name
+  // enum to the permitted subset; (2) at `refs:'paired'` restrict `Insert.fields`
+  // / `Update.set` to the permitted FIELDS and require the required-on-insert
+  // ones; (3) DROP a DML query kind entirely when NO Type permits it.
+  const insertableTypes = types.filter((t) => t.insertable);
+  const updatableTypes = types.filter((t) => t.updatable);
+  const deletableTypes = types.filter((t) => t.deletable);
+  /** The FieldBacking for `typeName.field` off the registry, or `undefined`. */
+  const fbOf = (typeName: string, field: string): FieldBacking | undefined =>
+    registry.backing(typeName)?.fields?.[field];
+  /** A DML target Type-name schema over a permitted subset (enum when `typeNames:'enum'`). */
+  const dmlTypeRef = (subset: readonly Type[]): z.ZodTypeAny =>
+    depth.typeNames === 'enum'
+      ? enumOf(subset.map((t) => t.name)).describe('A permitted target Type name.')
+      : z.string().describe('A Type name.');
 
-  const Update: z.ZodTypeAny = z
-    .object({
-      kind: z.literal('update'),
-      type: typeRef,
-      set: z.array(FieldValue),
-      joins: joinsField,
-      where: z.array(Expr).optional(),
-      returning: z.array(SelectField).optional(),
-    })
-    .meta({ aid: 'Query_update' })
-    .describe('An UPDATE statement.');
+  /** The paired-per-Type INSERT: `into` pinned, `fields` restricted + required-enforced. */
+  const pairedInsert = (): z.ZodTypeAny =>
+    orFold(
+      insertableTypes.map((t) => {
+        const insertable = t.fields.filter((f) => f.insertableFor(fbOf(t.name, f.name)));
+        const requiredNames = insertable
+          .filter((f) => requiredOnInsert(f, fbOf(t.name, f.name)))
+          .map((f) => f.name);
+        const fieldEnum = insertable.length ? enumOf(insertable.map((f) => f.name)) : z.never();
+        const fieldsArray = z
+          .array(fieldEnum)
+          .describe(requiredNames.length ? `Insertable fields; required: ${requiredNames.join(', ')}.` : 'Insertable fields.');
+        // REQUIRED-on-insert fields must all be present (optional / defaulted ones may be omitted).
+        const fields = requiredNames.length
+          ? fieldsArray.refine((arr) => requiredNames.every((n) => arr.some((x) => x === n)), {
+              message: `Missing required field(s): ${requiredNames.join(', ')}.`,
+            })
+          : fieldsArray;
+        return z
+          .object({
+            kind: z.literal('insert'),
+            into: z.literal(t.name),
+            fields,
+            values: z.array(z.array(Expr)).optional(),
+            select: Query.optional(),
+            returning: z.array(SelectField).optional(),
+            onConflict: OnConflict.optional(),
+          })
+          .describe(`An INSERT into ${t.name}.`);
+      }),
+    ).describe('An INSERT statement.');
+
+  const Insert: z.ZodTypeAny =
+    depth.refs === 'paired'
+      ? pairedInsert()
+      : z
+          .object({
+            kind: z.literal('insert'),
+            into: dmlTypeRef(insertableTypes),
+            fields: z.array(z.string()),
+            values: z.array(z.array(Expr)).optional(),
+            select: Query.optional(),
+            returning: z.array(SelectField).optional(),
+            onConflict: OnConflict.optional(),
+          })
+          .meta({ aid: 'Query_insert' })
+          .describe('An INSERT statement.');
+
+  /** The paired-per-Type UPDATE: `type` pinned, `set.field` restricted to updatable fields. */
+  const pairedUpdate = (): z.ZodTypeAny =>
+    orFold(
+      updatableTypes.map((t) => {
+        const updatable = t.fields.filter((f) => f.updatableFor(fbOf(t.name, f.name)));
+        const fieldEnum = updatable.length ? enumOf(updatable.map((f) => f.name)) : z.never();
+        return z
+          .object({
+            kind: z.literal('update'),
+            type: z.literal(t.name),
+            set: z.array(z.object({ field: fieldEnum, value: Expr })),
+            joins: joinsField,
+            where: z.array(Expr).optional(),
+            returning: z.array(SelectField).optional(),
+          })
+          .describe(`An UPDATE of ${t.name}.`);
+      }),
+    ).describe('An UPDATE statement.');
+
+  const Update: z.ZodTypeAny =
+    depth.refs === 'paired'
+      ? pairedUpdate()
+      : z
+          .object({
+            kind: z.literal('update'),
+            type: dmlTypeRef(updatableTypes),
+            set: z.array(FieldValue),
+            joins: joinsField,
+            where: z.array(Expr).optional(),
+            returning: z.array(SelectField).optional(),
+          })
+          .meta({ aid: 'Query_update' })
+          .describe('An UPDATE statement.');
 
   const Delete: z.ZodTypeAny = z
     .object({
       kind: z.literal('delete'),
-      from: typeRef,
+      from: dmlTypeRef(deletableTypes),
       joins: joinsField,
       where: z.array(Expr).optional(),
       returning: z.array(SelectField).optional(),
@@ -553,15 +632,17 @@ export function buildSchemas(
     .meta({ aid: 'Query_expr' })
     .describe('A single-expression query.');
 
-  const QueryUnion: z.ZodTypeAny = orFold([
-    Select,
-    Insert,
-    Update,
-    Delete,
-    SetOperation,
-    CTE,
-    ExprQuery,
-  ]).describe('Any query: select / insert / update / delete / set-op / cte / expr.');
+  // QUERY-KIND GATING: a DML kind is offered only when SOME registered Type
+  // permits it (no insertable Type ⇒ no `insert`, etc.), so the model is never
+  // shown an unusable statement.
+  const queryBranches: z.ZodTypeAny[] = [Select];
+  if (insertableTypes.length > 0) queryBranches.push(Insert);
+  if (updatableTypes.length > 0) queryBranches.push(Update);
+  if (deletableTypes.length > 0) queryBranches.push(Delete);
+  queryBranches.push(SetOperation, CTE, ExprQuery);
+  const QueryUnion: z.ZodTypeAny = orFold(queryBranches).describe(
+    'Any query: select / insert / update / delete / set-op / cte / expr.',
+  );
 
   return {
     Type: typeRef,

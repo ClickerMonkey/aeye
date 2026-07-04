@@ -28,6 +28,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
+import { operandCtx } from './_field-guard';
 import { ArrayFieldType } from '../field-types/index';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
@@ -119,7 +120,7 @@ export class ArrayOpExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const t = p.at('target', () => this.target.validateWalk(engine, scope, p, ctx));
+    const t = p.at('target', () => this.target.validateWalk(engine, scope, p, operandCtx(this.target, 'array-op', ctx)));
     const tft = asFieldType(t);
     const targetArray = tft instanceof ArrayFieldType ? tft : undefined;
     if (!targetArray) {

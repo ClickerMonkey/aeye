@@ -231,6 +231,15 @@ export interface FieldBacking {
   name?: string;
   /** The field's computed value, when present; otherwise the stored field. */
   compute?: Computed;
+  /**
+   * A default value materialized on INSERT when the field is OMITTED. Either a
+   * ready `Value` or a factory (sync or async) producing one. Its PRESENCE alone
+   * makes the field OPTIONAL-on-insert (there is no separate `hasDefault` flag):
+   * the runtime evaluates the value / calls the factory and writes it into the
+   * row. NOTE: a JS-factory default is a RUNTIME concern only — emitted SQL simply
+   * omits the column and relies on the DATABASE's own column `DEFAULT`.
+   */
+  default?: Value | (() => Value | Promise<Value>);
   /** Field-level security: `CASE WHEN <access> THEN <value> ELSE NULL`. */
   access?: Access;
   /** Names of `TypeBacking.joins` this field needs (added once-if-referenced). */
@@ -472,6 +481,21 @@ export async function resolveComputeRun(
   if (compute.run) return { kind: 'value', value: await compute.run(alias, row, ctx) };
   if (compute.expr) return { kind: 'value', value: await compute.expr(alias).evaluate(ctx, row) };
   return { kind: 'stored' };
+}
+
+/** Whether a `FieldBacking` supplies a default value (making the field optional-on-insert). */
+export function hasFieldDefault(fb: FieldBacking | undefined): boolean {
+  return fb?.default !== undefined;
+}
+
+/**
+ * Materialize a `FieldBacking.default` into a `Value` (awaiting a factory /
+ * ready value), or `undefined` when the backing declares no default.
+ */
+export async function resolveFieldDefault(fb: FieldBacking | undefined): Promise<Value | undefined> {
+  const d = fb?.default;
+  if (d === undefined) return undefined;
+  return typeof d === 'function' ? d() : d;
 }
 
 /** The SQL-mode resolution of a `JoinBacking` (`sql` raw fragment, else a `JoinSpec`). */

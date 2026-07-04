@@ -15,6 +15,7 @@ import type { FieldType } from '../field-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { childExprSchema } from './_shared';
+import { operandCtx } from './_field-guard';
 import { ParamExpr } from './param';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -81,9 +82,9 @@ export class BetweenExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, ctx));
-    const lo = p.at('lower', () => this.lower.validateWalk(engine, scope, p, ctx));
-    const hi = p.at('upper', () => this.upper.validateWalk(engine, scope, p, ctx));
+    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'between', ctx)));
+    const lo = p.at('lower', () => this.lower.validateWalk(engine, scope, p, operandCtx(this.lower, 'between', ctx)));
+    const hi = p.at('upper', () => this.upper.validateWalk(engine, scope, p, operandCtx(this.upper, 'between', ctx)));
 
     const vft = asFieldType(v);
     const check = (operand: Expr, rt: ResolvedType, key: 'lower' | 'upper'): void => {

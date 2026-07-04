@@ -256,6 +256,61 @@ those `groupBy` / `orderBy` / `having` positions and nowhere else. `drillDown`
 expands any `output` references against the original projection before it
 un-ravels the aggregates, so a drilled query never dangles.
 
+## Write model & permissions
+
+Types and fields declare **what write operations are possible**, and that flows
+into BOTH validation AND the LLM-facing schema — so the generated schema never
+offers a write the engine would reject.
+
+- **Type permissions.** `insertable` / `updatable` / `deletable` on a `TypeDef`
+  (each default **true**). A restricted Type is rejected by validation
+  (`insert.type-readonly` / `update.type-readonly` / `delete.type-readonly`), the
+  schema **drops the DML kind** when no Type permits it, and each DML's
+  target-name enum is filtered (`into` → insertable, `update.type` → updatable,
+  `delete.from` → deletable).
+- **Field permissions.** `insertable` / `updatable` on a `FieldDef` (default
+  **true**). A **computed** field (`FieldBacking.compute`) defaults to
+  `insertable:false, updatable:false` (override with an explicit flag).
+  Validation rejects a listed non-insertable field (`insert.field-readonly`) / an
+  assigned non-updatable field (`update.field-readonly`); the paired schema
+  offers only insertable `fields` / updatable `set` fields.
+- **Insert-requiredness (one rule).** A field is REQUIRED on insert iff it is
+  **insertable AND non-nullable AND has no default AND is not computed** —
+  otherwise optional or excluded. A shared `requiredOnInsert` helper drives both
+  the schema (required-vs-optional in paired mode) and validation
+  (`insert.missing-required`, listing the missing names).
+- **Defaults live on the backing.** `FieldBacking.default` is a `Value` or a
+  factory `() => Value | Promise<Value>` — its presence alone makes the field
+  optional-on-insert (no `hasDefault` flag). At **runtime** an omitted defaulted
+  field is materialized (value evaluated / factory awaited, per row) into the
+  record; in **SQL** the column is left out of the INSERT so the DB's own column
+  `DEFAULT` fills it (a JS-factory default is runtime-only).
+- **Per-field expr restrictions.** `FieldDef.exprs` = `{ not: ExprKind[] }` or
+  `{ only: ExprKind[] }` NARROWS which expr kinds may target the field (never
+  enables one the field TYPE disallows). `field.allowsExpr(kind)` respects both.
+  Validation reports `field.expr-denied` at the use site — a standalone
+  `field-ref`, a gating operator's DIRECT field-ref operand (`comparison` /
+  `between` / `in` / `is-null` / `array-op`), and the field-naming exprs
+  (`text-search` / `text-score` / `semantic` / `filters`). The paired schema
+  omits an excluded field from the relevant enum, and gates a kind away entirely
+  when every candidate field excludes it.
+
+```ts
+const doc: TypeDef = {
+  name: 'doc', count: 1000, bytes: 256,
+  fields: [
+    { name: 'id',    type: { kind: 'text' } },                      // required on insert
+    { name: 'title', type: { kind: 'text' } },                      // required
+    { name: 'views', type: { kind: 'number' }, updatable: false },  // write-once
+    { name: 'notes', type: { kind: 'text' }, nullable: true },      // optional
+  ],
+};
+// `createdAt` is optional-on-insert (has a default) and materialized at runtime.
+const backing: TypeBacking = {
+  fields: { createdAt: { default: () => Value.of(new Date().toISOString()) } },
+};
+```
+
 ## Execution model
 
 There is ONE execution contract: **run a query, optionally with param values

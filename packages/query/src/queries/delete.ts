@@ -30,7 +30,7 @@ import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
 import { rlsPredicate } from '../sql/rls';
-import { dmlJoinsUnsupported } from './_sql';
+import { dmlJoinsUnsupported, typeReadonly } from './_sql';
 
 interface ReturningField {
   expr: Expr;
@@ -135,6 +135,11 @@ export class DeleteQuery extends Query {
       p.error('delete.unknown-type', `Unknown target type '${this.from}'.`);
       return;
     }
+    // WRITE-MODEL: the Type as a whole must be deletable.
+    if (!type.deletable) {
+      p.error('delete.type-readonly', `Type '${this.from}' is not deletable.`);
+      return;
+    }
     // A join hop that rebinds the target type name (or two hops on one type)
     // collides with the DML target → reported as `source.duplicate`.
     reportDuplicateSources(p, this.boundSources(engine));
@@ -174,6 +179,8 @@ export class DeleteQuery extends Query {
     const type = engine.type(this.from);
     const fields = this.outputFields(engine, engine.globalScope());
     if (!type) return makeResult('delete', [], fields, 0);
+    // WRITE-MODEL (belt-and-suspenders): never delete from a non-deletable Type.
+    if (!type.deletable) throw typeReadonly('delete', this.from);
     const state = await ctx.typeState(type);
 
     let rows: SourceRow[] = state.current.map((rec) => ({ [this.alias]: rec }));

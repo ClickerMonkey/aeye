@@ -23,7 +23,7 @@ import type { Registry } from './registry';
 import type { Type } from './type';
 import type { Field } from './field';
 import type { RefDepth, FnDepth, SelectedFunctions } from './node';
-import type { FunctionDef, FunctionShape } from './schema';
+import type { FunctionDef, FunctionShape, ExprKind } from './schema';
 
 // ─── Union primitives ─────────────────────────────────────────────────────────
 
@@ -65,6 +65,15 @@ export const relationFieldsOf: FieldEligibility = (t) => t.relationFields();
 export const semanticFieldsOf: FieldEligibility = (t) => t.semanticFields();
 /** Eligibility: only text fields (a narrowed text-search target). */
 export const textFieldsOf: FieldEligibility = (t) => t.textFields();
+
+/**
+ * WRITE-MODEL: narrow an eligibility to only the fields that ALLOW expr `kind`
+ * (a field's `exprs` restriction can exclude a kind). So a paired / enumerated
+ * field position never offers a field the kind is denied on.
+ */
+export function allowingExpr(base: FieldEligibility, kind: ExprKind): FieldEligibility {
+  return (t) => base(t).filter((f) => f.allowsExpr(kind));
+}
 
 // ─── The unified depth-aware reference schema helper ──────────────────────────
 //
@@ -210,7 +219,7 @@ export function fieldRefSchema(types: readonly Type[], depth: RefDepth): z.ZodTy
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'one',
-    eligible: allFields,
+    eligible: allowingExpr(allFields, 'field-ref'),
     extras: { kind: z.literal('field-ref') },
     aid: 'Expr_field-ref',
     describe: 'A direct field reference.',
@@ -256,7 +265,7 @@ export function semanticSchema(types: readonly Type[], depth: RefDepth): z.ZodTy
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'optional',
-    eligible: semanticFieldsOf,
+    eligible: allowingExpr(semanticFieldsOf, 'semantic'),
     extras: { kind: z.literal('semantic'), query: semanticQuerySchema(types, depth) },
     aid: 'Expr_semantic',
     describe: 'Semantic-similarity score (requires an embedder).',
@@ -268,7 +277,7 @@ export function textSearchSchema(types: readonly Type[], depth: RefDepth): z.Zod
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'optional',
-    eligible: textFieldsOf,
+    eligible: allowingExpr(textFieldsOf, 'text-search'),
     extras: {
       kind: z.literal('text-search'),
       query: z.string().or(paramSchema()).describe('Search query: a literal string or a param.'),
@@ -283,7 +292,7 @@ export function textScoreSchema(types: readonly Type[], depth: RefDepth): z.ZodT
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'optional',
-    eligible: textFieldsOf,
+    eligible: allowingExpr(textFieldsOf, 'text-score'),
     extras: {
       kind: z.literal('text-score'),
       query: z.string().or(paramSchema()).describe('Search query: a literal string or a param.'),
@@ -304,7 +313,7 @@ export function filtersSchema(types: readonly Type[], depth: 'open' | 'paired'):
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'list',
-    eligible: allFields,
+    eligible: allowingExpr(allFields, 'filters'),
     extras: { kind: z.literal('filters') },
     aid: 'Expr_filters',
     describe: 'A structured filter placeholder; clauses are supplied at execution time.',
@@ -554,7 +563,8 @@ export function exprKindApplicable(
     case 'text-score':
       return types.some((t) => t.isSearchable());
     case 'array-op':
-      return types.some((t) => t.hasArrayField());
+      // WRITE-MODEL: gone entirely when EVERY array field excludes `array-op`.
+      return types.some((t) => t.fields.some((f) => f.allowsExpr('array-op')));
     case 'relation-path':
       return types.some((t) => t.relationFields().length > 0);
     case 'tabular-function-call':

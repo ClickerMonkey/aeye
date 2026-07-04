@@ -31,7 +31,7 @@ import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
 import { rlsPredicate } from '../sql/rls';
-import { dmlJoinsUnsupported } from './_sql';
+import { dmlJoinsUnsupported, typeReadonly, fieldReadonly } from './_sql';
 
 interface SetClause {
   field: string;
@@ -143,6 +143,11 @@ export class UpdateQuery extends Query {
       p.error('update.unknown-type', `Unknown target type '${this.type}'.`);
       return;
     }
+    // WRITE-MODEL: the Type as a whole must be updatable.
+    if (!type.updatable) {
+      p.error('update.type-readonly', `Type '${this.type}' is not updatable.`);
+      return;
+    }
     // A join hop that rebinds the target type name (or two hops on one type)
     // collides with the DML target → reported as `source.duplicate`.
     reportDuplicateSources(p, this.boundSources(engine));
@@ -150,7 +155,13 @@ export class UpdateQuery extends Query {
     const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [], inGroupBy: false };
     p.at('set', () => {
       this.set.forEach((s, i) => {
-        if (!type.field(s.field)) p.at([i, 'field'], () => p.error('update.unknown-field', `Type '${this.type}' has no field '${s.field}'.`));
+        const field = type.field(s.field);
+        if (!field) {
+          p.at([i, 'field'], () => p.error('update.unknown-field', `Type '${this.type}' has no field '${s.field}'.`));
+        } else if (!field.updatableFor(engine.fieldBacking(this.type, s.field))) {
+          // WRITE-MODEL: a non-updatable (read-only / computed) field can't be assigned.
+          p.at([i, 'field'], () => p.error('update.field-readonly', `Field '${s.field}' of '${this.type}' is not updatable.`));
+        }
         p.at([i, 'value'], () => s.expr.validateWalk(engine, inner, p, ctx));
       });
     });
@@ -188,6 +199,14 @@ export class UpdateQuery extends Query {
     const type = engine.type(this.type);
     const fields = this.outputFields(engine, engine.globalScope());
     if (!type) return makeResult('update', [], fields, 0);
+    // WRITE-MODEL (belt-and-suspenders): never write a read-only Type / field.
+    if (!type.updatable) throw typeReadonly('update', this.type);
+    for (const s of this.set) {
+      const field = type.field(s.field);
+      if (field && !field.updatableFor(engine.fieldBacking(this.type, s.field))) {
+        throw fieldReadonly('update', this.type, s.field);
+      }
+    }
     const state = await ctx.typeState(type);
 
     // Build rows {alias: record} over the current rows, then apply joins.

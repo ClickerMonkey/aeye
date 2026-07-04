@@ -30,6 +30,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { numberResult } from './_shared';
+import { checkFieldExpr } from '../write-model';
 import { ParamExpr } from './param';
 import { TextFieldType } from '../field-types/index';
 import type { Field } from '../field';
@@ -233,6 +234,9 @@ export class SemanticExpr extends Expr {
           p.at('field', () =>
             p.error('semantic.field-not-semantic', `Field '${this.field}' of '${type.name}' is not semantic.`),
           );
+        } else {
+          // WRITE-MODEL: honor the field's `exprs` restriction for this kind.
+          checkFieldExpr('semantic', field, this.source, p);
         }
       }
     }
