@@ -27,8 +27,12 @@ import type { Expr } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Type } from '../type';
+import type { ResolvedRelationOn } from '../field-types/relation';
+import type { RelationOnPair } from '../backing';
+import { resolveRelationOnRun } from '../backing';
 import { RelationFieldType } from '../field-types/index';
 import { Value } from '../runtime/value';
+import type { SourceRecord } from '../runtime/row';
 
 /** One materialized relation hop in a join. */
 export interface JoinHop {
@@ -38,10 +42,27 @@ export interface JoinHop {
   targetAlias: string;
   /** The target Type joined in. */
   targetType: Type;
-  /** Matched field on the left side. */
-  localField: string;
-  /** Matched field on the target side. */
-  foreignField: string;
+  /**
+   * Physical ON key-column pairs, oriented to `leftAlias` / `targetAlias` (ALL
+   * ANDed; composite FKs). Convention or backing `keys`; the non-custom match.
+   */
+  keys: readonly RelationOnPair[];
+  /** A custom ON backing (overrides `keys`), with its oriented aliases. */
+  custom?: ResolvedRelationOn['custom'];
+}
+
+/** Whether every key pair equates `leftRec.localField` to `targetRec.foreignField`. */
+function keysMatch(
+  keys: readonly RelationOnPair[],
+  leftRec: SourceRecord | undefined,
+  targetRec: SourceRecord,
+): boolean {
+  for (const k of keys) {
+    const lv = Value.of(leftRec?.[k.localField] ?? null);
+    const fv = Value.of(targetRec[k.foreignField] ?? null);
+    if (!lv.equals(fv)) return false;
+  }
+  return true;
 }
 
 /** The SQL join type applied to a relation hop. */
@@ -90,15 +111,15 @@ export class QueryJoin {
     const rel = field.fieldType;
     const target = engine.type(rel.to);
     if (!target) return undefined;
-    const key = rel.resolveKey(this.on.field, root, target);
     const targetAlias = this.authoredAs !== undefined ? this.authoredAs : target.name;
+    const resolved = rel.resolveOn(engine, this.on.field, root, target, this.on.source, targetAlias);
     return [
       {
         leftAlias: this.on.source,
         targetAlias,
         targetType: target,
-        localField: key.localField,
-        foreignField: key.foreignField,
+        keys: resolved.keys,
+        custom: resolved.custom,
       },
     ];
   }
@@ -153,10 +174,14 @@ export class QueryJoin {
     const combine = async (left: SourceRow, ti: number): Promise<SourceRow | null> => {
       const target = targets[ti]!;
       const leftRec = left[hop.leftAlias];
-      const lv = Value.of(leftRec?.[hop.localField] ?? null);
-      const fv = Value.of(target[hop.foreignField] ?? null);
-      if (!lv.equals(fv)) return null;
       const merged: SourceRow = { ...left, [hop.targetAlias]: target };
+      // Custom ON (runtime `run`/`expr`) wins; else fall back to the key match.
+      let ok: boolean | undefined;
+      if (hop.custom) {
+        ok = await resolveRelationOnRun(hop.custom.on, hop.custom.localAlias, hop.custom.joinedAlias, merged, ctx);
+      }
+      if (ok === undefined) ok = keysMatch(hop.keys, leftRec, target);
+      if (!ok) return null;
       if (andExpr && !(await andExpr.evaluate(ctx, merged)).toBoolean()) return null;
       return merged;
     };

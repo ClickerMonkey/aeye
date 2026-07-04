@@ -2,8 +2,15 @@ import { z } from 'zod';
 import type { FieldTypeDef, RelationFieldTypeDef } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import type { Type } from '../type';
+import type { QueryEngine } from '../engine';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import {
+  relationKeyColumns,
+  type RelationBacking,
+  type RelationOn,
+  type RelationOnPair,
+} from '../backing';
 
 /**
  * Resolved join key for a relation, relative to the two Types a join relates:
@@ -16,6 +23,32 @@ export interface RelationKey {
   localField: string;
   /** The matched field on the TARGET side of the join. */
   foreignField: string;
+}
+
+/**
+ * The fully resolved `ON` for one relation hop, oriented to the join's SOURCE
+ * (left) alias and TARGET alias:
+ *  - `keys`   — the physical key-column pairs (ALL ANDed). Always present: a
+ *    `RelationBacking.keys` mapping, else the single NAME-CONVENTION pair. The
+ *    non-custom fallback in every mode.
+ *  - `custom` — a `RelationBacking.on` predicate (when declared) plus its two
+ *    oriented aliases (`localAlias` = the relation's declaring/belongs-to side,
+ *    `joinedAlias` = the belongs-to target). Each mode uses it only when it has
+ *    an applicable path (SQL: `sql`/`expr`; runtime: `run`/`expr`), else it
+ *    falls back to `keys`.
+ */
+export interface ResolvedRelationOn {
+  /** Oriented ON key-column pairs (convention or backing `keys`), all ANDed. */
+  readonly keys: readonly RelationOnPair[];
+  /** The custom ON backing + its oriented aliases, when declared. */
+  readonly custom?: {
+    /** The declared custom predicate. */
+    readonly on: RelationOn;
+    /** Bound alias of the relation's DECLARING (belongs-to) side. */
+    readonly localAlias: string;
+    /** Bound alias of the belongs-to TARGET side. */
+    readonly joinedAlias: string;
+  };
 }
 
 /** Lowercase the first character (`User` → `user`) for the FK default. */
@@ -103,6 +136,64 @@ export class RelationFieldType extends FieldType {
       localField: thisType.identityField().name,
       foreignField: fk,
     };
+  }
+
+  /**
+   * Resolve the full join `ON` for this relation hop, consulting the field's
+   * DEV-SIDE `RelationBacking` (physical FK columns / custom predicate) and
+   * falling back to `resolveKey`'s NAME CONVENTION when none is declared. The
+   * result is ORIENTED to the two BOUND aliases (`leftAlias` = the join's
+   * source, `targetAlias` = the target), so aliased / self-joins resolve.
+   *
+   * The backing lives on the OWNING (belongs-to) relation. A materialized
+   * inverse has-many (`count > 1` with an `inverseVia`) REUSES the SAME FK: its
+   * forward relation's `relation` backing on the target Type, with the key
+   * orientation SWAPPED (the declaring side is now the join's target). A
+   * directly-declared has-many (no `inverseVia`) has no forward relation to
+   * borrow from and stays on the convention.
+   */
+  resolveOn(
+    engine: QueryEngine,
+    relationFieldName: string,
+    thisType: Type,
+    targetType: Type,
+    leftAlias: string,
+    targetAlias: string,
+  ): ResolvedRelationOn {
+    let backing: RelationBacking | undefined;
+    let forward: boolean;
+    let targetIdentity: string; // belongs-to TARGET identity — the default `foreign`.
+    let declarerAlias: string; // bound alias of the belongs-to (declaring) side.
+    let joinedAlias: string; // bound alias of the belongs-to target side.
+    if (this.count === 1) {
+      // belongs-to: THIS field declares the FK; its backing lives here.
+      backing = engine.fieldBacking(thisType.name, relationFieldName)?.relation;
+      forward = true;
+      targetIdentity = targetType.identityField().name;
+      declarerAlias = leftAlias;
+      joinedAlias = targetAlias;
+    } else {
+      // has-many: a materialized inverse borrows its forward relation's backing.
+      backing =
+        this.inverseVia !== undefined
+          ? engine.fieldBacking(targetType.name, this.inverseVia)?.relation
+          : undefined;
+      forward = false;
+      targetIdentity = thisType.identityField().name;
+      declarerAlias = targetAlias;
+      joinedAlias = leftAlias;
+    }
+    const keys: readonly RelationOnPair[] =
+      backing?.keys && backing.keys.length > 0
+        ? relationKeyColumns(backing.keys, forward, targetIdentity)
+        : [this.resolveKey(relationFieldName, thisType, targetType)];
+    // `on` (custom predicate) takes precedence; the emit sites use it only when
+    // it has a mode-applicable path (SQL: `sql`/`expr`; runtime: `run`/`expr`),
+    // else they fall back to `keys` — so an inapplicable `on` is a no-op here.
+    if (backing?.on) {
+      return { keys, custom: { on: backing.on, localAlias: declarerAlias, joinedAlias } };
+    }
+    return { keys };
   }
 
   /** Resolve to the `relation` scalar comparison category. */

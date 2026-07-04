@@ -19,8 +19,7 @@ function joinReq(over: Partial<JoinRequest> = {}): JoinRequest {
     leftAlias: 'order',
     alias: 'order_userId',
     targetType: fx.user,
-    localField: 'userId',
-    foreignField: 'id',
+    keys: [{ localField: 'userId', foreignField: 'id' }],
     joinType: 'left',
     ...over,
   };

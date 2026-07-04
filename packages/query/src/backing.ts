@@ -254,6 +254,152 @@ export interface FieldBacking {
    * `TypeBacking.semantic` for a field-narrowed `semantic` score over this field.
    */
   semantic?: SemanticBacking;
+  /**
+   * PHYSICAL join backing for a RELATION-typed field (ignored on any other field
+   * kind). It drives a relation join's `ON` from explicit, LLM-HIDDEN foreign-key
+   * columns (and/or a custom predicate) instead of the name convention. The
+   * backing lives on the OWNING (belongs-to) relation; a materialized inverse
+   * has-many REUSES the same FK (its forward relation's `relation` backing). See
+   * {@link RelationBacking}.
+   */
+  relation?: RelationBacking;
+}
+
+// ─── Relation-join backing (physical FK columns / custom ON) ─────────────────
+//
+// A relation field's join `ON` is `source.local = target.foreign`. Absent any
+// backing it is synthesized by NAME CONVENTION (belongs-to: `local` = the
+// relation field, `foreign` = the target identity; has-many: the FK on the
+// target). `RelationBacking` overrides that with EXPLICIT physical columns — the
+// key columns are DEV-SIDE only, never in the conceptual `TypeDef` / `FieldDef`
+// the LLM sees. Composite FKs are supported (every pair ANDed), and a fully
+// custom `on` predicate is available (alias-correct, dual SQL/runtime).
+
+/**
+ * One physical key-column pair backing a relation join's `ON`, ORIENTED to the
+ * join's SOURCE (left) alias and TARGET alias:
+ * `ON <leftAlias>.<localField> = <targetAlias>.<foreignField>`. A resolved
+ * relation ON is a list of these (all ANDed), so composite FKs are one list.
+ */
+export interface RelationOnPair {
+  /** Column on the join's SOURCE (left) alias. */
+  readonly localField: string;
+  /** Column on the join's TARGET alias. */
+  readonly foreignField: string;
+}
+
+/**
+ * A fully custom relation `ON`, given the two BOUND aliases (alias-correct, so
+ * aliased / self-joins resolve). `localAlias` is the side that DECLARES the
+ * relation (the belongs-to side, where this backing lives); `joinedAlias` is the
+ * belongs-to TARGET. When a has-many inverse reuses this backing the resolver
+ * passes the same two aliases (declarer, target), so the predicate is written
+ * ONCE and is direction-independent (`ON` is symmetric). Precedence mirrors
+ * `Access` / `Computed`: SQL prefers `sql` then `expr`; the runtime prefers
+ * `run` then `expr`. A mode with no applicable path (SQL with only `run`, or the
+ * runtime with only `sql`) falls back to the `keys` mapping.
+ */
+export interface RelationOn {
+  /**
+   * The DUAL predicate path: a boolean `Expr` emitted to SQL AND evaluated in
+   * memory. Reference the two supplied aliases for every column (never a literal
+   * Type name).
+   */
+  expr?: (localAlias: string, joinedAlias: string) => Expr;
+  /** SQL-only override: a raw boolean `SqlText`. Reference the supplied aliases. */
+  sql?: (localAlias: string, joinedAlias: string, ctx: SqlContext) => SqlText;
+  /**
+   * Runtime-only override: given the two aliases + context, return a MATCHER over
+   * the two candidate records (`localRow` = the declarer side, `joinedRow` = the
+   * target side) deciding whether they join.
+   */
+  run?: (
+    localAlias: string,
+    joinedAlias: string,
+    ctx: RuntimeContext,
+  ) => (localRow: SourceRecord, joinedRow: SourceRecord) => boolean | Promise<boolean>;
+}
+
+/**
+ * DEV-SIDE physical backing for a relation field's join `ON`. Both members are
+ * optional; `on` (a custom predicate) takes precedence over `keys` (physical FK
+ * columns), which in turn takes precedence over the NAME CONVENTION (used when
+ * this backing is absent).
+ */
+export interface RelationBacking {
+  /**
+   * Physical key-column pairs forming the `ON` (ALL ANDed; composite FKs
+   * supported). `local` is the column on the side that DECLARES the relation
+   * (the belongs-to side); `foreign` is the column on the TARGET side and
+   * DEFAULTS to the target's identity field. Example (composite):
+   * `keys: [{ local: 'a_id', foreign: 'a' }, { local: 'b_id', foreign: 'b' }]`
+   * ⇒ `ON src.a_id = tgt.a AND src.b_id = tgt.b`.
+   */
+  keys?: ReadonlyArray<{ local: string; foreign?: string }>;
+  /** A dynamic, alias-correct custom `ON` (overrides `keys`). See {@link RelationOn}. */
+  on?: RelationOn;
+}
+
+/**
+ * Map a `RelationBacking`'s declared `keys` to ON column pairs ORIENTED to a
+ * join's source (left) + target aliases. `forward` = the join goes the
+ * belongs-to direction (the source alias is the declaring side); when `false`
+ * (a has-many inverse reusing the forward FK) the orientation is swapped.
+ * `targetIdentity` supplies the default column for any pair that omits `foreign`
+ * (the belongs-to TARGET's identity field).
+ */
+export function relationKeyColumns(
+  keys: ReadonlyArray<{ local: string; foreign?: string }>,
+  forward: boolean,
+  targetIdentity: string,
+): RelationOnPair[] {
+  return keys.map((k) => {
+    const declarerCol = k.local;
+    const targetCol = k.foreign ?? targetIdentity;
+    return forward
+      ? { localField: declarerCol, foreignField: targetCol }
+      : { localField: targetCol, foreignField: declarerCol };
+  });
+}
+
+/**
+ * Resolve a custom relation `ON` for SQL emission (prefers `sql`, then the dual
+ * `expr`). Returns `undefined` when neither path applies (an `on` carrying only
+ * `run`), so the caller falls back to the `keys` mapping.
+ */
+export function resolveRelationOnSql(
+  on: RelationOn,
+  localAlias: string,
+  joinedAlias: string,
+  ctx: SqlContext,
+): SqlText | undefined {
+  if (on.sql) return on.sql(localAlias, joinedAlias, ctx);
+  if (on.expr) return on.expr(localAlias, joinedAlias).toSQL(ctx.dialect, ctx);
+  return undefined;
+}
+
+/**
+ * Resolve a custom relation `ON` for the in-memory runtime (prefers `run`, then
+ * the dual `expr`) over a MERGED row carrying both bound aliases' records.
+ * Returns `undefined` when neither path applies (an `on` carrying only `sql`),
+ * so the caller falls back to the `keys` mapping.
+ */
+export async function resolveRelationOnRun(
+  on: RelationOn,
+  localAlias: string,
+  joinedAlias: string,
+  row: SourceRow,
+  ctx: RuntimeContext,
+): Promise<boolean | undefined> {
+  if (on.run) {
+    const matcher = on.run(localAlias, joinedAlias, ctx);
+    return matcher(row[localAlias], row[joinedAlias]);
+  }
+  if (on.expr) {
+    const v = await on.expr(localAlias, joinedAlias).evaluate(ctx, row);
+    return v.toBoolean();
+  }
+  return undefined;
 }
 
 /**

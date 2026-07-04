@@ -489,6 +489,46 @@ emits `LEFT JOIN LATERAL (…) ON true`; the portable base dialect degrades to
 `LEFT JOIN LATERAL (…) ON 1 = 1` (a documented correlated-subquery fallback) and
 the runtime evaluates the sub-select per outer row.
 
+## Relation-join backing (physical FK columns / custom ON)
+
+By default a relation join's `ON` is synthesized from the relation field's
+**name** convention (`source.<local> = target.<foreign>`). `FieldBacking.relation`
+(on a relation-typed field only) overrides that with **explicit, LLM-hidden
+physical foreign-key columns** — the conceptual `FieldDef` / `TypeDef` the model
+sees never change.
+
+```ts
+const backing: TypeBacking = {
+  fields: {
+    // `comment_rating.user` belongs-to `user`; the hidden physical FK is `user_id`.
+    user: { relation: { keys: [{ local: 'user_id', foreign: 'id' }] } },
+  },
+};
+// A user's ratings (the materialized inverse has-many) then emits
+//   … LEFT JOIN "comment_rating" ON "user"."id" = "comment_rating"."user_id"
+// and the belongs-to direction emits the mirror `ON "comment_rating"."user_id" = "user"."id"`.
+```
+
+- **`keys: [{ local, foreign? }]`** — physical key-column pairs, **all ANDed**
+  (composite FKs: `keys: [{ local: 'a_id', foreign: 'a' }, { local: 'b_id',
+  foreign: 'b' }]` ⇒ `ON src.a_id = tgt.a AND src.b_id = tgt.b`). `local` is the
+  column on the side that **declares** the relation; `foreign` is the column on
+  the **target** and defaults to the target's identity field.
+- **The backing lives on the owning belongs-to relation.** A materialized inverse
+  has-many **reuses the same FK** (its forward relation's backing, orientation
+  swapped) — you declare it once.
+- **`on`** — a fully custom, alias-correct `ON` (overrides `keys`). `{ expr }` is
+  the dual path (one predicate emitted to SQL **and** evaluated in memory); `sql`
+  / `run` are per-mode overrides. Each factory receives the two **bound aliases**
+  (`localAlias` = the declaring side, `joinedAlias` = the target), so
+  aliased / self-joins resolve.
+
+Every ON site honors the backing — authored joins, `relation-path` (value + at
+runtime), fan-out aggregate grouping, the `TypeBacking.joins` relation spec, and
+joined UPDATE/DELETE — so SQL and the in-memory runtime always agree. `JoinDef.and`
+is still ANDed onto whatever `ON` the backing produces. With no backing the
+convention is used unchanged (fully backward-compatible).
+
 ## Filters and params
 
 A `filters` expression is an **LLM-opaque placeholder** bound to a source, with

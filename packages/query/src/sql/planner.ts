@@ -23,6 +23,7 @@
  */
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
+import type { RelationOnPair } from '../backing';
 import type { JoinType } from '../queries/join';
 import type { Dialect } from './dialect';
 import { SqlText } from './emit';
@@ -39,10 +40,17 @@ export interface JoinRequest {
   alias: string;
   /** The Type joined in. */
   targetType: Type;
-  /** Matched field on the left side. */
-  localField: string;
-  /** Matched field on the target side. */
-  foreignField: string;
+  /**
+   * Physical key-column pairs forming the ON (ALL ANDed; composite FKs). Each
+   * emits `<leftAlias>.<localField> = <alias>.<foreignField>`. Ignored when
+   * `customOn` is present (a custom predicate replaces the key equality).
+   */
+  keys: ReadonlyArray<RelationOnPair>;
+  /**
+   * A pre-emitted custom ON predicate (from a `RelationBacking.on`) that
+   * REPLACES the `keys` equality entirely; RLS + `extraOn` are still ANDed on.
+   */
+  customOn?: SqlText;
   /** SQL join type. */
   joinType: JoinType;
   /** Canonical digest of the optional extra predicate (for dedup). */
@@ -169,9 +177,14 @@ export class JoinCtePlanner {
     const existing = this.joinKeys.get(key);
     if (existing !== undefined) return existing;
 
-    const onParts: SqlText[] = [
-      SqlText.join([this.dialect.field(req.leftAlias, req.localField), SqlText.raw('='), this.dialect.field(req.alias, req.foreignField)], ' '),
-    ];
+    const onParts: SqlText[] = req.customOn
+      ? [req.customOn]
+      : req.keys.map((k) =>
+          SqlText.join(
+            [this.dialect.field(req.leftAlias, k.localField), SqlText.raw('='), this.dialect.field(req.alias, k.foreignField)],
+            ' ',
+          ),
+        );
     const rls = rlsPredicate(this.rls, this.dialect, this.engine, this, req.targetType.name, req.alias);
     if (rls) onParts.push(rls);
     if (req.extraOn) onParts.push(req.extraOn);

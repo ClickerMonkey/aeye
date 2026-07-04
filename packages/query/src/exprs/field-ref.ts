@@ -33,6 +33,8 @@ import {
   resolveComputeRun,
   resolveJoinSql,
   resolveJoinRun,
+  resolveRelationOnSql,
+  resolveRelationOnRun,
   joinAlias,
   type AccessSql,
   type JoinSqlPlan,
@@ -276,11 +278,26 @@ export class FieldRefExpr extends Expr {
     const rel = relField.fieldType;
     const target = ctx.engine.type(rel.to);
     if (!target) return;
-    const key = rel.resolveKey(spec.relation, type, target);
+    const resolved = rel.resolveOn(ctx.engine, spec.relation, type, target, spec.source, alias);
     /* v8 ignore next -- the `?? []` is dead: `target` is a registered type, so recordsFor(target.name) never returns undefined */
     const records = (await ctx.recordsFor(target.name)) ?? [];
-    const localVal = row[spec.source]?.[key.localField];
-    const match = records.find((r) => r[key.foreignField] === localVal);
+    const sourceRec = row[spec.source];
+    const custom = resolved.custom;
+    let match: SourceRecord | undefined;
+    if (custom && (custom.on.run || custom.on.expr)) {
+      // Custom ON is authoritative at runtime — never fall back to the keys.
+      for (const r of records) {
+        const ok = await resolveRelationOnRun(custom.on, custom.localAlias, custom.joinedAlias, { [spec.source]: sourceRec, [alias]: r }, ctx);
+        if (ok) { match = r; break; }
+      }
+    } else {
+      match = records.find((r) =>
+        resolved.keys.every((k) => {
+          const lv = sourceRec[k.localField] ?? null;
+          return lv !== null && r[k.foreignField] === lv;
+        }),
+      );
+    }
     row[alias] = match ?? {};
   }
 
@@ -399,13 +416,16 @@ export class FieldRefExpr extends Expr {
     const rel = relField.fieldType;
     const target = ctx.engine.type(rel.to);
     if (!target) return;
-    const key = rel.resolveKey(spec.relation, src.type, target);
+    const resolved = rel.resolveOn(ctx.engine, spec.relation, src.type, target, spec.source, alias);
+    const customOn = resolved.custom
+      ? resolveRelationOnSql(resolved.custom.on, resolved.custom.localAlias, resolved.custom.joinedAlias, ctx)
+      : undefined;
     ctx.planner.requireJoin({
       leftAlias: spec.source,
       alias,
       targetType: target,
-      localField: key.localField,
-      foreignField: key.foreignField,
+      keys: resolved.keys,
+      customOn,
       joinType: spec.joinType ?? 'left',
     });
   }

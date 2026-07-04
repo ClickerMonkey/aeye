@@ -6,6 +6,7 @@
  */
 import type { Type } from '../type';
 import { RelationFieldType } from '../field-types/index';
+import { resolveRelationOnSql } from '../backing';
 import type { Dialect } from './dialect';
 import { SqlContext, SqlText } from './emit';
 
@@ -40,14 +41,17 @@ export function emitRelationPathValue(
       const rel = field.fieldType;
       const target = ctx.engine.type(rel.to);
       if (!target) return dialect.field(leftAlias, seg);
-      const key = rel.resolveKey(seg, leftType, target);
       const alias = `${leftAlias}_${seg}`;
+      const resolved = rel.resolveOn(ctx.engine, seg, leftType, target, leftAlias, alias);
+      const customOn = resolved.custom
+        ? resolveRelationOnSql(resolved.custom.on, resolved.custom.localAlias, resolved.custom.joinedAlias, ctx)
+        : undefined;
       ctx.planner.requireJoin({
         leftAlias,
         alias,
         targetType: target,
-        localField: key.localField,
-        foreignField: key.foreignField,
+        keys: resolved.keys,
+        customOn,
         joinType: 'left',
       });
       leftAlias = alias;
@@ -98,7 +102,11 @@ export function fanoutAggregateInfo(
   if (rel.count <= 1) return undefined; // one-to-one ⇒ plain join, not a CTE
   const target = ctx.engine.type(rel.to);
   if (!target) return undefined;
-  const key = rel.resolveKey(seg, leftType, target);
+  // Pre-aggregation groups the target by a SINGLE foreign key. Honor the
+  // relation backing's (first) physical key column; a composite FK groups on
+  // its LEADING pair. (`source_seg` is a synthetic alias only the ignored custom
+  // path would reference — a fan-out CTE never uses a custom `on`.)
+  const key = rel.resolveOn(ctx.engine, seg, leftType, target, source, `${source}_${seg}`).keys[0]!;
   return {
     leftAlias: source,
     localField: key.localField,

@@ -30,6 +30,7 @@ import { scanCost, applyWhere } from './_cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
+import { resolveRelationOnSql } from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { dmlJoinsUnsupported, typeReadonly, fieldReadonly } from './_sql';
 
@@ -328,12 +329,15 @@ export class UpdateQuery extends Query {
           extraOn = join.and.toSQL(dialect, selCtx);
           andKey = canonicalize(join.and);
         }
+        const customOn = hop.custom
+          ? resolveRelationOnSql(hop.custom.on, hop.custom.localAlias, hop.custom.joinedAlias, selCtx)
+          : undefined;
         planner.requireJoin({
           leftAlias: hop.leftAlias,
           alias: hop.targetAlias,
           targetType: hop.targetType,
-          localField: hop.localField,
-          foreignField: hop.foreignField,
+          keys: hop.keys,
+          customOn,
           joinType: join.joinType,
           andKey,
           extraOn,

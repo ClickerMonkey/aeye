@@ -32,6 +32,7 @@ import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
 import { emitRelationPathValue } from '../sql/relation-walk';
+import { resolveRelationOnRun } from '../backing';
 
 /** Walks one or more relation fields from a source, optionally ending at a scalar field. */
 export class RelationPathExpr extends Expr {
@@ -201,13 +202,29 @@ export class RelationPathExpr extends Expr {
       if (ft instanceof RelationFieldType) {
         const target = ctx.engine.type(ft.to);
         if (!target) return Value.null();
-        const key = ft.resolveKey(seg, currentType, target);
-        const localVal: JsonValue = rec[key.localField] ?? null;
-        // A NULL/absent foreign key never joins (SQL `NULL = …` is never true).
-        if (localVal === null) return Value.null();
+        // Resolve the ON honoring any relation backing (physical FK / custom).
+        // `_l` / `_r` are in-memory row-map keys only — the SQL side references
+        // real table aliases; both drive the SAME predicate logic.
+        const resolved = ft.resolveOn(ctx.engine, seg, currentType, target, '_l', '_r');
         /* v8 ignore next -- the `?? []` is dead: `target` is a registered type, so recordsFor(target.name) never returns undefined */
         const records: readonly SourceRecord[] = (await ctx.recordsFor(target.name)) ?? [];
-        const match: SourceRecord | undefined = records.find((r) => r[key.foreignField] === localVal);
+        const sourceRec = rec;
+        const custom = resolved.custom;
+        let match: SourceRecord | undefined;
+        if (custom && (custom.on.run || custom.on.expr)) {
+          for (const r of records) {
+            const ok = await resolveRelationOnRun(custom.on, custom.localAlias, custom.joinedAlias, { _l: sourceRec, _r: r }, ctx);
+            if (ok) { match = r; break; }
+          }
+        } else {
+          match = records.find((r) =>
+            resolved.keys.every((k) => {
+              // A NULL/absent local key never joins (SQL `NULL = …` is never true).
+              const localVal: JsonValue = sourceRec[k.localField] ?? null;
+              return localVal !== null && r[k.foreignField] === localVal;
+            }),
+          );
+        }
         if (!match) return Value.null(); // LEFT-join miss ⇒ NULL.
         rec = match;
         currentType = target;
