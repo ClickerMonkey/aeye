@@ -50,6 +50,15 @@ import { JoinCtePlanner } from '../sql/planner';
 import { resolveRelationOnSql } from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { boundSQL } from './_sql';
+import {
+  conditionClauses,
+  conditionFieldRefs,
+  activeDefaultConditions,
+  defaultConditionPredicatesSql,
+  rowPassesDefaultConditions,
+  type ActiveDefaultCondition,
+  type BoundTypeSource,
+} from './_default-conditions';
 
 /** A parsed select field: its output expr + optional alias. */
 interface SelectField {
@@ -300,6 +309,20 @@ export class SelectQuery extends Query {
   }
 
   /**
+   * The default conditions ACTIVE across every bound source of this SELECT (FROM
+   * alias + join hop aliases), each decided independently from the SELECT's
+   * condition-clause references (WHERE / HAVING / join `and`) on ITS alias.
+   */
+  private activeDefaults(
+    engine: QueryEngine,
+    aliasTypes: ReadonlyMap<string, Type>,
+  ): ActiveDefaultCondition[] {
+    const clauses = conditionClauses(this.where, this.having, this.joins);
+    const sources: BoundTypeSource[] = [...aliasTypes].map(([alias, t]) => ({ alias, typeName: t.name }));
+    return activeDefaultConditions(engine, sources, conditionFieldRefs(clauses), 'select');
+  }
+
+  /**
    * `limit` / `offset` may be bound to a `param` (see `autoPaginate`), but they
    * live outside the walked expr tree, so `params()` never observes them. They
    * are always integer row counts, so observe each against a number field type
@@ -424,6 +447,16 @@ export class SelectQuery extends Query {
         }
       }
       rows = await join.expand(ctx, rows, plan ?? []);
+    }
+
+    // 2b. Default conditions (soft scope): drop rows an ACTIVE condition denies,
+    //     per bound source (mirrors the SQL WHERE injection). RLS was already
+    //     applied on load; these compose alongside it.
+    const defaults = this.activeDefaults(engine, aliasTypes);
+    if (defaults.length) {
+      const kept: SourceRow[] = [];
+      for (const r of rows) if (await rowPassesDefaultConditions(defaults, r, ctx)) kept.push(r);
+      rows = kept;
     }
 
     // 3. WHERE.
@@ -652,6 +685,10 @@ export class SelectQuery extends Query {
       const fromRls = rlsPredicate(ctx.rls, dialect, engine, planner, this.from.typeName, this.from.alias);
       if (fromRls) wherePreds.push(fromRls);
     }
+
+    // 3b. Default conditions (soft scope): AND each ACTIVE condition's predicate
+    //     into WHERE, per bound source. RLS above STILL applies; these compose.
+    wherePreds.push(...defaultConditionPredicatesSql(this.activeDefaults(engine, aliasTypes), selCtx));
 
     // 4. GROUP BY / HAVING / ORDER BY (may also register joins). These resolve
     //    against a child scope exposing this SELECT's outputs (same planner), so

@@ -33,6 +33,15 @@ import { JoinCtePlanner } from '../sql/planner';
 import { resolveRelationOnSql } from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { dmlJoinsUnsupported, typeReadonly, fieldReadonly } from './_sql';
+import {
+  conditionClauses,
+  conditionFieldRefs,
+  activeDefaultConditions,
+  defaultConditionPredicatesSql,
+  rowPassesDefaultConditions,
+  type ActiveDefaultCondition,
+  type BoundTypeSource,
+} from './_default-conditions';
 
 interface SetClause {
   field: string;
@@ -226,10 +235,14 @@ export class UpdateQuery extends Query {
       rows = await join.expand(ctx, rows, plan ?? []);
     }
 
+    // Default conditions (soft scope) scope which rows are updated, per `ops`.
+    const defaults = this.activeDefaults(engine, aliasTypes);
+
     // Filter by WHERE, then apply SET to each matched target record.
     const updated: SourceRecord[] = [];
     const seen = new Set<SourceRecord>();
     for (const row of rows) {
+      if (defaults.length && !(await rowPassesDefaultConditions(defaults, row, ctx))) continue;
       if (this.where.length && !(await this.allTrue(ctx, row))) continue;
       const target = row[this.alias];
       if (!target || seen.has(target)) continue;
@@ -247,6 +260,20 @@ export class UpdateQuery extends Query {
   private async allTrue(ctx: RuntimeContext, row: SourceRow): Promise<boolean> {
     for (const w of this.where) if (!(await w.evaluate(ctx, row)).toBoolean()) return false;
     return true;
+  }
+
+  /**
+   * The default conditions ACTIVE for the UPDATE op across every bound source
+   * (the target + join hop aliases), each decided from the CONDITION-clause
+   * references (this UPDATE's WHERE + each join's `and`) on ITS alias.
+   */
+  private activeDefaults(
+    engine: QueryEngine,
+    aliasTypes: ReadonlyMap<string, Type>,
+  ): ActiveDefaultCondition[] {
+    const clauses = conditionClauses(this.where, [], this.joins);
+    const sources: BoundTypeSource[] = [...aliasTypes].map(([alias, t]) => ({ alias, typeName: t.name }));
+    return activeDefaultConditions(engine, sources, conditionFieldRefs(clauses), 'update');
   }
 
   private async projectReturning(ctx: RuntimeContext, recs: readonly SourceRecord[]): Promise<SourceRecord[]> {
@@ -290,6 +317,8 @@ export class UpdateQuery extends Query {
     const wherePreds: SqlText[] = this.where.map((w) => w.toSQL(dialect, selCtx));
     const rls = rlsPredicate(ctx.rls, dialect, engine, planner, this.type, this.alias);
     if (rls) wherePreds.push(rls);
+    // Default conditions (soft scope) scope which rows are updated, per `ops`.
+    wherePreds.push(...defaultConditionPredicatesSql(this.activeDefaults(engine, aliasTypes), selCtx));
     const returningCols = this.returning.map((c, i) =>
       SqlText.concat([c.expr.toSQL(dialect, selCtx), SqlText.raw(' AS '), dialect.ident(fieldNameOf(c.expr, c.as, i))]),
     );

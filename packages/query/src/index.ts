@@ -86,6 +86,8 @@ export {
   type Computed,
   type FieldBacking,
   type TypeBacking,
+  type DefaultCondition,
+  type DefaultConditionOp,
   type JoinBacking,
   type JoinSpec,
   type RelationJoinSpec,
@@ -103,7 +105,11 @@ export {
   resolveComputeRun,
   resolveJoinSql,
   resolveJoinRun,
+  defaultConditionOps,
+  resolveDefaultConditionSql,
+  resolveDefaultConditionRun,
 } from './backing';
+export { defaultConditionWithout } from './default-conditions';
 
 // Cost estimation (Phase 4)
 export {

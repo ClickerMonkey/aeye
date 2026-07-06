@@ -32,6 +32,15 @@ import { JoinCtePlanner } from '../sql/planner';
 import { resolveRelationOnSql } from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { dmlJoinsUnsupported, typeReadonly } from './_sql';
+import {
+  conditionClauses,
+  conditionFieldRefs,
+  activeDefaultConditions,
+  defaultConditionPredicatesSql,
+  rowPassesDefaultConditions,
+  type ActiveDefaultCondition,
+  type BoundTypeSource,
+} from './_default-conditions';
 
 interface ReturningField {
   expr: Expr;
@@ -199,10 +208,14 @@ export class DeleteQuery extends Query {
       rows = await join.expand(ctx, rows, plan ?? []);
     }
 
+    // Default conditions (soft scope) scope which rows are deleted, per `ops`.
+    const defaults = this.activeDefaults(engine, aliasTypes);
+
     const targets: SourceRecord[] = [];
     const matchedRows: SourceRow[] = [];
     const seen = new Set<SourceRecord>();
     for (const row of rows) {
+      if (defaults.length && !(await rowPassesDefaultConditions(defaults, row, ctx))) continue;
       if (this.where.length && !(await this.allTrue(ctx, row))) continue;
       const target = row[this.alias];
       if (!target || seen.has(target)) continue;
@@ -220,6 +233,20 @@ export class DeleteQuery extends Query {
   private async allTrue(ctx: RuntimeContext, row: SourceRow): Promise<boolean> {
     for (const w of this.where) if (!(await w.evaluate(ctx, row)).toBoolean()) return false;
     return true;
+  }
+
+  /**
+   * The default conditions ACTIVE for the DELETE op across every bound source
+   * (the target + join hop aliases), each decided from the CONDITION-clause
+   * references (this DELETE's WHERE + each join's `and`) on ITS alias.
+   */
+  private activeDefaults(
+    engine: QueryEngine,
+    aliasTypes: ReadonlyMap<string, Type>,
+  ): ActiveDefaultCondition[] {
+    const clauses = conditionClauses(this.where, [], this.joins);
+    const sources: BoundTypeSource[] = [...aliasTypes].map(([alias, t]) => ({ alias, typeName: t.name }));
+    return activeDefaultConditions(engine, sources, conditionFieldRefs(clauses), 'delete');
   }
 
   private async projectReturning(ctx: RuntimeContext, rows: readonly SourceRow[]): Promise<SourceRecord[]> {
@@ -260,6 +287,8 @@ export class DeleteQuery extends Query {
     const wherePreds: SqlText[] = this.where.map((w) => w.toSQL(dialect, selCtx));
     const rls = rlsPredicate(ctx.rls, dialect, engine, planner, this.from, this.alias);
     if (rls) wherePreds.push(rls);
+    // Default conditions (soft scope) scope which rows are deleted, per `ops`.
+    wherePreds.push(...defaultConditionPredicatesSql(this.activeDefaults(engine, aliasTypes), selCtx));
     const returningCols = this.returning.map((c, i) =>
       SqlText.concat([c.expr.toSQL(dialect, selCtx), SqlText.raw(' AS '), dialect.ident(fieldNameOf(c.expr, c.as, i))]),
     );

@@ -24,7 +24,8 @@ import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
-import { hasFieldDefault, type FieldBacking, type TypeBacking } from '../backing';
+import { hasFieldDefault, type DefaultCondition, type FieldBacking, type TypeBacking } from '../backing';
+import { defaultConditionWithout } from '../default-conditions';
 import { exprKindApplicable } from '../schema-build';
 import { fieldMeta, typeMeta } from './describe-generate';
 import { selectFunctions, type FunctionSelector } from './schemas';
@@ -92,8 +93,25 @@ function describeField(field: Field, fb?: FieldBacking): string {
   return parts.join(' ');
 }
 
+/**
+ * One terse line describing a default condition (its soft SCOPE + how to reveal
+ * past it): the dev's `description` when set, else an auto-summary
+ * `default: <predicate> (unless a filter references <without fields>)`. A
+ * `sql`/`run`-only, unliftable condition reads `(always applied)`. `alias` (the
+ * Type name) makes the predicate render readably (`file.archivedAt IS NULL`).
+ */
+function defaultConditionNote(cond: DefaultCondition, alias: string): string {
+  if (cond.description) return `default: ${cond.description}`;
+  const built = cond.where.expr?.(alias);
+  const predText = built !== undefined && typeof built !== 'boolean' ? built.toCode() : 'custom scope';
+  const without = defaultConditionWithout(cond, alias);
+  const lift = without.length ? ` (unless a filter references ${without.join(', ')})` : ' (always applied)';
+  return `default: ${predText}${lift}`;
+}
+
 /** Render one Type as a compact description block. `backing` (when supplied) surfaces
- *  per-field write deviations (computed / default) the plain `TypeDef` can't carry. */
+ *  per-field write deviations (computed / default) the plain `TypeDef` can't carry, plus
+ *  any soft default conditions (their scope + reveal mechanism). */
 export function describeType(type: Type, backing?: TypeBacking): string {
   const lines: string[] = [];
   const meta = typeMeta(type);
@@ -102,6 +120,7 @@ export function describeType(type: Type, backing?: TypeBacking): string {
   lines.push(`rows≈${type.count}, bytes/row≈${type.bytes}`);
   const write = typeWriteNote(type);
   if (write) lines.push(write);
+  for (const cond of backing?.defaultConditions ?? []) lines.push(defaultConditionNote(cond, type.name));
   lines.push('fields:');
   for (const field of type.fields) lines.push(describeField(field, backing?.fields?.[field.name]));
 

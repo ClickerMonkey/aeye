@@ -21,7 +21,7 @@ import { Expr, type ExprClass } from './expr';
 import type { Query, QueryClass } from './queries/query';
 import type { FunctionRun } from './runtime/functions';
 import type { Dialect } from './sql/dialect';
-import type { TypeBacking } from './backing';
+import type { TypeBacking, DefaultCondition } from './backing';
 import { Type } from './type';
 import { Field } from './field';
 import { RelationFieldType, BUILTIN_FIELD_TYPES } from './field-types/index';
@@ -36,6 +36,25 @@ import { BUILTIN_LIBRARY } from './runtime/builtins';
  * digits, underscores, and dotted schema-qualification — is permitted.
  */
 const FUNCTION_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
+
+/**
+ * Validate a backing's default conditions at registration: every EXPLICIT
+ * `without` field must name a real field on the Type (a derived `without` reads
+ * the predicate's own field-refs, validated elsewhere). Throws a clear error on
+ * the first unknown field so a typo surfaces immediately rather than silently
+ * failing to lift the scope.
+ */
+function validateDefaultConditions(type: Type, conditions: readonly DefaultCondition[]): void {
+  for (const cond of conditions) {
+    for (const field of cond.without ?? []) {
+      if (!type.field(field)) {
+        throw new Error(
+          `registerType: default-condition 'without' field '${field}' does not exist on Type '${type.name}'.`,
+        );
+      }
+    }
+  }
+}
 
 /**
  * Static contract used to register an Expr class. Phase 2 wires `parseExpr`
@@ -124,6 +143,7 @@ export class Registry {
    * Back-compatible: `registerType(type)` (no backing) keeps working.
    */
   registerType(type: Type, backing?: TypeBacking): this {
+    if (backing?.defaultConditions) validateDefaultConditions(type, backing.defaultConditions);
     this.namedTypes.set(type.name, type);
     if (backing) this.backings.set(type.name, backing);
     this.finalizeDirty = true;

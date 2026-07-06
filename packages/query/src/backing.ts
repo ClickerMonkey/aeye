@@ -27,6 +27,12 @@
  * as a runtime value (no cycles). Method calls on instances typed as `Expr`
  * (`.toSQL` / `.evaluate`) are fine; only CONSTRUCTING those values would need a
  * runtime import, which this module never does (the caller supplies them).
+ *
+ * The suppression-field DERIVATION for a `DefaultCondition` needs to walk a
+ * predicate's `FieldRefExpr`s, which would require a runtime import of the
+ * concrete expr class; to keep this module's no-cycle invariant intact that one
+ * helper (`defaultConditionWithout`) lives in `./default-conditions` instead,
+ * imported by the higher query / describe layers.
  */
 import type { Expr } from './expr';
 import type { QueryDef } from './schema';
@@ -419,6 +425,16 @@ export interface TypeBacking {
   name?: string;
   /** Row-level security predicate for every occurrence of this Type. */
   access?: Access;
+  /**
+   * SOFT, suppressible default scopes for this Type's rows (think soft-delete /
+   * archived filtering). Each is ANDed into the WHERE of every occurrence of the
+   * Type — for the ops it covers — UNLESS the query references one of the
+   * condition's `without` fields in a CONDITION position on that occurrence, at
+   * which point the scope LIFTS for that source only. Distinct from `access`
+   * (RLS), which ALWAYS applies and is NEVER suppressed; a default condition ANDs
+   * in ALONGSIDE it. See {@link DefaultCondition}.
+   */
+  defaultConditions?: readonly DefaultCondition[];
   /** Named hidden joins, shared + deduped by name (added once-if-referenced). */
   joins?: Record<string, JoinBacking>;
   /** Per-field backing, keyed by conceptual field name. */
@@ -608,6 +624,66 @@ export async function resolveAccessRun(
     return { kind: 'visible', visible: v.toBoolean() };
   }
   return { kind: 'noop' };
+}
+
+// ─── Default conditions (soft, suppressible scope) ───────────────────────────
+//
+// A default condition is an archived-style DEFAULT SCOPE: while ACTIVE its
+// `where` predicate is ANDed into the WHERE of a row-filtering op, per bound
+// occurrence of the Type. It LIFTS for a given bound source the moment the query
+// references one of its `without` fields (on THAT source) in a CONDITION
+// position (WHERE / HAVING / a JOIN's `and`) — references in SELECT / ORDER BY /
+// GROUP BY do NOT lift it. Unlike RLS (`TypeBacking.access`), which is never
+// suppressed, a default condition is a soft default the query can reveal past.
+
+/** The row-filtering ops a {@link DefaultCondition} may scope. INSERT is never scoped. */
+export type DefaultConditionOp = 'select' | 'update' | 'delete';
+
+/**
+ * A soft, suppressible default scope (see the section note above). Members:
+ *  - `where` — the predicate ANDed into WHERE while ACTIVE. Reuses `Access`: the
+ *    dual `expr(alias)` path (emitted to SQL AND evaluated in memory), or a
+ *    `sql` / `run` override. As for RLS a `true` / `undefined` result ⇒ no
+ *    filter, a static `false` ⇒ no rows, a predicate ⇒ AND it.
+ *  - `without` — referencing ANY of these fields (on the bound source) in a
+ *    CONDITION position SUPPRESSES this condition for that source. When OMITTED
+ *    it is DERIVED from the field-refs `where.expr(alias)` reads on `alias` (see
+ *    {@link defaultConditionWithout}); a `where` with only `sql` / `run` (no
+ *    `expr`) then derives to EMPTY — the condition is ALWAYS-ON (cannot be
+ *    lifted), so set `without` EXPLICITLY to make such a condition suppressible.
+ *  - `ops` — which row-filtering ops it scopes; DEFAULT all of
+ *    `['select', 'update', 'delete']`. INSERT is NEVER scoped.
+ *  - `description` — optional terse LLM-facing note; else auto-summarized.
+ */
+export interface DefaultCondition {
+  /** The predicate ANDed into WHERE while ACTIVE (an `Access`; see the interface note). */
+  where: Access;
+  /** Condition-position fields (on the bound source) that LIFT this scope; derived from `where.expr` when omitted. */
+  without?: readonly string[];
+  /** Ops this condition scopes; defaults to `['select', 'update', 'delete']` (never INSERT). */
+  ops?: readonly DefaultConditionOp[];
+  /** Optional terse LLM-facing note; else an auto-summary is generated. */
+  description?: string;
+}
+
+/** The ops a default condition scopes: its `ops`, else all of select / update / delete. */
+export function defaultConditionOps(cond: DefaultCondition): readonly DefaultConditionOp[] {
+  return cond.ops ?? ['select', 'update', 'delete'];
+}
+
+/** Resolve a default condition's `where` for SQL emission against `alias` (reuses the `Access` SQL path). */
+export function resolveDefaultConditionSql(cond: DefaultCondition, alias: string, ctx: SqlContext): AccessSql {
+  return resolveAccessSql(cond.where, alias, ctx);
+}
+
+/** Resolve a default condition's `where` for the in-memory runtime against `alias` (reuses the `Access` runtime path). */
+export function resolveDefaultConditionRun(
+  cond: DefaultCondition,
+  alias: string,
+  row: SourceRow,
+  ctx: RuntimeContext,
+): Promise<AccessRun> {
+  return resolveAccessRun(cond.where, alias, row, ctx);
 }
 
 /** Resolve a `Computed` value for SQL emission (SQL prefers `sql`, then `expr`). */
@@ -833,6 +909,11 @@ export class Backing {
   /** The row-level-security `Access` for this Type, or `undefined`. */
   rls(): Access | undefined {
     return this.def.access;
+  }
+
+  /** The soft, suppressible default conditions declared on this Type (empty when none). */
+  defaultConditions(): readonly DefaultCondition[] {
+    return this.def.defaultConditions ?? [];
   }
 
   /** The named `JoinBacking` `name`, or `undefined` when this Type declares none. */

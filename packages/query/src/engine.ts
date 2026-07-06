@@ -25,6 +25,7 @@ import {
   type JoinBacking,
   type SearchBacking,
   type SemanticBacking,
+  type DefaultCondition,
 } from './backing';
 import type { ResolvedType } from './resolved-type';
 import type { ValidateContext } from './expr';
@@ -152,6 +153,15 @@ export class QueryEngine {
   /** The named `JoinBacking` `name` declared on `typeName`'s backing, or `undefined`. */
   joinBacking(typeName: string, name: string): JoinBacking | undefined {
     return this.backing(typeName)?.join(name);
+  }
+
+  /**
+   * The soft, suppressible `DefaultCondition`s declared on `typeName`'s backing
+   * (empty when none). Each is ANDed into a row-filtering op's WHERE per bound
+   * occurrence unless the query lifts it — see {@link DefaultCondition}.
+   */
+  defaultConditions(typeName: string): readonly DefaultCondition[] {
+    return this.backing(typeName)?.defaultConditions() ?? [];
   }
 
   /**

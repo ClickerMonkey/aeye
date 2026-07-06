@@ -456,6 +456,38 @@ access: { expr: (alias) => e.eq(e.ref(alias, 'orgId'), e.value(currentOrg)) },
 secretField: { name: 'secret', access: { expr: (alias) => e.eq(e.ref(alias, 'status'), e.value('active')) } },
 ```
 
+## Default conditions (soft scope)
+
+`TypeBacking.defaultConditions` is a **soft, suppressible** default scope —
+archived / soft-delete filtering the query can **reveal past**, unlike RLS. Each
+`DefaultCondition` is `{ where, without?, ops?, description? }`:
+
+- **`where`** — an `Access` predicate (dual `{ expr }` / `sql` / `run`, resolved
+  exactly like RLS: `false` ⇒ no rows, `true` / `undefined` ⇒ no filter, else
+  ANDed) applied while the condition is **active**, per bound occurrence.
+- **`without`** — referencing any of these fields **on that source** in a
+  **condition position** (the query's `where` / `having`, or a JOIN's `and`)
+  **lifts** the scope for that source. A reference in a select item / ORDER BY /
+  GROUP BY does **not** lift it, and each bound alias (incl. a self-join) is
+  decided independently. Omitted ⇒ derived from the fields `where.expr` reads (a
+  `sql`/`run`-only `where` with no `without` is then **always-on** — set it
+  explicitly to make it liftable).
+- **`ops`** — which row-filtering ops it scopes (default
+  `['select', 'update', 'delete']`; **INSERT is never scoped**).
+- **`description`** — an optional terse LLM-facing note (else auto-summarized in
+  `describeType`).
+
+RLS still always applies and is **never** suppressed; a default condition ANDs in
+alongside it.
+
+```ts
+// Archived files: every query is scoped to `archivedAt IS NULL`…
+defaultConditions: [{ where: { expr: (alias) => e.isNull(e.ref(alias, 'archivedAt')) } }],
+
+// …until a query FILTERS on `archivedAt` (e.g. WHERE archivedAt IS NOT NULL),
+// which lifts the scope for that source and reveals the archived rows.
+```
+
 ## Named joins & LATERAL
 
 `TypeBacking.joins` declares **named, hidden** joins; a field opts in via
