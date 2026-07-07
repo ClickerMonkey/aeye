@@ -16,8 +16,11 @@
  * `from` — never a central switch on `kind`.
  */
 import type { ExprDef, FieldTypeDef, FunctionDef, QueryDef, TypeDef } from './schema';
+import type { Problems } from './problem';
 import type { FieldType, FieldTypeClass } from './field-type';
 import { Expr, type ExprClass } from './expr';
+import { INVALID, isRecord, type Shape } from './shape';
+import { aidInfo, describeInput, didYouMean } from './aids';
 import type { Query, QueryClass } from './queries/query';
 import type { FunctionRun } from './runtime/functions';
 import type { Dialect } from './sql/dialect';
@@ -329,6 +332,55 @@ export class Registry {
       throw new Error(`registry.parseExpr: unknown expr kind '${json.kind}'`);
     }
     return cls.from(json, this);
+  }
+
+  /** The `kind → Shape<Expr>` map, built from every Expr class that owns a `SHAPE`. */
+  private checkedExprShapes(): Map<string, Shape<Expr>> {
+    const map = new Map<string, Shape<Expr>>();
+    for (const cls of this.exprClasses.values()) {
+      if (cls.SHAPE) map.set(cls.KIND, cls.SHAPE);
+    }
+    return map;
+  }
+
+  /**
+   * DEFENSIVE structural dispatch — the zod-free parallel to {@link parseExpr}.
+   * Mirrors it but NEVER throws on bad input: it records one-or-more problems
+   * into `problems` (at its current path) and returns the built `Expr` or
+   * `undefined`. Children recurse via each class's owned `SHAPE` (see
+   * `shape/`), accumulating every structural problem in a single pass.
+   *
+   * This is the FOUNDATION of the owned structural parser; it is NOT yet the
+   * active gate (zod still gates `parseQueryInput`). Only kinds that declare a
+   * `static SHAPE` participate — others surface as an unknown-kind problem.
+   */
+  parseCheckedExpr(json: unknown, problems: Problems): Expr | undefined {
+    if (json instanceof Expr) return json;
+    if (!isRecord(json)) {
+      const got = describeInput(json);
+      problems.error(
+        'shape.not-object',
+        `expected ${aidInfo('Expr').label}${got !== undefined ? `, got ${got}` : ''}`,
+      );
+      return undefined;
+    }
+    const kind = json['kind'];
+    if (typeof kind !== 'string') {
+      problems.error('shape.missing-kind', `expected ${aidInfo('Expr').label} with a string \`kind\` discriminant`);
+      return undefined;
+    }
+    const shapes = this.checkedExprShapes();
+    const shape = shapes.get(kind);
+    if (!shape) {
+      const kinds = Array.from(shapes.keys());
+      problems.error(
+        'shape.unknown-kind',
+        `unknown expression kind \`${kind}\`${didYouMean(kind, kinds)} (available: ${kinds.join(', ')})`,
+      );
+      return undefined;
+    }
+    const built = shape.check(json, { problems, registry: this });
+    return built === INVALID ? undefined : built;
   }
 
   /**

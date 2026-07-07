@@ -16,6 +16,7 @@ import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
@@ -26,6 +27,11 @@ import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
 const LIKE_OPS = new Set<ComparisonOp>(['like', 'notLike', 'ilike']);
+
+/** The comparison operators, as an array (drives the owned `SHAPE`'s `enumOf`). */
+const COMPARISON_OPS = [
+  '=', '<>', '<', '<=', '>', '>=', 'like', 'notLike', 'ilike',
+] as const satisfies readonly ComparisonOp[];
 
 /** SQL operator text for the non-ILIKE comparison ops. */
 function sqlOp(op: ComparisonOp): string {
@@ -116,6 +122,22 @@ export class ComparisonExpr extends BoolExpr {
       registry.parseExpr(json.right),
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `ComparisonExpr` equal to `from`'s output on a valid def; on a bad def it
+   * accumulates problems (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('comparison'),
+      op: enumOf(COMPARISON_OPS, 'ComparisonOp'),
+      left: exprRef(),
+      right: exprRef(),
+    },
+    (v) => new ComparisonExpr(v.op, v.left, v.right),
+    { aid: 'Expr_comparison' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (left/right are child Expr slots). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

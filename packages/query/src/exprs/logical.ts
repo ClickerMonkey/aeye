@@ -13,12 +13,16 @@ import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
 import { ParamExpr } from './param';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { and3, or3, not3, triOf, type Tri } from '../runtime/tri';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
+
+/** The logical connectives, as an array (drives the owned `SHAPE`'s `enumOf`). */
+const LOGICAL_OPS = ['and', 'or', 'not'] as const satisfies readonly LogicalOp[];
 
 /** A boolean connective `and` / `or` / `not`. A `BoolExpr`. */
 export class LogicalExpr extends BoolExpr {
@@ -45,6 +49,37 @@ export class LogicalExpr extends BoolExpr {
       json.operands.map((o) => registry.parseExpr(o)),
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. The base
+   * object builds a `LogicalExpr`; a wrapper then applies the STRUCTURAL
+   * `not`-arity rule (exactly one operand) as an accumulated problem — a
+   * cross-field check the plain `obj` combinator can't express. Never throws;
+   * builds an expr equal to `from`'s output on a valid def. See `shape/`.
+   */
+  static readonly SHAPE: Shape<LogicalExpr> = {
+    check(json, ctx) {
+      const built = LogicalExpr.SHAPE_OBJECT.check(json, ctx);
+      if (built === INVALID) return INVALID;
+      if (built.op === 'not' && built.operands.length !== 1) {
+        ctx.problems.at('operands', () =>
+          ctx.problems.error('shape.arity', `'not' takes exactly one operand, got ${built.operands.length}.`),
+        );
+      }
+      return built;
+    },
+  };
+
+  /** The base object shape wrapped by {@link SHAPE} (adds the `not`-arity rule). */
+  private static readonly SHAPE_OBJECT = obj(
+    {
+      kind: lit('logical'),
+      op: enumOf(LOGICAL_OPS, 'LogicalOp'),
+      operands: list(exprRef()),
+    },
+    (v) => new LogicalExpr(v.op, v.operands),
+    { aid: 'Expr_logical' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (operands are child Expr slots). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

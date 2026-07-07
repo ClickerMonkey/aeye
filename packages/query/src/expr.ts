@@ -28,6 +28,7 @@
  */
 import type { z } from 'zod';
 import type { ExprDef, ExprKind } from './schema';
+import type { Shape } from './shape';
 import type { CodeOptions, Node, SchemaOptions } from './node';
 import type { Registry } from './registry';
 import type { ResolvedType, ComputedResolved, FieldResolved } from './resolved-type';
@@ -105,6 +106,13 @@ export interface ExprClass {
   from(json: ExprDef, registry: Registry): Expr;
   /** Zod schema for this expr kind's JSON `ExprDef` branch. */
   toSchema(opts: SchemaOptions): z.ZodTypeAny;
+  /**
+   * OPTIONAL owned structural {@link Shape} for this kind's JSON — the zod-free
+   * parallel parser that `Registry.parseCheckedExpr` dispatches to (never
+   * throws, accumulates problems). Present only on the exemplar kinds so far;
+   * the FOUNDATION of the eventual replacement for the zod structural gate.
+   */
+  readonly SHAPE?: Shape<Expr>;
 }
 
 /**

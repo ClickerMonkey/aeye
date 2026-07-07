@@ -16,6 +16,7 @@ import type { ResolvedType, FieldResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
+import { obj, lit, str } from '../shape';
 import { textResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { Value } from '../runtime/value';
@@ -74,6 +75,21 @@ export class FieldRefExpr extends Expr {
     }
     return new FieldRefExpr(json.source, json.field);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `FieldRefExpr` equal to `from`'s output on a valid def; accumulates
+   * problems on a bad def (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('field-ref'),
+      source: str('Source'),
+      field: str('FieldName'),
+    },
+    (v) => new FieldRefExpr(v.source, v.field),
+    { aid: 'Expr_field-ref' },
+  );
 
   /** Depth-aware Zod schema for this expr kind's JSON shape (per `opts.depth.refs`). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

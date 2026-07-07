@@ -21,6 +21,7 @@ import {
 } from '../field-types/index';
 import { computed } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, scalar } from '../shape';
 import { Value } from '../runtime/value';
 import type { Cost } from '../cost';
 import { bytesOfResolved } from '../cost';
@@ -46,6 +47,20 @@ export class LiteralExpr extends Expr {
     }
     return new LiteralExpr(json.value);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `LiteralExpr` equal to `from`'s output on a valid def; accumulates problems
+   * on a bad def (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('literal'),
+      value: scalar('ScalarValue'),
+    },
+    (v) => new LiteralExpr(v.value),
+    { aid: 'Expr_literal' },
+  );
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
