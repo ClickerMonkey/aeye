@@ -223,7 +223,7 @@ type ComponentInput<C extends AnyComponent> = /* extracts TInput from C */;
 type ComponentOutput<C extends AnyComponent> = /* extracts TOutput from C */;
 type ComponentRefs<C extends AnyComponent> = /* extracts TRefs from C */;
 
-interface Component<TContext, TMetadata, TName extends string, TInput extends object, TOutput, TRefs> {
+interface Component<TContext, TMetadata, TName extends string, TInput extends unknown, TOutput, TRefs> {
   kind: string;
   name: TName;
   description: string;
@@ -294,7 +294,7 @@ class PromptSuspend extends Error {
 // TDecoded is the decoded type a custom `parse` produces from the raw wire args (e.g. a built
 // class instance); it types call/validate/metadataFn. Defaults to the wire TParams when no custom
 // `parse` is supplied — `schema` always stays the wire type.
-class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs, TDecoded extends object = TParams> implements Component {
+class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs, TDecoded extends unknown = TParams> implements Component {
   constructor(input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>);
   get kind(): 'tool';
   get name(): TName;
@@ -383,7 +383,7 @@ type PromptEvent<TOutput, TTools> =
 // TDecoded is the decoded type a custom `parse` produces from the model's structured output (e.g. a
 // built AST/class instance); it types validate and the decoded output. Defaults to the wire TOutput
 // when no custom `parse` is supplied — `schema` always stays the wire type.
-class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools, TDecoded extends object | string = TOutput> implements Component {
+class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools, TDecoded extends unknown = TOutput> implements Component {
   constructor(input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded>);
   get kind(): 'prompt';
   get name(): TName;

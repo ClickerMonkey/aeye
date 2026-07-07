@@ -6,11 +6,11 @@
 class Prompt<TContext = {}, TMetadata = {}, TName extends string = string,
   TInput extends object = {}, TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
-  TDecoded extends object | string = TOutput>
+  TDecoded extends unknown = TOutput>
   implements Component<...>
 ```
 
-`TDecoded` is the decoded type a custom `parse` produces from the model's structured output (e.g. a built AST/class instance); it types `validate` and the decoded output. It defaults to the wire `TOutput` when no custom `parse` is supplied — `schema` always stays the wire type.
+`TDecoded` is the decoded type a custom `parse` produces from the model's structured output — **any** value (a built AST/class instance, a number, an array, …), not just an object or string; it types `validate` and the decoded output. It defaults to the wire `TOutput` when no custom `parse` is supplied — `schema` always stays the wire type.
 
 A `Prompt` only does real work when the context supplies `execute` and/or `stream` (see [types doc](./aeye-core-types.md)). Without them, get/run yields nothing.
 
