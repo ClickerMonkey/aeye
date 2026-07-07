@@ -21,7 +21,9 @@ import { setopCases } from './setops';
 import { cteCases } from './ctes';
 import { windowCases } from './windows';
 
-export type { EvalCase, ExpectKind } from './types';
+export type { EvalCase } from './types';
+export { a } from './assert';
+export type { Assertion, AssertCtx, OracleFn } from './assert';
 
 /** All seed cases, in category order. */
 export const CASES: readonly EvalCase[] = [

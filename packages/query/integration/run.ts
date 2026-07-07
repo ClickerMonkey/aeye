@@ -5,20 +5,22 @@
  *   OPENROUTER_API_KEY=… npm run integration   # runs the real LLM eval
  *
  * THREE modes:
- *  1. `--check` (no key needed): for EVERY case, parse + validate the oracle
- *     against the engine, run it TWICE (assert deterministic), and assert the
- *     result is non-degenerate (well-formed, non-empty, all values defined).
- *     Refusal cases assert the illegal statement DOES fail validation. Exits
- *     NON-ZERO if any oracle is invalid / degenerate / non-deterministic. This
- *     proves the fixtures + oracles + data are internally consistent.
+ *  1. `--check` (no key needed): the FIXTURE gate. Every case must declare ≥1
+ *     assertion. Every `a.resultOf` oracle is parsed + validated against the
+ *     engine, run TWICE (assert deterministic), and asserted non-degenerate
+ *     (well-formed, non-empty, all values defined). Every `a.refused(sample)`
+ *     sample is asserted to FAIL validation. Exits NON-ZERO on any fixture
+ *     problem. This proves the fixtures + oracles + data are internally
+ *     consistent — WITHOUT calling an LLM.
  *  2. LLM eval (default, needs `OPENROUTER_API_KEY`): ask the model for a query
- *     per case, parse + run it, compare to `engine.run(oracle)`, tally, and
- *     write `report.json` + `report.md` + a gitignored per-case `logs/` trail.
+ *     per case, parse it, build an `AssertCtx` (its `.toJSON()` def + a lazy
+ *     cached `run()`), and evaluate EVERY assertion. The case PASSES iff all
+ *     return `null`. Writes a gitignored per-case `logs/` trail + reports.
  *  3. No key and no `--check`: print how to run, exit 0.
  *
- * The comparator normalizes `{ rows, fields }` into positional tuples and
- * compares them order-insensitively (default) or order-sensitively
- * (`match: 'ordered'`), with a float tolerance for money / averages.
+ * Assertions (see `cases/assert.ts`) mix STRUCTURE (walk the emitted query def —
+ * group by / order by / filter / join / aggregate / limit …) with RESULT (rows
+ * match a correct oracle via `compareResults`).
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -37,16 +39,15 @@ import {
   describeEngine,
   exampleQueriesText,
   type QueryEngine,
-  type QueryResult,
   type Query,
   type QueryDef,
   type QueryToolInput,
   type Type,
-  type SourceRecord,
 } from '../src/index';
 
 import { buildEngine } from './model';
 import { CASES, type EvalCase } from './cases/index';
+import { normalize, summarize, compareResults, type NormResult, type AssertCtx } from './cases/assert';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(HERE, 'logs');
@@ -107,139 +108,92 @@ function selectCases(argv: readonly string[], cases: readonly EvalCase[]): reado
 
 /** Default model for the LLM eval; override with `QUERY_EVAL_MODEL`. */
 const DEFAULT_MODEL = 'openai/gpt-4o';
-const WRITE_KINDS = new Set(['insert', 'update', 'delete']);
 
 // ════════════════════════════════════════════════════════════════════════════
-// Comparator
-// ════════════════════════════════════════════════════════════════════════════
-
-/** A result normalized to its output field names + positional value tuples. */
-interface NormResult {
-  fields: string[];
-  rows: unknown[][];
-}
-
-/** Project a `QueryResult` into positional tuples aligned to its field order. */
-function normalize(result: QueryResult): NormResult {
-  const fields = result.fields.map((f) => f.name);
-  const rows = result.rows.map((r: SourceRecord) => result.fields.map((f) => r[f.name]));
-  return { fields, rows };
-}
-
-/** Numeric-aware equality with an absolute tolerance for money / averages. */
-function valueEqual(a: unknown, b: unknown, tol: number): boolean {
-  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) <= tol;
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-/** A stable canonical sort key for a row tuple (numbers rounded for stability). */
-function rowKey(tuple: unknown[]): string {
-  return JSON.stringify(
-    tuple.map((v) => (typeof v === 'number' ? Math.round(v * 1e6) / 1e6 : v)),
-  );
-}
-
-/** Compare two normalized results; return `{ ok, diff }` (diff set on mismatch). */
-function compareResults(
-  expected: NormResult,
-  actual: NormResult,
-  match: 'set' | 'ordered',
-  tol: number,
-): { ok: boolean; diff: string | null } {
-  if (expected.rows.length !== actual.rows.length) {
-    return { ok: false, diff: `row count ${expected.rows.length} (expected) vs ${actual.rows.length} (actual)` };
-  }
-  if (expected.fields.length !== actual.fields.length) {
-    return {
-      ok: false,
-      diff: `column count ${expected.fields.length} (expected: ${expected.fields.join(', ')}) vs ${actual.fields.length} (actual: ${actual.fields.join(', ')})`,
-    };
-  }
-  const exp = match === 'ordered' ? expected.rows : [...expected.rows].sort((x, y) => rowKey(x).localeCompare(rowKey(y)));
-  const act = match === 'ordered' ? actual.rows : [...actual.rows].sort((x, y) => rowKey(x).localeCompare(rowKey(y)));
-  for (let i = 0; i < exp.length; i++) {
-    const er = exp[i]!;
-    const ar = act[i]!;
-    for (let c = 0; c < er.length; c++) {
-      if (!valueEqual(er[c], ar[c], tol)) {
-        return { ok: false, diff: `row ${i} col ${c}: expected ${JSON.stringify(er[c])}, got ${JSON.stringify(ar[c])}` };
-      }
-    }
-  }
-  return { ok: true, diff: null };
-}
-
-/** A short one-line summary of a normalized result for the logs. */
-function summarize(n: NormResult): string {
-  const preview = n.rows.slice(0, 4).map((r) => `[${r.map((v) => JSON.stringify(v)).join(', ')}]`).join(' ');
-  const more = n.rows.length > 4 ? ` …(+${n.rows.length - 4})` : '';
-  return `${n.rows.length} row(s) {${n.fields.join(', ')}}: ${preview}${more}`;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// --check mode (no key)
+// --check mode (no key) — validate fixtures (oracles + refusal samples)
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Whether every value in every row is defined (non-degeneracy for scalars). */
-function allDefined(result: QueryResult): boolean {
-  return result.rows.every((r) => result.fields.every((f) => r[f.name] !== undefined));
+function allDefined(result: { rows: NormResult['rows'] }): boolean {
+  return result.rows.every((r) => r.every((v) => v !== undefined));
+}
+
+/**
+ * Validate a single case's fixture obligations WITHOUT an LLM:
+ *  - it declares ≥1 assertion;
+ *  - each `a.resultOf` oracle validates, runs deterministically twice, and is
+ *    non-degenerate (non-empty rows + cols, all values defined);
+ *  - each `a.refused(sample)` sample FAILS validation.
+ * Returns a list of problem strings (empty ⇒ the case's fixtures are coherent).
+ */
+async function checkCase(engine: QueryEngine, c: EvalCase): Promise<string[]> {
+  const problems: string[] = [];
+  if (c.assert.length === 0) {
+    problems.push('no assertions declared');
+    return problems;
+  }
+
+  for (const asrt of c.assert) {
+    if (asrt.oracle) {
+      try {
+        const oracle = asrt.oracle(engine);
+        const report = engine.validateQuery(oracle);
+        const errors = report.list.filter((p) => p.severity === 'error');
+        if (errors.length > 0) {
+          problems.push(`oracle has validation errors: ${errors.map((e) => e.code).join(', ')}`);
+          continue;
+        }
+        const first = normalize(await engine.run(oracle));
+        const second = normalize(await engine.run(oracle));
+        const det = compareResults(first, second, 'ordered', 0);
+        if (!det.ok) {
+          problems.push(`oracle non-deterministic across two runs (${det.diff})`);
+          continue;
+        }
+        if (first.fields.length === 0 || first.rows.length === 0) {
+          problems.push(`oracle degenerate (${first.rows.length} rows, ${first.fields.length} cols)`);
+          continue;
+        }
+        if (!allDefined(first)) problems.push('oracle result contains an undefined value');
+      } catch (err) {
+        problems.push(`oracle threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (asrt.refusalSample) {
+      try {
+        const sample = asrt.refusalSample(engine);
+        const report = engine.validateQuery(sample);
+        const errors = report.list.filter((p) => p.severity === 'error');
+        if (errors.length === 0) problems.push('refusal sample validated but SHOULD have been rejected');
+      } catch {
+        // A throw during validation IS a rejection — acceptable for a refusal sample.
+      }
+    }
+  }
+  return problems;
 }
 
 async function runCheck(engine: QueryEngine, cases: readonly EvalCase[]): Promise<number> {
   let failures = 0;
-  console.log(`\nintegration:check — validating ${cases.length} oracle(s) against the fixture…\n`);
+  console.log(`\nintegration:check — validating ${cases.length} case fixture(s) against the data…\n`);
   for (const c of cases) {
-    const expect = c.expect ?? 'rows';
-    try {
-      const oracle = c.oracle(engine);
-      const problems = engine.validateQuery(oracle);
-      const errors = problems.list.filter((p) => p.severity === 'error');
-
-      if (expect === 'refusal') {
-        if (errors.length === 0) {
-          failures++;
-          console.log(`  FAIL  ${c.id} — refusal oracle validated but SHOULD have been rejected`);
-        } else {
-          console.log(`  ok    ${c.id} — correctly rejected (${errors.map((e) => e.code).join(', ')})`);
-        }
-        continue;
-      }
-
-      if (errors.length > 0) {
-        failures++;
-        console.log(`  FAIL  ${c.id} — oracle has validation errors: ${errors.map((e) => e.code).join(', ')}`);
-        continue;
-      }
-
-      const first = await engine.run(oracle);
-      const second = await engine.run(oracle);
-      const n1 = normalize(first);
-      const n2 = normalize(second);
-      const det = compareResults(n1, n2, 'ordered', 0);
-      if (!det.ok) {
-        failures++;
-        console.log(`  FAIL  ${c.id} — non-deterministic across two runs (${det.diff})`);
-        continue;
-      }
-      if (n1.fields.length === 0 || n1.rows.length === 0) {
-        failures++;
-        console.log(`  FAIL  ${c.id} — degenerate result (${n1.rows.length} rows, ${n1.fields.length} cols)`);
-        continue;
-      }
-      if (!allDefined(first)) {
-        failures++;
-        console.log(`  FAIL  ${c.id} — result contains an undefined value`);
-        continue;
-      }
-      console.log(`  ok    ${c.id} — ${summarize(n1)}`);
-    } catch (err) {
+    const problems = await checkCase(engine, c);
+    if (problems.length === 0) {
+      const oracles = c.assert.filter((a) => a.oracle).length;
+      const samples = c.assert.filter((a) => a.refusalSample).length;
+      const detail = [oracles ? `${oracles} oracle(s)` : '', samples ? `${samples} refusal(s)` : '', `${c.assert.length} assertion(s)`]
+        .filter(Boolean)
+        .join(', ');
+      console.log(`  ok    ${c.id.padEnd(38)} ${detail}`);
+    } else {
       failures++;
-      console.log(`  FAIL  ${c.id} — threw: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(`  FAIL  ${c.id.padEnd(38)} ${problems.join('; ')}`);
     }
   }
 
-  console.log(`\n${cases.length - failures}/${cases.length} oracle(s) valid + non-degenerate.`);
-  if (failures > 0) console.log(`${failures} FAILED — fix the oracle/data until clean.`);
+  console.log(`\n${cases.length - failures}/${cases.length} case fixture(s) coherent.`);
+  if (failures > 0) console.log(`${failures} FAILED — fix the oracle / sample / data until clean.`);
   return failures === 0 ? 0 : 1;
 }
 
@@ -247,22 +201,27 @@ async function runCheck(engine: QueryEngine, cases: readonly EvalCase[]): Promis
 // LLM eval mode (needs OPENROUTER_API_KEY)
 // ════════════════════════════════════════════════════════════════════════════
 
+/** One assertion's outcome for the logs. */
+interface AssertionLog {
+  describe: string;
+  needsResult: boolean;
+  passed: boolean;
+  reason: string | null;
+}
+
 /** Per-case log entry written to `logs/latest.json` (keyed by id). */
 interface LogEntry {
   id: string;
   category: string;
   request: string;
+  note: string;
   model: string;
-  expect: string;
   emittedQuery: unknown | null;
-  parseReport: string;
+  parseError: string | null;
   problemCodes: string[];
-  ran: boolean;
   passed: boolean;
-  expectedSummary: string;
-  actualSummary: string;
-  diff: string | null;
-  error: string | null;
+  assertions: AssertionLog[];
+  resultSummary: string | null;
   durationMs: number;
   timestamp: string;
 }
@@ -331,24 +290,18 @@ async function runOneCase(
   c: EvalCase,
 ): Promise<LogEntry> {
   const started = Date.now();
-  const expect = c.expect ?? 'rows';
-  const match = c.match ?? 'set';
-  const tol = c.floatTolerance ?? 1e-6;
   const entry: LogEntry = {
     id: c.id,
     category: c.category,
     request: c.request,
+    note: c.note,
     model: modelId,
-    expect,
     emittedQuery: null,
-    parseReport: '',
+    parseError: null,
     problemCodes: [],
-    ran: false,
     passed: false,
-    expectedSummary: '',
-    actualSummary: '',
-    diff: null,
-    error: null,
+    assertions: [],
+    resultSummary: null,
     durationMs: 0,
     timestamp: new Date().toISOString(),
   };
@@ -386,38 +339,50 @@ async function runOneCase(
         queryDef = repaired;
       }
     }
-    entry.parseReport = built.report;
+    entry.parseError = built.query === null ? built.report || 'model produced no valid query' : null;
     entry.problemCodes = built.codes;
 
-    if (expect === 'refusal') {
-      // Passes when the tool refused (build error) OR the model did not emit a
-      // write to the protected Type.
-      const kind = queryDef && typeof queryDef === 'object' && 'kind' in queryDef ? String((queryDef as { kind: string }).kind) : '';
-      entry.passed = built.query === null || !WRITE_KINDS.has(kind);
-      entry.expectedSummary = 'refusal (validation error / no write)';
-      entry.actualSummary = built.query === null ? `refused: ${built.codes.join(', ') || 'no query'}` : `built ${kind}`;
-      return entry;
-    }
+    // Build the assertion context (lazy, cached run of the MODEL's query).
+    let cachedRun: Promise<NormResult> | null = null;
+    const ctx: AssertCtx = {
+      query: built.query,
+      queryDef: built.query ? built.query.toJSON() : null,
+      parseError: entry.parseError,
+      engine,
+      run: () => {
+        if (cachedRun === null) {
+          if (!built.query) return Promise.reject(new Error('no model query to run'));
+          cachedRun = engine.run(built.query).then(normalize);
+        }
+        return cachedRun;
+      },
+    };
 
-    // expect === 'rows': derive the expected result from the oracle.
-    const expected = normalize(await engine.run(c.oracle(engine)));
-    entry.expectedSummary = summarize(expected);
-
-    if (!built.query) {
-      entry.actualSummary = 'no valid query built';
-      entry.diff = built.report || 'model produced no valid query';
-      return entry;
+    // Evaluate EVERY assertion; the case passes iff all return null.
+    let allPass = true;
+    for (const asrt of c.assert) {
+      let reason: string | null;
+      try {
+        reason = await asrt.check(ctx);
+      } catch (err) {
+        reason = `threw: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      if (reason !== null) allPass = false;
+      entry.assertions.push({ describe: asrt.describe, needsResult: asrt.needsResult, passed: reason === null, reason });
     }
-    const actualResult = await engine.run(built.query);
-    entry.ran = true;
-    const actual = normalize(actualResult);
-    entry.actualSummary = summarize(actual);
-    const cmp = compareResults(expected, actual, match, tol);
-    entry.passed = cmp.ok;
-    entry.diff = cmp.diff;
+    entry.passed = allPass;
+
+    // Record the model's own result once (if it ran) for the log trail.
+    if (built.query && c.assert.some((a) => a.needsResult)) {
+      try {
+        entry.resultSummary = summarize(await ctx.run());
+      } catch {
+        entry.resultSummary = null;
+      }
+    }
     return entry;
   } catch (err) {
-    entry.error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    entry.parseError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     return entry;
   } finally {
     entry.durationMs = Date.now() - started;
@@ -435,13 +400,18 @@ function writeLogs(entries: LogEntry[]): void {
   const md: string[] = [`# Integration eval failures (${failures.length}/${entries.length})`, ''];
   for (const e of failures) {
     md.push(`## ${e.id}  \`${e.category}\``);
-    md.push('', `**Request:** ${e.request}`, '');
+    md.push('', `**Request:** ${e.request}`, '', `**Trap:** ${e.note}`, '');
     md.push('**Emitted query:**', '```json', JSON.stringify(e.emittedQuery, null, 2), '```', '');
-    if (e.diff) md.push(`**Diff:** ${e.diff}`, '');
-    if (e.parseReport) md.push('**Diagnostics:**', '```', e.parseReport, '```', '');
+    const failed = e.assertions.filter((a) => !a.passed);
+    if (failed.length > 0) {
+      md.push('**Failed assertions:**');
+      for (const a of failed) md.push(`- ${a.describe} — ${a.reason ?? 'failed'}`);
+      md.push('');
+    }
+    if (e.parseError) md.push('**Parse error:**', '```', e.parseError, '```', '');
     if (e.problemCodes.length > 0) md.push(`**Problem codes:** ${e.problemCodes.join(', ')}`, '');
-    if (e.error) md.push(`**Error:** ${e.error}`, '');
-    md.push(`**Expected:** ${e.expectedSummary}`, `**Actual:** ${e.actualSummary}`, '', '---', '');
+    if (e.resultSummary) md.push(`**Model result:** ${e.resultSummary}`, '');
+    md.push('---', '');
   }
   writeFileSync(join(LOGS_DIR, 'failures.md'), `${md.join('\n')}\n`, 'utf8');
 }
@@ -456,7 +426,10 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     const entry = await runOneCase(engine, asker, modelId, c);
     entries.push(entry);
     const mark = entry.passed ? 'PASS' : 'FAIL';
-    const detail = entry.passed ? entry.actualSummary : entry.diff || entry.error || 'mismatch';
+    const failed = entry.assertions.filter((a) => !a.passed);
+    const detail = entry.passed
+      ? `${entry.assertions.length} assertion(s) ok`
+      : failed.map((a) => `${a.describe}: ${a.reason ?? 'failed'}`).join(' | ') || entry.parseError || 'failed';
     console.log(`  ${mark}  ${c.id.padEnd(34)} ${detail}`);
   }
 
@@ -484,7 +457,13 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     passed,
     passRate: passed / entries.length,
     byCategory: Object.fromEntries([...byCat.entries()].map(([k, v]) => [k, v])),
-    cases: entries.map((e) => ({ id: e.id, category: e.category, passed: e.passed, ran: e.ran, diff: e.diff, durationMs: e.durationMs })),
+    cases: entries.map((e) => ({
+      id: e.id,
+      category: e.category,
+      passed: e.passed,
+      assertions: e.assertions.map((a) => ({ describe: a.describe, passed: a.passed })),
+      durationMs: e.durationMs,
+    })),
   };
   writeFileSync(join(HERE, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   writeFileSync(
