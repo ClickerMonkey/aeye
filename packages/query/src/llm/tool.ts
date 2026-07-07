@@ -75,36 +75,112 @@ function isQueryDef(value: QueryDef | string): value is QueryDef {
   return typeof value === 'object' && value !== null;
 }
 
-/** Map a Zod validation failure into `Problems` (one error per issue). */
+/** One flattened zod leaf: its ABSOLUTE structural path + zod's message + code. */
+interface FlatZodIssue {
+  path: (string | number)[];
+  message: string;
+  code: string;
+}
+
+/** Keep only the `string | number` segments of a zod issue path (drops symbol keys). */
+function pathSegments(path: ReadonlyArray<PropertyKey>): (string | number)[] {
+  /* v8 ignore next 3 -- zod issue paths are always string | number here, so the guard's false branch is dead */
+  return path.filter(
+    (seg): seg is string | number => typeof seg === 'string' || typeof seg === 'number',
+  );
+}
+
+/**
+ * A branch REJECTED the value's `kind` discriminant (it's the wrong shape) — its
+ * failure is a `kind` literal mismatch rather than a genuine deeper problem.
+ */
+function rejectsDiscriminant(leaves: ReadonlyArray<FlatZodIssue>): boolean {
+  return leaves.some((f) => f.path[f.path.length - 1] === 'kind' && f.code === 'invalid_value');
+}
+
+/**
+ * Flatten a zod issue tree into concrete leaves with ABSOLUTE paths, isolating
+ * the OFFENDING location within the (recursive, `.or`-folded) query schema.
+ *
+ * The query / expr / source schemas are `kind`-discriminated unions, so any
+ * nested failure surfaces as an `invalid_union` whose branches are the
+ * alternative shapes. At each union:
+ *  - Branches that REJECT the value's `kind` (the wrong shape) are dropped — they
+ *    only report a discriminant mismatch, not the real problem.
+ *  - If SOME branch matched the `kind`, keep the deepest-reaching matches (the
+ *    matching shape parses furthest before failing at the genuinely-bad value).
+ *  - If NO branch matched (a bogus / absent `kind`, or a primitive where an
+ *    object was required), the value fits none of the options: emit ONE leaf at
+ *    the value's OWN path so the whole offending value is underlined.
+ */
+function flattenZodIssues(
+  issues: ReadonlyArray<z.core.$ZodIssue>,
+  prefix: ReadonlyArray<string | number>,
+): FlatZodIssue[] {
+  const out: FlatZodIssue[] = [];
+  for (const issue of issues) {
+    const abs = [...prefix, ...pathSegments(issue.path)];
+    if (issue.code === 'invalid_union') {
+      const branches = issue.errors.map((branch) => flattenZodIssues(branch, abs));
+      const matching = branches.filter((b) => !rejectsDiscriminant(b));
+      if (matching.length === 0) {
+        // Every option was rejected. Emit ONE leaf at the value's own path with
+        // `invalid_value` so that, when this position IS a `kind` discriminant
+        // (e.g. an enum of literals), a parent union recognises it as a
+        // discriminant rejection and prunes this whole (wrong-shape) branch.
+        out.push({
+          path: abs,
+          message: 'Value does not match any of the allowed shapes for this position.',
+          code: 'invalid_value',
+        });
+        continue;
+      }
+      const maxDepth = matching.reduce(
+        (m, b) => Math.max(m, b.reduce((d, f) => Math.max(d, f.path.length), 0)),
+        0,
+      );
+      for (const b of matching) {
+        if (b.reduce((d, f) => Math.max(d, f.path.length), 0) === maxDepth) out.push(...b);
+      }
+    } else {
+      out.push({ path: abs, message: issue.message, code: issue.code });
+    }
+  }
+  return out;
+}
+
+/**
+ * Map a Zod validation failure into `Problems` — one `schema.invalid` error per
+ * DISTINCT offending location. Union noise is collapsed by `flattenZodIssues`,
+ * so each problem's path points at (or into) the value the model must fix,
+ * letting `reportFor` underline it in the query JSON.
+ */
 function problemsFromZod(error: z.ZodError): Problems {
   const p = new Problems();
-  for (const issue of error.issues) {
-    /* v8 ignore next 3 -- zod issue paths are always string | number, so the type-guard's false branch is dead */
-    const path = issue.path.filter(
-      (seg): seg is string | number => typeof seg === 'string' || typeof seg === 'number',
-    );
-    p.at(path, () => p.error('schema.invalid', issue.message));
+  const seen = new Set<string>();
+  for (const leaf of flattenZodIssues(error.issues, [])) {
+    const key = JSON.stringify(leaf.path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    p.at(leaf.path, () => p.error('schema.invalid', leaf.message));
   }
   return p;
 }
 
-/** Render problems against the query JSON (plain fallback lines; no spans). */
-function reportFor(queryJson: QueryDef | string, problems: Problems): string {
-  if (problems.list.length === 0) return '';
-  const text = typeof queryJson === 'string' ? queryJson : JSON.stringify(queryJson, null, 2);
-  return new Code(text).formatProblems(problems);
-}
-
 /**
- * Best-effort source text for rendering a SCHEMA-failure report from the raw
- * envelope (whose `query` field never got a typed value). The rendered output
- * is span-free, so the exact text only anchors the fallback lines.
+ * Render problems as compiler-style, UNDERLINED diagnostics over the model's
+ * own query JSON. `Code.fromJson(value)` emits the canonical
+ * `JSON.stringify(value, null, 2)` text with a span pre-registered for every
+ * node, so each problem whose `path` matches a JSON node is underlined (`^^^`)
+ * at the offending value with surrounding context; a problem whose path
+ * resolves to no node keeps the graceful `<severity>: <message> @ <path>`
+ * fallback line. `value` is the JSON the problems' paths are relative to — the
+ * structured `query` def for parse/validate problems, or the raw envelope for
+ * schema-envelope failures (whose zod paths include the leading `query`).
  */
-function rawQueryText(raw: unknown): QueryDef | string {
-  if (typeof raw === 'object' && raw !== null && 'query' in raw) {
-    return typeof raw.query === 'string' ? raw.query : JSON.stringify(raw.query, null, 2);
-  }
-  return JSON.stringify(raw, null, 2);
+function reportFor(value: unknown, problems: Problems): string {
+  if (problems.list.length === 0) return '';
+  return Code.fromJson(value).formatProblems(problems);
 }
 
 /** The parse+validate pipeline (steps 1–4, WITHOUT running the query). */
@@ -118,7 +194,9 @@ function parseQueryInput(
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     const problems = problemsFromZod(parsed.error);
-    return { query: null, problems, report: reportFor(rawQueryText(raw), problems) };
+    // Render against the raw ENVELOPE: zod issue paths include the leading
+    // `query`, so they resolve to nodes in `jsonSource(raw)` and underline.
+    return { query: null, problems, report: reportFor(raw, problems) };
   }
   const input = parsed.data;
 

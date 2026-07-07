@@ -32,6 +32,7 @@
  */
 import type { Node } from './node';
 import type { Problem, Problems } from './problem';
+import { jsonSource } from './json-source';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,21 @@ export class Code {
     readonly text: string,
     readonly spans: ReadonlyArray<Span> = [],
   ) {}
+
+  /**
+   * Build a `Code` over the canonical JSON of `value`, with a `Span`
+   * pre-registered for EVERY node (root, each object property value, each
+   * array element). Its `text` is byte-identical to
+   * `JSON.stringify(value, null, 2)`, and each span carries the value's
+   * structural path — so `formatProblems` can resolve a `Problem.path` (e.g.
+   * `['fields', 0, 'expr', 'op']`) to that node's char range and underline it
+   * compiler-style. A problem whose path matches no node falls through to the
+   * existing plain fallback line.
+   */
+  static fromJson(value: unknown): Code {
+    const { text, spans } = jsonSource(value);
+    return new Code(text, spans);
+  }
 
   /** The rendered text (drops the spans). */
   toString(): string {

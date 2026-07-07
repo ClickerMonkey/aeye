@@ -201,6 +201,19 @@ const result = await tool.run(query, ctx);                                    //
 
 `buildSchemas` / `querySchema` expose the schema directly when you drive your own LLM loop.
 
+### Underlined, compiler-style problem reports
+
+`QueryToolError.report` renders every problem — STRUCTURAL (Zod envelope/shape) *and* SEMANTIC (`validateWalk`: unknown fields, param conflicts, per-Type validators) — as underlined diagnostics over the model's **own** query JSON, so it sees exactly which value to fix:
+
+```
+── line 21 ──────────────────────────────────────────────
+21 │         "left": "oops",
+   │                 ^^^^^^
+   │ error: Invalid input: expected object, received string
+```
+
+How it works: `jsonSource(value)` (in `src/json-source.ts`) re-emits the canonical `JSON.stringify(value, null, 2)` text while recording, for every node (root, each property value, each array element), the `[start, end)` char offsets keyed by the node's structural path (the same `(string | number)[]` shape as `Problem.path`). `Code.fromJson(value)` builds a `Code` over that text with those spans pre-registered, and `formatProblems` resolves each `Problem.path → span → (line, col)` to draw the `^^^` underline with surrounding context. Because the query/expr schemas are `.or`-folded unions, Zod nests its failures; `problemsFromZod` collapses that noise (pruning wrong-`kind` branches, keeping the deepest match) so each structural problem points at the single offending value. A problem whose path matches no node degrades gracefully (nearest ancestor, or a plain `<severity>: <message> @ <path>` line) rather than crashing. Valid queries produce no problems ⇒ an empty report.
+
 ## Self-describing the engine to a model
 
 The `describe*` helpers render a compact, promptable capability summary (plain text, deliberately terse to protect the context budget):
