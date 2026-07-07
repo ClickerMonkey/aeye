@@ -24,7 +24,7 @@ import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
-import { hasFieldDefault, type DefaultCondition, type FieldBacking, type TypeBacking } from '../backing';
+import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
 import { defaultConditionWithout } from '../default-conditions';
 import { exprKindApplicable } from '../schema-build';
 import { fieldMeta, typeMeta } from './describe-generate';
@@ -109,6 +109,24 @@ function defaultConditionNote(cond: DefaultCondition, alias: string): string {
   return `default: ${predText}${lift}`;
 }
 
+/**
+ * One terse line summarizing a Type's NATURAL default order (its `defaultOrder`):
+ * each term as `<key> ASC|DESC` (the key's readable `expr` form, else `custom`),
+ * plus the `applyTo` scope when it is not the default `'result'`. `alias` (the
+ * Type name) renders each key readably. Applied only to UNSORTED selects.
+ */
+function defaultOrderNote(order: DefaultOrder, alias: string): string {
+  const terms = order.by
+    .map((t) => {
+      const built = t.by.expr?.(alias);
+      const key = built ? built.toCode() : 'custom';
+      return `${key} ${(t.dir ?? 'asc').toUpperCase()}`;
+    })
+    .join(', ');
+  const scope = order.applyTo && order.applyTo !== 'result' ? `; ${order.applyTo}` : '';
+  return `Default order: ${terms} (applied when unsorted${scope})`;
+}
+
 /** Render one Type as a compact description block. `backing` (when supplied) surfaces
  *  per-field write deviations (computed / default) the plain `TypeDef` can't carry, plus
  *  any soft default conditions (their scope + reveal mechanism). */
@@ -121,6 +139,9 @@ export function describeType(type: Type, backing?: TypeBacking): string {
   const write = typeWriteNote(type);
   if (write) lines.push(write);
   for (const cond of backing?.defaultConditions ?? []) lines.push(defaultConditionNote(cond, type.name));
+  if (backing?.defaultOrder && backing.defaultOrder.by.length > 0) {
+    lines.push(defaultOrderNote(backing.defaultOrder, type.name));
+  }
   lines.push('fields:');
   for (const field of type.fields) lines.push(describeField(field, backing?.fields?.[field.name]));
 

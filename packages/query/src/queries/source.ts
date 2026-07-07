@@ -160,7 +160,9 @@ export class QuerySource {
       if (!recs) return [];
       return recs.map((r) => ({ [this.alias]: r }));
     }
-    const result = await this.subquery!.execute(ctx);
+    // A FROM subquery is a NESTED query — run it non-root so a Type's
+    // `defaultOrder` with `applyTo: 'result'` does not treat it as the entry.
+    const result = await ctx.withNonRoot(() => this.subquery!.execute(ctx));
     return result.rows.map((r) => ({ [this.alias]: r }));
   }
 

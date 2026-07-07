@@ -83,7 +83,8 @@ export class ExistsExpr extends BoolExpr {
   /** Execute the correlated subquery and return whether it produced any rows (negated for `NOT EXISTS`). */
   async evaluateBool(ctx: RuntimeContext, row: SourceRow): Promise<boolean> {
     const q = ctx.engine.parseQuery(this.query);
-    const result = await ctx.withCorrelation(row, () => q.execute(ctx));
+    // A nested subquery — run non-root (see `SubqueryExpr`).
+    const result = await ctx.withCorrelation(row, () => ctx.withNonRoot(() => q.execute(ctx)));
     const exists = result.rows.length > 0;
     return this.not ? !exists : exists;
   }

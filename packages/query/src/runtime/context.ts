@@ -106,6 +106,14 @@ export class RuntimeContext {
   readonly maxCteIterations: number;
   /** Whether a top-level SELECT should report its pre-limit `total`. */
   readonly includeTotal: boolean;
+  /**
+   * Whether the currently-executing query is the ROOT (entry) query
+   * `engine.run` was called with. Starts `true`; `withNonRoot` clears it while a
+   * NESTED query runs (a subquery / EXISTS / IN subquery, a FROM subquery, a CTE
+   * body, a set-op branch) and restores it after. A SELECT reads it to decide
+   * whether a Type's `defaultOrder` with `applyTo: 'result'` applies.
+   */
+  private root = true;
 
   private readonly states = new Map<string, TypeState>();
   private readonly paramValues = new Map<string, Value>();
@@ -291,6 +299,29 @@ export class RuntimeContext {
   /** The enclosing SELECT's projection `Expr` named `name`, or `undefined`. */
   outputExpr(name: string): Expr | undefined {
     return this.outputs.get(name);
+  }
+
+  // ─── Root / nested query marker ───────────────────────────────────────
+
+  /** Whether the currently-executing query is the ROOT (entry) query. */
+  get isRoot(): boolean {
+    return this.root;
+  }
+
+  /**
+   * Run `fn` with the root marker cleared (a NESTED query executes), restoring
+   * the previous value afterwards. Wrapped around every nested query execution —
+   * a subquery / EXISTS / IN subquery, a FROM subquery, a CTE body, a set-op
+   * branch — so only the entry query sees `isRoot === true`.
+   */
+  async withNonRoot<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.root;
+    this.root = false;
+    try {
+      return await fn();
+    } finally {
+      this.root = prev;
+    }
   }
 
   // ─── Embedding ────────────────────────────────────────────────────────

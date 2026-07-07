@@ -160,6 +160,15 @@ export class SqlContext {
      * Reset to false at nested levels (a subquery never emits the outer total).
      */
     readonly includeTotal: boolean = false,
+    /**
+     * Whether the query emitted with THIS context is the ROOT (entry) query
+     * `engine.toSQL` was called with. Set `true` only on that entry context;
+     * `withPlanner` clears it for every nested SELECT body (so a subquery / FROM
+     * subquery is non-root), and `nonRoot()` clears it at the CTE-body /
+     * set-op-branch boundaries. A SELECT reads it to decide whether a Type's
+     * `defaultOrder` with `applyTo: 'result'` applies (see `SelectQuery`).
+     */
+    readonly isRoot: boolean = false,
   ) {}
 
   /** The execution-supplied filter expr bound to `source`, or `undefined`. */
@@ -167,19 +176,29 @@ export class SqlContext {
     return this.filters[source];
   }
 
-  /** Same context with a different scope (same planner / level). */
+  /** Same context with a different scope (same planner / level / root status). */
   withScope(scope: QueryScope): SqlContext {
-    return new SqlContext(this.dialect, this.engine, scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal);
+    return new SqlContext(this.dialect, this.engine, scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, this.isRoot);
   }
 
   /** A nested level (subquery): fresh scope + fresh planner, not in-aggregate.
-   *  The outer `$total` flag does NOT propagate into a nested level. */
+   *  Neither the outer `$total` flag NOR root status propagates into a nested
+   *  level, so a subquery / FROM subquery emits as non-root. */
   withPlanner(scope: QueryScope, planner: JoinCtePlanner): SqlContext {
-    return new SqlContext(this.dialect, this.engine, scope, planner, this.rls, false, this.params, this.filters, false);
+    return new SqlContext(this.dialect, this.engine, scope, planner, this.rls, false, this.params, this.filters, false, false);
   }
 
   /** Toggle the in-aggregate flag (set when emitting an aggregate argument). */
   asAggregate(on: boolean): SqlContext {
-    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, on, this.params, this.filters, this.includeTotal);
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, on, this.params, this.filters, this.includeTotal, this.isRoot);
+  }
+
+  /**
+   * Mark the NEXT emitted query as NON-root (same level otherwise). Used at the
+   * boundaries `withPlanner` does not cover — a CTE body and a set-operation
+   * branch — so those nested SELECTs never inherit the entry's root status.
+   */
+  nonRoot(): SqlContext {
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, false);
   }
 }

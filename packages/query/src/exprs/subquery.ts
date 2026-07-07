@@ -79,9 +79,10 @@ export class SubqueryExpr extends Expr {
   /** Execute the subquery (correlated to `row` when present) and return its first field. */
   async evaluate(ctx: RuntimeContext, row: SourceRow | null): Promise<Value> {
     const q = ctx.engine.parseQuery(this.query);
-    const result = row
-      ? await ctx.withCorrelation(row, () => q.execute(ctx))
-      : await q.execute(ctx);
+    // A subquery is a NESTED query — run it non-root so a Type's `defaultOrder`
+    // with `applyTo: 'result'` does not treat it as the entry query.
+    const run = () => ctx.withNonRoot(() => q.execute(ctx));
+    const result = row ? await ctx.withCorrelation(row, run) : await run();
     const first = result.rows[0];
     return first ? Value.of(firstField(first)) : Value.null();
   }

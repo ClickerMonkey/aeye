@@ -67,12 +67,15 @@ class CTEEntryImpl implements CteEntry {
   }
 
   async execute(ctx: RuntimeContext): Promise<void> {
-    const res = await this.query.execute(ctx);
+    // A CTE body is a NESTED query — run non-root (see its `toSQL`).
+    const res = await ctx.withNonRoot(() => this.query.execute(ctx));
     ctx.ctes.set(this.name, [...res.rows]);
   }
 
   toSQL(dialect: Dialect, inner: SqlContext): SqlText {
-    return SqlText.concat([dialect.ident(this.name), SqlText.raw(' AS ('), this.query.toSQL(dialect, inner), SqlText.raw(')')]);
+    // A CTE BODY is a nested query — emit it non-root so a Type's `defaultOrder`
+    // with `applyTo: 'result'` does not treat it as the entry query.
+    return SqlText.concat([dialect.ident(this.name), SqlText.raw(' AS ('), this.query.toSQL(dialect, inner.nonRoot()), SqlText.raw(')')]);
   }
 
   toJSON(): CTEDef {
@@ -109,14 +112,15 @@ class CTERecursiveEntryImpl implements CteEntry {
   }
 
   async execute(ctx: RuntimeContext): Promise<void> {
-    const baseRes = await this.base.execute(ctx);
+    // Both arms are NESTED query bodies — run non-root (see its `toSQL`).
+    const baseRes = await ctx.withNonRoot(() => this.base.execute(ctx));
     let all = [...baseRes.rows];
     const seen = new Set(all.map(recordSignature));
     ctx.ctes.set(this.name, all);
 
     let iter = 0;
     while (iter < ctx.maxCteIterations) {
-      const res = await this.recursiveArm.execute(ctx);
+      const res = await ctx.withNonRoot(() => this.recursiveArm.execute(ctx));
       const fresh = res.rows.filter((r) => {
         const k = recordSignature(r);
         if (seen.has(k)) return false;
@@ -131,8 +135,10 @@ class CTERecursiveEntryImpl implements CteEntry {
   }
 
   toSQL(dialect: Dialect, inner: SqlContext): SqlText {
+    // Both arms are nested query bodies — emit non-root (see `CTEEntryImpl`).
+    const arm = inner.nonRoot();
     const body = SqlText.join(
-      [this.base.toSQL(dialect, inner), SqlText.raw('UNION ALL'), this.recursiveArm.toSQL(dialect, inner)],
+      [this.base.toSQL(dialect, arm), SqlText.raw('UNION ALL'), this.recursiveArm.toSQL(dialect, arm)],
       ' ',
     );
     return SqlText.concat([dialect.ident(this.name), SqlText.raw(' AS ('), body, SqlText.raw(')')]);

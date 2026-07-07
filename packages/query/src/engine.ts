@@ -26,6 +26,7 @@ import {
   type SearchBacking,
   type SemanticBacking,
   type DefaultCondition,
+  type DefaultOrder,
 } from './backing';
 import type { ResolvedType } from './resolved-type';
 import type { ValidateContext } from './expr';
@@ -162,6 +163,16 @@ export class QueryEngine {
    */
   defaultConditions(typeName: string): readonly DefaultCondition[] {
     return this.backing(typeName)?.defaultConditions() ?? [];
+  }
+
+  /**
+   * The NATURAL default order declared on `typeName`'s backing (see
+   * {@link DefaultOrder}), or `undefined` when none. A SELECT whose FROM binds
+   * this Type synthesizes its `ORDER BY` from this when it specifies none and
+   * ordering is meaningful — see `SelectQuery`.
+   */
+  defaultOrder(typeName: string): DefaultOrder | undefined {
+    return this.backing(typeName)?.defaultOrder();
   }
 
   /**
@@ -396,7 +407,7 @@ export class QueryEngine {
     // Thread the execution-time filter exprs (parsed once, keyed by source) +
     // includeTotal onto the context so the `filters` placeholders and the
     // `$total` column read them.
-    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), opts?.includeTotal ?? false);
+    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), opts?.includeTotal ?? false, true);
     const rendered = q.toSQL(d, ctx).render(d);
     return { sql: rendered.sql, params: [...rendered.params] };
   }

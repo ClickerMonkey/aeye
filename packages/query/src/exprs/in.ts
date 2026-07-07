@@ -169,7 +169,8 @@ export class InExpr extends BoolExpr {
       }
     } else if (this.subquery) {
       const q = ctx.engine.parseQuery(this.subquery);
-      const result = await ctx.withCorrelation(row, () => q.execute(ctx));
+      // A nested subquery — run non-root (see `SubqueryExpr`).
+      const result = await ctx.withCorrelation(row, () => ctx.withNonRoot(() => q.execute(ctx)));
       for (const rec of result.rows) {
         const ev = Value.of(firstField(rec));
         if (ev.isNull()) anyNull = true;

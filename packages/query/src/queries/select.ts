@@ -40,14 +40,19 @@ import {
 import { QuerySource } from './source';
 import { QueryJoin } from './join';
 import { reportDuplicateSources, type BoundSource } from './_sources';
-import { QueryOrder, sortEntries, type OrderEntry } from './order';
+import { QueryOrder, sortEntries, sortByKeys, type OrderEntry } from './order';
 import { type Cost, addCost } from '../cost';
 import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost } from './_cost';
 import { canonicalize } from '../expr';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
-import { resolveRelationOnSql } from '../backing';
+import {
+  resolveRelationOnSql,
+  resolveDefaultOrderSql,
+  resolveDefaultOrderRun,
+  type DefaultOrder,
+} from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { boundSQL } from './_sql';
 import {
@@ -323,6 +328,37 @@ export class SelectQuery extends Query {
   }
 
   /**
+   * The FROM Type's `defaultOrder` to synthesize this SELECT's `ORDER BY` from,
+   * or `undefined` when none applies. It applies ONLY when every guard holds:
+   *  1. the FROM binds a backed Type that declares a non-empty `defaultOrder`
+   *     (joins never contribute their own default order);
+   *  2. the query specifies NO explicit `order` (an author's order owns the sort);
+   *  3. the query is NOT aggregated — no `groupBy`, no bare aggregate select item
+   *     (a base-field order is meaningless post-aggregation) — and NOT `DISTINCT`
+   *     (a non-selected order key would be illegal SQL); AND
+   *  4. the SELECT is in scope for the order's `applyTo` (default `'result'`):
+   *     `'result'` ⇒ the root query (`isRoot`) OR any LIMIT/OFFSET select;
+   *     `'paginated'` ⇒ only a LIMIT/OFFSET select; `'all'` ⇒ every eligible one.
+   * `isRoot` marks the entry query being run/emitted (threaded on the context).
+   */
+  private effectiveDefaultOrder(engine: QueryEngine, isRoot: boolean): DefaultOrder | undefined {
+    if (this.order.length) return undefined; // (2) an explicit order owns the sort
+    // (3) aggregation / DISTINCT make a base-field default order invalid.
+    if (this.groupBy.length) return undefined;
+    if (this.fields.some((c) => c.expr.containsAggregate())) return undefined;
+    if (this.distinct) return undefined;
+    // (1) only the FROM Type's declared default order drives ordering.
+    if (this.from.sourceKind !== 'type' || this.from.typeName === undefined) return undefined;
+    const order = engine.defaultOrder(this.from.typeName);
+    if (!order || order.by.length === 0) return undefined;
+    // (4) `applyTo` scope: 'result' (root or paged), 'paginated', or 'all'.
+    const scope = order.applyTo ?? 'result';
+    const paginated = this.limit !== undefined || this.offset !== undefined;
+    const inScope = scope === 'all' || (scope === 'paginated' ? paginated : isRoot || paginated);
+    return inScope ? order : undefined;
+  }
+
+  /**
    * `limit` / `offset` may be bound to a `param` (see `autoPaginate`), but they
    * live outside the walked expr tree, so `params()` never observes them. They
    * are always integer row counts, so observe each against a number field type
@@ -426,6 +462,10 @@ export class SelectQuery extends Query {
   /** Run the in-memory pipeline: FROM → JOIN → WHERE → GROUP BY → HAVING → DISTINCT → ORDER BY → OFFSET/LIMIT. */
   async execute(ctx: RuntimeContext): Promise<QueryResult> {
     const engine = ctx.engine;
+    // Whether THIS select is the root (entry) query — captured up front (nested
+    // subquery executions clear + restore it). Drives a `defaultOrder` with
+    // `applyTo: 'result'` at ORDER BY (§7).
+    const isRoot = ctx.isRoot;
 
     // 1. FROM.
     let rows = await this.from.rows(ctx);
@@ -520,7 +560,10 @@ export class SelectQuery extends Query {
       });
     }
 
-    // 7. ORDER BY.
+    // 7. ORDER BY: the authored terms, else the FROM Type's `defaultOrder` when
+    //    it applies (same guards + `applyTo` scope as SQL emission). The default
+    //    keys resolve against the FROM alias per row and sort with the SAME
+    //    comparator (dir + nulls) an explicit ORDER BY uses.
     let outRows: SourceRecord[];
     if (this.order.length) {
       const entries: OrderEntry<SourceRecord>[] = projected.map((pr) => ({
@@ -530,7 +573,7 @@ export class SelectQuery extends Query {
       }));
       outRows = await ctx.withOutputs(outputs, () => sortEntries(entries, this.order, ctx));
     } else {
-      outRows = projected.map((pr) => pr.record);
+      outRows = await this.applyDefaultOrder(engine, ctx, isRoot, projected);
     }
 
     // The full result count BEFORE pagination — the row set after every
@@ -599,6 +642,31 @@ export class SelectQuery extends Query {
     return order.map((k) => groups.get(k)!);
   }
 
+  /**
+   * Sort the projected rows by the FROM Type's `defaultOrder` when it applies
+   * (unsorted select + the `effectiveDefaultOrder` guards + scope), else return
+   * them unsorted. Each term's `Computed` key is evaluated against the FROM
+   * alias per row; a key with no runtime path (only `sql`) is skipped.
+   */
+  private async applyDefaultOrder(
+    engine: QueryEngine,
+    ctx: RuntimeContext,
+    isRoot: boolean,
+    projected: readonly ProjectedRow[],
+  ): Promise<SourceRecord[]> {
+    const def = this.effectiveDefaultOrder(engine, isRoot);
+    if (!def) return projected.map((pr) => pr.record);
+    const { terms, keys } = await resolveDefaultOrderRun(
+      def,
+      this.from.alias,
+      projected.map((pr) => pr.row),
+      ctx,
+    );
+    if (terms.length === 0) return projected.map((pr) => pr.record);
+    const entries = projected.map((pr, i) => ({ item: pr.record, keys: keys[i]! }));
+    return sortByKeys(entries, terms);
+  }
+
   /** Resolve a literal / param row bound to a number (undefined when unset). */
   private numericBound(v: number | ParamExprDef | undefined, ctx: RuntimeContext): number | undefined {
     if (v === undefined) return undefined;
@@ -615,13 +683,22 @@ export class SelectQuery extends Query {
     return this.from.fromSQL(dialect, ctx);
   }
 
+  /** One ORDER BY clause `<key> ASC|DESC [NULLS FIRST|LAST]` from a resolved key + dir/nulls. */
+  private orderClauseSQL(
+    key: SqlText,
+    dir: 'asc' | 'desc',
+    nulls: 'first' | 'last' | undefined,
+  ): SqlText {
+    return SqlText.concat([
+      key,
+      SqlText.raw(` ${dir.toUpperCase()}`),
+      nulls ? SqlText.raw(` NULLS ${nulls.toUpperCase()}`) : SqlText.empty(),
+    ]);
+  }
+
   /** One ORDER BY term: `<expr> ASC|DESC [NULLS FIRST|LAST]`. */
   private orderTermSQL(dialect: Dialect, ctx: SqlContext, o: QueryOrder): SqlText {
-    return SqlText.concat([
-      o.expr.toSQL(dialect, ctx),
-      SqlText.raw(` ${o.dir.toUpperCase()}`),
-      o.nulls ? SqlText.raw(` NULLS ${o.nulls.toUpperCase()}`) : SqlText.empty(),
-    ]);
+    return this.orderClauseSQL(o.expr.toSQL(dialect, ctx), o.dir, o.nulls);
   }
 
   /** Emit the SELECT, re-attaching any planner CTEs as a leading `WITH` when top-level. */
@@ -639,6 +716,10 @@ export class SelectQuery extends Query {
    */
   override emitWith(dialect: Dialect, ctx: SqlContext): { ctes: ReadonlyArray<SqlText>; body: SqlText } {
     const engine = ctx.engine;
+    // Whether THIS select is the root (entry) query — read from the incoming
+    // context BEFORE `withPlanner` clears it for nested emission. Drives a
+    // `defaultOrder` with `applyTo: 'result'` (see `effectiveDefaultOrder`).
+    const isRoot = ctx.isRoot;
     const { scope: inner, aliasTypes } = this.bind(engine, ctx.scope);
     const planner = new JoinCtePlanner(dialect, engine, ctx.rls, ctx.params);
     const selCtx = ctx.withPlanner(inner, planner);
@@ -696,7 +777,19 @@ export class SelectQuery extends Query {
     const outCtx = selCtx.withScope(this.outputScope(inner));
     const groupSqls = this.groupBy.map((g) => g.toSQL(dialect, outCtx));
     const havingSqls = this.having.map((h) => h.toSQL(dialect, outCtx));
-    const orderSqls = this.order.map((o) => this.orderTermSQL(dialect, outCtx, o));
+    // ORDER BY: the authored terms, else the FROM Type's `defaultOrder` when it
+    // applies (unsorted + non-aggregated + non-DISTINCT + in `applyTo` scope),
+    // resolved against the FROM alias. An aggregated / DISTINCT / already-ordered
+    // select keeps no default (documented in `effectiveDefaultOrder`).
+    let orderSqls = this.order.map((o) => this.orderTermSQL(dialect, outCtx, o));
+    // `effectiveDefaultOrder` returns `undefined` when an explicit order is
+    // present, so it is the single authority for whether the default applies.
+    const def = this.effectiveDefaultOrder(engine, isRoot);
+    if (def) {
+      orderSqls = resolveDefaultOrderSql(def, this.from.alias, outCtx).map((t) =>
+        this.orderClauseSQL(t.sql, t.dir, t.nulls),
+      );
+    }
 
     // 5. FROM + LIMIT/OFFSET.
     const fromSql = this.fromSQL(dialect, selCtx);

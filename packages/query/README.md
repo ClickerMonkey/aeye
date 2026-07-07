@@ -488,6 +488,41 @@ defaultConditions: [{ where: { expr: (alias) => e.isNull(e.ref(alias, 'archivedA
 // which lifts the scope for that source and reveals the archived rows.
 ```
 
+## Default ordering
+
+`TypeBacking.defaultOrder` declares a Type's **natural sort** — the `ORDER BY` a
+SELECT gets when it specifies **none** (and ordering is meaningful). A
+`DefaultOrder` is `{ by: DefaultOrderTerm[]; applyTo? }`; each `DefaultOrderTerm`
+is `{ by: Computed; dir?; nulls? }` whose `by` is the sort **key** — the same
+dual `{ expr }` / `sql` / `run` `Computed` computed fields use, so one key
+**emits to SQL and sorts in memory identically** (`dir` default `'asc'`; `nulls`
+else direction-based — asc ⇒ nulls first, desc ⇒ last — matching an explicit
+ORDER BY).
+
+It applies only when the **FROM** binds the backed Type (joins never contribute
+their default order), the query has **no explicit `order`**, and it is **not
+aggregated** (no `groupBy`, no bare aggregate) and **not `DISTINCT`** — both are
+skipped (a base-field order is meaningless post-aggregation; a non-selected
+DISTINCT key is illegal SQL).
+
+`applyTo` scopes **which** selects receive it:
+
+- **`'result'`** (default) — the **root** query being run/emitted, **or** any
+  `LIMIT`/`OFFSET` select.
+- **`'paginated'`** — only a `LIMIT`/`OFFSET` select.
+- **`'all'`** — every eligible select over the Type (incl. subqueries / CTEs).
+
+The root is tracked by an `isRoot` marker threaded from `engine.run` /
+`engine.toSQL` onto the runtime / SQL context; nested queries (a subquery /
+EXISTS / IN subquery, a FROM subquery, a CTE body, a set-op branch) run and emit
+**non-root**. SELECT-only — DML is never reordered.
+
+```ts
+// Newest-first by default: an unsorted SELECT over the Type gets
+// `ORDER BY "t"."createdAt" DESC`.
+defaultOrder: { by: [{ by: { expr: (alias) => e.ref(alias, 'createdAt') }, dir: 'desc' }] },
+```
+
 ## Named joins & LATERAL
 
 `TypeBacking.joins` declares **named, hidden** joins; a field opts in via

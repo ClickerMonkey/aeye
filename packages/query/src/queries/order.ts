@@ -48,6 +48,39 @@ export interface OrderEntry<T> {
 }
 
 /**
+ * The direction + NULLs placement a sort term contributes — the minimal shape
+ * the comparator needs. A `QueryOrder` (which adds `expr`) and a backing's
+ * resolved default-order term both satisfy it structurally, so `sortByKeys`
+ * serves ORDER BY and a Type's `defaultOrder` with ONE comparator.
+ */
+export interface ResolvedOrderTerm {
+  /** Sort direction. */
+  readonly dir: 'asc' | 'desc';
+  /** Explicit NULLs placement, or `undefined` for the direction-based default. */
+  readonly nulls: 'first' | 'last' | undefined;
+}
+
+/**
+ * Stable-sort `entries` (each carrying its PRE-EVALUATED sort keys, aligned to
+ * `terms`) by direction + NULLs placement. The comparator is shared with
+ * `sortEntries`; keys may come from ORDER BY exprs or a Type's `defaultOrder`.
+ */
+export function sortByKeys<T>(
+  entries: readonly { readonly item: T; readonly keys: readonly Value[] }[],
+  terms: readonly ResolvedOrderTerm[],
+): T[] {
+  const decorated = [...entries];
+  decorated.sort((a, b) => {
+    for (let i = 0; i < terms.length; i++) {
+      const cmp = compareWithNulls(a.keys[i]!, b.keys[i]!, terms[i]!);
+      if (cmp !== 0) return cmp;
+    }
+    return 0;
+  });
+  return decorated.map((d) => d.item);
+}
+
+/**
  * Stable-sort `entries` by `terms`. Each term's value is pre-evaluated per
  * entry, then a comparator applies direction + nulls placement. NULLs default
  * to sorting first on `asc` (last on `desc`), overridable via `nulls`.
@@ -61,26 +94,14 @@ export async function sortEntries<T>(
     entries.map(async (e) => {
       const keys: Value[] = [];
       for (const t of terms) keys.push(await t.expr.evaluate(ctx, e.row, e.group));
-      return { e, keys };
+      return { item: e.item, keys };
     }),
   );
-
-  decorated.sort((a, b) => {
-    for (let i = 0; i < terms.length; i++) {
-      const term = terms[i]!;
-      const av = a.keys[i]!;
-      const bv = b.keys[i]!;
-      const cmp = compareWithNulls(av, bv, term);
-      if (cmp !== 0) return cmp;
-    }
-    return 0;
-  });
-
-  return decorated.map((d) => d.e.item);
+  return sortByKeys(decorated, terms);
 }
 
 /** Compare two values for one term, honoring direction + nulls placement. */
-function compareWithNulls(a: Value, b: Value, term: QueryOrder): number {
+function compareWithNulls(a: Value, b: Value, term: ResolvedOrderTerm): number {
   const aNull = a.isNull();
   const bNull = b.isNull();
   if (aNull || bNull) {

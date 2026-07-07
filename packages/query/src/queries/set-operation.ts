@@ -157,8 +157,9 @@ export class SetOperationQuery extends Query {
 
   /** Run both arms, combine per the set operation, de-dup unless `all`, then apply set-level ORDER BY / OFFSET / LIMIT. */
   async execute(ctx: RuntimeContext): Promise<QueryResult> {
-    const leftRes = await this.left.execute(ctx);
-    const rightRes = await this.right.execute(ctx);
+    // Each branch is a NESTED query — run non-root (see `toSQL`).
+    const leftRes = await ctx.withNonRoot(() => this.left.execute(ctx));
+    const rightRes = await ctx.withNonRoot(() => this.right.execute(ctx));
     let rows: SourceRecord[];
     switch (this.kind) {
       case 'union':
@@ -222,9 +223,12 @@ export class SetOperationQuery extends Query {
   /** Emit `(left) <OP> [ALL] (right) [ORDER BY …] [LIMIT/OFFSET …]`. */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     const op = `${this.kind.toUpperCase()}${this.all ? ' ALL' : ''}`;
+    // Each branch is a nested query — emit non-root so a Type's `defaultOrder`
+    // with `applyTo: 'result'` does not treat a branch as the entry query.
+    const branch = ctx.nonRoot();
     const parts: SqlText[] = [
       SqlText.join(
-        [this.left.toSQL(dialect, ctx).parens(), SqlText.raw(op), this.right.toSQL(dialect, ctx).parens()],
+        [this.left.toSQL(dialect, branch).parens(), SqlText.raw(op), this.right.toSQL(dialect, branch).parens()],
         ' ',
       ),
     ];

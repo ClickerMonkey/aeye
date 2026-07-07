@@ -435,6 +435,15 @@ export interface TypeBacking {
    * in ALONGSIDE it. See {@link DefaultCondition}.
    */
   defaultConditions?: readonly DefaultCondition[];
+  /**
+   * This Type's NATURAL sort — the `ORDER BY` a SELECT over it receives when the
+   * query specifies NONE and ordering is meaningful (not aggregated, not
+   * DISTINCT). Each term's key is a `Computed` (dual SQL/runtime), so the sort is
+   * emitted to SQL AND applied in memory identically. See {@link DefaultOrder}
+   * (and {@link DefaultOrderScope} for WHICH selects it reaches — root / paged /
+   * all). SELECT-only; DML is never reordered.
+   */
+  defaultOrder?: DefaultOrder;
   /** Named hidden joins, shared + deduped by name (added once-if-referenced). */
   joins?: Record<string, JoinBacking>;
   /** Per-field backing, keyed by conceptual field name. */
@@ -705,6 +714,120 @@ export async function resolveComputeRun(
   return { kind: 'stored' };
 }
 
+// ─── Default ordering (a Type's natural sort) ────────────────────────────────
+//
+// A Type may declare its NATURAL sort — the `ORDER BY` a SELECT over it gets
+// when the query specifies none (and ordering is meaningful). Each term's sort
+// KEY is a `Computed` (the SAME dual `expr` / `sql` / `run`, alias-given
+// primitive computed fields use), so one key emits to SQL (`resolveComputeSql`)
+// AND evaluates in memory (`resolveComputeRun`) identically. WHEN the default is
+// injected (an unsorted, non-aggregated, non-DISTINCT SELECT in scope) lives in
+// the SELECT query; this module only MODELS + RESOLVES the order.
+
+/**
+ * WHICH SELECTs over a Type receive its `defaultOrder` (default `'result'`):
+ *  - `'result'`    — the ROOT query being run/emitted, PLUS any SELECT that
+ *                    LIMITs/OFFSETs (a paged inner query still orders stably).
+ *  - `'paginated'` — ONLY SELECTs with a LIMIT/OFFSET.
+ *  - `'all'`       — every eligible SELECT over the Type (incl. subqueries/CTEs).
+ */
+export type DefaultOrderScope = 'result' | 'paginated' | 'all';
+
+/**
+ * One term of a Type's natural sort. `by` is the sort KEY — a `Computed` (the
+ * dual `expr`, or a `sql` / `run` override), resolved against the bound FROM
+ * alias. `dir` defaults to `'asc'`; `nulls` defaults to the direction-based
+ * placement (asc ⇒ nulls first, desc ⇒ nulls last), matching an explicit
+ * `QueryOrder`.
+ */
+export interface DefaultOrderTerm {
+  /** The sort key (a `Computed`; resolves to an SQL fragment / a runtime value). */
+  by: Computed;
+  /** Sort direction (default `'asc'`). */
+  dir?: 'asc' | 'desc';
+  /** NULLs placement; default is direction-based (asc ⇒ first, desc ⇒ last). */
+  nulls?: 'first' | 'last';
+}
+
+/**
+ * A Type's DEFAULT (natural) ORDER — the `ORDER BY` a SELECT gets when it does
+ * NOT specify one and ordering is meaningful (not aggregated, not DISTINCT). See
+ * {@link DefaultOrderScope} for WHICH selects it reaches.
+ */
+export interface DefaultOrder {
+  /** The ordered sort terms (applied in listed order). */
+  by: readonly DefaultOrderTerm[];
+  /** Which SELECTs receive this order (default `'result'`). */
+  applyTo?: DefaultOrderScope;
+}
+
+/** The direction + NULLs placement of a resolved default-order term. */
+export interface DefaultOrderDir {
+  /** Sort direction (a term's `dir`, defaulted to `'asc'`). */
+  readonly dir: 'asc' | 'desc';
+  /** Explicit NULLs placement, or `undefined` for the direction-based default. */
+  readonly nulls: 'first' | 'last' | undefined;
+}
+
+/** A resolved default-order term for SQL emission: its key fragment + dir/nulls. */
+export interface DefaultOrderSqlTerm extends DefaultOrderDir {
+  /** The `ORDER BY` key SQL fragment (from `resolveComputeSql`). */
+  readonly sql: SqlText;
+}
+
+/**
+ * Resolve a Type's `defaultOrder` to SQL `ORDER BY` term fragments against the
+ * bound FROM `alias`. A term whose `Computed` key has no SQL path (only `run`)
+ * resolves to `stored` and is SKIPPED — it can only sort in memory.
+ */
+export function resolveDefaultOrderSql(
+  order: DefaultOrder,
+  alias: string,
+  ctx: SqlContext,
+): DefaultOrderSqlTerm[] {
+  const out: DefaultOrderSqlTerm[] = [];
+  for (const term of order.by) {
+    const key = resolveComputeSql(term.by, alias, ctx);
+    if (key.kind === 'stored') continue;
+    out.push({ sql: key.sql, dir: term.dir ?? 'asc', nulls: term.nulls });
+  }
+  return out;
+}
+
+/**
+ * Resolve a Type's `defaultOrder` into per-row sort KEYS for the in-memory
+ * runtime. `rows` are the FROM-aliased evaluation rows; each term's `Computed`
+ * is resolved to a `Value` per row via `resolveComputeRun`. A term whose key has
+ * no runtime path (only `sql`) resolves to `stored` and is SKIPPED (it can only
+ * sort in SQL). Returns the aligned `terms` (dir/nulls) + a `keys` matrix (one
+ * inner array per input row, one column per KEPT term), ready for `sortByKeys`.
+ */
+export async function resolveDefaultOrderRun(
+  order: DefaultOrder,
+  alias: string,
+  rows: readonly SourceRow[],
+  ctx: RuntimeContext,
+): Promise<{ terms: DefaultOrderDir[]; keys: Value[][] }> {
+  const terms: DefaultOrderDir[] = [];
+  const keys: Value[][] = rows.map(() => []);
+  for (const term of order.by) {
+    const col: Value[] = [];
+    let usable = true;
+    for (const row of rows) {
+      const key = await resolveComputeRun(term.by, alias, row, ctx);
+      if (key.kind === 'stored') {
+        usable = false;
+        break;
+      }
+      col.push(key.value);
+    }
+    if (!usable) continue;
+    terms.push({ dir: term.dir ?? 'asc', nulls: term.nulls });
+    col.forEach((v, i) => keys[i]!.push(v));
+  }
+  return { terms, keys };
+}
+
 /** Whether a `FieldBacking` supplies a default value (making the field optional-on-insert). */
 export function hasFieldDefault(fb: FieldBacking | undefined): boolean {
   return fb?.default !== undefined;
@@ -914,6 +1037,11 @@ export class Backing {
   /** The soft, suppressible default conditions declared on this Type (empty when none). */
   defaultConditions(): readonly DefaultCondition[] {
     return this.def.defaultConditions ?? [];
+  }
+
+  /** This Type's declared DEFAULT (natural) order, or `undefined` when none. */
+  defaultOrder(): DefaultOrder | undefined {
+    return this.def.defaultOrder;
   }
 
   /** The named `JoinBacking` `name`, or `undefined` when this Type declares none. */
