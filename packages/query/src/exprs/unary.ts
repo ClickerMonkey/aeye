@@ -14,6 +14,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { MoneyFieldType, NumberFieldType } from '../field-types/index';
 import { computed, gatherSources, categoryOf, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
@@ -48,14 +49,14 @@ export class UnaryExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape (operand uses the shared child Expr schema). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('unary'),
-        op: z.enum(['-', '+']),
+        op: withAid(z.enum(['-', '+']), 'UnaryOp'),
         operand: childExprSchema(opts.Expr),
-      })
-      .meta({ aid: 'Expr_unary' })
-      .describe('Unary arithmetic operation.');
+      }),
+      'Expr_unary',
+    ).describe('Unary arithmetic operation.');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

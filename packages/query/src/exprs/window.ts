@@ -25,6 +25,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
 import { computed, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import {
   parseNamedArgs,
   namedArgSchema,
@@ -91,8 +92,8 @@ export class WindowExpr extends Expr {
     const child = childExprSchema(opts.Expr);
     // The `open` shape (also the bare-call / `functions:'open'` fallback);
     // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = z
-      .object({
+    const open = withAid(
+      z.object({
         kind: z.literal('window'),
         function: z.string().describe('Registered window (or aggregate) function name.'),
         args: namedArgSchema(child),
@@ -101,14 +102,14 @@ export class WindowExpr extends Expr {
           .array(
             z.object({
               expr: child,
-              dir: z.enum(['asc', 'desc']),
-              nulls: z.enum(['first', 'last']).optional(),
+              dir: withAid(z.enum(['asc', 'desc']), 'OrderDir'),
+              nulls: withAid(z.enum(['first', 'last']), 'OrderNulls').optional(),
             }),
           )
           .optional(),
-      })
-      .meta({ aid: 'Expr_window' })
-      .describe('Window function over a partition / ordering, with named args.');
+      }),
+      'Expr_window',
+    ).describe('Window function over a partition / ordering, with named args.');
     return functionExprSchema('window', open, opts.functions, opts.depth?.functions ?? 'open', child);
   }
 

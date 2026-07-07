@@ -18,6 +18,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL } from './_shared';
+import { withAid } from '../aids';
 import { operandCtx } from './_field-guard';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -64,15 +65,15 @@ export class InExpr extends BoolExpr {
 
   /** Zod schema for this expr kind's JSON shape (`in` is a child Expr list or a child Query slot). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('in'),
         value: childExprSchema(opts.Expr),
         in: z.union([z.array(childExprSchema(opts.Expr)), childQuerySchema(opts.Query)]),
         not: z.boolean().optional(),
-      })
-      .meta({ aid: 'Expr_in' })
-      .describe('Membership predicate (value IN list / subquery).');
+      }),
+      'Expr_in',
+    ).describe('Membership predicate (value IN list / subquery).');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

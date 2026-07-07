@@ -20,6 +20,7 @@ import {
   TextFieldType,
 } from '../field-types/index';
 import { computed } from './_shared';
+import { withAid } from '../aids';
 import { Value } from '../runtime/value';
 import type { Cost } from '../cost';
 import { bytesOfResolved } from '../cost';
@@ -48,13 +49,13 @@ export class LiteralExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('literal'),
-        value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
-      })
-      .meta({ aid: 'Expr_literal' })
-      .describe('A constant scalar value.');
+        value: withAid(z.union([z.string(), z.number(), z.boolean(), z.null()]), 'ScalarValue'),
+      }),
+      'Expr_literal',
+    ).describe('A constant scalar value.');
   }
 
   /** Whether this is the SQL `NULL` literal. */

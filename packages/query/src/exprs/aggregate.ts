@@ -27,6 +27,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
 import { computed, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import {
   parseNamedArgs,
   namedArgSchema,
@@ -81,15 +82,15 @@ export class AggregateExpr extends Expr {
     const child = childExprSchema(opts.Expr);
     // The `open` shape (also the bare-call / `functions:'open'` fallback);
     // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = z
-      .object({
+    const open = withAid(
+      z.object({
         kind: z.literal('aggregate'),
         function: z.string().describe('Registered aggregate function name (count for count(*)).'),
         args: namedArgSchema(child),
         distinct: z.boolean().optional(),
-      })
-      .meta({ aid: 'Expr_aggregate' })
-      .describe('Aggregate function over named args (count with empty args = count(*)).');
+      }),
+      'Expr_aggregate',
+    ).describe('Aggregate function over named args (count with empty args = count(*)).');
     return functionExprSchema('aggregate', open, opts.functions, opts.depth?.functions ?? 'open', child);
   }
 

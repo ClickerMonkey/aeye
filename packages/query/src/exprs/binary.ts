@@ -25,6 +25,7 @@ import {
   categoryOf,
   childExprSchema,
 } from './_shared';
+import { withAid } from '../aids';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
@@ -72,15 +73,15 @@ export class BinaryExpr extends Expr {
   /** Zod schema for this expr kind's JSON shape (operands use the shared child Expr schema). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     const child = childExprSchema(opts.Expr);
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('binary'),
-        op: z.enum(['+', '-', '*', '/', '%']),
+        op: withAid(z.enum(['+', '-', '*', '/', '%']), 'BinaryOp'),
         left: child,
         right: child,
-      })
-      .meta({ aid: 'Expr_binary' })
-      .describe('Arithmetic binary operation.');
+      }),
+      'Expr_binary',
+    ).describe('Arithmetic binary operation.');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

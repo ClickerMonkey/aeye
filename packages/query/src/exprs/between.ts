@@ -15,6 +15,7 @@ import type { FieldType } from '../field-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { operandCtx } from './_field-guard';
 import { ParamExpr } from './param';
 import type { RuntimeContext } from '../runtime/context';
@@ -56,16 +57,16 @@ export class BetweenExpr extends BoolExpr {
   /** Zod schema for this expr kind's JSON shape (value/lower/upper are child Expr slots). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     const child = childExprSchema(opts.Expr);
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('between'),
         value: child,
         lower: child,
         upper: child,
         not: z.boolean().optional(),
-      })
-      .meta({ aid: 'Expr_between' })
-      .describe('Range predicate (value BETWEEN lower AND upper).');
+      }),
+      'Expr_between',
+    ).describe('Range predicate (value BETWEEN lower AND upper).');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

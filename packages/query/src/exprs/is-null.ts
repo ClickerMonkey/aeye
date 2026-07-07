@@ -13,6 +13,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult, gatherSources, anyAggregate, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { operandCtx } from './_field-guard';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -44,14 +45,14 @@ export class IsNullExpr extends BoolExpr {
 
   /** Zod schema for this expr kind's JSON shape (value is a child Expr slot). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('is-null'),
         value: childExprSchema(opts.Expr),
         not: z.boolean().optional(),
-      })
-      .meta({ aid: 'Expr_is-null' })
-      .describe('Null test (value IS [NOT] NULL).');
+      }),
+      'Expr_is-null',
+    ).describe('Null test (value IS [NOT] NULL).');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

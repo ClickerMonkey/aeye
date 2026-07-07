@@ -56,9 +56,10 @@ describe('QueryToolError report underlining', () => {
     const zodProblem = err.problems.list.find((p) => p.code === 'schema.invalid')!;
     expect(zodProblem.path).toEqual(['query', 'where', 0, 'left']);
 
-    // The report shows the JSON and underlines the `"oops"` token precisely.
+    // The report shows the JSON and underlines the `"oops"` token precisely,
+    // now with the DIRECTED, domain-specific message (not Zod's generic type).
     expect(err.report).toContain('"left": "oops"');
-    expect(err.report).toContain('Invalid input: expected object, received string');
+    expect(err.report).toContain('expected an expression');
     const { source, caret } = caretLineUnder(err.report, '"left": "oops"');
     // `^^^^^^` (6 carets, the quoted token) sits exactly under `"oops"`.
     expect(caret.slice(caret.indexOf('^'))).toBe('^'.repeat('"oops"'.length));
@@ -108,13 +109,15 @@ describe('QueryToolError report underlining', () => {
     expect(fbOut).not.toContain('^');
   });
 
-  it('reports a fully bogus query kind as a whole-value mismatch', async () => {
+  it('reports a fully bogus query kind as a directed unknown-kind message', async () => {
     const fx = runtimeFixture();
     const err = await toolError(fx, { kind: 'not-a-real-kind' });
-    // No branch matched ⇒ the synthetic "does not match any shape" leaf.
-    expect(
-      err.problems.list.some((p) => p.message.includes('does not match any of the allowed shapes')),
-    ).toBe(true);
+    // No branch matched ⇒ the union's aid-directed "unknown query kind …" leaf,
+    // listing the available kinds (no false "did you mean" for a far-off word).
+    const leaf = err.problems.list.find((p) => p.message.includes('unknown query kind'));
+    expect(leaf).toBeDefined();
+    expect(leaf!.message).toContain('`not-a-real-kind`');
+    expect(leaf!.message).toContain('available:');
     expect(err.report).not.toBe('');
   });
 });

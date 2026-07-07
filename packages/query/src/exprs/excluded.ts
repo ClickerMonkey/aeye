@@ -16,6 +16,7 @@ import type { ResolvedType, FieldResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
+import { withAid } from '../aids';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -49,13 +50,13 @@ export class ExcludedExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('excluded'),
         field: z.string().describe('A column of the proposed (excluded) row.'),
-      })
-      .meta({ aid: 'Expr_excluded' })
-      .describe('The proposed row inside an INSERT ON CONFLICT DO UPDATE (EXCLUDED.<field>).');
+      }),
+      'Expr_excluded',
+    ).describe('The proposed row inside an INSERT ON CONFLICT DO UPDATE (EXCLUDED.<field>).');
   }
 
   /** Resolve to the referenced field's type (text fallback when out of scope). */

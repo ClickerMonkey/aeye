@@ -28,6 +28,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { operandCtx } from './_field-guard';
 import { ArrayFieldType } from '../field-types/index';
 import { ParamExpr } from './param';
@@ -81,20 +82,20 @@ export class ArrayOpExpr extends BoolExpr {
   /** Zod schema for this expr kind's JSON shape (target plus a single/list/omitted value child). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     const child = childExprSchema(opts.Expr);
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('array-op'),
-        op: z
-          .enum(['contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty'])
-          .describe('Array predicate: element membership / overlap / emptiness.'),
+        op: withAid(z.enum(['contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty']), 'ArrayOp').describe(
+          'Array predicate: element membership / overlap / emptiness.',
+        ),
         target: child.describe('The array-valued expression to test.'),
         value: z
           .union([child, z.array(child)])
           .optional()
           .describe('Single element (contains), element list (containsAny/All), or omitted (isEmpty/notEmpty).'),
-      })
-      .meta({ aid: 'Expr_array-op' })
-      .describe('Array containment / emptiness predicate.');
+      }),
+      'Expr_array-op',
+    ).describe('Array containment / emptiness predicate.');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

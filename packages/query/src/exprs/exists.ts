@@ -13,6 +13,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult, childQuerySchema, emitSubquerySQL } from './_shared';
+import { withAid } from '../aids';
 import { inferSubqueryOutput } from './_subquery';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -45,14 +46,14 @@ export class ExistsExpr extends BoolExpr {
 
   /** Zod schema for this expr kind's JSON shape (uses a child Query slot for the subquery). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('exists'),
         query: childQuerySchema(opts.Query),
         not: z.boolean().optional(),
-      })
-      .meta({ aid: 'Expr_exists' })
-      .describe('Existence predicate over a subquery.');
+      }),
+      'Expr_exists',
+    ).describe('Existence predicate over a subquery.');
   }
 
   /** Resolve to a non-nullable bool (EXISTS yields a definite boolean). */

@@ -16,6 +16,7 @@ import type { Problems } from '../problem';
 import type { ParamSet } from '../param';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { computed } from './_shared';
+import { withAid } from '../aids';
 import { TextFieldType } from '../field-types/index';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -46,13 +47,13 @@ export class ParamExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('param'),
         name: z.string().describe('Parameter name; its type is inferred from usage.'),
-      })
-      .meta({ aid: 'Expr_param' })
-      .describe('A named bind parameter (contextually typed).');
+      }),
+      'Expr_param',
+    ).describe('A named bind parameter (contextually typed).');
   }
 
   protected override contributeParams(params: ParamSet): void {

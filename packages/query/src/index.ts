@@ -12,6 +12,19 @@ export type { Node, CodeOptions, SchemaOptions, ValueSchemaOptions } from './nod
 // Diagnostics
 export { Problems, QueryTypeError } from './problem';
 export type { Problem } from './problem';
+
+// Aid-directed schema-failure messages (the `withAid` seam + its registry)
+export {
+  withAid,
+  aidInfo,
+  describeInput,
+  editDistance,
+  nearestKind,
+  directedMessage,
+  AID_REGISTRY,
+  type AidInfo,
+  type AidOptions,
+} from './aids';
 export {
   Code,
   code,

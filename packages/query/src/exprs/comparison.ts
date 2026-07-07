@@ -15,6 +15,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { operandCtx } from './_field-guard';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
@@ -119,15 +120,15 @@ export class ComparisonExpr extends BoolExpr {
   /** Zod schema for this expr kind's JSON shape (left/right are child Expr slots). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     const child = childExprSchema(opts.Expr);
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('comparison'),
-        op: z.enum(['=', '<>', '<', '<=', '>', '>=', 'like', 'notLike', 'ilike']),
+        op: withAid(z.enum(['=', '<>', '<', '<=', '>', '>=', 'like', 'notLike', 'ilike']), 'ComparisonOp'),
         left: child,
         right: child,
-      })
-      .meta({ aid: 'Expr_comparison' })
-      .describe('Scalar comparison predicate.');
+      }),
+      'Expr_comparison',
+    ).describe('Scalar comparison predicate.');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

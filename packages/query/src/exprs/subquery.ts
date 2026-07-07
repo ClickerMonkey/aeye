@@ -14,6 +14,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { childQuerySchema, emitSubquerySQL } from './_shared';
+import { withAid } from '../aids';
 import { inferSubqueryOutput } from './_subquery';
 import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
@@ -45,13 +46,13 @@ export class SubqueryExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('subquery'),
         query: childQuerySchema(opts.Query),
-      })
-      .meta({ aid: 'Expr_subquery' })
-      .describe('A subquery used in value position.');
+      }),
+      'Expr_subquery',
+    ).describe('A subquery used in value position.');
   }
 
   /** Infer the subquery's output type via the structural seam. */

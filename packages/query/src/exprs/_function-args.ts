@@ -18,6 +18,7 @@ import type { Expr, ValidateContext } from '../expr';
 import type { QueryFunction } from '../function';
 import { ParamExpr } from './param';
 import { LiteralExpr } from './literal';
+import { withAid } from '../aids';
 import type { Value } from '../runtime/value';
 import type { NamedArgs } from '../runtime/functions';
 import type { RuntimeContext } from '../runtime/context';
@@ -37,7 +38,9 @@ export function parseNamedArgs(
 
 /** The Zod schema for a named-arg object: `{ <param>: <childExpr> }`. */
 export function namedArgSchema(child: z.ZodTypeAny): z.ZodTypeAny {
-  return z.record(z.string(), child).describe('Arguments keyed by declared parameter name.');
+  return withAid(z.record(z.string(), child), 'FunctionArgs').describe(
+    'Arguments keyed by declared parameter name.',
+  );
 }
 
 /** Resolve each named arg's type, preserving the argument order. */

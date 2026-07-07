@@ -32,6 +32,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
+import { withAid } from '../aids';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -61,13 +62,13 @@ export class OutputRefExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape (name is query-local ⇒ a plain string). */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('output'),
         name: z.string().describe('A SELECT output field name (its `as`, or the natural derived name).'),
-      })
-      .meta({ aid: 'Expr_output' })
-      .describe('A reference to a SELECT output field by name (valid in groupBy / orderBy / having).');
+      }),
+      'Expr_output',
+    ).describe('A reference to a SELECT output field by name (valid in groupBy / orderBy / having).');
   }
 
   /** Resolve to the referenced output field's type (delegates; text fallback when unbound). */

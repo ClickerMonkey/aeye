@@ -16,6 +16,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { Type } from '../type';
 import { childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -64,14 +65,14 @@ export class TabularFunctionCallExpr extends Expr {
     const child = childExprSchema(opts.Expr);
     // The `open` shape (also the bare-call / `functions:'open'` fallback);
     // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = z
-      .object({
+    const open = withAid(
+      z.object({
         kind: z.literal('tabular-function-call'),
         function: z.string().describe('Registered tabular function name.'),
         args: namedArgSchema(child),
-      })
-      .meta({ aid: 'Expr_tabular-function-call' })
-      .describe('A type-valued function call (produces rows).');
+      }),
+      'Expr_tabular-function-call',
+    ).describe('A type-valued function call (produces rows).');
     return functionExprSchema('tabular-function-call', open, opts.functions, opts.depth?.functions ?? 'open', child);
   }
 

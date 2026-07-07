@@ -19,6 +19,7 @@
  *    (`exprKindApplicable`).
  */
 import { z } from 'zod';
+import { withAid } from './aids';
 import type { Registry } from './registry';
 import type { Type } from './type';
 import type { Field } from './field';
@@ -160,7 +161,7 @@ function refObject(
 ): z.ZodTypeAny {
   const shape: Record<string, z.ZodTypeAny> = { [keyName]: keyValue, ...fieldProps, ...extras };
   const obj = z.object(shape);
-  return (aid ? obj.meta({ aid }) : obj).describe(describe);
+  return (aid ? withAid(obj, aid) : obj).describe(describe);
 }
 
 /**
@@ -175,7 +176,7 @@ export function refSchema(types: readonly Type[], depth: RefDepth, opts: RefSche
     // ONLY that Type's eligible fields (a relation `path` tuple for `'path'`).
     const branches = types.map((t) => {
       const names = opts.eligible(t).map((f) => f.name);
-      const fieldValue = names.length ? enumOf(names) : z.string();
+      const fieldValue = names.length ? withAid(enumOf(names), 'FieldName') : z.string();
       const pathValue =
         names.length > 0 ? z.tuple([enumOf(names)]).rest(z.string()) : z.array(z.string()).min(1);
       const path = pathValue.describe(
@@ -200,11 +201,17 @@ export function refSchema(types: readonly Type[], depth: RefDepth, opts: RefSche
   // The flat (non-paired) levels: enumerate the key and/or field independently.
   const enumKey = depth === 'types' || depth === 'both';
   const enumField = depth === 'fields' || depth === 'both';
-  const keyValue = (enumKey ? enumOf(types.map((t) => t.name)) : z.string()).describe(
+  const keyBase = enumKey ? enumOf(types.map((t) => t.name)) : z.string();
+  // An enumerated `type` key MUST name a registered Type; tag it so a bad value
+  // reads "expected a registered Type name" (an enumerated bound `source` key
+  // may still be an alias, so it keeps the plain message).
+  const keyTagged = enumKey && opts.keyName === 'type' ? withAid(keyBase, 'TypeName') : keyBase;
+  const keyValue = keyTagged.describe(
     enumKey ? `${keyNoun[0]!.toUpperCase()}${keyNoun.slice(1)}.` : `A ${opts.keyName} name.`,
   );
   const fieldNames = eligibleFieldNames(types, opts.eligible);
-  const fieldValue = enumField && fieldNames.length ? enumOf(fieldNames) : z.string();
+  const fieldValue =
+    enumField && fieldNames.length ? withAid(enumOf(fieldNames), 'FieldName') : z.string();
   const pathValue = z
     .array(z.string())
     .describe('Relation field names, optionally ending in a scalar field name.');
@@ -447,36 +454,36 @@ function functionObject(
 ): z.ZodTypeAny {
   switch (kind) {
     case 'function-call':
-      return z
-        .object({ kind: z.literal('function-call'), function: functionField, args: argsField })
-        .meta({ aid: 'Expr_function-call' })
-        .describe('A scalar function call with named arguments.');
+      return withAid(
+        z.object({ kind: z.literal('function-call'), function: functionField, args: argsField }),
+        'Expr_function-call',
+      ).describe('A scalar function call with named arguments.');
     case 'tabular-function-call':
-      return z
-        .object({ kind: z.literal('tabular-function-call'), function: functionField, args: argsField })
-        .meta({ aid: 'Expr_tabular-function-call' })
-        .describe('A type-valued function call (produces rows).');
+      return withAid(
+        z.object({ kind: z.literal('tabular-function-call'), function: functionField, args: argsField }),
+        'Expr_tabular-function-call',
+      ).describe('A type-valued function call (produces rows).');
     case 'aggregate':
-      return z
-        .object({
+      return withAid(
+        z.object({
           kind: z.literal('aggregate'),
           function: functionField,
           args: argsField,
           distinct: z.boolean().optional(),
-        })
-        .meta({ aid: 'Expr_aggregate' })
-        .describe('Aggregate function over named args (count with empty args = count(*)).');
+        }),
+        'Expr_aggregate',
+      ).describe('Aggregate function over named args (count with empty args = count(*)).');
     case 'window':
-      return z
-        .object({
+      return withAid(
+        z.object({
           kind: z.literal('window'),
           function: functionField,
           args: argsField,
           partitionBy: z.array(child).optional(),
           orderBy: windowOrderSchema(child).optional(),
-        })
-        .meta({ aid: 'Expr_window' })
-        .describe('Window function over a partition / ordering, with named args.');
+        }),
+        'Expr_window',
+      ).describe('Window function over a partition / ordering, with named args.');
     /* v8 ignore next 2 -- unreachable: `kind` exhaustively covers FnExprKind (compile-time guard) */
     default:
       return assertNeverKind(kind);
@@ -517,10 +524,12 @@ export function functionExprSchema(
   const fns = functionsForShape(selected, shapeForKind(kind));
 
   if (depth === 'names') {
-    const functionField = enumOf(fns.map((f) => f.name)).describe('A selected function name.');
-    const argsField = z
-      .record(z.string(), child)
-      .describe('Arguments keyed by declared parameter name.');
+    const functionField = withAid(enumOf(fns.map((f) => f.name)), 'FunctionName').describe(
+      'A selected function name.',
+    );
+    const argsField = withAid(z.record(z.string(), child), 'FunctionArgs').describe(
+      'Arguments keyed by declared parameter name.',
+    );
     return functionObject(kind, functionField, argsField, child);
   }
 

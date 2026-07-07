@@ -35,6 +35,7 @@
  * `{ query: z.string() }` natural-language description.
  */
 import { z } from 'zod';
+import { withAid } from '../aids';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
@@ -286,7 +287,9 @@ function buildExprUnion(
   const applicable = registry
     .exprClassList()
     .filter((c) => exprKindApplicable(c.KIND, types, selected));
-  return orFold(applicable.map((c) => c.toSchema(inner)));
+  return withAid(orFold(applicable.map((c) => c.toSchema(inner))), 'Expr', {
+    kinds: applicable.map((c) => c.KIND),
+  });
 }
 
 /**
@@ -334,7 +337,7 @@ export function buildSchemas(
   // definition, so it lives only as this local.)
   const typeRef: z.ZodTypeAny =
     depth.typeNames === 'enum'
-      ? enumOf(typeNames).describe('A registered Type name.')
+      ? withAid(enumOf(typeNames), 'TypeName').describe('A registered Type name.')
       : z.string().describe('A Type name.');
 
   // ─── Query building blocks (no class has its own `toSchema`, so build
@@ -378,7 +381,9 @@ export function buildSchemas(
     const fnName =
       depth.functions === 'open'
         ? z.string().describe('A registered tabular function name.')
-        : enumOf(selected.tabular.map((f) => f.name)).describe('A registered tabular function name.');
+        : withAid(enumOf(selected.tabular.map((f) => f.name)), 'FunctionName').describe(
+            'A registered tabular function name.',
+          );
     sourceBranches.push(
       z
         .object({
@@ -390,7 +395,11 @@ export function buildSchemas(
         .describe('A table-valued function source: FROM fn(args) AS alias.'),
     );
   }
-  const Source: z.ZodTypeAny = orFold(sourceBranches).describe(
+  const Source: z.ZodTypeAny = withAid(orFold(sourceBranches), 'Source', {
+    kinds: selected.tabular.length > 0
+      ? ['type', 'aliased', 'subquery', 'function']
+      : ['type', 'aliased', 'subquery'],
+  }).describe(
     'A FROM / JOIN source: a type, an aliased type, a subquery, or a table-valued function.',
   );
 
@@ -398,14 +407,15 @@ export function buildSchemas(
   // unified helper field-refs use, with relations-only eligibility). Whether any
   // join is expressible AT ALL is gated below on the Select schema.
   const hasRelations = types.some((t) => t.relationFields().length > 0);
-  const Join: z.ZodTypeAny = z
-    .object({
+  const Join: z.ZodTypeAny = withAid(
+    z.object({
       on: joinOnSchema(types, depth.refs),
       as: z.string().optional(),
       and: Expr.optional(),
-      joinType: enumOf(['inner', 'left', 'right', 'full']).optional(),
-    })
-    .describe('A relation-based JOIN over a single relation hop (key synthesized from the relation).');
+      joinType: withAid(enumOf(['inner', 'left', 'right', 'full']), 'JoinType').optional(),
+    }),
+    'Join',
+  ).describe('A relation-based JOIN over a single relation hop (key synthesized from the relation).');
 
   // Gate the `joins` array out when NO Type has a relation: a relationless type
   // set can't express any join, so `joins` accepts only an empty / absent list
@@ -417,8 +427,8 @@ export function buildSchemas(
   const Order: z.ZodTypeAny = z
     .object({
       expr: Expr,
-      dir: enumOf(['asc', 'desc']),
-      nulls: enumOf(['first', 'last']).optional(),
+      dir: withAid(enumOf(['asc', 'desc']), 'OrderDir'),
+      nulls: withAid(enumOf(['first', 'last']), 'OrderNulls').optional(),
     })
     .describe('An ORDER BY entry.');
 
@@ -435,8 +445,8 @@ export function buildSchemas(
   const SelectOrder: z.ZodTypeAny = z
     .object({
       expr: GroupExpr,
-      dir: enumOf(['asc', 'desc']),
-      nulls: enumOf(['first', 'last']).optional(),
+      dir: withAid(enumOf(['asc', 'desc']), 'OrderDir'),
+      nulls: withAid(enumOf(['first', 'last']), 'OrderNulls').optional(),
     })
     .describe('An ORDER BY entry (its `expr` may reference a SELECT output field by name).');
 
@@ -446,10 +456,10 @@ export function buildSchemas(
 
   const FieldValue: z.ZodTypeAny = z.object({ field: z.string(), value: Expr });
 
-  const limitOffset: z.ZodTypeAny = z.number().or(paramSchema());
+  const limitOffset: z.ZodTypeAny = withAid(z.number().or(paramSchema()), 'Limit');
 
-  const Select: z.ZodTypeAny = z
-    .object({
+  const Select: z.ZodTypeAny = withAid(
+    z.object({
       kind: z.literal('select'),
       distinct: z.boolean().optional(),
       fields: z.array(SelectField),
@@ -463,9 +473,9 @@ export function buildSchemas(
       offset: limitOffset.optional(),
       // `includeTotal` is an EXECUTION-time option (engine.run / engine.toSQL),
       // not a SELECT field — so it is intentionally absent here.
-    })
-    .meta({ aid: 'Query_select' })
-    .describe('A SELECT statement.');
+    }),
+    'Query_select',
+  ).describe('A SELECT statement.');
 
   // An on-conflict update assignment may additionally reference the PROPOSED
   // (excluded) row via `{ kind:'excluded', field }` — folded in only here (the
@@ -536,8 +546,8 @@ export function buildSchemas(
   const Insert: z.ZodTypeAny =
     depth.refs === 'paired'
       ? pairedInsert()
-      : z
-          .object({
+      : withAid(
+          z.object({
             kind: z.literal('insert'),
             into: dmlTypeRef(insertableTypes),
             fields: z.array(z.string()),
@@ -545,9 +555,9 @@ export function buildSchemas(
             select: Query.optional(),
             returning: z.array(SelectField).optional(),
             onConflict: OnConflict.optional(),
-          })
-          .meta({ aid: 'Query_insert' })
-          .describe('An INSERT statement.');
+          }),
+          'Query_insert',
+        ).describe('An INSERT statement.');
 
   /** The paired-per-Type UPDATE: `type` pinned, `set.field` restricted to updatable fields. */
   const pairedUpdate = (): z.ZodTypeAny =>
@@ -571,32 +581,32 @@ export function buildSchemas(
   const Update: z.ZodTypeAny =
     depth.refs === 'paired'
       ? pairedUpdate()
-      : z
-          .object({
+      : withAid(
+          z.object({
             kind: z.literal('update'),
             type: dmlTypeRef(updatableTypes),
             set: z.array(FieldValue),
             joins: joinsField,
             where: z.array(Expr).optional(),
             returning: z.array(SelectField).optional(),
-          })
-          .meta({ aid: 'Query_update' })
-          .describe('An UPDATE statement.');
+          }),
+          'Query_update',
+        ).describe('An UPDATE statement.');
 
-  const Delete: z.ZodTypeAny = z
-    .object({
+  const Delete: z.ZodTypeAny = withAid(
+    z.object({
       kind: z.literal('delete'),
       from: dmlTypeRef(deletableTypes),
       joins: joinsField,
       where: z.array(Expr).optional(),
       returning: z.array(SelectField).optional(),
-    })
-    .meta({ aid: 'Query_delete' })
-    .describe('A DELETE statement.');
+    }),
+    'Query_delete',
+  ).describe('A DELETE statement.');
 
-  const SetOperation: z.ZodTypeAny = z
-    .object({
-      kind: enumOf(['union', 'intersect', 'except']),
+  const SetOperation: z.ZodTypeAny = withAid(
+    z.object({
+      kind: withAid(enumOf(['union', 'intersect', 'except']), 'SetOpKind'),
       left: Query,
       right: Query,
       all: z.boolean().optional(),
@@ -605,9 +615,9 @@ export function buildSchemas(
       order: z.array(Order).optional(),
       limit: limitOffset.optional(),
       offset: limitOffset.optional(),
-    })
-    .meta({ aid: 'Query_set-operation' })
-    .describe('A UNION / INTERSECT / EXCEPT set operation.');
+    }),
+    'Query_set-operation',
+  ).describe('A UNION / INTERSECT / EXCEPT set operation.');
 
   // A CTE entry is EITHER a plain `{ name, query }` or a recursive
   // `{ name, base, recursive }` (structurally discriminated by `base`).
@@ -618,31 +628,42 @@ export function buildSchemas(
       .describe('A recursive CTE: a base seed UNION-ed with a recursive arm.'),
   ]);
 
-  const CTE: z.ZodTypeAny = z
-    .object({
+  const CTE: z.ZodTypeAny = withAid(
+    z.object({
       kind: z.literal('cte'),
       ctes: z.array(CteEntry),
       final: Query,
-    })
-    .meta({ aid: 'Query_cte' })
-    .describe('A WITH (CTE) statement.');
+    }),
+    'Query_cte',
+  ).describe('A WITH (CTE) statement.');
 
-  const ExprQuery: z.ZodTypeAny = z
-    .object({ kind: z.literal('expr'), expr: Expr })
-    .meta({ aid: 'Query_expr' })
-    .describe('A single-expression query.');
+  const ExprQuery: z.ZodTypeAny = withAid(
+    z.object({ kind: z.literal('expr'), expr: Expr }),
+    'Query_expr',
+  ).describe('A single-expression query.');
 
   // QUERY-KIND GATING: a DML kind is offered only when SOME registered Type
   // permits it (no insertable Type ⇒ no `insert`, etc.), so the model is never
   // shown an unusable statement.
   const queryBranches: z.ZodTypeAny[] = [Select];
-  if (insertableTypes.length > 0) queryBranches.push(Insert);
-  if (updatableTypes.length > 0) queryBranches.push(Update);
-  if (deletableTypes.length > 0) queryBranches.push(Delete);
+  const queryKinds: string[] = ['select'];
+  if (insertableTypes.length > 0) {
+    queryBranches.push(Insert);
+    queryKinds.push('insert');
+  }
+  if (updatableTypes.length > 0) {
+    queryBranches.push(Update);
+    queryKinds.push('update');
+  }
+  if (deletableTypes.length > 0) {
+    queryBranches.push(Delete);
+    queryKinds.push('delete');
+  }
   queryBranches.push(SetOperation, CTE, ExprQuery);
-  const QueryUnion: z.ZodTypeAny = orFold(queryBranches).describe(
-    'Any query: select / insert / update / delete / set-op / cte / expr.',
-  );
+  queryKinds.push('union', 'intersect', 'except', 'cte', 'expr');
+  const QueryUnion: z.ZodTypeAny = withAid(orFold(queryBranches), 'Query', {
+    kinds: queryKinds,
+  }).describe('Any query: select / insert / update / delete / set-op / cte / expr.');
 
   return {
     Type: typeRef,

@@ -12,6 +12,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { ParamExpr } from './param';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -47,14 +48,14 @@ export class LogicalExpr extends BoolExpr {
 
   /** Zod schema for this expr kind's JSON shape (operands are child Expr slots). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('logical'),
-        op: z.enum(['and', 'or', 'not']),
+        op: withAid(z.enum(['and', 'or', 'not']), 'LogicalOp'),
         operands: z.array(childExprSchema(opts.Expr)),
-      })
-      .meta({ aid: 'Expr_logical' })
-      .describe('Boolean connective (and / or / not).');
+      }),
+      'Expr_logical',
+    ).describe('Boolean connective (and / or / not).');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

@@ -16,6 +16,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { computed, gatherSources, categoryOf, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { TextFieldType } from '../field-types/index';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -60,14 +61,14 @@ export class CaseExpr extends Expr {
   /** Zod schema for this expr kind's JSON shape (when/then branch slots and an optional else). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     const child = childExprSchema(opts.Expr);
-    return z
-      .object({
+    return withAid(
+      z.object({
         kind: z.literal('case'),
         branches: z.array(z.object({ when: child, then: child })),
         else: child.optional(),
-      })
-      .meta({ aid: 'Expr_case' })
-      .describe('Conditional CASE expression.');
+      }),
+      'Expr_case',
+    ).describe('Conditional CASE expression.');
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

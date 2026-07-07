@@ -18,6 +18,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { textResult, childExprSchema } from './_shared';
+import { withAid } from '../aids';
 import { ParamExpr } from './param';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -68,14 +69,14 @@ export class FunctionCallExpr extends Expr {
     const child = childExprSchema(opts.Expr);
     // The `open` shape (also the bare-call / `functions:'open'` fallback);
     // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = z
-      .object({
+    const open = withAid(
+      z.object({
         kind: z.literal('function-call'),
         function: z.string().describe('Registered scalar function name.'),
         args: namedArgSchema(child),
-      })
-      .meta({ aid: 'Expr_function-call' })
-      .describe('A scalar function call with named arguments.');
+      }),
+      'Expr_function-call',
+    ).describe('A scalar function call with named arguments.');
     return functionExprSchema('function-call', open, opts.functions, opts.depth?.functions ?? 'open', child);
   }
 

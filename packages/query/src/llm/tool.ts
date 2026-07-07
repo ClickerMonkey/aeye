@@ -92,10 +92,25 @@ function pathSegments(path: ReadonlyArray<PropertyKey>): (string | number)[] {
 
 /**
  * A branch REJECTED the value's `kind` discriminant (it's the wrong shape) — its
- * failure is a `kind` literal mismatch rather than a genuine deeper problem.
+ * failure is a `kind` literal mismatch rather than a genuine deeper problem, so
+ * it is pruned even though it may ALSO report incidental deep failures (a
+ * wrong-`kind` branch's other required members are "missing" too).
  */
 function rejectsDiscriminant(leaves: ReadonlyArray<FlatZodIssue>): boolean {
   return leaves.some((f) => f.path[f.path.length - 1] === 'kind' && f.code === 'invalid_value');
+}
+
+/**
+ * A (kind-matching) branch ENGAGED past the discriminant: it failed on a
+ * genuinely-bad value DEEPER than the union's own path. A leaf AT the union's
+ * path is a wrong-primitive (the value isn't even an object); a leaf at `kind`
+ * is the discriminant itself — neither engages.
+ */
+function engagesPastDiscriminant(
+  leaves: ReadonlyArray<FlatZodIssue>,
+  prefixLen: number,
+): boolean {
+  return leaves.some((f) => f.path.length > prefixLen && f.path[prefixLen] !== 'kind');
 }
 
 /**
@@ -105,13 +120,17 @@ function rejectsDiscriminant(leaves: ReadonlyArray<FlatZodIssue>): boolean {
  * The query / expr / source schemas are `kind`-discriminated unions, so any
  * nested failure surfaces as an `invalid_union` whose branches are the
  * alternative shapes. At each union:
- *  - Branches that REJECT the value's `kind` (the wrong shape) are dropped — they
- *    only report a discriminant mismatch, not the real problem.
- *  - If SOME branch matched the `kind`, keep the deepest-reaching matches (the
- *    matching shape parses furthest before failing at the genuinely-bad value).
- *  - If NO branch matched (a bogus / absent `kind`, or a primitive where an
+ *  - If SOME branch ENGAGED past the `kind` (matched the shape and failed
+ *    deeper), keep the deepest-reaching such matches — that shape parsed
+ *    furthest before hitting the genuinely-bad value, and its leaves already
+ *    carry the DIRECTED message of the node that rejected it.
+ *  - If NO branch engaged (a bogus / absent `kind`, or a primitive where an
  *    object was required), the value fits none of the options: emit ONE leaf at
- *    the value's OWN path so the whole offending value is underlined.
+ *    the union's OWN path carrying the union's DIRECTED message (its
+ *    aid-directed "expected an expression" / "unknown … kind `x` — did you mean
+ *    `y`?"), so the whole offending value is underlined with domain text. The
+ *    `invalid_value` code lets a PARENT union recognise a bad `kind`
+ *    discriminant here and prune this whole (wrong-shape) branch.
  */
 function flattenZodIssues(
   issues: ReadonlyArray<z.core.$ZodIssue>,
@@ -122,24 +141,22 @@ function flattenZodIssues(
     const abs = [...prefix, ...pathSegments(issue.path)];
     if (issue.code === 'invalid_union') {
       const branches = issue.errors.map((branch) => flattenZodIssues(branch, abs));
-      const matching = branches.filter((b) => !rejectsDiscriminant(b));
-      if (matching.length === 0) {
-        // Every option was rejected. Emit ONE leaf at the value's own path with
-        // `invalid_value` so that, when this position IS a `kind` discriminant
-        // (e.g. an enum of literals), a parent union recognises it as a
-        // discriminant rejection and prunes this whole (wrong-shape) branch.
-        out.push({
-          path: abs,
-          message: 'Value does not match any of the allowed shapes for this position.',
-          code: 'invalid_value',
-        });
+      // Drop wrong-`kind` branches, then keep only survivors that failed DEEPER
+      // than the discriminant (the shape that actually matched the value's kind).
+      const survivors = branches.filter((b) => !rejectsDiscriminant(b));
+      const engaged = survivors.filter((b) => engagesPastDiscriminant(b, abs.length));
+      if (engaged.length === 0) {
+        // The value matches NO shape here (a bogus / absent `kind`, or a
+        // primitive where an object was required). Emit ONE leaf at the union's
+        // own path carrying its aid-directed message.
+        out.push({ path: abs, message: issue.message, code: 'invalid_value' });
         continue;
       }
-      const maxDepth = matching.reduce(
+      const maxDepth = engaged.reduce(
         (m, b) => Math.max(m, b.reduce((d, f) => Math.max(d, f.path.length), 0)),
         0,
       );
-      for (const b of matching) {
+      for (const b of engaged) {
         if (b.reduce((d, f) => Math.max(d, f.path.length), 0) === maxDepth) out.push(...b);
       }
     } else {
