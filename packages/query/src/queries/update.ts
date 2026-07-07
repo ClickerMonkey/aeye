@@ -24,6 +24,7 @@ import {
   makeResult,
 } from './query';
 import { QueryJoin } from './join';
+import { checkBoolCondition } from './_condition';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { updateRecord } from './_type';
 import type { Cost } from '../cost';
@@ -176,7 +177,10 @@ export class UpdateQuery extends Query {
         p.at([i, 'value'], () => s.expr.validateWalk(engine, inner, p, ctx));
       });
     });
-    p.at('where', () => this.where.forEach((w, i) => p.at(i, () => w.validateWalk(engine, inner, p, ctx))));
+    p.at('where', () => this.where.forEach((w, i) => p.at(i, () => {
+      const rt = w.validateWalk(engine, inner, p, ctx);
+      checkBoolCondition(w, rt, p);
+    })));
     const colCtx: ValidateContext = { ...ctx, allowAggregate: true };
     p.at('returning', () => this.returning.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, colCtx))));
   }

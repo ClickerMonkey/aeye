@@ -23,7 +23,10 @@
 import type { ExprDef, JoinDef, SourceFieldRef } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
-import type { Expr } from '../expr';
+import type { QueryScope } from '../scope';
+import type { Problems } from '../problem';
+import type { Expr, ValidateContext } from '../expr';
+import { checkBoolCondition } from './_condition';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Type } from '../type';
@@ -122,6 +125,21 @@ export class QueryJoin {
         custom: resolved.custom,
       },
     ];
+  }
+
+  /**
+   * Validate this join's optional `and` predicate: walk it against the bound
+   * scope, then require it to resolve to a boolean (a bare `param` is exempt,
+   * matching `logical`). Recorded at the `and` path so the report underlines the
+   * offending predicate. The synthesized key is never authored, so nothing else
+   * here needs validating.
+   */
+  validateWalk(engine: QueryEngine, scope: QueryScope, p: Problems, ctx: ValidateContext): void {
+    if (!this.and) return;
+    p.at('and', () => {
+      const rt = this.and!.validateWalk(engine, scope, p, ctx);
+      checkBoolCondition(this.and!, rt, p);
+    });
   }
 
   /**

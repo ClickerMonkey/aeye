@@ -55,6 +55,7 @@ import {
 } from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { boundSQL } from './_sql';
+import { checkBoolCondition } from './_condition';
 import {
   conditionClauses,
   conditionFieldRefs,
@@ -230,16 +231,19 @@ export class SelectQuery extends Query {
     const { scope: inner, aliasTypes } = this.bind(engine, scope);
     reportDuplicateSources(p, this.boundSources(engine, inner));
     p.at('from', () => this.from.validateWalk(engine, inner, p));
+    const colCtx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
+    const predCtx: ValidateContext = { ...colCtx, allowAggregate: false };
     p.at('joins', () => {
       this.joins.forEach((j, i) => {
         const plan = j.buildPlan(engine, aliasTypes);
         if (!plan || plan.length === 0) {
           p.at(i, () => p.error('join.unresolved', `Join '${j.label}' does not resolve to a relation.`));
+        } else {
+          // The join's `and` predicate (when present) must resolve to a boolean.
+          p.at(i, () => j.validateWalk(engine, inner, p, predCtx));
         }
       });
     });
-    const colCtx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
-    const predCtx: ValidateContext = { ...colCtx, allowAggregate: false };
     // GROUP BY keys may not aggregate, and an `output` ref there rejects an
     // aggregate target (`output.aggregate`) — flagged via `inGroupBy`.
     const groupCtx: ValidateContext = { ...predCtx, inGroupBy: true };
@@ -251,13 +255,19 @@ export class SelectQuery extends Query {
       this.fields.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, colCtx)));
     });
     p.at('where', () => {
-      this.where.forEach((w, i) => p.at(i, () => w.validateWalk(engine, inner, p, predCtx)));
+      this.where.forEach((w, i) => p.at(i, () => {
+        const rt = w.validateWalk(engine, inner, p, predCtx);
+        checkBoolCondition(w, rt, p);
+      }));
     });
     p.at('groupBy', () => {
       this.groupBy.forEach((g, i) => p.at(i, () => g.validateWalk(engine, outScope, p, groupCtx)));
     });
     p.at('having', () => {
-      this.having.forEach((h, i) => p.at(i, () => h.validateWalk(engine, outScope, p, colCtx)));
+      this.having.forEach((h, i) => p.at(i, () => {
+        const rt = h.validateWalk(engine, outScope, p, colCtx);
+        checkBoolCondition(h, rt, p);
+      }));
     });
     p.at('order', () => {
       this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, colCtx)));
