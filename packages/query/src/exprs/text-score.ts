@@ -75,7 +75,7 @@ export class TextScoreExpr extends Expr {
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return textScoreSchema(opts.types ?? [], opts.depth?.refs ?? 'open');
+    return textScoreSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

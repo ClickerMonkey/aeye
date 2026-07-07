@@ -74,7 +74,7 @@ export class TextSearchExpr extends BoolExpr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     // Depth-aware: `refs:'open'` (or a bare call) yields free-string source +
     // field; tighter levels pair them to a searchable Type (see `refSchema`).
-    return textSearchSchema(opts.types ?? [], opts.depth?.refs ?? 'open');
+    return textSearchSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

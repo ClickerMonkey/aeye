@@ -30,7 +30,7 @@ import type { QueryEngine } from '../engine';
 import type { Query, QueryResult } from '../queries/query';
 import type { RuntimeOptions } from '../runtime/context';
 import { Problems } from '../problem';
-import { Code } from '../code';
+import { Code, type FormatProblemsOptions } from '../code';
 import { describeEngine, exampleQueriesText } from './describe';
 import {
   querySchema,
@@ -68,6 +68,14 @@ export interface BuildQueryToolOptions extends QuerySchemaOptions {
   description?: string;
   /** Runtime options for the run (param values, etc.). */
   runtime?: RuntimeOptions;
+  /**
+   * Overrides for the compiler-style problem report `formatProblems` renders
+   * into a `QueryToolError.message`. Absent ⇒ the defaults (`contextLines: 2`,
+   * section headers + line-number gutter on). E.g. `{ contextLines: 0 }` drops
+   * the surrounding context (just the underlined line); `{ lineNumbers: false }`
+   * drops the gutter.
+   */
+  report?: FormatProblemsOptions;
 }
 
 /** Whether a value is a structured query def (an object with a `kind`). */
@@ -195,9 +203,9 @@ function problemsFromZod(error: z.ZodError): Problems {
  * structured `query` def for parse/validate problems, or the raw envelope for
  * schema-envelope failures (whose zod paths include the leading `query`).
  */
-function reportFor(value: unknown, problems: Problems): string {
+function reportFor(value: unknown, problems: Problems, opts?: FormatProblemsOptions): string {
   if (problems.list.length === 0) return '';
-  return Code.fromJson(value).formatProblems(problems);
+  return Code.fromJson(value).formatProblems(problems, opts);
 }
 
 /** The parse+validate pipeline (steps 1–4, WITHOUT running the query). */
@@ -206,6 +214,7 @@ function parseQueryInput(
   schema: z.ZodType<QueryToolInput>,
   useString: boolean,
   raw: unknown,
+  reportOpts?: FormatProblemsOptions,
 ): { query: Query | null; problems: Problems; report: string } {
   // 1. Validate the envelope against the tool schema.
   const parsed = schema.safeParse(raw);
@@ -213,7 +222,7 @@ function parseQueryInput(
     const problems = problemsFromZod(parsed.error);
     // Render against the raw ENVELOPE: zod issue paths include the leading
     // `query`, so they resolve to nodes in `jsonSource(raw)` and underline.
-    return { query: null, problems, report: reportFor(raw, problems) };
+    return { query: null, problems, report: reportFor(raw, problems, reportOpts) };
   }
   const input = parsed.data;
 
@@ -224,7 +233,7 @@ function parseQueryInput(
       'query.needs-structuring',
       'Received a prose query; it must be converted to a structured query before it can run.',
     );
-    return { query: null, problems, report: reportFor(input.query, problems) };
+    return { query: null, problems, report: reportFor(input.query, problems, reportOpts) };
   }
 
   // 3. Parse the structured def into a runnable Query.
@@ -239,13 +248,13 @@ function parseQueryInput(
       'query.parse-error',
       err instanceof Error ? err.message : 'Failed to parse the query.',
     );
-    return { query: null, problems, report: reportFor(queryDef, problems) };
+    return { query: null, problems, report: reportFor(queryDef, problems, reportOpts) };
   }
   /* v8 ignore stop */
 
   // 4. Validate (structure + params + per-Type validators).
   const problems = engine.validateQuery(query);
-  const report = reportFor(queryDef, problems);
+  const report = reportFor(queryDef, problems, reportOpts);
   return { query, problems, report };
 }
 
@@ -308,7 +317,13 @@ export function buildQueryTool(
     // Custom parser REPLACES Zod: validate + parse + validate the query, then
     // return the runnable `Query` (clean) or a rich `QueryToolError` (problems).
     parse: (raw, _ctx) => {
-      const { query, problems, report } = parseQueryInput(engine, schema, useString, raw);
+      const { query, problems, report } = parseQueryInput(
+        engine,
+        schema,
+        useString,
+        raw,
+        options.report,
+      );
       if (query && !problems.hasErrors) return query;
       return new QueryToolError(problems, report);
     },

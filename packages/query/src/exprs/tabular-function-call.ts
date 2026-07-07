@@ -73,7 +73,7 @@ export class TabularFunctionCallExpr extends Expr {
       }),
       'Expr_tabular-function-call',
     ).describe('A type-valued function call (produces rows).');
-    return functionExprSchema('tabular-function-call', open, opts.functions, opts.depth?.functions ?? 'open', child);
+    return functionExprSchema('tabular-function-call', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

@@ -61,7 +61,7 @@ export class RelationPathExpr extends Expr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     // Depth-aware: `refs:'open'` (or a bare call) yields the free-string shape;
     // tighter levels root the path at a known Type's relation (see `refSchema`).
-    return relationPathSchema(opts.types ?? [], opts.depth?.refs ?? 'open');
+    return relationPathSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
   }
 
   /**

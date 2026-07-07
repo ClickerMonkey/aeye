@@ -16,6 +16,7 @@ import type { z } from 'zod';
 import type { Registry } from './registry';
 import type { Type } from './type';
 import type { FunctionDef } from './schema';
+import type { SchemaCache } from './schema-build';
 
 /**
  * Options consumed by value-side schema generation (`toValueSchema`).
@@ -121,6 +122,14 @@ export interface SchemaOptions extends ValueSchemaOptions {
    * `Cls.toSchema()` (which then renders the open shape).
    */
   functions?: SelectedFunctions;
+  /**
+   * Per-`buildSchemas` cache of shared, `meta.id`-tagged fragment instances
+   * (each Type's field-name enum, the `param` expr, …) so the generated
+   * JSON-Schema factors the largest repeated fragments into single `$def`s +
+   * `$ref`s instead of inlining every copy. Absent for a bare `Cls.toSchema()`
+   * (which then rebuilds the fragments inline, as before).
+   */
+  cache?: SchemaCache;
 }
 
 /**

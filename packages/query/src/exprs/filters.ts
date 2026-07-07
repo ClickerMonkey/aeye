@@ -62,7 +62,7 @@ export class FiltersExpr extends BoolExpr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     // Depth-aware on the `filters` axis: `open` (or a bare call) leaves source +
     // fields free; `paired` pins them to a Type's filterable fields.
-    return filtersSchema(opts.types ?? [], opts.depth?.filters ?? 'open');
+    return filtersSchema(opts.types ?? [], opts.depth?.filters ?? 'open', opts.cache);
   }
 
   // ─── Resolution / validation ─────────────────────────────────────────────

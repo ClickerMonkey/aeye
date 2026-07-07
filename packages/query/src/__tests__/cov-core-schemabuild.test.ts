@@ -74,4 +74,23 @@ describe('functionExprSchema tabular + typed branches', () => {
     const typed = functionExprSchema('tabular-function-call', open, none, 'typed', child);
     expect(typed.safeParse({ kind: 'tabular-function-call', function: 'genRows', args: {} }).success).toBe(false);
   });
+
+  it('typed depth WITHOUT a cache builds fresh args, allowing an omitted optional param', () => {
+    // A scalar function with one required + one OPTIONAL param exercises the
+    // no-cache `typedArgsSchema` fallback's `param.optional` branch.
+    fx.registry.registerFunction({
+      name: 'optFn',
+      shape: 'scalar',
+      params: [{ name: 'a', type: { kind: 'number' } }, { name: 'b', type: { kind: 'number' }, optional: true }],
+      output: { kind: 'number' },
+    });
+    const scalarOpen = z.object({ kind: z.literal('function-call') }).loose();
+    const selected = selectFunctions(fx.registry, { scalar: ['optFn'] });
+    // No `cache` arg ⇒ the fresh-copy path.
+    const typed = functionExprSchema('function-call', scalarOpen, selected, 'typed', child);
+    // Optional `b` omitted ⇒ accepted; the required `a` present.
+    expect(typed.safeParse({ kind: 'function-call', function: 'optFn', args: { a: { kind: 'literal' } } }).success).toBe(true);
+    // An undeclared arg is still rejected by the strict object.
+    expect(typed.safeParse({ kind: 'function-call', function: 'optFn', args: { a: { kind: 'literal' }, z: { kind: 'literal' } } }).success).toBe(false);
+  });
 });

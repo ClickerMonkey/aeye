@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Context } from '@aeye/core';
 import { runtimeFixture, ref } from './_utils';
-import { buildQueryTool, QueryToolError } from '../llm/tool';
+import { buildQueryTool, QueryToolError, type BuildQueryToolOptions } from '../llm/tool';
 import type { SelectDef } from '../schema';
 
 const validSelect: SelectDef = {
@@ -119,6 +119,57 @@ describe('buildQueryTool', () => {
         expect(err.problems.list.some((p) => p.code === 'query.needs-structuring')).toBe(true);
       }
     }
+  });
+
+  it('honors the `report` FormatProblemsOptions override (context / gutter)', async () => {
+    // A query with a deep, off-first-line error so surrounding context is
+    // meaningful: a bad field-ref in the SECOND selected field.
+    const bad: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: ref('user', 'id') }, { expr: ref('user', 'ghost') }],
+      from: { kind: 'type', type: 'user' },
+    };
+
+    /** Parse `bad` under a `report` option and return the rendered report. */
+    const reportUnder = async (report?: BuildQueryToolOptions['report']): Promise<string> => {
+      const fx = runtimeFixture();
+      const tool = buildQueryTool(fx.engine, report ? { report } : {});
+      try {
+        await tool.parse(ctx, JSON.stringify({ query: bad }));
+        expect.unreachable('parse should have thrown');
+      } catch (err) {
+        if (err instanceof QueryToolError) return err.report;
+        throw err;
+      }
+      /* v8 ignore next -- unreachable: the catch above always returns or rethrows */
+      return '';
+    };
+
+    const dflt = await reportUnder();
+    const noContext = await reportUnder({ contextLines: 0 });
+    const moreContext = await reportUnder({ contextLines: 4 });
+    const noGutter = await reportUnder({ lineNumbers: false });
+
+    // The underlined offending value + directed message are present regardless.
+    for (const r of [dflt, noContext, moreContext]) {
+      expect(r).toContain("has no field 'ghost'");
+      expect(r).toContain('^^^');
+    }
+
+    // `contextLines: 0` shows NO surrounding context — strictly fewer lines than
+    // the default (contextLines: 2); `contextLines: 4` shows strictly more.
+    expect(noContext.split('\n').length).toBeLessThan(dflt.split('\n').length);
+    expect(moreContext.split('\n').length).toBeGreaterThan(dflt.split('\n').length);
+
+    // `contextLines: 0` narrows the rendered window to just the underlined span
+    // (lines 12-16); the default (contextLines: 2) extends it to lines 10-18,
+    // so the default renders line 10 in its gutter but `contextLines: 0` does not.
+    expect(dflt).toContain('10 │');
+    expect(noContext).not.toContain('10 │');
+
+    // `lineNumbers: false` drops the `N │` gutter the default renders.
+    expect(dflt).toMatch(/\d+ │ /);
+    expect(noGutter).not.toContain('│');
   });
 
   it('prose input in structured mode is rejected', async () => {

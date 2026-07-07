@@ -77,7 +77,7 @@ export class FunctionCallExpr extends Expr {
       }),
       'Expr_function-call',
     ).describe('A scalar function call with named arguments.');
-    return functionExprSchema('function-call', open, opts.functions, opts.depth?.functions ?? 'open', child);
+    return functionExprSchema('function-call', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

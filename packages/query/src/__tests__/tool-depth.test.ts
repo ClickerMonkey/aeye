@@ -73,7 +73,9 @@ describe('querySchema — function selection threading', () => {
     expect(bad.success).toBe(false);
   });
 
-  it("depth:'paired' typed args reject an unknown argument name", () => {
+  // Rejecting against the large `paired` union explores every function branch;
+  // under coverage instrumentation that can exceed the default 5s budget.
+  it("depth:'paired' typed args reject an unknown argument name", { timeout: 30000 }, () => {
     const fx = fixture();
     const schema = querySchema(fx.engine, { depth: 'paired' });
     const bad = schema.safeParse({

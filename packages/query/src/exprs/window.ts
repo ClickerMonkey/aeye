@@ -110,7 +110,7 @@ export class WindowExpr extends Expr {
       }),
       'Expr_window',
     ).describe('Window function over a partition / ordering, with named args.');
-    return functionExprSchema('window', open, opts.functions, opts.depth?.functions ?? 'open', child);
+    return functionExprSchema('window', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
   }
 
   protected override windowHere(): boolean {

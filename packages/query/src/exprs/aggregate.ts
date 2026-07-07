@@ -91,7 +91,7 @@ export class AggregateExpr extends Expr {
       }),
       'Expr_aggregate',
     ).describe('Aggregate function over named args (count with empty args = count(*)).');
-    return functionExprSchema('aggregate', open, opts.functions, opts.depth?.functions ?? 'open', child);
+    return functionExprSchema('aggregate', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
   }
 
   protected override aggregateHere(): boolean {

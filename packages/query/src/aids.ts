@@ -251,6 +251,14 @@ export interface AidOptions {
    * suggestion on a no-match. Omit for non-union nodes.
    */
   kinds?: readonly string[];
+  /**
+   * A JSON-Schema `$defs` id to stamp (`meta.id`) ALONGSIDE the `aid`. Set on
+   * SHARED, memoized fragment instances so `z.toJSONSchema` factors them into a
+   * single, readably-named `$def` + `$ref`s instead of inlining every copy. The
+   * `aid` (and its directed error map) is preserved unchanged. Omit for the
+   * common inline nodes.
+   */
+  id?: string;
 }
 
 /**
@@ -266,5 +274,5 @@ export interface AidOptions {
  */
 export function withAid(schema: z.ZodTypeAny, aid: string, opts: AidOptions = {}): z.ZodTypeAny {
   const cloned = schema.clone({ ...schema.def, error: makeAidError(aid, opts.kinds) });
-  return cloned.meta({ aid });
+  return cloned.meta(opts.id !== undefined ? { aid, id: opts.id } : { aid });
 }

@@ -78,7 +78,7 @@ export class FieldRefExpr extends Expr {
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
     // Depth-aware: `refs:'open'` (or a bare call) yields the free-string shape;
     // tighter levels enumerate / pair `source` + `field` (see `refSchema`).
-    return fieldRefSchema(opts.types ?? [], opts.depth?.refs ?? 'open');
+    return fieldRefSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
   }
 
   /** Resolve to the named field on the bound source, widening nullability by the source's. */

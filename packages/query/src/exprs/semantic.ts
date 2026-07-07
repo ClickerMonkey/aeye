@@ -192,7 +192,7 @@ export class SemanticExpr extends Expr {
     // Depth-aware: `refs:'open'` (or a bare call) yields free-string source +
     // field + query; tighter levels pair them to a semantic Type (see
     // `refSchema` / `semanticSchema`).
-    return semanticSchema(opts.types ?? [], opts.depth?.refs ?? 'open');
+    return semanticSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
   }
 
   override forEachChild(visit: (child: Expr) => void): void {

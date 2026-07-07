@@ -45,11 +45,11 @@ import { requiredOnInsert } from '../write-model';
 import {
   enumOf,
   orFold,
-  paramSchema,
   refSchema,
   relationFieldsOf,
   selectFunctions,
   exprKindApplicable,
+  SchemaCache,
   type FunctionSelector,
 } from '../schema-build';
 
@@ -262,13 +262,13 @@ function resolveDepth(options: BuildSchemasOptions, counts: DepthCounts): Resolv
 }
 
 /** The join `on` schema at a `RefDepth` — `source` + its relation `field`. */
-function joinOnSchema(types: readonly Type[], depth: RefDepth): z.ZodTypeAny {
+function joinOnSchema(types: readonly Type[], depth: RefDepth, cache?: SchemaCache): z.ZodTypeAny {
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'one',
     eligible: relationFieldsOf,
     describe: 'The bound source + relation field for this single join hop.',
-  });
+  }, cache);
 }
 
 /**
@@ -316,6 +316,13 @@ export function buildSchemas(
     fnCount: maxFunctionGroup(selected),
   });
 
+  // A per-generation cache of shared, `meta.id`-tagged fragment instances (each
+  // Type's field-name enum, the `param` expr) so the generated JSON-Schema
+  // factors the largest repeated fragments into single `$def`s + `$ref`s instead
+  // of inlining every copy. Threaded on `inner` so every expr class's
+  // `toSchema` reuses the SAME instances.
+  const cache = new SchemaCache();
+
   // The shared options bag whose lazy slots close the recursion. `Expr` /
   // `Query` are filled below; each class's `toSchema(opts)` reads `depth` /
   // `functions` / `types` / `Expr` to render its (depth-aware) child positions.
@@ -325,6 +332,7 @@ export function buildSchemas(
     depth,
     functions: selected,
     includeDocs: options.includeDocs,
+    cache,
     Expr: z.never(),
     Query: z.never(),
   };
@@ -409,7 +417,7 @@ export function buildSchemas(
   const hasRelations = types.some((t) => t.relationFields().length > 0);
   const Join: z.ZodTypeAny = withAid(
     z.object({
-      on: joinOnSchema(types, depth.refs),
+      on: joinOnSchema(types, depth.refs, cache),
       as: z.string().optional(),
       and: Expr.optional(),
       joinType: withAid(enumOf(['inner', 'left', 'right', 'full']), 'JoinType').optional(),
@@ -456,7 +464,10 @@ export function buildSchemas(
 
   const FieldValue: z.ZodTypeAny = z.object({ field: z.string(), value: Expr });
 
-  const limitOffset: z.ZodTypeAny = withAid(z.number().or(paramSchema()), 'Limit');
+  // `limitOffset` is reused across Select / SetOp limit+offset; the `id: 'Limit'`
+  // factors it into a single shared `$def` instead of inlining each of the four
+  // uses, and its `param` branch is the shared cached `param` fragment.
+  const limitOffset: z.ZodTypeAny = withAid(z.number().or(cache.param()), 'Limit', { id: cache.defId('Limit') });
 
   const Select: z.ZodTypeAny = withAid(
     z.object({
