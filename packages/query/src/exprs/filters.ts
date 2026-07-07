@@ -27,6 +27,7 @@ import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
+import { didYouMean } from '../aids';
 import { boolResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import type { RuntimeContext } from '../runtime/context';
@@ -81,7 +82,7 @@ export class FiltersExpr extends BoolExpr {
   ): ComputedResolved {
     const bound = scope.lookup(this.source);
     if (!bound || bound.kind !== 'type') {
-      p.error('filters.unknown-source', `Unknown source '${this.source}' for filters.`);
+      p.error('filters.unknown-source', `Unknown source '${this.source}' for filters.${didYouMean(this.source, scope.sources())}`);
       return boolResult([], false, false);
     }
     const type = bound.type;
@@ -91,7 +92,7 @@ export class FiltersExpr extends BoolExpr {
           const f = type.field(field);
           if (!f) {
             p.at(i, () =>
-              p.error('filters.unknown-field', `Type '${type.name}' has no field '${field}'.`),
+              p.error('filters.unknown-field', `Type '${type.name}' has no field '${field}'.${didYouMean(field, type.fields.map((f) => f.name))}`),
             );
           } else {
             // WRITE-MODEL: honor the field's `exprs` restriction for this kind.

@@ -32,6 +32,7 @@ import { insertRecord, updateRecord } from './_type';
 import { requiredOnInsert } from '../write-model';
 import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
+import { didYouMean } from '../aids';
 import type { Type } from '../type';
 import type { Cost } from '../cost';
 import type { Dialect } from '../sql/dialect';
@@ -130,7 +131,7 @@ export class InsertQuery extends Query {
   validateWalk(engine: QueryEngine, scope: QueryScope, p: Problems, _ctx: ValidateContext): void {
     const type = engine.type(this.into);
     if (!type) {
-      p.error('insert.unknown-type', `Unknown target type '${this.into}'.`);
+      p.error('insert.unknown-type', `Unknown target type '${this.into}'.${didYouMean(this.into, engine.registry.typeList().map((t) => t.name))}`);
       return;
     }
     // WRITE-MODEL: the Type as a whole must be insertable.
@@ -142,7 +143,7 @@ export class InsertQuery extends Query {
       this.fields.forEach((c, i) => {
         const field = type.field(c);
         if (!field) {
-          p.at(i, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${c}'.`));
+          p.at(i, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${c}'.${didYouMean(c, type.fields.map((f) => f.name))}`));
         } else if (!field.insertableFor(engine.fieldBacking(this.into, c))) {
           // WRITE-MODEL: a non-insertable (read-only / computed) field can't be supplied.
           p.at(i, () => p.error('insert.field-readonly', `Field '${c}' of '${this.into}' is not insertable.`));
@@ -182,7 +183,7 @@ export class InsertQuery extends Query {
       p.at(['onConflict', 'update'], () => {
         this.onConflict!.update.forEach((u, i) => {
           if (type && !type.field(u.field)) {
-            p.at([i, 'field'], () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${u.field}'.`));
+            p.at([i, 'field'], () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${u.field}'.${didYouMean(u.field, type.fields.map((f) => f.name))}`));
           }
           p.at([i, 'value'], () => u.expr.validateWalk(engine, conflictScope, p, assignCtx));
         });

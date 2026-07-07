@@ -15,6 +15,7 @@ import type { QueryScope } from '../scope';
 import type { ResolvedType, FieldResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
+import { didYouMean } from '../aids';
 import { textResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { Value } from '../runtime/value';
@@ -112,7 +113,7 @@ export class FieldRefExpr extends Expr {
     if (!bound) {
       p.error(
         'ref.unknown-source',
-        `Unknown source '${this.source}'. Bind it in a FROM / JOIN (or check the alias).`,
+        `Unknown source '${this.source}'. Bind it in a FROM / JOIN (or check the alias).${didYouMean(this.source, scope.sources())}`,
       );
       return textResult([], true);
     }
@@ -127,7 +128,7 @@ export class FieldRefExpr extends Expr {
     if (!field) {
       p.error(
         'ref.unknown-field',
-        `Type '${bound.type.name}' (source '${this.source}') has no field '${this.field}'.`,
+        `Type '${bound.type.name}' (source '${this.source}') has no field '${this.field}'.${didYouMean(this.field, bound.type.fields.map((f) => f.name))}`,
       );
       return textResult([], true);
     }

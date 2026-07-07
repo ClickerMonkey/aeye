@@ -72,6 +72,23 @@ export class QueryScope {
   }
 
   /**
+   * Every source name bound ANYWHERE in this scope chain (this level plus every
+   * ancestor), each reported once, nearest binding first. Used to power the
+   * "did you mean `<source>`?" suggestion on an unknown-source diagnostic — it
+   * enumerates the sources an author could have meant. (Contrast
+   * {@link localSources}, which is this level only.)
+   */
+  sources(): string[] {
+    const seen = new Set<string>();
+    let scope: QueryScope | null = this;
+    while (scope) {
+      for (const name of scope.bindings.keys()) seen.add(name);
+      scope = scope.parent;
+    }
+    return Array.from(seen);
+  }
+
+  /**
    * Every BOUND source (across the whole chain) whose resolved binding is the
    * Type named `typeName` — i.e. the sources under which that Type is currently
    * in scope. A child binding SHADOWS a same-named ancestor binding (the first

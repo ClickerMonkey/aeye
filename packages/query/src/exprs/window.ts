@@ -25,7 +25,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
 import { computed, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { withAid, didYouMean } from '../aids';
 import {
   parseNamedArgs,
   namedArgSchema,
@@ -161,7 +161,7 @@ export class WindowExpr extends Expr {
 
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
-      p.error('window.unknown', `Unknown window function '${this.fn}'.`);
+      p.error('window.unknown', `Unknown window function '${this.fn}'.${didYouMean(this.fn, engine.registry.functionList().filter((f) => f.shape === 'window' || f.shape === 'aggregate').map((f) => f.name))}`);
     } else if (fn.shape !== 'window' && fn.shape !== 'aggregate') {
       p.error(
         'window.not-window',

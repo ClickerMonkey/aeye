@@ -17,7 +17,13 @@
  *    via a small edit-distance over the union's branch kinds; else the union's
  *    own `<label>` ("expected an expression");
  *  - an enum failure → `expected <label>: <allowed values>` (e.g. "expected a
- *    comparison operator: =, <>, <, <=, >, >=, like, notLike, ilike").
+ *    comparison operator: =, <>, <, <=, >, >=, like, notLike, ilike"), with a
+ *    trailing "— did you mean `notLike`?" when the received value is a near-miss.
+ *
+ * The same {@link didYouMean} suggester powers the enum tail here AND the
+ * unknown-NAME diagnostics validation emits (unknown field / source / Type /
+ * relation / function / arg / output) — every unknown-name error in the package
+ * suggests the nearest valid name.
  *
  * `withAid(schema, aid, opts?)` is the single seam: it attaches `.meta({ aid })`
  * (so the JSON-schema `$defs` key is unchanged) AND a captured error closure
@@ -166,22 +172,90 @@ export function editDistance(a: string, b: string): number {
 }
 
 /**
+ * The edit-distance BUDGET tolerated for an input of `len` characters: a small,
+ * length-scaled allowance (`floor(len/3)`, at least 1, capped at 3). Scaling
+ * keeps a suggestion honest — a short word tolerates a single edit, a longer one
+ * up to three — so a match only ever fires on a genuine typo, never on an
+ * unrelated word of similar length.
+ */
+export function suggestionBudget(len: number): number {
+  return Math.min(3, Math.max(1, Math.floor(len / 3)));
+}
+
+/**
+ * Rank `candidates` by how close each is to `input`, keeping only those within
+ * `budget` edits (a genuine typo). Distance is computed CASE-INSENSITIVELY (so
+ * `ASC` still matches `asc`, `notlike` still matches `notLike`); ties break by
+ * the case-SENSITIVE distance (favoring the exact-case spelling) and then the
+ * candidates' original order. Returns the surviving candidates, nearest first.
+ */
+function rankNear(input: string, candidates: readonly string[], budget: number): string[] {
+  const lower = input.toLowerCase();
+  const scored = candidates
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      ci: editDistance(lower, candidate.toLowerCase()),
+      exact: editDistance(input, candidate),
+    }))
+    .filter((s) => s.ci <= budget);
+  scored.sort((a, b) => a.ci - b.ci || a.exact - b.exact || a.index - b.index);
+  return scored.map((s) => s.candidate);
+}
+
+/**
+ * The single nearest candidate to `input` within `budget` edits, or `undefined`
+ * when nothing is close enough (so a caller can list the alternatives without a
+ * false suggestion). `budget` defaults to {@link suggestionBudget} of the
+ * input's length — the reusable "genuine typo" primitive behind
+ * {@link didYouMean} and {@link nearestKind}.
+ */
+export function nearest(
+  input: string,
+  candidates: readonly string[],
+  budget: number = suggestionBudget(input.length),
+): string | undefined {
+  return rankNear(input, candidates, budget)[0];
+}
+
+/**
+ * A ready-to-append `" — did you mean \`X\`?"` (or `" — did you mean \`X\` or
+ * \`Y\`?"` for up to `opts.max` near matches, default 1) suggesting the valid
+ * name(s) closest to a bad `input`, or `''` when nothing is a genuine typo of
+ * any candidate. Case-insensitive with a length-scaled edit budget (see
+ * {@link suggestionBudget}), so it only fires on a real misspelling — never on
+ * an unrelated word. Append it directly to an "unknown name" diagnostic:
+ *
+ *   p.error('ref.unknown-field',
+ *     `Type '${t.name}' has no field '${bad}'.${didYouMean(bad, t.fields.map(f => f.name))}`);
+ */
+export function didYouMean(
+  input: string,
+  candidates: readonly string[],
+  opts: { max?: number } = {},
+): string {
+  const max = Math.max(1, opts.max ?? 1);
+  const matches = rankNear(input, candidates, suggestionBudget(input.length)).slice(0, max);
+  if (matches.length === 0) return '';
+  return ` — did you mean ${orList(matches.map((m) => `\`${m}\``))}?`;
+}
+
+/** Join items into an English `a`, `a or b`, or `a, b, or c` list (Oxford comma). */
+function orList(items: readonly string[]): string {
+  if (items.length === 2) return `${items[0]} or ${items[1]}`;
+  if (items.length > 2) return `${items.slice(0, -1).join(', ')}, or ${items[items.length - 1]}`;
+  // 0 (unreached via `didYouMean`) or 1 item → a plain join.
+  return items.join(', ');
+}
+
+/**
  * The nearest branch kind to a bogus `kind` by edit distance, when a plausible
- * typo (distance within a small budget). `undefined` when nothing is close
- * enough (so the caller lists the available kinds without a false suggestion).
+ * typo. `undefined` when nothing is close enough (so the caller lists the
+ * available kinds without a false suggestion). A thin wrapper over
+ * {@link nearest} kept for the union-no-match call sites.
  */
 export function nearestKind(kind: string, kinds: readonly string[]): string | undefined {
-  let best: string | undefined;
-  let bestDist = Infinity;
-  for (const candidate of kinds) {
-    const d = editDistance(kind, candidate);
-    if (d < bestDist) {
-      bestDist = d;
-      best = candidate;
-    }
-  }
-  // Only suggest a near miss (a genuine typo), never an unrelated word.
-  return best !== undefined && bestDist <= 3 ? best : undefined;
+  return nearest(kind, kinds);
 }
 
 /**
@@ -226,9 +300,13 @@ export function directedMessage(
     }
     case 'invalid_value': {
       // An enum / literal mismatch: `issue.values` is the allowed set (always
-      // non-empty for a `z.enum` / `z.literal`), listed after the label.
-      const allowed = issue.values.map((v) => String(v)).join(', ');
-      return `expected ${info.label}: ${allowed}`;
+      // non-empty for a `z.enum` / `z.literal`), listed after the label. When the
+      // received value is a near-miss STRING of one of them (e.g. `"notlike"` for
+      // `notLike`, `"il ike"` for `ilike`), append the "did you mean" suggestion.
+      const values = issue.values.map((v) => String(v));
+      const allowed = values.join(', ');
+      const suggestion = typeof issue.input === 'string' ? didYouMean(issue.input, values) : '';
+      return `expected ${info.label}: ${allowed}${suggestion}`;
     }
     case 'invalid_union': {
       return unknownKindMessage(issue.input, kinds, info) ?? `expected ${info.label}`;

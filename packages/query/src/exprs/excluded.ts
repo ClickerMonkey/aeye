@@ -16,7 +16,7 @@ import type { ResolvedType, FieldResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
-import { withAid } from '../aids';
+import { withAid, didYouMean } from '../aids';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -81,7 +81,7 @@ export class ExcludedExpr extends Expr {
     }
     const field = bound.type.field(this.field);
     if (!field) {
-      p.error('excluded.unknown-field', `The conflict target '${bound.type.name}' has no field '${this.field}'.`);
+      p.error('excluded.unknown-field', `The conflict target '${bound.type.name}' has no field '${this.field}'.${didYouMean(this.field, bound.type.fields.map((f) => f.name))}`);
       return textResult([], true);
     }
     const resolved: FieldResolved = { kind: 'field', field, type: bound.type, source: bound.source, nullable: field.nullable };

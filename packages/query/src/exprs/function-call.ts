@@ -18,7 +18,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { textResult, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { withAid, didYouMean } from '../aids';
 import { ParamExpr } from './param';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -107,7 +107,7 @@ export class FunctionCallExpr extends Expr {
 
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
-      p.error('function.unknown', `Unknown function '${this.fn}'.`);
+      p.error('function.unknown', `Unknown function '${this.fn}'.${didYouMean(this.fn, engine.registry.functionList().filter((f) => f.shape === 'scalar').map((f) => f.name))}`);
       return textResult([], true);
     }
     if (fn.shape !== 'scalar') {

@@ -16,7 +16,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { Type } from '../type';
 import { childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { withAid, didYouMean } from '../aids';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -107,7 +107,7 @@ export class TabularFunctionCallExpr extends Expr {
     const argTypes = validateNamedArgs(this.args, engine, scope, p, ctx);
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
-      p.error('tabular-function.unknown', `Unknown tabular function '${this.fn}'.`);
+      p.error('tabular-function.unknown', `Unknown tabular function '${this.fn}'.${didYouMean(this.fn, engine.registry.functionList().filter((f) => f.shape === 'tabular').map((f) => f.name))}`);
     } else if (fn.shape !== 'tabular') {
       p.error(
         'tabular-function.not-tabular',

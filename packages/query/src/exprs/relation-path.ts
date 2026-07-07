@@ -21,6 +21,7 @@ import type { QueryScope } from '../scope';
 import type { ResolvedType, FieldResolved, TypeResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
+import { didYouMean } from '../aids';
 import { RelationFieldType } from '../field-types/index';
 import { textResult } from './_shared';
 import type { Type } from '../type';
@@ -74,7 +75,7 @@ export class RelationPathExpr extends Expr {
     if (!root || root.kind !== 'type') {
       p?.error(
         'relation-path.unknown-source',
-        `Unknown source '${this.source}' for relation path.`,
+        `Unknown source '${this.source}' for relation path.${didYouMean(this.source, scope.sources())}`,
       );
       return textResult([], true);
     }
@@ -92,10 +93,15 @@ export class RelationPathExpr extends Expr {
       const field = currentType.field(segment);
       const last = i === this.path.length - 1;
       if (!field) {
+        // A non-final segment must be a RELATION to be traversable, so suggest
+        // from the relation fields there; the final segment may be any field.
+        const candidates = last
+          ? currentType.fields.map((f) => f.name)
+          : currentType.relationFields().map((f) => f.name);
         p?.at(['path', i], () => {
           p.error(
             'relation-path.unknown-field',
-            `Type '${currentType.name}' has no field '${segment}'.`,
+            `Type '${currentType.name}' has no field '${segment}'.${didYouMean(segment, candidates)}`,
           );
         });
         return textResult([], true);
@@ -107,7 +113,7 @@ export class RelationPathExpr extends Expr {
           p?.at(['path', i], () => {
             p.error(
               'relation-path.unknown-type',
-              `Relation '${segment}' points at unregistered Type '${ft.to}'.`,
+              `Relation '${segment}' points at unregistered Type '${ft.to}'.${didYouMean(ft.to, engine.registry.typeList().map((t) => t.name))}`,
             );
           });
           return textResult([], true);

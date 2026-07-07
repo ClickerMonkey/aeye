@@ -26,6 +26,7 @@ import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
+import { didYouMean } from '../aids';
 import { numberResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { resolveSearchRun } from '../backing';
@@ -96,7 +97,7 @@ export class TextScoreExpr extends Expr {
   ): ComputedResolved {
     const bound = scope.lookup(this.source);
     if (!bound) {
-      p.error('text-score.unknown-source', `Unknown source '${this.source}' for text score.`);
+      p.error('text-score.unknown-source', `Unknown source '${this.source}' for text score.${didYouMean(this.source, scope.sources())}`);
     } else if (bound.kind !== 'type') {
       p.error('text-score.not-a-type', `Source '${this.source}' is not a type, so it cannot be scored.`);
     } else if (this.field === undefined) {
@@ -106,10 +107,11 @@ export class TextScoreExpr extends Expr {
       }
     } else {
       // Field-narrowed score ⇒ the field must exist and be text.
-      const field = bound.type.field(this.field);
+      const fieldName = this.field;
+      const field = bound.type.field(fieldName);
       if (!field) {
         p.at('field', () =>
-          p.error('text-score.unknown-field', `Type '${bound.type.name}' has no field '${this.field}'.`),
+          p.error('text-score.unknown-field', `Type '${bound.type.name}' has no field '${fieldName}'.${didYouMean(fieldName, bound.type.fields.map((f) => f.name))}`),
         );
       } else if (field.fieldType.resolve() !== 'text') {
         p.at('field', () =>

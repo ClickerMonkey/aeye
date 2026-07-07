@@ -23,6 +23,7 @@ import type { Problems } from '../problem';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow, SourceRecord } from '../runtime/row';
 import { Type } from '../type';
+import { didYouMean } from '../aids';
 import type { Query } from './query';
 import { syntheticType } from './query';
 import { TabularFunctionCallExpr } from '../exprs/index';
@@ -131,7 +132,13 @@ export class QuerySource {
     }
     if (this.sourceKind === 'type' && this.typeName !== undefined) {
       if (!engine.type(this.typeName) && !scope.has(this.typeName)) {
-        p.error('source.unknown-type', `Unknown source type / CTE '${this.typeName}'.`);
+        // Candidates: every registered Type name PLUS the CTE / source names
+        // currently in scope (either is a valid `type` reference here).
+        const candidates = [
+          ...engine.registry.typeList().map((t) => t.name),
+          ...scope.sources(),
+        ];
+        p.error('source.unknown-type', `Unknown source type / CTE '${this.typeName}'.${didYouMean(this.typeName, candidates)}`);
       }
       return;
     }

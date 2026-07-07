@@ -12,6 +12,7 @@ import { canonicalize, type Expr, type ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord, SourceRow } from '../runtime/row';
 import { Type } from '../type';
+import { didYouMean } from '../aids';
 import {
   Query,
   type QueryClass,
@@ -142,7 +143,7 @@ export class DeleteQuery extends Query {
   validateWalk(engine: QueryEngine, scope: QueryScope, p: Problems, _ctx: ValidateContext): void {
     const type = engine.type(this.from);
     if (!type) {
-      p.error('delete.unknown-type', `Unknown target type '${this.from}'.`);
+      p.error('delete.unknown-type', `Unknown target type '${this.from}'.${didYouMean(this.from, engine.registry.typeList().map((t) => t.name))}`);
       return;
     }
     // WRITE-MODEL: the Type as a whole must be deletable.

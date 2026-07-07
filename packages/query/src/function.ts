@@ -31,6 +31,7 @@ import type {
   TypeResolved,
 } from './resolved-type';
 import { asFieldType, sourcesOf } from './resolved-type';
+import { didYouMean } from './aids';
 
 /** A parsed declared parameter: a concrete FieldType, or the `'any'` marker. */
 interface ResolvedParam {
@@ -289,7 +290,7 @@ export class QueryFunction {
         p.at(['args', name], () => {
           p.error(
             'function.unknown-arg',
-            `Function '${this.name}' has no parameter named '${name}'.`,
+            `Function '${this.name}' has no parameter named '${name}'.${didYouMean(name, this.params.map((param) => param.name))}`,
           );
         });
         continue;

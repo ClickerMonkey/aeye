@@ -32,7 +32,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
-import { withAid } from '../aids';
+import { withAid, didYouMean } from '../aids';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -98,7 +98,7 @@ export class OutputRefExpr extends Expr {
         const names = scope.outputNames();
         p.error(
           'output.unknown',
-          `No SELECT output field named '${this.name}'. Available output fields: ${names.join(', ')}.`,
+          `No SELECT output field named '${this.name}'. Available output fields: ${names.join(', ')}.${didYouMean(this.name, names)}`,
         );
       }
       return textResult([], true);

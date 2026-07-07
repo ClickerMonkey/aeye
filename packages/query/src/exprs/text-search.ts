@@ -22,6 +22,7 @@ import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
+import { didYouMean } from '../aids';
 import { boolResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { resolveSearchSql, resolveSearchRun } from '../backing';
@@ -95,7 +96,7 @@ export class TextSearchExpr extends BoolExpr {
   ): ComputedResolved {
     const bound = scope.lookup(this.source);
     if (!bound) {
-      p.error('text-search.unknown-source', `Unknown source '${this.source}' for text search.`);
+      p.error('text-search.unknown-source', `Unknown source '${this.source}' for text search.${didYouMean(this.source, scope.sources())}`);
     } else if (bound.kind !== 'type') {
       p.error('text-search.not-a-type', `Source '${this.source}' is not a type, so it cannot be searched.`);
     } else if (this.field === undefined) {
@@ -105,10 +106,11 @@ export class TextSearchExpr extends BoolExpr {
       }
     } else {
       // Field-narrowed search ⇒ the field must exist and be text.
-      const field = bound.type.field(this.field);
+      const fieldName = this.field;
+      const field = bound.type.field(fieldName);
       if (!field) {
         p.at('field', () =>
-          p.error('text-search.unknown-field', `Type '${bound.type.name}' has no field '${this.field}'.`),
+          p.error('text-search.unknown-field', `Type '${bound.type.name}' has no field '${fieldName}'.${didYouMean(fieldName, bound.type.fields.map((f) => f.name))}`),
         );
       } else if (field.fieldType.resolve() !== 'text') {
         p.at('field', () =>

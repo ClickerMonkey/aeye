@@ -27,7 +27,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
 import { computed, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { withAid, didYouMean } from '../aids';
 import {
   parseNamedArgs,
   namedArgSchema,
@@ -141,7 +141,7 @@ export class AggregateExpr extends Expr {
 
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
-      p.error('aggregate.unknown', `Unknown aggregate function '${this.fn}'.`);
+      p.error('aggregate.unknown', `Unknown aggregate function '${this.fn}'.${didYouMean(this.fn, engine.registry.functionList().filter((f) => f.shape === 'aggregate').map((f) => f.name))}`);
       return this.resolve(engine, scope);
     }
     if (fn.shape !== 'aggregate') {

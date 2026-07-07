@@ -15,6 +15,9 @@ import {
   describeInput,
   editDistance,
   nearestKind,
+  nearest,
+  didYouMean,
+  suggestionBudget,
   directedMessage,
   AID_REGISTRY,
 } from '../aids';
@@ -85,6 +88,66 @@ describe('editDistance / nearestKind', () => {
   });
 });
 
+describe('suggestionBudget', () => {
+  it('scales the edit budget with length (>=1, capped at 3)', () => {
+    expect(suggestionBudget(0)).toBe(1); // floor(0/3)=0 → clamped up to 1
+    expect(suggestionBudget(2)).toBe(1);
+    expect(suggestionBudget(3)).toBe(1);
+    expect(suggestionBudget(6)).toBe(2);
+    expect(suggestionBudget(9)).toBe(3);
+    expect(suggestionBudget(30)).toBe(3); // floor(30/3)=10 → capped at 3
+  });
+});
+
+describe('nearest', () => {
+  it('finds the nearest candidate within the default length-scaled budget', () => {
+    expect(nearest('nam', ['name', 'age', 'email'])).toBe('name');
+    // a far word yields nothing (no false positive)
+    expect(nearest('somethingelse', ['name', 'age'])).toBeUndefined();
+    // empty candidate set ⇒ nothing
+    expect(nearest('name', [])).toBeUndefined();
+  });
+
+  it('breaks a case-insensitive-distance tie toward the exact-case spelling', () => {
+    // `ab` / `Ab` are both distance 0 case-insensitively from `AB`; the
+    // case-SENSITIVE distance (1 vs 2) favors `Ab`.
+    expect(nearest('AB', ['ab', 'Ab'])).toBe('Ab');
+  });
+
+  it('honors an explicit budget override', () => {
+    // distance 1 but budget 0 ⇒ no match
+    expect(nearest('abcdefgh', ['abcdefgz'], 0)).toBeUndefined();
+    // a generous budget lets a farther word through
+    expect(nearest('abcdefgh', ['abcdefgz'], 5)).toBe('abcdefgz');
+  });
+});
+
+describe('didYouMean', () => {
+  it('appends a single suggestion for a near miss', () => {
+    expect(didYouMean('nam', ['name', 'age', 'email'])).toBe(' — did you mean `name`?');
+  });
+
+  it('returns an empty string for a far miss or empty candidates', () => {
+    expect(didYouMean('somethingelse', ['name', 'age'])).toBe('');
+    expect(didYouMean('name', [])).toBe('');
+  });
+
+  it('caps at `max` suggestions and lists them (or / Oxford comma)', () => {
+    // two equidistant single-char candidates ⇒ "`a` or `b`"
+    expect(didYouMean('x', ['a', 'b'], { max: 2 })).toBe(' — did you mean `a` or `b`?');
+    // three equidistant candidates ⇒ Oxford-comma list (order preserved on a tie)
+    expect(didYouMean('x', ['a', 'b', 'c'], { max: 3 })).toBe(
+      ' — did you mean `a`, `b`, or `c`?',
+    );
+    // max clamps to at least 1 even when 0 is asked for
+    expect(didYouMean('nam', ['name', 'nane'], { max: 0 })).toBe(' — did you mean `name`?');
+  });
+
+  it('is case-insensitive (a wrong-case value still suggests the canonical spelling)', () => {
+    expect(didYouMean('ASC', ['asc', 'desc'])).toBe(' — did you mean `asc`?');
+  });
+});
+
 describe('directedMessage', () => {
   it('invalid_type → expected <label>[, got <received>]', () => {
     expect(directedMessage(typeIssue('oops'), 'Expr', undefined)).toBe(
@@ -99,6 +162,28 @@ describe('directedMessage', () => {
   it('invalid_value → expected <label>: <allowed>', () => {
     expect(directedMessage(valueIssue(['=', '<>', '<'], 'equals'), 'ComparisonOp', undefined)).toBe(
       'expected a comparison operator: =, <>, <',
+    );
+  });
+
+  it('invalid_value appends a "did you mean" for a near-miss enum value', () => {
+    // A case/spelling near-miss of an allowed op is suggested.
+    expect(
+      directedMessage(valueIssue(['like', 'notLike', 'ilike'], 'notlike'), 'ComparisonOp', undefined),
+    ).toBe('expected a comparison operator: like, notLike, ilike — did you mean `notLike`?');
+    // A wrong-case direction still resolves to the canonical spelling.
+    expect(directedMessage(valueIssue(['asc', 'desc'], 'ASC'), 'OrderDir', undefined)).toBe(
+      'expected a sort direction (asc or desc): asc, desc — did you mean `asc`?',
+    );
+  });
+
+  it('invalid_value adds no suggestion for a non-string value or a far miss', () => {
+    // A non-string received value ⇒ no suggestion computed.
+    expect(directedMessage(valueIssue(['asc', 'desc'], 5), 'OrderDir', undefined)).toBe(
+      'expected a sort direction (asc or desc): asc, desc',
+    );
+    // A far-off string ⇒ no false suggestion.
+    expect(directedMessage(valueIssue(['asc', 'desc'], 'sideways'), 'OrderDir', undefined)).toBe(
+      'expected a sort direction (asc or desc): asc, desc',
     );
   });
 

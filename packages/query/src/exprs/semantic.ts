@@ -29,6 +29,7 @@ import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
+import { didYouMean } from '../aids';
 import { numberResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { ParamExpr } from './param';
@@ -214,7 +215,7 @@ export class SemanticExpr extends Expr {
   ): ResolvedType {
     const bound = scope.lookup(this.source);
     if (!bound) {
-      p.error('semantic.unknown-source', `Unknown source '${this.source}' for semantic score.`);
+      p.error('semantic.unknown-source', `Unknown source '${this.source}' for semantic score.${didYouMean(this.source, scope.sources())}`);
     } else if (bound.kind === 'type') {
       const type = bound.type;
       if (!type.isSemantic()) {
@@ -225,10 +226,11 @@ export class SemanticExpr extends Expr {
           `Source '${this.source}' (type '${type.name}') is not semantic-eligible.`,
         );
       } else if (this.field !== undefined) {
-        const field = type.field(this.field);
+        const fieldName = this.field;
+        const field = type.field(fieldName);
         if (!field) {
           p.at('field', () =>
-            p.error('semantic.unknown-field', `Type '${type.name}' has no field '${this.field}'.`),
+            p.error('semantic.unknown-field', `Type '${type.name}' has no field '${fieldName}'.${didYouMean(fieldName, type.fields.map((f) => f.name))}`),
           );
         } else if (!fieldIsSemantic(field)) {
           p.at('field', () =>
@@ -281,7 +283,7 @@ export class SemanticExpr extends Expr {
     const { type } = resolved;
     const field = type.field(q.field);
     if (!field) {
-      p.error('semantic.unknown-query-field', `Type '${type.name}' has no field '${q.field}'.`);
+      p.error('semantic.unknown-query-field', `Type '${type.name}' has no field '${q.field}'.${didYouMean(q.field, type.fields.map((f) => f.name))}`);
       return;
     }
     if (!fieldIsSemantic(field)) {

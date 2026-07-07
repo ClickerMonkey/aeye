@@ -13,6 +13,7 @@ import { canonicalize, type Expr, type ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord, SourceRow } from '../runtime/row';
 import { Type } from '../type';
+import { didYouMean } from '../aids';
 import {
   Query,
   type QueryClass,
@@ -150,7 +151,7 @@ export class UpdateQuery extends Query {
   validateWalk(engine: QueryEngine, scope: QueryScope, p: Problems, _ctx: ValidateContext): void {
     const type = engine.type(this.type);
     if (!type) {
-      p.error('update.unknown-type', `Unknown target type '${this.type}'.`);
+      p.error('update.unknown-type', `Unknown target type '${this.type}'.${didYouMean(this.type, engine.registry.typeList().map((t) => t.name))}`);
       return;
     }
     // WRITE-MODEL: the Type as a whole must be updatable.
@@ -167,7 +168,7 @@ export class UpdateQuery extends Query {
       this.set.forEach((s, i) => {
         const field = type.field(s.field);
         if (!field) {
-          p.at([i, 'field'], () => p.error('update.unknown-field', `Type '${this.type}' has no field '${s.field}'.`));
+          p.at([i, 'field'], () => p.error('update.unknown-field', `Type '${this.type}' has no field '${s.field}'.${didYouMean(s.field, type.fields.map((f) => f.name))}`));
         } else if (!field.updatableFor(engine.fieldBacking(this.type, s.field))) {
           // WRITE-MODEL: a non-updatable (read-only / computed) field can't be assigned.
           p.at([i, 'field'], () => p.error('update.field-readonly', `Field '${s.field}' of '${this.type}' is not updatable.`));
