@@ -40,6 +40,7 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 | `retool?` | `Fn<RetoolResult, [TInput?, ctx]>` | Dynamically select tools (by name or object), or `false` if incompatible. |
 | `dynamic?` | `boolean` | Re-resolve input/content/config/schema/tools each iteration; `undefined` ends the loop. |
 | `excludeMessages?` | `boolean` | Don't include `ctx.messages` when rendering. |
+| `onToolResult?` | `(event: ToolResultEvent<TContext, TMetadata, TTools>) => unknown \| Promise<unknown>` | Intercept each tool's **success** result before the model sees it; the return value is what's presented (serialized like any tool result). Model-facing only. See [Tool result transformer](#tool-result-transformer). |
 | `metadata?` / `metadataFn?` | `TMetadata` / fn | Execution metadata (model, requirements). |
 | `validate?` | `(output, ctx) => void \| Promise<void>` | Post-parse hook; throw to re-prompt. |
 | `applicable?` | `(ctx) => boolean \| Promise<boolean>` | Availability check. |
@@ -92,7 +93,7 @@ Every event carries `request: Request`. Types:
 - `request` (`+ iterations`), `textPartial`, `text`, `textComplete`, `textReset` (`+ reason?`)
 - `refusal`, `reason` / `reasonPartial` (reasoning trace)
 - `toolParseName`, `toolParseArguments` (`+ args`), `toolArgRepairAttempt` (`+ fields, success`)
-- tool lifecycle: `toolStart`, `toolOutput` (`+ result`), `toolInterrupt`, `toolSuspend`, `toolError` (`+ error, rawArgs?`) — each carries `tool` + `args`
+- tool lifecycle: `toolStart`, `toolOutput` (`+ result` raw, `+ toModel` presented value), `toolInterrupt`, `toolSuspend`, `toolError` (`+ error, rawArgs?`) — each carries `tool` + `args`
 - `message` (`+ message`), `suspend`, `complete` (`+ output`)
 - `requestUsage`, `responseTokens`, `usage` (`+ usage`)
 
@@ -115,6 +116,35 @@ const advisor = new Prompt({
 
 const advice = await advisor.get('result', { destination: 'Paris' }, { execute, messages: [] });
 ```
+
+## Tool result transformer
+
+`onToolResult` intercepts each tool's **successful** result *before* it's handed to the model and returns what the model sees instead. It's fully type-safe: `event` is a discriminated union over the prompt's tools, so **narrowing on `event.tool` types both `event.result` and `event.args`** for that tool. The default (unmatched) branch is the catch-all.
+
+```typescript
+const prompt = new Prompt({
+  name: 'searcher',
+  description: 'Searches and answers',
+  content: 'Answer using search.',
+  tools: [searchTool, mathTool],       // searchTool → { hits, ids }, mathTool → number
+  onToolResult: (event) => {
+    if (event.tool === 'search') {
+      // event.result is the search result; event.args is { query }
+      return `Found ${event.result.hits} hits for "${event.args.query}"`;
+    }
+    // catch-all: here event is the `math` member (event.result: number)
+    return event.result;              // pass-through
+  },
+});
+```
+
+- **The return value is what's presented.** It's serialized exactly like an untransformed result — a `string` is used verbatim, anything else is `JSON.stringify`-d — into the `role: 'tool'` message. To pass through unchanged, `return event.result`.
+- **Model-facing only.** `get('tools')`, `streamTools`, and the `toolOutput` event's `result` field always report the RAW result. The presented value is additionally exposed on the `toolOutput` event as `toModel` (equal to `result` when no handler is set).
+- **v1 = success results only.** Errored / suspended / interrupted / synthetic (`toolsComplete`) tool slots BYPASS the handler and keep their existing content. (A future v2 could add a `status: 'success' | 'error'` discriminant so handlers can transform errors too.)
+- **A handler that throws** is treated as a tool error for that slot — the model sees the error content — so the `tool_call` ↔ `role: 'tool'` pairing guarantee still holds. The raw result stays available on `get('tools')`/`streamTools`.
+- `async` handlers are awaited.
+
+Compile-time safety: referencing a non-existent tool name, or accessing a field not on the narrowed tool's `result`/`args`, fails to compile.
 
 ## Token / context-window management
 

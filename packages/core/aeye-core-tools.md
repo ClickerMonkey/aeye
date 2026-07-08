@@ -174,3 +174,4 @@ const out = await researchAgent.run({ topic: 'Quantum Computing' }, { execute, m
 - An Agent does **no** AI on its own — any model calls come from the prompts/tools it invokes, which need `execute`/`stream` on the forwarded `ctx`.
 - Tool `schema` returning `undefined` (or `applicable` false) excludes the tool from `compile()` output, so the model never sees it for that context.
 - `call` can be sync or async; `TOutput` flows through `Resolved<>` where the framework awaits it (e.g. tool results in prompt events).
+- A tool's return value is what the model sees by default (strings verbatim, otherwise `JSON.stringify`-d). To transform per-prompt what a tool result looks like to the model without changing the tool, use the prompt's [`onToolResult`](./aeye-core-prompts.md#tool-result-transformer) transformer (model-facing only; the raw result stays on `get('tools')`/`streamTools`).

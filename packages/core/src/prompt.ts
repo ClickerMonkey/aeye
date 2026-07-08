@@ -183,6 +183,30 @@ export interface PromptInput<
   // If messages on the context should be excluded when rendering the prompt.
   excludeMessages?: boolean;
   /**
+   * Optional per-prompt transformer that intercepts each tool's result
+   * BEFORE it's handed to the model. The RETURN VALUE is what the model
+   * sees for that tool's `role: 'tool'` message (serialized exactly like
+   * an untransformed result — a string is used verbatim, anything else is
+   * `JSON.stringify`-d). To pass a result through unchanged, return
+   * `event.result`.
+   *
+   * The `event` is a discriminated union over this prompt's `TTools`:
+   * narrowing on `event.tool` types BOTH `event.result` and `event.args`
+   * for that specific tool; the default branch is the catch-all.
+   *
+   * MODEL-FACING ONLY: the raw result is still what `get('tools')`,
+   * `streamTools`, and the `toolOutput` event's `result` field report.
+   * The presented (possibly transformed) value is additionally exposed on
+   * the `toolOutput` event as `toModel`.
+   *
+   * v1 SCOPE — success results only. Errored / suspended / interrupted /
+   * synthetic (`toolsComplete`) tool slots BYPASS this handler and keep
+   * their existing content path. A handler that THROWS is treated as a
+   * tool error for that slot (the model sees the error content), so the
+   * `tool_call` ↔ `role: 'tool'` pairing guarantee still holds.
+   */
+  onToolResult?: (event: ToolResultEvent<TContext, TMetadata, TTools>) => unknown | Promise<unknown>;
+  /**
    * Optional custom parser that REPLACES Zod validation of the model's
    * STRUCTURED OUTPUT entirely.
    *
@@ -242,6 +266,34 @@ export type PromptToolOutput<TTools extends AnyTool[]> =
 ;
 
 /**
+ * The event passed to a prompt's `onToolResult` transformer, built as a
+ * discriminated union over the prompt's `TTools` tuple. Narrowing on
+ * `event.tool` (the discriminant) types BOTH `event.result` and
+ * `event.args` for that specific tool; the default branch is the
+ * catch-all covering every tool.
+ *
+ * Mirrors `PromptToolOutput` and the `Tool<...>` type-param order:
+ * `Tool<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>`.
+ * `args` is the tool's parsed input (`TParams`); `result` is the tool's
+ * awaited output (`Resolved<TOutput>`).
+ *
+ * v1 covers SUCCESS results only. A future v2 could add a
+ * `status: 'success' | 'error'` field so a handler can also transform
+ * error results — narrowing on `status` alongside `tool`.
+ *
+ * @template TContext - The prompt's context type.
+ * @template TMetadata - The prompt's metadata type.
+ * @template TTools - The prompt's tools tuple.
+ */
+export type ToolResultEvent<TContext, TMetadata, TTools> =
+  TTools extends Array<infer TI>
+    ? TI extends Tool<any, any, infer TName, infer TArgs, infer TOut, any, any>
+      ? { tool: TName; result: Resolved<TOut>; args: TArgs; ctx: Context<TContext, TMetadata>; request: Request }
+      : never
+    : never
+;
+
+/**
  * Converts TTools into a union of their names:
  * 
  * 'name1' | 'name2' | ...
@@ -265,14 +317,17 @@ export type PromptTools<TTools extends AnyTool[]> =
  * Converts TTools into tool-related events:
  * 
  * { type: 'toolStart', tool: TTool, args: any } |
- * { type: 'toolOutput', tool: TTool, args: any, result: TOutput } |
+ * { type: 'toolOutput', tool: TTool, args: any, result: TOutput, toModel: unknown } |
  * { type: 'toolError', tool: TTool, args: any, error: string }
  */
 export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
   TTools extends Array<infer TTool>
     ? TTool extends Tool<infer t0, infer t1, infer t2, infer t3, infer TOutput, infer t4, infer t5>
       ? { type: 'toolStart', tool: TTool, args: any, request: Request }
-      | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, request: Request }
+      // `result` is the RAW tool output; `toModel` is the value actually
+      // presented to the model (equal to `result` unless a prompt's
+      // `onToolResult` transformer changed it). See PromptInput.onToolResult.
+      | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, toModel: unknown, request: Request }
       | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
       | { type: 'toolSuspend', tool: TTool, args: any, request: Request }
       | { type: 'toolError', tool: TTool, args: any, error: string, rawArgs?: string, request: Request }
@@ -777,12 +832,27 @@ export class Prompt<
 
         // Handle tool calls
         if (chunk.toolCallNamed) {
+          const toolName = chunk.toolCallNamed.name;
+          const onToolResult = this.input.onToolResult;
           const toolExecutor = newToolExecution(
             ctx,
             chunk.toolCallNamed,
             toolMap.get(chunk.toolCallNamed.name),
             this.input.validationErrorMaxLength,
             this.truncateValidationError.bind(this),
+            // Boundary: the streaming loop has erased the per-tool types, so
+            // build the discriminated event from the runtime tool name +
+            // parsed args/result and cast once to the public event type
+            // (mirrors the `as PromptEvent<...>` boundary cast in `emitTool`).
+            onToolResult
+              ? (result, args) => onToolResult({
+                  tool: toolName,
+                  result,
+                  args,
+                  ctx,
+                  request,
+                } as ToolResultEvent<TContext, TMetadata, TTools>)
+              : undefined,
           );
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
@@ -831,7 +901,7 @@ export class Prompt<
               yield emitTool({ type: 'toolStart', tool: toolCall.tool!, args: toolCall.args, request });
             }
             if (toolCall.emitOutput()) {
-              yield emitTool({ type: 'toolOutput', tool: toolCall.tool!, args: toolCall.args, result: toolCall.result, request });
+              yield emitTool({ type: 'toolOutput', tool: toolCall.tool!, args: toolCall.args, result: toolCall.result, toModel: toolCall.toModel, request });
             }
             if (toolCall.emitInterrupt()) {
               yield emitTool({ type: 'toolInterrupt', tool: toolCall.tool!, args: toolCall.args, request });
@@ -945,7 +1015,7 @@ export class Prompt<
               }
               await toolExecutor.run();
               if (toolExecutor.emitOutput()) {
-                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, request });
+                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, toModel: toolExecutor.toModel, request });
               }
               if (toolExecutor.emitInterrupt()) {
                 yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -979,7 +1049,7 @@ export class Prompt<
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
               if (toolExecutor.emitOutput()) {
-                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, request });
+                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, toModel: toolExecutor.toModel, request });
               }
               if (toolExecutor.emitInterrupt()) {
                 yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -1027,12 +1097,18 @@ export class Prompt<
             // own retry logic).
             continue;
           }
+          // Model-facing value: on a real success we present `toModel`
+          // (the raw result, or whatever `onToolResult` transformed it into
+          // — set inside run() before success is marked). Any other slot
+          // with a lingering result keeps the raw `result`. Serialized
+          // exactly as before: strings verbatim, everything else JSON.
+          const modelValue = toolExecutor.status === 'success' ? toolExecutor.toModel : toolExecutor.result;
           const content = hasError
             ? toolExecutor.error!
             : hasResult
-              ? typeof toolExecutor.result === 'string'
-                ? toolExecutor.result
-                : JSON.stringify(toolExecutor.result)
+              ? typeof modelValue === 'string'
+                ? modelValue
+                : JSON.stringify(modelValue)
               : this.synthesizeUnpairedResult(toolExecutor);
 
           yield emitMessage({
@@ -1678,6 +1754,11 @@ type ToolExecution<T> = {
   run: () => Promise<ToolExecution<T>>;
   args?: any;
   result?: any;
+  /** The value actually presented to the model for this tool's
+   *  `role: 'tool'` message. Equal to `result` unless the owning prompt's
+   *  `onToolResult` transformer changed it. Only set once the tool reaches
+   *  `success` (transforms run on success results only in v1). */
+  toModel?: any;
   error?: string;
   /** Diagnostic info from the parse-fallback when it ran a repair
    *  attempt. `fields` lists which top-level string fields were
@@ -1726,6 +1807,15 @@ function newToolExecution<T extends AnyTool>(
   // can change how tool-arg parse errors are formatted without having
   // to fork the whole prompt loop.
   truncate?: (message: string, max?: number) => string,
+  // Optional per-prompt result transformer (PromptInput.onToolResult),
+  // pre-bound by the loop to build the discriminated event (tool name,
+  // ctx, request) so this function only needs to feed it the raw result
+  // and parsed args. Runs on the SUCCESS path only, INSIDE run() before
+  // the tool is marked `success` / its output emitter is armed — so the
+  // presented value lands on `toModel` and any throw converts the slot to
+  // a normal tool error (correct events + preserved pairing). Absent ⇒
+  // `toModel` is just the raw result.
+  present?: (result: any, args: any) => unknown | Promise<unknown>,
 ) {
   const start = emitter();
   const output = emitter();
@@ -1810,6 +1900,22 @@ function newToolExecution<T extends AnyTool>(
       try {
         execution.status = 'executing';
         execution.result = await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }));
+        // Tool ran successfully. Apply the optional per-prompt result
+        // transformer BEFORE marking success / arming the output emitter,
+        // so the `toolOutput` event carries the presented `toModel` and the
+        // paired `role: 'tool'` content reflects it. A handler that THROWS
+        // is treated exactly like a tool error for this slot — the raw
+        // `result` stays on the executor (get('tools') / streamTools keep
+        // it) while the model-facing channel emits the error, preserving
+        // the tool_call ↔ role:'tool' pairing guarantee.
+        try {
+          execution.toModel = present ? await present(execution.result, execution.args) : execution.result;
+        } catch (e: any) {
+          execution.status = 'error';
+          execution.error = `Error transforming tool result: ${e.message}`;
+          error.ready = true;
+          return execution;
+        }
         execution.status = 'success';
         output.ready = true;
       } catch (e: any) {
