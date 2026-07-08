@@ -43,7 +43,7 @@ applicable(ctx?): Promise<boolean>
 metadata(input?, ctx?): TMetadata | Promise<TMetadata>
 ```
 
-`compile` returns `undefined` when the tool isn't applicable / has no schema for the context. `parse` validates the model's JSON `arguments` string against the (descriptor-strictified) schema and runs `validate`; it tolerates one provider misbehavior — top-level JSON-stringified fields are re-parsed and `onRepairAttempt` fires for telemetry.
+`compile` returns `undefined` when the tool isn't applicable / has no schema for the context. `parse` validates the model's JSON `arguments` string against the (descriptor-strictified) schema and runs `validate`; it tolerates one provider misbehavior — top-level JSON-stringified fields are re-parsed and `onRepairAttempt` fires for telemetry. When a custom `parse` is supplied (it REPLACES Zod validation), core first wire-decodes the args to the conceptual shape with the request's `FormatDescriptor` (`decodeWire` — array-of-pairs→record, null→undefined, numeric-key→tuple, …), so a custom parser is provider-agnostic and never sees a model family's wire quirks.
 
 ### Basic tool
 
