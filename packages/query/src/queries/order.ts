@@ -9,6 +9,7 @@ import type { Expr } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { Value } from '../runtime/value';
+import { obj, enumOf, exprRef, type Shape } from '../shape';
 
 /** One ORDER BY term (expr + direction + nulls placement) plus a stable sort over grouped rows. */
 export class QueryOrder {
@@ -26,6 +27,21 @@ export class QueryOrder {
   static from(def: OrderDef, registry: Registry): QueryOrder {
     return new QueryOrder(registry.parseExpr(def.expr), def.dir, def.nulls);
   }
+
+  /**
+   * Owned structural {@link Shape} for an `OrderDef` (`{ expr, dir, nulls? }`) —
+   * the zod-free parallel to {@link from}. Never throws; accumulates. See
+   * `shape/`.
+   */
+  static readonly SHAPE: Shape<QueryOrder> = obj(
+    {
+      expr: exprRef(),
+      dir: enumOf(['asc', 'desc'] as const, 'OrderDir'),
+      nulls: enumOf(['first', 'last'] as const, 'OrderNulls'),
+    },
+    (v) => new QueryOrder(v.expr, v.dir, v.nulls),
+    { optional: ['nulls'], aid: 'Order' },
+  );
 
   /** Serialize back to an `OrderDef`, omitting `nulls` when unset. */
   toJSON(): OrderDef {

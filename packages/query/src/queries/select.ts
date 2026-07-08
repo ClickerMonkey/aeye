@@ -41,6 +41,8 @@ import { QuerySource } from './source';
 import { QueryJoin } from './join';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { QueryOrder, sortEntries, sortByKeys, type OrderEntry } from './order';
+import { obj, lit, bool, list, exprRef, sourceRef } from '../shape';
+import { selectFieldShape, boundShape } from './_shape';
 import { type Cost, addCost } from '../cost';
 import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost } from './_cost';
 import { canonicalize } from '../expr';
@@ -127,6 +129,46 @@ export class SelectQuery extends Query {
       json.offset,
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `SelectQuery` equal to `from`'s output on a valid def; on a bad def it
+   * accumulates every clause's problems in one pass (never throws). Cross-clause
+   * SEMANTIC rules (source duplicates, aggregate placement, …) remain in
+   * `validateWalk`; this shape covers STRUCTURE only. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('select'),
+      distinct: bool('Distinct'),
+      fields: list(selectFieldShape()),
+      from: sourceRef(),
+      joins: list(QueryJoin.SHAPE),
+      where: list(exprRef()),
+      groupBy: list(exprRef()),
+      having: list(exprRef()),
+      order: list(QueryOrder.SHAPE),
+      limit: boundShape(),
+      offset: boundShape(),
+    },
+    (v) =>
+      new SelectQuery(
+        v.distinct ?? false,
+        v.fields,
+        v.from,
+        v.joins ?? [],
+        v.where ?? [],
+        v.groupBy ?? [],
+        v.having ?? [],
+        v.order ?? [],
+        v.limit,
+        v.offset,
+      ),
+    {
+      optional: ['distinct', 'joins', 'where', 'groupBy', 'having', 'order', 'limit', 'offset'],
+      aid: 'Query_select',
+    },
+  );
 
   // ─── Naming / resolution ─────────────────────────────────────────────────
 

@@ -26,6 +26,8 @@ import { QueryJoin } from './join';
 import { checkBoolCondition } from './_condition';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { deleteRecord } from './_type';
+import { obj, lit, str, list, exprRef } from '../shape';
+import { selectFieldShape } from './_shape';
 import type { Cost } from '../cost';
 import { scanCost, applyWhere } from './_cost';
 import type { Dialect } from '../sql/dialect';
@@ -79,6 +81,24 @@ export class DeleteQuery extends Query {
       (json.returning ?? []).map((c) => ({ expr: registry.parseExpr(c.expr), as: c.as })),
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `DeleteQuery` equal to `from`'s output on a valid def; accumulates every
+   * problem in one pass (never throws). The write-model / field checks remain in
+   * `validateWalk`; this shape covers STRUCTURE only. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('delete'),
+      from: str('TypeName'),
+      joins: list(QueryJoin.SHAPE),
+      where: list(exprRef()),
+      returning: list(selectFieldShape()),
+    },
+    (v) => new DeleteQuery(v.from, v.joins ?? [], v.where ?? [], v.returning ?? []),
+    { optional: ['joins', 'where', 'returning'], aid: 'Query_delete' },
+  );
 
   /** The target is referenced by its TYPE NAME (no aliasing on DML targets). */
   private get alias(): string {

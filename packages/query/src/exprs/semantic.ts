@@ -30,6 +30,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
+import { obj, lit, str, isRecord, expected, INVALID, type Shape } from '../shape';
 import { numberResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { ParamExpr } from './param';
@@ -147,6 +148,45 @@ function parseQuery(def: SemanticQueryDef, registry: Registry): SemanticQuery {
   return { kind: 'typeField', type: def.type, field: def.field };
 }
 
+/** Owned {@link Shape} for the `{ source, field }` pairing query form. */
+const SEMANTIC_SOURCE_FIELD_SHAPE: Shape<SemanticQuery> = obj(
+  { source: str('SourceName'), field: str('FieldName') },
+  (v): SemanticQuery => ({ kind: 'sourceField', source: v.source, field: v.field }),
+  { aid: 'SemanticQuery' },
+);
+
+/** Owned {@link Shape} for the `{ type, field }` pairing query form. */
+const SEMANTIC_TYPE_FIELD_SHAPE: Shape<SemanticQuery> = obj(
+  { type: str('TypeName'), field: str('FieldName') },
+  (v): SemanticQuery => ({ kind: 'typeField', type: v.type, field: v.field }),
+  { aid: 'SemanticQuery' },
+);
+
+/**
+ * Owned structural {@link Shape} for a `SemanticQueryDef` — the zod-free
+ * parallel to {@link parseQuery}. Dispatches over the four authored forms: a
+ * literal `string` → `text`; a `{ kind:'param' }` def → a `ParamExpr` (validated
+ * through `parseCheckedExpr`); a `{ source, field }` → the source pairing form;
+ * a `{ type, field }` → the type pairing form. Anything else records an
+ * aid-directed `shape.type`. Never throws; accumulates. See `shape/`.
+ */
+const semanticQueryShape: Shape<SemanticQuery> = {
+  check(json, ctx) {
+    if (typeof json === 'string') return { kind: 'text', text: json };
+    if (isRecord(json)) {
+      if (json['kind'] === 'param') {
+        const built = ctx.registry.parseCheckedExpr(json, ctx.problems);
+        if (built instanceof ParamExpr) return { kind: 'param', param: built };
+        return INVALID;
+      }
+      if ('source' in json) return SEMANTIC_SOURCE_FIELD_SHAPE.check(json, ctx);
+      if ('type' in json) return SEMANTIC_TYPE_FIELD_SHAPE.check(json, ctx);
+    }
+    ctx.problems.error('shape.type', expected('SemanticQuery', json));
+    return INVALID;
+  },
+};
+
 /** Serialize a `SemanticQuery` back to its `SemanticQueryDef`. */
 function queryToJSON(q: SemanticQuery): SemanticQueryDef {
   switch (q.kind) {
@@ -187,6 +227,23 @@ export class SemanticExpr extends Expr {
     }
     return new SemanticExpr(json.source, json.field, parseQuery(json.query, registry));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `SemanticExpr` equal to `from`'s output on a valid def (`query` dispatched by
+   * {@link semanticQueryShape}). Accumulates on a bad def (never throws). The
+   * semantic-eligibility checks remain in `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('semantic'),
+      source: str('SourceName'),
+      field: str('FieldName'),
+      query: semanticQueryShape,
+    },
+    (v) => new SemanticExpr(v.source, v.field, v.query),
+    { optional: ['field'], aid: 'Expr_semantic' },
+  );
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

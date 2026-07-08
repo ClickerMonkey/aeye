@@ -31,6 +31,7 @@ import {
   parseNamedArgs,
   namedArgsToJSON,
 } from '../exprs/_function-args';
+import { obj, lit, str, record, exprRef, queryRef, type Shape } from '../shape';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -75,6 +76,58 @@ export class QuerySource {
         return assertNeverSource(def);
     }
   }
+
+  /**
+   * Owned structural {@link Shape}s, keyed by SOURCE `kind` — the zod-free
+   * parallel to {@link from}, dispatched by `registry.parseCheckedSource`. Each
+   * builds the exact same `QuerySource` `from` would (collapsing the four
+   * authored shapes into the two runtime kinds), accumulating problems and never
+   * throwing. See `shape/`.
+   *
+   *  - `type`     — a registered Type / CTE read under its own name;
+   *  - `aliased`  — a Type read under a custom `as` (self-join / collision break);
+   *  - `subquery` — a derived source over a parsed sub-`query` (via `queryRef`);
+   *  - `function` — a tabular-function source (`function` + named `args`).
+   */
+  static readonly SHAPES: ReadonlyMap<string, Shape<QuerySource>> = new Map<string, Shape<QuerySource>>([
+    [
+      'type',
+      obj(
+        { kind: lit('type'), type: str('TypeName') },
+        (v) => new QuerySource('type', v.type, v.type, undefined),
+        { aid: 'Source_type' },
+      ),
+    ],
+    [
+      'aliased',
+      obj(
+        { kind: lit('aliased'), type: str('TypeName'), as: str('SourceName') },
+        (v) => new QuerySource('type', v.as, v.type, undefined),
+        { aid: 'Source_aliased' },
+      ),
+    ],
+    [
+      'subquery',
+      obj(
+        { kind: lit('subquery'), as: str('SourceName'), query: queryRef() },
+        (v) => new QuerySource('subquery', v.as, undefined, v.query),
+        { aid: 'Source_subquery' },
+      ),
+    ],
+    [
+      'function',
+      obj(
+        {
+          kind: lit('function'),
+          function: str('FunctionName'),
+          args: record(exprRef(), 'FunctionArgs'),
+          as: str('SourceName'),
+        },
+        (v) => new QuerySource('function', v.as, undefined, undefined, new TabularFunctionCallExpr(v.function, v.args)),
+        { aid: 'Source_function' },
+      ),
+    ],
+  ]);
 
   /** Resolve the type this source binds (its alias → typed type). */
   resolvedType(engine: QueryEngine, scope: QueryScope): TypeResolved {

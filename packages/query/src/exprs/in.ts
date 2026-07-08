@@ -19,7 +19,7 @@ import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL } from './_shared';
 import { withAid } from '../aids';
-import { obj, lit, bool, exprRef, list, isRecord, INVALID, type Shape } from '../shape';
+import { obj, lit, bool, exprRef, list, queryDefRef, isRecord, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -65,25 +65,17 @@ export class InExpr extends BoolExpr {
   }
 
   /**
-   * Owned structural {@link Shape} — the zod-free parallel parser. Migrates the
-   * LIST form only: it dispatches on `in`, building a list `InExpr` equal to
-   * `from`'s output for a value list. The SUBQUERY form (`in` is a QueryDef
-   * object) is DEFERRED to C3 — it needs a `queryRef` the shape layer does not
-   * have yet — and is recorded as a documented `shape.todo` problem so the list
-   * form keeps working today. Never throws; accumulates. See `shape/`.
+   * Owned structural {@link Shape} — the zod-free parallel parser. Dispatches on
+   * the `in` field: an ARRAY builds the value-list form; a (non-array) OBJECT is
+   * a `QueryDef`, building the SUBQUERY form via `queryDefRef` (structurally
+   * validating the sub-query, accumulating its problems, keeping its def). Equal
+   * to `from`'s output on a valid def. Never throws; accumulates. See `shape/`.
    */
   static readonly SHAPE: Shape<InExpr> = {
     check(json, ctx) {
-      // Subquery form: `in` is a (non-array) object ⇒ a `QueryDef`. C3 wires the
-      // `queryRef` needed to build it structurally; for now flag + bail.
+      // Subquery form: `in` is a (non-array) object ⇒ a `QueryDef`.
       if (isRecord(json) && isRecord(json['in'])) {
-        ctx.problems.at('in', () =>
-          ctx.problems.error(
-            'shape.todo',
-            'the IN-subquery form is not yet supported by the structural parser (deferred to C3).',
-          ),
-        );
-        return INVALID;
+        return InExpr.SHAPE_SUBQUERY.check(json, ctx);
       }
       return InExpr.SHAPE_LIST.check(json, ctx);
     },
@@ -98,6 +90,18 @@ export class InExpr extends BoolExpr {
       not: bool('Not'),
     },
     (v) => new InExpr(v.value, v.in, undefined, v.not ?? false),
+    { optional: ['not'], aid: 'Expr_in' },
+  );
+
+  /** The SUBQUERY-form object shape dispatched to by {@link SHAPE}. */
+  private static readonly SHAPE_SUBQUERY = obj(
+    {
+      kind: lit('in'),
+      value: exprRef(),
+      in: queryDefRef(),
+      not: bool('Not'),
+    },
+    (v) => new InExpr(v.value, undefined, v.in, v.not ?? false),
     { optional: ['not'], aid: 'Expr_in' },
   );
 

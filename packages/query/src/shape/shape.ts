@@ -49,7 +49,9 @@
 import type { Problems } from '../problem';
 import type { Registry } from '../registry';
 import type { Expr } from '../expr';
-import type { ScalarValue } from '../schema';
+import type { ScalarValue, QueryDef } from '../schema';
+import type { Query } from '../queries/query';
+import type { QuerySource } from '../queries/source';
 import { aidInfo, describeInput, didYouMean } from '../aids';
 
 /** Sentinel returned by a {@link Shape} whose input failed to validate. */
@@ -257,6 +259,49 @@ export function exprRef(): Shape<Expr> {
   return {
     check(json, ctx) {
       const built = ctx.registry.parseCheckedExpr(json, ctx.problems);
+      return built === undefined ? INVALID : built;
+    },
+  };
+}
+
+/**
+ * A child-QUERY slot yielding a parsed {@link Query}: defensively dispatched via
+ * `registry.parseCheckedQuery`. Used by the set-operation arms, CTE bindings,
+ * subquery sources, and `INSERT … SELECT` — every position that holds a fully
+ * PARSED sub-query. Records the sub-query's problems (accumulating) and returns
+ * the built `Query` or {@link INVALID}.
+ */
+export function queryRef(): Shape<Query> {
+  return {
+    check(json, ctx) {
+      const built = ctx.registry.parseCheckedQuery(json, ctx.problems);
+      return built === undefined ? INVALID : built;
+    },
+  };
+}
+
+/**
+ * A child-QUERY slot kept as a raw {@link QueryDef} (not a parsed `Query`). The
+ * value-position subquery exprs (`subquery` / `exists` / the `in`-subquery form)
+ * store the query's JSON def and re-parse it lazily at eval / emit time, so this
+ * still validates the sub-query STRUCTURALLY through `parseCheckedQuery` (so its
+ * problems accumulate) but returns its normalized `toJSON()` def rather than the
+ * built instance. {@link INVALID} when the sub-query failed to parse.
+ */
+export function queryDefRef(): Shape<QueryDef> {
+  return {
+    check(json, ctx) {
+      const built = ctx.registry.parseCheckedQuery(json, ctx.problems);
+      return built === undefined ? INVALID : built.toJSON();
+    },
+  };
+}
+
+/** A child-SOURCE slot: defensively dispatched via `registry.parseCheckedSource`. */
+export function sourceRef(): Shape<QuerySource> {
+  return {
+    check(json, ctx) {
+      const built = ctx.registry.parseCheckedSource(json, ctx.problems);
       return built === undefined ? INVALID : built;
     },
   };

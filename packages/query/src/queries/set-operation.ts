@@ -23,6 +23,8 @@ import { NumberFieldType } from '../field-types/index';
 import type { ParamSet } from '../param';
 import { Query, type QueryClass, type QueryField, type QueryResult, makeResult, syntheticType } from './query';
 import { QueryOrder, sortEntries, type OrderEntry } from './order';
+import { obj, lit, bool, list, queryRef, type Shape } from '../shape';
+import { boundShape } from './_shape';
 import { type Cost, addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -71,6 +73,36 @@ export class SetOperationQuery extends Query {
       json.offset,
     );
   }
+
+  /**
+   * Build the owned structural {@link Shape} for one set-operation `kind` — the
+   * zod-free parallel to {@link from}. The three kinds (`union` / `intersect` /
+   * `except`) register separately (they share the class but pin distinct `kind`
+   * discriminants), so each gets its own `lit(kind)`-anchored shape. Never
+   * throws; accumulates. See `shape/`.
+   */
+  private static shapeFor(kind: SetKind): Shape<SetOperationQuery> {
+    return obj(
+      {
+        kind: lit(kind),
+        left: queryRef(),
+        right: queryRef(),
+        all: bool('All'),
+        order: list(QueryOrder.SHAPE),
+        limit: boundShape(),
+        offset: boundShape(),
+      },
+      (v) => new SetOperationQuery(kind, v.left, v.right, v.all ?? false, v.order ?? [], v.limit, v.offset),
+      { optional: ['all', 'order', 'limit', 'offset'], aid: 'Query_set-operation' },
+    );
+  }
+
+  /** Owned {@link Shape} for the `union` kind (see {@link shapeFor}). */
+  static readonly SHAPE_UNION = SetOperationQuery.shapeFor('union');
+  /** Owned {@link Shape} for the `intersect` kind. */
+  static readonly SHAPE_INTERSECT = SetOperationQuery.shapeFor('intersect');
+  /** Owned {@link Shape} for the `except` kind. */
+  static readonly SHAPE_EXCEPT = SetOperationQuery.shapeFor('except');
 
   /** The set's output fields — taken from the left arm. */
   outputFields(engine: QueryEngine, scope: QueryScope): QueryField[] {

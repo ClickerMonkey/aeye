@@ -10,6 +10,7 @@ import type { Problems } from '../problem';
 import type { Expr, ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import { Query, type QueryClass, type QueryField, type QueryResult, makeField, makeResult } from './query';
+import { obj, lit, exprRef } from '../shape';
 import { type Cost, bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -31,6 +32,17 @@ export class ExprQuery extends Query {
     if (json.kind !== 'expr') throw new Error(`ExprQuery.from: expected 'expr', got '${json.kind}'`);
     return new ExprQuery(registry.parseExpr(json.expr));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `ExprQuery` equal to `from`'s output on a valid def; accumulates the wrapped
+   * expr's problems (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    { kind: lit('expr'), expr: exprRef() },
+    (v) => new ExprQuery(v.expr),
+    { aid: 'Query_expr' },
+  );
 
   /** The single output field `value` (the expression's resolved type). */
   outputFields(engine: QueryEngine, scope: QueryScope): QueryField[] {

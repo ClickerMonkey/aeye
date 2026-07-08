@@ -51,7 +51,7 @@ export const BUILTIN_QUERIES: readonly QueryClass[] = [
   DeleteQuery,
   ExprQuery,
   CTEStatementQuery,
-  { KIND: 'union', from: SetOperationQuery.from },
-  { KIND: 'intersect', from: SetOperationQuery.from },
-  { KIND: 'except', from: SetOperationQuery.from },
+  { KIND: 'union', from: SetOperationQuery.from, SHAPE: SetOperationQuery.SHAPE_UNION },
+  { KIND: 'intersect', from: SetOperationQuery.from, SHAPE: SetOperationQuery.SHAPE_INTERSECT },
+  { KIND: 'except', from: SetOperationQuery.from, SHAPE: SetOperationQuery.SHAPE_EXCEPT },
 ];

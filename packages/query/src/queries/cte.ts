@@ -23,6 +23,7 @@ import type { ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import { recordSignature } from '../runtime/record';
 import { Query, type QueryClass, type QueryField, type QueryResult, syntheticType } from './query';
+import { obj, lit, str, list, queryRef, isRecord, type Shape } from '../shape';
 import type { Cost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -161,6 +162,34 @@ function parseEntry(def: CTEDef | CTERecursiveDef, registry: Registry): CteEntry
   return new CTEEntryImpl(def.name, registry.parseQuery(def.query));
 }
 
+/** Owned {@link Shape} for a plain CTE binding (`{ name, query }`). */
+const PLAIN_ENTRY_SHAPE: Shape<CteEntry> = obj(
+  { name: str('FieldName'), query: queryRef() },
+  (v) => new CTEEntryImpl(v.name, v.query),
+  { aid: 'CTEEntry' },
+);
+
+/** Owned {@link Shape} for a recursive CTE binding (`{ name, base, recursive }`). */
+const RECURSIVE_ENTRY_SHAPE: Shape<CteEntry> = obj(
+  { name: str('FieldName'), base: queryRef(), recursive: queryRef() },
+  (v) => new CTERecursiveEntryImpl(v.name, v.base, v.recursive),
+  { aid: 'CTEEntry' },
+);
+
+/**
+ * Owned {@link Shape} for a CTE entry — STRUCTURALLY discriminated exactly as
+ * {@link parseEntry}: a `base` + `recursive` pair is the recursive form, else
+ * the plain `{ name, query }` form. Never throws; accumulates. See `shape/`.
+ */
+const cteEntryShape: Shape<CteEntry> = {
+  check(json, ctx) {
+    if (isRecord(json) && 'base' in json && 'recursive' in json) {
+      return RECURSIVE_ENTRY_SHAPE.check(json, ctx);
+    }
+    return PLAIN_ENTRY_SHAPE.check(json, ctx);
+  },
+};
+
 /** A `WITH … AS (…) <final>` statement: ordered (possibly recursive) CTE entries plus the final query that consumes them. */
 export class CTEStatementQuery extends Query {
   /** The Registry dispatch discriminant for this query kind. */
@@ -183,6 +212,21 @@ export class CTEStatementQuery extends Query {
     const ctes = json.ctes.map((c) => parseEntry(c, registry));
     return new CTEStatementQuery(ctes, registry.parseQuery(json.final));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `CTEStatementQuery` equal to `from`'s output on a valid def; accumulates
+   * every problem in one pass (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('cte'),
+      ctes: list(cteEntryShape),
+      final: queryRef(),
+    },
+    (v) => new CTEStatementQuery(v.ctes, v.final),
+    { aid: 'Query_cte' },
+  );
 
   /** Bind each CTE name as a synthetic type so downstream refs type-check. */
   private bind(engine: QueryEngine, scope: QueryScope): QueryScope {

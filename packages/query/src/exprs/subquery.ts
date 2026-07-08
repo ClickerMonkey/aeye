@@ -15,6 +15,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { childQuerySchema, emitSubquerySQL } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, queryDefRef } from '../shape';
 import { inferSubqueryOutput } from './_subquery';
 import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
@@ -43,6 +44,18 @@ export class SubqueryExpr extends Expr {
     }
     return new SubqueryExpr(json.query);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Structurally
+   * validates the inner `query` through `parseCheckedQuery` (accumulating its
+   * problems) and keeps its normalized def, building a `SubqueryExpr` equal to
+   * `from`'s output on a valid def. Never throws. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    { kind: lit('subquery'), query: queryDefRef() },
+    (v) => new SubqueryExpr(v.query),
+    { aid: 'Expr_subquery' },
+  );
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

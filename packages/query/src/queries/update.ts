@@ -27,6 +27,8 @@ import { QueryJoin } from './join';
 import { checkBoolCondition } from './_condition';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { updateRecord } from './_type';
+import { obj, lit, str, list, exprRef } from '../shape';
+import { selectFieldShape, fieldValueShape } from './_shape';
 import type { Cost } from '../cost';
 import { scanCost, applyWhere } from './_cost';
 import type { Dialect } from '../sql/dialect';
@@ -87,6 +89,25 @@ export class UpdateQuery extends Query {
       (json.returning ?? []).map((c) => ({ expr: registry.parseExpr(c.expr), as: c.as })),
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `UpdateQuery` equal to `from`'s output on a valid def; accumulates every
+   * problem in one pass (never throws). The write-model / field checks remain in
+   * `validateWalk`; this shape covers STRUCTURE only. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('update'),
+      type: str('TypeName'),
+      set: list(fieldValueShape()),
+      joins: list(QueryJoin.SHAPE),
+      where: list(exprRef()),
+      returning: list(selectFieldShape()),
+    },
+    (v) => new UpdateQuery(v.type, v.set, v.joins ?? [], v.where ?? [], v.returning ?? []),
+    { optional: ['joins', 'where', 'returning'], aid: 'Query_update' },
+  );
 
   /** The target is referenced by its TYPE NAME (no aliasing on DML targets). */
   private get alias(): string {

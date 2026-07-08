@@ -121,7 +121,21 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   OrderNulls: { label: 'a null ordering (first or last)' },
   JoinType: { label: 'a join type (inner, left, right, or full)' },
   SetOpKind: { label: 'a set operation (union, intersect, or except)' },
-  Join: { label: 'a JOIN clause' },
+  Join: { label: 'a JOIN clause, an object of { on: { source, field } }' },
+
+  // ── Query / source building blocks (owned structural parser) ──────────────
+  SourceName: { label: 'a bound source name' },
+  SelectField: { label: 'a select field, an object of { expr, as? }' },
+  FieldValue: { label: 'a field assignment, an object of { field, value }' },
+  OnConflict: { label: 'an ON CONFLICT clause, an object of { fields, doNothing?, update? }' },
+  CTEEntry: { label: 'a CTE binding, an object of { name, query } or { name, base, recursive }' },
+  All: { label: 'a boolean `all` flag' },
+  DoNothing: { label: 'a boolean `doNothing` flag' },
+  SemanticQuery: { label: 'a semantic query: a string, a param, or a { source | type, field } reference' },
+  Source_type: { label: 'a Type source { kind: "type", type }' },
+  Source_aliased: { label: 'an aliased Type source { kind: "aliased", type, as }' },
+  Source_subquery: { label: 'a subquery source { kind: "subquery", query, as }' },
+  Source_function: { label: 'a table-function source { kind: "function", function, args, as }' },
 
   // ── Expr kinds (surface only when a kind-pinned position gets a non-object) ─
   Expr_comparison: { label: 'a comparison' },

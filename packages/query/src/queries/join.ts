@@ -36,6 +36,7 @@ import { resolveRelationOnRun } from '../backing';
 import { RelationFieldType } from '../field-types/index';
 import { Value } from '../runtime/value';
 import type { SourceRecord } from '../runtime/row';
+import { obj, str, enumOf, exprRef, type Shape } from '../shape';
 
 /** One materialized relation hop in a join. */
 export interface JoinHop {
@@ -94,6 +95,28 @@ export class QueryJoin {
     const and = def.and ? registry.parseExpr(def.and) : undefined;
     return new QueryJoin({ source: def.on.source, field: def.on.field }, def.as, and, def.joinType ?? 'left');
   }
+
+  /**
+   * Owned structural {@link Shape} for a `JoinDef` (`{ on:{source,field}, as?,
+   * and?, joinType? }`) — the zod-free parallel to {@link from}. The synthesized
+   * ON key is never authored, so only the relation reference (`on`), the alias
+   * override (`as`), the extra predicate (`and`), and the join type are shaped.
+   * Never throws; accumulates. See `shape/`.
+   */
+  static readonly SHAPE: Shape<QueryJoin> = obj(
+    {
+      on: obj(
+        { source: str('SourceName'), field: str('FieldName') },
+        (v) => ({ source: v.source, field: v.field }),
+        { aid: 'Join' },
+      ),
+      as: str('SourceName'),
+      and: exprRef(),
+      joinType: enumOf(['inner', 'left', 'right', 'full'] as const, 'JoinType'),
+    },
+    (v) => new QueryJoin(v.on, v.as, v.and, v.joinType ?? 'left'),
+    { optional: ['as', 'and', 'joinType'], aid: 'Join' },
+  );
 
   /** A short readable form of the hop (e.g. `'user.orders'`). */
   get label(): string {

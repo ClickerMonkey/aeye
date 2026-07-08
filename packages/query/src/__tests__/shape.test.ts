@@ -593,13 +593,21 @@ describe('shape — C2 malformations + accumulation', () => {
     expect(problems.list[0]?.message).toContain('an arithmetic operator');
   });
 
-  it('in: the SUBQUERY form is a documented shape.todo (deferred to C3)', () => {
+  it('in: the SUBQUERY form now dispatches through queryDefRef (C3)', () => {
     const { problems } = mk();
-    expect(
-      InExpr.SHAPE.check({ kind: 'in', value: lit1(1), in: { kind: 'select', from: [] } }, { problems, registry }),
-    ).toBe(INVALID);
-    expect(problems.list[0]?.code).toBe('shape.todo');
-    expect(problems.list[0]?.path).toEqual(['in']);
+    const built = InExpr.SHAPE.check(
+      {
+        kind: 'in',
+        value: fieldRef('u', 'id'),
+        in: { kind: 'select', fields: [{ expr: fieldRef('o', 'userId') }], from: { kind: 'type', type: 'order' } },
+      },
+      { problems, registry },
+    );
+    expect(built).not.toBe(INVALID);
+    expect(problems.hasErrors).toBe(false);
+    // The built expr is the subquery form (no list; carries a query def).
+    expect(built === INVALID ? null : built.subquery).toBeDefined();
+    expect(built === INVALID ? null : built.list).toBeUndefined();
   });
 
   it('in: a bad list element is localized at its index', () => {

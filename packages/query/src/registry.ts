@@ -22,6 +22,7 @@ import { Expr, type ExprClass } from './expr';
 import { INVALID, isRecord, type Shape } from './shape';
 import { aidInfo, describeInput, didYouMean } from './aids';
 import type { Query, QueryClass } from './queries/query';
+import { QuerySource } from './queries/source';
 import type { FunctionRun } from './runtime/functions';
 import type { Dialect } from './sql/dialect';
 import type { TypeBacking, DefaultCondition } from './backing';
@@ -394,6 +395,84 @@ export class Registry {
       throw new Error(`registry.parseQuery: unknown query kind '${json.kind}'`);
     }
     return cls.from(json, this);
+  }
+
+  /** The `kind → Shape<Query>` map, built from every Query class that owns a `SHAPE`. */
+  private checkedQueryShapes(): Map<string, Shape<Query>> {
+    const map = new Map<string, Shape<Query>>();
+    for (const cls of this.queryClasses.values()) {
+      if (cls.SHAPE) map.set(cls.KIND, cls.SHAPE);
+    }
+    return map;
+  }
+
+  /**
+   * DEFENSIVE structural dispatch for a QUERY — the zod-free parallel to
+   * {@link parseQuery}, mirroring {@link parseCheckedExpr}. NEVER throws on bad
+   * input: it records one-or-more problems into `problems` (at its current path)
+   * and returns the built `Query` or `undefined`. Children recurse via each
+   * class's owned `SHAPE` (see `shape/`), accumulating every structural problem
+   * in a single pass. Only query kinds that declare a `static SHAPE` participate.
+   */
+  parseCheckedQuery(json: unknown, problems: Problems): Query | undefined {
+    if (!isRecord(json)) {
+      const got = describeInput(json);
+      problems.error(
+        'shape.not-object',
+        `expected ${aidInfo('Query').label}${got !== undefined ? `, got ${got}` : ''}`,
+      );
+      return undefined;
+    }
+    const kind = json['kind'];
+    if (typeof kind !== 'string') {
+      problems.error('shape.missing-kind', `expected ${aidInfo('Query').label} with a string \`kind\` discriminant`);
+      return undefined;
+    }
+    const shapes = this.checkedQueryShapes();
+    const shape = shapes.get(kind);
+    if (!shape) {
+      const kinds = Array.from(shapes.keys());
+      problems.error(
+        'shape.unknown-kind',
+        `unknown query kind \`${kind}\`${didYouMean(kind, kinds)} (available: ${kinds.join(', ')})`,
+      );
+      return undefined;
+    }
+    const built = shape.check(json, { problems, registry: this });
+    return built === INVALID ? undefined : built;
+  }
+
+  /**
+   * DEFENSIVE structural dispatch for a query SOURCE (the FROM / subquery /
+   * function source shapes) — the zod-free parallel to `QuerySource.from`.
+   * NEVER throws: records problems and returns the built `QuerySource` or
+   * `undefined`. Dispatches on the source `kind` over `QuerySource.SHAPES`.
+   */
+  parseCheckedSource(json: unknown, problems: Problems): QuerySource | undefined {
+    if (!isRecord(json)) {
+      const got = describeInput(json);
+      problems.error(
+        'shape.not-object',
+        `expected ${aidInfo('Source').label}${got !== undefined ? `, got ${got}` : ''}`,
+      );
+      return undefined;
+    }
+    const kind = json['kind'];
+    if (typeof kind !== 'string') {
+      problems.error('shape.missing-kind', `expected ${aidInfo('Source').label} with a string \`kind\` discriminant`);
+      return undefined;
+    }
+    const shape = QuerySource.SHAPES.get(kind);
+    if (!shape) {
+      const kinds = Array.from(QuerySource.SHAPES.keys());
+      problems.error(
+        'shape.unknown-kind',
+        `unknown source kind \`${kind}\`${didYouMean(kind, kinds)} (available: ${kinds.join(', ')})`,
+      );
+      return undefined;
+    }
+    const built = shape.check(json, { problems, registry: this });
+    return built === INVALID ? undefined : built;
   }
 }
 

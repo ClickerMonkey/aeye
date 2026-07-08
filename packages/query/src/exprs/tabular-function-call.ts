@@ -17,6 +17,7 @@ import { functionExprSchema } from '../schema-build';
 import { Type } from '../type';
 import { childExprSchema } from './_shared';
 import { withAid, didYouMean } from '../aids';
+import { obj, lit, str, record, exprRef } from '../shape';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -59,6 +60,22 @@ export class TabularFunctionCallExpr extends Expr {
     }
     return new TabularFunctionCallExpr(json.function, parseNamedArgs(json.args, registry));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `TabularFunctionCallExpr` equal to `from`'s output on a valid def (`args` a
+   * named record); accumulates every bad arg in one pass (never throws). The
+   * function existence / shape checks remain in `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('tabular-function-call'),
+      function: str('FunctionName'),
+      args: record(exprRef(), 'FunctionArgs'),
+    },
+    (v) => new TabularFunctionCallExpr(v.function, v.args),
+    { aid: 'Expr_tabular-function-call' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (named-arg map), layered by `functionExprSchema`. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

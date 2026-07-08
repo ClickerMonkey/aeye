@@ -21,6 +21,7 @@ import type { ScalarKind } from '../field-type';
 import type { Cost } from '../cost';
 import type { ValidateContext } from '../expr';
 import { ROOT_VALIDATE_CONTEXT } from '../expr';
+import type { Shape } from '../shape';
 import { Problems } from '../problem';
 import type { ParamSet } from '../param';
 import type { RuntimeContext } from '../runtime/context';
@@ -103,6 +104,12 @@ export interface QueryClass {
   readonly KIND: QueryKind;
   /** Parse a matching `QueryDef` into a concrete `Query` instance. */
   from(json: QueryDef, registry: Registry): Query;
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel to `from` (never
+   * throws, accumulates problems). Present only on the migrated kinds; the
+   * foundation of the eventual replacement for the zod structural gate.
+   */
+  readonly SHAPE?: Shape<Query>;
 }
 
 /** Abstract base for every query KIND (select / insert / update / delete / set-operation / cte / expr). */

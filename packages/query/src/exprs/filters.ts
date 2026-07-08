@@ -28,6 +28,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
+import { obj, lit, str, list } from '../shape';
 import { boolResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import type { RuntimeContext } from '../runtime/context';
@@ -58,6 +59,22 @@ export class FiltersExpr extends BoolExpr {
     }
     return new FiltersExpr(json.source, json.fields ? [...json.fields] : undefined);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `FiltersExpr` equal to `from`'s output on a valid def (`{ source, fields? }`);
+   * accumulates on a bad def (never throws). The predicate itself is supplied at
+   * execution time — never authored here. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('filters'),
+      source: str('SourceName'),
+      fields: list(str('FieldName')),
+    },
+    (v) => new FiltersExpr(v.source, v.fields),
+    { optional: ['fields'], aid: 'Expr_filters' },
+  );
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

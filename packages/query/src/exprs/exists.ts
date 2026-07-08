@@ -14,6 +14,7 @@ import type { Problems } from '../problem';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult, childQuerySchema, emitSubquerySQL } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, bool, queryDefRef } from '../shape';
 import { inferSubqueryOutput } from './_subquery';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -43,6 +44,18 @@ export class ExistsExpr extends BoolExpr {
     }
     return new ExistsExpr(json.query, json.not ?? false);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Structurally
+   * validates the inner `query` (accumulating its problems) and keeps its
+   * normalized def, building an `ExistsExpr` equal to `from`'s output on a valid
+   * def. Never throws. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    { kind: lit('exists'), query: queryDefRef(), not: bool('Not') },
+    (v) => new ExistsExpr(v.query, v.not ?? false),
+    { optional: ['not'], aid: 'Expr_exists' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (uses a child Query slot for the subquery). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

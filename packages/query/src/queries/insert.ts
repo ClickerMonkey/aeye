@@ -29,6 +29,8 @@ import {
   makeResult,
 } from './query';
 import { insertRecord, updateRecord } from './_type';
+import { obj, lit, str, bool, list, exprRef, queryRef } from '../shape';
+import { selectFieldShape, fieldValueShape } from './_shape';
 import { requiredOnInsert } from '../write-model';
 import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
@@ -94,6 +96,34 @@ export class InsertQuery extends Query {
       : undefined;
     return new InsertQuery(json.into, [...json.fields], values, select, returning, onConflict);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `InsertQuery` equal to `from`'s output on a valid def; accumulates every
+   * problem in one pass (never throws). The VALUES-arity / write-model checks
+   * remain in `validateWalk`; this shape covers STRUCTURE only. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('insert'),
+      into: str('TypeName'),
+      fields: list(str('FieldName')),
+      values: list(list(exprRef())),
+      select: queryRef(),
+      returning: list(selectFieldShape()),
+      onConflict: obj(
+        {
+          fields: list(str('FieldName')),
+          doNothing: bool('DoNothing'),
+          update: list(fieldValueShape()),
+        },
+        (v) => ({ fields: v.fields, doNothing: v.doNothing ?? false, update: v.update ?? [] }),
+        { optional: ['doNothing', 'update'], aid: 'OnConflict' },
+      ),
+    },
+    (v) => new InsertQuery(v.into, v.fields, v.values, v.select, v.returning ?? [], v.onConflict),
+    { optional: ['values', 'select', 'returning', 'onConflict'], aid: 'Query_insert' },
+  );
 
   /** The target is referenced by its TYPE NAME (no aliasing on DML targets). */
   private get alias(): string {
