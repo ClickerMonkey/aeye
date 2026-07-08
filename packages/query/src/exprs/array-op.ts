@@ -125,7 +125,16 @@ export class ArrayOpExpr extends BoolExpr {
         op: withAid(z.enum(['contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty']), 'ArrayOp').describe(
           'Array predicate: element membership / overlap / emptiness.',
         ),
-        target: child.describe('The array-valued expression to test.'),
+        // The target is the recursive `Expr` union (`opts.Expr` is a shared
+        // `z.lazy`). Use it DIRECTLY — never `.describe()` it here. `.describe()`
+        // CLONES the lazy into a fresh, aid-less wrapper whose new identity
+        // defeats BOTH of the converter's recursion cache keys (instance identity
+        // AND the lazy's `aid`), so `toJSONSchema` re-evaluates the getter on every
+        // encounter and recurses until the stack overflows. (The description is
+        // dropped at a recursive `$ref` position anyway, which is why every other
+        // expr class threads `childExprSchema(opts.Expr)` in bare — see #array-op
+        // overflow.) The wrapping object's own `.describe` still documents the kind.
+        target: child,
         value: z
           .union([child, z.array(child)])
           .optional()
