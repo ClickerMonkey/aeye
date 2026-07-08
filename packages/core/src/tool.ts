@@ -1,7 +1,7 @@
 import Handlebars from 'handlebars';
 import { ZodType } from 'zod';
 import { Fn, resolveFn } from './common';
-import { FormatDescriptor, getDescriptorById, strictify } from './schema';
+import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
 import { Component, ComponentCompatible, Context, OptionalParams, ToolDefinition, Tuple } from './types';
     
 /**
@@ -311,25 +311,38 @@ export class Tool<
       throw new Error(`Not able to build a schema to parse arguments for ${this.input.name}`);
     }
 
+    // The PRE-strictify conceptual schema — passed to `decodeWire` below,
+    // which strictifies internally. Using the already-strictified
+    // `resolvedSchema` would double-wrap the wire transforms.
+    const baseSchema = resolvedSchema;
+
     // Apply the strictify rewrite that matches the provider's chosen wire
     // dialect. The cache makes repeated calls O(1).
+    let fd: FormatDescriptor | undefined;
     if (descriptor) {
-      const fd = typeof descriptor === 'string' ? getDescriptorById(descriptor) : descriptor;
+      fd = typeof descriptor === 'string' ? getDescriptorById(descriptor) : descriptor;
       resolvedSchema = strictify(resolvedSchema, fd);
     }
 
     const raw = JSON.parse(args);
 
     // Custom parser REPLACES Zod entirely. When supplied, the pipeline is
-    // JSON.parse → parse → validate; Zod (and its string-encoded-field
-    // repair fallback) is skipped. The function returns the DECODED value
-    // (`TDecoded`, inferred from `parse`'s return type — e.g. a built class
-    // instance) on success or an Error (or throws one) to short-circuit with
-    // a rich, caller-supplied diagnostic (e.g. @aeye/query's Problems/Code
-    // output) instead of Zod's harder-to-follow message. Absent ⇒ unchanged
-    // and the Zod-inferred wire value flows through as the decoded value.
+    // JSON.parse → decodeWire → parse → validate; Zod's own validation (and
+    // its string-encoded-field repair fallback) is skipped. `decodeWire`
+    // DECODEs the model's wire shape back to the CONCEPTUAL value (symmetric
+    // with strictify's encode) so the custom parser stays provider-agnostic —
+    // it never sees array-of-pairs records, numeric-key tuples, or
+    // null-for-optional. The parser returns the DECODED value (`TDecoded`,
+    // inferred from `parse`'s return type — e.g. a built class instance) on
+    // success or an Error (or throws one) to short-circuit with a rich,
+    // caller-supplied diagnostic (e.g. @aeye/query's Problems/Code output)
+    // instead of Zod's harder-to-follow message. Absent ⇒ unchanged and the
+    // Zod-inferred wire value flows through as the decoded value.
     if (this.input.parse) {
-      const result = await this.input.parse(raw, ctx);
+      // Decode only when a descriptor is present; otherwise the wire shape IS
+      // the conceptual shape and `raw` passes through untouched.
+      const decoded = fd ? decodeWire(baseSchema, raw, fd) : raw;
+      const result = await this.input.parse(decoded, ctx);
       if (result instanceof Error) {
         throw result;
       }

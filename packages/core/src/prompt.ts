@@ -4,7 +4,7 @@ import { ZodString, ZodType } from 'zod';
 import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { getDescriptorById, strictify } from "./schema";
+import { getDescriptorById, strictify, decodeWire } from "./schema";
 
 /** Default cap (chars) for validation error messages surfaced back to the
  *  LLM. Read by `Prompt.truncateValidationError`; subclasses may override
@@ -1203,17 +1203,29 @@ export class Prompt<
 
             if (this.input.parse) {
               // Custom parser REPLACES Zod validation of the structured
-              // output entirely. Mirrors Tool.parse's `parse` hook: the raw
-              // JSON.parse-d value goes straight to the caller's parser,
-              // which returns the typed TOutput on success or an Error
-              // (returned OR thrown) carrying rich, compiler-style
-              // diagnostics. Zod (and the descriptor strictify) is skipped.
-              // A returned/thrown Error flows through the SAME output-retry
+              // output entirely. Mirrors Tool.parse's `parse` hook: the
+              // JSON.parse-d value is first DECODEd back from the provider
+              // wire shape to the CONCEPTUAL value via `decodeWire` (symmetric
+              // with the strictify ENCODE the provider used to build the
+              // request), so the caller's parser stays provider-agnostic — it
+              // never sees array-of-pairs records, numeric-key tuples, or
+              // null-for-optional. The parser returns the typed TOutput on
+              // success or an Error (returned OR thrown) carrying rich,
+              // compiler-style diagnostics. Zod's own validation is skipped. A
+              // returned/thrown Error flows through the SAME output-retry
               // channel a Zod failure would, surfacing its own `.message`
               // (no Zod vocabulary — Zod never ran). Absent ⇒ unchanged.
+              // Decode only when a descriptor was pinned; otherwise the wire
+              // shape IS the conceptual shape and `parsedJSON` passes through.
+              const customDescriptorId = typeof request.responseFormat === 'object'
+                ? request.responseFormat.descriptor
+                : undefined;
+              const decoded = customDescriptorId
+                ? decodeWire(schema, parsedJSON, getDescriptorById(customDescriptorId))
+                : parsedJSON;
               let customResult: TDecoded | Error;
               try {
-                customResult = await this.input.parse(parsedJSON, ctx);
+                customResult = await this.input.parse(decoded, ctx);
               } catch (customError: any) {
                 customResult = customError instanceof Error ? customError : new Error(String(customError));
               }
