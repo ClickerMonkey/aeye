@@ -15,6 +15,8 @@
 import { describe, it, expect } from 'vitest';
 import { Problems } from '../problem';
 import { createRegistry } from '../registry';
+import type { ExprClass } from '../expr';
+import type { ExprDef } from '../schema';
 import {
   INVALID,
   isRecord,
@@ -28,6 +30,7 @@ import {
   enumOf,
   optional,
   list,
+  record,
   exprRef,
   obj,
   type CheckCtx,
@@ -37,6 +40,21 @@ import { FieldRefExpr } from '../exprs/field-ref';
 import { LiteralExpr } from '../exprs/literal';
 import { ParamExpr } from '../exprs/param';
 import { LogicalExpr } from '../exprs/logical';
+import { BinaryExpr } from '../exprs/binary';
+import { UnaryExpr } from '../exprs/unary';
+import { IsNullExpr } from '../exprs/is-null';
+import { BetweenExpr } from '../exprs/between';
+import { InExpr } from '../exprs/in';
+import { CaseExpr } from '../exprs/case';
+import { AggregateExpr } from '../exprs/aggregate';
+import { WindowExpr } from '../exprs/window';
+import { FunctionCallExpr } from '../exprs/function-call';
+import { RelationPathExpr } from '../exprs/relation-path';
+import { ArrayOpExpr } from '../exprs/array-op';
+import { OutputRefExpr } from '../exprs/output-ref';
+import { ExcludedExpr } from '../exprs/excluded';
+import { TextSearchExpr } from '../exprs/text-search';
+import { TextScoreExpr } from '../exprs/text-score';
 
 // One shared registry (child dispatch for `exprRef`); fresh problems per check.
 const registry = createRegistry();
@@ -421,5 +439,225 @@ describe('shape — exemplar equivalence with `from`', () => {
     const p = new Problems();
     const built = LogicalExpr.SHAPE.check(def, { problems: p, registry });
     expect(built === INVALID ? null : built.toJSON()).toEqual(LogicalExpr.from(def, registry).toJSON());
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C2 — the migrated exprs (operator / predicate / function / ref families).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('shape — record combinator', () => {
+  it('rejects a non-object (aid-directed shape.not-object)', () => {
+    const { ctx, problems } = mk();
+    expect(record(str('FieldName'), 'FunctionArgs').check('x', ctx)).toBe(INVALID);
+    expect(problems.list[0]?.code).toBe('shape.not-object');
+    expect(problems.list[0]?.message).toContain('named arguments');
+  });
+
+  it('checks each value and returns an insertion-ordered Map', () => {
+    const { ctx } = mk();
+    const out = record(str('FieldName'), 'FunctionArgs').check({ a: 'x', b: 'y' }, ctx);
+    expect(out === INVALID ? null : [...out]).toEqual([
+      ['a', 'x'],
+      ['b', 'y'],
+    ]);
+  });
+
+  it('localizes AND accumulates bad values at their keys (one pass)', () => {
+    const { ctx, problems } = mk();
+    expect(record(str('FieldName'), 'FunctionArgs').check({ a: 1, b: 2 }, ctx)).toBe(INVALID);
+    const byPath = problems.list.map((p) => p.path.join('.'));
+    expect(byPath).toContain('a');
+    expect(byPath).toContain('b');
+    expect(problems.list.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/** Assert a migrated SHAPE builds an Expr whose `.toJSON()` equals `from`'s. */
+function equiv(cls: ExprClass, def: ExprDef): void {
+  const shape = cls.SHAPE;
+  expect(shape).toBeDefined();
+  const p = new Problems();
+  const built = shape!.check(def, { problems: p, registry });
+  expect(built).not.toBe(INVALID);
+  expect(built === INVALID ? null : built.toJSON()).toEqual(cls.from(def, registry).toJSON());
+  expect(p.hasErrors).toBe(false);
+}
+
+const fieldRef = (source: string, field: string): ExprDef => ({ kind: 'field-ref', source, field });
+const lit1 = (value: string | number | boolean | null): ExprDef => ({ kind: 'literal', value });
+
+describe('shape — C2 equivalence with `from`', () => {
+  it('binary', () => equiv(BinaryExpr, { kind: 'binary', op: '+', left: lit1(1), right: lit1(2) }));
+
+  it('unary', () => equiv(UnaryExpr, { kind: 'unary', op: '-', operand: lit1(5) }));
+
+  it('is-null (with and without `not`)', () => {
+    equiv(IsNullExpr, { kind: 'is-null', value: fieldRef('u', 'x') });
+    equiv(IsNullExpr, { kind: 'is-null', value: fieldRef('u', 'x'), not: true });
+  });
+
+  it('between (with and without `not`)', () => {
+    equiv(BetweenExpr, {
+      kind: 'between',
+      value: fieldRef('u', 'age'),
+      lower: lit1(1),
+      upper: lit1(9),
+      not: true,
+    });
+    equiv(BetweenExpr, { kind: 'between', value: fieldRef('u', 'age'), lower: lit1(1), upper: lit1(9) });
+  });
+
+  it('in (list form, with and without `not`)', () => {
+    equiv(InExpr, { kind: 'in', value: fieldRef('u', 'x'), in: [lit1(1), lit1(2)], not: true });
+    equiv(InExpr, { kind: 'in', value: fieldRef('u', 'x'), in: [lit1(1), lit1(2)] });
+  });
+
+  it('case (with else)', () =>
+    equiv(CaseExpr, {
+      kind: 'case',
+      branches: [{ when: lit1(true), then: lit1(1) }],
+      else: lit1(0),
+    }));
+
+  it('aggregate (count(*) and sum with distinct)', () => {
+    equiv(AggregateExpr, { kind: 'aggregate', function: 'count', args: {} });
+    equiv(AggregateExpr, {
+      kind: 'aggregate',
+      function: 'sum',
+      args: { value: fieldRef('u', 'total') },
+      distinct: true,
+    });
+  });
+
+  it('window (partitionBy + orderBy, one term with nulls one without)', () =>
+    equiv(WindowExpr, {
+      kind: 'window',
+      function: 'rowNumber',
+      args: {},
+      partitionBy: [fieldRef('u', 'x')],
+      orderBy: [
+        { expr: fieldRef('u', 'y'), dir: 'asc', nulls: 'last' },
+        { expr: fieldRef('u', 'z'), dir: 'desc' },
+      ],
+    }));
+
+  it('window (bare — no partitionBy / orderBy)', () =>
+    equiv(WindowExpr, { kind: 'window', function: 'rowNumber', args: {} }));
+
+  it('function-call', () =>
+    equiv(FunctionCallExpr, {
+      kind: 'function-call',
+      function: 'lower',
+      args: { value: lit1('A') },
+    }));
+
+  it('relation-path', () =>
+    equiv(RelationPathExpr, { kind: 'relation-path', source: 'u', path: ['orders', 'total'] }));
+
+  it('array-op (single, list, and empty value forms)', () => {
+    equiv(ArrayOpExpr, { kind: 'array-op', op: 'contains', target: fieldRef('u', 'tags'), value: lit1('x') });
+    equiv(ArrayOpExpr, {
+      kind: 'array-op',
+      op: 'containsAny',
+      target: fieldRef('u', 'tags'),
+      value: [lit1('a'), lit1('b')],
+    });
+    equiv(ArrayOpExpr, { kind: 'array-op', op: 'isEmpty', target: fieldRef('u', 'tags') });
+  });
+
+  it('output', () => equiv(OutputRefExpr, { kind: 'output', name: 'total' }));
+
+  it('excluded', () => equiv(ExcludedExpr, { kind: 'excluded', field: 'email' }));
+
+  it('text-search (string query, param query, and whole-source)', () => {
+    equiv(TextSearchExpr, { kind: 'text-search', source: 'u', field: 'bio', query: 'hello world' });
+    equiv(TextSearchExpr, { kind: 'text-search', source: 'u', field: 'bio', query: { kind: 'param', name: 'q' } });
+    equiv(TextSearchExpr, { kind: 'text-search', source: 'u', query: 'hi' });
+  });
+
+  it('text-score', () => {
+    equiv(TextScoreExpr, { kind: 'text-score', source: 'u', field: 'bio', query: 'x' });
+    equiv(TextScoreExpr, { kind: 'text-score', source: 'u', query: { kind: 'param', name: 'q' } });
+  });
+});
+
+describe('shape — C2 malformations + accumulation', () => {
+  it('binary: a bad op is a shape.enum at `op`', () => {
+    const { problems } = mk();
+    expect(
+      BinaryExpr.SHAPE.check({ kind: 'binary', op: '^', left: lit1(1), right: lit1(2) }, { problems, registry }),
+    ).toBe(INVALID);
+    expect(problems.list[0]?.code).toBe('shape.enum');
+    expect(problems.list[0]?.path).toEqual(['op']);
+    expect(problems.list[0]?.message).toContain('an arithmetic operator');
+  });
+
+  it('in: the SUBQUERY form is a documented shape.todo (deferred to C3)', () => {
+    const { problems } = mk();
+    expect(
+      InExpr.SHAPE.check({ kind: 'in', value: lit1(1), in: { kind: 'select', from: [] } }, { problems, registry }),
+    ).toBe(INVALID);
+    expect(problems.list[0]?.code).toBe('shape.todo');
+    expect(problems.list[0]?.path).toEqual(['in']);
+  });
+
+  it('in: a bad list element is localized at its index', () => {
+    const { problems } = mk();
+    expect(
+      InExpr.SHAPE.check({ kind: 'in', value: fieldRef('u', 'x'), in: [lit1(1), 5] }, { problems, registry }),
+    ).toBe(INVALID);
+    expect(problems.list.some((p) => p.path.join('.') === 'in.1' && p.code === 'shape.not-object')).toBe(true);
+  });
+
+  it('array-op: an invalid single `value` records a not-object at `value`', () => {
+    // `value` is OPTIONAL, so `obj` records the problem yet still builds (the
+    // slot is treated as absent → empty values) — matching the C1 `obj` design.
+    const { problems } = mk();
+    ArrayOpExpr.SHAPE.check(
+      { kind: 'array-op', op: 'contains', target: fieldRef('u', 'tags'), value: 5 },
+      { problems, registry },
+    );
+    expect(problems.list.some((p) => p.path.join('.') === 'value' && p.code === 'shape.not-object')).toBe(true);
+  });
+
+  it('text-search: a non-string / non-param query is rejected at `query`', () => {
+    const { problems } = mk();
+    expect(
+      TextSearchExpr.SHAPE.check({ kind: 'text-search', source: 'u', query: 5 }, { problems, registry }),
+    ).toBe(INVALID);
+    expect(problems.list.some((p) => p.path.join('.') === 'query')).toBe(true);
+  });
+
+  it('case: ACCUMULATES two bad branches in one pass', () => {
+    const { problems } = mk();
+    const result = CaseExpr.SHAPE.check(
+      {
+        kind: 'case',
+        branches: [
+          { when: 1, then: { kind: 'param', name: 'a' } },
+          { when: { kind: 'param', name: 'b' }, then: 2 },
+        ],
+      },
+      { problems, registry },
+    );
+    expect(result).toBe(INVALID);
+    const byPath = problems.list.map((p) => p.path.join('.'));
+    expect(byPath).toContain('branches.0.when');
+    expect(byPath).toContain('branches.1.then');
+    expect(problems.list.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('aggregate: ACCUMULATES a bad function name AND a bad nested arg in one pass', () => {
+    const { problems } = mk();
+    const result = AggregateExpr.SHAPE.check(
+      { kind: 'aggregate', function: 42, args: { value: 99 } },
+      { problems, registry },
+    );
+    expect(result).toBe(INVALID);
+    const byPath = problems.list.map((p) => ({ path: p.path.join('.'), code: p.code }));
+    expect(byPath).toContainEqual({ path: 'function', code: 'shape.type' });
+    expect(byPath).toContainEqual({ path: 'args.value', code: 'shape.not-object' });
+    expect(problems.list.length).toBeGreaterThanOrEqual(2);
   });
 });

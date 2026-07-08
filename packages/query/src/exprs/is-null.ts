@@ -14,6 +14,7 @@ import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult, gatherSources, anyAggregate, childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -42,6 +43,22 @@ export class IsNullExpr extends BoolExpr {
     }
     return new IsNullExpr(registry.parseExpr(json.value), json.not ?? false);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `IsNullExpr` equal to `from`'s output on a valid def (`not` defaults to
+   * `false` when absent); accumulates problems on a bad def (never throws).
+   * See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('is-null'),
+      value: exprRef(),
+      not: bool('Not'),
+    },
+    (v) => new IsNullExpr(v.value, v.not ?? false),
+    { optional: ['not'], aid: 'Expr_is-null' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (value is a child Expr slot). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

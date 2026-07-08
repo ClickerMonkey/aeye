@@ -33,6 +33,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
 import { withAid, didYouMean } from '../aids';
+import { obj, lit, str } from '../shape';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -59,6 +60,21 @@ export class OutputRefExpr extends Expr {
     }
     return new OutputRefExpr(json.name);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `OutputRefExpr` equal to `from`'s output on a valid def; accumulates
+   * problems on a bad def (never throws). The output-name RESOLUTION remains in
+   * `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('output'),
+      name: str('OutputName'),
+    },
+    (v) => new OutputRefExpr(v.name),
+    { aid: 'Expr_output' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (name is query-local ⇒ a plain string). */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {

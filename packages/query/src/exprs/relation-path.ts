@@ -22,6 +22,7 @@ import type { ResolvedType, FieldResolved, TypeResolved } from '../resolved-type
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
+import { obj, lit, str, list } from '../shape';
 import { RelationFieldType } from '../field-types/index';
 import { textResult } from './_shared';
 import type { Type } from '../type';
@@ -57,6 +58,22 @@ export class RelationPathExpr extends Expr {
     }
     return new RelationPathExpr(json.source, [...json.path]);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `RelationPathExpr` equal to `from`'s output on a valid def; accumulates
+   * problems (bad source / path element) in one pass (never throws). The
+   * source / field RESOLUTION remains in `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('relation-path'),
+      source: str('Source'),
+      path: list(str('FieldName')),
+    },
+    (v) => new RelationPathExpr(v.source, v.path),
+    { aid: 'Expr_relation-path' },
+  );
 
   /** Depth-aware Zod schema for this expr kind's JSON shape (per `opts.depth.refs`). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

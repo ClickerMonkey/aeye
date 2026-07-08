@@ -17,6 +17,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
 import { withAid, didYouMean } from '../aids';
+import { obj, lit, str } from '../shape';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -47,6 +48,21 @@ export class ExcludedExpr extends Expr {
     }
     return new ExcludedExpr(json.field);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `ExcludedExpr` equal to `from`'s output on a valid def; accumulates problems
+   * on a bad def (never throws). The in-scope / field checks remain in
+   * `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('excluded'),
+      field: str('FieldName'),
+    },
+    (v) => new ExcludedExpr(v.field),
+    { aid: 'Expr_excluded' },
+  );
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(_opts: SchemaOptions): z.ZodTypeAny {

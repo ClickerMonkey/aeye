@@ -26,6 +26,7 @@ import {
   childExprSchema,
 } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, enumOf, exprRef } from '../shape';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
@@ -36,6 +37,9 @@ import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
 const NUMERIC = new Set(['number', 'money']);
+
+/** The arithmetic operators, as an array (drives the owned `SHAPE`'s `enumOf`). */
+const BINARY_OPS = ['+', '-', '*', '/', '%'] as const satisfies readonly BinaryOp[];
 
 /** Whether an operand is exempt from the numeric-type check. */
 function exempt(e: Expr): boolean {
@@ -69,6 +73,22 @@ export class BinaryExpr extends Expr {
       registry.parseExpr(json.right),
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `BinaryExpr` equal to `from`'s output on a valid def; accumulates problems
+   * on a bad def (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('binary'),
+      op: enumOf(BINARY_OPS, 'BinaryOp'),
+      left: exprRef(),
+      right: exprRef(),
+    },
+    (v) => new BinaryExpr(v.op, v.left, v.right),
+    { aid: 'Expr_binary' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (operands use the shared child Expr schema). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

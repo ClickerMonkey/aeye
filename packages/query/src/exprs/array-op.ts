@@ -29,6 +29,7 @@ import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
 import { ArrayFieldType } from '../field-types/index';
 import { ParamExpr } from './param';
@@ -45,6 +46,24 @@ const NO_VALUE_OPS: ReadonlySet<ArrayOp> = new Set<ArrayOp>(['isEmpty', 'notEmpt
 const SINGLE_VALUE_OPS: ReadonlySet<ArrayOp> = new Set<ArrayOp>(['contains']);
 /** Ops that take a list of element operands. */
 const LIST_VALUE_OPS: ReadonlySet<ArrayOp> = new Set<ArrayOp>(['containsAny', 'containsAll']);
+
+/** The array operators, as an array (drives the owned `SHAPE`'s `enumOf`). */
+const ARRAY_OPS = [
+  'contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty',
+] as const satisfies readonly ArrayOp[];
+
+/**
+ * Structural shape for the polymorphic `value` slot: a single element expr, a
+ * LIST of element exprs, or omitted — always NORMALIZED to an `Expr[]` (matching
+ * `from`), so `toJSON` re-serializes per the op's arity. Never throws.
+ */
+const ARRAY_VALUE_SHAPE: Shape<Expr[]> = {
+  check(json, ctx) {
+    if (Array.isArray(json)) return list(exprRef()).check(json, ctx);
+    const built = exprRef().check(json, ctx);
+    return built === INVALID ? INVALID : [built];
+  },
+};
 
 /** A predicate over an array-valued target (`contains` / `containsAny` / `isEmpty` / …). A `BoolExpr`. */
 export class ArrayOpExpr extends BoolExpr {
@@ -78,6 +97,24 @@ export class ArrayOpExpr extends BoolExpr {
           : [registry.parseExpr(json.value)];
     return new ArrayOpExpr(json.op, target, values);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `ArrayOpExpr` equal to `from`'s output on a valid def (the `value` slot is
+   * normalized to `Expr[]` — single, list, or empty). Accumulates problems in
+   * one pass (never throws). The array-type / arity checks remain in
+   * `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('array-op'),
+      op: enumOf(ARRAY_OPS, 'ArrayOp'),
+      target: exprRef(),
+      value: ARRAY_VALUE_SHAPE,
+    },
+    (v) => new ArrayOpExpr(v.op, v.target, v.value ?? []),
+    { optional: ['value'], aid: 'Expr_array-op' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (target plus a single/list/omitted value child). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

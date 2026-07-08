@@ -28,6 +28,7 @@ import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
 import { computed, childExprSchema } from './_shared';
 import { withAid, didYouMean } from '../aids';
+import { obj, lit, str, bool, record, exprRef } from '../shape';
 import {
   parseNamedArgs,
   namedArgSchema,
@@ -76,6 +77,24 @@ export class AggregateExpr extends Expr {
     }
     return new AggregateExpr(json.function, parseNamedArgs(json.args, registry), json.distinct ?? false);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
+   * `AggregateExpr` equal to `from`'s output on a valid def (`args` is a named
+   * record — empty for `count(*)`; `distinct` defaults to `false`). Accumulates
+   * every bad arg in one pass (never throws). Semantic checks (arg count / type
+   * / aggregate placement) remain in `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('aggregate'),
+      function: str('FunctionName'),
+      args: record(exprRef(), 'FunctionArgs'),
+      distinct: bool('Distinct'),
+    },
+    (v) => new AggregateExpr(v.function, v.args, v.distinct ?? false),
+    { optional: ['distinct'], aid: 'Expr_aggregate' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (named-arg map plus distinct), layered by `functionExprSchema`. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

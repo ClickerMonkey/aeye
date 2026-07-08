@@ -15,6 +15,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { MoneyFieldType, NumberFieldType } from '../field-types/index';
 import { computed, gatherSources, categoryOf, childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, enumOf, exprRef } from '../shape';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
@@ -23,6 +24,9 @@ import type { SourceRow } from '../runtime/row';
 import type { Cost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
+
+/** The unary operators, as an array (drives the owned `SHAPE`'s `enumOf`). */
+const UNARY_OPS = ['-', '+'] as const satisfies readonly UnaryOp[];
 
 /** A unary arithmetic expression (`-x` / `+x`). */
 export class UnaryExpr extends Expr {
@@ -46,6 +50,21 @@ export class UnaryExpr extends Expr {
     }
     return new UnaryExpr(json.op, registry.parseExpr(json.operand));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `UnaryExpr` equal to `from`'s output on a valid def; accumulates problems on
+   * a bad def (never throws). See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('unary'),
+      op: enumOf(UNARY_OPS, 'UnaryOp'),
+      operand: exprRef(),
+    },
+    (v) => new UnaryExpr(v.op, v.operand),
+    { aid: 'Expr_unary' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (operand uses the shared child Expr schema). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

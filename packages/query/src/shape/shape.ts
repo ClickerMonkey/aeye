@@ -225,6 +225,33 @@ export function list<T>(shape: Shape<T>, opts: { min?: number; max?: number } = 
   };
 }
 
+/**
+ * A homogeneous RECORD — an object of `{ [name: string]: value }` (the named
+ * function-argument map). Non-object → aid-directed `shape.not-object` + INVALID;
+ * each value is checked at `problems.at(name, …)`; accumulates (every bad value
+ * is reported in one pass). Returns an insertion-ordered `Map<string, T>`
+ * (mirroring `parseNamedArgs`), so the four function-call exprs keep their args'
+ * declared order.
+ */
+export function record<T>(shape: Shape<T>, aid: string): Shape<Map<string, T>> {
+  return {
+    check(json, ctx) {
+      if (!isRecord(json)) {
+        ctx.problems.error('shape.not-object', expected(aid, json));
+        return INVALID;
+      }
+      const out = new Map<string, T>();
+      let ok = true;
+      for (const key of Object.keys(json)) {
+        const value = ctx.problems.at(key, () => shape.check(json[key], ctx));
+        if (value === INVALID) ok = false;
+        else out.set(key, value);
+      }
+      return ok ? out : INVALID;
+    },
+  };
+}
+
 /** A child-expr slot: defensively dispatched via `registry.parseCheckedExpr`. */
 export function exprRef(): Shape<Expr> {
   return {

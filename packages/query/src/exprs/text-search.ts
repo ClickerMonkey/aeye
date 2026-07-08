@@ -32,9 +32,11 @@ import type { Cost } from '../cost';
 import { addCost, TEXT_SEARCH_ROW_PENALTY } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
+import { obj, lit, str } from '../shape';
 import {
   type TextSearchQuery,
   parseTextQuery,
+  textQueryShape,
   queryRunText,
   querySqlText,
   boundTypeOf,
@@ -70,6 +72,24 @@ export class TextSearchExpr extends BoolExpr {
     }
     return new TextSearchExpr(json.source, json.field, parseTextQuery(json.query, registry));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `TextSearchExpr` equal to `from`'s output on a valid def (`field` optional;
+   * `query` is a string literal or a `param`). Accumulates problems in one pass
+   * (never throws). The searchable-source / text-field checks remain in
+   * `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('text-search'),
+      source: str('Source'),
+      field: str('FieldName'),
+      query: textQueryShape(),
+    },
+    (v) => new TextSearchExpr(v.source, v.field, v.query),
+    { optional: ['field'], aid: 'Expr_text-search' },
+  );
 
   /** Zod schema for this expr kind's JSON shape. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

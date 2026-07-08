@@ -15,6 +15,7 @@ export {
   enumOf,
   optional,
   list,
+  record,
   exprRef,
   obj,
   type Shape,

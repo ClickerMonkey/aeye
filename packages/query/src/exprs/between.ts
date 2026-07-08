@@ -16,6 +16,7 @@ import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import { ParamExpr } from './param';
 import type { RuntimeContext } from '../runtime/context';
@@ -53,6 +54,24 @@ export class BetweenExpr extends BoolExpr {
       json.not ?? false,
     );
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `BetweenExpr` equal to `from`'s output on a valid def (`not` defaults to
+   * `false` when absent); accumulates problems on a bad def (never throws).
+   * See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('between'),
+      value: exprRef(),
+      lower: exprRef(),
+      upper: exprRef(),
+      not: bool('Not'),
+    },
+    (v) => new BetweenExpr(v.value, v.lower, v.upper, v.not ?? false),
+    { optional: ['not'], aid: 'Expr_between' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (value/lower/upper are child Expr slots). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

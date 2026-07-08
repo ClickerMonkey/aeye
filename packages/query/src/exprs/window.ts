@@ -26,6 +26,7 @@ import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
 import { computed, childExprSchema } from './_shared';
 import { withAid, didYouMean } from '../aids';
+import { obj, lit, str, list, record, enumOf, exprRef } from '../shape';
 import {
   parseNamedArgs,
   namedArgSchema,
@@ -54,6 +55,17 @@ interface WindowOrder {
   dir: 'asc' | 'desc';
   nulls?: 'first' | 'last';
 }
+
+/** Structural shape for one `{ expr, dir, nulls? }` ORDER BY term (drives the owned SHAPE's `list`). */
+const ORDER_SHAPE = obj(
+  {
+    expr: exprRef(),
+    dir: enumOf(['asc', 'desc'], 'OrderDir'),
+    nulls: enumOf(['first', 'last'], 'OrderNulls'),
+  },
+  (v): WindowOrder => ({ expr: v.expr, dir: v.dir, nulls: v.nulls }),
+  { optional: ['nulls'], aid: 'Order' },
+);
 
 /** A window function `fn(args) OVER (PARTITION BY … ORDER BY …)`. */
 export class WindowExpr extends Expr {
@@ -86,6 +98,25 @@ export class WindowExpr extends Expr {
     }));
     return new WindowExpr(json.function, parseNamedArgs(json.args, registry), partitionBy, orderBy);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `WindowExpr` equal to `from`'s output on a valid def (`args` a named record;
+   * `partitionBy` / `orderBy` default to empty when absent). Accumulates every
+   * bad arg / partition / order term in one pass (never throws). Semantic checks
+   * remain in `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('window'),
+      function: str('FunctionName'),
+      args: record(exprRef(), 'FunctionArgs'),
+      partitionBy: list(exprRef()),
+      orderBy: list(ORDER_SHAPE),
+    },
+    (v) => new WindowExpr(v.function, v.args, v.partitionBy ?? [], v.orderBy ?? []),
+    { optional: ['partitionBy', 'orderBy'], aid: 'Expr_window' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (named args plus partitionBy/orderBy slots), layered by `functionExprSchema`. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

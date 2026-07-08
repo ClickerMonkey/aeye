@@ -9,6 +9,7 @@
  */
 import type { Registry } from '../registry';
 import { ParamExpr } from './param';
+import { INVALID, type Shape } from '../shape';
 import { TextFieldType } from '../field-types/index';
 import type { Type } from '../type';
 import type { SearchBacking } from '../backing';
@@ -26,6 +27,23 @@ export function parseTextQuery(def: string | { kind: 'param'; name: string }, re
   const expr = registry.parseExpr(def);
   if (expr instanceof ParamExpr) return { kind: 'param', param: expr };
   throw new Error(`TextSearchQuery: expected a param query, got '${expr.kind}'.`);
+}
+
+/**
+ * Structural {@link Shape} for the `query` slot shared by `text-search` /
+ * `text-score`: a literal STRING → `{ kind:'text' }`, else a `param` expr →
+ * `{ kind:'param' }` (validated by `ParamExpr.SHAPE`). The zod-free parallel to
+ * {@link parseTextQuery}; it NEVER throws (a non-string / non-param records a
+ * problem and returns INVALID rather than throwing like `parseTextQuery`).
+ */
+export function textQueryShape(): Shape<TextSearchQuery> {
+  return {
+    check(json, ctx) {
+      if (typeof json === 'string') return { kind: 'text', text: json };
+      const built = ParamExpr.SHAPE.check(json, ctx);
+      return built === INVALID ? INVALID : { kind: 'param', param: built };
+    },
+  };
 }
 
 /** The query text for a run (a literal, or a param's bound value). */

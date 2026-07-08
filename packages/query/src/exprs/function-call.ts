@@ -19,6 +19,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { textResult, childExprSchema } from './_shared';
 import { withAid, didYouMean } from '../aids';
+import { obj, lit, str, record, exprRef } from '../shape';
 import { ParamExpr } from './param';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -63,6 +64,22 @@ export class FunctionCallExpr extends Expr {
     }
     return new FunctionCallExpr(json.function, parseNamedArgs(json.args, registry));
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `FunctionCallExpr` equal to `from`'s output on a valid def (`args` a named
+   * record). Accumulates every bad arg in one pass (never throws). The
+   * function-shape / arg checks remain in `validateWalk`. See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('function-call'),
+      function: str('FunctionName'),
+      args: record(exprRef(), 'FunctionArgs'),
+    },
+    (v) => new FunctionCallExpr(v.function, v.args),
+    { aid: 'Expr_function-call' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (named-arg map), layered by `functionExprSchema`. */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {

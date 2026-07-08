@@ -102,7 +102,12 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   FieldName: { label: 'a field name' },
   FunctionName: { label: 'a registered function name' },
   FunctionArgs: { label: 'named arguments, an object of { argName: <expr> }' },
+  OutputName: { label: 'a SELECT output field name' },
   Limit: { label: 'a number or a param' },
+  Not: { label: 'a boolean `not` flag' },
+  Distinct: { label: 'a boolean `distinct` flag' },
+  CaseBranch: { label: 'a CASE branch, an object of { when, then }' },
+  Order: { label: 'an ORDER BY term, an object of { expr, dir }' },
 
   // ── Operator enums ────────────────────────────────────────────────────────
   ComparisonOp: { label: 'a comparison operator' },

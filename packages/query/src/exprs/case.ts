@@ -17,6 +17,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { computed, gatherSources, categoryOf, childExprSchema } from './_shared';
 import { withAid } from '../aids';
+import { obj, lit, list, exprRef } from '../shape';
 import { TextFieldType } from '../field-types/index';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -29,6 +30,13 @@ interface CaseBranch {
   when: Expr;
   then: Expr;
 }
+
+/** Structural shape for one `{ when, then }` branch (drives the owned SHAPE's `list`). */
+const BRANCH_SHAPE = obj(
+  { when: exprRef(), then: exprRef() },
+  (v): CaseBranch => ({ when: v.when, then: v.then }),
+  { aid: 'CaseBranch' },
+);
 
 /** A `CASE WHEN … THEN … [ELSE …] END` expression. */
 export class CaseExpr extends Expr {
@@ -57,6 +65,22 @@ export class CaseExpr extends Expr {
     const els = json.else ? registry.parseExpr(json.else) : undefined;
     return new CaseExpr(branches, els);
   }
+
+  /**
+   * Owned structural {@link Shape} — the zod-free parallel parser. Builds a
+   * `CaseExpr` equal to `from`'s output on a valid def (`else` omitted when
+   * absent); accumulates every bad branch / else in one pass (never throws).
+   * See `shape/`.
+   */
+  static readonly SHAPE = obj(
+    {
+      kind: lit('case'),
+      branches: list(BRANCH_SHAPE),
+      else: exprRef(),
+    },
+    (v) => new CaseExpr(v.branches, v.else),
+    { optional: ['else'], aid: 'Expr_case' },
+  );
 
   /** Zod schema for this expr kind's JSON shape (when/then branch slots and an optional else). */
   static toSchema(opts: SchemaOptions): z.ZodTypeAny {
