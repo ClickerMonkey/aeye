@@ -10,6 +10,13 @@
  *     would bloat the `paired` schema back past ~105 KB — is caught. The shared
  *     `$defs` (`Fields_*`, `Args*`, `param`, `Limit`) are asserted present.
  *
+ *     The shared-fragment `$def` ids live in the process-LOCAL `sharedIdRegistry`
+ *     (NOT zod's global registry — see `aids.ts` for why: it keeps `strictify`
+ *     collision-free), so the conversion is told to read ids from it via the
+ *     `metadata` option. The ids are salted per schema-generation (`_g<n>`), so
+ *     the names are asserted by PATTERN (`Fields_*` / `Args*` / `param(_g<n>)?` /
+ *     `Limit(_g<n>)?`), never by exact spelling.
+ *
  *  2. GOLDEN accept/reject + directed-message INVARIANCE — a fixed set of ~10
  *     valid + ~10 invalid query defs must parse to the SAME accept/reject AND
  *     (for the invalids) the SAME aid-directed error text. Factoring changes the
@@ -21,6 +28,7 @@ import type { Context } from '@aeye/core';
 import { createExampleFixture } from '../../examples/schema';
 import { querySchema } from '../llm/schemas';
 import { buildQueryTool, QueryToolError } from '../llm/tool';
+import { sharedIdRegistry } from '../aids';
 import type { QueryDef } from '../schema';
 
 const ctx: Context<{}, {}> = {};
@@ -28,14 +36,24 @@ const ctx: Context<{}, {}> = {};
 describe('Part B — shared-`$def` factoring: size', () => {
   it('paired + open schemas stay factored (below the re-inline threshold)', () => {
     const { engine } = createExampleFixture();
-    const open = z.toJSONSchema(querySchema(engine, { depth: 'open' }), { unrepresentable: 'any' });
-    const paired = z.toJSONSchema(querySchema(engine, { depth: 'paired' }), { unrepresentable: 'any' });
+    // Read the shared-fragment ids from the process-LOCAL registry (they are kept
+    // off zod's global registry so `strictify` never collides on them).
+    const convert = (depth: 'open' | 'paired'): { $defs?: Record<string, unknown> } =>
+      z.toJSONSchema(querySchema(engine, { depth }), {
+        unrepresentable: 'any',
+        metadata: sharedIdRegistry,
+      });
+    const open = convert('open');
+    const paired = convert('paired');
     const openLen = JSON.stringify(open).length;
     const pairedLen = JSON.stringify(paired).length;
 
-    // Post-factoring: open ~20.2 KB (was ~21.3 KB), paired ~95.5 KB (was
-    // ~105.6 KB). A regression that re-inlines the shared fragments jumps back
-    // past these bounds.
+    // Post-factoring the shared fragments collapse to `$def`s + `$ref`s; a
+    // regression that re-inlines them jumps the `open` schema back past ~21 KB and
+    // the `paired` schema back past ~105 KB (the unfactored sizes), so these bounds
+    // catch it. (The absolute numbers are smaller than the model-facing schema's
+    // because a plain `z.toJSONSchema` fed only the id registry omits descriptions —
+    // it is a pure structural re-inline guard, not a wire-size measurement.)
     expect(openLen).toBeLessThan(21000);
     expect(pairedLen).toBeLessThan(100000);
 

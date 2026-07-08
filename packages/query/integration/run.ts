@@ -229,12 +229,30 @@ interface LogEntry {
 /** The tool's wire schema, typed at the boundary as it validates it (see tool.ts). */
 type QuerySchema = z.ZodType<QueryToolInput>;
 
-interface QueryAsker {
-  ask(content: string, schema: QuerySchema, engine: QueryEngine, types: readonly Type[]): Promise<unknown>;
+/** The result of one model ask: the built query (or null after retries) plus the
+ *  last compiler-style diagnostics for the log trail. */
+interface AskResult {
+  query: Query | null;
+  report: string;
+  codes: string[];
 }
 
-/** Build the AI instance + a `QueryAsker` over OpenRouter (mirrors examples/cli.ts). */
-function createAsker(apiKey: string, modelId: string): QueryAsker {
+interface QueryAsker {
+  /** Ask the model for a query. The prompt uses the QUERY PARSER as its output
+   *  validator (core's `parse` hook) and re-prompts on failure through its own
+   *  `outputRetries` with the underlined / aid-directed report — no manual repair. */
+  ask(content: string): Promise<AskResult>;
+}
+
+/**
+ * Build the AI instance + a `QueryAsker` over OpenRouter (mirrors examples/cli.ts).
+ * The prompt's `parse` REPLACES zod with the query parser: zod stays only as the
+ * wire schema the model emits against, while validation + the retry feedback are
+ * the query package's own compiler-style diagnostics (underlined, aid-directed,
+ * "did you mean"). This is what core's `parse` hook was added for — so the model's
+ * `outputRetries` loop is driven by real query errors, not zod union noise.
+ */
+function createAsker(apiKey: string, modelId: string, engine: QueryEngine): QueryAsker {
   const providers: Record<string, Provider> = { openrouter: new OpenRouterProvider({ apiKey }) };
   const metadata = { model: { id: modelId } };
   // The single narrow `as any` the examples tolerate: the AI metadata typing
@@ -244,43 +262,54 @@ function createAsker(apiKey: string, modelId: string): QueryAsker {
     .providers(providers)
     .create({ defaultMetadata, models, modelOverrides: [...strictSupport] });
 
-  type PromptInput = { prompt: string; schema?: QuerySchema; engine?: QueryEngine; types?: readonly Type[] };
-  const instructions = (i: PromptInput): string =>
-    i.engine ? `${describeEngine(i.engine, { types: i.types, functions: 'all' })}\n\n${exampleQueriesText()}` : '';
+  const types = engine.registry.typeList();
+  // Keep the structured schema (not the string fallback) even with 20 Types.
+  const options = { max: types.length + 1, functions: 'all' as const };
+  const tool = buildQueryTool(engine, options);
+  // Same boundary cast the tool applies to its own wire schema (see tool.ts).
+  const wireSchema = querySchema(engine, options) as QuerySchema;
+  const instructions = `${describeEngine(engine, { types, functions: 'all' })}\n\n${exampleQueriesText()}`;
+
+  // `parse` runs the query parser: returns the built Query, or the QueryToolError
+  // whose `.message` (the compiler-style report) the prompt re-prompts with.
+  const errRef: { last: QueryToolError | null } = { last: null };
+  // Read through a function so control-flow analysis can't narrow the captured
+  // property to `null` across the (opaque-to-TS) prompt.get() call that mutates it.
+  const takeLastError = (): QueryToolError | null => errRef.last;
+  type PromptInput = { prompt: string };
   const prompt = ai.prompt({
     name: 'query_eval',
     description: 'Build a structured query from a natural-language request',
     content: '{{instructions}}\n\n{{userPrompt}}',
-    input: (i: PromptInput) => ({ instructions: instructions(i), userPrompt: i.prompt }),
-    schema: (i: PromptInput | undefined) => i?.schema ?? false,
+    input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
+    schema: () => wireSchema,
+    parse: async (raw: unknown, ctx: Context<{}, {}>): Promise<Query | QueryToolError> => {
+      try {
+        return await tool.parse(ctx, JSON.stringify(raw));
+      } catch (err) {
+        if (err instanceof QueryToolError) {
+          errRef.last = err;
+          return err;
+        }
+        throw err;
+      }
+    },
     metadata,
   });
+
   return {
-    ask: (content, schema, engine, types) => prompt.get('result', { prompt: content, schema, engine, types }),
+    ask: async (content): Promise<AskResult> => {
+      errRef.last = null;
+      const query = (await prompt.get('result', { prompt: content })) as Query | undefined;
+      if (query) return { query, report: '', codes: [] };
+      const last = takeLastError();
+      return {
+        query: null,
+        report: last?.report ?? '',
+        codes: last ? last.problems.list.map((p) => p.code) : [],
+      };
+    },
   };
-}
-
-/** Pull the `query` field out of a (loosely-typed) model response. */
-function extractQueryDef(modelOutput: unknown): QueryDef | undefined {
-  if (modelOutput && typeof modelOutput === 'object' && 'query' in modelOutput) {
-    return (modelOutput as { query: QueryDef }).query;
-  }
-  return undefined;
-}
-
-/** Parse a query def through the tool without throwing (the tool THROWS a
- *  `QueryToolError` on any problem — we catch it and surface the diagnostics). */
-async function tryBuild(
-  tool: ReturnType<typeof buildQueryTool>,
-  queryDef: QueryDef,
-): Promise<{ query: Query | null; report: string; codes: string[] }> {
-  try {
-    const query = await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef }));
-    return { query, report: '', codes: [] };
-  } catch (err) {
-    if (err instanceof QueryToolError) return { query: null, report: err.report, codes: err.problems.list.map((p) => p.code) };
-    throw err;
-  }
 }
 
 async function runOneCase(
@@ -307,39 +336,18 @@ async function runOneCase(
   };
 
   try {
-    const types = engine.registry.typeList();
-    // Keep the structured schema (not the string fallback) even with 20 Types.
-    const options = { max: types.length + 1, functions: 'all' as const };
-    const tool = buildQueryTool(engine, options);
-    // Same boundary cast the tool applies to its own wire schema (see tool.ts):
-    // `querySchema` is statically `ZodType<unknown>` but validates the envelope.
-    const schema = querySchema(engine, options) as QuerySchema;
     const userContent = [
       'Emit the query as a structured JSON object in the `query` field of the schema.',
       '',
       `User request: ${c.request}`,
     ].join('\n');
 
-    // First attempt.
-    let modelOutput = await asker.ask(userContent, schema, engine, types);
-    let queryDef = extractQueryDef(modelOutput);
-    entry.emittedQuery = queryDef ?? modelOutput ?? null;
-    let built: { query: Query | null; report: string; codes: string[] } = queryDef
-      ? await tryBuild(tool, queryDef)
-      : { query: null, report: 'no `query` field in model output', codes: ['query.missing'] };
-
-    // One repair round on validation problems.
-    if (!built.query && queryDef) {
-      const repair = [userContent, '', 'Your previous query failed validation:', built.report, 'Return a corrected query.'].join('\n');
-      modelOutput = await asker.ask(repair, schema, engine, types);
-      const repaired = extractQueryDef(modelOutput);
-      if (repaired) {
-        entry.emittedQuery = repaired;
-        built = await tryBuild(tool, repaired);
-        queryDef = repaired;
-      }
-    }
-    entry.parseError = built.query === null ? built.report || 'model produced no valid query' : null;
+    // The prompt validates with the QUERY PARSER (core's `parse` hook) and
+    // re-prompts on failure through its own `outputRetries` with the underlined,
+    // aid-directed diagnostics — no manual repair round here.
+    const built = await asker.ask(userContent);
+    entry.emittedQuery = built.query ? built.query.toJSON() : null;
+    entry.parseError = built.query === null ? built.report || 'model produced no valid query (after retries)' : null;
     entry.problemCodes = built.codes;
 
     // Build the assertion context (lazy, cached run of the MODEL's query).
@@ -419,7 +427,7 @@ function writeLogs(entries: LogEntry[]): void {
 async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly EvalCase[]): Promise<number> {
   const modelId = process.env['QUERY_EVAL_MODEL']?.trim() || DEFAULT_MODEL;
   console.log(`\nintegration eval — model: ${modelId} (OpenRouter), ${cases.length} case(s)\n`);
-  const asker = createAsker(apiKey, modelId);
+  const asker = createAsker(apiKey, modelId, engine);
 
   const entries: LogEntry[] = [];
   for (const c of cases) {

@@ -35,6 +35,41 @@
  */
 import { z } from 'zod';
 
+/**
+ * A PROCESS-LOCAL registry for the shared-fragment `$def` ids (`Fields_*`,
+ * `Args*`, `param`, `Limit`), kept OFF zod's process-GLOBAL registry.
+ *
+ * WHY: `.meta({ id })` registers into zod's global registry, which THROWS on any
+ * duplicate id. Core's `strictify` (used to build the model wire schema) CLONES
+ * every node and re-applies its `.meta()` — so a schema whose shared fragments
+ * carry a global `id` collides the instant it is strictified ("ID param_g2
+ * already exists in the registry"), crashing the tool-call compile before the
+ * request is even sent. A `.meta({ aid })` does NOT hit the id map (zod's
+ * `add()` only guards the `"id"` key), so re-registering an aid is always safe.
+ *
+ * The shared-fragment ids are needed ONLY so that a PLAIN `z.toJSONSchema` (which
+ * factors reused instances solely by id) still emits one `$def` + `$ref`s rather
+ * than inlining every copy. Routing those ids through THIS local registry (fed to
+ * `z.toJSONSchema` via its `metadata` option) keeps that factoring while leaving
+ * zod's global registry — and therefore `strictify` — id-free and collision-proof.
+ * Core's OWN converter never needed the id: it factors by `aid` (the field-name
+ * enums, `Limit`) or, for the aid-less fragments (`param`, typed `Args`), by
+ * re-encountering the SAME memoized instance (an identity `$ref`), so the
+ * model-facing wire schema stays factored regardless.
+ */
+export const sharedIdRegistry: z.core.$ZodRegistry<{ id: string }> = z.registry<{ id: string }>();
+
+/**
+ * Tag `schema` with a shared-fragment `$def` id in {@link sharedIdRegistry}
+ * (NOT zod's global registry — see its docs). Returns `schema` for chaining. Call
+ * it on the FINAL shared instance (after any `.describe()`), since zod strips an
+ * inherited `id` from a `.describe()`/`.meta()` clone.
+ */
+export function withSharedId(schema: z.ZodTypeAny, id: string): z.ZodTypeAny {
+  sharedIdRegistry.add(schema, { id });
+  return schema;
+}
+
 /** A directed description for one `aid` node. */
 export interface AidInfo {
   /**
@@ -330,11 +365,12 @@ export interface AidOptions {
    */
   kinds?: readonly string[];
   /**
-   * A JSON-Schema `$defs` id to stamp (`meta.id`) ALONGSIDE the `aid`. Set on
-   * SHARED, memoized fragment instances so `z.toJSONSchema` factors them into a
-   * single, readably-named `$def` + `$ref`s instead of inlining every copy. The
-   * `aid` (and its directed error map) is preserved unchanged. Omit for the
-   * common inline nodes.
+   * A JSON-Schema `$defs` id to stamp on SHARED, memoized fragment instances so
+   * a plain `z.toJSONSchema` factors them into a single, readably-named `$def` +
+   * `$ref`s instead of inlining every copy. It is registered in the process-LOCAL
+   * {@link sharedIdRegistry} (NOT zod's global registry), so `strictify` never
+   * re-registers it and collides. The `aid` (and its directed error map) is
+   * preserved unchanged. Omit for the common inline nodes.
    */
   id?: string;
 }
@@ -351,6 +387,10 @@ export interface AidOptions {
  * The returned schema is a CLONE, so chain any `.describe(...)` AFTER `withAid`.
  */
 export function withAid(schema: z.ZodTypeAny, aid: string, opts: AidOptions = {}): z.ZodTypeAny {
-  const cloned = schema.clone({ ...schema.def, error: makeAidError(aid, opts.kinds) });
-  return cloned.meta(opts.id !== undefined ? { aid, id: opts.id } : { aid });
+  const cloned = schema.clone({ ...schema.def, error: makeAidError(aid, opts.kinds) }).meta({ aid });
+  // The shared-fragment `id` goes into the process-LOCAL registry (see
+  // `sharedIdRegistry`) so it factors under a plain `z.toJSONSchema` WITHOUT
+  // landing in zod's global registry — where `strictify`'s clone-and-re-`.meta()`
+  // would collide on it. The `aid` above stays global (core factors by it).
+  return opts.id !== undefined ? withSharedId(cloned, opts.id) : cloned;
 }
