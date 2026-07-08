@@ -64,21 +64,27 @@ describe('buildQueryTool', () => {
     }
   });
 
-  it('maps a schema envelope failure into schema.invalid problems', async () => {
+  it('maps structural + envelope failures into aid-directed shape.* problems', async () => {
     const fx = runtimeFixture();
     const tool = buildQueryTool(fx.engine);
-    // A structured query missing required members fails the Zod envelope.
+    // A structured query missing required members: the owned parser records a
+    // `shape.required` per missing member (accumulating), at their own paths.
     try {
       await tool.parse(ctx, JSON.stringify({ query: { kind: 'select' } }));
       expect.unreachable('parse should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(QueryToolError);
       if (err instanceof QueryToolError) {
-        expect(err.problems.list.some((p) => p.code === 'schema.invalid')).toBe(true);
+        const codes = err.problems.list.map((p) => p.code);
+        expect(codes).toContain('shape.required');
+        const paths = err.problems.list.map((p) => JSON.stringify(p.path));
+        expect(paths).toContain(JSON.stringify(['fields']));
+        expect(paths).toContain(JSON.stringify(['from']));
         expect(err.report).not.toBe('');
       }
     }
-    // An array-index error path exercises the numeric path-segment branch.
+    // An array-index error path exercises a numeric path segment: a non-object
+    // select field is a directed `shape.not-object` at `fields.0`.
     try {
       await tool.parse(
         ctx,
@@ -88,18 +94,33 @@ describe('buildQueryTool', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(QueryToolError);
       if (err instanceof QueryToolError) {
-        expect(err.problems.list.some((p) => p.code === 'schema.invalid')).toBe(true);
+        const p = err.problems.list.find((q) => JSON.stringify(q.path) === JSON.stringify(['fields', 0]));
+        expect(p?.code).toBe('shape.not-object');
       }
     }
-    // A malformed envelope with NO `query` key still renders a report (exercises
-    // the raw-fallback rendering path).
+    // A malformed ENVELOPE with NO `query` key is caught by the (zod-free)
+    // envelope check and still renders a report.
     try {
       await tool.parse(ctx, JSON.stringify({ notQuery: 1 }));
       expect.unreachable('parse should have thrown');
     } catch (err) {
       expect(err).toBeInstanceOf(QueryToolError);
       if (err instanceof QueryToolError) {
-        expect(err.problems.list.some((p) => p.code === 'schema.invalid')).toBe(true);
+        const p = err.problems.list[0];
+        expect(p?.code).toBe('shape.required');
+        expect(p?.message).toBe('missing required field `query`');
+        expect(err.report).not.toBe('');
+      }
+    }
+    // A non-object envelope (a bare JSON value) is the other envelope arm.
+    try {
+      await tool.parse(ctx, JSON.stringify(42));
+      expect.unreachable('parse should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(QueryToolError);
+      if (err instanceof QueryToolError) {
+        expect(err.problems.list[0]?.code).toBe('shape.not-object');
+        expect(err.problems.list[0]?.message).toContain('a query request');
         expect(err.report).not.toBe('');
       }
     }

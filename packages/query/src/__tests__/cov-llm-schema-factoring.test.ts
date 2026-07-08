@@ -91,7 +91,9 @@ const VALID: ReadonlyArray<readonly [string, QueryDef]> = [
  * contain (or `null` to only assert rejection when the message is union-noisy).
  */
 const INVALID: ReadonlyArray<readonly [string, object, string | null]> = [
-  ['unknown field', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'ghost' } }], from: { kind: 'type', type: 'user' } }, 'expected a field name'],
+  // The owned parser accepts any string field (structure only); an unknown field
+  // is a SEMANTIC (validateWalk) rejection with the directed, didYouMean message.
+  ['unknown field', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'ghost' } }], from: { kind: 'type', type: 'user' } }, "has no field 'ghost'"],
   ['typo expr kind', { kind: 'select', fields: [{ expr: { kind: 'comparise', op: '=', left: { kind: 'literal', value: 1 }, right: { kind: 'literal', value: 1 } } }], from: { kind: 'type', type: 'user' } }, 'unknown expression kind `comparise` — did you mean `comparison`?'],
   ['bad comparison op', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' }, where: [{ kind: 'comparison', op: 'equals', left: { kind: 'literal', value: 1 }, right: { kind: 'literal', value: 1 } }] }, 'expected a comparison operator: =, <>, <, <=, >, >=, like, notLike, ilike'],
   ['expr got string', { kind: 'select', fields: [{ expr: { kind: 'comparison', op: '=', left: 'oops', right: { kind: 'literal', value: 1 } } }], from: { kind: 'type', type: 'user' } }, 'expected an expression'],
@@ -99,7 +101,8 @@ const INVALID: ReadonlyArray<readonly [string, object, string | null]> = [
   ['unknown function', { kind: 'select', fields: [{ expr: { kind: 'function-call', function: 'nope', args: { x: { kind: 'literal', value: 1 } } } }], from: { kind: 'type', type: 'user' } }, null],
   ['bad limit', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' }, limit: 'three' }, 'expected a number or a param'],
   ['missing fields', { kind: 'select', from: { kind: 'type', type: 'user' } }, null],
-  ['unknown query kind', { kind: 'frobnicate' }, 'unknown query kind `frobnicate` (available: select, insert, update, delete, union, intersect, except, cte, expr)'],
+  // The owned parser lists the available kinds in registration order.
+  ['unknown query kind', { kind: 'frobnicate' }, 'unknown query kind `frobnicate` (available: select, insert, update, delete, expr, cte, union, intersect, except)'],
   ['undeclared fn arg', { kind: 'select', fields: [{ expr: { kind: 'function-call', function: 'lower', args: { wrong: { kind: 'field-ref', source: 'user', field: 'name' } } } }], from: { kind: 'type', type: 'user' } }, null],
 ];
 

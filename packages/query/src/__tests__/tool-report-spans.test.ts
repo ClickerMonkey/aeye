@@ -3,8 +3,8 @@
  * diagnostics over the model's own query JSON — closing the "no spans" gap.
  *
  * Coverage of the underlining pipeline end-to-end:
- *  - a STRUCTURAL (zod) failure at a nested path (a comparison with a string
- *    `left`) underlines the offending value in the rendered JSON;
+ *  - a STRUCTURAL (owned-parser) failure at a nested path (a comparison with a
+ *    string `left`) underlines the offending value in the rendered JSON;
  *  - a SEMANTIC (validateWalk) failure (an unknown field) underlines the
  *    offending field-ref;
  *  - a problem whose path resolves to NO JSON node degrades to a graceful
@@ -40,7 +40,7 @@ function caretLineUnder(report: string, token: string): { source: string; caret:
 }
 
 describe('QueryToolError report underlining', () => {
-  it('underlines a STRUCTURAL zod failure at the offending nested value', async () => {
+  it('underlines a STRUCTURAL owned-parser failure at the offending nested value', async () => {
     const fx = runtimeFixture();
     // A comparison whose `left` is a string instead of an expr object.
     const bad = {
@@ -51,13 +51,14 @@ describe('QueryToolError report underlining', () => {
     };
     const err = await toolError(fx, bad);
 
-    // Exactly one, isolated problem — the union noise is collapsed.
-    expect(err.problems.list.some((p) => p.code === 'schema.invalid')).toBe(true);
-    const zodProblem = err.problems.list.find((p) => p.code === 'schema.invalid')!;
-    expect(zodProblem.path).toEqual(['query', 'where', 0, 'left']);
+    // Exactly one, isolated structural problem at the child-expr slot. Its path
+    // is relative to the `query` def (no leading `query` envelope segment).
+    expect(err.problems.list.some((p) => p.code === 'shape.not-object')).toBe(true);
+    const structural = err.problems.list.find((p) => p.code === 'shape.not-object')!;
+    expect(structural.path).toEqual(['where', 0, 'left']);
 
     // The report shows the JSON and underlines the `"oops"` token precisely,
-    // now with the DIRECTED, domain-specific message (not Zod's generic type).
+    // with the DIRECTED, domain-specific message (not Zod's generic type).
     expect(err.report).toContain('"left": "oops"');
     expect(err.report).toContain('expected an expression');
     const { source, caret } = caretLineUnder(err.report, '"left": "oops"');

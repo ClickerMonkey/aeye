@@ -3,21 +3,34 @@
  *
  * It BUILDS a core `Tool` whose wire schema is the engine's query schema and
  * whose custom `parse` REPLACES Zod validation: it validates the envelope,
- * parses the structured `query` def into a runnable `Query`, and runs the full
- * engine validation (structure + params + per-Type validators). On any problem
- * it returns a rich `QueryToolError` whose `.message` is a concise,
- * compiler-style report (via `formatProblems`) — so the model sees the
- * diagnostics instead of Zod's harder-to-follow messages. When the query is
- * clean the decoded value is the built `Query`, and the tool's `call` handler
- * RUNS it, returning a `QueryResult`.
+ * STRUCTURALLY parses the `query` def into a runnable `Query` via the engine's
+ * OWNED, zod-free structural parser (`registry.parseCheckedQuery`, see
+ * `shape/`), and then runs the full engine SEMANTIC validation (params +
+ * per-Type validators + unknown names). On any problem it returns a rich
+ * `QueryToolError` whose `.message` is a concise, compiler-style report (via
+ * `formatProblems`) — so the model sees the diagnostics instead of Zod's
+ * harder-to-follow messages. When the query is clean the decoded value is the
+ * built `Query`, and the tool's `call` handler RUNS it, returning a
+ * `QueryResult`.
  *
- * The pipeline mirrors the old framework-neutral builder:
- *  1. validate the input against the tool's Zod `schema`;
- *  2. in STRUCTURED mode, parse the `query` object into a runnable `Query` and
- *     run the full engine validation, rendering any `Problems` LLM-friendly via
+ * STRUCTURE vs SEMANTICS. Zod is NO LONGER the validator — it is only the
+ * model-facing WIRE SCHEMA (`querySchema` / `buildSchemas`), exposed as the
+ * tool's `schema` for the model to emit against (and for `compile` / strict
+ * mode). The ACTIVE structural gate is the owned parser: it accepts any
+ * REGISTERED expr / query / source kind with any string field (capability +
+ * depth are wire-schema concerns), accumulating one-or-more aid-directed,
+ * `didYouMean`-suggesting problems in a single pass and NEVER throwing. Unknown
+ * Types / fields / functions are caught DOWNSTREAM by `validateQuery` /
+ * `validateWalk` with the existing aid-directed SEMANTIC messages.
+ *
+ * The pipeline:
+ *  1. validate the ENVELOPE (`{ query: … }`) structurally — no zod;
+ *  2. in STRING-FALLBACK mode (too many Types — see `shouldUseStringSchema`) or
+ *     when `query` is a prose string, report that it still needs structuring;
+ *  3. in STRUCTURED mode, STRUCTURALLY parse the `query` object into a runnable
+ *     `Query` (accumulating problems); if it is structurally sound, run the full
+ *     engine SEMANTIC validation, rendering any `Problems` LLM-friendly via
  *     `formatProblems`;
- *  3. in STRING-FALLBACK mode (too many Types — see `shouldUseStringSchema`),
- *     report that the prose query still needs structuring;
  *  4. RUN the validated query in `call`.
  *
  * The `instructions` embed the engine's capability summary + example query
@@ -25,11 +38,12 @@
  */
 import { z } from 'zod';
 import { Tool } from '@aeye/core';
-import type { QueryDef } from '../schema';
 import type { QueryEngine } from '../engine';
 import type { Query, QueryResult } from '../queries/query';
 import type { RuntimeOptions } from '../runtime/context';
 import { Problems } from '../problem';
+import { isRecord, expected } from '../shape';
+import type { QueryDef } from '../schema';
 import { Code, type FormatProblemsOptions } from '../code';
 import { describeEngine, exampleQueriesText } from './describe';
 import {
@@ -78,120 +92,6 @@ export interface BuildQueryToolOptions extends QuerySchemaOptions {
   report?: FormatProblemsOptions;
 }
 
-/** Whether a value is a structured query def (an object with a `kind`). */
-function isQueryDef(value: QueryDef | string): value is QueryDef {
-  return typeof value === 'object' && value !== null;
-}
-
-/** One flattened zod leaf: its ABSOLUTE structural path + zod's message + code. */
-interface FlatZodIssue {
-  path: (string | number)[];
-  message: string;
-  code: string;
-}
-
-/** Keep only the `string | number` segments of a zod issue path (drops symbol keys). */
-function pathSegments(path: ReadonlyArray<PropertyKey>): (string | number)[] {
-  /* v8 ignore next 3 -- zod issue paths are always string | number here, so the guard's false branch is dead */
-  return path.filter(
-    (seg): seg is string | number => typeof seg === 'string' || typeof seg === 'number',
-  );
-}
-
-/**
- * A branch REJECTED the value's `kind` discriminant (it's the wrong shape) — its
- * failure is a `kind` literal mismatch rather than a genuine deeper problem, so
- * it is pruned even though it may ALSO report incidental deep failures (a
- * wrong-`kind` branch's other required members are "missing" too).
- */
-function rejectsDiscriminant(leaves: ReadonlyArray<FlatZodIssue>): boolean {
-  return leaves.some((f) => f.path[f.path.length - 1] === 'kind' && f.code === 'invalid_value');
-}
-
-/**
- * A (kind-matching) branch ENGAGED past the discriminant: it failed on a
- * genuinely-bad value DEEPER than the union's own path. A leaf AT the union's
- * path is a wrong-primitive (the value isn't even an object); a leaf at `kind`
- * is the discriminant itself — neither engages.
- */
-function engagesPastDiscriminant(
-  leaves: ReadonlyArray<FlatZodIssue>,
-  prefixLen: number,
-): boolean {
-  return leaves.some((f) => f.path.length > prefixLen && f.path[prefixLen] !== 'kind');
-}
-
-/**
- * Flatten a zod issue tree into concrete leaves with ABSOLUTE paths, isolating
- * the OFFENDING location within the (recursive, `.or`-folded) query schema.
- *
- * The query / expr / source schemas are `kind`-discriminated unions, so any
- * nested failure surfaces as an `invalid_union` whose branches are the
- * alternative shapes. At each union:
- *  - If SOME branch ENGAGED past the `kind` (matched the shape and failed
- *    deeper), keep the deepest-reaching such matches — that shape parsed
- *    furthest before hitting the genuinely-bad value, and its leaves already
- *    carry the DIRECTED message of the node that rejected it.
- *  - If NO branch engaged (a bogus / absent `kind`, or a primitive where an
- *    object was required), the value fits none of the options: emit ONE leaf at
- *    the union's OWN path carrying the union's DIRECTED message (its
- *    aid-directed "expected an expression" / "unknown … kind `x` — did you mean
- *    `y`?"), so the whole offending value is underlined with domain text. The
- *    `invalid_value` code lets a PARENT union recognise a bad `kind`
- *    discriminant here and prune this whole (wrong-shape) branch.
- */
-function flattenZodIssues(
-  issues: ReadonlyArray<z.core.$ZodIssue>,
-  prefix: ReadonlyArray<string | number>,
-): FlatZodIssue[] {
-  const out: FlatZodIssue[] = [];
-  for (const issue of issues) {
-    const abs = [...prefix, ...pathSegments(issue.path)];
-    if (issue.code === 'invalid_union') {
-      const branches = issue.errors.map((branch) => flattenZodIssues(branch, abs));
-      // Drop wrong-`kind` branches, then keep only survivors that failed DEEPER
-      // than the discriminant (the shape that actually matched the value's kind).
-      const survivors = branches.filter((b) => !rejectsDiscriminant(b));
-      const engaged = survivors.filter((b) => engagesPastDiscriminant(b, abs.length));
-      if (engaged.length === 0) {
-        // The value matches NO shape here (a bogus / absent `kind`, or a
-        // primitive where an object was required). Emit ONE leaf at the union's
-        // own path carrying its aid-directed message.
-        out.push({ path: abs, message: issue.message, code: 'invalid_value' });
-        continue;
-      }
-      const maxDepth = engaged.reduce(
-        (m, b) => Math.max(m, b.reduce((d, f) => Math.max(d, f.path.length), 0)),
-        0,
-      );
-      for (const b of engaged) {
-        if (b.reduce((d, f) => Math.max(d, f.path.length), 0) === maxDepth) out.push(...b);
-      }
-    } else {
-      out.push({ path: abs, message: issue.message, code: issue.code });
-    }
-  }
-  return out;
-}
-
-/**
- * Map a Zod validation failure into `Problems` — one `schema.invalid` error per
- * DISTINCT offending location. Union noise is collapsed by `flattenZodIssues`,
- * so each problem's path points at (or into) the value the model must fix,
- * letting `reportFor` underline it in the query JSON.
- */
-function problemsFromZod(error: z.ZodError): Problems {
-  const p = new Problems();
-  const seen = new Set<string>();
-  for (const leaf of flattenZodIssues(error.issues, [])) {
-    const key = JSON.stringify(leaf.path);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    p.at(leaf.path, () => p.error('schema.invalid', leaf.message));
-  }
-  return p;
-}
-
 /**
  * Render problems as compiler-style, UNDERLINED diagnostics over the model's
  * own query JSON. `Code.fromJson(value)` emits the canonical
@@ -200,62 +100,61 @@ function problemsFromZod(error: z.ZodError): Problems {
  * at the offending value with surrounding context; a problem whose path
  * resolves to no node keeps the graceful `<severity>: <message> @ <path>`
  * fallback line. `value` is the JSON the problems' paths are relative to — the
- * structured `query` def for parse/validate problems, or the raw envelope for
- * schema-envelope failures (whose zod paths include the leading `query`).
+ * structured `query` def for structural/semantic problems, or the raw envelope
+ * for envelope failures.
  */
 function reportFor(value: unknown, problems: Problems, opts?: FormatProblemsOptions): string {
   if (problems.list.length === 0) return '';
   return Code.fromJson(value).formatProblems(problems, opts);
 }
 
-/** The parse+validate pipeline (steps 1–4, WITHOUT running the query). */
+/** The parse+validate pipeline (steps 1–3, WITHOUT running the query). */
 function parseQueryInput(
   engine: QueryEngine,
-  schema: z.ZodType<QueryToolInput>,
   useString: boolean,
   raw: unknown,
   reportOpts?: FormatProblemsOptions,
 ): { query: Query | null; problems: Problems; report: string } {
-  // 1. Validate the envelope against the tool schema.
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) {
-    const problems = problemsFromZod(parsed.error);
-    // Render against the raw ENVELOPE: zod issue paths include the leading
-    // `query`, so they resolve to nodes in `jsonSource(raw)` and underline.
+  // 1. Validate the ENVELOPE structurally (no zod): it must be an object that
+  // carries a `query` member. Both failures render against the raw envelope,
+  // whose root span underlines the whole offending value.
+  if (!isRecord(raw)) {
+    const problems = new Problems();
+    problems.error('shape.not-object', expected('QueryRequest', raw));
     return { query: null, problems, report: reportFor(raw, problems, reportOpts) };
   }
-  const input = parsed.data;
+  if (!('query' in raw)) {
+    const problems = new Problems();
+    problems.error('shape.required', 'missing required field `query`');
+    return { query: null, problems, report: reportFor(raw, problems, reportOpts) };
+  }
+  const queryValue = raw['query'];
 
-  // 2. String-fallback mode: prose can't be made runnable here.
-  if (useString || !isQueryDef(input.query)) {
+  // 2. String-fallback mode: prose (the degraded string schema) can't be made
+  // runnable here. Preserved from the zod era: the prose branch fires whenever
+  // the schema degraded to the string form OR the `query` value is a string.
+  if (useString || typeof queryValue === 'string') {
     const problems = new Problems();
     problems.info(
       'query.needs-structuring',
       'Received a prose query; it must be converted to a structured query before it can run.',
     );
-    return { query: null, problems, report: reportFor(input.query, problems, reportOpts) };
+    return { query: null, problems, report: reportFor(queryValue, problems, reportOpts) };
   }
 
-  // 3. Parse the structured def into a runnable Query.
-  const queryDef = input.query;
-  let query: Query;
-  try {
-    query = engine.parseQuery(queryDef);
-    /* v8 ignore start -- defensive: the tool's Zod schema mirrors the parser, so a schema-valid query never fails to parse here */
-  } catch (err) {
-    const problems = new Problems();
-    problems.error(
-      'query.parse-error',
-      err instanceof Error ? err.message : 'Failed to parse the query.',
-    );
-    return { query: null, problems, report: reportFor(queryDef, problems, reportOpts) };
+  // 3. STRUCTURALLY parse the `query` def into a runnable `Query` via the owned,
+  // zod-free structural parser (accumulating, aid-directed, never throws). On
+  // ANY structural problem, stop here — the source map underlines each one.
+  const problems = new Problems();
+  const query = engine.registry.parseCheckedQuery(queryValue, problems);
+  if (query === undefined || problems.hasErrors) {
+    return { query: null, problems, report: reportFor(queryValue, problems, reportOpts) };
   }
-  /* v8 ignore stop */
 
-  // 4. Validate (structure + params + per-Type validators).
-  const problems = engine.validateQuery(query);
-  const report = reportFor(queryDef, problems, reportOpts);
-  return { query, problems, report };
+  // 4. Structurally sound ⇒ run SEMANTIC validation (structure walk + params +
+  // per-Type validators + unknown-name diagnostics).
+  const semantic = engine.validateQuery(query);
+  return { query, problems: semantic, report: reportFor(queryValue, semantic, reportOpts) };
 }
 
 /**
@@ -278,6 +177,10 @@ export function buildQueryTool(
   // `ZodType<unknown>` with a COVARIANT output, so it is not statically
   // assignable to the `ZodType<QueryToolInput>` the core `Tool.schema` field
   // requires. Assert the validated wire shape once, here, at the boundary.
+  //
+  // Zod is the model-facing WIRE SCHEMA only — the tool exposes it as `schema`
+  // for the model to emit against (and for `compile` / strict mode). The ACTIVE
+  // structural gate is the owned parser inside `parse` (see `parseQueryInput`).
   const schema = querySchema(engine, options) as z.ZodType<QueryToolInput>;
 
   // In STRUCTURED mode, tell the model which positions the active `depth`
@@ -314,16 +217,11 @@ export function buildQueryTool(
       'Execute a structured query (select / insert / update / delete / set-op / cte) over the available Types.',
     instructions,
     schema,
-    // Custom parser REPLACES Zod: validate + parse + validate the query, then
-    // return the runnable `Query` (clean) or a rich `QueryToolError` (problems).
+    // Custom parser REPLACES Zod: validate the envelope, STRUCTURALLY parse +
+    // SEMANTICALLY validate the query, then return the runnable `Query` (clean)
+    // or a rich `QueryToolError` (problems).
     parse: (raw, _ctx) => {
-      const { query, problems, report } = parseQueryInput(
-        engine,
-        schema,
-        useString,
-        raw,
-        options.report,
-      );
+      const { query, problems, report } = parseQueryInput(engine, useString, raw, options.report);
       if (query && !problems.hasErrors) return query;
       return new QueryToolError(problems, report);
     },

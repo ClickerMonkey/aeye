@@ -124,6 +124,7 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   Join: { label: 'a JOIN clause, an object of { on: { source, field } }' },
 
   // ── Query / source building blocks (owned structural parser) ──────────────
+  QueryRequest: { label: 'a query request, an object of { query: <query def> }' },
   SourceName: { label: 'a bound source name' },
   SelectField: { label: 'a select field, an object of { expr, as? }' },
   FieldValue: { label: 'a field assignment, an object of { field, value }' },
