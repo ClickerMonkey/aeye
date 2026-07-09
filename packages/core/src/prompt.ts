@@ -806,6 +806,14 @@ export class Prompt<
     let result: TDecoded | undefined = undefined;
     let lastError: string | undefined = undefined;
     let completeText: string = '';
+    // Runtime schema-delivery fallback guard. A model whose descriptor ALLOWS
+    // the schema (so the static `canExpress` check passes and structured output
+    // is sent) can still return EMPTY or unparseable content for it. When that
+    // happens under `schemaDelivery: 'auto'` we promote delivery to prompt-text
+    // for the RETRY (see the json-parsing branch below). This flag keeps the
+    // promotion idempotent within a single prompt run — we switch at most once
+    // and never loop. Per-run only; nothing is persisted across requests.
+    let promotedToPromptDelivery = false;
     let maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + 1;
     let requestUsageSent = false;
     let usage: Usage | undefined = undefined;
@@ -1356,6 +1364,32 @@ export class Prompt<
               errMax,
             );
             resetReason = 'json-parsing';
+          }
+
+          // Runtime schema-delivery fallback. The structured response was EMPTY
+          // or its JSON was UNPARSEABLE (`json-parsing` reset — either the
+          // content had no JSON object to extract or `JSON.parse` threw). Some
+          // models (e.g. meta-llama/llama-4-maverick via OpenRouter) accept a
+          // `response_format` json_schema whose descriptor CAN express the
+          // schema yet reply with `finish: stop` and empty content, so the
+          // static `canExpress` fallback in the ai layer never fires. Promote
+          // this prompt's schema delivery to prompt-text for the RETRY: flip
+          // the outgoing request's `responseFormat.schemaDelivery` to 'prompt'
+          // so `applySchemaDeliveryFallback` (ai layer) drops `response_format`
+          // and appends the schema as text + fallback instruction on the next
+          // request build. Only when delivery is 'auto' and structured output
+          // was actually attempted (`responseFormat` still an object), and only
+          // once per run (`promotedToPromptDelivery` guard) so we never loop.
+          // The switch is not remembered beyond this run. This reuses the
+          // existing outputRetries re-prompt mechanism below to re-issue.
+          if (
+            resetReason === 'json-parsing' &&
+            !promotedToPromptDelivery &&
+            typeof request.responseFormat === 'object' &&
+            (request.responseFormat.schemaDelivery ?? 'auto') === 'auto'
+          ) {
+            request.responseFormat.schemaDelivery = 'prompt';
+            promotedToPromptDelivery = true;
           }
 
           if (errorMessage) {

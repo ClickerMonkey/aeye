@@ -411,6 +411,12 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
       content: '{{instructions}}\n\n{{userPrompt}}',
       input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
       schema: () => wireSchema,
+      // Headroom for the runtime schema-delivery fallback (attempt 1 structured
+      // may come back empty/unparseable for models that accept a `response_format`
+      // json_schema yet reply with empty content — e.g. llama-4-maverick — after
+      // which core promotes delivery to prompt-text and re-issues) PLUS the normal
+      // query-error re-prompts. Was the default 2; 5 covers fallback + retries.
+      outputRetries: 5,
       // The deeply-recursive query schema is NOT compatible with provider strict
       // structured output (open+strict → the model drifts into `literal` vs
       // `field-ref`; paired+strict → OpenAI rejects the ~95KB schema). Opt out of
