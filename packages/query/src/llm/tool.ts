@@ -158,6 +158,44 @@ function parseQueryInput(
 }
 
 /**
+ * STANDALONE parse+validate for a query REQUEST — the same pipeline
+ * `buildQueryTool`'s custom `parse` runs, WITHOUT building a Tool. Given the
+ * conceptual `{ query: … }` envelope (already wire-decoded by core before any
+ * Tool/Prompt custom parse, or a directly-parsed CLI/file def), it validates
+ * the envelope, structurally parses the `query` def, and semantically validates
+ * it — returning the runnable `Query` (or `null`) alongside the accumulated
+ * `problems` and their underlined, aid-directed `report`. Use this when you
+ * only need to parse/validate (CLI, file, integration harness); reach for
+ * `buildQueryTool` only when you need a runnable core `Tool`.
+ */
+export function parseQueryRequest(
+  engine: QueryEngine,
+  raw: unknown,
+  options: BuildQueryToolOptions = {},
+): { query: Query | null; problems: Problems; report: string } {
+  const types = options.types ?? engine.registry.typeList();
+  const useString = shouldUseStringSchema(types, options.max);
+  return parseQueryInput(engine, useString, raw, options.report);
+}
+
+/**
+ * STANDALONE convenience over `parseQueryRequest`: return the runnable `Query`
+ * when the request is clean, or a rich `QueryToolError` (carrying the problems
+ * + underlined report) otherwise. This is the exact result `buildQueryTool`'s
+ * custom `parse` produces — the tool reuses it — so a direct
+ * `parseQueryTool(engine, { query })` call and `buildQueryTool(engine).parse`
+ * are interchangeable for parsing.
+ */
+export function parseQueryTool(
+  engine: QueryEngine,
+  raw: unknown,
+  options: BuildQueryToolOptions = {},
+): Query | QueryToolError {
+  const { query, problems, report } = parseQueryRequest(engine, raw, options);
+  return query && !problems.hasErrors ? query : new QueryToolError(problems, report);
+}
+
+/**
  * Build a ready-wired core `Tool` for an engine: its wire schema is the
  * engine's query schema, its custom `parse` validates + parses an LLM-supplied
  * query into a runnable `Query` (returning a rich `QueryToolError` on any
@@ -219,12 +257,9 @@ export function buildQueryTool(
     schema,
     // Custom parser REPLACES Zod: validate the envelope, STRUCTURALLY parse +
     // SEMANTICALLY validate the query, then return the runnable `Query` (clean)
-    // or a rich `QueryToolError` (problems).
-    parse: (raw, _ctx) => {
-      const { query, problems, report } = parseQueryInput(engine, useString, raw, options.report);
-      if (query && !problems.hasErrors) return query;
-      return new QueryToolError(problems, report);
-    },
+    // or a rich `QueryToolError` (problems). Delegates to the STANDALONE
+    // `parseQueryTool` — ONE parse implementation shared with direct callers.
+    parse: (raw, _ctx) => parseQueryTool(engine, raw, options),
     // The handler RUNS the (already-validated) query in-memory.
     call: (query, _refs, _ctx) => engine.run(query, options.runtime),
   });

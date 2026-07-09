@@ -7,16 +7,17 @@
  * natural-language request at a `query> ` prompt. For each request it:
  *
  *   1. (optionally) narrows the schema to the relevant Types via `selectTypes`,
- *   2. asks an LLM for a STRUCTURED query against `buildQueryTool().schema`,
+ *   2. asks an LLM for a STRUCTURED query against `querySchema(engine)`,
  *      with the prompt fully informed by `describeEngine(engine)` (every Type,
  *      every usable expr kind, every function) threaded through the prompt's
  *      context,
- *   3. parses the model output with `tool.parse(...)` — which validates +
- *      parses it into a runnable `Query`, throwing a `QueryToolError` (its
- *      `.report` is LLM-friendly `Problems`) on failure; on that failure it does
- *      ONE repair round feeding the formatted errors back,
- *   4. runs the built query via `tool.run(...)` in-memory and prints the rows +
- *      resolved output fields.
+ *   3. parses the model output with `parseQueryTool(engine, { query })` — which
+ *      validates + parses it into a runnable `Query`, returning a
+ *      `QueryToolError` (its `.report` is LLM-friendly `Problems`) on failure;
+ *      on that failure it does ONE repair round feeding the formatted errors
+ *      back,
+ *   4. runs the built query via `engine.run(...)` in-memory and prints the rows
+ *      + resolved output fields.
  *
  * This file is DEV-ONLY (it lives under `examples/` and is never published).
  * The non-LLM pieces (`loadDataDir`, `buildQuery`, `runBuiltQuery`) are
@@ -44,13 +45,12 @@ import { OpenRouterProvider } from '@aeye/openrouter';
 import { AWSBedrockProvider } from '@aeye/aws';
 import { models, strictSupport } from '@aeye/models';
 
-import type { Context } from '@aeye/core';
 import {
   createRegistry,
   QueryEngine,
   arrayExecutor,
   inferType,
-  buildQueryTool,
+  parseQueryTool,
   QueryToolError,
   querySchema,
   describeTypes,
@@ -68,6 +68,7 @@ import {
   type SourceRecord,
   type SchemaDepth,
   type FunctionSelector,
+  type BuildQueryToolOptions,
 } from '../src/index';
 
 // ════════════════════════════════════════════════════════════════════════
@@ -183,10 +184,7 @@ export function loadDataDir(dir: string): LoadedData {
 // Query build + run (no LLM — exported for the offline test)
 // ════════════════════════════════════════════════════════════════════════
 
-/** A minimal, cast-free context for the tool's `parse` / `run` calls. */
-const TOOL_CTX: Context<{}, {}> = {};
-
-/** The outcome of building a query def through the tool (no throw on failure). */
+/** The outcome of building a query def through the parser (no throw on failure). */
 export interface BuiltQuery {
   /** The parsed, runnable query — `null` when the def was invalid. */
   query: Query | null;
@@ -197,42 +195,39 @@ export interface BuiltQuery {
 }
 
 /**
- * Run a query DEF (as an LLM would emit) through `buildQueryTool().parse` —
- * validating + parsing it into a runnable `Query`. On failure the tool's
- * `parse` throws a `QueryToolError` (its `.message` is the formatted report);
- * we CATCH it and return the report so the REPL / test can inspect it without a
- * throw. `types` optionally narrows the tool's schema.
- */
-export async function buildQuery(
+ * Run a query DEF (as an LLM would emit) through the STANDALONE
+ * `parseQueryTool` — validating + parsing it into a runnable `Query` WITHOUT
+ * building a Tool. A directly-supplied def is already conceptual, so it needs
+ * no wire decode. On failure it returns a `QueryToolError` (its `.report` is
+ * the formatted diagnostics); we surface that as `{ query: null, report }` so
+ * the REPL / test can inspect it without a throw. `types` optionally narrows
+ * the parse options. */
+export function buildQuery(
   engine: QueryEngine,
   queryDef: QueryDef,
   types?: Type[],
-): Promise<BuiltQuery> {
-  const tool = buildQueryTool(engine, types ? { types } : {});
-  try {
-    const query = await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef }));
-    return { query, report: '', hasErrors: false };
-  } catch (err) {
-    if (err instanceof QueryToolError) {
-      return { query: null, report: err.report, hasErrors: err.problems.hasErrors };
-    }
-    throw err;
+): BuiltQuery {
+  const result = parseQueryTool(engine, { query: queryDef }, types ? { types } : {});
+  if (result instanceof QueryToolError) {
+    return { query: null, report: result.report, hasErrors: result.problems.hasErrors };
   }
+  return { query: result, report: '', hasErrors: false };
 }
 
 /**
- * Build + (if valid) RUN a query def, returning its result. Throws with the
- * formatted problem report when the def doesn't validate — the test asserts on
- * the happy path, the REPL catches + prints the report.
+ * Build + (if valid) RUN a query def, returning its result. Throws the
+ * `QueryToolError` (its `.message` is the formatted report) when the def
+ * doesn't validate — the test asserts on the happy path, the REPL catches +
+ * prints the report.
  */
 export async function runBuiltQuery(
   engine: QueryEngine,
   queryDef: QueryDef,
   types?: Type[],
 ): Promise<QueryResult> {
-  const tool = buildQueryTool(engine, types ? { types } : {});
-  const query = await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef }));
-  return tool.run(query, TOOL_CTX);
+  const result = parseQueryTool(engine, { query: queryDef }, types ? { types } : {});
+  if (result instanceof QueryToolError) throw result;
+  return engine.run(result);
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -424,20 +419,19 @@ function extractQueryDef(modelOutput: unknown): QueryDef | undefined {
 }
 
 /**
- * Parse a query def through the tool WITHOUT throwing: `tool.parse` throws a
- * `QueryToolError` (its `.message` is the formatted report) on failure, which we
- * catch and surface as `{ query: null, report }`.
+ * Parse a query def through the STANDALONE `parseQueryTool` WITHOUT building a
+ * Tool: on failure it returns a `QueryToolError` (its `.report` is the
+ * formatted report), which we surface as `{ query: null, report }`. `options`
+ * are the same parse options used to render the model-facing schema.
  */
-async function tryBuild(
-  tool: ReturnType<typeof buildQueryTool>,
+function tryBuild(
+  engine: QueryEngine,
   queryDef: QueryDef,
-): Promise<{ query: Query | null; report: string }> {
-  try {
-    return { query: await tool.parse(TOOL_CTX, JSON.stringify({ query: queryDef })), report: '' };
-  } catch (err) {
-    if (err instanceof QueryToolError) return { query: null, report: err.report };
-    throw err;
-  }
+  options: BuildQueryToolOptions,
+): { query: Query | null; report: string } {
+  const result = parseQueryTool(engine, { query: queryDef }, options);
+  if (result instanceof QueryToolError) return { query: null, report: result.report };
+  return { query: result, report: '' };
 }
 
 /**
@@ -468,8 +462,9 @@ async function handleRequest(
     functions: CLI_FUNCTIONS,
     maxEnumSize: CLI_MAX_ENUM_SIZE,
   };
-  const tool = buildQueryTool(engine, options);
-  // The model-facing schema is the same wire schema the tool validates against.
+  // The model-facing schema — the model emits against it and core `decodeWire`s
+  // the response with it. Parsing is done DIRECTLY via `parseQueryTool` (below);
+  // no Tool is built here.
   const schema = querySchema(engine, options);
   // The engine's full capability summary rides the prompt CONTEXT (see
   // `createAsker`); the per-request text carries only the schema-shape reminder
@@ -486,7 +481,7 @@ async function handleRequest(
     console.log('The model did not return a structured query. Try rephrasing.');
     return;
   }
-  let built = await tryBuild(tool, queryDef);
+  let built = tryBuild(engine, queryDef, options);
 
   // ── One repair round on validation problems ───────────────────────────────
   if (!built.query) {
@@ -499,7 +494,7 @@ async function handleRequest(
       selected,
     );
     queryDef = extractQueryDef(modelOutput);
-    if (queryDef) built = await tryBuild(tool, queryDef);
+    if (queryDef) built = tryBuild(engine, queryDef, options);
   }
 
   if (!built.query) {
@@ -510,7 +505,7 @@ async function handleRequest(
 
   // ── Run + print ────────────────────────────────────────────────────────────
   if (showSql && queryDef) printSql(engine, queryDef);
-  const result = await tool.run(built.query, TOOL_CTX);
+  const result = await engine.run(built.query);
   printResult(result);
 }
 

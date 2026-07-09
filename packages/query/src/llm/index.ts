@@ -53,6 +53,8 @@ export { selectTypes, type SelectTypesOptions } from './select-types';
 
 export {
   buildQueryTool,
+  parseQueryTool,
+  parseQueryRequest,
   QueryToolError,
   type QueryToolInput,
   type BuildQueryToolOptions,

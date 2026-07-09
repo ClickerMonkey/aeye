@@ -189,14 +189,38 @@ const result = await engine.run(query, { params, filters, includeTotal });
 
 ## The LLM tool
 
-`buildQueryTool(engine, options?)` returns a **ready-wired `@aeye/core` `Tool`** — drop it straight into any core/`@aeye/ai` agent's tool set. Its wire `schema` is the engine's query schema (depth-graduated + capability-gated), and its **custom `parse` REPLACES Zod**: it validates the envelope, parses the structured `query` into a runnable `Query`, and runs full engine validation (structure + params + per-Type validators). On any problem it returns a rich `QueryToolError` whose `.message` is a concise compiler-style report (`formatProblems`), so the model sees real diagnostics instead of Zod's. When clean, the decoded value is the built `Query`, and the tool's `call` handler RUNS it and returns a `QueryResult`. Its `instructions` reflect the active depth + selected functions, and (past `max` Types via `shouldUseStringSchema`) it falls back to a prose-description schema.
+The parse+validate pipeline is exposed **standalone**, so you can validate a query without building a `Tool` just to call `.parse` on it. All three entries share ONE implementation:
+
+- **`parseQueryTool(engine, raw, options?) → Query | QueryToolError`** — the DIRECT parse entry. Given the conceptual `{ query }` envelope, it validates the envelope, parses the structured `query` into a runnable `Query`, and runs full engine validation (structure + params + per-Type validators). Clean ⇒ the built `Query`; any problem ⇒ a rich `QueryToolError` whose `.report` (also its `.message`) is a concise compiler-style report (`formatProblems`), so the model sees real diagnostics instead of Zod's.
+- **`parseQueryRequest(engine, raw, options?) → { query, problems, report }`** — the same pipeline exposing the detailed result: the built `Query` (or `null`), the accumulated `Problems`, and the rendered `report`. (A SEMANTIC failure keeps the built `query` alongside its problems; a STRUCTURAL failure yields `query: null`.)
+- **`buildQueryTool(engine, options?) → Tool`** — the tool WRAPPER, built only when you need a runnable `@aeye/core` `Tool` to drop into an agent's tool set. Its wire `schema` is the engine's query schema (depth-graduated + capability-gated), its custom `parse` DELEGATES to `parseQueryTool` (Zod is demoted to the model-facing wire schema only), and its `call` handler RUNS the validated query and returns a `QueryResult`. Its `instructions` reflect the active depth + selected functions, and (past `max` Types via `shouldUseStringSchema`) it falls back to a prose-description schema.
+
+Because core wire-decodes the model's response **before** any custom `parse` hook runs (and a directly-parsed CLI/file def is already conceptual), the standalone functions operate on the **conceptual** value — they never need the wire schema for parsing.
 
 ```ts
-import { selectTypes, buildSchemas, querySchema, buildQueryTool } from '@aeye/query';
+import { selectTypes, querySchema, parseQueryTool, parseQueryRequest, QueryToolError } from '@aeye/query';
 
 const types = await selectTypes(engine, 'revenue by customer last month'); // narrow the schema
+
+// DIRECT parse — no Tool built. Feed a def straight through (CLI / file / your own loop):
+const parsed = parseQueryTool(engine, { query: someQueryDef }, { depth: 'paired', types });
+if (parsed instanceof QueryToolError) console.log(parsed.report);          // underlined diagnostics
+else console.log(await engine.run(parsed));                                // runnable Query → QueryResult
+
+// Detailed result when you want the problems + report explicitly:
+const { query, problems, report } = parseQueryRequest(engine, { query: someQueryDef }, { types });
+
+// The model-facing schema for your own LLM loop (the model emits against it; core decodes with it):
+const schema = querySchema(engine, { depth: 'paired', types });
+```
+
+Build a `Tool` only when an agent must CALL and RUN it:
+
+```ts
+import { buildQueryTool } from '@aeye/query';
+
 const tool = buildQueryTool(engine, { depth: 'paired', types });
-const query = await tool.parse(ctx, JSON.stringify({ query: someQueryDef })); // built Query (throws QueryToolError on failure)
+const query = await tool.parse(ctx, JSON.stringify({ query: someQueryDef })); // delegates to parseQueryTool (throws QueryToolError on failure)
 const result = await tool.run(query, ctx);                                    // runs it → QueryResult
 ```
 

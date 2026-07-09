@@ -31,9 +31,8 @@ import { AI, type Provider } from '@aeye/ai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { models, strictSupport } from '@aeye/models';
 
-import type { Context } from '@aeye/core';
 import {
-  buildQueryTool,
+  parseQueryTool,
   QueryToolError,
   querySchema,
   describeEngine,
@@ -51,7 +50,6 @@ import { normalize, summarize, compareResults, type NormResult, type AssertCtx }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(HERE, 'logs');
-const TOOL_CTX: Context<{}, {}> = {};
 
 // ════════════════════════════════════════════════════════════════════════════
 // CLI filter flags (apply in BOTH --check and the LLM eval)
@@ -265,7 +263,9 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   const types = engine.registry.typeList();
   // Keep the structured schema (not the string fallback) even with 20 Types.
   const options = { max: types.length + 1, functions: 'all' as const };
-  const tool = buildQueryTool(engine, options);
+  // The prompt's `schema` — the model emits against it AND core `decodeWire`s
+  // the response with it BEFORE our `parse` hook runs (so `parse` sees the
+  // CONCEPTUAL value). No Tool is built: we parse directly with `parseQueryTool`.
   // Same boundary cast the tool applies to its own wire schema (see tool.ts).
   const wireSchema = querySchema(engine, options) as QuerySchema;
   const instructions = `${describeEngine(engine, { types, functions: 'all' })}\n\n${exampleQueriesText()}`;
@@ -283,16 +283,13 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     content: '{{instructions}}\n\n{{userPrompt}}',
     input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
     schema: () => wireSchema,
-    parse: async (raw: unknown, ctx: Context<{}, {}>): Promise<Query | QueryToolError> => {
-      try {
-        return await tool.parse(ctx, JSON.stringify(raw));
-      } catch (err) {
-        if (err instanceof QueryToolError) {
-          errRef.last = err;
-          return err;
-        }
-        throw err;
-      }
+    // `parse` runs the STANDALONE query parser on the (already wire-decoded,
+    // CONCEPTUAL) value — no Tool needed. Clean ⇒ the built `Query`; problems ⇒
+    // the `QueryToolError` whose report the prompt re-prompts with.
+    parse: (raw: unknown): Query | QueryToolError => {
+      const r = parseQueryTool(engine, raw, options);
+      if (r instanceof QueryToolError) errRef.last = r;
+      return r;
     },
     metadata,
   });
