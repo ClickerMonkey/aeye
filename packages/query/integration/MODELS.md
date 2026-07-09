@@ -65,7 +65,8 @@ the request.
 
 | Model | OpenRouter id | Mode | Overall | One-line |
 |-------|---------------|------|---------|----------|
-| Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | 1 | **75/101 (74%)** | best so far |
+| Claude Sonnet 4 | `anthropic/claude-sonnet-4` | 2 | **76/101 (75%)** | native; top of the pack (within noise) |
+| Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | 1 | **75/101 (74%)** | |
 | Gemini 2.5 Flash | `google/gemini-2.5-flash` | 1 | **74/101 (73%)** | |
 | Gemini 3.5 Flash | `google/gemini-3.5-flash` | 1 | **74/101 (73%)** | |
 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` | 2 | **73/101 (72%)** | native; best at windows (10/11) |
@@ -74,7 +75,7 @@ the request.
 | GPT-5.1 | `openai/gpt-5.1` | **4** | **70/101 (69%)** in `auto` (was 4/101); 67/101 (66%) in `prompt` | 400s on the complex schema → runtime fallback |
 | Qwen 2.5 72B (prompt mode) | `qwen/qwen-2.5-72b-instruct` | 3 (flaky) | **52/101 (51%)** in `prompt`; **6/101** flaky in `auto` | genuinely mid-tier SQL |
 | DeepSeek V3 | `deepseek/deepseek-chat` | 2 | **51/101 (50%)** | delivers fine, genuinely weaker SQL |
-| Claude Sonnet 3.7 | `anthropic/claude-3.7-sonnet` | — | **N/A** | HTTP 404 — retired on OpenRouter |
+| Claude Sonnet 3.5 / 3.7 | `anthropic/claude-3.{5,7}-sonnet` | — | **N/A** | HTTP 404 — whole Claude 3.x sonnet line retired on OpenRouter |
 
 _All full runs 2026-07-09. Overall = fraction of the 101 cases whose
 `error`-severity assertions all pass (result matches the oracle). GPT-4o "~69%"
@@ -119,13 +120,19 @@ and (for the stronger models) group-by, date-range, most functions.
 - **Availability:** `gemini-2.0-flash-001` and `gemini-3.5-flash` may be absent
   from the scraped registry / retired; `2.5-flash` and `3-flash-preview` current.
 
-### Anthropic Claude Sonnet 4.6 — `anthropic/claude-sonnet-4.6` — 72%, Mode 2
+### Anthropic Claude Sonnet — `sonnet-4` 75% · `sonnet-4.6` 72% — Mode 2
 
 - Native structured output (1 call/case); the `anthropic` dialect expresses our
-  schema, no fallback needed. Not in the scraped registry but runs fine (id
-  prefix → `anthropic` descriptor).
-- **Best window-function score (10/11)** of any model. Typical elsewhere:
-  subquery 2/7, cte 1/3, write-model 2/6.
+  schema, no fallback needed.
+- **Sonnet 4 (`anthropic/claude-sonnet-4`): 76/101 (75%)** — top of the pack,
+  though within run-to-run noise of the Gemini tier. **Sonnet 4.6
+  (`claude-sonnet-4.6`): 73/101 (72%)**, with the **best window-function score
+  (10/11)** of any model. Both weak in the usual places: subquery 2/7, cte 1/3,
+  write-model 2/6, set-op 3/5.
+- **Older Claude is unreachable:** the entire Claude 3.x sonnet line
+  (`claude-3.5-sonnet`, `claude-3.7-sonnet`) now **404s on OpenRouter** and is
+  absent from the scrape — can't be evaluated here without an Anthropic-direct
+  key. Currently reachable sonnets: 4, 4.5, 4.6, 5 (+ the `~…-latest` alias).
 
 ### Meta Llama-4-Maverick — `meta-llama/llama-4-maverick` — 68%, Mode 3
 
