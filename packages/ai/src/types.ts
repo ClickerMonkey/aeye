@@ -255,7 +255,7 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
 /**
  * Tokenizer type used by the model.
  */
-export type ModelTokenizer = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router';
+export type ModelTokenizer = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'Gemma' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router';
 
 /**
  * Parameter names supported by models.

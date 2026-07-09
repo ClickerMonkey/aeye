@@ -201,9 +201,12 @@ export function convertOpenRouterModel(
     maxOutputTokens: model.top_provider.max_completion_tokens ?? undefined,
     tokenizer: model.architecture.tokenizer as ModelTokenizer,
     supportedParameters: new Set(supportedParameters), // Will be serialized as array
-    metrics: metrics ? {
-      timeToFirstToken: metrics.latency,
-      tokensPerSecond: metrics.throughput,
+    // Only emit metrics for FINITE values. A scraped page value that fails to
+    // parse yields NaN, which `JSON.stringify` turns into `null` — poisoning the
+    // generated `ModelInfo` (whose metric fields are `number | undefined`).
+    metrics: metrics && (Number.isFinite(metrics.latency) || Number.isFinite(metrics.throughput)) ? {
+      timeToFirstToken: Number.isFinite(metrics.latency) ? metrics.latency : undefined,
+      tokensPerSecond: Number.isFinite(metrics.throughput) ? metrics.throughput : undefined,
       // Store uptime in metadata since it's not a standard metric
     } : undefined,
     metadata: {
@@ -212,7 +215,7 @@ export function convertOpenRouterModel(
       canonicalSlug: model.canonical_slug,
       huggingFaceId: model.hugging_face_id,
       created: model.created,
-      uptime: metrics?.uptime,
+      uptime: Number.isFinite(metrics?.uptime) ? metrics?.uptime : undefined,
     },
   };
 }
