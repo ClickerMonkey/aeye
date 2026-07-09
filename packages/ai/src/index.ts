@@ -12,6 +12,7 @@ export * from './registry';
 export * from './apis/models';
 export * from './apis/base';
 export * from './apis/chat';
+export * from './apis/schema-fallback';
 export * from './apis/embed';
 export * from './apis/image';
 export * from './apis/speech';

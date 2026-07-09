@@ -417,6 +417,12 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
       // strict explicitly (the base.ts streaming fix now emits the full ModelInfo,
       // so without this the request would go out strict and regress).
       strict: false,
+      // Auto schema-delivery: for models whose dialect can't express the
+      // union/$ref query schema (e.g. Gemini → HTTP 400 on `anyOf`), the wire
+      // schema is transparently dropped and delivered as prompt text; the
+      // `parse` hook below then runs on the model's text JSON. OpenAI et al.
+      // still send `response_format` (their dialect expresses `anyOf`).
+      schemaDelivery: 'auto',
       // `parse` runs the STANDALONE query parser on the (already wire-decoded,
       // CONCEPTUAL) value — no Tool needed. Clean ⇒ the built `Query`; problems ⇒
       // the `QueryToolError` whose report the prompt re-prompts with.

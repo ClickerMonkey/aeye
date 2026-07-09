@@ -508,8 +508,22 @@ export type ToolChoice =
   | { tool: string };
 
 /**
+ * How a structured output schema is delivered to the model.
+ *
+ * - `'auto'` (default): send the schema as structured output (`response_format`)
+ *   when the selected model's dialect can express it, otherwise transparently
+ *   DROP the wire schema and deliver it as prompt TEXT (see the ai-layer
+ *   `applySchemaDeliveryFallback`). Rescues providers (e.g. Gemini) whose
+ *   structured-output endpoint 400s on unions/`$ref`.
+ * - `'structured'`: always send structured output — even for models whose
+ *   dialect can't express the schema (current pre-fallback behavior).
+ * - `'prompt'`: always DROP the wire schema and deliver it as prompt text.
+ */
+export type SchemaDelivery = 'auto' | 'structured' | 'prompt';
+
+/**
 * Response format options.
-* 
+*
 * - `text`: Plain text response.
 * - `json`: JSON formatted response.
 * - `z.ZodType<object, object>`: A Zod schema defining the expected response structure.
@@ -531,6 +545,11 @@ export type ResponseFormat =
        * matching strictify before parsing model output.
        */
       descriptor?: string,
+      /**
+       * Schema-delivery policy. See `SchemaDelivery`. Defaults to `'auto'`
+       * (structured when expressible, prompt-text fallback otherwise).
+       */
+      schemaDelivery?: SchemaDelivery,
     };
 
 /**

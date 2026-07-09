@@ -2,7 +2,7 @@ import Handlebars from 'handlebars';
 import { ZodType } from 'zod';
 import { Fn, resolveFn } from './common';
 import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
-import { Component, ComponentCompatible, Context, OptionalParams, ToolDefinition, Tuple } from './types';
+import { Component, ComponentCompatible, Context, OptionalParams, SchemaDelivery, ToolDefinition, Tuple } from './types';
     
 /**
  * Configuration for creating a Tool component.
@@ -57,6 +57,15 @@ export interface ToolInput<
    * explicitly when strict is non-negotiable.
    */
   strict?: boolean | number;
+  /**
+   * Schema-delivery policy for this tool's parameter schema. Tri-state,
+   * default `'auto'`. Mirrors `PromptInput.schemaDelivery` / `SchemaDelivery`:
+   * `'auto'` sends the schema as structured output when the selected model's
+   * dialect can express it and otherwise falls back to prompt text;
+   * `'structured'` always sends it structured; `'prompt'` always delivers it
+   * as prompt text.
+   */
+  schemaDelivery?: SchemaDelivery;
   /** References to other components (tools, prompts, agents) that this tool utilizes */
   refs?: TRefs;
   /** The function that implements the tool's behavior. Receives the DECODED

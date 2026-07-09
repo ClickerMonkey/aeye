@@ -125,6 +125,36 @@ export interface FormatDescriptor {
    * entry.
    */
   readonly supportsRecursion: boolean;
+
+  // ---- Prompt-text schema-delivery fallback ----
+  /**
+   * Instruction appended after the schema text when a Prompt's/Tool's schema
+   * can't be expressed as this descriptor's structured output and is instead
+   * delivered to the model as PROMPT TEXT (see `canExpress` and the ai-layer
+   * `applySchemaDeliveryFallback`). Steers the model to emit a single raw JSON
+   * object rather than echoing the schema or wrapping it in prose/fences.
+   *
+   * Optional — descriptors that omit it fall back to
+   * `DEFAULT_JSON_FALLBACK_INSTRUCTION` via `getJsonFallbackInstruction`.
+   */
+  readonly jsonFallbackInstruction?: string;
+}
+
+/**
+ * Default instruction used when a `FormatDescriptor` omits
+ * `jsonFallbackInstruction`. Appended after the schema text when a schema is
+ * delivered as prompt text instead of as structured output.
+ */
+export const DEFAULT_JSON_FALLBACK_INSTRUCTION =
+  'Return ONLY a single raw JSON object conforming to the schema above — no markdown code fences, no prose, and do NOT echo the schema itself.';
+
+/**
+ * Resolve the prompt-text fallback instruction for a descriptor, falling back
+ * to `DEFAULT_JSON_FALLBACK_INSTRUCTION` when the descriptor doesn't declare
+ * one of its own.
+ */
+export function getJsonFallbackInstruction(descriptor: FormatDescriptor): string {
+  return descriptor.jsonFallbackInstruction ?? DEFAULT_JSON_FALLBACK_INSTRUCTION;
 }
 
 const OPENAI_STRICT_FORMATS = new Set([
@@ -302,12 +332,19 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   anyEncoding: 'recursive-open',
   // No documented per-request slot limits.
   supportsRecursion: true,
+  // Gemini's structured-output endpoint rejects `anyOf`/`$defs` schemas
+  // (HTTP 400). When a schema can't be expressed here it's delivered as
+  // prompt text instead; this hint keeps the reply a single raw JSON object.
+  jsonFallbackInstruction:
+    'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
 });
 
 export const GOOGLE_NON_STRICT: FormatDescriptor = Object.freeze({
   ...LENIENT,
   id: 'google-non-strict',
   family: 'google',
+  jsonFallbackInstruction:
+    'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
 });
 
 // ============================================================================
@@ -431,6 +468,101 @@ export function resolveDescriptor(
   if ('id' in input && 'family' in input) return input as FormatDescriptor;
   const opts = input as ToJSONSchemaOptions;
   return getDescriptor(opts.format ?? 'openai', opts.strict);
+}
+
+/**
+ * Decide whether `schema` can be expressed as structured output under
+ * `descriptor`'s JSON-Schema dialect. Returns `false` when the schema uses a
+ * construct the descriptor forbids, so the caller can DROP the wire schema and
+ * deliver it as prompt text instead (see the ai-layer
+ * `applySchemaDeliveryFallback`).
+ *
+ * Walks the Zod schema in the same style as `strictify`/`convert`, honoring:
+ * - **unions** (`z.union` / `z.discriminatedUnion` → `anyOf`) when
+ *   `!descriptor.allowAnyOf` (e.g. Gemini strict rejects `anyOf`);
+ * - **intersections** (`z.intersection` → `allOf`) when `!descriptor.allowAllOf`;
+ * - **recursion** (a self-referential `z.lazy` cycle → `$ref`): a cycle back to
+ *   the ROOT is fine when `descriptor.allowRootRef && descriptor.supportsRecursion`
+ *   (Gemini supports `$ref: '#'`); a non-root cycle needs
+ *   `descriptor.allowDefsRef && descriptor.supportsRecursion`.
+ *
+ * `ZodNullable` / `ZodOptional` are transparent wrappers here (nullability is
+ * NOT treated as a union), so only genuine `z.union(...)` trips `allowAnyOf`.
+ * Non-combinator, non-recursive schemas (plain objects, arrays, primitives)
+ * are always expressible. The structure mirrors the descriptor flags so more
+ * feasibility checks are easy to add.
+ */
+export function canExpress(schema: z.ZodType, descriptor: FormatDescriptor): boolean {
+  const root: z.ZodType | z.core.$ZodType = schema;
+  // Nodes currently on the DFS stack — a re-encounter is a recursion cycle.
+  const inProgress = new Set<z.ZodType | z.core.$ZodType>();
+  // Completed nodes with their result, so shared (non-cyclic) sub-schemas
+  // aren't re-walked (guards against exponential blow-up on DAG-shaped schemas).
+  const completed = new Map<z.ZodType | z.core.$ZodType, boolean>();
+
+  const walk = (s: z.ZodType | z.core.$ZodType): boolean => {
+    if (inProgress.has(s)) {
+      // Recursion cycle detected at `s`.
+      if (s === root) return descriptor.allowRootRef && descriptor.supportsRecursion;
+      return descriptor.allowDefsRef && descriptor.supportsRecursion;
+    }
+    const cached = completed.get(s);
+    if (cached !== undefined) return cached;
+
+    inProgress.add(s);
+    const result = walkNode(s);
+    inProgress.delete(s);
+    completed.set(s, result);
+    return result;
+  };
+
+  const walkNode = (s: z.ZodType | z.core.$ZodType): boolean => {
+    // ---- Transparent wrappers: recurse into the inner type ----
+    if (s instanceof z.ZodOptional || s instanceof z.ZodNullable) return walk(s.unwrap());
+    if (s instanceof z.ZodDefault) return walk(s._zod.def.innerType);
+    if (s instanceof z.ZodPrefault) return walk(s._zod.def.innerType);
+    if (s instanceof z.ZodCatch) return walk(s._zod.def.innerType);
+    if (s instanceof z.ZodReadonly) return walk(s._zod.def.innerType);
+    if (s instanceof z.ZodNonOptional) return walk(s._zod.def.innerType);
+    if (s instanceof z.ZodLazy) return walk(s._zod.def.getter());
+    // ZodCodec must be checked before ZodPipe (it's a ZodPipe subclass in v4).
+    if (s instanceof z.ZodCodec) return walk(s._zod.def.in) && walk(s._zod.def.out);
+    if (s instanceof z.ZodPipe) return walk(s._zod.def.in) && walk(s._zod.def.out);
+
+    // ---- Combinators (the ones that actually bite) ----
+    // ZodDiscriminatedUnion is a ZodUnion subclass in v4, so this covers both.
+    if (s instanceof z.ZodUnion) {
+      if (!descriptor.allowAnyOf) return false;
+      return (s.options as readonly (z.ZodType | z.core.$ZodType)[]).every(walk);
+    }
+    if (s instanceof z.ZodIntersection) {
+      if (!descriptor.allowAllOf) return false;
+      return walk(s._zod.def.left) && walk(s._zod.def.right);
+    }
+
+    // ---- Containers: recurse so nested combinators/cycles are reached ----
+    if (s instanceof z.ZodObject) {
+      for (const key in s.shape) {
+        if (!walk(s.shape[key])) return false;
+      }
+      return true;
+    }
+    if (s instanceof z.ZodArray) return walk(s._zod.def.element);
+    if (s instanceof z.ZodTuple) {
+      for (const item of s._zod.def.items) {
+        if (!walk(item)) return false;
+      }
+      return s._zod.def.rest ? walk(s._zod.def.rest) : true;
+    }
+    if (s instanceof z.ZodRecord) return walk(s._zod.def.valueType);
+    if (s instanceof z.ZodMap) return walk(s._zod.def.keyType) && walk(s._zod.def.valueType);
+    if (s instanceof z.ZodSet) return walk(s._zod.def.valueType);
+
+    // ---- Leaves / anything without forbidden substructure ----
+    return true;
+  };
+
+  return walk(schema);
 }
 
 type StrictTransformer = (schema: z.ZodType | z.core.$ZodType) => z.ZodType;

@@ -3,7 +3,7 @@ import { ZodString, ZodType } from 'zod';
 
 import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
-import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
+import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify, decodeWire } from "./schema";
 
 /** Default cap (chars) for validation error messages surfaced back to the
@@ -11,6 +11,59 @@ import { getDescriptorById, strictify, decodeWire } from "./schema";
  *  the method to ignore this. Anything past `max` is replaced with a
  *  `… (N more characters)` marker. */
 const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
+
+/**
+ * Extract the outermost balanced JSON object (`{…}`) from arbitrary model
+ * text. Robust to markdown code fences (```json … ```), surrounding prose,
+ * and braces that appear inside string literals — it scans from the first
+ * `{`, tracks string-literal state (respecting backslash escapes), and returns
+ * the slice up to the matching close brace at depth 0.
+ *
+ * Behavior is IDENTICAL to a clean `JSON.stringify`-d object (returns it
+ * verbatim). Falls back to the slice from the first `{` to end when the braces
+ * never balance, and to `''` when there is no `{` at all (matching the prior
+ * substring extractor, so `JSON.parse('')` surfaces the same error downstream).
+ *
+ * Exported for direct unit testing.
+ */
+export function extractJSONObject(text: string): string {
+  const start = text.indexOf('{');
+  if (start === -1) return '';
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  // Unbalanced — return best-effort from the first brace so JSON.parse can
+  // report a precise error.
+  return text.slice(start);
+}
 
 /**
  * Represents a tool that can be selected by the retool function.
@@ -115,6 +168,21 @@ export interface PromptInput<
    * "it just works" against unknown/unannotated models.
    */
   strict?: boolean | number;
+  /**
+   * Schema-delivery policy for the output schema. Tri-state, default `'auto'`:
+   *
+   * - `'auto'` — send the schema as structured output (`response_format`) when
+   *   the selected model's dialect can express it; otherwise transparently DROP
+   *   the wire schema and deliver it as prompt TEXT. The existing extract +
+   *   `parse`/Zod path still validates the model's text JSON. Rescues providers
+   *   (e.g. Gemini) whose structured output 400s on unions/`$ref`.
+   * - `'structured'` — always send structured output, even for dialects that
+   *   can't express the schema (pre-fallback behavior).
+   * - `'prompt'` — always DROP the wire schema and deliver it as prompt text.
+   *
+   * Only affects prompts with a structured (non-`ZodString`) `schema`.
+   */
+  schemaDelivery?: SchemaDelivery;
   // A configuration object or function/promise that returns a configuration object for the AI request.
   config?: Fn<Partial<Request> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
   // After an iteration, a function that can reconfigure the prompt based on runtime statistics.
@@ -1189,11 +1257,11 @@ export class Prompt<
 
           break; // All good!
         } else {
-          // Grab the JSON part from the content just in case...
-          const potentialJSON = content.substring(
-            content.indexOf('{'),
-            content.lastIndexOf('}') + 1
-          );
+          // Grab the JSON part from the content just in case. In the
+          // schema-delivery prompt-text fallback the model replies with
+          // freeform text (possibly fenced / prose-wrapped), so extract the
+          // outermost balanced `{…}` (see `extractJSONObject`).
+          const potentialJSON = extractJSONObject(content);
 
           let errorMessage = '';
           let resetReason = '';
@@ -1535,7 +1603,7 @@ export class Prompt<
 
     // Determine response format
     const responseFormat: ResponseFormat = schema && !(schema instanceof ZodString)
-      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1 }
+      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1, schemaDelivery: this.input.schemaDelivery ?? 'auto' }
       : 'text';
 
     return { config, content, tools, toolObjects, responseFormat, schema };

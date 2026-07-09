@@ -51,6 +51,7 @@ import type {
   SelectedModelFor
 } from '../types';
 import { BaseAPI } from './base';
+import { applySchemaDeliveryFallback } from './schema-fallback';
 
 /**
  * Returns true when a `strict` field expresses a numeric (best-effort)
@@ -251,6 +252,11 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
       throw new Error(`Provider ${selected.provider.name} does not support chat requests`);
     }
 
+    // Provider-agnostic schema-delivery fallback: if the selected model's
+    // dialect can't express the structured schema (or delivery is forced to
+    // prompt), drop `response_format` and deliver the schema as prompt text.
+    applySchemaDeliveryFallback(request, selected.model);
+
     const executor = selected.provider.createExecutor(selected.providerConfig);
     return await executor(request, ctx, ctx.metadata);
   }
@@ -263,6 +269,9 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
     if (!selected.provider.createStreamer) {
       throw new Error(`Provider ${selected.provider.name} does not support chat streaming`);
     }
+
+    // Provider-agnostic schema-delivery fallback (see executeRequest).
+    applySchemaDeliveryFallback(request, selected.model);
 
     const streamer = selected.provider.createStreamer(selected.providerConfig);
     return yield* streamer(request, ctx, ctx.metadata);
