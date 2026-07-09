@@ -71,7 +71,7 @@ const ORDER_SHAPE = obj(
 export class WindowExpr extends Expr {
   static readonly KIND = 'window' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A window (or windowed-aggregate) function over `partitionBy` / `orderBy`." as const;
+  static readonly INSTRUCTIONS = "A window/aggregate fn OVER `orderBy` (sets the ranking/sequence) + optional `partitionBy` (splits rows into INDEPENDENT groups). To rank/number ALL rows together OMIT partitionBy; 'rank by X' → orderBy:[X], NOT partitionBy:[X] (partitioning by the ranking key makes every group size 1)." as const;
   readonly kind = WindowExpr.KIND;
 
   /** Wrap a registered window/aggregate `fn` with its named args and PARTITION BY / ORDER BY clauses. */

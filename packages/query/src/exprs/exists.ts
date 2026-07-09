@@ -26,7 +26,7 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export class ExistsExpr extends BoolExpr {
   static readonly KIND = 'exists' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean." as const;
+  static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean; test whether related rows exist. CORRELATE the inner query to the outer row with a comparison to the outer Type's field-ref." as const;
   readonly kind = ExistsExpr.KIND;
 
   /** Wrap `[NOT] EXISTS (query)` as an existence predicate over a subquery. */

@@ -29,7 +29,7 @@ import type { Cost } from '../cost';
 export class SubqueryExpr extends Expr {
   static readonly KIND = 'subquery' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A scalar / single-field subquery in value position." as const;
+  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — use where ONE value is needed, e.g. comparing a field against an aggregate computed over related rows." as const;
   readonly kind = SubqueryExpr.KIND;
 
   /** Wrap the inner query def evaluated in value position. */

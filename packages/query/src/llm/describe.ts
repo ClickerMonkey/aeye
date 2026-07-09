@@ -22,7 +22,7 @@ import type { QueryEngine } from '../engine';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Field } from '../field';
-import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
+import type { ExprDef, FunctionDef, FunctionShape, QueryDef } from '../schema';
 import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
 import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
 import { defaultConditionWithout } from '../default-conditions';
@@ -283,6 +283,107 @@ export function describeEngine(
 }
 
 /**
+ * WORKED, valid example query defs for the constructs models most often botch —
+ * window RANKING (partition-vs-order), set-ops (UNION), CTEs (WITH), and a
+ * CORRELATED subquery (EXISTS). EXPORTED so a test parses + validates each
+ * against the example fixture: a broken prompt example is worse than none.
+ * Field refs use the example fixture's Type names (`user` / `order` / `product`).
+ */
+export const WORKED_EXAMPLE_QUERIES: Readonly<Record<string, QueryDef>> = {
+  // Window RANKING: rank users by age. `orderBy` sets the ranking key; there is
+  // NO `partitionBy`, so all rows rank together and ties share a rank. (A
+  // `partitionBy:[age]` here would be the classic bug — every group size 1.)
+  window: {
+    kind: 'select',
+    fields: [
+      { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
+      {
+        expr: {
+          kind: 'window',
+          function: 'rank',
+          args: {},
+          orderBy: [{ expr: { kind: 'field-ref', source: 'user', field: 'age' }, dir: 'desc' }],
+        },
+        as: 'ageRank',
+      },
+    ],
+    from: { kind: 'type', type: 'user' },
+  },
+  // UNION: combine two result sets with the SAME output columns into one list.
+  union: {
+    kind: 'union',
+    left: {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'label' }],
+      from: { kind: 'type', type: 'user' },
+    },
+    right: {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'product', field: 'name' }, as: 'label' }],
+      from: { kind: 'type', type: 'product' },
+    },
+  },
+  // CTE (WITH): name a subquery, then FROM that name in the final query.
+  cte: {
+    kind: 'cte',
+    ctes: [
+      {
+        name: 'revenue',
+        query: {
+          kind: 'select',
+          fields: [
+            { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
+            {
+              expr: {
+                kind: 'aggregate',
+                function: 'sum',
+                args: { value: { kind: 'field-ref', source: 'order', field: 'total' } },
+              },
+              as: 'total',
+            },
+          ],
+          from: { kind: 'type', type: 'order' },
+          groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
+        },
+      },
+    ],
+    final: {
+      kind: 'select',
+      fields: [
+        { expr: { kind: 'field-ref', source: 'revenue', field: 'userId' } },
+        { expr: { kind: 'field-ref', source: 'revenue', field: 'total' } },
+      ],
+      from: { kind: 'type', type: 'revenue' },
+    },
+  },
+  // Correlated EXISTS: users who have at least one order. The inner query
+  // correlates to the outer row via `order.userId = user.id`.
+  exists: {
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
+    from: { kind: 'type', type: 'user' },
+    where: [
+      {
+        kind: 'exists',
+        query: {
+          kind: 'select',
+          fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+          from: { kind: 'type', type: 'order' },
+          where: [
+            {
+              kind: 'comparison',
+              op: '=',
+              left: { kind: 'field-ref', source: 'order', field: 'userId' },
+              right: { kind: 'field-ref', source: 'user', field: 'id' },
+            },
+          ],
+        },
+      },
+    ],
+  },
+};
+
+/**
  * A small set of example query JSON snippets to seed an LLM tool's prompt.
  * Sources are referenced by their Type name (`from: { kind: 'type', type:
  * 'user' }`, `field-ref.source: 'user'`) — strict-mode field refs are
@@ -384,6 +485,36 @@ export function exampleQueriesText(): string {
       null,
       2,
     ),
+    '```',
+    '',
+    'A WINDOW ranks/numbers rows: `orderBy` sets the ranking key, and',
+    '`partitionBy` splits rows into INDEPENDENT groups. To rank/number ALL rows',
+    'together OMIT `partitionBy` — "rank by X" means `orderBy:[X]`, NOT',
+    '`partitionBy:[X]` (partitioning by the ranking key makes every group size 1,',
+    'so every rank is 1). Rank users by age (ties share a rank):',
+    '```json',
+    JSON.stringify(WORKED_EXAMPLE_QUERIES.window, null, 2),
+    '```',
+    '',
+    'A UNION / INTERSECT / EXCEPT combines two result sets with the SAME output',
+    'columns (`left` / `right` are full queries). All product + user names in one',
+    'list:',
+    '```json',
+    JSON.stringify(WORKED_EXAMPLE_QUERIES.union, null, 2),
+    '```',
+    '',
+    'A CTE (`kind: "cte"`, a WITH) names one or more subqueries in `ctes`, then the',
+    '`final` query reads a CTE by its name (`from: { kind: "type", type: <cteName> }`,',
+    'field refs `source: <cteName>`). Per-user revenue as a named step:',
+    '```json',
+    JSON.stringify(WORKED_EXAMPLE_QUERIES.cte, null, 2),
+    '```',
+    '',
+    'A correlated subquery (`exists` / `in` for membership, `subquery` for a single',
+    'value) references the OUTER row from inside: correlate via a comparison to the',
+    'outer Type. Users who have placed at least one order:',
+    '```json',
+    JSON.stringify(WORKED_EXAMPLE_QUERIES.exists, null, 2),
     '```',
   ].join('\n');
 }

@@ -12,7 +12,9 @@ import {
   describeDialects,
   describeEngine,
   exampleQueriesText,
+  WORKED_EXAMPLE_QUERIES,
 } from '../llm/describe';
+import { createExampleFixture } from '../../examples/schema';
 import type { TypeDef } from '../schema';
 
 const widgetDef: TypeDef = {
@@ -89,5 +91,23 @@ describe('describeFunctions / describeDialects / describeEngine / describeTypes'
     expect(describeTypes(engine.registry)).toContain('## widget');
     expect(describeEngine(engine)).toContain('dialects:');
     expect(exampleQueriesText()).toContain('field-ref');
+  });
+});
+
+describe('WORKED_EXAMPLE_QUERIES', () => {
+  it('every worked example parses + validates cleanly against the example fixture', () => {
+    const { engine } = createExampleFixture();
+    for (const [name, def] of Object.entries(WORKED_EXAMPLE_QUERIES)) {
+      const problems = engine.validateQuery(engine.parseQuery(def));
+      expect(problems.hasErrors, `${name}: ${problems.list.map((p) => p.code).join(', ')}`).toBe(false);
+    }
+  });
+
+  it('exampleQueriesText embeds the worked examples (window / union / cte / exists)', () => {
+    const text = exampleQueriesText();
+    expect(text).toContain('"kind": "union"');
+    expect(text).toContain('"kind": "cte"');
+    expect(text).toContain('"kind": "exists"');
+    expect(text).toContain('"function": "rank"');
   });
 });

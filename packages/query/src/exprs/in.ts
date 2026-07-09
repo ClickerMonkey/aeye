@@ -37,7 +37,7 @@ import { addCost } from '../cost';
 export class InExpr extends BoolExpr {
   static readonly KIND = 'in' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable)." as const;
+  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable): membership test against an explicit value list OR a single-field subquery." as const;
   readonly kind = InExpr.KIND;
 
   /** Wrap `value [NOT] IN (list | subquery)` as a membership predicate. */
