@@ -51,6 +51,22 @@ import { normalize, summarize, compareResults, type NormResult, type AssertCtx }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(HERE, 'logs');
+/**
+ * Permanent per-run archive: `logs/runs/<ISO-ts>__<model>__<mode>/` holding this
+ * run's `report.json` / `report.md` / `failures.md` / `detail.json`. NEVER
+ * overwritten (each run's stamp is unique), so the full detailed history is
+ * preserved for before/after and regression comparisons across schema changes.
+ * The `logs/latest.json` + root `report.*` files stay as convenience pointers to
+ * the most recent run.
+ */
+const RUNS_DIR = join(LOGS_DIR, 'runs');
+
+/** Filesystem-safe unique run id: `<ISO-ts>__<model>__<mode>`. */
+function runStamp(when: Date, modelId: string, mode: string): string {
+  const ts = when.toISOString().replace(/[:.]/g, '-');
+  const model = modelId.replace(/[^a-zA-Z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return `${ts}__${model}__${mode}`;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // CLI filter flags (apply in BOTH --check and the LLM eval)
@@ -529,13 +545,8 @@ async function runOneCase(
   }
 }
 
-/** Write the gitignored per-case logs (latest.json keyed by id + failures.md). */
-function writeLogs(entries: LogEntry[]): void {
-  mkdirSync(LOGS_DIR, { recursive: true });
-  const keyed: Record<string, LogEntry> = {};
-  for (const e of entries) keyed[e.id] = e;
-  writeFileSync(join(LOGS_DIR, 'latest.json'), `${JSON.stringify(keyed, null, 2)}\n`, 'utf8');
-
+/** Build the human-readable failures markdown for a run. */
+function buildFailuresMd(entries: LogEntry[]): string {
   const failures = entries.filter((e) => !e.passed);
   const md: string[] = [`# Integration eval failures (${failures.length}/${entries.length})`, ''];
   for (const e of failures) {
@@ -559,7 +570,15 @@ function writeLogs(entries: LogEntry[]): void {
     if (e.resultSummary) md.push(`**Model result:** ${e.resultSummary}`, '');
     md.push('---', '');
   }
-  writeFileSync(join(LOGS_DIR, 'failures.md'), `${md.join('\n')}\n`, 'utf8');
+  return `${md.join('\n')}\n`;
+}
+
+/** The keyed per-case detail (id → full LogEntry) written as `detail.json` /
+ *  `latest.json`. */
+function buildDetailJson(entries: LogEntry[]): string {
+  const keyed: Record<string, LogEntry> = {};
+  for (const e of entries) keyed[e.id] = e;
+  return `${JSON.stringify(keyed, null, 2)}\n`;
 }
 
 async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly EvalCase[]): Promise<number> {
@@ -622,9 +641,12 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     catLines.push(line.trim());
   }
 
+  const now = new Date();
+  const mode = evalMode();
   const report = {
     model: modelId,
-    timestamp: new Date().toISOString(),
+    mode,
+    timestamp: now.toISOString(),
     total: entries.length,
     passed,
     passRate: passed / entries.length,
@@ -637,14 +659,33 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
       durationMs: e.durationMs,
     })),
   };
-  writeFileSync(join(HERE, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  writeFileSync(
-    join(HERE, 'report.md'),
-    [`# Integration eval — ${modelId}`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n',
-    'utf8',
-  );
-  writeLogs(entries);
-  console.log(`\nWrote report.json / report.md; per-case logs in ${LOGS_DIR}`);
+
+  // Build every artifact once, then write it to BOTH the permanent per-run
+  // archive AND the convenience "latest" pointers.
+  const reportJson = `${JSON.stringify(report, null, 2)}\n`;
+  const reportMd =
+    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
+  const detailJson = buildDetailJson(entries);
+  const failuresMd = buildFailuresMd(entries);
+
+  // Permanent archive — a unique dir per run, NEVER overwritten.
+  const stamp = runStamp(now, modelId, mode);
+  const runDir = join(RUNS_DIR, stamp);
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, 'report.json'), reportJson, 'utf8');
+  writeFileSync(join(runDir, 'report.md'), reportMd, 'utf8');
+  writeFileSync(join(runDir, 'detail.json'), detailJson, 'utf8');
+  writeFileSync(join(runDir, 'failures.md'), failuresMd, 'utf8');
+
+  // Convenience pointers to the most recent run (overwritten each time).
+  mkdirSync(LOGS_DIR, { recursive: true });
+  writeFileSync(join(HERE, 'report.json'), reportJson, 'utf8');
+  writeFileSync(join(HERE, 'report.md'), reportMd, 'utf8');
+  writeFileSync(join(LOGS_DIR, 'latest.json'), detailJson, 'utf8');
+  writeFileSync(join(LOGS_DIR, 'failures.md'), failuresMd, 'utf8');
+
+  console.log(`\nArchived run → ${join('logs', 'runs', stamp)}  (report.json/md, detail.json, failures.md)`);
+  console.log(`Latest pointers → report.json/md + logs/latest.json + logs/failures.md`);
   // The eval is diagnostic — a non-passing model is not a harness failure.
   return 0;
 }
