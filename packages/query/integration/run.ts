@@ -6,7 +6,8 @@
  *
  * THREE modes:
  *  1. `--check` (no key needed): the FIXTURE gate. Every case must declare ≥1
- *     assertion. Every `a.resultOf` oracle is parsed + validated against the
+ *     assertion AND ≥1 `'error'`-severity (correctness) assertion. Every
+ *     `a.resultOf` oracle is parsed + validated against the
  *     engine, run TWICE (assert deterministic), and asserted non-degenerate
  *     (well-formed, non-empty, all values defined). Every `a.refused(sample)`
  *     sample is asserted to FAIL validation. Exits NON-ZERO on any fixture
@@ -14,8 +15,9 @@
  *     consistent — WITHOUT calling an LLM.
  *  2. LLM eval (default, needs `OPENROUTER_API_KEY`): ask the model for a query
  *     per case, parse it, build an `AssertCtx` (its `.toJSON()` def + a lazy
- *     cached `run()`), and evaluate EVERY assertion. The case PASSES iff all
- *     return `null`. Writes a gitignored per-case `logs/` trail + reports.
+ *     cached `run()`), and evaluate EVERY assertion. The case PASSES iff every
+ *     `'error'`-severity assertion passes; `'warn'` (structural) assertions are
+ *     evaluated + logged but never fail it. Writes a gitignored `logs/` trail.
  *  3. No key and no `--check`: print how to run, exit 0.
  *
  * Assertions (see `cases/assert.ts`) mix STRUCTURE (walk the emitted query def —
@@ -130,6 +132,12 @@ async function checkCase(engine: QueryEngine, c: EvalCase): Promise<string[]> {
     problems.push('no assertions declared');
     return problems;
   }
+  // SAFEGUARD: every case needs ≥1 'error'-severity (correctness) assertion, else
+  // — with structure now advisory 'warn' — a structural-only case would pass
+  // vacuously. Mark a result/refusal (default 'error') or promote one via a.require.
+  if (!c.assert.some((asrt) => asrt.severity === 'error')) {
+    problems.push('no error-severity assertion (needs ≥1 result/refusal, or a.require(...) a structural one)');
+  }
 
   for (const asrt of c.assert) {
     if (asrt.oracle) {
@@ -180,7 +188,13 @@ async function runCheck(engine: QueryEngine, cases: readonly EvalCase[]): Promis
     if (problems.length === 0) {
       const oracles = c.assert.filter((a) => a.oracle).length;
       const samples = c.assert.filter((a) => a.refusalSample).length;
-      const detail = [oracles ? `${oracles} oracle(s)` : '', samples ? `${samples} refusal(s)` : '', `${c.assert.length} assertion(s)`]
+      const errors = c.assert.filter((a) => a.severity === 'error').length;
+      const warns = c.assert.filter((a) => a.severity === 'warn').length;
+      const detail = [
+        oracles ? `${oracles} oracle(s)` : '',
+        samples ? `${samples} refusal(s)` : '',
+        `${errors} error / ${warns} warn`,
+      ]
         .filter(Boolean)
         .join(', ');
       console.log(`  ok    ${c.id.padEnd(38)} ${detail}`);
@@ -202,9 +216,13 @@ async function runCheck(engine: QueryEngine, cases: readonly EvalCase[]): Promis
 /** One assertion's outcome for the logs. */
 interface AssertionLog {
   describe: string;
+  /** `'error'` (correctness gate — fails the case) or `'warn'` (advisory shape). */
+  severity: 'error' | 'warn';
   needsResult: boolean;
   passed: boolean;
   reason: string | null;
+  /** For `a.anyOf`: which child matched (its `describe`), or `null`. */
+  matched: string | null;
 }
 
 /** Per-case log entry written to `logs/latest.json` (keyed by id). */
@@ -398,8 +416,10 @@ async function runOneCase(
       },
     };
 
-    // Evaluate EVERY assertion; the case passes iff all return null.
-    let allPass = true;
+    // Evaluate EVERY assertion, but the case PASSES iff every 'error'-severity
+    // assertion passes. 'warn' assertions are evaluated + logged (so a differing
+    // shape stays visible) yet never fail the case — correctness (rows) is primary.
+    let allErrorsPass = true;
     for (const asrt of c.assert) {
       let reason: string | null;
       try {
@@ -407,10 +427,18 @@ async function runOneCase(
       } catch (err) {
         reason = `threw: ${err instanceof Error ? err.message : String(err)}`;
       }
-      if (reason !== null) allPass = false;
-      entry.assertions.push({ describe: asrt.describe, needsResult: asrt.needsResult, passed: reason === null, reason });
+      const passed = reason === null;
+      if (!passed && asrt.severity === 'error') allErrorsPass = false;
+      entry.assertions.push({
+        describe: asrt.describe,
+        severity: asrt.severity,
+        needsResult: asrt.needsResult,
+        passed,
+        reason,
+        matched: asrt.matchInfo?.matched ?? null,
+      });
     }
-    entry.passed = allPass;
+    entry.passed = allErrorsPass;
 
     // Record the model's own result once (if it ran) for the log trail.
     if (built.query && c.assert.some((a) => a.needsResult)) {
@@ -442,10 +470,16 @@ function writeLogs(entries: LogEntry[]): void {
     md.push(`## ${e.id}  \`${e.category}\``);
     md.push('', `**Request:** ${e.request}`, '', `**Trap:** ${e.note}`, '');
     md.push('**Emitted query:**', '```json', JSON.stringify(e.emittedQuery, null, 2), '```', '');
-    const failed = e.assertions.filter((a) => !a.passed);
+    const failed = e.assertions.filter((a) => !a.passed && a.severity === 'error');
     if (failed.length > 0) {
-      md.push('**Failed assertions:**');
+      md.push('**Failed assertions (error):**');
       for (const a of failed) md.push(`- ${a.describe} — ${a.reason ?? 'failed'}`);
+      md.push('');
+    }
+    const warned = e.assertions.filter((a) => !a.passed && a.severity === 'warn');
+    if (warned.length > 0) {
+      md.push('**Shape warnings (advisory, non-failing):**');
+      for (const a of warned) md.push(`- ⚠ ${a.describe} — ${a.reason ?? 'differs'}`);
       md.push('');
     }
     if (e.parseError) md.push('**Parse error:**', '```', e.parseError, '```', '');
@@ -482,10 +516,15 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
       entries[i] = entry;
       done++;
       const mark = entry.passed ? 'PASS' : 'FAIL';
-      const failed = entry.assertions.filter((a) => !a.passed);
-      const detail = entry.passed
+      // Only 'error' assertions fail the case; surface failing 'warn' shapes too so
+      // a correct-but-differently-shaped answer is visible (e.g. "⚠ joins → customer").
+      const errFailed = entry.assertions.filter((a) => !a.passed && a.severity === 'error');
+      const warnFailed = entry.assertions.filter((a) => !a.passed && a.severity === 'warn');
+      const warnNote = warnFailed.map((a) => `⚠ ${a.describe} (warn)`).join(' ');
+      const core = entry.passed
         ? `${entry.assertions.length} assertion(s) ok`
-        : failed.map((a) => `${a.describe}: ${a.reason ?? 'failed'}`).join(' | ') || entry.parseError || 'failed';
+        : errFailed.map((a) => `${a.describe}: ${a.reason ?? 'failed'}`).join(' | ') || entry.parseError || 'failed';
+      const detail = [core, warnNote].filter(Boolean).join('  ');
       console.log(
         `  [${String(done).padStart(3)}/${total}] ${mark}  ${(entry.durationMs / 1000).toFixed(1).padStart(5)}s ${String(entry.calls).padStart(2)}c  ${c.id.padEnd(34)} ${detail}`,
       );
@@ -521,7 +560,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
       id: e.id,
       category: e.category,
       passed: e.passed,
-      assertions: e.assertions.map((a) => ({ describe: a.describe, passed: a.passed })),
+      assertions: e.assertions.map((a) => ({ describe: a.describe, severity: a.severity, passed: a.passed })),
       durationMs: e.durationMs,
     })),
   };

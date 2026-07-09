@@ -55,6 +55,11 @@ This is the **free fixture gate** — it never calls an LLM. For **every** case 
 asserts:
 
 - the case declares **≥1 assertion**;
+- the case declares **≥1 `'error'`-severity (correctness) assertion** — with
+  structure now advisory `'warn'` (see below), a structural-only case would
+  otherwise pass vacuously. A `resultOf` / `rowCount` / `rows` / `refused`
+  (all default `'error'`) satisfies this, or promote a structural one with
+  `a.require(...)`;
 - every `a.resultOf` **oracle** parses + validates against the engine, runs
   **twice** (deterministic), and is **non-degenerate** (well-formed, non-empty,
   all values defined);
@@ -102,16 +107,21 @@ OPENROUTER_API_KEY=… QUERY_EVAL_MODEL=anthropic/claude-3.5-sonnet npm run inte
 For each case it builds the query tool (`buildQueryTool`), asks the model for a
 structured query (prompt informed by `describeEngine`), parses it with
 `tool.parse`, and then evaluates **every assertion** the case declares (see
-below). The case **passes iff all assertions return `null`**. It prints a
-per-case `PASS`/`FAIL` line (listing which assertions failed + why) + a summary
-(pass rate, by category) and writes `report.json` + `report.md`.
+below). The eval is **correctness-primary**: the case **passes iff every
+`'error'`-severity assertion passes**. `'warn'` (structural) assertions are still
+evaluated + **logged** (a failing one shows as `⚠ … (warn)`) but never fail the
+case — a query that returns the RIGHT rows via a different construct passes. It
+prints a per-case `PASS`/`FAIL` line (the failing error assertions + any warn
+shapes that differed) + a summary (pass rate, by category) and writes
+`report.json` + `report.md`.
 
 Without a key **and** without `--check`, it prints how to run and exits 0.
 
-## How a case works (flexible assertions)
+## How a case works (severity-weighted assertions)
 
 Every case is an `EvalCase` (see `cases/types.ts`) that declares a LIST of
-`Assertion`s (see `cases/assert.ts`) which **ALL must hold**:
+`Assertion`s (see `cases/assert.ts`). Each assertion has a **severity**, and the
+case **passes iff every `'error'`-severity assertion passes**:
 
 ```ts
 interface EvalCase {
@@ -119,9 +129,33 @@ interface EvalCase {
   category: string;
   request: string;   // the NL prompt the model sees
   note: string;      // which trap / discriminator it exercises
-  assert: Assertion[];  // structure + result checks (non-empty)
+  assert: Assertion[];  // ≥1 assertion, ≥1 of them 'error'-severity
 }
 ```
+
+### Severity: correctness is primary
+
+Every assertion is `'error'` (a **correctness gate** — fails the case) or
+`'warn'` (**advisory** shape — evaluated + logged, never fails):
+
+- **RESULT** checks (`resultOf` / `rowCount` / `rows`) and `refused` default to
+  **`'error'`** — the rows (or the refusal) are what actually matter.
+- **STRUCTURAL** checks (`groupBy` / `joins` / `cte` / `setOp` / `orderBy` /
+  `aggregate` / …) default to **`'warn'`** — a query that returns the CORRECT
+  rows via a **different construct** still PASSES; the differing shape is logged
+  (`⚠ joins → customer (warn)`) so it stays visible.
+
+Flip the default when you need to:
+
+| Builder | Effect |
+| --- | --- |
+| `a.require(assertion)` | promote to `'error'` — when the SHAPE genuinely matters (a structural-only case, or an OR-group that must hold). |
+| `a.warn(assertion)` | demote to `'warn'` — advisory only. |
+| `a.anyOf(...assertions)` | an OR-group: passes if **ANY** child passes (for "N valid approaches", e.g. `a.anyOf(a.cte(), a.subquery())`). `'warn'` by default (`a.require(a.anyOf(...))` to gate); `needsResult` = any child needs a result; the matched child is recorded in the log. |
+
+**Every case must carry ≥1 `'error'` assertion** (enforced by `--check`) — else,
+with structure advisory, it would pass vacuously. Most cases satisfy this with
+their `resultOf`; refusal cases with their `refused`.
 
 The assertions mix **two dimensions**:
 
@@ -135,7 +169,7 @@ The assertions mix **two dimensions**:
 
 ### The `a.*` assertion vocabulary
 
-Structural (read the def; fail cleanly if the model produced no valid query):
+Structural (read the def; **default `'warn'`**; fail cleanly if the model produced no valid query):
 
 | Builder | Passes when… |
 | --- | --- |
@@ -151,11 +185,12 @@ Structural (read the def; fail cleanly if the model produced no valid query):
 | `a.window(fn?)` | a `window` expr appears (optionally `function === fn`). |
 | `a.setOp(op?)` | the tree contains a set operation (optionally exactly `op`). |
 | `a.cte()` | the tree contains a `cte` (WITH) statement. |
+| `a.subquery()` | the tree nests a sub-select (a derived-table `from`, an `in`/`exists`/scalar-`subquery` expr, or a CTE) — handy as an `a.anyOf` arm for "a CTE _or_ an equivalent subquery". |
 | `a.selects(field)` | a select item projects `field` (a `field-ref` to it OR `as: field`). |
 | `a.custom(describe, fn)` | `fn(queryDef, engine)` returns `null` (arbitrary structural predicate). |
 | `a.refused(sample?)` | LLM mode: the model FAILED to parse/validate (a correct refusal). `--check`: the `sample`, if given, FAILS validation. |
 
-Result (`needsResult`; lazily run the model's query once, cached via `ctx.run()`):
+Result (**default `'error'`**; `needsResult`; lazily run the model's query once, cached via `ctx.run()`):
 
 | Builder | Passes when… |
 | --- | --- |
@@ -198,13 +233,19 @@ passes when the model's attempt is rejected (produces no valid query).
 1. Add an `EvalCase` to the relevant `cases/<category>.ts` (or create a new
    category file and register it in `cases/index.ts`). Ids must be globally
    unique.
-2. Pick the **structural** assertions that reflect what the request should
-   produce — e.g. "top N by X" → `a.orderBy({ dir: 'desc' }), a.limit(N)`;
-   "revenue by customer" → `a.groupBy(), a.aggregate('sum')`; "orders over $100 in
-   Q2" → `a.filtersOn('total'), a.filtersOn('orderedAt')`; a join request →
-   `a.joins(target)`; distinct/window/set-op/cte → the matching builder.
-3. Add `a.resultOf(oracle, { match, tolerance })` with the **minimal,
-   obviously-correct** `oracle` (or `a.refused(sample)` for a refusal). Prefer
+2. Pick the **structural** assertions (all default `'warn'` — advisory) that
+   reflect what the request should produce — e.g. "top N by X" →
+   `a.orderBy({ dir: 'desc' }), a.limit(N)`; "revenue by customer" →
+   `a.groupBy(), a.aggregate('sum')`; "orders over $100 in Q2" →
+   `a.filtersOn('total'), a.filtersOn('orderedAt')`; a join request →
+   `a.joins(target)`; distinct/window/set-op/cte → the matching builder. When
+   several constructs are equally valid, express it with
+   `a.anyOf(a.cte(), a.subquery())`. If the SHAPE is genuinely the point (and the
+   result can't pin it), promote it with `a.require(...)`.
+3. Add `a.resultOf(oracle, { match, tolerance })` — the case's **`'error'`
+   correctness gate** — with the **minimal, obviously-correct** `oracle` (or
+   `a.refused(sample)` for a refusal, also `'error'`). Every case needs **≥1
+   `'error'` assertion**; this is it. Prefer
    explicit filters and `e.*` builders. A few idioms this schema requires:
    - filter a relation by the target's id via a relation path (the field is the
      CLEAN relation name, not the hidden FK column):
@@ -232,10 +273,11 @@ by test id, so failures can be iterated on across runs:
 
 - `logs/latest.json` — an object keyed by test id; each entry captures the raw
   LLM-emitted query def, any parse/validation error + problem codes, `passed`,
-  the **per-assertion outcomes** (`describe` + `passed` + `reason`), the model's
-  own result summary, `durationMs`, and an ISO `timestamp`.
+  the **per-assertion outcomes** (`describe` + `severity` + `passed` + `reason` +
+  `matched` for `a.anyOf`), the model's own result summary, `durationMs`, and an
+  ISO `timestamp`.
 - `logs/failures.md` — a concise human-readable list of only the failures (id,
-  request, trap, emitted query, and which assertions failed + why) for fast
-  iteration.
+  request, trap, emitted query, the failing **error** assertions, and any
+  advisory **shape warnings** that differed) for fast iteration.
 
 Both are overwritten each run (a latest-snapshot for iteration).

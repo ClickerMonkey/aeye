@@ -1,8 +1,14 @@
 /**
  * FLEXIBLE ASSERTIONS for the `@aeye/query` eval.
  *
- * A case no longer declares a single result-oracle; it declares a LIST of
- * `Assertion`s that ALL must hold. They mix two dimensions:
+ * A case declares a LIST of `Assertion`s, each with a `severity`. The eval is
+ * CORRECTNESS-primary: a case PASSES iff every `'error'`-severity assertion
+ * passes. `'warn'` assertions are still evaluated + LOGGED (so a differing shape
+ * stays visible) but never fail the case — a query that returns the RIGHT rows
+ * via a different construct passes. RESULT checks default to `'error'`; STRUCTURAL
+ * checks default to `'warn'`; `a.require` / `a.warn` flip the default and
+ * `a.anyOf(...)` expresses "any of these valid approaches". Every case must carry
+ * ≥1 `'error'` assertion (enforced by `--check`). The two dimensions:
  *
  *  - STRUCTURE — did the model build the right SHAPE? These read the model's
  *    emitted `queryDef` (its `.toJSON()`) and walk it: did it GROUP BY, ORDER BY
@@ -135,10 +141,26 @@ export interface AssertCtx {
   run(): Promise<NormResult>;
 }
 
+/**
+ * How much a failing assertion counts:
+ *  - `'error'` — a CORRECTNESS gate. The case FAILS if this assertion fails.
+ *    Result checks (`resultOf` / `rowCount` / `rows`) and `refused` default here:
+ *    the rows (or the refusal) are what actually matter.
+ *  - `'warn'` — ADVISORY shape. Evaluated + LOGGED (so a differing construct is
+ *    still visible) but never fails the case. Structural builders (`groupBy`,
+ *    `joins`, `cte`, `setOp`, `orderBy`, `aggregate`, …) default here — a query
+ *    that returns the CORRECT rows via a different construct still PASSES.
+ * Promote/demote with `a.require(...)` / `a.warn(...)`. Every case MUST carry ≥1
+ * `'error'` assertion (enforced by `--check`), else it would pass vacuously.
+ */
+export type Severity = 'error' | 'warn';
+
 /** One check in a case. `check` returns a FAILURE reason, or `null` on pass. */
 export interface Assertion {
   /** Human-readable description (e.g. "ORDER BY … DESC", "result matches oracle"). */
   describe: string;
+  /** Correctness gate (`'error'`) vs advisory shape (`'warn'`). See `Severity`. */
+  severity: Severity;
   /** Whether `check` needs to RUN the model's query (calls `ctx.run()`). */
   needsResult: boolean;
   check(ctx: AssertCtx): Promise<string | null>;
@@ -148,6 +170,12 @@ export interface Assertion {
   oracleMatch?: MatchMode;
   /** `--check` hook: an illegal sample that MUST fail validation. */
   refusalSample?: OracleFn;
+  /**
+   * For `a.anyOf(...)`: a mutable holder the OR-group's `check` writes the matched
+   * child's `describe` into (or `null` when none matched), so the runner can log
+   * WHICH valid approach the model took. Ignored for every other assertion.
+   */
+  matchInfo?: { matched: string | null };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -482,10 +510,15 @@ function hasAnyJoin(shape: QueryShape): boolean {
 // Assertion builders
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Build a STRUCTURAL assertion (fails cleanly if the model produced no query). */
+/**
+ * Build a STRUCTURAL assertion (fails cleanly if the model produced no query).
+ * Structure is ADVISORY — it defaults to `'warn'`, so a query that returns the
+ * CORRECT rows via a different construct still passes. Promote with `a.require`.
+ */
 function struct(describe: string, fn: (shape: QueryShape, engine: QueryEngine) => string | null): Assertion {
   return {
     describe,
+    severity: 'warn',
     needsResult: false,
     check: (ctx) =>
       Promise.resolve(
@@ -525,6 +558,7 @@ export const a = {
   kind(k: QueryKind): Assertion {
     return {
       describe: `kind ${k}`,
+      severity: 'warn',
       needsResult: false,
       check: (ctx) =>
         Promise.resolve(
@@ -657,6 +691,20 @@ export const a = {
     return struct('CTE (WITH)', (shape) => (shape.queryKinds.has('cte') ? null : 'no CTE'));
   },
 
+  /**
+   * The query nests a SUB-SELECT — a derived-table `from` (`subquery` source), an
+   * `in` / `exists` / scalar-`subquery` expr, OR a CTE. Useful as an `a.anyOf`
+   * arm expressing "a CTE _or_ an equivalent subquery" when either is correct.
+   */
+  subquery(): Assertion {
+    return struct('nested sub-select', (shape) => {
+      const hasFromSub = shape.froms.some((src) => src.kind === 'subquery');
+      const exprKinds = new Set(shape.exprs.map((x) => x.kind));
+      const hasExprSub = exprKinds.has('in') || exprKinds.has('exists') || exprKinds.has('subquery');
+      return hasFromSub || hasExprSub || shape.queryKinds.has('cte') ? null : 'no nested sub-select';
+    });
+  },
+
   /** A select item projects `field` (a `field-ref` to it OR `as: field`). */
   selects(field: string): Assertion {
     return struct(`selects ${field}`, (shape) =>
@@ -672,6 +720,9 @@ export const a = {
   refused(sample?: OracleFn): Assertion {
     return {
       describe: 'refused (validation error)',
+      // A refusal case's correctness IS the refusal (it carries no result oracle),
+      // so this is the case's error-severity gate.
+      severity: 'error',
       needsResult: false,
       refusalSample: sample,
       check: (ctx) =>
@@ -687,6 +738,7 @@ export const a = {
   custom(describe: string, fn: (queryDef: QueryDef, engine: QueryEngine) => string | null): Assertion {
     return {
       describe,
+      severity: 'warn',
       needsResult: false,
       check: (ctx) =>
         Promise.resolve(
@@ -704,6 +756,7 @@ export const a = {
     const tol = opts?.tolerance ?? 1e-6;
     return {
       describe: `result matches oracle${match === 'ordered' ? ' (ordered)' : ''}`,
+      severity: 'error',
       needsResult: true,
       oracle,
       oracleMatch: match,
@@ -721,6 +774,7 @@ export const a = {
   rowCount(n: number): Assertion {
     return {
       describe: `row count ${n}`,
+      severity: 'error',
       needsResult: true,
       check: async (ctx) => {
         if (ctx.query === null) return `row count: model produced no valid query`;
@@ -734,6 +788,7 @@ export const a = {
   rows(pred: (rows: unknown[][]) => string | null): Assertion {
     return {
       describe: 'rows predicate',
+      severity: 'error',
       needsResult: true,
       check: async (ctx) => {
         if (ctx.query === null) return `rows: model produced no valid query`;
@@ -741,6 +796,48 @@ export const a = {
         return pred(actual.rows);
       },
     };
+  },
+
+  /**
+   * OR-GROUP: a single assertion that PASSES if ANY `child` passes — for a request
+   * with several equally-valid constructs (e.g. `a.anyOf(a.cte(), a.subquery())`).
+   * Defaults to `'warn'` (wrap in `a.require(...)` to make it a correctness gate);
+   * `needsResult` is true iff any child needs a result. The matched child's
+   * `describe` is recorded in `matchInfo` for the log trail (or `null` on failure).
+   */
+  anyOf(...children: Assertion[]): Assertion {
+    if (children.length === 0) throw new Error('a.anyOf requires ≥1 child assertion');
+    const matchInfo: { matched: string | null } = { matched: null };
+    return {
+      describe: `any of: ${children.map((c) => c.describe).join(' | ')}`,
+      severity: 'warn',
+      needsResult: children.some((c) => c.needsResult),
+      matchInfo,
+      check: async (ctx) => {
+        matchInfo.matched = null;
+        const reasons: string[] = [];
+        for (const child of children) {
+          const reason = await child.check(ctx);
+          if (reason === null) {
+            matchInfo.matched = child.describe;
+            return null;
+          }
+          reasons.push(`${child.describe} (${reason})`);
+        }
+        return `none matched — ${reasons.join('; ')}`;
+      },
+    };
+  },
+
+  /** Promote an assertion to a CORRECTNESS gate (`'error'`) — when the SHAPE
+   *  genuinely matters (a structural-only case, or an OR-group that must hold). */
+  require(assertion: Assertion): Assertion {
+    return { ...assertion, severity: 'error' };
+  },
+
+  /** Demote an assertion to ADVISORY (`'warn'`) — evaluated + logged, never fails. */
+  warn(assertion: Assertion): Assertion {
+    return { ...assertion, severity: 'warn' };
   },
 };
 

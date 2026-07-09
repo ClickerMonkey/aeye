@@ -16,9 +16,10 @@ export const cteCases: EvalCase[] = [
     category: 'cte',
     request:
       'Using only paid sales orders, compute each customer’s total paid revenue, then return the customer id and revenue for customers whose paid revenue exceeds 4000.',
-    note: 'The CTE aggregates paid revenue per customer; the final filters it. Customer 4 (4200) and 1 (4250) are just over 4000; non-paid orders must not inflate any total.',
+    note: 'The CTE aggregates paid revenue per customer; the final filters it. Customer 4 (4200) and 1 (4250) are just over 4000; non-paid orders must not inflate any total. A CTE and an equivalent derived-table subquery are BOTH valid — the rows are what matter.',
     assert: [
-      a.cte(),
+      // A CTE or an equivalent nested subquery are both correct approaches.
+      a.anyOf(a.cte(), a.subquery()),
       a.groupBy(),
       a.aggregate('sum'),
       a.resultOf(() => {
