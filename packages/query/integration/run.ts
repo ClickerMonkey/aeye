@@ -38,7 +38,6 @@ import {
   QueryToolError,
   querySchema,
   describeEngine,
-  exampleQueriesText,
   type QueryEngine,
   type Query,
   type QueryDef,
@@ -295,7 +294,10 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   // CONCEPTUAL value). No Tool is built: we parse directly with `parseQueryTool`.
   // Same boundary cast the tool applies to its own wire schema (see tool.ts).
   const wireSchema = querySchema(engine, options) as QuerySchema;
-  const instructions = `${describeEngine(engine, { types, functions: 'all' })}\n\n${exampleQueriesText()}`;
+  // `describeEngine` now folds worked examples (per expr kind, function, and query
+  // kind) in from the nodes' own `EXAMPLES` — one source of truth. `maxExamples`
+  // caps how many render per node/function.
+  const instructions = describeEngine(engine, { types, functions: 'all', maxExamples: 2 });
 
   // `parse` runs the query parser: returns the built Query, or the QueryToolError
   // whose `.message` (the compiler-style report) the prompt re-prompts with.

@@ -45,7 +45,7 @@ import { Problems } from '../problem';
 import { isRecord, expected } from '../shape';
 import type { QueryDef } from '../schema';
 import { Code, type FormatProblemsOptions } from '../code';
-import { describeEngine, exampleQueriesText } from './describe';
+import { describeEngine } from './describe';
 import {
   querySchema,
   shouldUseStringSchema,
@@ -243,9 +243,9 @@ export function buildQueryTool(
     gatingNote ? `\n${gatingNote}` : '',
     '',
     // Forward the function selection so the listed functions match the schema.
+    // `describeEngine` now folds in worked examples (per expr kind, function, and
+    // query kind) from the nodes' own `EXAMPLES` — the one source of truth.
     describeEngine(engine, { types, functions: options.functions }),
-    '',
-    exampleQueriesText(),
   ].join('\n');
 
   return new Tool<{}, {}, string, QueryToolInput, Promise<QueryResult>, [], Query>({

@@ -29,7 +29,31 @@ import type { Cost } from '../cost';
 export class SubqueryExpr extends Expr {
   static readonly KIND = 'subquery' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — use where ONE value is needed, e.g. comparing a field against an aggregate computed over related rows." as const;
+  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — its inner `query` must project exactly ONE field and yield one row. Use where ONE value is needed (e.g. comparing a field against an aggregate over related rows). For membership use `in`, for existence use `exists`." as const;
+  /**
+   * Worked example (see `ExprClass.EXAMPLES`) — a scalar subquery in value
+   * position: an aggregate over related rows, usable e.g. as one side of a
+   * comparison. Projects a SINGLE field (the aggregate), yielding one value.
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'subquery',
+      query: {
+        kind: 'select',
+        fields: [
+          {
+            expr: {
+              kind: 'aggregate',
+              function: 'avg',
+              args: { value: { kind: 'field-ref', source: 'order', field: 'total' } },
+            },
+            as: 'avgTotal',
+          },
+        ],
+        from: { kind: 'type', type: 'order' },
+      },
+    } satisfies SubqueryExprDef),
+  ];
   readonly kind = SubqueryExpr.KIND;
 
   /** Wrap the inner query def evaluated in value position. */

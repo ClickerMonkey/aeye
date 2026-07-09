@@ -42,7 +42,9 @@ export {
 
 /**
  * All built-in Query classes, in a stable order. The set-operation class
- * registers under all three of its kinds (`union` / `intersect` / `except`).
+ * registers under all three of its kinds (`union` / `intersect` / `except`); the
+ * representative `union` entry carries the family's LLM docs (`INSTRUCTIONS` /
+ * `EXAMPLES`) so `describeEngine`'s query-examples section surfaces it once.
  */
 export const BUILTIN_QUERIES: readonly QueryClass[] = [
   SelectQuery,
@@ -51,7 +53,13 @@ export const BUILTIN_QUERIES: readonly QueryClass[] = [
   DeleteQuery,
   ExprQuery,
   CTEStatementQuery,
-  { KIND: 'union', from: SetOperationQuery.from, SHAPE: SetOperationQuery.SHAPE_UNION },
+  {
+    KIND: 'union',
+    INSTRUCTIONS: SetOperationQuery.INSTRUCTIONS,
+    EXAMPLES: SetOperationQuery.EXAMPLES,
+    from: SetOperationQuery.from,
+    SHAPE: SetOperationQuery.SHAPE_UNION,
+  },
   { KIND: 'intersect', from: SetOperationQuery.from, SHAPE: SetOperationQuery.SHAPE_INTERSECT },
   { KIND: 'except', from: SetOperationQuery.from, SHAPE: SetOperationQuery.SHAPE_EXCEPT },
 ];

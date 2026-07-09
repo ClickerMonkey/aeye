@@ -86,6 +86,12 @@ export class QueryFunction {
    * back by `toJSON`, and exposed here as the public accessor.
    */
   readonly instructions?: string;
+  /**
+   * Optional WORKED examples (RAW JSON strings) that CALL this function — read
+   * from the def by `from`, written back by `toJSON`, surfaced (capped) under
+   * the signature by `describeEngine`. See {@link FunctionDef.examples}.
+   */
+  readonly examples?: readonly string[];
 
   /** Construct from already-parsed parts; use `from` to build from JSON. */
   constructor(spec: {
@@ -96,6 +102,7 @@ export class QueryFunction {
     sql?: string;
     rawArgs?: readonly number[];
     instructions?: string;
+    examples?: readonly string[];
   }) {
     this.name = spec.name;
     this.shape = spec.shape;
@@ -104,6 +111,7 @@ export class QueryFunction {
     this.sql = spec.sql;
     this.rawArgs = spec.rawArgs;
     this.instructions = spec.instructions;
+    this.examples = spec.examples;
   }
 
   /** Build a runtime function from its JSON, parsing field/Type references. */
@@ -140,6 +148,7 @@ export class QueryFunction {
       sql: json.sql,
       rawArgs: json.rawArgs,
       instructions: json.instructions,
+      examples: json.examples,
     });
   }
 
@@ -166,6 +175,7 @@ export class QueryFunction {
       ...(this.sql ? { sql: this.sql } : {}),
       ...(this.rawArgs ? { rawArgs: this.rawArgs } : {}),
       ...(this.instructions ? { instructions: this.instructions } : {}),
+      ...(this.examples ? { examples: this.examples } : {}),
     };
   }
 

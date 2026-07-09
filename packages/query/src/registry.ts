@@ -301,6 +301,11 @@ export class Registry {
     return this.queryClasses.get(kind);
   }
 
+  /** Enumerate every registered Query class (for describe/example builders). */
+  queryClassList(): QueryClassEntry[] {
+    return Array.from(this.queryClasses.values());
+  }
+
   /** Register a SQL Dialect instance (Phase 5). */
   defineDialect(dialect: Dialect): this {
     this.dialects.set(dialect.NAME, dialect);

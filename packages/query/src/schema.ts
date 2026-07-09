@@ -909,6 +909,13 @@ export interface FunctionDef {
    * gotcha) — the canonical concise doc surfaced to a model choosing functions.
    */
   instructions?: string;
+  /**
+   * Optional WORKED examples — each a RAW JSON string of an expr fragment (or a
+   * full query) that CALLS this function, teaching its SHAPE with illustrative
+   * generic source/field names. Surfaced (capped) under the function's signature
+   * by `describeEngine`. Carried verbatim by `QueryFunction` (`from` / `toJSON`).
+   */
+  examples?: readonly string[];
   params: FunctionParamDef[];
   /**
    * Declared output: a concrete field type, a reference to a Type (for

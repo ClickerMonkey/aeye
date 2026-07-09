@@ -85,6 +85,41 @@ interface ProjectedRow {
 export class SelectQuery extends Query {
   /** The Registry dispatch discriminant for this query kind. */
   static readonly KIND = 'select' as const;
+  /** Concise LLM-facing summary of this query kind (see `QueryClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A SELECT: `fields` (each `{expr, as?}`), `from` a source, optional `joins` / `where` / `groupBy` / `having` / `order` / `limit` / `offset`. Reference a source BY ITS TYPE NAME (`from:{kind:'type', type:'user'}`, then `field-ref.source:'user'`)." as const;
+  /**
+   * Worked examples (see `QueryClass.EXAMPLES`) — a filtered + ordered + limited
+   * projection, and a single-relation JOIN with an execution-time `filters`
+   * placeholder (the join crosses ONE relation field; joined rows bind under the
+   * target Type name).
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
+      from: { kind: 'type', type: 'user' },
+      where: [
+        {
+          kind: 'comparison',
+          op: '>',
+          left: { kind: 'field-ref', source: 'user', field: 'age' },
+          right: { kind: 'literal', value: 30 },
+        },
+      ],
+      order: [{ expr: { kind: 'field-ref', source: 'user', field: 'age' }, dir: 'desc' }],
+      limit: 10,
+    } satisfies SelectDef),
+    JSON.stringify({
+      kind: 'select',
+      fields: [
+        { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
+        { expr: { kind: 'field-ref', source: 'order', field: 'total' } },
+      ],
+      from: { kind: 'type', type: 'user' },
+      joins: [{ on: { source: 'user', field: 'orders' } }],
+      where: [{ kind: 'filters', source: 'order', fields: ['total'] }],
+    } satisfies SelectDef),
+  ];
   /** This query's `kind` discriminant. */
   readonly kind = SelectQuery.KIND;
 

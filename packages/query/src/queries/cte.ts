@@ -194,6 +194,46 @@ const cteEntryShape: Shape<CteEntry> = {
 export class CTEStatementQuery extends Query {
   /** The Registry dispatch discriminant for this query kind. */
   static readonly KIND = 'cte' as const;
+  /** Concise LLM-facing summary of this query kind (see `QueryClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "A `WITH` statement: name one or more subqueries in `ctes`, then the `final` query reads a CTE BY ITS NAME (`from:{kind:'type', type:<cteName>}`, field-refs `source:<cteName>`). Use to stage a computation and reuse it." as const;
+  /**
+   * Worked example (see `QueryClass.EXAMPLES`) — per-user revenue named as a CTE,
+   * then the `final` query reads that CTE by name.
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'cte',
+      ctes: [
+        {
+          name: 'revenue',
+          query: {
+            kind: 'select',
+            fields: [
+              { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
+              {
+                expr: {
+                  kind: 'aggregate',
+                  function: 'sum',
+                  args: { value: { kind: 'field-ref', source: 'order', field: 'total' } },
+                },
+                as: 'total',
+              },
+            ],
+            from: { kind: 'type', type: 'order' },
+            groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
+          },
+        },
+      ],
+      final: {
+        kind: 'select',
+        fields: [
+          { expr: { kind: 'field-ref', source: 'revenue', field: 'userId' } },
+          { expr: { kind: 'field-ref', source: 'revenue', field: 'total' } },
+        ],
+        from: { kind: 'type', type: 'revenue' },
+      },
+    } satisfies CTEStatementDef),
+  ];
   /** This query's `kind` discriminant. */
   readonly kind = CTEStatementQuery.KIND;
 

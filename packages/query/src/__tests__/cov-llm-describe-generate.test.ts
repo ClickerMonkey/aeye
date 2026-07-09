@@ -211,7 +211,7 @@ describe('describeFunctions (enhanced) + describeEngine composition', () => {
 
   it('renders named params (a, b?), output, and instructions', () => {
     const fns = describeFunctions(engine, 'all');
-    expect(fns).toContain('count(value?): number — Count rows'); // optional param + instructions
+    expect(fns).toContain('count(value?): number — Count ROWS'); // optional param + instructions
     expect(fns).toContain('sum(value): inferred — Sum of the non-null values.'); // inferred + instructions
     expect(fns).toContain('genRows(n): gadget'); // {type} output, no instructions
   });

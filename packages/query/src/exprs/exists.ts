@@ -4,7 +4,7 @@
  * validation arrives with the query classes in Phase 3.
  */
 import { z } from 'zod';
-import type { ExistsExprDef, ExprDef, QueryDef } from '../schema';
+import type { ExistsExprDef, ExprDef, QueryDef, SelectDef } from '../schema';
 import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
@@ -27,6 +27,36 @@ export class ExistsExpr extends BoolExpr {
   static readonly KIND = 'exists' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
   static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean; test whether related rows exist. CORRELATE the inner query to the outer row with a comparison to the outer Type's field-ref." as const;
+  /**
+   * Worked example (see `ExprClass.EXAMPLES`) — outer rows that HAVE a matching
+   * related row: the inner `where` CORRELATES to the outer row via a comparison
+   * (`order.userId = user.id`) — the correlation models most often omit.
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
+      from: { kind: 'type', type: 'user' },
+      where: [
+        {
+          kind: 'exists',
+          query: {
+            kind: 'select',
+            fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+            from: { kind: 'type', type: 'order' },
+            where: [
+              {
+                kind: 'comparison',
+                op: '=',
+                left: { kind: 'field-ref', source: 'order', field: 'userId' },
+                right: { kind: 'field-ref', source: 'user', field: 'id' },
+              },
+            ],
+          },
+        },
+      ],
+    } satisfies SelectDef),
+  ];
   readonly kind = ExistsExpr.KIND;
 
   /** Wrap `[NOT] EXISTS (query)` as an existence predicate over a subquery. */

@@ -36,6 +36,27 @@ type SetKind = 'union' | 'intersect' | 'except';
 export class SetOperationQuery extends Query {
   /** Representative kind for the static contract; instances carry the real one. */
   static readonly KIND = 'union' as const;
+  /** Concise LLM-facing summary of this query kind (see `QueryClass.INSTRUCTIONS`). */
+  static readonly INSTRUCTIONS = "`union` / `intersect` / `except` over two full queries (`left` / `right`) that MUST project the SAME output columns (name + order). `all:true` keeps duplicates. Optional set-level `order` / `limit` / `offset` apply over the combined rows." as const;
+  /**
+   * Worked example (see `QueryClass.EXAMPLES`) — combine two result sets with the
+   * SAME output column (`label`) into one list.
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'union',
+      left: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'label' }],
+        from: { kind: 'type', type: 'user' },
+      },
+      right: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'product', field: 'name' }, as: 'label' }],
+        from: { kind: 'type', type: 'product' },
+      },
+    } satisfies SetOperationDef),
+  ];
   /** This instance's actual set operation (`union` / `intersect` / `except`). */
   readonly kind: SetKind;
 

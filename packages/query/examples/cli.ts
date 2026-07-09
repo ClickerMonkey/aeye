@@ -56,7 +56,6 @@ import {
   describeTypes,
   describeFunctions,
   describeEngine,
-  exampleQueriesText,
   depthInstructions,
   selectTypes,
   DEFAULT_MAX_QUERY_SCHEMA_TYPES,
@@ -345,7 +344,7 @@ async function createAsker(
   };
   const promptInstructions = (i: PromptInput): string =>
     i.engine
-      ? `${describeEngine(i.engine, { types: i.types, functions: CLI_FUNCTIONS })}\n\n${exampleQueriesText()}`
+      ? describeEngine(i.engine, { types: i.types, functions: CLI_FUNCTIONS, maxExamples: 2 })
       : '';
   const prompt = ai.prompt({
     name: 'query_build',

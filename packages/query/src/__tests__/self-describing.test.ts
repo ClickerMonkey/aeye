@@ -37,6 +37,8 @@ describe('self-describing catalog', () => {
       expect(fn.instructions).toBe(def.instructions);
       const json = fn.toJSON();
       expect(json.instructions).toBe(def.instructions);
+      expect(fn.examples).toEqual(def.examples);
+      expect(json.examples).toEqual(def.examples);
       expect(json.name).toBe(def.name);
       expect(json.shape).toBe(def.shape);
       expect(json.params).toEqual(def.params);

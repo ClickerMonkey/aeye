@@ -102,6 +102,19 @@ export interface QueryResultArray extends QueryResultBase {
 export interface QueryClass {
   /** The `kind` discriminant this class handles (the Registry dispatch key). */
   readonly KIND: QueryKind;
+  /**
+   * OPTIONAL concise, LLM-facing one-line description of this query kind — the
+   * canonical terse doc surfaced (with `EXAMPLES`) by `describeEngine`'s
+   * query-examples section. Present on the confusing/composed kinds.
+   */
+  readonly INSTRUCTIONS?: string;
+  /**
+   * OPTIONAL worked examples — each a RAW JSON string of a full query of this
+   * kind, teaching its SHAPE with illustrative generic source/field names.
+   * Surfaced (capped by `maxExamples`) by `describeEngine`. The ONE source of
+   * truth for these examples.
+   */
+  readonly EXAMPLES?: readonly string[];
   /** Parse a matching `QueryDef` into a concrete `Query` instance. */
   from(json: QueryDef, registry: Registry): Query;
   /**

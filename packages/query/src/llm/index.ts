@@ -32,9 +32,10 @@ export {
   describeTypes,
   describeFunctions,
   describeExprs,
+  describeQueryExamples,
   describeDialects,
   describeEngine,
-  exampleQueriesText,
+  DEFAULT_MAX_EXAMPLES,
   type DescribeEngineOptions,
 } from './describe';
 

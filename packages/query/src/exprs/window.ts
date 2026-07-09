@@ -14,7 +14,7 @@
  * read).
  */
 import { z } from 'zod';
-import type { ExprDef, OrderDef, WindowExprDef } from '../schema';
+import type { ExprDef, OrderDef, SelectDef, WindowExprDef } from '../schema';
 import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
@@ -72,6 +72,29 @@ export class WindowExpr extends Expr {
   static readonly KIND = 'window' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
   static readonly INSTRUCTIONS = "A window/aggregate fn OVER `orderBy` (sets the ranking/sequence) + optional `partitionBy` (splits rows into INDEPENDENT groups). To rank/number ALL rows together OMIT partitionBy; 'rank by X' → orderBy:[X], NOT partitionBy:[X] (partitioning by the ranking key makes every group size 1)." as const;
+  /**
+   * Worked example (see `ExprClass.EXAMPLES`) — rank ALL rows by a key: `orderBy`
+   * sets the ranking key and there is NO `partitionBy`, so every row ranks
+   * together and ties share a rank (the no-partition case models most often botch).
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'select',
+      fields: [
+        { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
+        {
+          expr: {
+            kind: 'window',
+            function: 'rank',
+            args: {},
+            orderBy: [{ expr: { kind: 'field-ref', source: 'user', field: 'age' }, dir: 'desc' }],
+          },
+          as: 'ageRank',
+        },
+      ],
+      from: { kind: 'type', type: 'user' },
+    } satisfies SelectDef),
+  ];
   readonly kind = WindowExpr.KIND;
 
   /** Wrap a registered window/aggregate `fn` with its named args and PARTITION BY / ORDER BY clauses. */

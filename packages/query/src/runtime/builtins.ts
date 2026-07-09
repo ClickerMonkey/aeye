@@ -12,7 +12,17 @@
  *
  * No `any` / casts; all logic is typed against `Value` / `NamedArgs`.
  */
-import type { FieldTypeDef, FunctionDef, JsonValue } from '../schema';
+import type {
+  AggregateExprDef,
+  ExprDef,
+  FieldTypeDef,
+  FunctionCallExprDef,
+  FunctionDef,
+  JsonValue,
+  QueryDef,
+  ScalarValue,
+  WindowExprDef,
+} from '../schema';
 import type {
   AggregateRun,
   FunctionRun,
@@ -41,6 +51,62 @@ const BOOL: FieldTypeDef = { kind: 'bool' };
 const ARRAY: FieldTypeDef = { kind: 'array' };
 const DATE: FieldTypeDef = { kind: 'date' };
 const TIMESTAMP: FieldTypeDef = { kind: 'timestamp' };
+
+// ─── Worked-example builders (raw-JSON `examples` strings) ───────────────────
+//
+// Shipped examples teach a function's SHAPE with ILLUSTRATIVE generic
+// source/field names (`event.score`, …) — the model gets the caller's REAL Type
+// names from the catalog. Built as TYPED defs (compile-checked) then stringified
+// to the raw-JSON form `examples` carries; a structural test parses each back.
+
+/** A `<source>.<field>` reference expr def. */
+function ref(source: string, field: string): ExprDef {
+  return { kind: 'field-ref', source, field };
+}
+
+/** A literal scalar expr def. */
+function litExpr(value: ScalarValue): ExprDef {
+  return { kind: 'literal', value };
+}
+
+/** A worked scalar CALL as a raw-JSON example (an expr FRAGMENT). */
+function callExample(fn: string, args: Record<string, ExprDef>): string {
+  const def: FunctionCallExprDef = { kind: 'function-call', function: fn, args };
+  return JSON.stringify(def);
+}
+
+/** A worked AGGREGATE call as a raw-JSON example (an expr FRAGMENT). `count(*)`
+ *  is `count` with EMPTY `args`. */
+function aggExample(fn: string, args: Record<string, ExprDef>): string {
+  const def: AggregateExprDef = { kind: 'aggregate', function: fn, args };
+  return JSON.stringify(def);
+}
+
+/**
+ * A worked WINDOW example as a raw-JSON example (a full SELECT): projects a label
+ * plus `fn(args) OVER (ORDER BY score DESC [PARTITION BY category])`. `orderBy`
+ * sets the ranking/sequence; passing `partition` splits rows into INDEPENDENT
+ * groups — the two clauses whose confusion these examples exist to prevent.
+ */
+function windowExample(
+  fn: string,
+  args: Record<string, ExprDef>,
+  opts: { partition?: boolean } = {},
+): string {
+  const win: WindowExprDef = {
+    kind: 'window',
+    function: fn,
+    args,
+    orderBy: [{ expr: ref('event', 'score'), dir: 'desc' }],
+  };
+  if (opts.partition) win.partitionBy = [ref('event', 'category')];
+  const def: QueryDef = {
+    kind: 'select',
+    fields: [{ expr: ref('event', 'label') }, { expr: win, as: fn }],
+    from: { kind: 'type', type: 'event' },
+  };
+  return JSON.stringify(def);
+}
 
 /** Read a named arg, defaulting to NULL when absent. */
 function arg(args: NamedArgs, name: string): Value {
@@ -218,12 +284,14 @@ function scalar(
   run: ScalarRun,
   sql?: string,
   rawArgs?: readonly number[],
+  examples?: readonly string[],
 ): BuiltinFunction {
   return {
     def: {
       name,
       shape: 'scalar',
       instructions,
+      ...(examples ? { examples } : {}),
       params,
       output,
       ...(sql ? { sql } : {}),
@@ -265,7 +333,7 @@ const SCALARS: readonly BuiltinFunction[] = [
       return Value.of(len !== undefined ? str.substring(start, start + len) : str.substring(start));
     },
   ),
-  scalar('replace', "Replace every occurrence of `search` with `replacement`.",
+  scalar('replace', "Replace EVERY occurrence of `search` in `value` with `replacement` (all three are text; pass literals via `{kind:'literal'}`).",
     [
       { name: 'value', type: TEXT },
       { name: 'search', type: TEXT },
@@ -276,6 +344,9 @@ const SCALARS: readonly BuiltinFunction[] = [
       Value.of(
         arg(a, 'value').toText().split(arg(a, 'search').toText()).join(arg(a, 'replacement').toText()),
       ),
+    undefined,
+    undefined,
+    [callExample('replace', { value: ref('event', 'code'), search: litExpr('-'), replacement: litExpr('') })],
   ),
   scalar('abs', "Absolute value.", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), Math.abs)),
   scalar('ceil', "Round up to the next whole number.", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), Math.ceil)),
@@ -533,7 +604,7 @@ const SCALARS: readonly BuiltinFunction[] = [
     undefined,
     [0],
   ),
-  scalar('dateTrunc', "Truncate `d` down to `field` precision (year/month/day/…).",
+  scalar('dateTrunc', "Truncate `d` DOWN to `field` precision (zeroes lower components) — e.g. `field:'month'` maps any day to the 1st. `field` is a literal token (year/quarter/month/week/day/hour/minute/second).",
     [{ name: 'field', type: TEXT }, { name: 'd', type: ANY }],
     TIMESTAMP,
     (a) => {
@@ -544,6 +615,7 @@ const SCALARS: readonly BuiltinFunction[] = [
     },
     undefined,
     [0],
+    [callExample('dateTrunc', { field: litExpr('month'), d: ref('event', 'createdAt') })],
   ),
   scalar('makeDate', "Build a date from numeric `year`, `month`, `day`.",
     [{ name: 'year', type: NUMBER }, { name: 'month', type: NUMBER }, { name: 'day', type: NUMBER }],
@@ -582,7 +654,7 @@ const SCALARS: readonly BuiltinFunction[] = [
     },
     'to_timestamp',
   ),
-  scalar('age', "Whole-day span a−b.",
+  scalar('age', "Whole-day span `a − b` (integer days; `a` and `b` are dates/timestamps). NOTE order: the LATER date is `a`.",
     [{ name: 'a', type: ANY }, { name: 'b', type: ANY }],
     // Whole-day span `a - b`. pg `age(a, b)` yields a symbolic interval; our
     // runtime returns the integer day difference (documented divergence).
@@ -593,6 +665,9 @@ const SCALARS: readonly BuiltinFunction[] = [
       if (!da || !db) return Value.null();
       return Value.of(Math.trunc((da.getTime() - db.getTime()) / 86400000));
     },
+    undefined,
+    undefined,
+    [callExample('age', { a: ref('event', 'endedAt'), b: ref('event', 'startedAt') })],
   ),
   // ─── Group 2b: array (postgres-native; the base dialect DEGRADES) ───────────
   // Runtime impls operate on JS arrays. SQL for BOTH dialects lives in the
@@ -788,15 +863,26 @@ function aggregate(
   output: FunctionDef['output'],
   run: AggregateRun,
   sql?: string,
+  examples?: readonly string[],
 ): BuiltinFunction {
   return {
-    def: { name, shape: 'aggregate', instructions, params, output, ...(sql ? { sql } : {}) },
+    def: {
+      name,
+      shape: 'aggregate',
+      instructions,
+      ...(examples ? { examples } : {}),
+      params,
+      output,
+      ...(sql ? { sql } : {}),
+    },
     run: { shape: 'aggregate', run },
   };
 }
 
 const AGGREGATES: readonly BuiltinFunction[] = [
-  aggregate('count', "Count rows (omit `value`), or non-null values of `value`.", [{ name: 'value', type: ANY, optional: true }], WHOLE, countRun),
+  aggregate('count', "Count ROWS when `value` is omitted (the `count(*)` form — EMPTY args), or the non-null values of `value` when supplied.", [{ name: 'value', type: ANY, optional: true }], WHOLE, countRun, undefined,
+    [aggExample('count', {})],
+  ),
   aggregate('sum', "Sum of the non-null values.", [{ name: 'value', type: NUMBER }], 'inferred', sumRun),
   aggregate('avg', "Mean of the non-null values.", [{ name: 'value', type: NUMBER }], NUMBER, avgRun),
   aggregate('min', "Smallest non-null value.", [{ name: 'value', type: ANY }], 'inferred', minRun),
@@ -923,8 +1009,20 @@ function window(
   output: FunctionDef['output'],
   run: WindowRun,
   sql?: string,
+  examples?: readonly string[],
 ): BuiltinFunction {
-  return { def: { name, shape: 'window', instructions, params, output, ...(sql ? { sql } : {}) }, run: { shape: 'window', run } };
+  return {
+    def: {
+      name,
+      shape: 'window',
+      instructions,
+      ...(examples ? { examples } : {}),
+      params,
+      output,
+      ...(sql ? { sql } : {}),
+    },
+    run: { shape: 'window', run },
+  };
 }
 
 const OFFSET_PARAMS: FunctionDef['params'] = [
@@ -935,22 +1033,37 @@ const OFFSET_PARAMS: FunctionDef['params'] = [
 
 const WINDOWS: readonly BuiltinFunction[] = [
   window('rowNumber', "Sequential 1-based number of the row within its ordered partition.", [], WHOLE, rowNumberRun, 'row_number'),
-  window('rank', "Rank within the partition, with gaps after ties.", [], WHOLE, rankRun),
-  window('denseRank', "Rank within the partition, without gaps after ties.", [], WHOLE, denseRankRun, 'dense_rank'),
-  window('lag', "Value from the row `offset` before the current one (`default` if none).", OFFSET_PARAMS, 'inferred', offsetRun(-1)),
-  window('lead', "Value from the row `offset` after the current one (`default` if none).", OFFSET_PARAMS, 'inferred', offsetRun(1)),
+  window('rank', "Rank within the ordered partition, with GAPS after ties (1,2,2,4). `orderBy` sets the ranking key; `partitionBy` ranks WITHIN each group (OMIT it to rank all rows together).", [], WHOLE, rankRun, undefined,
+    [windowExample('rank', {}, { partition: true })],
+  ),
+  window('denseRank', "Rank within the ordered partition, NO gaps after ties (1,2,2,3). `orderBy` is the ranking key; `partitionBy` splits into independent groups (OMIT to rank all rows together).", [], WHOLE, denseRankRun, 'dense_rank',
+    [windowExample('denseRank', {})],
+  ),
+  window('lag', "`value` from the row `offset` (default 1) BEFORE the current one in the ordered partition (`default` when none). `orderBy` sets the sequence; `partitionBy` scopes 'before' to each group.", OFFSET_PARAMS, 'inferred', offsetRun(-1), undefined,
+    [windowExample('lag', { value: ref('event', 'score') })],
+  ),
+  window('lead', "`value` from the row `offset` (default 1) AFTER the current one in the ordered partition (`default` when none). `orderBy` sets the sequence; `partitionBy` scopes 'after' to each group.", OFFSET_PARAMS, 'inferred', offsetRun(1), undefined,
+    [windowExample('lead', { value: ref('event', 'score') })],
+  ),
   // ─── Group 2d: ranking / positional window functions ───────────────────────
   // All emit the generic `name(args)` form via the SQL-name override.
   window('percentRank', "Relative rank (rank−1)/(N−1) in [0, 1].", [], NUMBER, percentRankRun, 'percent_rank'),
-  window('cumeDist', "Cumulative distribution: fraction of rows ordered ≤ the current.", [], NUMBER, cumeDistRun, 'cume_dist'),
+  window('cumeDist', "Cumulative distribution: fraction of partition rows ordered ≤ the current, in (0,1]. `orderBy` sets the order; `partitionBy` computes it per group.", [], NUMBER, cumeDistRun, 'cume_dist',
+    [windowExample('cumeDist', {})],
+  ),
   window('ntile', "Bucket number (1..n) splitting the ordered partition into n groups.", [{ name: 'n', type: NUMBER }], WHOLE, ntileRun),
-  window('firstValue', "First value in the ordered partition.", [{ name: 'value', type: ANY }], 'inferred', firstValueRun, 'first_value'),
-  window('lastValue', "Last value in the ordered partition (full-partition frame).", [{ name: 'value', type: ANY }], 'inferred', lastValueRun, 'last_value'),
-  window('nthValue', "The 1-based `n`-th value in the partition, NULL if out of range.",
+  window('firstValue', "First `value` in the ordered partition. `orderBy` sets the order; `partitionBy` gives the first per group.", [{ name: 'value', type: ANY }], 'inferred', firstValueRun, 'first_value',
+    [windowExample('firstValue', { value: ref('event', 'score') })],
+  ),
+  window('lastValue', "Last `value` in the ordered partition (full-partition frame). `orderBy` sets the order; `partitionBy` gives the last per group.", [{ name: 'value', type: ANY }], 'inferred', lastValueRun, 'last_value',
+    [windowExample('lastValue', { value: ref('event', 'score') })],
+  ),
+  window('nthValue', "The 1-based `n`-th `value` in the ordered partition, NULL if out of range. `orderBy` sets the order; `partitionBy` scopes to each group.",
     [{ name: 'value', type: ANY }, { name: 'n', type: NUMBER }],
     'inferred',
     nthValueRun,
     'nth_value',
+    [windowExample('nthValue', { value: ref('event', 'score'), n: litExpr(2) })],
   ),
 ];
 

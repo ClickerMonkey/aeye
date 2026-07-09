@@ -45,7 +45,18 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export class FunctionCallExpr extends Expr {
   static readonly KIND = 'function-call' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A scalar function call by name with named args." as const;
+  static readonly INSTRUCTIONS = "A scalar function call by name with NAMED args (keyed by the declared parameter name, e.g. `{value: …}`), NOT positional." as const;
+  /**
+   * Worked example (see `ExprClass.EXAMPLES`) — a scalar call whose `args` are
+   * keyed by the declared parameter NAME (here `value`), not positional.
+   */
+  static readonly EXAMPLES: readonly string[] = [
+    JSON.stringify({
+      kind: 'function-call',
+      function: 'upper',
+      args: { value: { kind: 'field-ref', source: 'user', field: 'name' } },
+    } satisfies FunctionCallExprDef),
+  ];
   readonly kind = FunctionCallExpr.KIND;
 
   /** Wrap a registered scalar `fn` with its named `args`. */

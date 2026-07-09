@@ -102,6 +102,13 @@ export interface ExprClass {
    * (`registry.exprClassList()`) to build a self-describing expr catalog.
    */
   readonly INSTRUCTIONS: string;
+  /**
+   * OPTIONAL worked examples — each a RAW JSON string (an expr fragment OR a full
+   * query that USES this kind) teaching its SHAPE with illustrative generic
+   * source/field names. Surfaced (capped by `maxExamples`) under this kind's
+   * catalog entry by `describeEngine`. The ONE source of truth for the examples.
+   */
+  readonly EXAMPLES?: readonly string[];
   /** Build an instance from its JSON branch, recursing into child defs via `registry.parseExpr`. */
   from(json: ExprDef, registry: Registry): Expr;
   /** Zod schema for this expr kind's JSON `ExprDef` branch. */

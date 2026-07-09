@@ -6,10 +6,13 @@
  * each field (name, type, nullability, label, description), then its
  * relations and indexes. `describeExprs(engine)` lists the CAPABILITY-GATED
  * expression kinds usable for the current Types / functions (each with its
- * `static INSTRUCTIONS`). `describeEngine(engine)` composes everything a caller
- * can use — every registered Type, the usable expr kinds, the available
- * functions, and the SQL dialects — into one block; `exampleQueriesText()`
- * returns ready-to-paste example query JSON for a tool's prompt.
+ * `static INSTRUCTIONS` and, capped by `maxExamples`, its `static EXAMPLES`).
+ * `describeEngine(engine)` composes everything a caller can use — every
+ * registered Type, the usable expr kinds, the available functions (each with its
+ * worked `examples`), a worked query-examples section, and the SQL dialects —
+ * into one block. Worked examples live on the NODE / FUNCTION classes (their
+ * `EXAMPLES` / `examples`) as the ONE source of truth; `describeEngine` just
+ * renders them (up to `maxExamples` per node / function).
  *
  * Type / Field `label` (short) + `description` (long) are DEV-OVERRIDABLE and
  * fall back to sensible generated defaults (see `describe-generate.ts`), so
@@ -22,13 +25,35 @@ import type { QueryEngine } from '../engine';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Field } from '../field';
-import type { ExprDef, FunctionDef, FunctionShape, QueryDef } from '../schema';
+import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
 import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
 import { defaultConditionWithout } from '../default-conditions';
 import { exprKindApplicable } from '../schema-build';
 import { fieldMeta, typeMeta } from './describe-generate';
 import { selectFunctions, type FunctionSelector } from './schemas';
+
+/**
+ * Default cap on WORKED examples rendered PER function / node in the composed
+ * docs. Examples teach shape; a small cap keeps the prompt terse. Callers raise
+ * it via `describeEngine({ maxExamples })` (or the per-function/expr helpers).
+ */
+export const DEFAULT_MAX_EXAMPLES = 2;
+
+/**
+ * Render up to `max` raw-JSON `examples` as terse `e.g. <json>` lines under a
+ * catalog entry, each prefixed by `indent`. Examples are emitted VERBATIM (they
+ * are already raw JSON strings); an empty / absent list or `max <= 0` yields no
+ * lines. The ONE renderer shared by the expr, function, and query sections.
+ */
+function exampleLines(
+  examples: readonly string[] | undefined,
+  max: number,
+  indent: string,
+): string[] {
+  if (!examples || max <= 0) return [];
+  return examples.slice(0, max).map((raw) => `${indent}e.g. ${raw}`);
+}
 
 /** A readable label for an index's stored `ExprDef` (raw JSON this phase). */
 function indexExprText(expr: ExprDef): string {
@@ -203,6 +228,7 @@ function functionSignature(fn: FunctionDef): string {
 export function describeFunctions(
   engine: QueryEngine | Registry,
   selector: FunctionSelector = 'all',
+  maxExamples: number = DEFAULT_MAX_EXAMPLES,
 ): string {
   const registry = toRegistry(engine);
   const selected = selectFunctions(registry, selector);
@@ -217,7 +243,10 @@ export function describeFunctions(
   for (const [shape, fns] of groups) {
     if (fns.length === 0) continue;
     lines.push(`  ${shape}:`);
-    for (const fn of fns) lines.push(`    - ${functionSignature(fn)}`);
+    for (const fn of fns) {
+      lines.push(`    - ${functionSignature(fn)}`);
+      lines.push(...exampleLines(fn.examples, maxExamples, '      '));
+    }
   }
   if (lines.length === 0) return 'functions: (none selected)';
   return ['functions:', ...lines].join('\n');
@@ -236,15 +265,41 @@ export function describeExprs(
   engine: QueryEngine | Registry,
   types?: readonly Type[],
   functions: FunctionSelector = 'all',
+  maxExamples: number = DEFAULT_MAX_EXAMPLES,
 ): string {
   const registry = toRegistry(engine);
   const scope = types ?? registry.typeList();
   const selected = selectFunctions(registry, functions);
-  const lines = registry
-    .exprClassList()
-    .filter((c) => exprKindApplicable(c.KIND, scope, selected))
-    .map((c) => `  - ${c.KIND} — ${c.INSTRUCTIONS}`);
+  const lines: string[] = [];
+  for (const c of registry.exprClassList()) {
+    if (!exprKindApplicable(c.KIND, scope, selected)) continue;
+    lines.push(`  - ${c.KIND} — ${c.INSTRUCTIONS}`);
+    lines.push(...exampleLines(c.EXAMPLES, maxExamples, '    '));
+  }
   return ['expressions:', ...lines].join('\n');
+}
+
+/**
+ * The WORKED QUERY-EXAMPLES section: each registered query KIND that ships
+ * `static EXAMPLES` (the confusing/composed ones — SELECT, UNION/INTERSECT/EXCEPT,
+ * WITH/CTE), rendered as `kind — INSTRUCTIONS` plus up to `maxExamples` worked
+ * example queries. These are query-LEVEL constructs (no expr catalog entry), so
+ * they get their own section; the examples are the ONE source of truth on the
+ * classes. Query kinds without examples (insert/update/delete/expr) are omitted.
+ */
+export function describeQueryExamples(
+  engine: QueryEngine | Registry,
+  maxExamples: number = DEFAULT_MAX_EXAMPLES,
+): string {
+  const registry = toRegistry(engine);
+  const lines: string[] = [];
+  for (const c of registry.queryClassList()) {
+    if (!c.EXAMPLES || c.EXAMPLES.length === 0) continue;
+    lines.push(`  ${c.KIND}${c.INSTRUCTIONS ? ` — ${c.INSTRUCTIONS}` : ''}`);
+    lines.push(...exampleLines(c.EXAMPLES, maxExamples, '    '));
+  }
+  if (lines.length === 0) return 'query examples: (none)';
+  return ['query examples:', ...lines].join('\n');
 }
 
 /** The names of the registered SQL dialects. */
@@ -260,261 +315,33 @@ export interface DescribeEngineOptions {
   types?: readonly Type[];
   /** Narrows the function listing + shape gating to the schema's selection. */
   functions?: FunctionSelector;
+  /**
+   * Cap on WORKED examples rendered PER function and PER node (expr kind / query
+   * kind). Keeps the composed docs terse. Defaults to {@link DEFAULT_MAX_EXAMPLES};
+   * `0` omits examples entirely.
+   */
+  maxExamples?: number;
 }
 
 /**
  * Full capability summary a model can read to know EVERYTHING it may use: every
- * (supplied) Type with its generated/overridden docs, the usable expr kinds
- * (`describeExprs`), the selected functions (`describeFunctions`), and the
- * registered dialects. `functions` narrows the expr gating + function listing to
- * the same selection the schema enumerates (defaults to all).
+ * (supplied) Type with its generated/overridden docs, the usable expr kinds with
+ * their worked examples (`describeExprs`), the selected functions with their
+ * worked examples (`describeFunctions`), the worked query-examples section
+ * (`describeQueryExamples`), and the registered dialects. `functions` narrows the
+ * expr gating + function listing to the same selection the schema enumerates
+ * (defaults to all); `maxExamples` caps examples per node / function.
  */
 export function describeEngine(
   engine: QueryEngine | Registry,
   options: DescribeEngineOptions = {},
 ): string {
-  const { types, functions = 'all' } = options;
+  const { types, functions = 'all', maxExamples = DEFAULT_MAX_EXAMPLES } = options;
   return [
     describeTypes(engine, types),
-    describeExprs(engine, types, functions),
-    describeFunctions(engine, functions),
+    describeExprs(engine, types, functions, maxExamples),
+    describeFunctions(engine, functions, maxExamples),
+    describeQueryExamples(engine, maxExamples),
     describeDialects(engine),
   ].join('\n\n');
-}
-
-/**
- * WORKED, valid example query defs for the constructs models most often botch —
- * window RANKING (partition-vs-order), set-ops (UNION), CTEs (WITH), and a
- * CORRELATED subquery (EXISTS). EXPORTED so a test parses + validates each
- * against the example fixture: a broken prompt example is worse than none.
- * Field refs use the example fixture's Type names (`user` / `order` / `product`).
- */
-export const WORKED_EXAMPLE_QUERIES: Readonly<Record<string, QueryDef>> = {
-  // Window RANKING: rank users by age. `orderBy` sets the ranking key; there is
-  // NO `partitionBy`, so all rows rank together and ties share a rank. (A
-  // `partitionBy:[age]` here would be the classic bug — every group size 1.)
-  window: {
-    kind: 'select',
-    fields: [
-      { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
-      {
-        expr: {
-          kind: 'window',
-          function: 'rank',
-          args: {},
-          orderBy: [{ expr: { kind: 'field-ref', source: 'user', field: 'age' }, dir: 'desc' }],
-        },
-        as: 'ageRank',
-      },
-    ],
-    from: { kind: 'type', type: 'user' },
-  },
-  // UNION: combine two result sets with the SAME output columns into one list.
-  union: {
-    kind: 'union',
-    left: {
-      kind: 'select',
-      fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'label' }],
-      from: { kind: 'type', type: 'user' },
-    },
-    right: {
-      kind: 'select',
-      fields: [{ expr: { kind: 'field-ref', source: 'product', field: 'name' }, as: 'label' }],
-      from: { kind: 'type', type: 'product' },
-    },
-  },
-  // CTE (WITH): name a subquery, then FROM that name in the final query.
-  cte: {
-    kind: 'cte',
-    ctes: [
-      {
-        name: 'revenue',
-        query: {
-          kind: 'select',
-          fields: [
-            { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
-            {
-              expr: {
-                kind: 'aggregate',
-                function: 'sum',
-                args: { value: { kind: 'field-ref', source: 'order', field: 'total' } },
-              },
-              as: 'total',
-            },
-          ],
-          from: { kind: 'type', type: 'order' },
-          groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
-        },
-      },
-    ],
-    final: {
-      kind: 'select',
-      fields: [
-        { expr: { kind: 'field-ref', source: 'revenue', field: 'userId' } },
-        { expr: { kind: 'field-ref', source: 'revenue', field: 'total' } },
-      ],
-      from: { kind: 'type', type: 'revenue' },
-    },
-  },
-  // Correlated EXISTS: users who have at least one order. The inner query
-  // correlates to the outer row via `order.userId = user.id`.
-  exists: {
-    kind: 'select',
-    fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
-    from: { kind: 'type', type: 'user' },
-    where: [
-      {
-        kind: 'exists',
-        query: {
-          kind: 'select',
-          fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
-          from: { kind: 'type', type: 'order' },
-          where: [
-            {
-              kind: 'comparison',
-              op: '=',
-              left: { kind: 'field-ref', source: 'order', field: 'userId' },
-              right: { kind: 'field-ref', source: 'user', field: 'id' },
-            },
-          ],
-        },
-      },
-    ],
-  },
-};
-
-/**
- * A small set of example query JSON snippets to seed an LLM tool's prompt.
- * Sources are referenced by their Type name (`from: { kind: 'type', type:
- * 'user' }`, `field-ref.source: 'user'`) — strict-mode field refs are
- * Type+field pairs, so the source IS the Type name. Substitute the Types you
- * actually have.
- */
-export function exampleQueriesText(): string {
-  return [
-    'Field references pair a Type with one of its fields: the source IS the',
-    'Type name (`from: { kind: "type", type: "user" }`, then `field-ref.source: "user"`).',
-    '',
-    'Example — select with a filter and limit:',
-    '```json',
-    JSON.stringify(
-      {
-        kind: 'select',
-        fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
-        from: { kind: 'type', type: 'user' },
-        where: [
-          {
-            kind: 'comparison',
-            op: '>',
-            left: { kind: 'field-ref', source: 'user', field: 'age' },
-            right: { kind: 'literal', value: 30 },
-          },
-        ],
-        limit: 10,
-      },
-      null,
-      2,
-    ),
-    '```',
-    '',
-    'Example — aggregate (revenue per user):',
-    '```json',
-    JSON.stringify(
-      {
-        kind: 'select',
-        fields: [
-          { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
-          {
-            expr: {
-              kind: 'aggregate',
-              function: 'sum',
-              args: { value: { kind: 'field-ref', source: 'order', field: 'total' } },
-            },
-            as: 'revenue',
-          },
-        ],
-        from: { kind: 'type', type: 'order' },
-        groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
-      },
-      null,
-      2,
-    ),
-    '```',
-    '',
-    'Functions take NAMED arguments keyed by the declared parameter name',
-    '(`{ function: "upper", args: { value: … } }`); `count(*)` is `count` with',
-    'empty `args`:',
-    '```json',
-    JSON.stringify(
-      {
-        kind: 'select',
-        fields: [
-          {
-            expr: {
-              kind: 'function-call',
-              function: 'upper',
-              args: { value: { kind: 'field-ref', source: 'user', field: 'name' } },
-            },
-            as: 'shout',
-          },
-        ],
-        from: { kind: 'type', type: 'user' },
-      },
-      null,
-      2,
-    ),
-    '```',
-    '',
-    'A JOIN crosses a SINGLE relation field — `on` is `{ source, field }` (the',
-    'bound source + its relation field); the joined rows bind under the target',
-    "Type name. Chain joins for multi-hop. A `filters` placeholder is just",
-    '`{ source, fields? }` (clauses are supplied at execution time, never here);',
-    'semantic / text-search take `{ source, field?, query }`:',
-    '```json',
-    JSON.stringify(
-      {
-        kind: 'select',
-        fields: [
-          { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
-          { expr: { kind: 'field-ref', source: 'order', field: 'total' } },
-        ],
-        from: { kind: 'type', type: 'user' },
-        joins: [{ on: { source: 'user', field: 'orders' } }],
-        where: [{ kind: 'filters', source: 'order', fields: ['total'] }],
-      },
-      null,
-      2,
-    ),
-    '```',
-    '',
-    'A WINDOW ranks/numbers rows: `orderBy` sets the ranking key, and',
-    '`partitionBy` splits rows into INDEPENDENT groups. To rank/number ALL rows',
-    'together OMIT `partitionBy` — "rank by X" means `orderBy:[X]`, NOT',
-    '`partitionBy:[X]` (partitioning by the ranking key makes every group size 1,',
-    'so every rank is 1). Rank users by age (ties share a rank):',
-    '```json',
-    JSON.stringify(WORKED_EXAMPLE_QUERIES.window, null, 2),
-    '```',
-    '',
-    'A UNION / INTERSECT / EXCEPT combines two result sets with the SAME output',
-    'columns (`left` / `right` are full queries). All product + user names in one',
-    'list:',
-    '```json',
-    JSON.stringify(WORKED_EXAMPLE_QUERIES.union, null, 2),
-    '```',
-    '',
-    'A CTE (`kind: "cte"`, a WITH) names one or more subqueries in `ctes`, then the',
-    '`final` query reads a CTE by its name (`from: { kind: "type", type: <cteName> }`,',
-    'field refs `source: <cteName>`). Per-user revenue as a named step:',
-    '```json',
-    JSON.stringify(WORKED_EXAMPLE_QUERIES.cte, null, 2),
-    '```',
-    '',
-    'A correlated subquery (`exists` / `in` for membership, `subquery` for a single',
-    'value) references the OUTER row from inside: correlate via a comparison to the',
-    'outer Type. Users who have placed at least one order:',
-    '```json',
-    JSON.stringify(WORKED_EXAMPLE_QUERIES.exists, null, 2),
-    '```',
-  ].join('\n');
 }
