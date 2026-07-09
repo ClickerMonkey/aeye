@@ -55,6 +55,12 @@ describe('resolveStrictFormat', () => {
     expect(resolveStrictFormat({ id: 'google/gemini-2.5', provider: 'openrouter' })).toBe('google');
   });
 
+  it("strips a leading '~' from OpenRouter '-latest' alias ids before matching the prefix", () => {
+    expect(resolveStrictFormat({ id: '~anthropic/claude-sonnet-latest', provider: 'openrouter' })).toBe('anthropic');
+    expect(resolveStrictFormat({ id: '~google/gemini-flash-latest', provider: 'openrouter' })).toBe('google');
+    expect(resolveStrictFormat({ id: '~openai/gpt-latest', provider: 'openrouter' })).toBe('openai');
+  });
+
   it('returns undefined when neither provider nor id prefix matches', () => {
     expect(resolveStrictFormat({ id: 'anthropic.claude-opus-4', provider: 'aws' })).toBeUndefined();
     expect(resolveStrictFormat({ id: 'gpt-4o', provider: 'replicate' })).toBeUndefined();

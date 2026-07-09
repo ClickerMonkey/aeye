@@ -53,7 +53,10 @@ export function resolveStrictFormat(model: {
   if (hasDescriptorFamily(model.provider)) return model.provider;
   const slashIdx = model.id.indexOf('/');
   if (slashIdx > 0) {
-    const prefix = model.id.slice(0, slashIdx);
+    // OpenRouter marks floating "-latest" aliases with a leading `~`
+    // (e.g. `~anthropic/claude-sonnet-latest`). Strip it so the family
+    // prefix still resolves to the right descriptor.
+    const prefix = model.id.slice(0, slashIdx).replace(/^~/, '');
     if (hasDescriptorFamily(prefix)) return prefix;
   }
   return undefined;
