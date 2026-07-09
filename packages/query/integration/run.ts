@@ -221,6 +221,8 @@ interface LogEntry {
   assertions: AssertionLog[];
   resultSummary: string | null;
   durationMs: number;
+  /** Number of model requests this case made (1 + `outputRetries` re-prompts). */
+  calls: number;
   timestamp: string;
 }
 
@@ -233,6 +235,8 @@ interface AskResult {
   query: Query | null;
   report: string;
   codes: string[];
+  /** Number of model requests this ask made (1 + `outputRetries` re-prompts). */
+  calls: number;
 }
 
 interface QueryAsker {
@@ -297,13 +301,28 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   return {
     ask: async (content): Promise<AskResult> => {
       errRef.last = null;
-      const query = (await prompt.get('result', { prompt: content })) as Query | undefined;
-      if (query) return { query, report: '', codes: [] };
+      // Stream (not `get('result')`) so we can COUNT model requests — one per
+      // initial call + each `outputRetries` re-prompt — to surface retry storms.
+      let calls = 0;
+      let query: Query | undefined;
+      // The prompt THROWS when it exhausts `outputRetries` (surfacing the last
+      // error). Catch it so the case is a clean failure that still reports its
+      // call count + diagnostics (via `errRef`), rather than losing both.
+      try {
+        for await (const event of prompt.get('stream', { prompt: content })) {
+          if (event.type === 'request') calls++;
+          else if (event.type === 'complete') query = event.output as Query | undefined;
+        }
+      } catch {
+        /* fall through to the error path below (errRef holds the last report) */
+      }
+      if (query) return { query, report: '', codes: [], calls };
       const last = takeLastError();
       return {
         query: null,
         report: last?.report ?? '',
         codes: last ? last.problems.list.map((p) => p.code) : [],
+        calls,
       };
     },
   };
@@ -329,6 +348,7 @@ async function runOneCase(
     assertions: [],
     resultSummary: null,
     durationMs: 0,
+    calls: 0,
     timestamp: new Date().toISOString(),
   };
 
@@ -343,6 +363,7 @@ async function runOneCase(
     // re-prompts on failure through its own `outputRetries` with the underlined,
     // aid-directed diagnostics — no manual repair round here.
     const built = await asker.ask(userContent);
+    entry.calls = built.calls;
     entry.emittedQuery = built.query ? built.query.toJSON() : null;
     entry.parseError = built.query === null ? built.report || 'model produced no valid query (after retries)' : null;
     entry.problemCodes = built.codes;
@@ -426,17 +447,37 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   console.log(`\nintegration eval — model: ${modelId} (OpenRouter), ${cases.length} case(s)\n`);
   const asker = createAsker(apiKey, modelId, engine);
 
-  const entries: LogEntry[] = [];
-  for (const c of cases) {
-    const entry = await runOneCase(engine, asker, modelId, c);
-    entries.push(entry);
-    const mark = entry.passed ? 'PASS' : 'FAIL';
-    const failed = entry.assertions.filter((a) => !a.passed);
-    const detail = entry.passed
-      ? `${entry.assertions.length} assertion(s) ok`
-      : failed.map((a) => `${a.describe}: ${a.reason ?? 'failed'}`).join(' | ') || entry.parseError || 'failed';
-    console.log(`  ${mark}  ${c.id.padEnd(34)} ${detail}`);
+  // Cases are independent → run them concurrently (pool of `--concurrency`, default
+  // 8). Each worker pulls the next case index; results are logged AS THEY COMPLETE
+  // (out of order) with per-case wall time + model-call count, so a slow/retrying
+  // case is visible immediately instead of stalling a silent sequential run.
+  const cflag = flagValue(process.argv, '--concurrency');
+  const concurrency = cflag !== null && Number.isInteger(Number(cflag)) && Number(cflag) > 0 ? Number(cflag) : 8;
+  console.log(`(concurrency: ${concurrency})\n`);
+
+  const entries: LogEntry[] = new Array<LogEntry>(cases.length);
+  const total = cases.length;
+  let next = 0;
+  let done = 0;
+  async function worker(): Promise<void> {
+    while (next < cases.length) {
+      const i = next++;
+      const c = cases[i];
+      if (c === undefined) break;
+      const entry = await runOneCase(engine, asker, modelId, c);
+      entries[i] = entry;
+      done++;
+      const mark = entry.passed ? 'PASS' : 'FAIL';
+      const failed = entry.assertions.filter((a) => !a.passed);
+      const detail = entry.passed
+        ? `${entry.assertions.length} assertion(s) ok`
+        : failed.map((a) => `${a.describe}: ${a.reason ?? 'failed'}`).join(' | ') || entry.parseError || 'failed';
+      console.log(
+        `  [${String(done).padStart(3)}/${total}] ${mark}  ${(entry.durationMs / 1000).toFixed(1).padStart(5)}s ${String(entry.calls).padStart(2)}c  ${c.id.padEnd(34)} ${detail}`,
+      );
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, () => worker()));
 
   // Summary + reports.
   const passed = entries.filter((e) => e.passed).length;
