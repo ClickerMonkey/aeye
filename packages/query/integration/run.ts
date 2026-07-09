@@ -406,7 +406,12 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
           else if (event.type === 'text' || event.type === 'textComplete') rawText = event.content;
           else if (event.type === 'complete') query = event.output as Query | undefined;
         }
-      } catch {
+      } catch (e) {
+        // The request/parse error is otherwise swallowed (the case just reports
+        // "no valid query"). Surface it under QUERY_EVAL_DEBUG so a delivery
+        // failure (e.g. a provider `400` on the complex schema — see MODELS.md
+        // "Mode 4") isn't mistaken for weak SQL.
+        if (process.env['QUERY_EVAL_DEBUG']) console.error('[ASKERR]', e instanceof Error ? e.message : String(e));
         /* fall through to the error path below (errRef holds the last report) */
       }
       if (query) return { query, report: '', codes: [], calls, raw: rawText };
