@@ -105,6 +105,40 @@ produces the expected values. Worst categories, essentially universal:
 Rock-solid across models: filter, operator, array, text-search, is-null, case,
 and (for the stronger models) group-by, date-range, most functions.
 
+### Hardest cases — cross-model failure matrix
+
+From 8 representative runs (Gemini 3-flash-preview / 2.5-flash / 3.5-flash,
+Sonnet 4 / 4.6, DeepSeek, GPT-5.1 `auto`, Qwen `prompt`), the cases ranked by how
+many models failed them:
+
+**Failed by ALL 8** — constructs no current model reliably expresses:
+
+| Case | Category |
+|------|----------|
+| `in-customers-with-orders` | subquery |
+| `not-in-products-never-purchased` | subquery |
+| `not-exists-customers-without-orders` | subquery |
+| `correlated-customer-largest-order` | subquery |
+| `set-intersect-east-with-orders` | set-op |
+| `set-except-east-without-orders` | set-op |
+| `win-rank-month-ties` | window (partition-vs-order) |
+| `refusal-insert-product-id` | write-model (guardrail) |
+
+**Failed by 7/8:** `agg-argmax-top-product-revenue`, `agg-nested-max-customer-revenue`,
+`agg-having-avg-not-in-select`, `cte-recursive-descendants-electronics`,
+`op-distinct-products-ordered`, `group-having-two-aggregates`,
+`join-return-matching-invoice`, `win-cumedist-dept-salary`,
+`win-firstvalue-dept-top-salary`, `win-lastvalue-dept-bottom-salary`,
+`refusal-update-currency`, `refusal-delete-payment`.
+
+**The tell is the clustering.** Entire construct families fail *together* — all
+four subqueries, both set-ops — rather than one-off cases scattered across
+categories. That points less at each case being independently hard and more at
+the **schema for those constructs** (their `kind` discriminator values and
+property names) confusing the model about what to emit. That's the thread to
+pull on next: examine the desired expr for each universally-failed cluster
+against how it's named in the wire schema, and test renamings.
+
 ---
 
 ## Per-model notes
