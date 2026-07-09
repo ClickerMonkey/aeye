@@ -2,6 +2,17 @@
  * OpenRouter Provider
  *
  * Provider for OpenRouter API with provider-specific routing and fallback options.
+ *
+ * Strict structured output enforcement:
+ *   OpenRouter may route a strict `json_schema` request to a best-effort provider
+ *   that ignores `response_format`, so the model emits non-conforming JSON (e.g. it
+ *   echoes the schema instead of an instance). To prevent this, whenever the outgoing
+ *   request carries a strict json_schema response format, this provider sets
+ *   `provider.require_parameters = true` — OpenRouter's documented routing enforcement
+ *   that only picks providers honoring every supplied parameter (including the schema).
+ *   This auto-enforcement is ON by default and can be opted out per-call by setting
+ *   `defaultParams.providers.requireParameters` explicitly (`false` disables, `true`
+ *   forces regardless of strictness). See {@link OpenRouterConfig.defaultParams}.
  */
 
 import type { Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
@@ -22,6 +33,18 @@ export interface OpenRouterConfig extends OpenAIConfig {
     providers?: {
       order?: string[];
       allowFallbacks?: boolean;
+      /**
+       * Controls OpenRouter's `provider.require_parameters` routing enforcement,
+       * which restricts routing to providers that honor every supplied parameter.
+       *
+       * - `true`  — always force enforcement.
+       * - `false` — never force it (opt out even for strict structured output).
+       * - `undefined` (default) — auto-enable ONLY when the request carries a strict
+       *   `json_schema` response format, so strict structured outputs are actually
+       *   enforced instead of silently degrading to a best-effort provider.
+       *
+       * Non-strict requests are unaffected unless this is explicitly set.
+       */
       requireParameters?: boolean;
       dataCollection?: 'deny' | 'allow';
       zdr?: boolean;
@@ -245,24 +268,46 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
       };
     }
 
-    // Merge provider parameters from config defaults
-    if (config.defaultParams) {
-      const dp = config.defaultParams;
+    const dp = config.defaultParams;
 
-      if (dp.providers) {
-        const { allowFallbacks, requireParameters, dataCollection, maxPrice, ...provider } = dp.providers;
-        params.provider = {
-          allow_fallbacks: allowFallbacks,
-          require_parameters: requireParameters,
-          data_collection: dataCollection,
-          max_price: maxPrice,
-          ...provider,
-        };
-      }
+    // Merge provider parameters from config defaults (preserve any existing
+    // params.provider already set upstream).
+    if (dp?.providers) {
+      const { allowFallbacks, requireParameters, dataCollection, maxPrice, ...provider } = dp.providers;
+      params.provider = {
+        ...params.provider,
+        allow_fallbacks: allowFallbacks,
+        require_parameters: requireParameters,
+        data_collection: dataCollection,
+        max_price: maxPrice,
+        ...provider,
+      };
+    }
 
-      if (dp.transforms) {
-        params.transforms = dp.transforms;
-      }
+    // Enforce strict structured output routing.
+    //
+    // The request's response_format is built by the OpenAIProvider parent before
+    // this hook runs, so we can detect a strict json_schema here. When present,
+    // default OpenRouter's `require_parameters` routing enforcement ON so the router
+    // only picks a provider that honors the schema (otherwise it may fall back to a
+    // best-effort provider that ignores response_format and echoes the schema).
+    //
+    // Opt-out: an explicit `requireParameters` (true/false) from config always wins;
+    // we only auto-enable when it was left undefined. Non-strict requests are never
+    // forced here.
+    const isStrictStructured =
+      params.response_format?.type === 'json_schema' &&
+      params.response_format.json_schema?.strict === true;
+
+    if (isStrictStructured && dp?.providers?.requireParameters === undefined) {
+      params.provider = {
+        ...params.provider,
+        require_parameters: true,
+      };
+    }
+
+    if (dp?.transforms) {
+      params.transforms = dp.transforms;
     }
   }
 
