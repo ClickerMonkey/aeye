@@ -292,6 +292,12 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     content: '{{instructions}}\n\n{{userPrompt}}',
     input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
     schema: () => wireSchema,
+    // The deeply-recursive query schema is NOT compatible with provider strict
+    // structured output (open+strict → the model drifts into `literal` vs
+    // `field-ref`; paired+strict → OpenAI rejects the ~95KB schema). Opt out of
+    // strict explicitly (the base.ts streaming fix now emits the full ModelInfo,
+    // so without this the request would go out strict and regress).
+    strict: false,
     // `parse` runs the STANDALONE query parser on the (already wire-decoded,
     // CONCEPTUAL) value — no Tool needed. Clean ⇒ the built `Query`; problems ⇒
     // the `QueryToolError` whose report the prompt re-prompts with.
