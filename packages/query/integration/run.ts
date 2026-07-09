@@ -266,7 +266,12 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
 
   const types = engine.registry.typeList();
   // Keep the structured schema (not the string fallback) even with 20 Types.
-  const options = { max: types.length + 1, functions: 'all' as const };
+  // Depth is overridable via QUERY_EVAL_DEPTH (e.g. `paired`) to compare how
+  // tightly the wire schema constrains field/source NAMES (open = free strings,
+  // paired = per-Type enums) — which matters a lot under strict structured output.
+  const depthEnv = process.env['QUERY_EVAL_DEPTH']?.trim();
+  const depth: 'open' | 'paired' | undefined = depthEnv === 'paired' ? 'paired' : depthEnv === 'open' ? 'open' : undefined;
+  const options = { max: types.length + 1, functions: 'all' as const, ...(depth ? { depth } : {}) };
   // The prompt's `schema` — the model emits against it AND core `decodeWire`s
   // the response with it BEFORE our `parse` hook runs (so `parse` sees the
   // CONCEPTUAL value). No Tool is built: we parse directly with `parseQueryTool`.
@@ -354,7 +359,10 @@ async function runOneCase(
 
   try {
     const userContent = [
-      'Emit the query as a structured JSON object in the `query` field of the schema.',
+      // Anchor the model to an INSTANCE, not the schema (it otherwise sometimes',
+      // echoes {"type":"object","properties":{...}}). Concrete envelope example:
+      'Respond with a single JSON object of the form {"query": <query>} — where <query> is the query itself.',
+      'Example shape: {"query": {"kind": "select", "from": {"kind": "type", "type": "..."}, "fields": [{"expr": {"kind": "field-ref", "source": "...", "field": "..."}}]}}',
       '',
       `User request: ${c.request}`,
     ].join('\n');
