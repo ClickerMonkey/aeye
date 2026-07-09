@@ -46,9 +46,31 @@ function recordingExecutor(contents: string[], deliveries: DeliverySnapshot[]) {
   });
 }
 
+/**
+ * Executor that THROWS on the first `throwCount` calls (simulating a provider
+ * that `400`s on the complex wire schema — Mode 4), then returns `content`.
+ * Records the request's effective `schemaDelivery` at call time BEFORE throwing.
+ */
+function throwingExecutor(throwCount: number, content: string, deliveries: DeliverySnapshot[]) {
+  let i = 0;
+  return jest.fn(async (request: Request): Promise<Response> => {
+    const rf = request.responseFormat;
+    deliveries.push(typeof rf === 'object' ? (rf.schemaDelivery ?? 'auto') : 'dropped');
+    const call = i++;
+    if (call < throwCount) throw new Error('400 Provider returned error');
+    return {
+      content,
+      finishReason: 'stop',
+      usage: { text: { input: 1, output: 1 } },
+      model: 'mock-model',
+    };
+  });
+}
+
 function makePrompt(
   schemaDelivery: 'auto' | 'structured' | 'prompt' | undefined,
   parseInputs: unknown[],
+  opts?: { runtimeSchemaFallback?: boolean },
 ) {
   return new Prompt<{}, {}, string, {}, { value: number }>({
     name: 'runtime-fallback',
@@ -57,6 +79,7 @@ function makePrompt(
     schema: z.object({ value: z.number() }),
     strict: false,
     ...(schemaDelivery ? { schemaDelivery } : {}),
+    ...(opts?.runtimeSchemaFallback !== undefined ? { runtimeSchemaFallback: opts.runtimeSchemaFallback } : {}),
     outputRetries: 3,
     parse: (raw) => {
       parseInputs.push(raw);
@@ -189,5 +212,96 @@ describe('Prompt runtime schema-delivery fallback', () => {
     // (guard + already-prompt), so it stays 'prompt' — no loop.
     expect(deliveries).toEqual(['auto', 'prompt', 'prompt']);
     expect(parseInputs).toEqual([{ value: 9 }]);
+  });
+
+  it('runtimeSchemaFallback:false disables the empty-content promotion', async () => {
+    const deliveries: DeliverySnapshot[] = [];
+    const parseInputs: unknown[] = [];
+    const prompt = makePrompt('auto', parseInputs, { runtimeSchemaFallback: false });
+
+    // Empty then valid: still retries via outputRetries, but delivery is NOT
+    // promoted — it stays 'auto' (an ordinary parse-retry).
+    const executor = recordingExecutor(['', JSON.stringify({ value: 6 })], deliveries);
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    const result = await prompt.get('result', {}, ctx);
+
+    expect(result).toEqual({ value: 6 });
+    expect(deliveries).toEqual(['auto', 'auto']);
+  });
+});
+
+describe('Prompt runtime schema-delivery fallback — request errors (Mode 4)', () => {
+  it('promotes a REQUEST-TIME error (auto) to prompt-delivery on retry', async () => {
+    const deliveries: DeliverySnapshot[] = [];
+    const parseInputs: unknown[] = [];
+    const prompt = makePrompt('auto', parseInputs);
+
+    // Attempt 1 throws (provider 400 on the complex schema); attempt 2 succeeds.
+    const executor = throwingExecutor(1, JSON.stringify({ value: 5 }), deliveries);
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    const result = await prompt.get('result', {}, ctx);
+
+    expect(result).toEqual({ value: 5 });
+    expect(executor).toHaveBeenCalledTimes(2);
+    expect(deliveries).toEqual(['auto', 'prompt']);
+    expect(parseInputs).toEqual([{ value: 5 }]);
+  });
+
+  it("emits a 'request-error' textReset when it promotes", async () => {
+    const deliveries: DeliverySnapshot[] = [];
+    const prompt = makePrompt('auto', []);
+    const executor = throwingExecutor(1, JSON.stringify({ value: 1 }), deliveries);
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    const events: PromptEvent<any, any>[] = [];
+    let result: unknown;
+    for await (const ev of prompt.get('stream', {}, ctx)) {
+      events.push(ev);
+      if (ev.type === 'complete') result = (ev as any).output;
+    }
+
+    expect(result).toEqual({ value: 1 });
+    const reset = events.find((e) => e.type === 'textReset') as any;
+    expect(reset?.reason).toBe('request-error');
+    expect(deliveries).toEqual(['auto', 'prompt']);
+  });
+
+  it('does NOT retry when runtimeSchemaFallback is false — error propagates', async () => {
+    const deliveries: DeliverySnapshot[] = [];
+    const prompt = makePrompt('auto', [], { runtimeSchemaFallback: false });
+    const executor = throwingExecutor(1, JSON.stringify({ value: 2 }), deliveries);
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    await expect(prompt.get('result', {}, ctx)).rejects.toThrow('400 Provider returned error');
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(deliveries).toEqual(['auto']);
+  });
+
+  it("does NOT retry a request error under 'structured' — error propagates", async () => {
+    const deliveries: DeliverySnapshot[] = [];
+    const prompt = makePrompt('structured', []);
+    const executor = throwingExecutor(1, JSON.stringify({ value: 3 }), deliveries);
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    await expect(prompt.get('result', {}, ctx)).rejects.toThrow('400 Provider returned error');
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(deliveries).toEqual(['structured']);
+  });
+
+  it('is idempotent — a second request error after promotion propagates (no loop)', async () => {
+    const deliveries: DeliverySnapshot[] = [];
+    const prompt = makePrompt('auto', []);
+
+    // Throws on BOTH the structured attempt and the promoted prompt-text retry.
+    const executor = throwingExecutor(2, JSON.stringify({ value: 9 }), deliveries);
+    const ctx: Context<{}, {}> = { execute: executor, messages: [] };
+
+    // call 1 (auto) throws → promote → call 2 (prompt) throws → already promoted
+    // → rethrow. Two calls, no loop.
+    await expect(prompt.get('result', {}, ctx)).rejects.toThrow('400 Provider returned error');
+    expect(executor).toHaveBeenCalledTimes(2);
+    expect(deliveries).toEqual(['auto', 'prompt']);
   });
 });

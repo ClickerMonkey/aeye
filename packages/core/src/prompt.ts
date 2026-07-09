@@ -122,7 +122,11 @@ export interface PromptInput<
    *   the selected model's dialect can express it; otherwise transparently DROP
    *   the wire schema and deliver it as prompt TEXT. The existing extract +
    *   `parse`/Zod path still validates the model's text JSON. Rescues providers
-   *   (e.g. Gemini) whose structured output 400s on unions/`$ref`.
+   *   (e.g. Gemini) whose structured output 400s on unions/`$ref`. Under `'auto'`
+   *   a RUNTIME fallback also fires (see `runtimeSchemaFallback`): if the model
+   *   accepts the wire schema but replies with empty/unparseable content, or the
+   *   request itself fails (e.g. a provider `400` on a too-complex schema), the
+   *   prompt retries once with prompt-text delivery.
    * - `'structured'` — always send structured output, even for dialects that
    *   can't express the schema (pre-fallback behavior).
    * - `'prompt'` — always DROP the wire schema and deliver it as prompt text.
@@ -130,6 +134,22 @@ export interface PromptInput<
    * Only affects prompts with a structured (non-`ZodString`) `schema`.
    */
   schemaDelivery?: SchemaDelivery;
+  /**
+   * Enables the RUNTIME schema-delivery fallback under `schemaDelivery: 'auto'`.
+   * Default `true`. The static (pre-flight) part of `'auto'` — dropping a schema
+   * the dialect can't express — always runs; this governs the two POST-request
+   * recoveries that can only be detected at runtime:
+   *
+   * - the model accepts the wire schema but returns EMPTY/unparseable content, or
+   * - the request FAILS (throws — e.g. a provider `400` that accepts a simple
+   *   `json_schema` but rejects our complex recursive one).
+   *
+   * In either case the prompt promotes delivery to prompt-text and retries once
+   * (consuming one `outputRetries`). Set `false` to disable both — the empty
+   * response becomes an ordinary parse-retry and a request error propagates.
+   * No effect unless `schemaDelivery` resolves to `'auto'`.
+   */
+  runtimeSchemaFallback?: boolean;
   // A configuration object or function/promise that returns a configuration object for the AI request.
   config?: Fn<Partial<Request> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
   // After an iteration, a function that can reconfigure the prompt based on runtime statistics.
@@ -755,11 +775,14 @@ export class Prompt<
     let completeText: string = '';
     // Runtime schema-delivery fallback guard. A model whose descriptor ALLOWS
     // the schema (so the static `canExpress` check passes and structured output
-    // is sent) can still return EMPTY or unparseable content for it. When that
-    // happens under `schemaDelivery: 'auto'` we promote delivery to prompt-text
-    // for the RETRY (see the json-parsing branch below). This flag keeps the
-    // promotion idempotent within a single prompt run — we switch at most once
-    // and never loop. Per-run only; nothing is persisted across requests.
+    // is sent) can still fail at runtime in two ways: it returns EMPTY or
+    // unparseable content (see the json-parsing branch below), or the request
+    // itself FAILS with an error (e.g. a provider `400` on a too-complex schema —
+    // see the request-error catch around the stream). Under `schemaDelivery:
+    // 'auto'` (and unless `runtimeSchemaFallback` is `false`) either case promotes
+    // delivery to prompt-text for the RETRY. This flag keeps the promotion
+    // idempotent within a single prompt run — we switch at most once and never
+    // loop. Per-run only; nothing is persisted across requests.
     let promotedToPromptDelivery = false;
     let maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + 1;
     let requestUsageSent = false;
@@ -822,6 +845,15 @@ export class Prompt<
 
       yield emit({ type: 'request', request, iterations });
 
+      // Wrap request execution so a REQUEST-TIME failure can drive the runtime
+      // schema-delivery fallback (Mode 4). A provider that accepts a simple
+      // json_schema but 400s on our complex recursive one THROWS here rather
+      // than returning empty content, so the json-parsing fallback inside the
+      // loop never sees it. On such a failure — under `auto`, structured
+      // actually attempted, fallback enabled, not already promoted, retries
+      // left, and not aborted — promote to prompt-text and retry; else rethrow.
+      let requestFailedNeedsRetry = false;
+      try {
       const stream = streamer(request, ctx, metadata, streamController.signal);
 
       for await (const chunk of stream) {
@@ -1330,6 +1362,7 @@ export class Prompt<
           // The switch is not remembered beyond this run. This reuses the
           // existing outputRetries re-prompt mechanism below to re-issue.
           if (
+            this.input.runtimeSchemaFallback !== false &&
             resetReason === 'json-parsing' &&
             !promotedToPromptDelivery &&
             typeof request.responseFormat === 'object' &&
@@ -1359,6 +1392,35 @@ export class Prompt<
             break;
           }
         }
+      }
+      } catch (requestError) {
+        if (
+          !ctx.signal?.aborted &&
+          !streamController.signal.aborted &&
+          this.input.runtimeSchemaFallback !== false &&
+          !promotedToPromptDelivery &&
+          typeof request.responseFormat === 'object' &&
+          (request.responseFormat.schemaDelivery ?? 'auto') === 'auto' &&
+          outputRetries > 0
+        ) {
+          // Mode-4 fallback: promote to prompt-text and retry (mirrors the
+          // empty/unparseable json-parsing promotion above). Consumes one
+          // `outputRetries`; the guard makes it fire at most once per run.
+          request.responseFormat.schemaDelivery = 'prompt';
+          promotedToPromptDelivery = true;
+          outputRetries--;
+          yield emit({ type: 'textReset', reason: 'request-error', request });
+          requestFailedNeedsRetry = true;
+        } else {
+          throw requestError;
+        }
+      }
+
+      // A request-time failure was promoted to prompt-text delivery: skip the
+      // rest of this iteration (reconfig/dynamic/parse) and re-issue.
+      if (requestFailedNeedsRetry) {
+        iterations++;
+        continue;
       }
 
       // Call reconfig if provided

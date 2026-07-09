@@ -37,21 +37,23 @@ handle that unevenly, which sorts every model into one of **four** buckets:
 | **1 · Descriptor forbids it** | Provider rejects `anyOf`/`$defs` up front (HTTP 400) — a *known dialect limit* | `canExpress` — **static**, pre-flight → drop schema, deliver as prompt text |
 | **2 · Native support** | Accepts `response_format`, decodes it fine | none needed |
 | **3 · Accepts but empties** | Accepts the schema, `finish=stop`, **empty content** | **runtime** fallback — empty/unparseable → retry once as prompt text |
-| **4 · Errors on the *complex* schema** | Accepts *simple* schemas, but **HTTP 400s on our big recursive one** at request time | **not yet auto-handled** — see below |
+| **4 · Errors on the *complex* schema** | Accepts *simple* schemas, but **HTTP 400s on our big recursive one** at request time | **runtime** fallback — request throws → retry once as prompt text |
 
 Two lessons the eval taught us:
 
-- **"The descriptor allows the schema" ≠ "the model can decode it."** Mode 3 is
-  invisible to a static check — you only learn at runtime when the content comes
-  back empty. That's why `schemaDelivery: 'auto'` combines the static drop *and*
-  the runtime empty-output retry.
-- **Mode 4 is a live gap.** GPT-5.1 accepts a *simple* `json_schema` (HTTP 200)
-  but returns **`400 Provider returned error`** on our full schema. `canExpress`
-  says the `openai` dialect *can* express `anyOf`, so no static drop; and the
-  request **throws** rather than returning empty, so the runtime fallback (which
-  only triggers on empty/unparseable content) never fires. **TODO:** widen the
-  runtime fallback to also catch a request-time error (retry once as prompt text
-  on a 400/throw), which would let GPT-5.1 recover in `auto` the way Llama does.
+- **"The descriptor allows the schema" ≠ "the model can decode it."** Modes 3 and
+  4 are invisible to a static check — you only learn at runtime, either when the
+  content comes back empty (3) or when the request itself fails (4). So
+  `schemaDelivery: 'auto'` combines the static drop *and* a **runtime** fallback
+  that fires on both: empty/unparseable content **or** a request-time error →
+  promote to prompt-text and retry once. GPT-5.1 (which `400`s on our schema but
+  scores 66% in prompt mode) now recovers automatically in `auto` (≈2 calls/case:
+  structured `400` → prompt-text retry), exactly the way Llama does for empties.
+- **The runtime fallback is opt-out.** It's on by default under `'auto'`; set
+  `runtimeSchemaFallback: false` on the prompt to disable *both* runtime recoveries
+  (an empty reply then becomes an ordinary parse-retry and a request error
+  propagates). The static drop for dialects that can't express the schema (Mode 1)
+  is unaffected.
 
 Feasibility is a property of the **target model's dialect**, not the provider —
 the fallback resolves the descriptor from the model before any provider encodes
@@ -69,7 +71,7 @@ the request.
 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` | 2 | **73/101 (72%)** | native; best at windows (10/11) |
 | Llama-4-Maverick | `meta-llama/llama-4-maverick` | 3 | **69/101 (68%)** | empties on wire schema → runtime fallback |
 | GPT-4o | `openai/gpt-4o` | 2 | ~69% | native (non-strict); older run |
-| GPT-5.1 (prompt mode) | `openai/gpt-5.1` | **4** | **67/101 (66%)** in `prompt`; **4/101** broken in `auto` | 400s on the complex wire schema |
+| GPT-5.1 | `openai/gpt-5.1` | **4** | **70/101 (69%)** in `auto` (was 4/101); 67/101 (66%) in `prompt` | 400s on the complex schema → runtime fallback |
 | Qwen 2.5 72B (prompt mode) | `qwen/qwen-2.5-72b-instruct` | 3 (flaky) | **52/101 (51%)** in `prompt`; **6/101** flaky in `auto` | genuinely mid-tier SQL |
 | DeepSeek V3 | `deepseek/deepseek-chat` | 2 | **51/101 (50%)** | delivers fine, genuinely weaker SQL |
 | Claude Sonnet 3.7 | `anthropic/claude-3.7-sonnet` | — | **N/A** | HTTP 404 — retired on OpenRouter |
@@ -141,19 +143,21 @@ and (for the stronger models) group-by, date-range, most functions.
   otherwise-easy categories (filter 6/8, operator 2/3, array 3/5) — the only
   tested model that stumbles below the "advanced SQL" line.
 
-### OpenAI GPT-5.1 — `openai/gpt-5.1` — 66% (prompt); Mode 4 (delivery-broken in `auto`)
+### OpenAI GPT-5.1 — `openai/gpt-5.1` — 66% (prompt); Mode 4 (now auto-recovered)
 
 - **`400 Provider returned error`** on our full schema (a *simple* `json_schema`
-  returns HTTP 200). In `auto` every case fails in <1s with 1 call; the 4/101
-  "passes" are write-model *refusal* cases that trivially pass when the model
-  produces nothing.
+  returns HTTP 200). Before the Mode-4 fallback, every case failed in <1s with
+  1 call (the 4/101 "passes" were write-model *refusal* cases that trivially pass
+  when the model produces nothing).
 - **In `prompt` mode: 67/101 (66%)** — fully competitive with the Gemini/Claude
   tier. The `auto` failure was *entirely* delivery; the model is strong.
+- **Now recovers in `auto`** via the runtime request-error fallback: the
+  structured `400` is caught and retried as prompt text (≈2 calls/case) →
+  **70/101 (69%)** at full scale, matching (here, edging) its prompt-mode 66%.
+  No manual `QUERY_EVAL_MODE=prompt` needed.
 - Notably a *newer* OpenAI model is **more** restrictive on structured output
   than gpt-4o (which handled the same schema at ~69%). Weakest: cte 0/3,
   window 4/11, subquery 3/7.
-- **This is the case for the Mode-4 TODO** — catching the 400 and retrying as
-  prompt text would recover GPT-5.1 to ~66% in `auto` with no manual override.
 
 ### Qwen 2.5 72B — `qwen/qwen-2.5-72b-instruct` — 51% (prompt); Mode 3 (flaky)
 
