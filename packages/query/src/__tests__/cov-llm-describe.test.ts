@@ -228,3 +228,87 @@ describe('describeEngine example rendering + maxExamples', () => {
     expect(DEFAULT_MAX_EXAMPLES).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Bring-your-own instructions / examples: the `instructions` / `examples` override
+ * maps on `describeEngine` (and the per-section helpers) REPLACE the shipped
+ * INSTRUCTIONS / EXAMPLES per key (function NAME or node KIND); every un-overridden
+ * item keeps the shipped default, and an absent / empty map renders identically.
+ */
+describe('describeEngine overrides', () => {
+  const engine = widgetEngine();
+
+  /** The shipped INSTRUCTIONS for an expr KIND (to assert it is REPLACED, not merely absent). */
+  function shippedExprInstructions(kind: string): string {
+    const cls = engine.registry.exprClassList().find((c) => c.KIND === kind);
+    return cls!.INSTRUCTIONS;
+  }
+  /** The shipped INSTRUCTIONS for a query KIND. */
+  function shippedQueryInstructions(kind: string): string | undefined {
+    return engine.registry.queryClassList().find((c) => c.KIND === kind)?.INSTRUCTIONS;
+  }
+  /** The shipped instructions for a function NAME. */
+  function shippedFnInstructions(name: string): string | undefined {
+    return engine.registry.functionList().find((f) => f.name === name)?.instructions;
+  }
+
+  it('instructions override replaces a function, an expr kind, and a query kind', () => {
+    const shippedSum = shippedFnInstructions('sum')!;
+    const shippedWindow = shippedExprInstructions('window');
+    const shippedSelect = shippedQueryInstructions('select')!;
+    const de = describeEngine(engine, {
+      instructions: {
+        sum: 'MY OWN sum doc',
+        window: 'MY OWN window doc',
+        select: 'MY OWN select doc',
+      },
+    });
+    // Overrides appear...
+    expect(de).toContain('MY OWN sum doc');
+    expect(de).toContain('  - window — MY OWN window doc');
+    expect(de).toContain('  select — MY OWN select doc');
+    // ...and the shipped instruction text is GONE (replaced, not appended).
+    expect(de).not.toContain(shippedSum);
+    expect(de).not.toContain(shippedWindow);
+    expect(de).not.toContain(shippedSelect);
+  });
+
+  it('adds an em-dash instruction to a query kind that ships EXAMPLES but no INSTRUCTIONS', () => {
+    const reg = createRegistry();
+    reg.defineQuery({
+      KIND: 'expr',
+      from: ExprQuery.from,
+      EXAMPLES: ['{"kind":"expr","expr":{"kind":"literal","value":1}}'],
+    });
+    const line = describeQueryExamples(reg, DEFAULT_MAX_EXAMPLES, { instructions: { expr: 'MY expr doc' } })
+      .split('\n')
+      .find((l) => l.startsWith('  expr'));
+    expect(line).toBe('  expr — MY expr doc');
+  });
+
+  it('examples override replaces a node + a function and respects maxExamples', () => {
+    const mine = ['{"my":1}', '{"my":2}', '{"my":3}'];
+    // Expr node keyed by KIND — 3 overrides capped to 1.
+    const exprs = describeExprs(engine, undefined, 'all', 1, { examples: { in: mine } });
+    const inLines = exprs.split('\n').filter((l) => l.includes('e.g. {"my"'));
+    expect(inLines.length).toBe(1);
+    expect(inLines[0]).toContain('{"my":1}');
+    expect(exprs).not.toContain('"kind":"in"'); // shipped in-example replaced
+    const full = describeExprs(engine, undefined, 'all', 3, { examples: { in: mine } });
+    expect(full.split('\n').filter((l) => l.includes('e.g. {"my"')).length).toBe(3);
+    // Function keyed by NAME.
+    const fns = describeFunctions(engine, 'all', 3, { examples: { sum: mine } });
+    expect(fns).toContain('e.g. {"my":3}');
+  });
+
+  it('absent keys fall back to shipped; empty / no override map is byte-identical', () => {
+    const base = describeEngine(engine);
+    expect(describeEngine(engine, {})).toBe(base);
+    expect(describeEngine(engine, { instructions: {}, examples: {} })).toBe(base);
+    // Overriding one item leaves the others' SHIPPED docs intact.
+    const shippedWindow = shippedExprInstructions('window');
+    const de = describeEngine(engine, { instructions: { sum: 'MY OWN sum doc' } });
+    expect(de).toContain('MY OWN sum doc');
+    expect(de).toContain(shippedWindow); // untouched sibling keeps its shipped doc
+  });
+});

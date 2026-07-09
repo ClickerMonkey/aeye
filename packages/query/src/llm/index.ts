@@ -37,6 +37,7 @@ export {
   describeEngine,
   DEFAULT_MAX_EXAMPLES,
   type DescribeEngineOptions,
+  type DescribeOverrides,
 } from './describe';
 
 export {

@@ -41,6 +41,42 @@ import { selectFunctions, type FunctionSelector } from './schemas';
 export const DEFAULT_MAX_EXAMPLES = 2;
 
 /**
+ * A caller's per-item OVERRIDES for the rendered docs, keyed by function NAME or
+ * node KIND (functions are keyed by name, expr / query nodes by kind — one flat
+ * namespace, the strings are distinct). A present key REPLACES that item's
+ * shipped `INSTRUCTIONS` / `EXAMPLES` (the shipped values remain the fallback for
+ * any key NOT present); an absent / empty map renders exactly the shipped docs.
+ * Override strings are the CALLER's responsibility — they are rendered verbatim,
+ * not structurally validated (a caller can pre-check example strings via a bare
+ * `createRegistry().parseCheckedQuery` / `parseCheckedExpr`, mirroring the shipped
+ * test, before passing them here). Example lists are still capped by `maxExamples`.
+ */
+export interface DescribeOverrides {
+  /** name/kind → the INSTRUCTIONS line to render in place of the shipped one. */
+  instructions?: Record<string, string>;
+  /** name/kind → the EXAMPLES to render in place of the shipped ones (raw JSON strings). */
+  examples?: Record<string, readonly string[]>;
+}
+
+/** The shipped INSTRUCTIONS for `key`, replaced by the caller's override when present. */
+function overrideInstructions(
+  key: string,
+  shipped: string | undefined,
+  overrides: DescribeOverrides,
+): string | undefined {
+  return overrides.instructions?.[key] ?? shipped;
+}
+
+/** The shipped EXAMPLES for `key`, replaced by the caller's override when present. */
+function overrideExamples(
+  key: string,
+  shipped: readonly string[] | undefined,
+  overrides: DescribeOverrides,
+): readonly string[] | undefined {
+  return overrides.examples?.[key] ?? shipped;
+}
+
+/**
  * Render up to `max` raw-JSON `examples` as terse `e.g. <json>` lines under a
  * catalog entry, each prefixed by `indent`. Examples are emitted VERBATIM (they
  * are already raw JSON strings); an empty / absent list or `max <= 0` yields no
@@ -207,7 +243,7 @@ export function describeTypes(engine: QueryEngine | Registry, types?: readonly T
  * named params (a trailing `?` marks optional), the output type, and the
  * function's terse `instructions` (Pass 1) when present.
  */
-function functionSignature(fn: FunctionDef): string {
+function functionSignature(fn: FunctionDef, instructions?: string): string {
   const params = fn.params.map((p) => `${p.name}${p.optional ? '?' : ''}`).join(', ');
   const out =
     fn.output === 'inferred'
@@ -216,7 +252,7 @@ function functionSignature(fn: FunctionDef): string {
         ? fn.output.kind
         : fn.output.type;
   const sig = `${fn.name}(${params}): ${out}`;
-  return fn.instructions ? `${sig} — ${fn.instructions}` : sig;
+  return instructions ? `${sig} — ${instructions}` : sig;
 }
 
 /**
@@ -229,6 +265,7 @@ export function describeFunctions(
   engine: QueryEngine | Registry,
   selector: FunctionSelector = 'all',
   maxExamples: number = DEFAULT_MAX_EXAMPLES,
+  overrides: DescribeOverrides = {},
 ): string {
   const registry = toRegistry(engine);
   const selected = selectFunctions(registry, selector);
@@ -244,8 +281,9 @@ export function describeFunctions(
     if (fns.length === 0) continue;
     lines.push(`  ${shape}:`);
     for (const fn of fns) {
-      lines.push(`    - ${functionSignature(fn)}`);
-      lines.push(...exampleLines(fn.examples, maxExamples, '      '));
+      // Functions are keyed by NAME: a caller override REPLACES the shipped docs.
+      lines.push(`    - ${functionSignature(fn, overrideInstructions(fn.name, fn.instructions, overrides))}`);
+      lines.push(...exampleLines(overrideExamples(fn.name, fn.examples, overrides), maxExamples, '      '));
     }
   }
   if (lines.length === 0) return 'functions: (none selected)';
@@ -266,6 +304,7 @@ export function describeExprs(
   types?: readonly Type[],
   functions: FunctionSelector = 'all',
   maxExamples: number = DEFAULT_MAX_EXAMPLES,
+  overrides: DescribeOverrides = {},
 ): string {
   const registry = toRegistry(engine);
   const scope = types ?? registry.typeList();
@@ -273,8 +312,9 @@ export function describeExprs(
   const lines: string[] = [];
   for (const c of registry.exprClassList()) {
     if (!exprKindApplicable(c.KIND, scope, selected)) continue;
-    lines.push(`  - ${c.KIND} — ${c.INSTRUCTIONS}`);
-    lines.push(...exampleLines(c.EXAMPLES, maxExamples, '    '));
+    // Expr nodes are keyed by KIND: a caller override REPLACES the shipped docs.
+    lines.push(`  - ${c.KIND} — ${overrideInstructions(c.KIND, c.INSTRUCTIONS, overrides)}`);
+    lines.push(...exampleLines(overrideExamples(c.KIND, c.EXAMPLES, overrides), maxExamples, '    '));
   }
   return ['expressions:', ...lines].join('\n');
 }
@@ -290,13 +330,16 @@ export function describeExprs(
 export function describeQueryExamples(
   engine: QueryEngine | Registry,
   maxExamples: number = DEFAULT_MAX_EXAMPLES,
+  overrides: DescribeOverrides = {},
 ): string {
   const registry = toRegistry(engine);
   const lines: string[] = [];
   for (const c of registry.queryClassList()) {
     if (!c.EXAMPLES || c.EXAMPLES.length === 0) continue;
-    lines.push(`  ${c.KIND}${c.INSTRUCTIONS ? ` — ${c.INSTRUCTIONS}` : ''}`);
-    lines.push(...exampleLines(c.EXAMPLES, maxExamples, '    '));
+    // Query nodes are keyed by KIND: a caller override REPLACES the shipped docs.
+    const instructions = overrideInstructions(c.KIND, c.INSTRUCTIONS, overrides);
+    lines.push(`  ${c.KIND}${instructions ? ` — ${instructions}` : ''}`);
+    lines.push(...exampleLines(overrideExamples(c.KIND, c.EXAMPLES, overrides), maxExamples, '    '));
   }
   if (lines.length === 0) return 'query examples: (none)';
   return ['query examples:', ...lines].join('\n');
@@ -321,6 +364,21 @@ export interface DescribeEngineOptions {
    * `0` omits examples entirely.
    */
   maxExamples?: number;
+  /**
+   * BRING-YOUR-OWN INSTRUCTIONS: `name/kind → instruction line` that REPLACES the
+   * shipped `INSTRUCTIONS` for that function (by NAME) / expr / query node (by KIND).
+   * Absent keys keep the shipped default; an absent / empty map changes nothing.
+   */
+  instructions?: Record<string, string>;
+  /**
+   * BRING-YOUR-OWN EXAMPLES: `name/kind → raw-JSON example strings` that REPLACE the
+   * shipped `EXAMPLES` for that function (by NAME) / expr / query node (by KIND) —
+   * e.g. examples written against your OWN domain Types. Still capped by
+   * `maxExamples`. Examples are rendered VERBATIM (validate them yourself — a bare
+   * `createRegistry().parseCheckedQuery` / `parseCheckedExpr` mirrors the shipped
+   * check). Absent keys keep the shipped default; an absent / empty map changes nothing.
+   */
+  examples?: Record<string, readonly string[]>;
 }
 
 /**
@@ -330,18 +388,24 @@ export interface DescribeEngineOptions {
  * worked examples (`describeFunctions`), the worked query-examples section
  * (`describeQueryExamples`), and the registered dialects. `functions` narrows the
  * expr gating + function listing to the same selection the schema enumerates
- * (defaults to all); `maxExamples` caps examples per node / function.
+ * (defaults to all); `maxExamples` caps examples per node / function. `instructions`
+ * / `examples` let a caller REPLACE the shipped INSTRUCTIONS / EXAMPLES for any
+ * function (by name) or node (by kind) with their OWN — e.g. examples written
+ * against their domain Types — while every un-overridden item keeps the shipped default.
  */
 export function describeEngine(
   engine: QueryEngine | Registry,
   options: DescribeEngineOptions = {},
 ): string {
-  const { types, functions = 'all', maxExamples = DEFAULT_MAX_EXAMPLES } = options;
+  const { types, functions = 'all', maxExamples = DEFAULT_MAX_EXAMPLES, instructions, examples } = options;
+  // One flat override namespace threads to every render path (functions by name,
+  // expr / query nodes by kind); shipped INSTRUCTIONS / EXAMPLES remain the fallback.
+  const overrides: DescribeOverrides = { instructions, examples };
   return [
     describeTypes(engine, types),
-    describeExprs(engine, types, functions, maxExamples),
-    describeFunctions(engine, functions, maxExamples),
-    describeQueryExamples(engine, maxExamples),
+    describeExprs(engine, types, functions, maxExamples, overrides),
+    describeFunctions(engine, functions, maxExamples, overrides),
+    describeQueryExamples(engine, maxExamples, overrides),
     describeDialects(engine),
   ].join('\n\n');
 }
