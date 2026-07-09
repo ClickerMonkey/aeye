@@ -256,8 +256,8 @@ interface AskResult {
   codes: string[];
   /** Number of model requests this ask made (1 + `outputRetries` re-prompts). */
   calls: number;
-  /** The raw model TEXT for the schema-less modes (undefined in `structured`),
-   *  so the logs show verbatim what a schema-less provider emitted. */
+  /** The raw model TEXT streamed for this ask (verbatim), for the log trail —
+   *  what the provider actually emitted before core's extract + `parse`. */
   raw?: string;
 }
 
@@ -274,87 +274,29 @@ interface QueryAsker {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * How the query schema is delivered to the model:
- *  - `structured` (default): the wire schema is sent as `response_format` and
- *    core's `parse` hook validates the structured output. EXACTLY today's path
- *    (unchanged for OpenAI et al.).
- *  - `prompt`: NO `response_format`. The wire schema is DROPPED; the model is
- *    steered by the prompt (describeEngine guidance + a per-family JSON hint) and
- *    `ask()` parses the raw model TEXT itself. For providers (e.g. Gemini) whose
- *    strict structured output 400s on our deeply-recursive union/$ref schema.
- *  - `schema-in-prompt`: like `prompt`, but the wire JSON Schema is ALSO appended
- *    to the prompt as TEXT (so the model sees the shape without the wire needing
- *    to carry — or the provider needing to accept — it).
+ * How the query schema is delivered to the model (`QUERY_EVAL_MODE`), mapped
+ * STRAIGHT onto the prompt's `schemaDelivery`. Core does ALL text→JSON
+ * extraction + `parse` in every mode (see `createAsker`) — this knob only
+ * changes whether the wire schema rides as `response_format` or as prompt text:
+ *  - `auto` (default): send the wire schema where the model's dialect can
+ *    express it (OpenAI), else transparently DROP it and deliver the schema as
+ *    prompt text (Gemini's dialect 400s on our union/$ref schema). Also covers
+ *    the runtime fallback (a model that accepts the schema yet returns empty —
+ *    e.g. llama-4-maverick — is retried in prompt-text on the next iteration).
+ *  - `structured`: FORCE the wire schema (no fallback) — for OpenAI-only runs or
+ *    to observe the raw failure on a dialect that can't express it.
+ *  - `prompt`: always DROP the wire schema and append the JSON Schema as prompt
+ *    text (+ the descriptor's per-family JSON instruction, via core). Gemini.
  */
-type EvalMode = 'structured' | 'prompt' | 'schema-in-prompt';
+type EvalMode = 'auto' | 'structured' | 'prompt';
 
-/** Read `QUERY_EVAL_MODE` (default `structured`). */
+/** Read `QUERY_EVAL_MODE` (default `auto`); `schema-in-prompt` is an alias for
+ *  `prompt` (identical now that core appends the schema text on fallback). */
 function evalMode(): EvalMode {
   const m = process.env['QUERY_EVAL_MODE']?.trim();
-  if (m === 'prompt') return 'prompt';
-  if (m === 'schema-in-prompt') return 'schema-in-prompt';
-  return 'structured';
-}
-
-/**
- * Per-family JSON-format instruction for the schema-less modes, keyed by a
- * model-id substring. Tuned so each family emits a single raw `{"query": …}`
- * object we can parse — no code fences, no prose, no schema echo.
- */
-const FAMILY_JSON_HINT: Record<string, string> = {
-  // Gemini/Google are the reason this mode exists: they 400 on the wire schema
-  // AND like to wrap output in ```json fences / echo the schema. Be explicit.
-  gemini:
-    'Output MUST be a single raw JSON object of the form {"query": <query>} and NOTHING else. Do NOT wrap it in markdown code fences (no ```), do NOT add any explanation before or after, and do NOT echo or restate the JSON Schema — emit the concrete query instance only.',
-  claude:
-    'Return ONLY a single raw JSON object of the form {"query": <query>}. No markdown code fences, no preamble, no schema echo — just the query object.',
-  default:
-    'Return ONLY a single raw JSON object of the form {"query": <query>} — no markdown code fences, no prose, no schema echo.',
-};
-
-/** Pick the JSON hint for a model id (substring match); falls back to default. */
-function familyJsonHint(modelId: string): string {
-  const id = modelId.toLowerCase();
-  const def = FAMILY_JSON_HINT['default'] ?? '';
-  if (id.includes('gemini') || id.includes('google')) return FAMILY_JSON_HINT['gemini'] ?? def;
-  if (id.includes('claude')) return FAMILY_JSON_HINT['claude'] ?? def;
-  return def;
-}
-
-/**
- * Robustly pull the JSON object out of a model's free TEXT reply for the
- * schema-less modes: strips ```json / ``` fences, ignores any leading/trailing
- * prose, and returns the OUTERMOST balanced `{ … }` (brace-counting that skips
- * braces inside string literals). Returns the input trimmed if no `{` is found
- * (so the caller's `JSON.parse` surfaces a clean error).
- */
-function extractJson(text: string): string {
-  let s = text.trim();
-  // Strip a fenced block if present (```json … ``` or ``` … ```), taking its body.
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(s);
-  if (fence && fence[1] !== undefined) s = fence[1].trim();
-
-  const start = s.indexOf('{');
-  if (start === -1) return s;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < s.length; i++) {
-    const ch = s[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === '\\') esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) return s.slice(start, i + 1);
-    }
-  }
-  return s.slice(start);
+  if (m === 'structured') return 'structured';
+  if (m === 'prompt' || m === 'schema-in-prompt') return 'prompt';
+  return 'auto';
 }
 
 /**
@@ -395,138 +337,87 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
 
   const mode = evalMode();
 
-  // ── `structured` (default) — wire schema as `response_format` + parse hook. ──
-  // Byte-identical to the historical path (unchanged for OpenAI et al.).
-  if (mode === 'structured') {
-    // `parse` runs the query parser: returns the built Query, or the QueryToolError
-    // whose `.message` (the compiler-style report) the prompt re-prompts with.
-    const errRef: { last: QueryToolError | null } = { last: null };
-    // Read through a function so control-flow analysis can't narrow the captured
-    // property to `null` across the (opaque-to-TS) prompt.get() call that mutates it.
-    const takeLastError = (): QueryToolError | null => errRef.last;
-    type PromptInput = { prompt: string };
-    const prompt = ai.prompt({
-      name: 'query_eval',
-      description: 'Build a structured query from a natural-language request',
-      content: '{{instructions}}\n\n{{userPrompt}}',
-      input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
-      schema: () => wireSchema,
-      // Headroom for the runtime schema-delivery fallback (attempt 1 structured
-      // may come back empty/unparseable for models that accept a `response_format`
-      // json_schema yet reply with empty content — e.g. llama-4-maverick — after
-      // which core promotes delivery to prompt-text and re-issues) PLUS the normal
-      // query-error re-prompts. Was the default 2; 5 covers fallback + retries.
-      outputRetries: 5,
-      // The deeply-recursive query schema is NOT compatible with provider strict
-      // structured output (open+strict → the model drifts into `literal` vs
-      // `field-ref`; paired+strict → OpenAI rejects the ~95KB schema). Opt out of
-      // strict explicitly (the base.ts streaming fix now emits the full ModelInfo,
-      // so without this the request would go out strict and regress).
-      strict: false,
-      // Auto schema-delivery: for models whose dialect can't express the
-      // union/$ref query schema (e.g. Gemini → HTTP 400 on `anyOf`), the wire
-      // schema is transparently dropped and delivered as prompt text; the
-      // `parse` hook below then runs on the model's text JSON. OpenAI et al.
-      // still send `response_format` (their dialect expresses `anyOf`).
-      schemaDelivery: 'auto',
-      // `parse` runs the STANDALONE query parser on the (already wire-decoded,
-      // CONCEPTUAL) value — no Tool needed. Clean ⇒ the built `Query`; problems ⇒
-      // the `QueryToolError` whose report the prompt re-prompts with.
-      parse: (raw: unknown): Query | QueryToolError => {
-        const r = parseQueryTool(engine, raw, options);
-        if (r instanceof QueryToolError) errRef.last = r;
-        return r;
-      },
-      metadata,
-    });
-
-    return {
-      ask: async (content): Promise<AskResult> => {
-        errRef.last = null;
-        // Stream (not `get('result')`) so we can COUNT model requests — one per
-        // initial call + each `outputRetries` re-prompt — to surface retry storms.
-        let calls = 0;
-        let query: Query | undefined;
-        // The prompt THROWS when it exhausts `outputRetries` (surfacing the last
-        // error). Catch it so the case is a clean failure that still reports its
-        // call count + diagnostics (via `errRef`), rather than losing both.
-        try {
-          for await (const event of prompt.get('stream', { prompt: content })) {
-            if (event.type === 'request') calls++;
-            else if (event.type === 'complete') query = event.output as Query | undefined;
-          }
-        } catch {
-          /* fall through to the error path below (errRef holds the last report) */
-        }
-        if (query) return { query, report: '', codes: [], calls };
-        const last = takeLastError();
-        return {
-          query: null,
-          report: last?.report ?? '',
-          codes: last ? last.problems.list.map((p) => p.code) : [],
-          calls,
-        };
-      },
-    };
-  }
-
-  // ── `prompt` / `schema-in-prompt` — DROP the wire schema, steer by TEXT. ──
-  // For providers whose strict structured output rejects our union/$ref query
-  // schema (e.g. Gemini → HTTP 400), we send NO `response_format`: `schema` is
-  // OMITTED (NOT `() => false`, which core reads as "prompt not applicable" and
-  // would run nothing) → core resolves `responseFormat: 'text'`, plain text out.
-  // Core's `parse` hook only fires with a structured schema, so `ask()` collects
-  // the raw model TEXT and parses it itself (extractJson → JSON.parse → parser).
-  const hint = familyJsonHint(modelId);
-  const schemaSuffix =
-    mode === 'schema-in-prompt'
-      ? `\n\nThe query must conform to this JSON Schema:\n\`\`\`json\n${JSON.stringify(z.toJSONSchema(wireSchema), null, 2)}\n\`\`\``
-      : '';
+  // ONE prompt for EVERY delivery mode. The prompt's `schema` + `parse` hook is
+  // the single source of truth for turning the model's reply into a `Query`:
+  // core sends the wire schema as `response_format` (auto/structured) or DROPS it
+  // and appends the schema as prompt text (`prompt`, and `auto` when the dialect
+  // can't express it — Gemini — or the model returns empty — llama), then core
+  // extracts the JSON from the reply (`extractJSONObject`), `decodeWire`s it (only
+  // when a descriptor was pinned), and runs `parse`. The eval NEVER re-implements
+  // text→JSON extraction; `schemaDelivery` (= `mode`) is the only knob that moves.
+  const errRef: { last: QueryToolError | null } = { last: null };
+  // Read through a function so control-flow analysis can't narrow the captured
+  // property to `null` across the (opaque-to-TS) prompt.get() call that mutates it.
+  const takeLastError = (): QueryToolError | null => errRef.last;
   type PromptInput = { prompt: string };
   const prompt = ai.prompt({
     name: 'query_eval',
     description: 'Build a structured query from a natural-language request',
-    content: '{{instructions}}\n\n{{hint}}\n\n{{userPrompt}}{{schemaSuffix}}',
-    input: (i: PromptInput) => ({ instructions, hint, userPrompt: i.prompt, schemaSuffix }),
+    content: '{{instructions}}\n\n{{userPrompt}}',
+    input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
+    schema: () => wireSchema,
+    // Headroom for the runtime schema-delivery fallback (attempt 1 structured may
+    // come back empty/unparseable for models that accept a `response_format`
+    // json_schema yet reply with empty content — e.g. llama-4-maverick — after
+    // which core promotes delivery to prompt-text and re-issues) PLUS the normal
+    // query-error re-prompts. Was the default 2; 5 covers fallback + retries.
+    outputRetries: 5,
+    // The deeply-recursive query schema is NOT compatible with provider strict
+    // structured output (open+strict → the model drifts into `literal` vs
+    // `field-ref`; paired+strict → OpenAI rejects the ~95KB schema). Opt out of
+    // strict explicitly (the base.ts streaming fix now emits the full ModelInfo,
+    // so without this the request would go out strict and regress).
+    strict: false,
+    // The mode maps STRAIGHT onto core's schema delivery (see `EvalMode`): `auto`
+    // sends the wire schema where it's expressible and drops→prompt-text where it
+    // isn't (Gemini) or the model returned empty (llama); `structured` forces the
+    // wire schema; `prompt` always delivers the schema as text. Core's `parse`
+    // hook runs — and does the JSON extraction — in ALL three.
+    schemaDelivery: mode,
+    // `parse` runs the STANDALONE query parser on the (already wire-decoded when a
+    // descriptor was pinned, CONCEPTUAL) value — no Tool needed. Clean ⇒ the built
+    // `Query`; problems ⇒ the `QueryToolError` whose report the prompt re-prompts.
+    parse: (raw: unknown): Query | QueryToolError => {
+      const r = parseQueryTool(engine, raw, options);
+      if (r instanceof QueryToolError) errRef.last = r;
+      return r;
+    },
     metadata,
   });
 
   return {
     ask: async (content): Promise<AskResult> => {
-      // No structured schema ⇒ no parse hook / re-prompt loop: accumulate the raw
-      // model TEXT (textPartial chunks; textComplete/text carry the full reply),
-      // still counting `request` events for the call-count trail.
+      errRef.last = null;
+      // Stream (not `get('result')`) for ONE reason: to COUNT model requests —
+      // one per initial call + each `outputRetries` re-prompt / delivery-fallback
+      // retry — which is the `Nc` retry-storm / fallback-fired signal in the log.
+      // The text is captured only for the verbatim `raw` log trail; the OUTPUT is
+      // core's parsed `Query` from the `complete` event (never re-parsed here).
       let calls = 0;
-      let partial = '';
-      let full: string | null = null;
+      let query: Query | undefined;
+      let rawText = '';
+      // The prompt THROWS when it exhausts `outputRetries` (surfacing the last
+      // error). Catch it so the case is a clean failure that still reports its
+      // call count + diagnostics (via `errRef`), rather than losing both.
       try {
         for await (const event of prompt.get('stream', { prompt: content })) {
           if (event.type === 'request') calls++;
-          else if (event.type === 'textPartial') partial += event.content;
-          else if (event.type === 'text') full = event.content;
-          else if (event.type === 'textComplete') full = event.content;
+          else if (event.type === 'textPartial') rawText += event.content;
+          else if (event.type === 'text' || event.type === 'textComplete') rawText = event.content;
+          else if (event.type === 'complete') query = event.output as Query | undefined;
         }
       } catch {
-        /* keep whatever text streamed so far; parse it below */
+        /* fall through to the error path below (errRef holds the last report) */
       }
-      const text = (full ?? partial).trim();
-      if (text.length === 0) {
-        return { query: null, report: 'model produced no text output', codes: [], calls, raw: text };
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(extractJson(text));
-      } catch (err) {
-        const why = err instanceof Error ? err.message : String(err);
-        return { query: null, report: `unparseable model text (not JSON: ${why})`, codes: [], calls, raw: text };
-      }
-      // Same standalone parser the structured `parse` hook uses; a QueryToolError
-      // flows through the normal failure path (report + problem codes).
-      const r = parseQueryTool(engine, parsed, options);
-      if (r instanceof QueryToolError) {
-        return { query: null, report: r.report, codes: r.problems.list.map((p) => p.code), calls, raw: text };
-      }
-      return { query: r, report: '', codes: [], calls, raw: text };
+      if (query) return { query, report: '', codes: [], calls, raw: rawText };
+      const last = takeLastError();
+      return {
+        query: null,
+        report: last?.report ?? '',
+        codes: last ? last.problems.list.map((p) => p.code) : [],
+        calls,
+        raw: rawText,
+      };
     },
   };
 }

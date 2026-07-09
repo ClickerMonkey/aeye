@@ -666,3 +666,106 @@ export function withEvents<TRoot extends AnyComponent>(events: Events<TRoot>): R
 
   return runner;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// JSON extraction / repair — shared model-output utilities used by both the
+// Prompt (structured output-parse + prompt-text schema-delivery fallback) and
+// the Tool (tool-call argument validation). Kept here so there is one home for
+// the "turn a model's messy reply into parseable JSON" logic.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Extract the outermost balanced JSON object (`{…}`) from arbitrary model
+ * text. Robust to markdown code fences (```json … ```), surrounding prose,
+ * and braces that appear inside string literals — it scans from the first
+ * `{`, tracks string-literal state (respecting backslash escapes), and returns
+ * the slice up to the matching close brace at depth 0.
+ *
+ * Behavior is IDENTICAL to a clean `JSON.stringify`-d object (returns it
+ * verbatim). Falls back to the slice from the first `{` to end when the braces
+ * never balance, and to `''` when there is no `{` at all (so `JSON.parse('')`
+ * surfaces the same error downstream).
+ *
+ * Exported for direct unit testing.
+ */
+export function extractJSONObject(text: string): string {
+  const start = text.indexOf('{');
+  if (start === -1) return '';
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  // Unbalanced — return best-effort from the first brace so JSON.parse can
+  // report a precise error.
+  return text.slice(start);
+}
+
+/**
+ * Best-effort repair for a provider that JSON-encodes a top-level object/array
+ * field as a STRING (Claude / Anthropic tool args have been observed doing this,
+ * sometimes double-encoding AND corrupting the inner content mid-stream). Walks
+ * the top-level entries of `raw`; any string value that starts with `{`/`[` is
+ * `JSON.parse`-d back into place.
+ *
+ * Returns the repaired object, the list of fields that parsed cleanly
+ * (`fields`), and the list of fields that LOOKED string-encoded whether or not
+ * their inner JSON parsed (`attempted`) — so the caller can distinguish "no
+ * encoded fields at all" (`undefined`) from "encoded but malformed inner JSON"
+ * (`attempted.length > 0`, `fields.length === 0`).
+ *
+ * Intentionally top-level only — descending deeper risks "repairing" legitimate
+ * JSON-shaped strings inside content fields.
+ */
+export function repairStringEncodedFields(
+  raw: unknown,
+):
+  | { value: Record<string, unknown>; fields: string[]; attempted: string[] }
+  | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const src = raw as Record<string, unknown>;
+  const repaired: Record<string, unknown> = { ...src };
+  const fields: string[] = [];
+  const attempted: string[] = [];
+  for (const [key, value] of Object.entries(src)) {
+    if (typeof value !== 'string') continue;
+    const head = value.trimStart()[0];
+    if (head !== '{' && head !== '[') continue;
+    // Field LOOKS string-encoded — track it whether parse succeeds or not.
+    // Failed inner-parse is its own diagnostic signal (model double-encoded AND
+    // the inner content is malformed), distinct from "no encoded fields seen".
+    attempted.push(key);
+    try {
+      repaired[key] = JSON.parse(value);
+      fields.push(key);
+    } catch { /* malformed inner JSON — keep tracking the attempt */ }
+  }
+  if (attempted.length === 0) return undefined;
+  return { value: repaired, fields, attempted };
+}

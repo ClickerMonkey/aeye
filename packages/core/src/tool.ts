@@ -1,6 +1,6 @@
 import Handlebars from 'handlebars';
 import { ZodType } from 'zod';
-import { Fn, resolveFn } from './common';
+import { Fn, repairStringEncodedFields, resolveFn } from './common';
 import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
 import { Component, ComponentCompatible, Context, OptionalParams, SchemaDelivery, ToolDefinition, Tuple } from './types';
     
@@ -543,48 +543,4 @@ export class Tool<
     } as TMetadata));
   }
 
-}
-
-/**
- * Best-effort recovery for one specific model misbehavior: a tool-call
- * args object whose TOP-LEVEL field values are JSON-encoded strings
- * instead of nested objects/arrays. Walks the immediate fields of `raw`
- * and, for each string-valued field that starts with `{` or `[` (after
- * trimming leading whitespace), tries `JSON.parse`. On success the
- * field is swapped for the parsed value. Returns the repaired clone +
- * the list of swapped field names when at least one swap happened;
- * `undefined` when nothing looked recoverable (caller should re-throw
- * the original error in that case).
- *
- * Intentionally top-level only — descending deeper risks "repairing"
- * legitimate JSON-shaped strings inside content fields. The fields we
- * see this on (Claude / Anthropic tool args) are always at the top
- * level of the args object.
- */
-function repairStringEncodedFields(
-  raw: unknown,
-):
-  | { value: Record<string, unknown>; fields: string[]; attempted: string[] }
-  | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const src = raw as Record<string, unknown>;
-  const repaired: Record<string, unknown> = { ...src };
-  const fields: string[] = [];
-  const attempted: string[] = [];
-  for (const [key, value] of Object.entries(src)) {
-    if (typeof value !== 'string') continue;
-    const head = value.trimStart()[0];
-    if (head !== '{' && head !== '[') continue;
-    // Field LOOKS string-encoded — track it whether parse succeeds or
-    // not. Failed inner-parse is its own diagnostic signal (model
-    // double-encoded AND the inner content is malformed), distinct
-    // from "no encoded fields seen at all".
-    attempted.push(key);
-    try {
-      repaired[key] = JSON.parse(value);
-      fields.push(key);
-    } catch { /* malformed inner JSON — keep tracking the attempt */ }
-  }
-  if (attempted.length === 0) return undefined;
-  return { value: repaired, fields, attempted };
 }

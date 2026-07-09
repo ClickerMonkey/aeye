@@ -1,7 +1,7 @@
 import Handlebars from "handlebars";
 import { ZodString, ZodType } from 'zod';
 
-import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
+import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify, decodeWire } from "./schema";
@@ -11,59 +11,6 @@ import { getDescriptorById, strictify, decodeWire } from "./schema";
  *  the method to ignore this. Anything past `max` is replaced with a
  *  `… (N more characters)` marker. */
 const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
-
-/**
- * Extract the outermost balanced JSON object (`{…}`) from arbitrary model
- * text. Robust to markdown code fences (```json … ```), surrounding prose,
- * and braces that appear inside string literals — it scans from the first
- * `{`, tracks string-literal state (respecting backslash escapes), and returns
- * the slice up to the matching close brace at depth 0.
- *
- * Behavior is IDENTICAL to a clean `JSON.stringify`-d object (returns it
- * verbatim). Falls back to the slice from the first `{` to end when the braces
- * never balance, and to `''` when there is no `{` at all (matching the prior
- * substring extractor, so `JSON.parse('')` surfaces the same error downstream).
- *
- * Exported for direct unit testing.
- */
-export function extractJSONObject(text: string): string {
-  const start = text.indexOf('{');
-  if (start === -1) return '';
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === '\\') {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = true;
-    } else if (ch === '{') {
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-      if (depth === 0) {
-        return text.slice(start, i + 1);
-      }
-    }
-  }
-
-  // Unbalanced — return best-effort from the first brace so JSON.parse can
-  // report a precise error.
-  return text.slice(start);
-}
 
 /**
  * Represents a tool that can be selected by the retool function.
