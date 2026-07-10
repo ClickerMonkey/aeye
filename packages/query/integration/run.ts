@@ -256,6 +256,10 @@ interface LogEntry {
   durationMs: number;
   /** Number of model requests this case made (1 + `outputRetries` re-prompts). */
   calls: number;
+  /** Model token usage + resulting $ cost (usage × `@aeye/models` pricing). */
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
   /** Verbatim model TEXT for schema-less modes (null in `structured`). */
   rawText: string | null;
   timestamp: string;
@@ -275,6 +279,11 @@ interface AskResult {
   /** The raw model TEXT streamed for this ask (verbatim), for the log trail —
    *  what the provider actually emitted before core's extract + `parse`. */
   raw?: string;
+  /** Model token usage + provider-reported `usage.cost` (USD) accumulated across
+   *  this ask's attempts — read straight off the usage, no local calculation. */
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
 }
 
 interface QueryAsker {
@@ -413,13 +422,32 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
       let calls = 0;
       let query: Query | undefined;
       let rawText = '';
+      // Token usage + $ COST across this ask's attempts. `usage.cost` is the
+      // provider-reported cost (OpenRouter returns it per request), already
+      // summed across retries by core's `accumulateUsage`. Take it from the
+      // run-total `usage` event; sum `requestUsage` as a fallback so a case that
+      // THROWS before the final `usage` still reports what it spent.
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let costUsd = 0;
+      let reqIn = 0;
+      let reqOut = 0;
+      let reqCost = 0;
       // The prompt THROWS when it exhausts `outputRetries` (surfacing the last
       // error). Catch it so the case is a clean failure that still reports its
       // call count + diagnostics (via `errRef`), rather than losing both.
       try {
         for await (const event of prompt.get('stream', { prompt: content })) {
           if (event.type === 'request') calls++;
-          else if (event.type === 'textPartial') rawText += event.content;
+          else if (event.type === 'requestUsage') {
+            reqIn += (event.usage?.text?.input ?? 0) + (event.usage?.reasoning?.input ?? 0);
+            reqOut += (event.usage?.text?.output ?? 0) + (event.usage?.reasoning?.output ?? 0);
+            reqCost += event.usage?.cost ?? 0;
+          } else if (event.type === 'usage') {
+            tokensIn = (event.usage?.text?.input ?? 0) + (event.usage?.reasoning?.input ?? 0);
+            tokensOut = (event.usage?.text?.output ?? 0) + (event.usage?.reasoning?.output ?? 0);
+            costUsd = event.usage?.cost ?? 0;
+          } else if (event.type === 'textPartial') rawText += event.content;
           else if (event.type === 'text' || event.type === 'textComplete') rawText = event.content;
           else if (event.type === 'complete') query = event.output as Query | undefined;
         }
@@ -431,7 +459,12 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
         if (process.env['QUERY_EVAL_DEBUG']) console.error('[ASKERR]', e instanceof Error ? e.message : String(e));
         /* fall through to the error path below (errRef holds the last report) */
       }
-      if (query) return { query, report: '', codes: [], calls, raw: rawText };
+      // Prefer the run-total `usage` event; fall back to summed per-request
+      // usage (non-zero even when the run threw before the final `usage`).
+      const finalIn = tokensIn || reqIn;
+      const finalOut = tokensOut || reqOut;
+      const finalCost = costUsd || reqCost;
+      if (query) return { query, report: '', codes: [], calls, raw: rawText, tokensIn: finalIn, tokensOut: finalOut, costUsd: finalCost };
       const last = takeLastError();
       return {
         query: null,
@@ -439,6 +472,9 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
         codes: last ? last.problems.list.map((p) => p.code) : [],
         calls,
         raw: rawText,
+        tokensIn: finalIn,
+        tokensOut: finalOut,
+        costUsd: finalCost,
       };
     },
   };
@@ -465,6 +501,9 @@ async function runOneCase(
     resultSummary: null,
     durationMs: 0,
     calls: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    costUsd: 0,
     rawText: null,
     timestamp: new Date().toISOString(),
   };
@@ -484,6 +523,9 @@ async function runOneCase(
     // aid-directed diagnostics — no manual repair round here.
     const built = await asker.ask(userContent);
     entry.calls = built.calls;
+    entry.tokensIn = built.tokensIn;
+    entry.tokensOut = built.tokensOut;
+    entry.costUsd = built.costUsd;
     entry.rawText = built.raw ?? null;
     entry.emittedQuery = built.query ? built.query.toJSON() : null;
     entry.parseError = built.query === null ? built.report || 'model produced no valid query (after retries)' : null;
@@ -629,6 +671,10 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   // re-prompts / delivery-fallback retries). Avg attempts is a COST signal — a
   // higher pass rate bought with more tries is not strictly better.
   const passed = entries.filter((e) => e.passed).length;
+  // $ cost — the provider-reported `usage.cost` per case (set in runOneCase),
+  // summed. No local pricing math.
+  const totalCost = entries.reduce((s, e) => s + e.costUsd, 0);
+  const avgCost = entries.length ? totalCost / entries.length : 0;
   const avgCalls = entries.length ? entries.reduce((s, e) => s + e.calls, 0) / entries.length : 0;
   // Avg attempts among ONLY the cases that passed — "how cheaply did wins come".
   const passedEntries = entries.filter((e) => e.passed);
@@ -641,7 +687,8 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     if (e.passed) agg.pass++;
     byCat.set(e.category, agg);
   }
-  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)  ·  avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)`);
+  const costNote = totalCost > 0 ? `  ·  $${totalCost.toFixed(4)} total ($${(avgCost * 100).toFixed(4)}/100 cases)` : '  ·  cost n/a';
+  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)  ·  avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)${costNote}`);
   const catLines: string[] = [];
   for (const [cat, agg] of [...byCat.entries()].sort()) {
     const line = `  ${cat.padEnd(14)} ${agg.pass}/${agg.total}  (avg ${(agg.calls / agg.total).toFixed(2)}c)`;
@@ -660,12 +707,17 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     passRate: passed / entries.length,
     avgCalls,
     avgCallsPassed,
+    totalCostUsd: totalCost,
+    avgCostUsd: avgCost,
     byCategory: Object.fromEntries([...byCat.entries()].map(([k, v]) => [k, { pass: v.pass, total: v.total, avgCalls: v.calls / v.total }])),
     cases: entries.map((e) => ({
       id: e.id,
       category: e.category,
       passed: e.passed,
       calls: e.calls,
+      tokensIn: e.tokensIn,
+      tokensOut: e.tokensOut,
+      costUsd: e.costUsd,
       assertions: e.assertions.map((a) => ({ describe: a.describe, severity: a.severity, passed: a.passed })),
       durationMs: e.durationMs,
     })),
@@ -675,7 +727,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   // archive AND the convenience "latest" pointers.
   const reportJson = `${JSON.stringify(report, null, 2)}\n`;
   const reportMd =
-    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%) · avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
+    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%) · avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)${totalCost > 0 ? ` · $${totalCost.toFixed(4)} total` : ''}`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
   const detailJson = buildDetailJson(entries);
   const failuresMd = buildFailuresMd(entries);
 
