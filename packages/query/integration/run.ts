@@ -30,6 +30,7 @@ import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { AI, type Provider } from '@aeye/ai';
+import { Tool, ToolInterrupt } from '@aeye/core';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { models, strictSupport } from '@aeye/models';
 
@@ -260,6 +261,8 @@ interface LogEntry {
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
+  /** The model's `reject` tool reason (enum), when it declined (else null). */
+  rejected: string | null;
   /** Verbatim model TEXT for schema-less modes (null in `structured`). */
   rawText: string | null;
   timestamp: string;
@@ -284,6 +287,9 @@ interface AskResult {
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
+  /** When the model called the `reject` tool: its enum reason (else null). A
+   *  reject is a clean refusal (no query), which passes `a.refused`. */
+  rejected: string | null;
 }
 
 interface QueryAsker {
@@ -322,6 +328,15 @@ function evalMode(): EvalMode {
   if (m === 'structured') return 'structured';
   if (m === 'prompt' || m === 'schema-in-prompt') return 'prompt';
   return 'auto';
+}
+
+/** Read `QUERY_EVAL_REASONING` (`low`|`medium`|`high`); unset ⇒ reasoning off.
+ *  Set via the prompt's `config` → `{ reason: { effort } }`, which OpenRouter
+ *  maps to each family's thinking API; reasoning tokens/cost flow into
+ *  `usage.reasoning`/`usage.cost` so the existing tracking captures the tax. */
+function reasoningEffort(): 'low' | 'medium' | 'high' | undefined {
+  const r = process.env['QUERY_EVAL_REASONING']?.trim().toLowerCase();
+  return r === 'low' || r === 'medium' || r === 'high' ? r : undefined;
 }
 
 /**
@@ -375,6 +390,27 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   // Read through a function so control-flow analysis can't narrow the captured
   // property to `null` across the (opaque-to-TS) prompt.get() call that mutates it.
   const takeLastError = (): QueryToolError | null => errRef.last;
+  // A `reject(reason)` affordance: a proper, trained-for way for the model to
+  // DECLINE a request that cannot be a valid query, instead of silently
+  // substituting a harmless SELECT. The `reason` is a CONTROLLED ENUM (drawn
+  // from the write-model `*-readonly` policy codes) — the model can only reject
+  // for a genuine permission reason, NOT because it struggled to format the
+  // JSON. The call stashes the reason and `ToolInterrupt`s to stop the loop;
+  // `ask` reads `rejectRef.reason` and reports the case as a clean refusal.
+  const rejectRef: { reason: string | null } = { reason: null };
+  const rejectTool = new Tool({
+    name: 'reject',
+    description: 'Decline the request: it targets data that cannot be written.',
+    instructions:
+      'Call `reject` ONLY when the request cannot be fulfilled because it writes data that policy forbids — never because the JSON is hard to format, and NEVER substitute a read-only SELECT for a forbidden write. Pick the `reason`: `field-read-only` (setting a server-generated / read-only field, e.g. an `id`), `type-read-only` (writing a whole read-only Type), `append-only-no-delete` (deleting from an append-only Type), `immutable-field` (changing a field that can never change), `reference-data` (editing reference/lookup data).',
+    schema: z.object({
+      reason: z.enum(['field-read-only', 'type-read-only', 'append-only-no-delete', 'immutable-field', 'reference-data']),
+    }),
+    call: (input: { reason: string }): string => {
+      rejectRef.reason = input.reason;
+      throw new ToolInterrupt('rejected');
+    },
+  });
   type PromptInput = { prompt: string };
   const prompt = ai.prompt({
     name: 'query_eval',
@@ -382,6 +418,13 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     content: '{{instructions}}\n\n{{userPrompt}}',
     input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
     schema: () => wireSchema,
+    tools: [rejectTool] as const,
+    // Optional extended-thinking, gated by `QUERY_EVAL_REASONING` (off by
+    // default). OpenRouter maps `reason.effort` to each family's thinking API.
+    config: () => {
+      const effort = reasoningEffort();
+      return effort ? { reason: { effort } } : {};
+    },
     // Headroom for the runtime schema-delivery fallback (attempt 1 structured may
     // come back empty/unparseable for models that accept a `response_format`
     // json_schema yet reply with empty content — e.g. llama-4-maverick — after
@@ -414,6 +457,7 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   return {
     ask: async (content): Promise<AskResult> => {
       errRef.last = null;
+      rejectRef.reason = null;
       // Stream (not `get('result')`) for ONE reason: to COUNT model requests —
       // one per initial call + each `outputRetries` re-prompt / delivery-fallback
       // retry — which is the `Nc` retry-storm / fallback-fired signal in the log.
@@ -464,17 +508,19 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
       const finalIn = tokensIn || reqIn;
       const finalOut = tokensOut || reqOut;
       const finalCost = costUsd || reqCost;
-      if (query) return { query, report: '', codes: [], calls, raw: rawText, tokensIn: finalIn, tokensOut: finalOut, costUsd: finalCost };
+      const base = { calls, raw: rawText, tokensIn: finalIn, tokensOut: finalOut, costUsd: finalCost };
+      // The model DECLINED via the reject tool — a clean refusal (no query).
+      if (rejectRef.reason !== null) {
+        return { query: null, report: `rejected: ${rejectRef.reason}`, codes: ['rejected'], rejected: rejectRef.reason, ...base };
+      }
+      if (query) return { query, report: '', codes: [], rejected: null, ...base };
       const last = takeLastError();
       return {
         query: null,
         report: last?.report ?? '',
         codes: last ? last.problems.list.map((p) => p.code) : [],
-        calls,
-        raw: rawText,
-        tokensIn: finalIn,
-        tokensOut: finalOut,
-        costUsd: finalCost,
+        rejected: null,
+        ...base,
       };
     },
   };
@@ -504,6 +550,7 @@ async function runOneCase(
     tokensIn: 0,
     tokensOut: 0,
     costUsd: 0,
+    rejected: null,
     rawText: null,
     timestamp: new Date().toISOString(),
   };
@@ -526,6 +573,7 @@ async function runOneCase(
     entry.tokensIn = built.tokensIn;
     entry.tokensOut = built.tokensOut;
     entry.costUsd = built.costUsd;
+    entry.rejected = built.rejected;
     entry.rawText = built.raw ?? null;
     entry.emittedQuery = built.query ? built.query.toJSON() : null;
     entry.parseError = built.query === null ? built.report || 'model produced no valid query (after retries)' : null;
