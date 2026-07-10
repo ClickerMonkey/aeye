@@ -148,8 +148,13 @@ ancestors off-by-one.
 
 ## Fast / cheap tier — price vs performance (post-refactor, 2026-07-10)
 
-The eval now tracks **$ cost** (from the provider-reported `usage.cost`) alongside
-pass rate + avg attempts. Full 101-case runs on the cheap tier:
+The eval tracks four axes per run, all in `report.json` (and the console /
+`report.md` summary): **pass rate**, **avg attempts/case** (`avgCalls` +
+`avgCallsPassed` — model requests, 1 = one-shot), **$ cost** (`totalCostUsd` /
+`avgCostUsd`, from the provider-reported `usage.cost` — no local math), and
+**latency** (`avgDurationMs` — wall-clock per case). Per-case `calls`, `tokensIn`,
+`tokensOut`, `costUsd`, and `durationMs` are in `report.json.cases`. Full
+101-case runs on the cheap tier:
 
 | Model | id | pass | avg tries | $ / 101 | list $/M (in·out) |
 |-------|-----|------|-----------|---------|-------------------|

@@ -679,6 +679,9 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   // Avg attempts among ONLY the cases that passed — "how cheaply did wins come".
   const passedEntries = entries.filter((e) => e.passed);
   const avgCallsPassed = passedEntries.length ? passedEntries.reduce((s, e) => s + e.calls, 0) / passedEntries.length : 0;
+  // Wall-clock latency per case (each case times itself; cases run concurrently)
+  // — a speed signal to weigh next to accuracy + attempts + cost.
+  const avgDurationMs = entries.length ? entries.reduce((s, e) => s + e.durationMs, 0) / entries.length : 0;
   const byCat = new Map<string, { pass: number; total: number; calls: number }>();
   for (const e of entries) {
     const agg = byCat.get(e.category) ?? { pass: 0, total: 0, calls: 0 };
@@ -688,7 +691,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     byCat.set(e.category, agg);
   }
   const costNote = totalCost > 0 ? `  ·  $${totalCost.toFixed(4)} total ($${(avgCost * 100).toFixed(4)}/100 cases)` : '  ·  cost n/a';
-  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)  ·  avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)${costNote}`);
+  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)  ·  avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)  ·  ${(avgDurationMs / 1000).toFixed(1)}s/case${costNote}`);
   const catLines: string[] = [];
   for (const [cat, agg] of [...byCat.entries()].sort()) {
     const line = `  ${cat.padEnd(14)} ${agg.pass}/${agg.total}  (avg ${(agg.calls / agg.total).toFixed(2)}c)`;
@@ -707,6 +710,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     passRate: passed / entries.length,
     avgCalls,
     avgCallsPassed,
+    avgDurationMs,
     totalCostUsd: totalCost,
     avgCostUsd: avgCost,
     byCategory: Object.fromEntries([...byCat.entries()].map(([k, v]) => [k, { pass: v.pass, total: v.total, avgCalls: v.calls / v.total }])),
@@ -727,7 +731,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   // archive AND the convenience "latest" pointers.
   const reportJson = `${JSON.stringify(report, null, 2)}\n`;
   const reportMd =
-    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%) · avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)${totalCost > 0 ? ` · $${totalCost.toFixed(4)} total` : ''}`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
+    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%) · avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes) · ${(avgDurationMs / 1000).toFixed(1)}s/case${totalCost > 0 ? ` · $${totalCost.toFixed(4)} total` : ''}`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
   const detailJson = buildDetailJson(entries);
   const failuresMd = buildFailuresMd(entries);
 
