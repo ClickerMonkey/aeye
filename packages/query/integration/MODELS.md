@@ -83,6 +83,52 @@ predates the current harness. **GPT-5.1's and Qwen's low `auto` scores were
 delivery failures, not SQL ability** — their prompt-mode numbers are the real
 measure._
 
+> **⚠ The matrix above is the schema-delivery era (pre-2026-07-10).** It measured
+> models against a schema that had a `relation-path` expr. That construct was
+> then removed — see the next section, which lifted the re-run models by ~15
+> points. Numbers above are the *baseline*, not current.
+
+---
+
+## Named-join refactor (2026-07-10) — +14–15 across frontier models
+
+The matrix above measured a schema with a `relation-path` expr — an
+implicit-join *value* construct with no raw-SQL analog. Models (trained on flat
+SQL) consistently mis-referenced a relation as a scalar field-ref in
+correlations (`salesOrder.customer = customer.id`), which **validated silently
+and returned 0/all rows** — so they failed the entire subquery + set-op cluster.
+
+Three changes fixed it: (1) replace `relation-path` with **explicit named joins**
+(`joins:[{on:{kind:'relation',source,field,as}}]`, then a plain `{source,field}`
+ref); (2) **validate subquery bodies** so a relation-vs-scalar correlation is a
+re-promptable `ref.relation` error (the model then self-corrects to the join
+form); (3) ship **correlated-join + recursive-CTE examples**. Relation-vs-relation
+comparisons (`post.creator = comment.creator`) stay legal and compare by FK key.
+
+| Model | before | after | Δ |
+|-------|--------|-------|---|
+| Claude Sonnet 4 (`anthropic/claude-sonnet-4`) | 76/101 (75%) | **90/101 (89%)** | **+14** |
+| Gemini 3 Flash preview (`google/gemini-3-flash-preview`) | 75/101 (74%) | **90/101 (89%)** | **+15** |
+| Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`) | 73/101 (72%) | _re-run pending_ | |
+| GPT-5.1 (`openai/gpt-5.1`) | 70/101 (69%) | _re-run pending_ | |
+| DeepSeek V3 (`deepseek/deepseek-chat`) | 51/101 (50%) | _re-run pending_ | |
+
+Category lift (both frontier models, consistent):
+
+| Category | before → after |
+|----------|----------------|
+| **subquery** | 2/7 → **7/7** |
+| **set-op** | 3/5 → **5/5** |
+| **aggregate** | 6–7/9 → **9/9** |
+| group-by | 2–3/4 → **4/4** |
+| window | 7/11 → 8–9/11 |
+| cte | 1/3 → 2/3 (descendants recovered by the recursive example) |
+
+The remaining tail is shared across models: the 4 write-model **refusal
+guardrails** (models won't decline a protected write), hard **window** cases
+(rank-ties, first/lastValue), the composite-FK join, and a recursive-CTE
+ancestors off-by-one.
+
 ---
 
 ## The real ceiling: advanced SQL, not schema delivery
