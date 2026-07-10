@@ -146,6 +146,25 @@ ancestors off-by-one.
 
 ---
 
+## Reasoning (extended thinking) — a noisy, expensive lever
+
+`QUERY_EVAL_REASONING=low|medium|high` sets the prompt's `config.reason.effort`
+(OpenRouter maps it per family; reasoning tokens/cost flow through `usage.cost`).
+Gemini 2.5 Flash Lite, full 101, `high` vs baseline:
+
+| | pass | tries | $ / 101 | latency |
+|---|---|---|---|---|
+| baseline | 76/101 (75%) | 1.69 | $0.35 | ~instant |
+| reasoning=high | 82/101 (81%) | 2.10 | $0.58 | **21.7 s/case** |
+
+**+6 net but noisy** — 15 cases newly pass (correlated-max, argmax, nested-max,
+cumeDist, lastValue), 9 regress (in-customers, set-except, rank-ties, arrays) —
+at **1.7× cost** and **~22 s/case**. It does NOT close the gap to the frontier:
+Sonnet 4/4.6 and Gemini 3-flash hit **89–91% WITHOUT reasoning at ~1.2 tries**
+and far lower latency. Verdict: reasoning-on-a-cheap-model is poor ROI vs just
+using a frontier model — high variance, big latency/cost tax, sub-frontier
+ceiling.
+
 ## Fast / cheap tier — price vs performance (post-refactor, 2026-07-10)
 
 The eval tracks four axes per run, all in `report.json` (and the console /
