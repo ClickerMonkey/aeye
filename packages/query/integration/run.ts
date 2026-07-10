@@ -625,19 +625,26 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, () => worker()));
 
-  // Summary + reports.
+  // Summary + reports. `calls` = model requests per case (1 = one-shot; >1 =
+  // re-prompts / delivery-fallback retries). Avg attempts is a COST signal — a
+  // higher pass rate bought with more tries is not strictly better.
   const passed = entries.filter((e) => e.passed).length;
-  const byCat = new Map<string, { pass: number; total: number }>();
+  const avgCalls = entries.length ? entries.reduce((s, e) => s + e.calls, 0) / entries.length : 0;
+  // Avg attempts among ONLY the cases that passed — "how cheaply did wins come".
+  const passedEntries = entries.filter((e) => e.passed);
+  const avgCallsPassed = passedEntries.length ? passedEntries.reduce((s, e) => s + e.calls, 0) / passedEntries.length : 0;
+  const byCat = new Map<string, { pass: number; total: number; calls: number }>();
   for (const e of entries) {
-    const agg = byCat.get(e.category) ?? { pass: 0, total: 0 };
+    const agg = byCat.get(e.category) ?? { pass: 0, total: 0, calls: 0 };
     agg.total++;
+    agg.calls += e.calls;
     if (e.passed) agg.pass++;
     byCat.set(e.category, agg);
   }
-  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)`);
+  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)  ·  avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)`);
   const catLines: string[] = [];
   for (const [cat, agg] of [...byCat.entries()].sort()) {
-    const line = `  ${cat.padEnd(14)} ${agg.pass}/${agg.total}`;
+    const line = `  ${cat.padEnd(14)} ${agg.pass}/${agg.total}  (avg ${(agg.calls / agg.total).toFixed(2)}c)`;
     console.log(line);
     catLines.push(line.trim());
   }
@@ -651,11 +658,14 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
     total: entries.length,
     passed,
     passRate: passed / entries.length,
-    byCategory: Object.fromEntries([...byCat.entries()].map(([k, v]) => [k, v])),
+    avgCalls,
+    avgCallsPassed,
+    byCategory: Object.fromEntries([...byCat.entries()].map(([k, v]) => [k, { pass: v.pass, total: v.total, avgCalls: v.calls / v.total }])),
     cases: entries.map((e) => ({
       id: e.id,
       category: e.category,
       passed: e.passed,
+      calls: e.calls,
       assertions: e.assertions.map((a) => ({ describe: a.describe, severity: a.severity, passed: a.passed })),
       durationMs: e.durationMs,
     })),
@@ -665,7 +675,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
   // archive AND the convenience "latest" pointers.
   const reportJson = `${JSON.stringify(report, null, 2)}\n`;
   const reportMd =
-    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
+    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%) · avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
   const detailJson = buildDetailJson(entries);
   const failuresMd = buildFailuresMd(entries);
 

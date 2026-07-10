@@ -105,13 +105,20 @@ re-promptable `ref.relation` error (the model then self-corrects to the join
 form); (3) ship **correlated-join + recursive-CTE examples**. Relation-vs-relation
 comparisons (`post.creator = comment.creator`) stay legal and compare by FK key.
 
-| Model | before | after | Δ |
-|-------|--------|-------|---|
-| Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`) | 73/101 (72%) | **92/101 (91%)** | **+19** |
-| Claude Sonnet 4 (`anthropic/claude-sonnet-4`) | 76/101 (75%) | **90/101 (89%)** | **+14** |
-| Gemini 3 Flash preview (`google/gemini-3-flash-preview`) | 75/101 (74%) | **90/101 (89%)** | **+15** |
-| GPT-5.1 (`openai/gpt-5.1`) | 70/101 (69%) | **76/101 (75%)** | **+6** |
-| DeepSeek V3 (`deepseek/deepseek-chat`) | 51/101 (50%) | **53/101 (52%)** | +2 |
+| Model | before | after | Δ | avg attempts* |
+|-------|--------|-------|---|---------------|
+| Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`) | 73/101 (72%) | **92/101 (91%)** | **+19** | **1.20** |
+| Claude Sonnet 4 (`anthropic/claude-sonnet-4`) | 76/101 (75%) | **90/101 (89%)** | **+14** | **1.19** |
+| Gemini 3 Flash preview (`google/gemini-3-flash-preview`) | 75/101 (74%) | **90/101 (89%)** | **+15** | 1.26 |
+| GPT-5.1 (`openai/gpt-5.1`) | 70/101 (69%) | **76/101 (75%)** | **+6** | 2.25 |
+| DeepSeek V3 (`deepseek/deepseek-chat`) | 51/101 (50%) | **53/101 (52%)** | +2 | 1.95 |
+
+_*avg model requests per case (1 = one-shot; >1 = re-prompts / delivery-fallback
+retries) — a COST signal now tracked in `report.json` (`avgCalls`,
+`avgCallsPassed`, per-case `calls`) and the console/`report.md`. Higher pass rate
+bought with more attempts is not strictly better: Sonnet 4/4.6 win at ~1.2
+(near one-shot); GPT-5.1's 75% costs 2.25 — its Mode-4 fallback re-issues every
+case as prompt-text._
 
 **The lift scales with model strength.** The frontier models (Sonnet 4/4.6,
 Gemini 3-flash) jump +14–19 to 89–91% — they leverage the explicit joins, the
