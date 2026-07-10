@@ -107,13 +107,21 @@ comparisons (`post.creator = comment.creator`) stay legal and compare by FK key.
 
 | Model | before | after | Δ |
 |-------|--------|-------|---|
+| Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`) | 73/101 (72%) | **92/101 (91%)** | **+19** |
 | Claude Sonnet 4 (`anthropic/claude-sonnet-4`) | 76/101 (75%) | **90/101 (89%)** | **+14** |
 | Gemini 3 Flash preview (`google/gemini-3-flash-preview`) | 75/101 (74%) | **90/101 (89%)** | **+15** |
-| Claude Sonnet 4.6 (`anthropic/claude-sonnet-4.6`) | 73/101 (72%) | _re-run pending_ | |
-| GPT-5.1 (`openai/gpt-5.1`) | 70/101 (69%) | _re-run pending_ | |
-| DeepSeek V3 (`deepseek/deepseek-chat`) | 51/101 (50%) | _re-run pending_ | |
+| GPT-5.1 (`openai/gpt-5.1`) | 70/101 (69%) | **76/101 (75%)** | **+6** |
+| DeepSeek V3 (`deepseek/deepseek-chat`) | 51/101 (50%) | **53/101 (52%)** | +2 |
 
-Category lift (both frontier models, consistent):
+**The lift scales with model strength.** The frontier models (Sonnet 4/4.6,
+Gemini 3-flash) jump +14–19 to 89–91% — they leverage the explicit joins, the
+re-prompt-on-error, and the examples. GPT-5.1 gains +6 (subquery/set-op up, but
+`function`/`date-range` regressed). DeepSeek is ~flat and NOISY: big gains on the
+hard cluster (subquery 1/7→5/7, set-op 1/5→3/5) offset by regressions on
+*simpler* categories (operator, distinct, case, array) — the added verbosity of
+explicit joins is a wash for a weaker model. Sonnet 4.6 is now the top model.
+
+Category lift (frontier models, consistent):
 
 | Category | before → after |
 |----------|----------------|
