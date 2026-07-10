@@ -146,6 +146,33 @@ ancestors off-by-one.
 
 ---
 
+## Fast / cheap tier — price vs performance (post-refactor, 2026-07-10)
+
+The eval now tracks **$ cost** (from the provider-reported `usage.cost`) alongside
+pass rate + avg attempts. Full 101-case runs on the cheap tier:
+
+| Model | id | pass | avg tries | $ / 101 | list $/M (in·out) |
+|-------|-----|------|-----------|---------|-------------------|
+| **GPT-5 mini** | `openai/gpt-5-mini` | **93/101 (92%)** | 2.09 | **$0.43** | 0.25 · 2 |
+| Claude Haiku 4.5 | `anthropic/claude-haiku-4.5` | 84/101 (83%) | 1.42 | $3.42 | 1 · 5 |
+| Gemini 3.1 Flash Lite | `google/gemini-3.1-flash-lite` | 82/101 (81%) | 1.28 | $0.51 | 0.25 · 1.5 |
+| Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | 76/101 (75%) | 1.69 | $0.35 | 0.10 · 0.40 |
+
+- **GPT-5 mini is the value leader** — 92% (ties the frontier Sonnet 4.6) for
+  **$0.43/101**. It pays 2.09 attempts/case: like GPT-5.1 it 400s on the
+  structured schema and recovers via the Mode-4 prompt-text fallback (every case
+  = 2 requests), but the retries are cheap at mini pricing.
+- **Claude Haiku 4.5 is poor value** — 83% but **$3.42** (8× GPT-5 mini for LESS
+  accuracy). It's priced mid-tier ($1/$5 per M), not flash-cheap; the ~20 KB
+  input (schema + all examples) × its price dominates.
+- **Gemini Flash-Lite tier is the cheapest** ($0.35–0.51) at 75–81%; `3.1` beats
+  `2.5` — a generational lift at the bottom of the price curve.
+- Cost is **input-dominated** (~20 K tokens/case: the schema + every example,
+  since the eval renders all examples). Trimming examples would cut cost but the
+  full set is what drove the accuracy lift — a knob to tune per deployment.
+
+---
+
 ## The real ceiling: advanced SQL, not schema delivery
 
 Once the schema is delivered (by whatever mode), **every capable model plateaus
