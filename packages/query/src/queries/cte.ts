@@ -195,12 +195,14 @@ export class CTEStatementQuery extends Query {
   /** The Registry dispatch discriminant for this query kind. */
   static readonly KIND = 'cte' as const;
   /** Concise LLM-facing summary of this query kind (see `QueryClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A `WITH` statement: name one or more subqueries in `ctes`, then the `final` query reads a CTE BY ITS NAME (`from:{kind:'type', type:<cteName>}`, field-refs `source:<cteName>`). Use to stage a computation and reuse it." as const;
+  static readonly INSTRUCTIONS = "A `WITH` statement: name one or more subqueries in `ctes`, then the `final` query reads a CTE BY ITS NAME (`from:{kind:'type', type:<cteName>}`, field-refs `source:<cteName>`). Use to stage a computation and reuse it. For RECURSIVE closure (descendants/ancestors over a self-relation, at any depth) an entry is `{name, base, recursive}`: `base` is the seed rows; `recursive` reads the CTE by name — typically `{kind:'in', value:<the join key>, in:{select the CTE's key from the CTE}}` — and both arms cross the self-relation with a `relation` join." as const;
   /**
    * Worked example (see `QueryClass.EXAMPLES`) — per-user revenue named as a CTE,
    * then the `final` query reads that CTE by name.
    */
   static readonly EXAMPLES: readonly string[] = [
+    // Non-recursive: per-buyer revenue. `order.buyer` is a RELATION, so it's
+    // crossed with a `relation` join and the buyer key is read off the alias.
     JSON.stringify({
       kind: 'cte',
       ctes: [
@@ -209,7 +211,7 @@ export class CTEStatementQuery extends Query {
           query: {
             kind: 'select',
             fields: [
-              { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
+              { expr: { kind: 'field-ref', source: 'buyer', field: 'id' }, as: 'buyerId' },
               {
                 expr: {
                   kind: 'aggregate',
@@ -220,17 +222,65 @@ export class CTEStatementQuery extends Query {
               },
             ],
             from: { kind: 'type', type: 'order' },
-            groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
+            joins: [{ on: { kind: 'relation', source: 'order', field: 'buyer', as: 'buyer' } }],
+            groupBy: [{ kind: 'field-ref', source: 'buyer', field: 'id' }],
           },
         },
       ],
       final: {
         kind: 'select',
         fields: [
-          { expr: { kind: 'field-ref', source: 'revenue', field: 'userId' } },
+          { expr: { kind: 'field-ref', source: 'revenue', field: 'buyerId' } },
           { expr: { kind: 'field-ref', source: 'revenue', field: 'total' } },
         ],
         from: { kind: 'type', type: 'revenue' },
+      },
+    } satisfies CTEStatementDef),
+    // Recursive closure: every descendant of category 1, at any depth. Each arm
+    // crosses the self-relation `category.parent` with a `relation` join; the
+    // recursive arm keeps categories whose parent is already in the CTE.
+    JSON.stringify({
+      kind: 'cte',
+      ctes: [
+        {
+          name: 'descendants',
+          base: {
+            kind: 'select',
+            fields: [{ expr: { kind: 'field-ref', source: 'category', field: 'id' }, as: 'id' }],
+            from: { kind: 'type', type: 'category' },
+            joins: [{ on: { kind: 'relation', source: 'category', field: 'parent', as: 'parentCat' } }],
+            where: [
+              {
+                kind: 'comparison',
+                op: '=',
+                left: { kind: 'field-ref', source: 'parentCat', field: 'id' },
+                right: { kind: 'literal', value: 1 },
+              },
+            ],
+          },
+          recursive: {
+            kind: 'select',
+            fields: [{ expr: { kind: 'field-ref', source: 'category', field: 'id' }, as: 'id' }],
+            from: { kind: 'type', type: 'category' },
+            joins: [{ on: { kind: 'relation', source: 'category', field: 'parent', as: 'parentCat' } }],
+            where: [
+              {
+                kind: 'in',
+                value: { kind: 'field-ref', source: 'parentCat', field: 'id' },
+                in: {
+                  kind: 'select',
+                  fields: [{ expr: { kind: 'field-ref', source: 'descendants', field: 'id' } }],
+                  from: { kind: 'type', type: 'descendants' },
+                },
+              },
+            ],
+          },
+        },
+      ],
+      final: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'descendants', field: 'id' } }],
+        from: { kind: 'type', type: 'descendants' },
       },
     } satisfies CTEStatementDef),
   ];
