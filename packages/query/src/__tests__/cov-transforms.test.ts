@@ -92,7 +92,7 @@ describe('drillDown edge paths', () => {
       distinct: true,
       fields: [{ expr: { kind: 'aggregate', function: 'sum', args: { value: ref('order', 'total') } } }], // no `as`
       from: { kind: 'type', type: 'order' },
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       groupBy: [ref('order', 'userId')], // NOT projected → derived field name
       offset: 5,
       limit: 10,

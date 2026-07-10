@@ -1,8 +1,8 @@
 /**
- * BUG P0-1 — joined UPDATE / DELETE must splice the authored joins (and any
- * hidden relation-path / aggregate joins from SET / WHERE / RETURNING) into the
- * statement, NOT discard them. Golden SQL for base + postgres plus a runtime
- * check, and the documented degrade for a dialect without UPDATE…FROM support.
+ * BUG P0-1 — joined UPDATE / DELETE must splice the authored relation joins
+ * (whose synthesized key rides in the WHERE) into the statement, NOT discard
+ * them. Golden SQL for base + postgres plus a runtime check, and the documented
+ * degrade for a dialect without UPDATE…FROM support.
  */
 import { describe, it, expect } from 'vitest';
 import type { UpdateDef, DeleteDef } from '../schema';
@@ -25,7 +25,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
     const out = fx.engine.toSQL(def, 'postgres');
@@ -40,7 +40,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
     const out = fx.engine.toSQL(def, 'base');
@@ -49,12 +49,13 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     );
   });
 
-  it('UPDATE with a relation-path predicate splices its hidden join', () => {
+  it('UPDATE with a relation join splices its join into FROM + key in WHERE', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
-      where: [{ kind: 'comparison', op: '=', left: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, right: { kind: 'literal', value: 'Ada' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
+      where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'order_userId', field: 'name' }, right: { kind: 'literal', value: 'Ada' } }],
     };
     const out = fx.engine.toSQL(def, 'postgres');
     expect(out.sql).toBe(
@@ -67,7 +68,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '<', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
     const out = fx.engine.toSQL(def, 'postgres');
@@ -77,11 +78,12 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     expect(out.params).toEqual([18]);
   });
 
-  it('DELETE with a relation-path predicate splices its hidden join (base)', () => {
+  it('DELETE with a relation join splices its join into USING + key in WHERE (base)', () => {
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      where: [{ kind: 'comparison', op: '=', left: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, right: { kind: 'literal', value: 'Bob' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
+      where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'order_userId', field: 'name' }, right: { kind: 'literal', value: 'Bob' } }],
     };
     const out = fx.engine.toSQL(def, 'base');
     expect(out.sql).toBe(
@@ -94,7 +96,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
     };
     expect(() => fx.engine.toSQL(def, new NoDmlJoinDialect())).toThrow(/Joined UPDATE/);
   });
@@ -110,7 +112,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 40 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
     };

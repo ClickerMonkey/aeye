@@ -11,7 +11,7 @@
  *
  * GRADUATED DEPTH (replaces the old binary `strict` flag): every constrainable
  * axis is dialed INDEPENDENTLY via `opts.depth` —
- *  - `refs`      — `field-ref` / `relation-path` (`open` → `paired`);
+ *  - `refs`      — `field-ref` / join `on` (`open` → `paired`);
  *  - `typeNames` — bare Type-name positions (`open` → `enum`);
  *  - `functions` — the four function-call kinds (`open` → `names` → `typed`);
  *  - `filters`   — the `filters` clause (`open` → `paired`).
@@ -71,7 +71,7 @@ export { selectFunctions, type FunctionSelector } from '../schema-build';
 
 /** A partial, per-axis depth specification; unset axes fall back to the preset. */
 export interface SchemaDepth {
-  /** `field-ref` / `relation-path` tightness. */
+  /** `field-ref` / join `on` reference tightness. */
   refs?: RefDepth;
   /** Bare Type-name positions. */
   typeNames?: NameDepth;
@@ -261,13 +261,23 @@ function resolveDepth(options: BuildSchemasOptions, counts: DepthCounts): Resolv
   };
 }
 
-/** The join `on` schema at a `RefDepth` — `source` + its relation `field`. */
-function joinOnSchema(types: readonly Type[], depth: RefDepth, cache?: SchemaCache): z.ZodTypeAny {
+/**
+ * The RELATION branch of a join `on` at a `RefDepth` — `{ kind:'relation',
+ * source, field, as }`, `field` restricted to the source's relations and `as`
+ * the REQUIRED alias the joined target binds under. A manual (source-def) join
+ * `on` reuses the FROM `Source` union (added alongside this in `buildSchemas`).
+ */
+function relationOnSchema(types: readonly Type[], depth: RefDepth, cache?: SchemaCache): z.ZodTypeAny {
   return refSchema(types, depth, {
     keyName: 'source',
     fieldMode: 'one',
     eligible: relationFieldsOf,
-    describe: 'The bound source + relation field for this single join hop.',
+    extras: {
+      kind: z.literal('relation'),
+      as: z.string().describe('Required alias the joined target binds under.'),
+    },
+    aid: 'JoinOn',
+    describe: 'Cross a relation field of a bound source (key synthesized from the relation).',
   }, cache);
 }
 
@@ -403,27 +413,35 @@ export function buildSchemas(
         .describe('A table-valued function source: FROM fn(args) AS alias.'),
     );
   }
+  const sourceKinds: string[] = selected.tabular.length > 0
+    ? ['type', 'aliased', 'subquery', 'function']
+    : ['type', 'aliased', 'subquery'];
   const Source: z.ZodTypeAny = withAid(orFold(sourceBranches), 'Source', {
-    kinds: selected.tabular.length > 0
-      ? ['type', 'aliased', 'subquery', 'function']
-      : ['type', 'aliased', 'subquery'],
+    kinds: sourceKinds,
   }).describe(
     'A FROM / JOIN source: a type, an aliased type, a subquery, or a table-valued function.',
   );
 
-  // A join's `on` is a depth-aware `{ source, relation-field }` ref (the SAME
-  // unified helper field-refs use, with relations-only eligibility). Whether any
-  // join is expressible AT ALL is gated below on the Select schema.
+  // A join's `on` is EITHER a `relation` crossing (`{ kind:'relation', source,
+  // field, as }`, key synthesized from the relation) OR a MANUAL join adding a
+  // source directly (the SAME `Source` union the FROM uses) with `and` as the ON
+  // condition. Whether any join is expressible is gated below on the Select
+  // schema (a relationless type set still allows the manual source-def forms).
   const hasRelations = types.some((t) => t.relationFields().length > 0);
+  const relationOn = relationOnSchema(types, depth.refs, cache);
+  const JoinOn: z.ZodTypeAny = withAid(
+    hasRelations ? orFold([relationOn, Source]) : Source,
+    'JoinOn',
+    { kinds: ['relation', ...sourceKinds] },
+  ).describe('A join target: a relation crossing or a manually-joined source.');
   const Join: z.ZodTypeAny = withAid(
     z.object({
-      on: joinOnSchema(types, depth.refs, cache),
-      as: z.string().optional(),
+      on: JoinOn,
       and: Expr.optional(),
       joinType: withAid(enumOf(['inner', 'left', 'right', 'full']), 'JoinType').optional(),
     }),
     'Join',
-  ).describe('A relation-based JOIN over a single relation hop (key synthesized from the relation).');
+  ).describe('A JOIN: a relation crossing (key synthesized) or a manual source-def join with `and` as its ON.');
 
   // Gate the `joins` array out when NO Type has a relation: a relationless type
   // set can't express any join, so `joins` accepts only an empty / absent list

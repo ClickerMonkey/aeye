@@ -9,7 +9,7 @@ import { a } from './assert';
 import type { EvalCase } from './types';
 
 /** Customer 1's orders (the tie set: orders 2 and 3 are both February 2026). */
-const customer1 = [e.eq(e.path('salesOrder', 'customer', 'id'), e.value(1)).toJSON()];
+const customer1 = [e.eq(e.ref('customer', 'id'), e.value(1)).toJSON()];
 
 export const windowCases: EvalCase[] = [
   {
@@ -29,6 +29,7 @@ export const windowCases: EvalCase[] = [
           { expr: e.window('rank', { orderBy: [{ expr: e.dateTrunc('month', e.ref('salesOrder', 'orderedAt')), dir: 'asc' }] }).toJSON(), as: 'rnk' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
         where: customer1,
       })),
     ],
@@ -50,6 +51,7 @@ export const windowCases: EvalCase[] = [
           { expr: e.window('denseRank', { orderBy: [{ expr: e.dateTrunc('month', e.ref('salesOrder', 'orderedAt')), dir: 'asc' }] }).toJSON(), as: 'drnk' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
         where: customer1,
       })),
     ],
@@ -79,7 +81,8 @@ export const windowCases: EvalCase[] = [
           },
         ],
         from: { kind: 'type', type: 'salesOrder' },
-        where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.value(6)).toJSON()],
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
+        where: [e.eq(e.ref('customer', 'id'), e.value(6)).toJSON()],
       })),
     ],
   },
@@ -164,7 +167,7 @@ export const windowCases: EvalCase[] = [
             {
               expr: e
                 .window('cumeDist', {
-                  partitionBy: [e.path('employee', 'department', 'id')],
+                  partitionBy: [e.ref('department', 'id')],
                   orderBy: [{ expr: e.ref('employee', 'salary'), dir: 'asc' }],
                 })
                 .toJSON(),
@@ -172,6 +175,7 @@ export const windowCases: EvalCase[] = [
             },
           ],
           from: { kind: 'type', type: 'employee' },
+          joins: [e.relJoin('employee', 'department', 'department')],
         }),
         { tolerance: 1e-9 },
       ),
@@ -195,7 +199,7 @@ export const windowCases: EvalCase[] = [
             expr: e
               .window('firstValue', {
                 args: { value: e.ref('employee', 'salary') },
-                partitionBy: [e.path('employee', 'department', 'id')],
+                partitionBy: [e.ref('department', 'id')],
                 orderBy: [{ expr: e.ref('employee', 'salary'), dir: 'desc' }],
               })
               .toJSON(),
@@ -203,6 +207,7 @@ export const windowCases: EvalCase[] = [
           },
         ],
         from: { kind: 'type', type: 'employee' },
+        joins: [e.relJoin('employee', 'department', 'department')],
       })),
     ],
   },
@@ -224,7 +229,7 @@ export const windowCases: EvalCase[] = [
             expr: e
               .window('lastValue', {
                 args: { value: e.ref('employee', 'salary') },
-                partitionBy: [e.path('employee', 'department', 'id')],
+                partitionBy: [e.ref('department', 'id')],
                 orderBy: [{ expr: e.ref('employee', 'salary'), dir: 'desc' }],
               })
               .toJSON(),
@@ -232,6 +237,7 @@ export const windowCases: EvalCase[] = [
           },
         ],
         from: { kind: 'type', type: 'employee' },
+        joins: [e.relJoin('employee', 'department', 'department')],
       })),
     ],
   },

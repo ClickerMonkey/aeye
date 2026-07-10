@@ -44,13 +44,16 @@ describe('condition.non-bool — WHERE (select)', () => {
     expect(condProblems(base([param('flag')]))).toHaveLength(0);
   });
 
-  it('a non-scalar predicate (relation-path ending on a relation) reads "a value"', () => {
-    const relPath: ExprDef = { kind: 'relation-path', source: 'order', path: ['userId'] };
+  it('a non-scalar predicate (one resolving to a type) reads "a value"', () => {
+    // A predicate that resolves to a whole TYPE rather than a scalar. Now that
+    // `relation-path` is gone, a tabular-function-call is the Type-resolving expr;
+    // its own `tabular-function.unknown` problem is filtered out by `condProblems`.
+    const typePred: ExprDef = { kind: 'tabular-function-call', function: 'gen', args: {} };
     const probs = condProblems({
       kind: 'select',
       fields: [{ expr: ref('order', 'id'), as: 'id' }],
       from: { kind: 'type', type: 'order' },
-      where: [relPath],
+      where: [typePred],
     });
     expect(probs).toHaveLength(1);
     expect(probs[0]?.message).toBe('Expected a boolean condition; got a value.');
@@ -86,7 +89,7 @@ describe('condition.non-bool — join `and` (select)', () => {
     kind: 'select',
     fields: [{ expr: ref('user', 'id'), as: 'id' }],
     from: { kind: 'type', type: 'user' },
-    joins: [{ on: { source: 'user', field: 'orders' }, and }],
+    joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, and }],
   });
 
   it('a boolean join `and` predicate passes', () => {

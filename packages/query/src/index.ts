@@ -235,13 +235,8 @@ export {
   PostgresDialect,
   JoinCtePlanner,
   type JoinRequest,
-  type AggregateCteRequest,
-  type AggregateCteResult,
   type RlsProvider,
   rlsPredicate,
-  emitRelationPathValue,
-  fanoutAggregateInfo,
-  type FanoutAggregateInfo,
   builtinDialects,
 } from './sql/index';
 

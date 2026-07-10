@@ -42,7 +42,7 @@ export async function run(): Promise<ExampleReport> {
       { expr: e.ref('order', 'total').toJSON() },
     ],
     from: { kind: 'type', type: 'user' },
-    joins: [{ on: { source: 'user', field: 'orders' }, joinType: 'inner' }],
+    joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, joinType: 'inner' }],
     where: [e.gt(e.ref('order', 'total'), e.param('minTotal')).toJSON()],
     order: [{ expr: e.ref('order', 'total').toJSON(), dir: 'desc' }],
     limit: 5,

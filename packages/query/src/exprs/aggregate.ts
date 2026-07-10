@@ -45,8 +45,6 @@ import type { SourceRow } from '../runtime/row';
 import type { Cost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
-import { fanoutAggregateInfo } from '../sql/relation-walk';
-import { RelationPathExpr } from './relation-path';
 
 /** An aggregate function call (e.g. `sum`, `count`), dispatched through the registry. */
 export class AggregateExpr extends Expr {
@@ -198,31 +196,12 @@ export class AggregateExpr extends Expr {
   }
 
   /**
-   * Emit the aggregate. A fan-out (`count > 1`) relation-path `value` argument
-   * is pre-aggregated into a `WITH agg_… GROUP BY` CTE (so the outer row set
-   * isn't fanned out); otherwise emit the plain `fn([DISTINCT] args)` call —
-   * `fn(*)` when there are no args (`count(*)`).
+   * Emit the aggregate as the plain `fn([DISTINCT] args)` call — `fn(*)` when
+   * there are no args (`count(*)`). Fan-out over a relation is now expressed as
+   * an explicit `relation` JOIN in the query's `joins`, so the aggregate simply
+   * runs over the (already-joined) rows; there is no hidden pre-aggregation CTE.
    */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    const value = this.valueArg();
-    if (value instanceof RelationPathExpr) {
-      const info = fanoutAggregateInfo(ctx, value.source, value.path);
-      if (info) {
-        const res = ctx.planner.requireAggregateCte({
-          leftAlias: info.leftAlias,
-          localField: info.localField,
-          foreignField: info.foreignField,
-          targetType: info.targetType,
-          relationField: info.relationField,
-          aggFn: this.fn,
-          distinct: this.distinct,
-          argField: info.argField,
-        });
-        const ref = dialect.field(res.alias, res.valueField);
-        // count over an absent group is 0, not NULL.
-        return this.fn === 'count' ? SqlText.concat([SqlText.raw('COALESCE('), ref, SqlText.raw(', 0)')]) : ref;
-      }
-    }
     const distinctSql = this.distinct ? SqlText.raw('DISTINCT ') : SqlText.empty();
     // `count(*)` — the arg-less star form (no builtin override applies).
     if (this.args.size === 0) {

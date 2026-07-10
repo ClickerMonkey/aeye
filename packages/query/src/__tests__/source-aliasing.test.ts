@@ -79,7 +79,7 @@ describe('source aliasing — collision detection', () => {
       from: { kind: 'type', type: 'user' },
       // The join binds its target under `as: 'user'` — colliding with the FROM
       // source also named `user`.
-      joins: [{ on: { source: 'user', field: 'orders' }, as: 'user', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'user' }, joinType: 'inner' }],
     };
     const problems = fx.engine.validateQuery(def);
     expect(problems.list.some((p) => p.code === 'source.duplicate')).toBe(true);
@@ -93,7 +93,7 @@ describe('source aliasing — collision detection', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'total' } }],
       from: { kind: 'type', type: 'order' },
-      joins: [{ on: { source: 'order', field: 'userId' }, as: 'buyer', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' }, joinType: 'inner' }],
     };
     const problems = fx.engine.validateQuery(def);
     expect(problems.list.some((p) => p.code === 'source.duplicate')).toBe(false);

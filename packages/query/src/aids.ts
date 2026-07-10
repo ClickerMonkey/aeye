@@ -121,7 +121,8 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   OrderNulls: { label: 'a null ordering (first or last)' },
   JoinType: { label: 'a join type (inner, left, right, or full)' },
   SetOpKind: { label: 'a set operation (union, intersect, or except)' },
-  Join: { label: 'a JOIN clause, an object of { on: { source, field } }' },
+  Join: { label: 'a JOIN clause, an object of { on: { kind, … } }' },
+  JoinOn: { label: "a join target: a relation crossing { kind:'relation', source, field, as } or a source def", noun: 'join target' },
 
   // ── Query / source building blocks (owned structural parser) ──────────────
   QueryRequest: { label: 'a query request, an object of { query: <query def> }' },
@@ -146,7 +147,6 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   Expr_literal: { label: 'a literal expression' },
   Expr_param: { label: 'a bind parameter' },
   'Expr_field-ref': { label: 'a field reference { source, field }' },
-  'Expr_relation-path': { label: 'a relation-path reference' },
   Expr_in: { label: 'a membership predicate' },
   Expr_between: { label: 'a range predicate' },
   'Expr_is-null': { label: 'a null test' },

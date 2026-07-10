@@ -214,10 +214,12 @@ describe('CTEStatementQuery — SQL / validate / cost / serialization', () => {
     expect(q.clone().toJSON()).toEqual(recursive);
   });
 
-  it('hoists a final SELECT\'s own planner CTE into the single outer WITH', () => {
+  it('folds a final SELECT\'s relation JOIN into the single outer WITH', () => {
     const fx = fixture();
-    // The final SELECT carries a fan-out aggregate ⇒ its own `agg_…` CTE, which
-    // must merge into the outer WITH (not emit a second adjacent WITH).
+    // The final SELECT carries a fan-out aggregate over an explicit relation JOIN
+    // (user.orders.total). Post-refactor the aggregate runs INLINE over the joined
+    // rows (no hidden `agg_…` CTE), so the whole statement stays a SINGLE outer
+    // WITH — no second adjacent WITH is emitted for the final arm.
     const hoist: CTEStatementDef = {
       kind: 'cte',
       ctes: [
@@ -225,18 +227,21 @@ describe('CTEStatementQuery — SQL / validate / cost / serialization', () => {
       ],
       final: {
         kind: 'select',
+        joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
         fields: [
           { expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' },
-          { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'spent' },
+          { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } }, as: 'spent' },
         ],
         from: { kind: 'type', type: 'user' },
       },
     };
     const { sql } = fx.engine.toSQL(hoist, 'base');
-    // Exactly one WITH, carrying both the named CTE and the hoisted agg CTE.
+    // Exactly one WITH (the named CTE); the final arm's relation JOIN + inline
+    // aggregate are emitted in the outer SELECT, not as a second adjacent WITH.
     expect(sql.startsWith('WITH ')).toBe(true);
     expect(sql.indexOf('WITH ', 1)).toBe(-1);
-    expect(sql).toContain('"agg_sum_user_orders" AS (');
+    expect(sql).toContain('LEFT JOIN "order" AS "order" ON "user"."id" = "order"."userId"');
+    expect(sql).toContain('sum("order"."total") AS "spent"');
   });
 
   it('drives the base Query.emitWith via a CTE whose final arm is a set-op', () => {

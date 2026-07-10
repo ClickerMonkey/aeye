@@ -42,7 +42,7 @@ describe('cost: relation join fan-out', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' } }], // materialized has-many; count = round(5000/1000) = 5
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }], // materialized has-many; count = round(5000/1000) = 5
     };
     const cost = fx.engine.cost(def);
     expect(cost.rows).toBe(fx.user.count * 5); // 1000 × 5

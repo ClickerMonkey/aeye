@@ -192,7 +192,7 @@ describe('default conditions — alias / self-join independence', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'file', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'file' },
-      joins: [{ on: { source: 'file', field: 'parentId' }, as: 'parent', ...(opts.and ? { and: opts.and } : {}) }],
+      joins: [{ on: { kind: 'relation', source: 'file', field: 'parentId', as: 'parent' }, ...(opts.and ? { and: opts.and } : {}) }],
     };
     if (opts.where) def.where = opts.where;
     return def;

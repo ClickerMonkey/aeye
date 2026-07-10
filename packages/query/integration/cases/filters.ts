@@ -54,8 +54,9 @@ export const filterCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('salesOrder', 'id').toJSON() }, { expr: e.ref('salesOrder', 'total').toJSON() }],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
         where: [
-          e.eq(e.path('salesOrder', 'customer', 'id'), e.value(1)).toJSON(),
+          e.eq(e.ref('customer', 'id'), e.value(1)).toJSON(),
           e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON(),
         ],
       })),
@@ -147,10 +148,14 @@ export const filterCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('salesOrder', 'id').toJSON(), as: 'id' }],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [
+          e.relJoin('salesOrder', 'currency', 'currency'),
+          e.relJoin('salesOrder', 'customer', 'customer'),
+        ],
         where: [
           e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON(),
-          e.eq(e.path('salesOrder', 'currency', 'code'), e.value('EUR')).toJSON(),
-          e.eq(e.path('salesOrder', 'customer', 'tier'), e.value('gold')).toJSON(),
+          e.eq(e.ref('currency', 'code'), e.value('EUR')).toJSON(),
+          e.eq(e.ref('customer', 'tier'), e.value('gold')).toJSON(),
         ],
       })),
     ],

@@ -153,7 +153,7 @@ describe('Query.walkExprs', () => {
       kind: 'select',
       fields: [{ expr: ref('user', 'name') }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' }, and: cmp('>', ref('order', 'total'), lit(0)) }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, and: cmp('>', ref('order', 'total'), lit(0)) }],
       where: [{ kind: 'filters', source: 'user' }],
       groupBy: [ref('user', 'name')],
       having: [cmp('>', ref('user', 'age'), lit(0))],
@@ -173,7 +173,7 @@ describe('Query.walkExprs', () => {
       kind: 'select',
       fields: [{ expr: ref('user', 'name') }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
     });
     const kinds: string[] = [];
     q.walkExprs((e: Expr) => kinds.push(e.kind));

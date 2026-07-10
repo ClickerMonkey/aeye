@@ -134,7 +134,7 @@ function joinSelect(joinType: 'inner' | 'right' | 'full', and?: boolean): Select
     ],
     from: { kind: 'type', type: 'user' },
     joins: [{
-      on: { source: 'user', field: 'orders' },
+      on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' },
       joinType,
       ...(and ? { and: { kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'order', field: 'total' }, right: { kind: 'literal', value: 60 } } } : {}),
     }],
@@ -175,7 +175,7 @@ describe('QueryJoin — runtime join types + `and`', () => {
 
   it('finalAlias + expansionFactor resolve from the alias→Type map (and degrade)', () => {
     const fx = runtimeFixture();
-    const join = QueryJoin.from({ on: { source: 'user', field: 'orders' } }, fx.registry);
+    const join = QueryJoin.from({ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }, fx.registry);
     const aliasTypes = new Map<string, Type>([['user', fx.user]]);
     expect(join.label).toBe('user.orders');
     expect(join.finalAlias(fx.engine, aliasTypes)).toBe('order');
@@ -185,7 +185,7 @@ describe('QueryJoin — runtime join types + `and`', () => {
     // Fan-out relation ⇒ factor = max(1, count).
     expect(join.expansionFactor(fx.engine, aliasTypes)).toBeGreaterThan(1);
     // A non-relation field ⇒ factor 1.
-    const nonRel = QueryJoin.from({ on: { source: 'user', field: 'name' } }, fx.registry);
+    const nonRel = QueryJoin.from({ on: { kind: 'relation', source: 'user', field: 'name', as: 'x' } }, fx.registry);
     expect(nonRel.expansionFactor(fx.engine, aliasTypes)).toBe(1);
     expect(nonRel.finalAlias(fx.engine, aliasTypes)).toBeUndefined();
   });
@@ -295,22 +295,23 @@ describe('SelectQuery — remaining surfaces', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, joinType: 'inner' }],
     };
     expect(fx.engine.parseQuery(def).filterSources(fx.engine)).toEqual(['user', 'order']);
   });
 
-  it('derives natural output names for field-ref / relation-path / aggregate / other (no alias)', () => {
+  it('derives natural output names for field-ref / joined field-ref / aggregate / other (no alias)', () => {
     const fx = runtimeFixture();
     const def: SelectDef = {
       kind: 'select',
       fields: [
         { expr: { kind: 'field-ref', source: 'order', field: 'total' } },
-        { expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] } },
+        { expr: { kind: 'field-ref', source: 'order_userId', field: 'name' } },
         { expr: { kind: 'aggregate', function: 'count', args: {} } },
         { expr: { kind: 'literal', value: 7 } },
       ],
       from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
       groupBy: [{ kind: 'field-ref', source: 'order', field: 'total' }],
     };
     const names = fx.engine.parseQuery(def).outputFields(fx.engine, fx.engine.globalScope()).map((f) => f.name);
@@ -334,7 +335,7 @@ describe('SelectQuery — remaining surfaces', () => {
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'user' },
       // `name` is text, not a relation ⇒ buildPlan returns undefined ⇒ no expansion.
-      joins: [{ on: { source: 'user', field: 'name' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'x' } }],
     };
     const res = await fx.engine.run(def);
     expect(res.rows.map((r) => r['id'])).toEqual([1, 2, 3]);
@@ -347,7 +348,7 @@ describe('SelectQuery — remaining surfaces', () => {
       distinct: true,
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' }, joinType: 'inner', and: { kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'order', field: 'total' }, right: { kind: 'literal', value: 10 } } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, joinType: 'inner', and: { kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'order', field: 'total' }, right: { kind: 'literal', value: 10 } } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 1 } }],
       groupBy: [{ kind: 'field-ref', source: 'user', field: 'name' }],
       having: [{ kind: 'comparison', op: '>', left: { kind: 'aggregate', function: 'count', args: {} }, right: { kind: 'literal', value: 0 } }],

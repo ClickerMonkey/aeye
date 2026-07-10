@@ -23,6 +23,15 @@ function codes(p: Problems): string[] {
   return p.list.map((x) => x.code);
 }
 
+/**
+ * An expr that resolves to a (synthetic) TYPE rather than a value — a
+ * tabular-function-call, the only remaining Type-resolving expr now that
+ * `relation-path` is gone. Exercises the "operand is a type, not a value"
+ * branches (categoryOf / asFieldType undefined). It also reports
+ * `tabular-function.unknown`, irrelevant to the specific codes asserted here.
+ */
+const typeExpr: ExprDef = { kind: 'tabular-function-call', function: 'gen', args: {} };
+
 /** A SELECT over `user` with a single value field and an optional WHERE. */
 function userSelect(field: ExprDef, where?: ExprDef[]): SelectDef {
   return {
@@ -117,7 +126,7 @@ describe('CaseExpr', () => {
   it('resolve uses the text fallback when the first then is a (non-field) type', () => {
     const scope = typeScope(fx);
     const r = fx.engine.resolveExpr(
-      { kind: 'case', branches: [{ when: cmp('>', ref('u', 'id'), lit(0)), then: { kind: 'relation-path', source: 'u', path: ['orders'] } }] },
+      { kind: 'case', branches: [{ when: cmp('>', ref('u', 'id'), lit(0)), then: typeExpr }] },
       scope,
     );
     expect(asFieldType(r)?.resolve()).toBe('text');
@@ -133,7 +142,7 @@ describe('CaseExpr', () => {
 
     // Type when (a relation) ⇒ message falls back to 'a type'.
     const typeWhen = fx.engine.validateExpr(
-      { kind: 'case', branches: [{ when: { kind: 'relation-path', source: 'u', path: ['orders'] }, then: lit('a') }] },
+      { kind: 'case', branches: [{ when: typeExpr, then: lit('a') }] },
       typeScope(fx),
     );
     expect(codes(typeWhen)).toContain('case.when-non-bool');
@@ -149,7 +158,7 @@ describe('CaseExpr', () => {
   it('validateWalk skips the comparability loop when the first result is a type / a later result is a type', () => {
     // First then is a type ⇒ firstFt falsy ⇒ no then-mismatch.
     const firstType = fx.engine.validateExpr(
-      { kind: 'case', branches: [{ when: cmp('>', ref('u', 'id'), lit(0)), then: { kind: 'relation-path', source: 'u', path: ['orders'] } }] },
+      { kind: 'case', branches: [{ when: cmp('>', ref('u', 'id'), lit(0)), then: typeExpr }] },
       typeScope(fx),
     );
     expect(codes(firstType)).not.toContain('case.then-mismatch');
@@ -160,7 +169,7 @@ describe('CaseExpr', () => {
         kind: 'case',
         branches: [
           { when: cmp('>', ref('u', 'id'), lit(0)), then: lit('a') },
-          { when: cmp('>', ref('u', 'id'), lit(1)), then: { kind: 'relation-path', source: 'u', path: ['orders'] } },
+          { when: cmp('>', ref('u', 'id'), lit(1)), then: typeExpr },
         ],
       },
       typeScope(fx),
@@ -337,7 +346,7 @@ describe('BetweenExpr', () => {
     // lower resolves to a TYPE (asFieldType undefined) ⇒ upper supplies the type.
     const scope2 = typeScope(fx);
     fx.engine.validateExpr(
-      { kind: 'between', value: param('w'), lower: { kind: 'relation-path', source: 'u', path: ['orders'] }, upper: ref('u', 'id') },
+      { kind: 'between', value: param('w'), lower: typeExpr, upper: ref('u', 'id') },
       scope2,
     );
     expect(scope2.params.resolved('w')?.resolve()).toBe('number');
@@ -345,7 +354,7 @@ describe('BetweenExpr', () => {
 
   it('validateWalk does not flag a non-comparable bound when the value is a type', () => {
     const p = fx.engine.validateExpr(
-      { kind: 'between', value: { kind: 'relation-path', source: 'u', path: ['orders'] }, lower: lit('x'), upper: lit('y') },
+      { kind: 'between', value: typeExpr, lower: lit('x'), upper: lit('y') },
       typeScope(fx),
     );
     expect(codes(p)).not.toContain('between.type');

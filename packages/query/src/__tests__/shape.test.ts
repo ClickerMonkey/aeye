@@ -49,7 +49,6 @@ import { CaseExpr } from '../exprs/case';
 import { AggregateExpr } from '../exprs/aggregate';
 import { WindowExpr } from '../exprs/window';
 import { FunctionCallExpr } from '../exprs/function-call';
-import { RelationPathExpr } from '../exprs/relation-path';
 import { ArrayOpExpr } from '../exprs/array-op';
 import { OutputRefExpr } from '../exprs/output-ref';
 import { ExcludedExpr } from '../exprs/excluded';
@@ -551,9 +550,6 @@ describe('shape — C2 equivalence with `from`', () => {
       function: 'lower',
       args: { value: lit1('A') },
     }));
-
-  it('relation-path', () =>
-    equiv(RelationPathExpr, { kind: 'relation-path', source: 'u', path: ['orders', 'total'] }));
 
   it('array-op (single, list, and empty value forms)', () => {
     equiv(ArrayOpExpr, { kind: 'array-op', op: 'contains', target: fieldRef('u', 'tags'), value: lit1('x') });

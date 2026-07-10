@@ -20,8 +20,9 @@ const custIdsWhere = (pred: ReturnType<typeof e.eq>): QueryDef => ({
 /** The customer ids that appear as a customer on some sales order. */
 const customersWithOrders: QueryDef = {
   kind: 'select',
-  fields: [{ expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'id' }],
+  fields: [{ expr: e.ref('customer', 'id').toJSON(), as: 'id' }],
   from: { kind: 'type', type: 'salesOrder' },
+  joins: [e.relJoin('salesOrder', 'customer', 'customer')],
 };
 
 const goldCustomers = custIdsWhere(e.eq(e.ref('customer', 'tier'), e.value('gold')));

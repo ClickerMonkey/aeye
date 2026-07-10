@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { JoinCtePlanner } from '../sql/planner';
-import type { JoinRequest, AggregateCteRequest, LateralRequest, RawJoinRequest } from '../sql/planner';
+import type { JoinRequest, LateralRequest, RawJoinRequest } from '../sql/planner';
 import { BaseDialect } from '../sql/index';
 import { SqlText } from '../sql/emit';
 import { fixture } from './_utils';
@@ -62,26 +62,6 @@ describe('cov planner: explicit (JOIN-clause) mode', () => {
     expect(all).toContain('FULL JOIN');
   });
 
-  it('requireAggregateCte dedups + attaches a LEFT JOIN', () => {
-    const fx = fixture();
-    const p = new JoinCtePlanner(dialect, fx.engine, undefined);
-    const req: AggregateCteRequest = {
-      leftAlias: 'user', localField: 'id', foreignField: 'userId', targetType: fx.order,
-      relationField: 'orders', aggFn: 'sum', distinct: false, argField: 'total',
-    };
-    const r1 = p.requireAggregateCte(req);
-    const r2 = p.requireAggregateCte(req);
-    expect(r1).toEqual(r2);
-    expect(p.emittedCtes().length).toBe(1);
-    expect(p.hasCtes()).toBe(true);
-    expect(render(p.emittedJoins()[0]!)).toContain('LEFT JOIN "agg_sum_user_orders" ON');
-    // distinct + count(*) variant exercises the DISTINCT and '*' branches
-    const p2 = new JoinCtePlanner(dialect, fx.engine, undefined);
-    const cte = p2.requireAggregateCte({ ...req, aggFn: 'count', distinct: true, argField: '*' });
-    expect(render(p2.emittedCtes()[0]!)).toContain('count(DISTINCT *)');
-    expect(cte.valueField).toBe('v');
-  });
-
   it('requireLateral + requireRawJoin dedup', () => {
     const fx = fixture();
     const p = new JoinCtePlanner(dialect, fx.engine, undefined);
@@ -109,19 +89,6 @@ describe('cov planner: implicit (UPDATE…FROM / DELETE…USING) mode', () => {
     // dedup still holds in implicit mode
     p.requireJoin(joinReq({ targetType: fx.user, joinType: 'left' }));
     expect(p.emittedFromItems().length).toBe(1);
-  });
-
-  it('aggregate CTE lowers to FROM item + attach predicate', () => {
-    const fx = fixture();
-    const p = new JoinCtePlanner(dialect, fx.engine, undefined, {}, true);
-    p.requireAggregateCte({
-      leftAlias: 'user', localField: 'id', foreignField: 'userId', targetType: fx.order,
-      relationField: 'orders', aggFn: 'sum', distinct: false, argField: 'total',
-    });
-    expect(p.emittedCtes().length).toBe(1);
-    expect(p.emittedJoins().length).toBe(0);
-    expect(render(p.emittedFromItems()[0]!)).toBe('"agg_sum_user_orders"');
-    expect(render(p.emittedJoinPredicates()[0]!)).toContain('"user"."id" = "agg_sum_user_orders"."k"');
   });
 
   it('RIGHT / FULL relation joins have no comma-list form', () => {

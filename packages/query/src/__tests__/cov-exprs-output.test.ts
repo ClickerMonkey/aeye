@@ -113,10 +113,13 @@ describe('output-ref: resolve / cost delegation and unbound fallbacks', () => {
 describe('output-ref: validation codes', () => {
   const fx = fixture();
 
+  // `uid` reads a SCALAR field: `order.userId` is a relation field, and a
+  // field-ref to a relation is now a `ref.relation` error, so the group key
+  // reads `order.id` (the "valid groupBy over outputs" case must stay clean).
   const base = (extra: Partial<SelectDef>): SelectDef => ({
     kind: 'select',
     fields: [
-      { expr: ref('order', 'userId'), as: 'uid' },
+      { expr: ref('order', 'id'), as: 'uid' },
       { expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'cnt' },
     ],
     from: { kind: 'type', type: 'order' },
@@ -348,7 +351,7 @@ describe('output-ref: drill-down expansion', () => {
       // leaves (all share one arm):
       { kind: 'subquery', query: { kind: 'select', fields: [{ expr: ref('order', 'id') }], from: { kind: 'type', type: 'order' } } },
       { kind: 'param', name: 'p' },
-      { kind: 'relation-path', source: 'order', path: ['userId'] },
+      // (`relation-path` removed — crossing a relation is now a named join, not a leaf expr.)
       { kind: 'semantic', source: 'order', query: 'x' },
       { kind: 'text-search', source: 'order', query: 'x' },
       { kind: 'filters', source: 'order' },
@@ -425,10 +428,11 @@ describe('output-ref: full unary.ts coverage (v8 merge workaround)', () => {
     expect(fx.engine.validateExpr(un('-', ref('o', 'total')), scope).hasErrors).toBe(false);
     expect(fx.engine.validateExpr(un('+', ref('u', 'age')), scope).hasErrors).toBe(false);
     expect(fx.engine.validateExpr(un('-', ref('u', 'name')), scope).list.some((p) => p.code === 'unary.type')).toBe(true);
-    // Operand resolving to a Type (relation end) ⇒ categoryOf is undefined ⇒
-    // the `cat ?? 'a type'` message branch.
+    // Operand resolving to a Type ⇒ categoryOf is undefined ⇒ the `cat ?? 'a type'`
+    // message branch. A tabular-function-call is the remaining Type-resolving expr.
+    const typeOperand: ExprDef = { kind: 'tabular-function-call', function: 'gen', args: {} };
     expect(
-      fx.engine.validateExpr(un('-', { kind: 'relation-path', source: 'u', path: ['orders'] }), scope).list.some((p) => p.code === 'unary.type'),
+      fx.engine.validateExpr(un('-', typeOperand), scope).list.some((p) => p.code === 'unary.type'),
     ).toBe(true);
     expect(fx.engine.validateExpr(un('-', lit(null)), scope).hasErrors).toBe(false);
     expect(fx.engine.validateExpr(un('-', param('p')), scope).hasErrors).toBe(false);

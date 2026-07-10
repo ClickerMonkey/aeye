@@ -86,7 +86,7 @@ describe('change 1 — relations + inverse + identity', () => {
         { expr: { kind: 'field-ref', source: 'c', field: 'id' }, as: 'commentId' },
       ],
       from: { kind: 'type', type: 'post' },
-      joins: [{ on: { source: 'post', field: 'comments' }, as: 'c', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'post', field: 'comments', as: 'c' }, joinType: 'inner' }],
       order: [
         { expr: { kind: 'field-ref', source: 'post', field: 'id' }, dir: 'asc' },
         { expr: { kind: 'field-ref', source: 'c', field: 'id' }, dir: 'asc' },
@@ -100,11 +100,12 @@ describe('change 1 — relations + inverse + identity', () => {
     ]);
   });
 
-  it('emits the inverse join key in SQL via a relation path', () => {
+  it('emits the inverse join key in SQL via a named relation join', () => {
     const engine = blogEngine();
     const def: SelectDef = {
       kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'post', path: ['comments', 'body'] }, as: 'body' }],
+      joins: [{ on: { kind: 'relation', source: 'post', field: 'comments', as: 'post_comments' } }],
+      fields: [{ expr: { kind: 'field-ref', source: 'post_comments', field: 'body' }, as: 'body' }],
       from: { kind: 'type', type: 'post' },
     };
     const { sql } = engine.toSQL(def, 'base');

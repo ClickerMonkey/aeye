@@ -65,7 +65,7 @@ describe('QueryJoin — orphan rows exercise unmatched right/full padding', () =
         { expr: { kind: 'field-ref', source: 'o', field: 'id' }, as: 'oid' },
       ],
       from: { kind: 'type', type: 'u' },
-      joins: [{ on: { source: 'u', field: 'os' }, joinType }],
+      joins: [{ on: { kind: 'relation', source: 'u', field: 'os', as: 'o' }, joinType }],
     };
   }
 
@@ -104,7 +104,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 40 } }],
     };
     const res = await fx.engine.run(def);
@@ -117,7 +117,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const def: DeleteDef = {
       kind: 'delete',
       from: 'user',
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'order', field: 'total' }, right: { kind: 'literal', value: 150 } }],
     };
     const res = await fx.engine.run(def);
@@ -131,18 +131,19 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
       kind: 'update',
       type: 'user',
       set: [{ field: 'age', value: { kind: 'literal', value: 1 } }],
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'order', field: 'total' }, right: { kind: 'literal', value: 0 } }],
     };
     expect((await fx.engine.run(fanOut)).affected).toBe(2);
 
-    // A join on a NON-relation field doesn't resolve ⇒ expand with an empty plan.
+    // A relation join whose `field` is NOT a relation doesn't resolve ⇒ expand
+    // with an empty plan.
     const fx2 = runtimeFixture();
     const badJoin: UpdateDef = {
       kind: 'update',
       type: 'user',
       set: [{ field: 'age', value: { kind: 'literal', value: 5 } }],
-      joins: [{ on: { source: 'user', field: 'name' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'j' } }],
     };
     expect((await fx2.engine.run(badJoin)).affected).toBe(3);
   });
@@ -175,15 +176,15 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
       kind: 'update',
       type: 'order',
       set: [{ field: 'total', value: { kind: 'literal', value: 0 } }],
-      // a join on a NON-relation field never resolves ⇒ registerJoins skips it.
-      joins: [{ on: { source: 'order', field: 'note' } }],
+      // a relation join whose `field` is NOT a relation never resolves ⇒ registerJoins skips it.
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'note', as: 'j' } }],
     };
     expect(fx.engine.toSQL(upd, 'base', { rls }).sql).toContain('"order"."note"');
 
     const del: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'note' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'note', as: 'j' } }],
     };
     expect(fx.engine.toSQL(del, 'base', { rls }).sql).toContain('"order"."note"');
   });
@@ -264,14 +265,18 @@ describe('InsertQuery — gatherTuples edge cases + serialization', () => {
 });
 
 describe('shared fieldNameOf — natural names in DML RETURNING', () => {
-  it('derives names for field-ref / relation-path / aggregate / other (no alias)', () => {
+  it('derives names for field-ref / joined field-ref / aggregate / other (no alias)', () => {
     const fx = runtimeFixture();
+    // A relation crossing is now a named JOIN + a plain field-ref into it; its
+    // natural name is the joined field (`name`), exactly as the old relation-path
+    // derived its last segment.
     const del: DeleteDef = {
       kind: 'delete',
       from: 'order',
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       returning: [
         { expr: { kind: 'field-ref', source: 'order', field: 'id' } },
-        { expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] } },
+        { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
         { expr: { kind: 'aggregate', function: 'count', args: {} } },
         { expr: { kind: 'literal', value: 1 } },
       ],
@@ -288,7 +293,7 @@ describe('SelectQuery — filterSources skips an unresolvable join', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'name' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'j' } }],
     };
     expect(fx.engine.parseQuery(def).filterSources(fx.engine)).toEqual(['user']);
   });

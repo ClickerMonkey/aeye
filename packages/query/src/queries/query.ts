@@ -32,7 +32,7 @@ import type { SqlContext, SqlText } from '../sql/emit';
 import { Type } from '../type';
 import { Field } from '../field';
 import { TextFieldType } from '../field-types/index';
-import { FieldRefExpr, RelationPathExpr, AggregateExpr, FiltersExpr } from '../exprs/index';
+import { FieldRefExpr, AggregateExpr, FiltersExpr } from '../exprs/index';
 
 /**
  * One output field of a query.
@@ -313,16 +313,15 @@ export abstract class Query {
   abstract toSQL(dialect: Dialect, ctx: SqlContext): SqlText;
 
   /**
-   * Emit this query as a leading-`WITH`-free BODY plus the TOP-LEVEL planner CTE
+   * Emit this query as a leading-`WITH`-free BODY plus the TOP-LEVEL CTE
    * definitions it would otherwise prepend itself. The default returns no CTEs
    * and the whole `toSQL` output as the body — correct for any query that does
-   * not emit a top-level `WITH`.
+   * not emit a top-level `WITH` (a `SelectQuery` included).
    *
-   * `SelectQuery` (its planner-generated `agg_…` CTEs) and `CTEStatementQuery`
-   * override this so an OUTER `WITH` can HOIST these definitions and emit a
-   * SINGLE combined `WITH` list. Without it, a `CTEStatementQuery` whose final
-   * SELECT has a fan-out aggregate emits two adjacent `WITH`s — a syntax error
-   * (BUG P0-2).
+   * `CTEStatementQuery` overrides this so an OUTER `WITH` can HOIST a nested
+   * statement's named CTEs and emit a SINGLE combined `WITH` list. Without it a
+   * `WITH` whose final query is itself a `WITH` would emit two adjacent `WITH`s
+   * — a syntax error (BUG P0-2).
    */
   emitWith(dialect: Dialect, ctx: SqlContext): { ctes: ReadonlyArray<SqlText>; body: SqlText } {
     return { ctes: [], body: this.toSQL(dialect, ctx) };
@@ -389,8 +388,6 @@ export function resolveFields(kind: QueryKind, fields: readonly QueryField[]): R
 export function fieldNameOf(expr: Expr, as: string | undefined, i: number): string {
   if (as) return as;
   if (expr instanceof FieldRefExpr) return expr.field;
-  /* v8 ignore next -- a relation-path always has at least one segment, so the `?? col` fallback is unreachable */
-  if (expr instanceof RelationPathExpr) return expr.path[expr.path.length - 1] ?? `col${i}`;
   if (expr instanceof AggregateExpr) return expr.fn;
   return `col${i}`;
 }

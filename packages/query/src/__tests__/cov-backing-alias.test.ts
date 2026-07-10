@@ -175,7 +175,7 @@ const select: SelectDef = {
     { expr: ref('p2', 'runMark'), as: 'p2Mark' },
   ],
   from: { kind: 'type', type: 'proj' },
-  joins: [{ on: { source: 'proj', field: 'parent' }, as: 'p2', joinType: 'inner' }],
+  joins: [{ on: { kind: 'relation', source: 'proj', field: 'parent', as: 'p2' }, joinType: 'inner' }],
   order: [{ expr: ref('proj', 'id'), dir: 'asc' }],
 };
 

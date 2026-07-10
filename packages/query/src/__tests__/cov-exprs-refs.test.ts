@@ -1,6 +1,6 @@
 /**
  * Coverage driver for the reference / placeholder exprs:
- *   field-ref.ts, relation-path.ts, subquery.ts, filters.ts, _shared.ts, index.ts
+ *   field-ref.ts, subquery.ts, filters.ts, _shared.ts, index.ts
  *
  * Exercises every public method across BOTH execution modes (runtime evaluate +
  * SQL emit in `base` and `postgres`), every Problem code / branch, cost, the
@@ -26,7 +26,6 @@ import { QueryEngine } from '../engine';
 import { arrayExecutor } from '../runtime/executor';
 import { RuntimeContext } from '../runtime/context';
 import { FieldRefExpr } from '../exprs/field-ref';
-import { RelationPathExpr } from '../exprs/relation-path';
 import { SubqueryExpr } from '../exprs/subquery';
 import { FiltersExpr } from '../exprs/filters';
 import { exprDefSchema, BUILTIN_EXPRS } from '../exprs/index';
@@ -425,211 +424,6 @@ describe('field-ref: backing — coverage gaps (lateral miss / relation miss / n
   });
 });
 
-// ─── relation-path.ts ────────────────────────────────────────────────────────
-
-describe('relation-path: resolve / validate', () => {
-  const fx = fixture();
-  const scope = typeScope(fx);
-  const rp = (source: string, path: string[]): ExprDef => ({ kind: 'relation-path', source, path });
-
-  it('resolves a scalar end (nullable-widened), a relation end (type), and multi-hop', () => {
-    const scalar = fx.engine.resolveExpr(rp('o', ['userId', 'name']), scope);
-    expect(scalar.kind).toBe('field');
-    if (scalar.kind === 'field') expect(scalar.nullable).toBe(true);
-
-    const toType = fx.engine.resolveExpr(rp('u', ['orders']), scope);
-    expect(toType.kind).toBe('type');
-    if (toType.kind === 'type') expect(toType.type.name).toBe('order');
-
-    const multi = fx.engine.resolveExpr(rp('u', ['orders', 'userId']), scope);
-    expect(multi.kind).toBe('type');
-    if (multi.kind === 'type') expect(multi.type.name).toBe('user');
-  });
-
-  it('reports unknown-source / empty / unknown-field / not-a-relation', () => {
-    expect(fx.engine.validateExpr(rp('nope', ['x']), scope).list.some((p) => p.code === 'relation-path.unknown-source')).toBe(true);
-    // bound but non-type source ⇒ also unknown-source
-    const s = fx.engine.globalScope();
-    s.bind('c', { kind: 'computed', fieldType: new NumberFieldType(), sources: [], nullable: false, aggregate: false });
-    expect(fx.engine.validateExpr(rp('c', ['x']), s).list.some((p) => p.code === 'relation-path.unknown-source')).toBe(true);
-
-    expect(fx.engine.validateExpr(rp('u', []), scope).list.some((p) => p.code === 'relation-path.empty')).toBe(true);
-    expect(fx.engine.validateExpr(rp('u', ['nope']), scope).list.some((p) => p.code === 'relation-path.unknown-field')).toBe(true);
-    expect(fx.engine.validateExpr(rp('u', ['name', 'x']), scope).list.some((p) => p.code === 'relation-path.not-a-relation')).toBe(true);
-    expect(fx.engine.validateExpr(rp('o', ['userId', 'name']), scope).hasErrors).toBe(false);
-  });
-
-  it('reports unknown-type when a relation points at an unregistered Type', () => {
-    const registry = createRegistry();
-    const ghostHost: TypeDef = {
-      name: 'gh',
-      fields: [
-        { name: 'id', type: { kind: 'number', whole: true } },
-        { name: 'ghost', type: { kind: 'relation', to: 'ghosttype', count: 1 } },
-      ],
-      indexes: [{ exprs: [{ expr: ref('gh', 'id'), count: 1 }] }],
-      count: 1,
-      bytes: 8,
-    };
-    const gh = registry.parseType(ghostHost);
-    registry.registerType(gh);
-    registry.finalize();
-    const engine = new QueryEngine(registry);
-    const scope = engine.globalScope();
-    scope.bind('g', { kind: 'type', type: gh, source: 'g', synthetic: false });
-    const p = engine.validateExpr({ kind: 'relation-path', source: 'g', path: ['ghost'] }, scope);
-    expect(p.list.some((x) => x.code === 'relation-path.unknown-type')).toBe(true);
-  });
-
-  it('cost + serialization round-trip', () => {
-    const e = fx.engine.parse(rp('o', ['userId', 'name']));
-    expect(e.cost(fx.engine, scope).rows).toBe(0);
-    expect(e.toJSON()).toEqual({ kind: 'relation-path', source: 'o', path: ['userId', 'name'] });
-    expect(e.clone().toJSON()).toEqual(e.toJSON());
-    expect(e.toCode()).toBe('o.userId.name');
-    let n = 0;
-    e.forEachChild(() => n++);
-    expect(n).toBe(0);
-  });
-
-  it('static `from` rejects a mismatched kind', () => {
-    expect(() => RelationPathExpr.from(lit(1), fx.registry)).toThrow(/expected 'relation-path'/);
-  });
-});
-
-describe('relation-path: runtime evaluate + SQL', () => {
-  it('walks a scalar end, a relation end (identity), a LEFT-join miss, and a NULL FK', async () => {
-    const registry = createRegistry();
-    registry.registerType(registry.parseType(userTypeDef));
-    registry.registerType(registry.parseType(orderTypeDef));
-    registry.finalize();
-    const engine = new QueryEngine(registry, {
-      executors: {
-        user: arrayExecutor([{ id: 1, name: 'Ada', age: 36, email: 'a@x.com', tags: [] }]),
-        order: arrayExecutor([
-          { id: 10, userId: 1, total: 1, note: null },
-          { id: 11, userId: 999, total: 2, note: null }, // LEFT-join miss
-          { id: 12, userId: null, total: 3, note: null }, // NULL FK
-        ]),
-      },
-    });
-    // scalar end
-    const scalarDef: SelectDef = {
-      kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, as: 'cust' }],
-      from: { kind: 'type', type: 'order' },
-      order: [{ expr: ref('order', 'id'), dir: 'asc' }],
-    };
-    expect((await engine.run(scalarDef)).rows).toEqual([{ cust: 'Ada' }, { cust: null }, { cust: null }]);
-
-    // relation end ⇒ the related row's identity (user id)
-    const relDef: SelectDef = {
-      kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'order', path: ['userId'] }, as: 'uid' }],
-      from: { kind: 'type', type: 'order' },
-      order: [{ expr: ref('order', 'id'), dir: 'asc' }],
-    };
-    expect((await engine.run(relDef)).rows).toEqual([{ uid: 1 }, { uid: null }, { uid: null }]);
-
-    // SQL emission (both dialects synthesize the join)
-    for (const d of ['base', 'postgres'] as const) {
-      const sql = engine.toSQL(scalarDef, d).sql;
-      expect(sql).toContain('"order_userId"."name" AS "cust"');
-    }
-  });
-
-  it('evaluate handles a null row, an empty path, an unknown mid-field, and an unregistered target', async () => {
-    const rfx = runtimeFixture();
-    const ctx = new RuntimeContext(rfx.engine);
-    // null row
-    expect((await rfx.engine.parse({ kind: 'relation-path', source: 'order', path: ['userId', 'name'] }).evaluate(ctx, null)).isNull()).toBe(true);
-    // empty path ⇒ NULL (loop never returns)
-    expect((await rfx.engine.parse({ kind: 'relation-path', source: 'order', path: [] }).evaluate(ctx, { order: { id: 10, userId: 1 } })).isNull()).toBe(true);
-    // unknown mid-field ⇒ NULL
-    expect((await rfx.engine.parse({ kind: 'relation-path', source: 'order', path: ['userId', 'nope'] }).evaluate(ctx, { order: orderRows[0]! })).isNull()).toBe(true);
-
-    // unregistered relation target ⇒ NULL
-    const registry = createRegistry();
-    const ghostHost: TypeDef = {
-      name: 'gh',
-      fields: [
-        { name: 'id', type: { kind: 'number', whole: true } },
-        { name: 'ghost', type: { kind: 'relation', to: 'ghosttype', count: 1 } },
-      ],
-      indexes: [{ exprs: [{ expr: ref('gh', 'id'), count: 1 }] }],
-      count: 1,
-      bytes: 8,
-    };
-    registry.registerType(registry.parseType(ghostHost));
-    registry.finalize();
-    const ge = new QueryEngine(registry, { executors: { gh: arrayExecutor([{ id: 1, ghost: 5 }]) } });
-    const gctx = new RuntimeContext(ge);
-    expect((await ge.parse({ kind: 'relation-path', source: 'gh', path: ['ghost', 'id'] }).evaluate(gctx, { gh: { id: 1, ghost: 5 } })).isNull()).toBe(true);
-  });
-});
-
-describe('relation-path: runtime coverage gaps', () => {
-  // A fresh registry with the example `user` + `order` types; engines below vary
-  // their executors to drive each leg of `evaluate`.
-  const registry = createRegistry();
-  registry.registerType(registry.parseType(userTypeDef));
-  registry.registerType(registry.parseType(orderTypeDef));
-  registry.finalize();
-
-  it('falls back to the correlation row when the source key is absent (line ~190)', async () => {
-    const engine = new QueryEngine(registry, {
-      executors: { user: arrayExecutor([{ id: 1, name: 'Ada', age: 36, email: 'a@x.com', tags: [] }]) },
-    });
-    const ctx = new RuntimeContext(engine);
-    const expr = engine.parse({ kind: 'relation-path', source: 'order', path: ['userId', 'name'] });
-    // The passed row lacks `order`, so `rec` falls back to `ctx.correlation.order`.
-    const v = await ctx.withCorrelation(
-      { order: { id: 10, userId: 1, total: 1, note: null } },
-      () => expr.evaluate(ctx, {}),
-    );
-    expect(v.raw).toBe('Ada');
-  });
-
-  it('hops a relation whose target Type has no executor ⇒ NULL (line ~206)', async () => {
-    // `order` is registered but given NO executor ⇒ recordsFor is empty ⇒ no match.
-    const engine = new QueryEngine(registry, {
-      executors: { user: arrayExecutor([{ id: 1, name: 'Ada' }]) },
-    });
-    const ctx = new RuntimeContext(engine);
-    const expr = engine.parse({ kind: 'relation-path', source: 'user', path: ['orders'] });
-    const v = await expr.evaluate(ctx, { user: { id: 1, name: 'Ada' } });
-    expect(v.isNull()).toBe(true);
-  });
-
-  it('relation-end identity field missing on the matched record ⇒ NULL (line ~215)', async () => {
-    const engine = new QueryEngine(registry, {
-      executors: {
-        user: arrayExecutor([{ id: 1, name: 'Ada' }]),
-        // the matching order is found by its FK but LACKS its own `id`.
-        order: arrayExecutor([{ userId: 1, total: 5, note: null }]),
-      },
-    });
-    const ctx = new RuntimeContext(engine);
-    const expr = engine.parse({ kind: 'relation-path', source: 'user', path: ['orders'] });
-    const v = await expr.evaluate(ctx, { user: { id: 1 } });
-    expect(v.isNull()).toBe(true);
-  });
-
-  it('scalar-end value missing on the matched related record ⇒ NULL (line ~222)', async () => {
-    const engine = new QueryEngine(registry, {
-      executors: {
-        // the matched user is found by id but LACKS `name`.
-        user: arrayExecutor([{ id: 1 }]),
-        order: arrayExecutor([{ id: 10, userId: 1, total: 5, note: null }]),
-      },
-    });
-    const ctx = new RuntimeContext(engine);
-    const expr = engine.parse({ kind: 'relation-path', source: 'order', path: ['userId', 'name'] });
-    const v = await expr.evaluate(ctx, { order: { id: 10, userId: 1 } });
-    expect(v.isNull()).toBe(true);
-  });
-});
-
 // ─── subquery.ts ─────────────────────────────────────────────────────────────
 
 describe('subquery', () => {
@@ -801,18 +595,16 @@ describe('_shared helpers', () => {
 
     const fieldRes = fx.engine.resolveExpr(ref('u', 'name'), scope);
     const ageRes = fx.engine.resolveExpr(ref('u', 'age'), scope);
-    const typeRes = fx.engine.resolveExpr({ kind: 'relation-path', source: 'u', path: ['orders'] }, scope);
     const compRes = fx.engine.resolveExpr(cmp('=', ref('u', 'id'), lit(1)), scope);
     const aggRes = fx.engine.resolveExpr({ kind: 'aggregate', function: 'sum', args: { value: ref('o', 'total') } }, scope);
 
-    expect(gatherSources([fieldRes, typeRes, compRes]).length).toBeGreaterThan(0);
+    expect(gatherSources([fieldRes, compRes]).length).toBeGreaterThan(0);
     expect(anyNullable([ageRes])).toBe(true);
     expect(anyNullable([fieldRes])).toBe(false);
     expect(anyAggregate([aggRes])).toBe(true);
     expect(anyAggregate([compRes])).toBe(false);
 
     // categoryOf over each ResolvedType kind
-    expect(categoryOf(typeRes)).toBeUndefined(); // a Type has no category
     expect(categoryOf(fieldRes)).toBe('text'); // field kind
     expect(categoryOf(compRes)).toBe('bool'); // computed kind
   });

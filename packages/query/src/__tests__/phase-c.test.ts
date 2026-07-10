@@ -24,15 +24,15 @@ describe('phase C — DML target / join collision', () => {
   it('reports source.duplicate when a join hop rebinds the UPDATE target type', () => {
     const fx = runtimeFixture();
     // Chaining user.orders (binds `order`) then order.userId hops user → order
-    // → user; the second hop binds under the target type name `user`, colliding
-    // with the UPDATE target `user`.
+    // → user; the second hop is aliased back to `user`, colliding with the
+    // UPDATE target `user`.
     const def: UpdateDef = {
       kind: 'update',
       type: 'user',
       set: [{ field: 'name', value: lit('x') }],
       joins: [
-        { on: { source: 'user', field: 'orders' } },
-        { on: { source: 'order', field: 'userId' } },
+        { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } },
+        { on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } },
       ],
     };
     const problems = fx.engine.validateQuery(def);
@@ -47,8 +47,8 @@ describe('phase C — DML target / join collision', () => {
       set: [{ field: 'name', value: lit('x') }],
       // Aliasing the second hop to `buyer` breaks the collision with `user`.
       joins: [
-        { on: { source: 'user', field: 'orders' } },
-        { on: { source: 'order', field: 'userId' }, as: 'buyer' },
+        { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } },
+        { on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' } },
       ],
     };
     const problems = fx.engine.validateQuery(def);
@@ -68,8 +68,8 @@ describe('phase C — aliased self-join SELECT (net-new capability)', () => {
     ],
     from: { kind: 'aliased', type: 'user', as: 'u1' },
     joins: [
-      { on: { source: 'u1', field: 'orders' }, joinType: 'inner' },
-      { on: { source: 'order', field: 'userId' }, as: 'u2', joinType: 'inner' },
+      { on: { kind: 'relation', source: 'u1', field: 'orders', as: 'order' }, joinType: 'inner' },
+      { on: { kind: 'relation', source: 'order', field: 'userId', as: 'u2' }, joinType: 'inner' },
     ],
   });
 
@@ -86,8 +86,8 @@ describe('phase C — aliased self-join SELECT (net-new capability)', () => {
     expect(from).toEqual({ kind: 'aliased', type: 'user', as: 'u1' });
     const joins: JoinDef[] | undefined = round.kind === 'select' ? round.joins : undefined;
     expect(joins).toEqual([
-      { on: { source: 'u1', field: 'orders' }, joinType: 'inner' },
-      { on: { source: 'order', field: 'userId' }, as: 'u2', joinType: 'inner' },
+      { on: { kind: 'relation', source: 'u1', field: 'orders', as: 'order' }, joinType: 'inner' },
+      { on: { kind: 'relation', source: 'order', field: 'userId', as: 'u2' }, joinType: 'inner' },
     ]);
   });
 

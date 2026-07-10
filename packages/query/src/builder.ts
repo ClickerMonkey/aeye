@@ -23,16 +23,19 @@
  * unchanged (pass-through), so built and parsed exprs compose freely.
  *
  * Children are themselves `Expr` instances — the LEAF builders (`value`/`lit`,
- * `ref`, `param`, `path`, `output`, `excluded`, `filters`) make them; everything
+ * `ref`, `param`, `output`, `excluded`, `filters`) make them; everything
  * else takes and returns `Expr`. There are NO `any` / `unknown` / casts.
+ *
+ * The one NON-expr builder is `relJoin` — it returns a plain `JoinDef` (a join
+ * clause, not an `Expr`), so callers drop it straight into `joins: [...]` with
+ * no `.toJSON()`.
  */
-import type { BinaryOp, ScalarValue, QueryDef, TypeFieldRef, SourceFieldRef } from './schema';
+import type { BinaryOp, ScalarValue, QueryDef, JoinDef, TypeFieldRef, SourceFieldRef } from './schema';
 import { Expr } from './expr';
 import {
   LiteralExpr,
   OutputRefExpr,
   FieldRefExpr,
-  RelationPathExpr,
   ParamExpr,
   BinaryExpr,
   UnaryExpr,
@@ -115,12 +118,6 @@ export function param(name: string): ParamExpr {
 /** A direct field reference `<source>.<field>` — builds a `FieldRefExpr`. */
 export function ref(source: string, field: string): FieldRefExpr {
   return new FieldRefExpr(source, field);
-}
-
-/** A relation-path reference (walks relation fields, optionally ending at a
- *  scalar field) — builds a `RelationPathExpr`. */
-export function path(source: string, ...segments: string[]): RelationPathExpr {
-  return new RelationPathExpr(source, segments);
 }
 
 /** A reference to a SELECT output field by name — builds an `OutputRefExpr`. */
@@ -627,6 +624,33 @@ export function subquery(query: QueryDef): SubqueryExpr {
 }
 
 // ============================================================================
+// JOINS
+// ============================================================================
+
+/**
+ * A RELATION join `{ on:{ kind:'relation', source, field, as } }` — cross the
+ * belongs-to/has-many relation `field` of the bound `source` into its target,
+ * bound under the REQUIRED alias `as`. Reproduces the belongs-to traversal (the
+ * key is synthesized from the relation, LEFT by default); pass `opts.joinType`
+ * for a different join and `opts.and` for an extra predicate ANDed with the key.
+ *
+ * Returns a plain `JoinDef` (NOT an `Expr`) — drop it straight into a query's
+ * `joins: [...]` with NO `.toJSON()`; child exprs (`opts.and`) still `.toJSON()`.
+ */
+export function relJoin(
+  source: string,
+  field: string,
+  as: string,
+  opts?: { and?: Expr; joinType?: 'inner' | 'left' | 'right' | 'full' },
+): JoinDef {
+  return {
+    on: { kind: 'relation', source, field, as },
+    ...(opts?.and ? { and: opts.and.toJSON() } : {}),
+    ...(opts?.joinType ? { joinType: opts.joinType } : {}),
+  };
+}
+
+// ============================================================================
 // SEARCH / SEMANTIC
 // ============================================================================
 
@@ -694,7 +718,6 @@ export const e = {
   lit,
   param,
   ref,
-  path,
   output,
   excluded,
   filters,
@@ -792,6 +815,8 @@ export const e = {
   stringToArray,
   // query-embedding
   subquery,
+  // joins
+  relJoin,
   // search / semantic
   textSearch,
   textScore,

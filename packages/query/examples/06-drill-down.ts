@@ -21,12 +21,15 @@ export async function run(): Promise<ExampleReport> {
   const revenuePerUser: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: e.ref('order', 'userId').toJSON(), as: 'userId' },
+      { expr: e.ref('buyer', 'id').toJSON(), as: 'userId' },
       { expr: e.sum(e.ref('order', 'total')).toJSON(), as: 'revenue' },
     ],
     from: { kind: 'type', type: 'order' },
-    groupBy: [e.ref('order', 'userId').toJSON()],
-    order: [{ expr: e.ref('order', 'userId').toJSON(), dir: 'asc' }],
+    // `order.userId` is a belongs-to relation, so join it and group by the
+    // buyer's key (a plain field-ref can't read a relation directly).
+    joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' } }],
+    groupBy: [e.ref('buyer', 'id').toJSON()],
+    order: [{ expr: e.ref('buyer', 'id').toJSON(), dir: 'asc' }],
   };
 
   const errors = engine.validateQuery(revenuePerUser).list.filter((p) => p.severity === 'error').length;

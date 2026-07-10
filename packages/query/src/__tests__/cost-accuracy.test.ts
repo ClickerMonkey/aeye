@@ -58,7 +58,7 @@ describe('cost-accuracy: join fan-out MULTIPLIES and compounds', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'author', field: 'id' } }],
       from: { kind: 'type', type: 'author' },
-      joins: [{ on: { source: 'author', field: 'books' } }],
+      joins: [{ on: { kind: 'relation', source: 'author', field: 'books', as: 'book' } }],
     };
     expect(engine.cost(def).rows).toBe(10 * 10); // author(10) × books(10)
   });
@@ -70,8 +70,8 @@ describe('cost-accuracy: join fan-out MULTIPLIES and compounds', () => {
       fields: [{ expr: { kind: 'field-ref', source: 'author', field: 'id' } }],
       from: { kind: 'type', type: 'author' },
       joins: [
-        { on: { source: 'author', field: 'books' } },
-        { on: { source: 'book', field: 'pages' } },
+        { on: { kind: 'relation', source: 'author', field: 'books', as: 'book' } },
+        { on: { kind: 'relation', source: 'book', field: 'pages', as: 'page' } },
       ],
     };
     // 10 authors × 10 books/author × 10 pages/book = 1000.

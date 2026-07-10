@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { asFieldType } from '../resolved-type';
 import { canonicalize } from '../expr';
 import { fixture, typeScope, lit, ref, cmp } from './_utils';
-import type { ExprDef } from '../schema';
+import type { ExprDef, SelectDef } from '../schema';
 
 const fx = fixture();
 const scope = typeScope(fx);
@@ -34,19 +34,45 @@ describe('expr resolution', () => {
     if (age.kind === 'field') expect(age.nullable).toBe(true);
   });
 
-  it('relation-path resolves across a relation, widening nullability', () => {
-    const r = resolve({ kind: 'relation-path', source: 'o', path: ['userId', 'name'] });
-    expect(r.kind).toBe('field');
-    if (r.kind === 'field') {
-      expect(r.field.name).toBe('name');
-      expect(r.nullable).toBe(true); // crossed a relation
+  it('a belongs-to relation join binds the target; a field-ref into it resolves to that field', () => {
+    // The old bare `relation-path` crossing is now an explicit named join:
+    // order.userId (belongs-to user) joined as `buyer`, then read buyer.name.
+    const def: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: ref('buyer', 'name'), as: 'name' }],
+      from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' } }],
+    };
+    const field = fx.engine
+      .parseQuery(def)
+      .outputFields(fx.engine, fx.engine.globalScope())
+      .find((f) => f.name === 'name')!;
+    expect(field.type.kind).toBe('field');
+    if (field.type.kind === 'field') {
+      expect(field.type.field.name).toBe('name');
+      expect(field.type.type.name).toBe('user');
+      // Static resolution reads the field's own nullability; the LEFT-join
+      // widening is now a runtime/SQL effect, not a resolve-time one (the
+      // relation-path's resolve-time widening was removed with the refactor).
+      expect(field.type.nullable).toBe(false);
     }
   });
 
-  it('relation-path ending at a relation resolves to the related type', () => {
-    const r = resolve({ kind: 'relation-path', source: 'u', path: ['orders'] });
-    expect(r.kind).toBe('type');
-    if (r.kind === 'type') expect(r.type.name).toBe('order');
+  it('a has-many relation join binds the joined alias as the related type', () => {
+    // user.orders (has-many order) joined as `ord`: a field read off `ord` is
+    // owned by the related `order` type — the crossing lands on that type.
+    const def: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: ref('ord', 'total'), as: 't' }],
+      from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'ord' } }],
+    };
+    const field = fx.engine
+      .parseQuery(def)
+      .outputFields(fx.engine, fx.engine.globalScope())
+      .find((f) => f.name === 't')!;
+    expect(field.type.kind).toBe('field');
+    if (field.type.kind === 'field') expect(field.type.type.name).toBe('order');
   });
 
   it('binary arithmetic resolves numeric; money propagates', () => {

@@ -1,10 +1,11 @@
 /**
- * THE headline test: the shared hidden-join / CTE planner.
- *  - two relation-path values over the SAME relation ⇒ EXACTLY ONE join, one
- *    alias (dedup);
- *  - a fan-out relation feeding an aggregate ⇒ a `WITH agg_… GROUP BY` CTE
- *    (and identical aggregates dedup to one CTE);
- *  - a multi-hop relation path chains the right joins.
+ * THE headline test: the shared hidden-join planner (post-`relation-path`).
+ *  - two computed fields over the SAME relation join alias ⇒ EXACTLY ONE join,
+ *    one alias (the authored `as` dedups);
+ *  - a fan-out relation feeding an aggregate is now a plain relation JOIN the
+ *    aggregate runs over — no hidden pre-aggregation CTE (and two aggregates
+ *    sharing one join alias reuse the single join);
+ *  - a multi-hop relation crossing chains the right joins.
  */
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../registry';
@@ -18,16 +19,18 @@ function count(haystack: string, needle: string): number {
 }
 
 describe('SQL — join/CTE planner', () => {
-  it('dedups two relation-paths over the SAME relation into ONE join + alias', () => {
+  it('dedups two fields over the SAME relation join alias into ONE join + alias', () => {
     const fx = fixture();
-    // order.userId is a one-to-one relation → a plain LEFT JOIN.
+    // order.userId is a one-to-one relation → a plain LEFT JOIN, authored once
+    // under `order_userId` and reused by both computed fields.
     const def: SelectDef = {
       kind: 'select',
       fields: [
-        { expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, as: 'cust' },
-        { expr: { kind: 'relation-path', source: 'order', path: ['userId', 'email'] }, as: 'mail' },
+        { expr: { kind: 'field-ref', source: 'order_userId', field: 'name' }, as: 'cust' },
+        { expr: { kind: 'field-ref', source: 'order_userId', field: 'email' }, as: 'mail' },
       ],
       from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
     };
     const { sql } = fx.engine.toSQL(def, 'base');
     // exactly one join, one alias bound once (in the JOIN's AS).
@@ -39,58 +42,63 @@ describe('SQL — join/CTE planner', () => {
     expect(sql).not.toContain('WITH ');
   });
 
-  it('fan-out relation feeding an aggregate ⇒ a grouped CTE', () => {
+  it('fan-out relation feeding an aggregate ⇒ a plain relation JOIN (no CTE)', () => {
     const fx = fixture();
-    // user.orders is a fan-out (count 12) relation.
+    // user.orders is a fan-out (count 12) relation. The aggregate now runs over
+    // the joined rows directly — no hidden `WITH agg_… GROUP BY` pre-aggregation.
     const def: SelectDef = {
       kind: 'select',
       fields: [
         { expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' },
-        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'spent' },
+        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'spent' },
       ],
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'orders' } }],
     };
     const { sql } = fx.engine.toSQL(def, 'base');
-    expect(sql.startsWith('WITH ')).toBe(true);
-    expect(sql).toContain('"agg_sum_user_orders" AS (SELECT "t"."userId" AS "k", sum("t"."total") AS "v" FROM "order" AS "t" GROUP BY "t"."userId")');
-    // attached by a LEFT JOIN on the grouped key.
-    expect(sql).toContain('LEFT JOIN "agg_sum_user_orders" ON "user"."id" = "agg_sum_user_orders"."k"');
-    expect(sql).toContain('"agg_sum_user_orders"."v" AS "spent"');
+    expect(sql).not.toContain('WITH ');
+    expect(sql).not.toContain('agg_sum');
+    // a single LEFT JOIN over the relation; the aggregate reads the joined alias.
+    expect(count(sql, 'LEFT JOIN')).toBe(1);
+    expect(sql).toContain('LEFT JOIN "order" AS "orders" ON "user"."id" = "orders"."userId"');
+    expect(sql).toContain('sum("orders"."total") AS "spent"');
   });
 
-  it('dedups two identical fan-out aggregates into ONE CTE', () => {
+  it('two aggregates sharing one relation join alias reuse the single join', () => {
     const fx = fixture();
     const def: SelectDef = {
       kind: 'select',
       fields: [
-        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'a' },
-        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'b' },
+        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'a' },
+        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'b' },
       ],
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'orders' } }],
     };
     const { sql } = fx.engine.toSQL(def, 'base');
-    expect(count(sql, 'agg_sum_user_orders" AS (')).toBe(1);
-    expect(count(sql, 'LEFT JOIN "agg_sum_user_orders"')).toBe(1);
+    // exactly one join backs both aggregates; both are emitted over it.
+    expect(count(sql, 'LEFT JOIN "order" AS "orders"')).toBe(1);
+    expect(count(sql, 'sum("orders"."total")')).toBe(2);
   });
 
-  it('different aggregates over the same relation ⇒ separate CTEs', () => {
+  it('different aggregates over the same relation share ONE join', () => {
     const fx = fixture();
     const def: SelectDef = {
       kind: 'select',
       fields: [
-        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'spent' },
-        { expr: { kind: 'aggregate', function: 'count', args: { value: { kind: 'relation-path', source: 'user', path: ['orders'] } } }, as: 'cnt' },
+        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'spent' },
+        { expr: { kind: 'aggregate', function: 'count', args: { value: { kind: 'field-ref', source: 'orders', field: 'id' } } }, as: 'cnt' },
       ],
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'orders' } }],
     };
     const { sql } = fx.engine.toSQL(def, 'base');
-    expect(sql).toContain('"agg_sum_user_orders" AS (');
-    expect(sql).toContain('"agg_count_user_orders" AS (SELECT "t"."userId" AS "k", count(*) AS "v"');
-    // count over an absent group coalesces to 0.
-    expect(sql).toContain('COALESCE("agg_count_user_orders"."v", 0) AS "cnt"');
+    expect(count(sql, 'LEFT JOIN "order" AS "orders"')).toBe(1);
+    expect(sql).toContain('sum("orders"."total") AS "spent"');
+    expect(sql).toContain('count("orders"."id") AS "cnt"');
   });
 
-  it('multi-hop relation path chains the right joins', () => {
+  it('multi-hop relation crossing chains the right joins', () => {
     const registry = createRegistry();
     const country: TypeDef = { name: 'country', fields: [{ name: 'id', type: { kind: 'number', whole: true } }, { name: 'name', type: { kind: 'text' } }], count: 200, bytes: 32 };
     const city: TypeDef = {
@@ -118,8 +126,12 @@ describe('SQL — join/CTE planner', () => {
 
     const def: SelectDef = {
       kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'person', path: ['city', 'country', 'name'] }, as: 'country' }],
+      fields: [{ expr: { kind: 'field-ref', source: 'person_city_country', field: 'name' }, as: 'country' }],
       from: { kind: 'type', type: 'person' },
+      joins: [
+        { on: { kind: 'relation', source: 'person', field: 'city', as: 'person_city' } },
+        { on: { kind: 'relation', source: 'person_city', field: 'country', as: 'person_city_country' } },
+      ],
     };
     const { sql } = engine.toSQL(def, 'base');
     // two chained joins: person → city, then city → country.

@@ -37,10 +37,11 @@ import { addCost } from '../cost';
 export class InExpr extends BoolExpr {
   static readonly KIND = 'in' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). Set `not:true` for NOT IN." as const;
+  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). To project a value across a relation, add a `relation` join in the subquery and field-ref the joined alias. Set `not:true` for NOT IN." as const;
   /**
    * Worked examples (see `ExprClass.EXAMPLES`) — the two `in` shapes: an explicit
-   * value LIST, and a single-field SUBQUERY (each an expr fragment).
+   * value LIST, and a single-field SUBQUERY that crosses a relation via a
+   * `relation` join (projecting the joined alias's field).
    */
   static readonly EXAMPLES: readonly string[] = [
     JSON.stringify({
@@ -56,8 +57,9 @@ export class InExpr extends BoolExpr {
       value: { kind: 'field-ref', source: 'user', field: 'id' },
       in: {
         kind: 'select',
-        fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'userId' } }],
+        fields: [{ expr: { kind: 'field-ref', source: 'u', field: 'id' } }],
         from: { kind: 'type', type: 'order' },
+        joins: [{ on: { kind: 'relation', source: 'order', field: 'user', as: 'u' } }],
       },
     } satisfies InExprDef),
   ];

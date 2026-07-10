@@ -22,12 +22,13 @@ export const groupByCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'select',
         fields: [
-          { expr: e.path('salesOrder', 'customer', 'region').toJSON(), as: 'region' },
+          { expr: e.ref('customer', 'region').toJSON(), as: 'region' },
           { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'revenue' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
         where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-        groupBy: [e.path('salesOrder', 'customer', 'region').toJSON()],
+        groupBy: [e.ref('customer', 'region').toJSON()],
       })),
     ],
   },
@@ -65,11 +66,12 @@ export const groupByCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'select',
         fields: [
-          { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'customer' },
+          { expr: e.ref('customer', 'id').toJSON(), as: 'customer' },
           { expr: e.countStar().toJSON(), as: 'orderCount' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
-        groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
+        groupBy: [e.ref('customer', 'id').toJSON()],
         having: [e.gt(e.countStar(), e.value(2)).toJSON()],
       })),
     ],
@@ -90,13 +92,14 @@ export const groupByCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'select',
         fields: [
-          { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
+          { expr: e.ref('customer', 'id').toJSON(), as: 'cid' },
           { expr: e.countStar().toJSON(), as: 'cnt' },
           { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'rev' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
         where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-        groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
+        groupBy: [e.ref('customer', 'id').toJSON()],
         having: [
           e.gte(e.countStar(), e.value(2)).toJSON(),
           e.lt(e.sum(e.ref('salesOrder', 'total')), e.value(5000)).toJSON(),

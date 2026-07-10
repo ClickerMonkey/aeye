@@ -195,12 +195,11 @@ describe('QueryOrder.SHAPE', () => {
 });
 
 describe('QueryJoin.SHAPE', () => {
-  it('equivalent to from (bare, and with as/and/joinType)', () => {
+  it('equivalent to from (bare relation `on`, and with and/joinType)', () => {
     for (const def of [
-      { on: { source: 'user', field: 'orders' } },
+      { on: { kind: 'relation' as const, source: 'user', field: 'orders', as: 'o' } },
       {
-        on: { source: 'user', field: 'orders' },
-        as: 'o2',
+        on: { kind: 'relation' as const, source: 'user', field: 'orders', as: 'o2' },
         and: { kind: 'comparison' as const, op: '>' as const, left: fieldRef('o2', 'total'), right: lit1(0) },
         joinType: 'inner' as const,
       },
@@ -213,7 +212,7 @@ describe('QueryJoin.SHAPE', () => {
 
   it('a non-string on.source localizes under on.source', () => {
     const { ctx, problems } = mk();
-    expect(QueryJoin.SHAPE.check({ on: { source: 5, field: 'orders' } }, ctx)).toBe(INVALID);
+    expect(QueryJoin.SHAPE.check({ on: { kind: 'relation', source: 5, field: 'orders', as: 'x' } }, ctx)).toBe(INVALID);
     expect(problems.list.some((pr) => pr.path.join('.') === 'on.source')).toBe(true);
   });
 });
@@ -241,7 +240,7 @@ describe('query kinds — equivalence with the throwing parser', () => {
         { expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'n' },
       ],
       from: typeSource('user'),
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [
         { kind: 'comparison', op: '>', left: fieldRef('order', 'total'), right: lit1(0) },
         { kind: 'in', value: fieldRef('user', 'id'), in: canonicalSelect('o', 'userId', 'order') },
@@ -277,7 +276,7 @@ describe('query kinds — equivalence with the throwing parser', () => {
       kind: 'update',
       type: 'user',
       set: [{ field: 'name', value: lit1('x') }],
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'comparison', op: '=', left: fieldRef('user', 'id'), right: lit1(1) }],
       returning: [{ expr: fieldRef('user', 'id') }],
     }));
@@ -506,7 +505,7 @@ describe('end-to-end — whole-query parse', () => {
         { expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'orderCount' },
       ],
       from: typeSource('user'),
-      joins: [{ on: { source: 'user', field: 'orders' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, joinType: 'left' }],
       where: [
         { kind: 'comparison', op: '>', left: fieldRef('order', 'total'), right: lit1(100) },
         { kind: 'exists', query: canonicalSelect('o', 'userId', 'order') },

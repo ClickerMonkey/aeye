@@ -179,7 +179,10 @@ describe('describeExprs (capability-gated)', () => {
     expect(out).toContain('  - text-search —');
     expect(out).toContain('  - text-score —');
     expect(out).toContain('  - array-op —');
-    expect(out).toContain('  - relation-path —');
+    // `relation-path` is no longer an expr kind; crossing a relation is now a
+    // `relation` join `on`, documented inline in the field-ref / in / exists
+    // guidance rather than as its own catalog bullet.
+    expect(out).toContain("joins:[{on:{kind:'relation',source,field,as}}]");
     expect(out).toContain('  - tabular-function-call —'); // genRows is tabular
     // The INSTRUCTIONS one-liner is included on each line.
     expect(out).toContain('[NOT] EXISTS');

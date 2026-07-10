@@ -40,7 +40,8 @@ export const aggregateCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.countStar().toJSON(), as: 'orderCount' }],
         from: { kind: 'type', type: 'salesOrder' },
-        where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.value(1)).toJSON()],
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
+        where: [e.eq(e.ref('customer', 'id'), e.value(1)).toJSON()],
       })),
     ],
   },
@@ -77,7 +78,8 @@ export const aggregateCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.sum(e.ref('salesOrderLine', 'lineTotal')).toJSON(), as: 'lineRevenue' }],
         from: { kind: 'type', type: 'salesOrderLine' },
-        where: [e.eq(e.path('salesOrderLine', 'order', 'id'), e.value(17)).toJSON()],
+        joins: [e.relJoin('salesOrderLine', 'order', 'salesOrder')],
+        where: [e.eq(e.ref('salesOrder', 'id'), e.value(17)).toJSON()],
       })),
     ],
   },
@@ -95,9 +97,10 @@ export const aggregateCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'revenue' }],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'currency', 'currency')],
         where: [
           e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON(),
-          e.eq(e.path('salesOrder', 'currency', 'code'), e.value('EUR')).toJSON(),
+          e.eq(e.ref('currency', 'code'), e.value('EUR')).toJSON(),
         ],
       })),
     ],
@@ -139,11 +142,12 @@ export const aggregateCases: EvalCase[] = [
         () => ({
           kind: 'select',
           fields: [
-            { expr: e.path('salesOrderLine', 'product', 'id').toJSON(), as: 'product' },
+            { expr: e.ref('product', 'id').toJSON(), as: 'product' },
             { expr: e.sum(e.ref('salesOrderLine', 'lineTotal')).toJSON(), as: 'revenue' },
           ],
           from: { kind: 'type', type: 'salesOrderLine' },
-          groupBy: [e.path('salesOrderLine', 'product', 'id').toJSON()],
+          joins: [e.relJoin('salesOrderLine', 'product', 'product')],
+          groupBy: [e.ref('product', 'id').toJSON()],
           order: [
             { expr: e.output('revenue').toJSON(), dir: 'desc' },
             { expr: e.output('product').toJSON(), dir: 'asc' },
@@ -167,12 +171,13 @@ export const aggregateCases: EvalCase[] = [
         const perCustomer: QueryDef = {
           kind: 'select',
           fields: [
-            { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
+            { expr: e.ref('customer', 'id').toJSON(), as: 'cid' },
             { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'rev' },
           ],
           from: { kind: 'type', type: 'salesOrder' },
+          joins: [e.relJoin('salesOrder', 'customer', 'customer')],
           where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-          groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
+          groupBy: [e.ref('customer', 'id').toJSON()],
         };
         return {
           kind: 'select',
@@ -197,12 +202,13 @@ export const aggregateCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'select',
         fields: [
-          { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
+          { expr: e.ref('customer', 'id').toJSON(), as: 'cid' },
           { expr: e.countStar().toJSON(), as: 'orderCount' },
         ],
         from: { kind: 'type', type: 'salesOrder' },
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
         where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-        groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
+        groupBy: [e.ref('customer', 'id').toJSON()],
         having: [e.gt(e.avg(e.ref('salesOrder', 'total')), e.value(2000)).toJSON()],
       })),
     ],

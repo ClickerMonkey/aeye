@@ -47,8 +47,11 @@ function whereSelect(where: ExprDef): SelectDef {
 }
 const whereSql = (where: ExprDef, dialect: string): string => fx.engine.toSQL(whereSelect(where), dialect).sql;
 
-// A relation-path that resolves to a Type (so categoryOf / asFieldType are undefined).
-const ordersPath: ExprDef = { kind: 'relation-path', source: 'u', path: ['orders'] };
+// An expr that resolves to a (synthetic) Type — a tabular-function-call, the only
+// remaining Type-resolving expr now that `relation-path` is gone — so categoryOf /
+// asFieldType are undefined. (It also reports `tabular-function.unknown`, which is
+// irrelevant to the specific problem codes / param inferences asserted below.)
+const ordersPath: ExprDef = { kind: 'tabular-function-call', function: 'gen', args: {} };
 
 // ─── A local registry with a `sensitive:true` text field (for case-folding) ──
 const docDef: TypeDef = {

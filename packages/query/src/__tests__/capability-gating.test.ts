@@ -6,7 +6,7 @@
  *  - `semantic`              ⇒ some Type is semantic-eligible;
  *  - `text-search`           ⇒ some Type is searchable;
  *  - `array-op`              ⇒ some Type has an `array` field;
- *  - `relation-path` / joins ⇒ some Type has a relation field;
+ *  - relation `join` `on`    ⇒ some Type has a relation field;
  *  - `tabular-function-call` ⇒ ≥1 selected `tabular` function;
  *  - `filters`               ⇒ some Type has filterable fields (≈always).
  */
@@ -44,8 +44,8 @@ function widgetSelect(expr: ExprDef): SelectDef {
 }
 
 describe('capability gating — a capability-free Type set', () => {
-  it('omits semantic / text-search / array-op / relation-path; filters + core stay', () => {
-    const { Expr } = buildSchemas(plainEngine());
+  it('omits semantic / text-search / array-op / relation join; filters + core stay', () => {
+    const { Expr, Join } = buildSchemas(plainEngine());
 
     // Gated OUT — no branch matches these kinds.
     expect(Expr.safeParse({ kind: 'semantic', source: 'widget', query: 'hi' }).success).toBe(false);
@@ -57,7 +57,9 @@ describe('capability gating — a capability-free Type set', () => {
         target: { kind: 'field-ref', source: 'widget', field: 'id' },
       }).success,
     ).toBe(false);
-    expect(Expr.safeParse({ kind: 'relation-path', source: 'widget', path: ['x'] }).success).toBe(false);
+    // `relation-path` is gone; a `relation` join `on` is unavailable when no
+    // Type has a relation field (the JoinOn union omits the relation branch).
+    expect(Join.safeParse({ on: { kind: 'relation', source: 'widget', field: 'x', as: 'x' } }).success).toBe(false);
 
     // Still available — core field-ref + the (always-applicable) filters.
     expect(Expr.safeParse({ kind: 'field-ref', source: 'widget', field: 'id' }).success).toBe(true);
@@ -94,7 +96,7 @@ describe('capability gating — a fully-capable Type set', () => {
   it('keeps every gated kind present', () => {
     const fx = fixture(); // `user` (email=search, tags=array, orders relation) + `order`
     fx.registry.registerFunction(genRows);
-    const { Expr, Select } = buildSchemas(fx.engine);
+    const { Expr, Select, Join } = buildSchemas(fx.engine);
 
     // `user` is searchable + semantic (email), has an array field (tags) and a
     // relation (orders); the registry has scalar/aggregate/window + our tabular.
@@ -107,7 +109,9 @@ describe('capability gating — a fully-capable Type set', () => {
         target: { kind: 'field-ref', source: 'user', field: 'tags' },
       }).success,
     ).toBe(true);
-    expect(Expr.safeParse({ kind: 'relation-path', source: 'user', path: ['orders', 'total'] }).success).toBe(true);
+    // `relation-path` is gone; the relation crossing is now a `relation` join
+    // `on`, gated IN because `user` has the `orders` relation.
+    expect(Join.safeParse({ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' } }).success).toBe(true);
     expect(Expr.safeParse({ kind: 'tabular-function-call', function: 'genRows', args: {} }).success).toBe(true);
 
     // …and a join is expressible.
@@ -115,7 +119,7 @@ describe('capability gating — a fully-capable Type set', () => {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' } }],
     };
     expect(Select.safeParse(joined).success).toBe(true);
   });

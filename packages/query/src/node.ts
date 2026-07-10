@@ -41,7 +41,7 @@ export interface ValueSchemaOptions {
  * than re-inlining the literals; `llm/schemas.ts` re-exports them so existing
  * `llm` imports keep working.
  *
- * How `field-ref` / `relation-path` are constrained, loosest → tightest:
+ * How `field-ref` / join `on` references are constrained, loosest → tightest:
  *  - `open`   — `source` + `field` are free strings.
  *  - `types`  — `source` is an enum of Type names; `field` stays open.
  *  - `fields` — `source` stays open; `field` is an enum of known field names.

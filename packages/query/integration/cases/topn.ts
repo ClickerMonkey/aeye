@@ -47,12 +47,13 @@ export const topNCases: EvalCase[] = [
         () => ({
           kind: 'select',
           fields: [
-            { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'customer' },
+            { expr: e.ref('customer', 'id').toJSON(), as: 'customer' },
             { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'revenue' },
           ],
           from: { kind: 'type', type: 'salesOrder' },
+          joins: [e.relJoin('salesOrder', 'customer', 'customer')],
           where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-          groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
+          groupBy: [e.ref('customer', 'id').toJSON()],
           order: [
             { expr: e.output('revenue').toJSON(), dir: 'desc' },
             { expr: e.output('customer').toJSON(), dir: 'asc' },

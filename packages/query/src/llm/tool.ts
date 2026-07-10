@@ -232,7 +232,7 @@ export function buildQueryTool(
   // relation). Flag it so the model doesn't reach for an absent construct.
   const gatingNote = useString
     ? ''
-    : 'Only expression kinds the available Types and functions can use are offered — e.g. semantic / text-search / array / relation-path / join appear ONLY when a Type supports them. Do not invent an unavailable kind.';
+    : 'Only expression kinds the available Types and functions can use are offered — e.g. semantic / text-search / array / join appear ONLY when a Type supports them. Do not invent an unavailable kind.';
 
   const instructions = [
     'Build a query over the available Types below.',

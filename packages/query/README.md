@@ -186,13 +186,17 @@ keep in sync:
 
 - **FROM.** `from: { kind: 'type', type: 'user' }` binds under `source: 'user'`.
 - **Joins.** A join crosses a **single relation field** — `on` is a
-  `{ source, field }` ref (`{ on: { source: 'user', field: 'orders' } }`): the
-  bound source to join FROM plus its relation field. The joined rows bind under
-  the **target type name**, so field-refs into them use `source: 'order'`.
-  **Multi-hop** joins are expressed as **chained** single-hop joins (and the
-  `relation-path` expr still covers multi-hop value access). The join key is
-  synthesized from the relation — you never write ON. `joinType` (renamed from
-  `type`, freeing that key for the Type-name rule) defaults to `left`.
+  `{ kind: 'relation', source, field, as }` ref
+  (`{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }`):
+  the bound source to join FROM, its relation field, and the **required alias**
+  the joined rows bind under (field-refs into them then use `source: 'order'`).
+  **Multi-hop** joins are expressed as **chained** single-hop joins, and reading a
+  value across a relation is a join + a plain `{ source, field }` field-ref (there
+  is no separate relation-path expr). The relation key is synthesized — you never
+  write ON. A join can also add a **fresh source** — `on` may instead be a
+  `type` / `aliased` / `subquery` / `function` source, with `and` as its ON (a
+  manual join). `joinType` (freeing `type` for the Type-name rule) defaults to
+  `left`.
 - **DML.** `update` / `delete` / `insert` target a type by name (`type` / `from`
   / `into`) and bind it under that name — DML targets take no alias.
 
@@ -223,8 +227,7 @@ type, or a join hop rebinding the FROM / DML target type — the engine reports 
 A SELECT's `groupBy`, `order`, and `having` can reference a **projected output
 field by name** instead of repeating its expression — via
 `{ kind: 'output', name }`. The `name` is the output's `as`, or its natural
-derived name (a field-ref's field, a relation-path's last segment, an
-aggregate's function name). The reference **EXPANDS to** (delegates to) the
+derived name (a field-ref's field, an aggregate's function name). The reference **EXPANDS to** (delegates to) the
 referenced select item's expression: the SQL emits the target's SQL (portable
 across dialects, in every clause), and the runtime re-evaluates the target — so
 a group key re-computes over the source row while an ORDER BY / HAVING ref
@@ -590,9 +593,9 @@ const backing: TypeBacking = {
   (`localAlias` = the declaring side, `joinedAlias` = the target), so
   aliased / self-joins resolve.
 
-Every ON site honors the backing — authored joins, `relation-path` (value + at
-runtime), fan-out aggregate grouping, the `TypeBacking.joins` relation spec, and
-joined UPDATE/DELETE — so SQL and the in-memory runtime always agree. `JoinDef.and`
+Every ON site honors the backing — authored relation joins (value + at runtime),
+the `TypeBacking.joins` relation spec, and joined UPDATE/DELETE — so SQL and the
+in-memory runtime always agree. `JoinDef.and`
 is still ANDed onto whatever `ON` the backing produces. With no backing the
 convention is used unchanged (fully backward-compatible).
 
@@ -1035,7 +1038,7 @@ Because the custom `parse` bypasses Zod, the model sees the engine's concise
 messages; when the query is clean the decoded value is the built `Query` and the
 tool's `call` executes it.
 
-**Self-describing the engine.** `describeEngine(engine, { types?, functions? })` composes one terse, promptable block a model can read to know everything it may use: every (supplied) Type, then `describeExprs` (the capability-gated `kind — INSTRUCTIONS` list of usable expr kinds — `semantic` / `array-op` / `relation-path` / … appear only when an eligible Type/function exists; the core is never gated), then `describeFunctions` (`name(a, b?): output — instructions`, grouped by shape), then `describeDialects`. `describeType` / `describeField` always render a short `label` + long `description` — the dev's `TypeDef` / `FieldDef` values when set, else defaults GENERATED on demand from the meta-model (a Field from its FieldType + flags + nullability + relation cardinality; a Type from its name + field/relation/index summary). Read the pair with `fieldMeta(field)` / `typeMeta(type)`; the stored def is never mutated.
+**Self-describing the engine.** `describeEngine(engine, { types?, functions? })` composes one terse, promptable block a model can read to know everything it may use: every (supplied) Type, then `describeExprs` (the capability-gated `kind — INSTRUCTIONS` list of usable expr kinds — `semantic` / `array-op` / … appear only when an eligible Type/function exists; the core is never gated), then `describeFunctions` (`name(a, b?): output — instructions`, grouped by shape), then `describeDialects`. `describeType` / `describeField` always render a short `label` + long `description` — the dev's `TypeDef` / `FieldDef` values when set, else defaults GENERATED on demand from the meta-model (a Field from its FieldType + flags + nullability + relation cardinality; a Type from its name + field/relation/index summary). Read the pair with `fieldMeta(field)` / `typeMeta(type)`; the stored def is never mutated.
 
 See `examples/` for an end-to-end, runnable tour of all of the above.
 
@@ -1046,7 +1049,7 @@ schema along **four independent axes**, each dialed by `depth`:
 
 | axis        | levels (loose → tight)                       | constrains                               |
 | ----------- | -------------------------------------------- | ---------------------------------------- |
-| `refs`      | `open` · `types` · `fields` · `both` · `paired` | `field-ref` / `relation-path` source + field |
+| `refs`      | `open` · `types` · `fields` · `both` · `paired` | `field-ref` source + field / relation join `on` |
 | `typeNames` | `open` · `enum`                              | bare Type-name positions (`from`, `into`, …) |
 | `functions` | `open` · `names` · `typed`                   | function name + named-arg objects        |
 | `filters`   | `open` · `paired`                            | the `filters` clause `(field, op)` pairs |
@@ -1083,7 +1086,7 @@ unusable construct. A kind appears only when it is applicable:
 | `semantic` | some Type is semantic-eligible (`isSemantic()`) |
 | `text-search` | some Type is searchable (`isSearchable()`) |
 | `array-op` | some Type has an `array` field |
-| `relation-path`, joins | some Type has a relation field |
+| joins | some Type has a relation field |
 | `tabular-function-call` | ≥1 selected `tabular` function |
 | `aggregate` / `window` / `function-call` | ≥1 selected function of that shape |
 | `filters` | some Type has filterable fields |

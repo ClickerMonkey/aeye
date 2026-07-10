@@ -113,7 +113,7 @@ describe('unresolvable joins — skipped in SQL emission and runtime expansion',
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'name' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'j' } }],
     };
     const { sql } = fx.engine.toSQL(def, 'base');
     expect(sql).toBe('SELECT "user"."id" AS "id" FROM "user" AS "user"');
@@ -124,7 +124,7 @@ describe('unresolvable joins — skipped in SQL emission and runtime expansion',
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'note' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'note', as: 'j' } }],
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'order', field: 'id' }, right: { kind: 'literal', value: 10 } }],
     };
     expect((await fx.engine.run(def)).affected).toBe(1);
@@ -138,7 +138,7 @@ describe('unresolvable joins — skipped in SQL emission and runtime expansion',
       // RIGHT join over users: Cleo (user 3, no orders) yields a row with no
       // `order` target. The WHERE selects exactly Cleo, so a passing row reaches
       // the `!target` guard and is skipped ⇒ nothing deleted.
-      joins: [{ on: { source: 'order', field: 'userId' }, joinType: 'right' }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' }, joinType: 'right' }],
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'user', field: 'id' }, right: { kind: 'literal', value: 3 } }],
     };
     const res = await fx.engine.run(def);
@@ -166,7 +166,7 @@ describe('QueryJoin — relation to an unknown target type + a missing foreign k
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'g', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'g' },
-      joins: [{ on: { source: 'g', field: 'owner' } }],
+      joins: [{ on: { kind: 'relation', source: 'g', field: 'owner', as: 'owner' } }],
     };
     expect((await engine.run(def)).rows).toEqual([{ id: 1 }]);
   });
@@ -204,7 +204,7 @@ describe('QueryJoin — relation to an unknown target type + a missing foreign k
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'u', field: 'id' }, as: 'uid' }],
       from: { kind: 'type', type: 'u' },
-      joins: [{ on: { source: 'u', field: 'os' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'u', field: 'os', as: 'o' }, joinType: 'left' }],
     };
     const res = await engine.run(def);
     // user 1 keeps its row (no order matched on the missing key).

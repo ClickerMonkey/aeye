@@ -57,7 +57,7 @@ interface LateralPick {
 export class FieldRefExpr extends Expr {
   static readonly KIND = 'field-ref' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`<source>.<field>` — a field’s value from a bound source." as const;
+  static readonly INSTRUCTIONS = "`<source>.<field>` — a SCALAR field’s value from a bound source. `field` may NOT be a relation field: to read across a relation, cross it with a `relation` join (`joins:[{on:{kind:'relation',source,field,as}}]`), then field-ref the join alias." as const;
   readonly kind = FieldRefExpr.KIND;
 
   /** Wrap a `<source>.<field>` reference by its source alias and field name. */
@@ -145,6 +145,15 @@ export class FieldRefExpr extends Expr {
       p.error(
         'ref.unknown-field',
         `Type '${bound.type.name}' (source '${this.source}') has no field '${this.field}'.${didYouMean(this.field, bound.type.fields.map((f) => f.name))}`,
+      );
+      return textResult([], true);
+    }
+    // A relation field is NOT a value — it must be CROSSED with a `relation`
+    // join, then a scalar field read off the joined alias.
+    if (field.fieldType instanceof RelationFieldType) {
+      p.error(
+        'ref.relation',
+        `'${this.source}.${this.field}' is a relation, not a value — join it: {on:{kind:'relation',source:'${this.source}',field:'${this.field}',as:'…'}}, then reference {source:'…', field:'<scalar>'}.`,
       );
       return textResult([], true);
     }

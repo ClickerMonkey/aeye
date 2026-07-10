@@ -1,6 +1,7 @@
 /**
  * RLS injection: a per-Type predicate is ANDed into EVERY occurrence of the
- * Type — top-level WHERE, planned joins, aggregate CTEs, and subqueries.
+ * Type — top-level WHERE, relation joins (including the join a fan-out aggregate
+ * runs over), and subqueries.
  */
 import { describe, it, expect } from 'vitest';
 import type { QueryDef, SelectDef } from '../schema';
@@ -39,11 +40,12 @@ describe('SQL — RLS injection', () => {
     expect(out.params).toEqual(['T1']);
   });
 
-  it('injects into a planned (hidden) join ON', () => {
+  it('injects into a relation join ON', () => {
     const def: SelectDef = {
       kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, as: 'cust' }],
+      fields: [{ expr: { kind: 'field-ref', source: 'order_userId', field: 'name' }, as: 'cust' }],
       from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
     };
     const out = emit(def);
     // the user-side RLS rides along in the join ON for alias `order_userId`...
@@ -52,18 +54,20 @@ describe('SQL — RLS injection', () => {
     expect(out.sql).toContain('WHERE LOWER("order"."tenantId") = LOWER(?)');
   });
 
-  it('injects into an aggregate CTE inner WHERE', () => {
+  it("injects into the join a fan-out aggregate runs over", () => {
     const def: SelectDef = {
       kind: 'select',
       fields: [
         { expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' },
-        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'spent' },
+        { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'spent' },
       ],
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'orders' } }],
     };
     const out = emit(def);
-    // the CTE over `order` carries the order RLS in its inner WHERE.
-    expect(out.sql).toContain('FROM "order" AS "t" WHERE LOWER("t"."tenantId") = LOWER(?) GROUP BY "t"."userId"');
+    // the `order` RLS rides along in the relation join's ON (the aggregate runs
+    // over these joined rows — no separate pre-aggregation CTE).
+    expect(out.sql).toContain('LEFT JOIN "order" AS "orders" ON "user"."id" = "orders"."userId" AND LOWER("orders"."tenantId") = LOWER(?)');
     // the top-level user RLS is also present.
     expect(out.sql).toContain('WHERE LOWER("user"."orgId") = LOWER(?)');
   });

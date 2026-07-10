@@ -29,12 +29,12 @@
  *  - `limit(n)` / `offset(n)` require a LITERAL count. A `param` limit satisfies
  *    the bare `limit()` (a cap is present) but NOT `limit(5)` (the value is
  *    unknown until bound).
- *  - `joins(to)` counts BOTH an explicit `JoinDef` AND a `relation-path` hop
- *    (these oracles reach across relations via `e.path(...)`, which synthesises
- *    the join) whose resolved TARGET Type is `to`.
- *  - `filtersOn(field)` matches a `field-ref` to `field` OR a `relation-path`
- *    whose LAST segment is `field`, in a WHERE / HAVING / join-`and` position
- *    (it does NOT descend into nested subqueries — that is a different scope).
+ *  - `joins(to)` counts an explicit `JoinDef` whose resolved TARGET Type is `to`
+ *    — a `relation` crossing to Type `to`, or a source-def join adding Type `to`
+ *    (relations are crossed ONLY via `e.relJoin(...)`, never a synthesized path).
+ *  - `filtersOn(field)` matches a `field-ref` to `field` in a WHERE / HAVING /
+ *    join-`and` position (it does NOT descend into nested subqueries — that is a
+ *    different scope).
  */
 import type {
   QueryEngine,
@@ -281,7 +281,7 @@ function walkExpr(x: ExprDef, s: QueryShape): void {
     case 'subquery':
       walkQuery(x.query, s);
       break;
-    // leaves: literal, output, field-ref, relation-path, param, semantic,
+    // leaves: literal, output, field-ref, param, semantic,
     // text-search, text-score, filters, excluded
     default:
       break;
@@ -294,11 +294,6 @@ function collectCondFields(x: ExprDef, out: Set<string>): void {
     case 'field-ref':
       out.add(x.field);
       return;
-    case 'relation-path': {
-      const last = x.path[x.path.length - 1];
-      if (last !== undefined) out.add(last);
-      return;
-    }
     case 'binary':
     case 'comparison':
       collectCondFields(x.left, out);
@@ -467,43 +462,34 @@ function startTypeOf(engine: QueryEngine, shape: QueryShape, source: string): st
   return shape.aliasToType.get(source) ?? null;
 }
 
-/** The chain of relation TARGET Types a relation-path walks from `startType`. */
-function pathTargets(engine: QueryEngine, startType: string, path: string[]): string[] {
-  const targets: string[] = [];
-  let cur = engine.registry.type(startType);
-  for (const seg of path) {
-    if (!cur) break;
-    const field = cur.field(seg);
-    if (!field) break;
-    const ft = field.fieldType;
-    if (!(ft instanceof RelationFieldType)) break; // scalar terminal — stop
-    targets.push(ft.to);
-    cur = engine.registry.type(ft.to);
+/** The TARGET Type a single `JoinDef` adds — a relation crossing's target, or a
+ *  source-def join's Type — or `null` when it can't be resolved to a Type. */
+function joinTarget(engine: QueryEngine, shape: QueryShape, j: JoinDef): string | null {
+  const on = j.on;
+  if (on.kind === 'relation') {
+    const start = startTypeOf(engine, shape, on.source);
+    if (!start) return null;
+    const field = engine.registry.type(start)?.field(on.field);
+    return field && field.fieldType instanceof RelationFieldType ? field.fieldType.to : null;
   }
-  return targets;
+  // A manual source-def join: `type` / `aliased` add a Type directly.
+  if (on.kind === 'type' || on.kind === 'aliased') return on.type;
+  return null; // subquery / function sources have no single Type target
 }
 
-/** Every relation TARGET Type reached by any relation-path OR explicit join. */
+/** Every TARGET Type reached by an explicit join (relation crossing or source-def). */
 function joinTargets(engine: QueryEngine, shape: QueryShape): string[] {
   const targets: string[] = [];
-  for (const x of shape.exprs) {
-    if (x.kind !== 'relation-path') continue;
-    const start = startTypeOf(engine, shape, x.source);
-    if (start) targets.push(...pathTargets(engine, start, x.path));
-  }
   for (const j of shape.joins) {
-    const start = startTypeOf(engine, shape, j.on.source);
-    if (!start) continue;
-    const t = engine.registry.type(start);
-    const field = t?.field(j.on.field);
-    if (field && field.fieldType instanceof RelationFieldType) targets.push(field.fieldType.to);
+    const t = joinTarget(engine, shape, j);
+    if (t) targets.push(t);
   }
   return targets;
 }
 
-/** Whether the query traverses at least one relation (path hop or explicit join). */
+/** Whether the query traverses at least one relation (an explicit join). */
 function hasAnyJoin(shape: QueryShape): boolean {
-  return shape.joins.length > 0 || shape.exprs.some((x) => x.kind === 'relation-path');
+  return shape.joins.length > 0;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -532,7 +518,6 @@ function orderRefersTo(term: OrderDef, by: string): boolean {
   const e = term.expr;
   if (e.kind === 'output') return e.name === by;
   if (e.kind === 'field-ref') return e.field === by;
-  if (e.kind === 'relation-path') return e.path[e.path.length - 1] === by;
   return false;
 }
 
@@ -542,7 +527,6 @@ function selectsField(select: SelectDef, field: string): boolean {
     if (item.as === field) return true;
     const e = item.expr;
     if (e.kind === 'field-ref' && e.field === field) return true;
-    if (e.kind === 'relation-path' && e.path[e.path.length - 1] === field) return true;
   }
   return false;
 }

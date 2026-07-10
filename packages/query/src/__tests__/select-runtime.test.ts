@@ -42,7 +42,7 @@ describe('select runtime', () => {
         { expr: { kind: 'field-ref', source: 'o', field: 'total' }, as: 'total' },
       ],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' }, as: 'o', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' }, joinType: 'inner' }],
       order: [{ expr: { kind: 'field-ref', source: 'o', field: 'id' }, dir: 'asc' }],
     };
     const result = await fx.engine.run(def);
@@ -64,7 +64,7 @@ describe('select runtime', () => {
         { expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'orders' },
       ],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' }, as: 'o', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' }, joinType: 'inner' }],
       groupBy: [{ kind: 'field-ref', source: 'user', field: 'id' }],
       having: [
         { kind: 'comparison', op: '>', left: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'o', field: 'total' } } }, right: { kind: 'literal', value: 200 } },

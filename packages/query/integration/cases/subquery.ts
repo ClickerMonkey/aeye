@@ -30,8 +30,9 @@ export const subqueryCases: EvalCase[] = [
       a.resultOf(() => {
         const placed: QueryDef = {
           kind: 'select',
-          fields: [{ expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' }],
+          fields: [{ expr: e.ref('salesOrder_customer', 'id').toJSON(), as: 'cid' }],
           from: { kind: 'type', type: 'salesOrder' },
+          joins: [e.relJoin('salesOrder', 'customer', 'salesOrder_customer')],
         };
         return {
           kind: 'select',
@@ -55,7 +56,8 @@ export const subqueryCases: EvalCase[] = [
           kind: 'select',
           fields: [{ expr: e.value(1).toJSON(), as: 'one' }],
           from: { kind: 'type', type: 'salesOrder' },
-          where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.ref('customer', 'id')).toJSON()],
+          joins: [e.relJoin('salesOrder', 'customer', 'salesOrder_customer')],
+          where: [e.eq(e.ref('salesOrder_customer', 'id'), e.ref('customer', 'id')).toJSON()],
         };
         return {
           kind: 'select',
@@ -104,8 +106,9 @@ export const subqueryCases: EvalCase[] = [
           kind: 'select',
           fields: [{ expr: e.value(1).toJSON(), as: 'one' }],
           from: { kind: 'type', type: 'invoice' },
+          joins: [e.relJoin('invoice', 'customer', 'invoice_customer')],
           where: [
-            e.eq(e.path('invoice', 'customer', 'id'), e.ref('customer', 'id')).toJSON(),
+            e.eq(e.ref('invoice_customer', 'id'), e.ref('customer', 'id')).toJSON(),
             e.neq(e.ref('invoice', 'status'), e.value('paid')).toJSON(),
           ],
         };
@@ -129,8 +132,9 @@ export const subqueryCases: EvalCase[] = [
       a.resultOf(() => {
         const purchased: QueryDef = {
           kind: 'select',
-          fields: [{ expr: e.path('purchaseOrderLine', 'product', 'id').toJSON(), as: 'pid' }],
+          fields: [{ expr: e.ref('purchaseOrderLine_product', 'id').toJSON(), as: 'pid' }],
           from: { kind: 'type', type: 'purchaseOrderLine' },
+          joins: [e.relJoin('purchaseOrderLine', 'product', 'purchaseOrderLine_product')],
         };
         return {
           kind: 'select',
@@ -160,7 +164,8 @@ export const subqueryCases: EvalCase[] = [
                 kind: 'select',
                 fields: [{ expr: e.countStar().toJSON(), as: 'c' }],
                 from: { kind: 'type', type: 'salesOrder' },
-                where: [e.eq(e.path('salesOrder', 'customer', 'id'), e.ref('customer', 'id')).toJSON()],
+                joins: [e.relJoin('salesOrder', 'customer', 'salesOrder_customer')],
+                where: [e.eq(e.ref('salesOrder_customer', 'id'), e.ref('customer', 'id')).toJSON()],
               })
               .toJSON(),
             as: 'orderCount',
@@ -185,6 +190,9 @@ export const subqueryCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('salesOrder', 'id').toJSON() }, { expr: e.ref('salesOrder', 'total').toJSON() }],
         from: { kind: 'type', type: 'salesOrder' },
+        // Join the OUTER order's customer so the inner subquery can correlate to
+        // it by alias (the inner cannot join across the outer correlated source).
+        joins: [e.relJoin('salesOrder', 'customer', 'outerCustomer')],
         where: [
           e
             .eq(
@@ -193,7 +201,8 @@ export const subqueryCases: EvalCase[] = [
                 kind: 'select',
                 fields: [{ expr: e.max(e.ref('inner', 'total')).toJSON(), as: 'm' }],
                 from: { kind: 'aliased', type: 'salesOrder', as: 'inner' },
-                where: [e.eq(e.path('inner', 'customer', 'id'), e.path('salesOrder', 'customer', 'id')).toJSON()],
+                joins: [e.relJoin('inner', 'customer', 'innerCustomer')],
+                where: [e.eq(e.ref('innerCustomer', 'id'), e.ref('outerCustomer', 'id')).toJSON()],
               }),
             )
             .toJSON(),

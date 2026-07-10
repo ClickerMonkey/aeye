@@ -26,6 +26,15 @@ const arrayOp = (op: ArrayOp, target: ExprDef, value?: ExprDef | ExprDef[]): Exp
 const codes = (def: ExprDef): string[] =>
   fx.engine.validateExpr(def, typeScope(fx)).list.map((p) => p.code);
 
+/**
+ * An expr that resolves to a (synthetic) TYPE rather than a value — a
+ * tabular-function-call (the only remaining Type-resolving expr now that
+ * `relation-path` is gone). Used to exercise the "target/element is a type,
+ * not a value" branches. It also reports `tabular-function.unknown`, which is
+ * irrelevant to (and filtered out of) the array-op assertions below.
+ */
+const typeExpr: ExprDef = { kind: 'tabular-function-call', function: 'gen', args: {} };
+
 /** A SELECT over `user.name` filtered by `where`, for SQL emission. */
 const select = (where: ExprDef): SelectDef => ({
   kind: 'select',
@@ -123,15 +132,15 @@ describe('ArrayOpExpr.validateWalk', () => {
   });
 
   it('falls back to "a value" in the not-array message when the target is a type', () => {
-    // A relation target resolves to a TYPE, so `categoryOf` is undefined.
-    const def = arrayOp('contains', { kind: 'relation-path', source: 'u', path: ['orders'] }, lit('x'));
+    // A target that resolves to a TYPE (not an array) ⇒ `categoryOf` is undefined.
+    const def = arrayOp('contains', typeExpr, lit('x'));
     const problems = fx.engine.validateExpr(def, typeScope(fx)).list;
     const notArray = problems.find((p) => p.code === 'array-op.not-array');
     expect(notArray?.message).toContain('a value');
   });
 
   it('does not flag an element that resolves to a type (eft absent)', () => {
-    const def = arrayOp('contains', ref('u', 'tags'), { kind: 'relation-path', source: 'u', path: ['orders'] });
+    const def = arrayOp('contains', ref('u', 'tags'), typeExpr);
     expect(codes(def)).not.toContain('array-op.type-mismatch');
   });
 

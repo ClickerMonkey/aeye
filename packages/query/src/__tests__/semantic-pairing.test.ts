@@ -226,7 +226,7 @@ const pairingSelect: SelectDef = {
     { expr: { kind: 'semantic', source: 'paper', query: { source: 'topic', field: 'label' } }, as: 'score' },
   ],
   from: { kind: 'type', type: 'paper' },
-  joins: [{ on: { source: 'paper', field: 'topicId' }, as: 'topic', joinType: 'inner' }],
+  joins: [{ on: { kind: 'relation', source: 'paper', field: 'topicId', as: 'topic' }, joinType: 'inner' }],
   order: [{ expr: { kind: 'output', name: 'score' }, dir: 'desc' }],
   limit: 10,
 };

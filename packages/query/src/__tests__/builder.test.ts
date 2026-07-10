@@ -16,7 +16,7 @@ import {
   lit,
   param,
   ref,
-  path,
+  relJoin,
   output,
   excluded,
   filters,
@@ -73,7 +73,6 @@ import {
   LiteralExpr,
   ParamExpr,
   FieldRefExpr,
-  RelationPathExpr,
   OutputRefExpr,
   ExcludedExpr,
   FiltersExpr,
@@ -122,10 +121,15 @@ describe('builder: leaves', () => {
     expect(ref('task', 'done').toJSON()).toEqual({ kind: 'field-ref', source: 'task', field: 'done' });
   });
 
-  it('path builds RelationPathExpr from variadic segments', () => {
-    const p = path('user', 'orders', 'total');
-    expect(p).toBeInstanceOf(RelationPathExpr);
-    expect(p.toJSON()).toEqual({ kind: 'relation-path', source: 'user', path: ['orders', 'total'] });
+  it('relJoin builds a relation JoinDef (with and/joinType options)', () => {
+    expect(relJoin('order', 'user', 'u')).toEqual({
+      on: { kind: 'relation', source: 'order', field: 'user', as: 'u' },
+    });
+    expect(relJoin('order', 'user', 'u', { joinType: 'inner', and: eq(ref('u', 'id'), lit(1)) })).toEqual({
+      on: { kind: 'relation', source: 'order', field: 'user', as: 'u' },
+      and: { kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'u', field: 'id' }, right: { kind: 'literal', value: 1 } },
+      joinType: 'inner',
+    });
   });
 
   it('output builds OutputRefExpr', () => {

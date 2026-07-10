@@ -343,19 +343,6 @@ export interface LiteralExprDef {
  */
 export type FieldRefExprDef = { kind: 'field-ref' } & SourceFieldRef;
 
-/**
- * A relation-path reference — walks one or more relation fields from a
- * source, optionally ending at a scalar field. Eg `{ source: 'u', path:
- * ['orders', 'total'] }` reads `total` across the `orders` relation. The
- * planner synthesizes the joins; the author never writes ON.
- */
-export interface RelationPathExprDef {
-  kind: 'relation-path';
-  source: string;
-  /** Relation field names, optionally ending in a scalar field name. */
-  path: string[];
-}
-
 /** A named bind parameter whose type is inferred from its usage context. */
 export interface ParamExprDef {
   kind: 'param';
@@ -597,8 +584,8 @@ export interface ExcludedExprDef {
 /**
  * A reference to a SELECT OUTPUT FIELD by its name — either the field's
  * explicit `as`, or the natural derived name (see `fieldNameOf`: a field-ref's
- * field, a relation-path's last segment, an aggregate's function name, else
- * `col<i>`). It lets a SELECT's `groupBy` / `orderBy` / `having` reference a
+ * field, an aggregate's function name, else `col<i>`). It lets a SELECT's
+ * `groupBy` / `orderBy` / `having` reference a
  * projected output BY NAME instead of repeating its whole expression — smaller
  * queries and fewer GROUP BY / ORDER BY mismatches.
  *
@@ -620,7 +607,6 @@ export type ExprDef =
   | LiteralExprDef
   | OutputRefExprDef
   | FieldRefExprDef
-  | RelationPathExprDef
   | ParamExprDef
   | BinaryExprDef
   | UnaryExprDef
@@ -714,19 +700,49 @@ export interface FunctionSourceDef {
 }
 
 /**
- * A relation-based join over a SINGLE relation hop. `on` is a `SourceFieldRef`:
- * `on.source` is the bound source to join FROM, `on.field` its relation field.
- * The join key is synthesized from the relation, NOT written explicitly.
- * Multi-hop joins are expressed as CHAINED single-hop joins (the
- * `relation-path` EXPR still covers multi-hop value access). `and` adds an
- * optional extra predicate.
+ * A RELATION join `on`: cross a bound source's belongs-to/has-many relation
+ * FIELD into its target, bound under the REQUIRED alias `as`. The join key is
+ * synthesized from the relation (never written); `as` is always present and
+ * must be unique in the query. Multi-hop crossings are expressed as CHAINED
+ * relation joins (each hop names the previous hop's `as` as its `source`).
+ */
+export interface RelationJoinOnDef {
+  kind: 'relation';
+  /** The bound source to join FROM. */
+  source: string;
+  /** The relation field on `source` to cross. */
+  field: string;
+  /** REQUIRED alias the joined target binds under (field-refs use this). */
+  as: string;
+}
+
+/**
+ * A join's `on`: EITHER a `relation` crossing (key synthesized from the
+ * relation field) OR a MANUAL join that adds a source directly — a Type, an
+ * aliased Type, a subquery, or a table-valued function — with `JoinDef.and` as
+ * the explicit ON condition. The added source binds under: the Type name (for
+ * `type`), or its `as` (for `relation` / `aliased` / `subquery` / `function`).
+ */
+export type JoinOnDef =
+  | RelationJoinOnDef
+  | TypeSourceDef
+  | AliasedSourceDef
+  | SubquerySourceDef
+  | FunctionSourceDef;
+
+/**
+ * A join over another source. `on` is EITHER a `relation` crossing (the join
+ * key is synthesized from the relation field, LEFT by default — reproducing a
+ * belongs-to/has-many traversal) OR a source-def MANUAL join (`type` /
+ * `aliased` / `subquery` / `function`) whose ON condition is `and`. For a
+ * `relation` `on`, `and` is an OPTIONAL extra predicate ANDed with the
+ * synthesized key; for a source-def `on`, `and` IS the join condition.
  */
 export interface JoinDef {
-  /** The bound source + its relation field to join across (a single hop). */
-  on: SourceFieldRef;
-  /** Alias for the joined source; defaults to the target Type name. */
-  as?: string;
-  /** Optional additional join predicate, ANDed with the synthesized key. */
+  /** The join target: a relation crossing or a manually-joined source. */
+  on: JoinOnDef;
+  /** For `relation`: an extra predicate ANDed with the synthesized key. For a
+   *  source-def `on`: the join's ON condition. */
   and?: ExprDef;
   /** Join type; defaults to `left`. (Renamed from `type` to free that key
    *  for the Type-name naming rule.) */

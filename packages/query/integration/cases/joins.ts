@@ -1,8 +1,9 @@
 /**
- * Relation-path / multi-hop join cases. The oracle reaches across a belongs-to
- * relation via `e.path(...)` (which synthesises the join); a wrong join grain or
- * the wrong key would diverge. Structure: FROM the base Type + `a.joins(target)`
- * for the relation hop that must be crossed; RESULT: the oracle's rows.
+ * Relation / multi-hop join cases. The oracle reaches across a belongs-to
+ * relation via a NAMED join (`e.relJoin(src, rel, alias)` in `joins[]`, then
+ * `e.ref(alias, field)`); a wrong join grain or the wrong key would diverge.
+ * Structure: FROM the base Type + `a.joins(target)` for the relation hop that
+ * must be crossed; RESULT: the oracle's rows.
  */
 import { e } from '../model';
 import { a } from './assert';
@@ -22,7 +23,8 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('salesOrder', 'id').toJSON() }],
         from: { kind: 'type', type: 'salesOrder' },
-        where: [e.eq(e.path('salesOrder', 'customer', 'region'), e.value('EU')).toJSON()],
+        joins: [e.relJoin('salesOrder', 'customer', 'customer')],
+        where: [e.eq(e.ref('customer', 'region'), e.value('EU')).toJSON()],
       })),
     ],
   },
@@ -38,7 +40,8 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('product', 'id').toJSON() }, { expr: e.ref('product', 'name').toJSON() }],
         from: { kind: 'type', type: 'product' },
-        where: [e.eq(e.path('product', 'category', 'name'), e.value('Software')).toJSON()],
+        joins: [e.relJoin('product', 'category', 'category')],
+        where: [e.eq(e.ref('category', 'name'), e.value('Software')).toJSON()],
       })),
     ],
   },
@@ -54,7 +57,8 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('salesOrder', 'id').toJSON() }],
         from: { kind: 'type', type: 'salesOrder' },
-        where: [e.eq(e.path('salesOrder', 'salesRep', 'name'), e.value('Carol White')).toJSON()],
+        joins: [e.relJoin('salesOrder', 'salesRep', 'employee')],
+        where: [e.eq(e.ref('employee', 'name'), e.value('Carol White')).toJSON()],
       })),
     ],
   },
@@ -70,7 +74,8 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('category', 'id').toJSON() }, { expr: e.ref('category', 'name').toJSON() }],
         from: { kind: 'type', type: 'category' },
-        where: [e.eq(e.path('category', 'parent', 'name'), e.value('Electronics')).toJSON()],
+        joins: [e.relJoin('category', 'parent', 'category_parent')],
+        where: [e.eq(e.ref('category_parent', 'name'), e.value('Electronics')).toJSON()],
       })),
     ],
   },
@@ -88,7 +93,8 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.ref('salesOrderLine', 'id').toJSON() }],
         from: { kind: 'type', type: 'salesOrderLine' },
-        where: [e.eq(e.path('salesOrderLine', 'order', 'customer', 'region'), e.value('EU')).toJSON()],
+        joins: [e.relJoin('salesOrderLine', 'order', 'salesOrder'), e.relJoin('salesOrder', 'customer', 'customer')],
+        where: [e.eq(e.ref('customer', 'region'), e.value('EU')).toJSON()],
       })),
     ],
   },
@@ -106,11 +112,12 @@ export const joinCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'select',
         fields: [
-          { expr: e.path('contact', 'customer', 'id').toJSON(), as: 'customer' },
+          { expr: e.ref('customer', 'id').toJSON(), as: 'customer' },
           { expr: e.countStar().toJSON(), as: 'contactCount' },
         ],
         from: { kind: 'type', type: 'contact' },
-        groupBy: [e.path('contact', 'customer', 'id').toJSON()],
+        joins: [e.relJoin('contact', 'customer', 'customer')],
+        groupBy: [e.ref('customer', 'id').toJSON()],
         having: [e.gt(e.countStar(), e.value(1)).toJSON()],
       })),
     ],
@@ -127,9 +134,10 @@ export const joinCases: EvalCase[] = [
       a.filtersOn('region'),
       a.resultOf(() => ({
         kind: 'select',
-        fields: [{ expr: e.agg('count', { value: e.path('inventory', 'product', 'id') }, true).toJSON(), as: 'productCount' }],
+        fields: [{ expr: e.agg('count', { value: e.ref('product', 'id') }, true).toJSON(), as: 'productCount' }],
         from: { kind: 'type', type: 'inventory' },
-        where: [e.eq(e.path('inventory', 'warehouse', 'region'), e.value('West')).toJSON()],
+        joins: [e.relJoin('inventory', 'product', 'product'), e.relJoin('inventory', 'warehouse', 'warehouse')],
+        where: [e.eq(e.ref('warehouse', 'region'), e.value('West')).toJSON()],
       })),
     ],
   },
@@ -147,7 +155,8 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [{ expr: e.sum(e.ref('salesOrderLine', 'quantity')).toJSON(), as: 'totalQty' }],
         from: { kind: 'type', type: 'salesOrderLine' },
-        where: [e.eq(e.path('salesOrderLine', 'product', 'category', 'name'), e.value('Software')).toJSON()],
+        joins: [e.relJoin('salesOrderLine', 'product', 'product'), e.relJoin('product', 'category', 'category')],
+        where: [e.eq(e.ref('category', 'name'), e.value('Software')).toJSON()],
       })),
     ],
   },
@@ -165,11 +174,12 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         distinct: true,
         fields: [
-          { expr: e.path('priceListItem', 'product', 'id').toJSON(), as: 'id' },
-          { expr: e.path('priceListItem', 'product', 'name').toJSON(), as: 'name' },
+          { expr: e.ref('product', 'id').toJSON(), as: 'id' },
+          { expr: e.ref('product', 'name').toJSON(), as: 'name' },
         ],
         from: { kind: 'type', type: 'priceListItem' },
-        where: [e.eq(e.path('priceListItem', 'currency', 'code'), e.value('EUR')).toJSON()],
+        joins: [e.relJoin('priceListItem', 'product', 'product'), e.relJoin('priceListItem', 'currency', 'currency')],
+        where: [e.eq(e.ref('currency', 'code'), e.value('EUR')).toJSON()],
       })),
     ],
   },
@@ -186,10 +196,11 @@ export const joinCases: EvalCase[] = [
         kind: 'select',
         fields: [
           { expr: e.ref('salesReturn', 'id').toJSON(), as: 'id' },
-          { expr: e.path('salesReturn', 'invoice', 'amount').toJSON(), as: 'invoiceAmount' },
+          { expr: e.ref('invoice', 'amount').toJSON(), as: 'invoiceAmount' },
         ],
         from: { kind: 'type', type: 'salesReturn' },
-        where: [e.notNull(e.path('salesReturn', 'invoice', 'id')).toJSON()],
+        joins: [e.relJoin('salesReturn', 'invoice', 'invoice')],
+        where: [e.notNull(e.ref('invoice', 'id')).toJSON()],
       })),
     ],
   },

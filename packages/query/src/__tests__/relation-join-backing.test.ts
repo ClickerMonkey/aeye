@@ -8,8 +8,9 @@
  * has-many. The backing lives on the OWNING belongs-to relation; the inverse
  * REUSES the same FK (orientation swapped). Covered: both dialects, both join
  * directions, composite FKs, a `foreign` default, custom `on` (expr/sql/run),
- * aliased/self-joins, `JoinDef.and`, relation-path (value + runtime), named-join
- * relation specs, fan-out aggregate grouping, and byte-identical convention.
+ * aliased/self-joins, `JoinDef.and`, relation-join value (SQL + runtime),
+ * named-join relation specs, fan-out aggregate joins, and byte-identical
+ * convention.
  */
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../registry';
@@ -85,7 +86,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'ratings' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'ratings', as: 'comment_rating' }, joinType: 'left' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }, { expr: ref('comment_rating', 'stars'), as: 'stars' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain('ON "user"."id" = "comment_rating"."user_id"');
@@ -97,7 +98,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain('ON "comment_rating"."user_id" = "user"."id"');
@@ -108,7 +109,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'ratings' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'ratings', as: 'comment_rating' }, joinType: 'left' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }, { expr: ref('comment_rating', 'stars'), as: 'stars' }],
       order: [
         { expr: ref('user', 'id'), dir: 'asc' },
@@ -133,7 +134,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'ratings' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'ratings', as: 'comment_rating' }, joinType: 'left' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }],
       where: [{ kind: 'is-null', value: ref('comment_rating', 'id') }],
     };
@@ -146,7 +147,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }, { expr: ref('comment_rating', 'id'), as: 'rid' }],
       order: [{ expr: ref('comment_rating', 'id'), dir: 'asc' }],
     };
@@ -166,7 +167,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain('ON "comment_rating"."user_id" = "user"."id"');
@@ -178,7 +179,7 @@ describe('relation-join backing: FK keys', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('comment_rating', 'id'), as: 'rid' }],
     };
     // Convention uses the field NAME `user` as the local column.
@@ -194,7 +195,7 @@ describe('relation-join backing: FK keys', () => {
       from: { kind: 'type', type: 'user' },
       joins: [
         {
-          on: { source: 'user', field: 'ratings' },
+          on: { kind: 'relation', source: 'user', field: 'ratings', as: 'comment_rating' },
           joinType: 'left',
           and: { kind: 'comparison', op: '>=', left: ref('comment_rating', 'stars'), right: { kind: 'literal', value: 4 } },
         },
@@ -246,7 +247,7 @@ describe('relation-join backing: composite FK', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'enrollment' },
-      joins: [{ on: { source: 'enrollment', field: 'section' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'enrollment', field: 'section', as: 'section' }, joinType: 'inner' }],
       fields: [{ expr: ref('section', 'title'), as: 'title' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain(
@@ -264,7 +265,7 @@ describe('relation-join backing: composite FK', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'enrollment' },
-      joins: [{ on: { source: 'enrollment', field: 'section' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'enrollment', field: 'section', as: 'section' }, joinType: 'inner' }],
       fields: [{ expr: ref('section', 'title'), as: 'title' }],
     };
     const { rows } = await engine.run(def);
@@ -300,7 +301,7 @@ describe('relation-join backing: custom ON', () => {
     const belongs: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }],
     };
     expect(engine.toSQL(belongs, 'base').sql).toContain('ON "comment_rating"."user_id" = "user"."id"');
@@ -309,7 +310,7 @@ describe('relation-join backing: custom ON', () => {
     const inverse: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'ratings' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'ratings', as: 'comment_rating' }, joinType: 'left' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }],
     };
     expect(engine.toSQL(inverse, 'base').sql).toContain('ON "comment_rating"."user_id" = "user"."id"');
@@ -320,7 +321,7 @@ describe('relation-join backing: custom ON', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }, { expr: ref('comment_rating', 'id'), as: 'rid' }],
       order: [{ expr: ref('comment_rating', 'id'), dir: 'asc' }],
     };
@@ -347,7 +348,7 @@ describe('relation-join backing: custom ON', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }, { expr: ref('comment_rating', 'id'), as: 'rid' }],
       order: [{ expr: ref('comment_rating', 'id'), dir: 'asc' }],
     };
@@ -371,7 +372,7 @@ describe('relation-join backing: custom ON', () => {
     const sqlDef: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      joins: [{ on: { source: 'comment_rating', field: 'user' }, joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' }, joinType: 'inner' }],
       fields: [{ expr: ref('comment_rating', 'id'), as: 'rid' }],
     };
     // SQL used `keys` (a run-only custom ON has no SQL form).
@@ -380,7 +381,7 @@ describe('relation-join backing: custom ON', () => {
     const runDef: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'ratings' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'ratings', as: 'comment_rating' }, joinType: 'left' }],
       fields: [{ expr: ref('user', 'name'), as: 'name' }, { expr: ref('comment_rating', 'stars'), as: 'stars' }],
       order: [
         { expr: ref('user', 'id'), dir: 'asc' },
@@ -423,7 +424,7 @@ describe('relation-join backing: aliased / self-join', () => {
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'employee' },
-      joins: [{ on: { source: 'employee', field: 'manager' }, as: 'boss', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'employee', field: 'manager', as: 'boss' }, joinType: 'inner' }],
       fields: [{ expr: ref('employee', 'name'), as: 'name' }, { expr: ref('boss', 'name'), as: 'bossName' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain('ON "employee"."manager_id" = "boss"."id"');
@@ -462,32 +463,34 @@ describe('relation-join backing: direct has-many falls back to convention', () =
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'blog' },
-      joins: [{ on: { source: 'blog', field: 'posts' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'blog', field: 'posts', as: 'post' }, joinType: 'left' }],
       fields: [{ expr: ref('post', 'id'), as: 'pid' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain('ON "blog"."id" = "post"."blog"');
   });
 });
 
-// ─── Relation-path value (SQL emit) + runtime ────────────────────────────────
+// ─── Relation-join value (SQL emit) + runtime ────────────────────────────────
 
-describe('relation-join backing: relation-path', () => {
-  it('a relation-path value join honors the backing FK in SQL', () => {
+describe('relation-join backing: relation-join value', () => {
+  it('a relation-join value honors the backing FK in SQL', () => {
     const engine = build([userDef, commentRatingDef], erpBacking);
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      fields: [{ expr: { kind: 'relation-path', source: 'comment_rating', path: ['user', 'name'] }, as: 'un' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'comment_rating_user' } }],
+      fields: [{ expr: { kind: 'field-ref', source: 'comment_rating_user', field: 'name' }, as: 'un' }],
     };
     expect(engine.toSQL(def, 'base').sql).toContain('ON "comment_rating"."user_id" = "comment_rating_user"."id"');
   });
 
-  it('a relation-path value join honors a custom on in SQL', () => {
+  it('a relation-join value honors a custom on in SQL', () => {
     const engine = customEngine(onExpr);
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      fields: [{ expr: { kind: 'relation-path', source: 'comment_rating', path: ['user', 'name'] }, as: 'un' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'comment_rating_user' } }],
+      fields: [{ expr: { kind: 'field-ref', source: 'comment_rating_user', field: 'name' }, as: 'un' }],
     };
     // The custom `on.expr` drives the join ON (its columns appear in the ON).
     const sql = engine.toSQL(def, 'base').sql;
@@ -495,24 +498,26 @@ describe('relation-join backing: relation-path', () => {
     expect(sql).toContain('"comment_rating_user"."id"');
   });
 
-  it('a relation-path reads through the backing FK at runtime (keys)', async () => {
+  it('a relation-join value reads through the backing FK at runtime (keys)', async () => {
     const engine = build([userDef, commentRatingDef], erpBacking, { user: users, comment_rating: ratings });
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      fields: [{ expr: { kind: 'relation-path', source: 'comment_rating', path: ['user', 'name'] }, as: 'un' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'comment_rating_user' } }],
+      fields: [{ expr: { kind: 'field-ref', source: 'comment_rating_user', field: 'name' }, as: 'un' }],
       order: [{ expr: ref('comment_rating', 'id'), dir: 'asc' }],
     };
     const { rows } = await engine.run(def);
     expect(rows).toEqual([{ un: 'Ada' }, { un: 'Ada' }, { un: 'Bob' }]);
   });
 
-  it('a relation-path reads through a custom on at runtime', async () => {
+  it('a relation-join value reads through a custom on at runtime', async () => {
     const engine = customEngine(onExpr);
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'comment_rating' },
-      fields: [{ expr: { kind: 'relation-path', source: 'comment_rating', path: ['user', 'name'] }, as: 'un' }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'comment_rating_user' } }],
+      fields: [{ expr: { kind: 'field-ref', source: 'comment_rating_user', field: 'name' }, as: 'un' }],
       order: [{ expr: ref('comment_rating', 'id'), dir: 'asc' }],
     };
     const { rows } = await engine.run(def);
@@ -592,20 +597,23 @@ describe('relation-join backing: named-join relation spec', () => {
 // ─── Fan-out aggregate grouping ──────────────────────────────────────────────
 
 describe('relation-join backing: fan-out aggregate', () => {
-  it('a fan-out aggregate groups the target by the backing FK column', () => {
+  it('a fan-out aggregate joins the target on the backing FK column', () => {
     const engine = build([userDef, commentRatingDef], erpBacking);
     const def: SelectDef = {
       kind: 'select',
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'ratings', as: 'ratings' } }],
       fields: [
         { expr: ref('user', 'name'), as: 'name' },
-        { expr: { kind: 'aggregate', function: 'count', args: { value: { kind: 'relation-path', source: 'user', path: ['ratings', 'stars'] } } }, as: 'n' },
+        { expr: { kind: 'aggregate', function: 'count', args: { value: { kind: 'field-ref', source: 'ratings', field: 'stars' } } }, as: 'n' },
       ],
     };
     const sql = engine.toSQL(def, 'base').sql;
-    // Grouped on the physical FK `user_id`, not the convention column `user`.
-    expect(sql).toContain('"t"."user_id"');
-    expect(sql).not.toContain('"t"."user" AS');
+    // The relation join keys on the physical FK `user_id`, not the convention
+    // column `user`; the aggregate runs over the joined rows.
+    expect(sql).toContain('ON "user"."id" = "ratings"."user_id"');
+    expect(sql).not.toContain('"ratings"."user"');
+    expect(sql).toContain('count("ratings"."stars") AS "n"');
   });
 });
 
@@ -618,7 +626,7 @@ describe('relation-join backing: joined DML', () => {
       kind: 'update',
       type: 'comment_rating',
       set: [{ field: 'stars', value: { kind: 'literal', value: 1 } }],
-      joins: [{ on: { source: 'comment_rating', field: 'user' } }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' } }],
       where: [{ kind: 'comparison', op: '=', left: ref('user', 'name'), right: { kind: 'literal', value: 'Ada' } }],
     };
     const sql = engine.toSQL(def, 'base').sql;
@@ -631,7 +639,7 @@ describe('relation-join backing: joined DML', () => {
     const def: DeleteDef = {
       kind: 'delete',
       from: 'comment_rating',
-      joins: [{ on: { source: 'comment_rating', field: 'user' } }],
+      joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' } }],
       where: [{ kind: 'comparison', op: '=', left: ref('user', 'name'), right: { kind: 'literal', value: 'Ada' } }],
     };
     const sql = engine.toSQL(def, 'base').sql;

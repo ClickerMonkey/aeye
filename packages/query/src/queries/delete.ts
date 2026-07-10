@@ -8,7 +8,7 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { Problems } from '../problem';
-import { canonicalize, type Expr, type ValidateContext } from '../expr';
+import type { Expr, ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord, SourceRow } from '../runtime/row';
 import { Type } from '../type';
@@ -33,7 +33,6 @@ import { scanCost, applyWhere } from './_cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
-import { resolveRelationOnSql } from '../backing';
 import { rlsPredicate } from '../sql/rls';
 import { dmlJoinsUnsupported, typeReadonly } from './_sql';
 import {
@@ -292,8 +291,8 @@ export class DeleteQuery extends Query {
    * Emit `[WITH …] DELETE FROM "t" [USING <sources>] WHERE … [RETURNING …]`.
    *
    * Mirrors `SelectQuery.toSQL`: authored joins are registered FIRST, then WHERE
-   * / RETURNING are emitted through the SAME planner so a `relation-path` or
-   * fan-out aggregate over the target shares those joins / CTEs. Because the
+   * / RETURNING are emitted through the SAME planner so a hidden backing join
+   * over the target shares those joins / CTEs. Because the
    * DELETE target is NOT a USING item, the planner runs in IMPLICIT-JOIN mode —
    * each required join lowers to a `USING` source item plus a key predicate
    * ANDed into WHERE — and any planner CTE is hoisted into a leading `WITH`. A
@@ -318,11 +317,8 @@ export class DeleteQuery extends Query {
       SqlText.concat([c.expr.toSQL(dialect, selCtx), SqlText.raw(' AS '), dialect.ident(fieldNameOf(c.expr, c.as, i))]),
     );
 
-    // 3. Assemble (planner now holds every USING item / key predicate / CTE).
+    // 3. Assemble (planner now holds every USING item / key predicate).
     const parts: SqlText[] = [];
-    if (planner.hasCtes()) {
-      parts.push(SqlText.raw('WITH '), SqlText.join(planner.emittedCtes(), ', '), SqlText.raw(' '));
-    }
     parts.push(SqlText.raw('DELETE FROM '), dialect.ident(this.from));
     if (planner.hasFromItems()) {
       if (!dialect.supportsDmlJoins) throw dmlJoinsUnsupported(dialect, 'DELETE');
@@ -334,7 +330,7 @@ export class DeleteQuery extends Query {
     return SqlText.concat(parts);
   }
 
-  /** Register each authored join hop through the (implicit) planner. */
+  /** Register each authored join through the (implicit) planner. */
   private registerJoins(
     dialect: Dialect,
     engine: QueryEngine,
@@ -344,29 +340,7 @@ export class DeleteQuery extends Query {
   ): void {
     for (const join of this.joins) {
       const plan = join.buildPlan(engine, aliasTypes);
-      if (!plan) continue;
-      plan.forEach((hop, hi) => {
-        const last = hi === plan.length - 1;
-        let extraOn: SqlText | undefined;
-        let andKey: string | undefined;
-        if (last && join.and) {
-          extraOn = join.and.toSQL(dialect, selCtx);
-          andKey = canonicalize(join.and);
-        }
-        const customOn = hop.custom
-          ? resolveRelationOnSql(hop.custom.on, hop.custom.localAlias, hop.custom.joinedAlias, selCtx)
-          : undefined;
-        planner.requireJoin({
-          leftAlias: hop.leftAlias,
-          alias: hop.targetAlias,
-          targetType: hop.targetType,
-          keys: hop.keys,
-          customOn,
-          joinType: join.joinType,
-          andKey,
-          extraOn,
-        });
-      });
+      if (plan) join.emitInto(dialect, selCtx, planner, plan);
     }
   }
 

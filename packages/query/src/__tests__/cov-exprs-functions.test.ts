@@ -59,7 +59,6 @@ const tcall = (fn: string, args: Record<string, ExprDef> = {}): ExprDef => ({
   function: fn,
   args,
 });
-const relPath = (source: string, path: string[]): ExprDef => ({ kind: 'relation-path', source, path });
 
 /** Wrap a single projected expr in a SELECT over the `order` type for SQL/cost. */
 const selOf = (expr: ExprDef, groupBy?: ExprDef[], order?: Order[]): SelectDef => ({
@@ -211,27 +210,34 @@ describe('AggregateExpr', () => {
     }
   });
 
-  it('toSQL: a fan-out relation-path value builds a GROUP BY CTE (sum ref + count COALESCE)', () => {
+  it('toSQL: an aggregate over a has-many relation JOIN emits a plain aggregate (the fan-out pre-agg CTE was removed)', () => {
+    // Crossing a relation is now a NAMED join; the aggregate reads the joined
+    // alias directly. The old relation-path fan-out GROUP BY CTE branch is gone,
+    // so this emits a plain aggregate over a LEFT-joined relation instead.
     const userSel = (expr: ExprDef): SelectDef => ({
       kind: 'select',
       fields: [{ expr, as: 'x' }],
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' } }],
     });
-    const sumSql = fx.engine.toSQL(
-      userSel(agg('sum', { value: relPath('user', ['orders', 'total']) })),
-      'base',
-    ).sql;
-    expect(sumSql).toContain('agg_sum_user_orders');
-    const countSql = fx.engine.toSQL(
-      userSel(agg('count', { value: relPath('user', ['orders']) })),
-      'base',
-    ).sql;
-    expect(countSql).toContain('COALESCE(');
+    const sumSql = fx.engine.toSQL(userSel(agg('sum', { value: ref('o', 'total') })), 'base').sql;
+    expect(sumSql).toContain('sum("o"."total")');
+    expect(sumSql).toContain('LEFT JOIN "order" AS "o" ON "user"."id" = "o"."userId"');
+    expect(sumSql).not.toContain('agg_sum'); // no pre-aggregation CTE
+    const countSql = fx.engine.toSQL(userSel(agg('count', { value: ref('o', 'id') })), 'base').sql;
+    expect(countSql).toContain('count("o"."id")');
+    expect(countSql).not.toContain('COALESCE('); // no fan-out COALESCE
   });
 
-  it('toSQL: a one-to-one relation-path value is NOT pre-aggregated (plain emit)', () => {
-    const sql = fx.engine.toSQL(selOf(agg('sum', { value: relPath('order', ['userId', 'id']) })), 'base')
-      .sql;
+  it('toSQL: an aggregate over a one-to-one (belongs-to) relation JOIN is a plain emit', () => {
+    // FROM order, join belongs-to order.userId as `buyer`, sum a joined scalar.
+    const def: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: agg('sum', { value: ref('buyer', 'id') }), as: 'x' }],
+      from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' } }],
+    };
+    const sql = fx.engine.toSQL(def, 'base').sql;
     expect(sql).toContain('sum(');
     expect(sql).not.toContain('agg_sum');
   });
@@ -334,8 +340,10 @@ describe('WindowExpr', () => {
   });
 
   it('validate: a well-formed window (incl. partition/order) has no errors', () => {
+    // Partition by a SCALAR field: `o.userId` is a relation field, and a
+    // field-ref to a relation is now a `ref.relation` error, so use `o.total`.
     const p = fx.engine.validateExpr(
-      win('sum', { value: ref('o', 'total') }, [ref('o', 'userId')], [{ expr: ref('o', 'id'), dir: 'asc' }]),
+      win('sum', { value: ref('o', 'total') }, [ref('o', 'total')], [{ expr: ref('o', 'id'), dir: 'asc' }]),
       scope,
     );
     expect(p.hasErrors).toBe(false);

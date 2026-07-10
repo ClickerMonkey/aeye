@@ -68,19 +68,22 @@ describe('buildSchemas — strict', () => {
     expect(schemas.Select.safeParse(bad).success).toBe(false);
   });
 
-  it('roots a relation-path at a known Type with a valid first hop', () => {
+  it('roots a relation join at a known Type with a valid first hop', () => {
     const fx = fixture();
     const schemas = buildSchemas(fx.engine, { strict: true });
+    // The relation crossing is now a `relation` join `on`, aliased under the
+    // target type name `order` so a strict field-ref reads `{source:'order'}`.
     const ok: SelectDef = {
       kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] }, as: 'orderTotal' }],
+      fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'total' }, as: 'orderTotal' }],
       from: { kind: 'type', type: 'user' },
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
     };
     expect(schemas.Select.safeParse(ok).success).toBe(true);
     // `name` is a field, NOT a relation — invalid first hop.
     const badHop: SelectDef = {
       ...ok,
-      fields: [{ expr: { kind: 'relation-path', source: 'user', path: ['name'] }, as: 'x' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'order' } }],
     };
     expect(schemas.Select.safeParse(badHop).success).toBe(false);
   });
@@ -137,7 +140,7 @@ describe('buildSchemas — strict', () => {
         { expr: { kind: 'field-ref', source: 'order', field: 'total' } },
       ],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
     };
     expect(schemas.Select.safeParse(joined).success).toBe(true);
   });

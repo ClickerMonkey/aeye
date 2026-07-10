@@ -87,7 +87,7 @@ describe('directed schema-failure messages', () => {
     // per capability (output / tabular-function-call / excluded).
     expect(messageAt(err, ['where', 1])).toBe(
       'unknown expression kind `comparise` — did you mean `comparison`? (available: ' +
-        'literal, output, field-ref, relation-path, param, binary, unary, comparison, logical, in, ' +
+        'literal, output, field-ref, param, binary, unary, comparison, logical, in, ' +
         'between, is-null, exists, array-op, case, aggregate, window, function-call, ' +
         'tabular-function-call, semantic, text-search, text-score, filters, subquery, excluded)',
     );

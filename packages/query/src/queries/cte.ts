@@ -319,11 +319,11 @@ export class CTEStatementQuery extends Query {
   }
 
   /**
-   * Emit `WITH [RECURSIVE] <ctes> <final-body>` as EXACTLY ONE `WITH`. The
-   * final query's OWN top-level planner CTEs (e.g. a fan-out-aggregate `agg_…`
-   * CTE in the final SELECT) are HOISTED into this outer `WITH` list via
-   * `final.emitWith` — otherwise the final would prepend its own adjacent
-   * `WITH`, producing `WITH a AS(…) WITH agg_… …`, a syntax error (BUG P0-2).
+   * Emit `WITH [RECURSIVE] <ctes> <final-body>` as EXACTLY ONE `WITH`. When the
+   * final query is ITSELF a `WITH` statement, its named CTEs are HOISTED into
+   * this outer `WITH` list via `final.emitWith` — otherwise the final would
+   * prepend its own adjacent `WITH`, producing `WITH a AS(…) WITH b AS(…) …`, a
+   * syntax error (BUG P0-2).
    */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     const { ctes, body } = this.emitWith(dialect, ctx);
@@ -337,9 +337,9 @@ export class CTEStatementQuery extends Query {
   }
 
   /**
-   * The statement's named CTE definitions MERGED with any top-level planner
-   * CTEs the final query would emit, plus the final query's WITH-free body.
-   * Lets an enclosing CTE statement hoist this whole set into a single `WITH`.
+   * The statement's named CTE definitions MERGED with any CTEs a nested `WITH`
+   * final query would emit, plus the final query's WITH-free body. Lets an
+   * enclosing CTE statement hoist this whole set into a single `WITH`.
    */
   override emitWith(dialect: Dialect, ctx: SqlContext): { ctes: ReadonlyArray<SqlText>; body: SqlText } {
     const inner = ctx.withScope(this.bind(ctx.engine, ctx.scope));

@@ -15,18 +15,8 @@ export {
 export { Dialect } from './dialect';
 export { BaseDialect } from './base-dialect';
 export { PostgresDialect } from './postgres-dialect';
-export {
-  JoinCtePlanner,
-  type JoinRequest,
-  type AggregateCteRequest,
-  type AggregateCteResult,
-} from './planner';
+export { JoinCtePlanner, type JoinRequest } from './planner';
 export { type RlsProvider, rlsPredicate } from './rls';
-export {
-  emitRelationPathValue,
-  fanoutAggregateInfo,
-  type FanoutAggregateInfo,
-} from './relation-walk';
 
 /** All built-in dialects, in a stable order (registry bootstrap). */
 import { BaseDialect } from './base-dialect';

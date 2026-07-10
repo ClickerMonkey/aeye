@@ -118,12 +118,14 @@ export async function run(): Promise<ExampleReport> {
   const aggSelect: SelectDef = {
     kind: 'select',
     fields: [
-      { expr: e.ref('order', 'userId').toJSON(), as: 'userId' },
+      { expr: e.ref('buyer', 'id').toJSON(), as: 'userId' },
       { expr: e.agg('span', { value: e.ref('order', 'total') }).toJSON(), as: 'span' },
     ],
     from: { kind: 'type', type: 'order' },
-    groupBy: [e.ref('order', 'userId').toJSON()],
-    order: [{ expr: e.ref('order', 'userId').toJSON(), dir: 'asc' }],
+    // `order.userId` is a belongs-to relation → join it and group by the buyer's key.
+    joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' } }],
+    groupBy: [e.ref('buyer', 'id').toJSON()],
+    order: [{ expr: e.ref('buyer', 'id').toJSON(), dir: 'asc' }],
     limit: 3,
   };
   errors += engine.validateQuery(aggSelect).list.filter((p) => p.severity === 'error').length;

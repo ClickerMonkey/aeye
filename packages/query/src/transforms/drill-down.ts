@@ -56,7 +56,6 @@ import {
   AggregateExpr,
   FieldRefExpr,
   OutputRefExpr,
-  RelationPathExpr,
   WindowExpr,
 } from '../exprs/index';
 
@@ -205,7 +204,6 @@ function expandOutputDef(def: ExprDef, outputs: ReadonlyMap<string, ExprDef>): E
     // outputs, so it is left untouched): return unchanged.
     case 'literal':
     case 'field-ref':
-    case 'relation-path':
     case 'param':
     case 'exists':
     case 'subquery':
@@ -254,11 +252,11 @@ function isScalar(value: JsonValue | undefined): value is ScalarValue {
   return value === null || (value !== undefined && typeof value !== 'object');
 }
 
-/** Whether an expr references at least one field (field-ref / relation-path). */
+/** Whether an expr references at least one field (a `field-ref`). */
 function referencesField(expr: Expr): boolean {
   let found = false;
   expr.walk((e) => {
-    if (e instanceof FieldRefExpr || e instanceof RelationPathExpr) found = true;
+    if (e instanceof FieldRefExpr) found = true;
   });
   return found;
 }

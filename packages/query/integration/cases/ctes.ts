@@ -26,12 +26,13 @@ export const cteCases: EvalCase[] = [
         const perCustomer: QueryDef = {
           kind: 'select',
           fields: [
-            { expr: e.path('salesOrder', 'customer', 'id').toJSON(), as: 'cid' },
+            { expr: e.ref('customer', 'id').toJSON(), as: 'cid' },
             { expr: e.sum(e.ref('salesOrder', 'total')).toJSON(), as: 'rev' },
           ],
           from: { kind: 'type', type: 'salesOrder' },
+          joins: [e.relJoin('salesOrder', 'customer', 'customer')],
           where: [e.eq(e.ref('salesOrder', 'status'), e.value('paid')).toJSON()],
-          groupBy: [e.path('salesOrder', 'customer', 'id').toJSON()],
+          groupBy: [e.ref('customer', 'id').toJSON()],
         };
         return {
           kind: 'cte',
@@ -62,15 +63,17 @@ export const cteCases: EvalCase[] = [
           kind: 'select',
           fields: [{ expr: e.ref('category', 'id').toJSON(), as: 'id' }],
           from: { kind: 'type', type: 'category' },
-          where: [e.eq(e.path('category', 'parent', 'id'), e.value(1)).toJSON()],
+          joins: [e.relJoin('category', 'parent', 'category_parent')],
+          where: [e.eq(e.ref('category_parent', 'id'), e.value(1)).toJSON()],
         };
         const recursive: QueryDef = {
           kind: 'select',
           fields: [{ expr: e.ref('category', 'id').toJSON(), as: 'id' }],
           from: { kind: 'type', type: 'category' },
+          joins: [e.relJoin('category', 'parent', 'category_parent')],
           where: [
             e
-              .inSubquery(e.path('category', 'parent', 'id'), {
+              .inSubquery(e.ref('category_parent', 'id'), {
                 kind: 'select',
                 fields: [{ expr: e.ref('descendants', 'id').toJSON(), as: 'id' }],
                 from: { kind: 'type', type: 'descendants' },
@@ -103,18 +106,20 @@ export const cteCases: EvalCase[] = [
           kind: 'select',
           fields: [
             { expr: e.ref('category', 'id').toJSON(), as: 'id' },
-            { expr: e.path('category', 'parent', 'id').toJSON(), as: 'pid' },
+            { expr: e.ref('category_parent', 'id').toJSON(), as: 'pid' },
           ],
           from: { kind: 'type', type: 'category' },
+          joins: [e.relJoin('category', 'parent', 'category_parent')],
           where: [e.eq(e.ref('category', 'id'), e.value(12)).toJSON()],
         };
         const recursive: QueryDef = {
           kind: 'select',
           fields: [
             { expr: e.ref('category', 'id').toJSON(), as: 'id' },
-            { expr: e.path('category', 'parent', 'id').toJSON(), as: 'pid' },
+            { expr: e.ref('category_parent', 'id').toJSON(), as: 'pid' },
           ],
           from: { kind: 'type', type: 'category' },
+          joins: [e.relJoin('category', 'parent', 'category_parent')],
           where: [
             e
               .inSubquery(e.ref('category', 'id'), {

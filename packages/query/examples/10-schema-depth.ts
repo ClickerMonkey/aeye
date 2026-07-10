@@ -2,7 +2,7 @@
  * Example 10 — graduated schema DEPTH.
  *
  * The LLM-facing schema is dialed PER AXIS via `depth` (instead of a binary
- * `strict`): `refs` (field-ref / relation-path), `typeNames`, `functions`, and
+ * `strict`): `refs` (field-ref + relation join `on`), `typeNames`, `functions`, and
  * `filters` each tighten independently from `open` (free strings) up to
  * `paired` / `typed`. `maxEnumSize` auto-degrades any axis whose enumeration
  * would blow past a budget.

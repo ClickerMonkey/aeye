@@ -1,25 +1,22 @@
 /**
  * `JoinCtePlanner` — algorithm (a): relation-join expansion + shared
- * hidden-join / CTE planning.
+ * hidden-join planning.
  *
  * One planner exists per query LEVEL (a SELECT and each of its subqueries get
- * their own). Relation references — authored joins, `relation-path` exprs, and
- * fan-out aggregates — all funnel through it, so equivalent references SHARE a
- * single join or CTE (the dedup requirement):
+ * their own). Relation references — authored joins plus the hidden joins a
+ * computed / secured field injects — all funnel through it, so equivalent
+ * references SHARE a single join (the dedup requirement):
  *
  *  - `requireJoin` adds a plain `LEFT/INNER/… JOIN`, IDEMPOTENT on a canonical
  *    key `(targetAlias, andKey)`. The target alias is deterministic
  *    (`<leftAlias>_<relationField>` or the authored `as`), so two computed
  *    fields walking the SAME relation collapse to ONE join with one alias.
- *  - `requireAggregateCte` adds a `WITH agg_… AS (… GROUP BY fk)` CTE plus the
- *    `LEFT JOIN` that attaches it — used when a fan-out (`count > 1`) relation
- *    feeds an aggregate (`sum(u.orders.total)` etc.), so the aggregate is
- *    pre-grouped instead of fanning out the outer row set.
+ *  - `requireLateral` / `requireRawJoin` add a correlated LATERAL / a
+ *    pre-emitted named join fragment, each deduped on `(alias, key)`.
  *
- * RLS is injected into every planned join's ON and every CTE's inner WHERE.
- * Joins are collected in discovery order (authored joins are registered first,
- * so they lead); `emittedJoins` / `emittedCtes` expose them for the SELECT
- * emitter to splice into FROM / WITH.
+ * RLS is injected into every planned join's ON. Joins are collected in
+ * discovery order (authored joins are registered first, so they lead);
+ * `emittedJoins` exposes them for the SELECT emitter to splice into FROM.
  */
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
@@ -57,34 +54,12 @@ export interface JoinRequest {
   andKey?: string;
   /** Pre-emitted extra ON predicate, ANDed with the synthesized key. */
   extraOn?: SqlText;
-}
-
-/** A fan-out aggregate to pre-compute as a grouped CTE. */
-export interface AggregateCteRequest {
-  /** Alias of the left (source) side the CTE attaches to. */
-  leftAlias: string;
-  /** Matched field on the left side (joins to the CTE group key). */
-  localField: string;
-  /** The grouped foreign-key field on the target side. */
-  foreignField: string;
-  /** The fanned-out target Type. */
-  targetType: Type;
-  /** Relation field name (used only to name the CTE readably). */
-  relationField: string;
-  /** Aggregate function. */
-  aggFn: string;
-  /** Whether the aggregate is DISTINCT. */
-  distinct: boolean;
-  /** Aggregated target field, or `'*'` for `count(*)`. */
-  argField: string;
-}
-
-/** The CTE-backed value an aggregate references. */
-export interface AggregateCteResult {
-  /** The CTE name / alias the value lives under. */
-  alias: string;
-  /** The value field inside the CTE. */
-  valueField: string;
+  /**
+   * A pre-emitted source fragment (`… AS "alias"`) for a MANUAL join — a
+   * subquery / function / aliased-type source whose SQL is not `sourceTable AS
+   * alias`. When present it REPLACES the default `<targetType table> AS <alias>`.
+   */
+  sourceSql?: SqlText;
 }
 
 /** A LATERAL / CROSS-APPLY join over a (pre-emitted) correlated subquery. */
@@ -126,16 +101,12 @@ function joinKeyword(type: JoinType): string {
   }
 }
 
-/** Per-query-level planner that dedupes hidden relation joins and fan-out aggregate CTEs. */
+/** Per-query-level planner that dedupes hidden relation joins. */
 export class JoinCtePlanner {
   /** join dedup key → resolved alias. */
   private readonly joinKeys = new Map<string, string>();
-  /** CTE dedup key → result. */
-  private readonly cteKeys = new Map<string, AggregateCteResult>();
-  /** Emitted joins, in discovery order (relation joins + CTE attach joins). */
+  /** Emitted joins, in discovery order. */
   private readonly joins: SqlText[] = [];
-  /** Emitted CTE definitions, in discovery order. */
-  private readonly ctes: SqlText[] = [];
   /**
    * IMPLICIT-JOIN mode only (`implicit === true`): the comma-separated FROM /
    * USING source items (`"table" AS "alias"` / a CTE name) and the join-key
@@ -189,7 +160,9 @@ export class JoinCtePlanner {
     if (rls) onParts.push(rls);
     if (req.extraOn) onParts.push(req.extraOn);
 
-    const source = SqlText.concat([
+    // A MANUAL join supplies its own source fragment (subquery / function /
+    // aliased type); a relation join uses the target Type's real table.
+    const source = req.sourceSql ?? SqlText.concat([
       this.dialect.ident(this.engine.sourceTable(req.targetType.name)),
       SqlText.raw(' AS '),
       this.dialect.ident(req.alias),
@@ -217,76 +190,6 @@ export class JoinCtePlanner {
     this.joins.push(joinSql);
     this.joinKeys.set(key, req.alias);
     return req.alias;
-  }
-
-  /**
-   * Require a fan-out aggregate CTE, returning the CTE alias + value field.
-   * Idempotent on the full aggregate shape, so two references to the same
-   * pre-aggregation share one CTE. Emits both the `WITH agg_… GROUP BY` CTE and
-   * the `LEFT JOIN` that attaches it to the left side.
-   */
-  requireAggregateCte(req: AggregateCteRequest): AggregateCteResult {
-    const key = `C|${req.leftAlias}|${req.foreignField}|${req.targetType.name}|${req.aggFn}|${req.argField}|${req.distinct}`;
-    const existing = this.cteKeys.get(key);
-    if (existing) return existing;
-
-    const cteName = `agg_${req.aggFn}_${req.leftAlias}_${req.relationField}`;
-    const innerAlias = 't';
-    const fk = this.dialect.field(innerAlias, req.foreignField);
-    const arg = req.argField === '*' ? SqlText.raw('*') : this.dialect.field(innerAlias, req.argField);
-    const aggCall = SqlText.concat([
-      SqlText.raw(`${req.aggFn}(`),
-      req.distinct ? SqlText.raw('DISTINCT ') : SqlText.empty(),
-      arg,
-      SqlText.raw(')'),
-    ]);
-
-    const innerParts: SqlText[] = [
-      SqlText.raw('SELECT '),
-      fk,
-      SqlText.raw(' AS '),
-      this.dialect.ident('k'),
-      SqlText.raw(', '),
-      aggCall,
-      SqlText.raw(' AS '),
-      this.dialect.ident('v'),
-      SqlText.raw(' FROM '),
-      this.dialect.ident(this.engine.sourceTable(req.targetType.name)),
-      SqlText.raw(' AS '),
-      this.dialect.ident(innerAlias),
-    ];
-    const rls = rlsPredicate(this.rls, this.dialect, this.engine, this, req.targetType.name, innerAlias);
-    if (rls) {
-      innerParts.push(SqlText.raw(' WHERE '), rls);
-    }
-    innerParts.push(SqlText.raw(' GROUP BY '), fk);
-
-    const cteDef = SqlText.concat([
-      this.dialect.ident(cteName),
-      SqlText.raw(' AS ('),
-      SqlText.concat(innerParts),
-      SqlText.raw(')'),
-    ]);
-    this.ctes.push(cteDef);
-
-    const attachPredicate = SqlText.join(
-      [this.dialect.field(req.leftAlias, req.localField), SqlText.raw('='), this.dialect.field(cteName, 'k')],
-      ' ',
-    );
-    if (this.implicit) {
-      // UPDATE/DELETE form: the grouped CTE becomes a FROM/USING item and its
-      // attach key becomes a WHERE-able predicate (matched-row semantics).
-      this.fromItems.push(this.dialect.ident(cteName));
-      this.joinPredicates.push(attachPredicate);
-    } else {
-      this.joins.push(
-        SqlText.concat([SqlText.raw('LEFT JOIN '), this.dialect.ident(cteName), SqlText.raw(' ON '), attachPredicate]),
-      );
-    }
-
-    const result: AggregateCteResult = { alias: cteName, valueField: 'v' };
-    this.cteKeys.set(key, result);
-    return result;
   }
 
   /**
@@ -326,19 +229,9 @@ export class JoinCtePlanner {
     return req.alias;
   }
 
-  /** The planned joins (relation joins + CTE attach joins), in order. */
+  /** The planned joins, in discovery order. */
   emittedJoins(): ReadonlyArray<SqlText> {
     return this.joins;
-  }
-
-  /** The planned CTE definitions, in order. */
-  emittedCtes(): ReadonlyArray<SqlText> {
-    return this.ctes;
-  }
-
-  /** Whether any CTE was planned (drives the leading `WITH`). */
-  hasCtes(): boolean {
-    return this.ctes.length > 0;
   }
 
   /**

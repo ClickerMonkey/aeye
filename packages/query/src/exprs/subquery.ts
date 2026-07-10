@@ -29,7 +29,7 @@ import type { Cost } from '../cost';
 export class SubqueryExpr extends Expr {
   static readonly KIND = 'subquery' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — its inner `query` must project exactly ONE field and yield one row. Use where ONE value is needed (e.g. comparing a field against an aggregate over related rows). For membership use `in`, for existence use `exists`." as const;
+  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — its inner `query` must project exactly ONE field and yield one row. Use where ONE value is needed (e.g. comparing a field against an aggregate over related rows). To read across a relation inside the subquery, add a `relation` join and field-ref the joined alias. For membership use `in`, for existence use `exists`." as const;
   /**
    * Worked example (see `ExprClass.EXAMPLES`) — a scalar subquery in value
    * position: an aggregate over related rows, usable e.g. as one side of a

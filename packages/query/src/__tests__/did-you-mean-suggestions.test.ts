@@ -110,7 +110,9 @@ describe('unknown-source → nearest bound source name', () => {
     expect(msg(fx.engine.validateExpr(ref('zzzzz', 'x'), scope), 'ref.unknown-source')).not.toContain('did you mean');
 
     expect(msg(fx.engine.validateExpr({ kind: 'filters', source: 'uu' }, scope), 'filters.unknown-source')).toContain('did you mean `u`');
-    expect(msg(fx.engine.validateExpr({ kind: 'relation-path', source: 'uu', path: ['x'] }, scope), 'relation-path.unknown-source')).toContain('did you mean `u`');
+    // (`relation-path` is gone as a source-bearing expr — crossing a relation is
+    // now a join, whose typo'd `on.source` reports `join.unresolved`; see the
+    // dedicated relation-join block below.)
     expect(msg(fx.engine.validateExpr({ kind: 'semantic', source: 'uu', query: 'x' }, scope), 'semantic.unknown-source')).toContain('did you mean `u`');
     expect(msg(fx.engine.validateExpr({ kind: 'text-search', source: 'uu', query: 'x' }, scope), 'text-search.unknown-source')).toContain('did you mean `u`');
     expect(msg(fx.engine.validateExpr({ kind: 'text-score', source: 'uu', query: 'x' }, scope), 'text-score.unknown-source')).toContain('did you mean `u`');
@@ -149,22 +151,29 @@ describe('unknown-type → nearest registered Type name', () => {
 
 // ─── Relation-segment candidates + relation-target Type ───────────────────────
 
-describe('relation-path segment / target suggestions', () => {
+describe('relation field-ref segment / target suggestions', () => {
   const fx = fixture();
   const scope = typeScope(fx);
 
-  it('a non-final segment suggests a RELATION field; a final segment suggests any field', () => {
-    // Non-final: only relation fields are traversable ⇒ suggest `orders`.
+  it('a mistyped field suggests the near field name — relation OR scalar', () => {
+    // Relation crossing is now a join, then a plain field-ref; a field-ref
+    // suggests over ALL of the source's fields, so a mistyped RELATION field
+    // name (`ordrs`) still surfaces the relation field `orders`…
     expect(
-      msg(fx.engine.validateExpr({ kind: 'relation-path', source: 'u', path: ['ordrs', 'total'] }, scope), 'relation-path.unknown-field'),
+      msg(fx.engine.validateExpr(ref('u', 'ordrs'), scope), 'ref.unknown-field'),
     ).toContain('did you mean `orders`');
-    // Final: any field ⇒ suggest `note` on `order`.
+    // …and a mistyped scalar field (`not`) surfaces `note` on `order`.
     expect(
-      msg(fx.engine.validateExpr({ kind: 'relation-path', source: 'o', path: ['not'] }, scope), 'relation-path.unknown-field'),
+      msg(fx.engine.validateExpr(ref('o', 'not'), scope), 'ref.unknown-field'),
     ).toContain('did you mean `note`');
   });
 
-  it('a relation pointing at an unregistered Type suggests the near Type name', () => {
+  it('a relation join onto an unregistered target Type is flagged as unresolved', () => {
+    // BEHAVIOR SHIFT: the old relation-path traversal suggested the near Type
+    // name when a relation's `to` was unregistered (`relation-path.unknown-type`
+    // + didYouMean). In the named-join model the crossing is a `relation` join;
+    // an unresolvable target now reports `join.unresolved` (no target-type
+    // suggestion — that didYouMean site no longer exists).
     const registry = createRegistry();
     const account: TypeDef = {
       name: 'account',
@@ -189,11 +198,13 @@ describe('relation-path segment / target suggestions', () => {
     registry.registerType(hostType);
     registry.finalize();
     const engine = new QueryEngine(registry);
-    const scope2 = engine.globalScope();
-    scope2.bind('h', { kind: 'type', type: hostType, source: 'h', synthetic: false });
-    expect(
-      msg(engine.validateExpr({ kind: 'relation-path', source: 'h', path: ['acct'] }, scope2), 'relation-path.unknown-type'),
-    ).toContain('did you mean `account`');
+    const bad: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: ref('h', 'id') }],
+      from: { kind: 'aliased', type: 'host', as: 'h' },
+      joins: [{ on: { kind: 'relation', source: 'h', field: 'acct', as: 'a' } }],
+    };
+    expect(msg(engine.validateQuery(bad), 'join.unresolved')).toContain("does not resolve to a relation");
   });
 });
 

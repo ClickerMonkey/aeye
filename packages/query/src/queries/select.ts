@@ -28,7 +28,7 @@ import { recordSignature } from '../runtime/record';
 import { Type } from '../type';
 import type { ParamSet } from '../param';
 import { NumberFieldType } from '../field-types/index';
-import { FieldRefExpr, RelationPathExpr, AggregateExpr } from '../exprs/index';
+import { FieldRefExpr, AggregateExpr } from '../exprs/index';
 import {
   Query,
   type QueryClass,
@@ -45,12 +45,10 @@ import { obj, lit, bool, list, exprRef, sourceRef } from '../shape';
 import { selectFieldShape, boundShape } from './_shape';
 import { type Cost, addCost } from '../cost';
 import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost } from './_cost';
-import { canonicalize } from '../expr';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
 import {
-  resolveRelationOnSql,
   resolveDefaultOrderSql,
   resolveDefaultOrderRun,
   type DefaultOrder,
@@ -116,7 +114,7 @@ export class SelectQuery extends Query {
         { expr: { kind: 'field-ref', source: 'order', field: 'total' } },
       ],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'filters', source: 'order', fields: ['total'] }],
     } satisfies SelectDef),
   ];
@@ -212,8 +210,6 @@ export class SelectQuery extends Query {
     if (col.as) return col.as;
     const e = col.expr;
     if (e instanceof FieldRefExpr) return e.field;
-    /* v8 ignore next -- a relation-path always has at least one segment, so the `?? col` fallback is unreachable */
-    if (e instanceof RelationPathExpr) return e.path[e.path.length - 1] ?? `col${i}`;
     if (e instanceof AggregateExpr) return e.fn;
     return `col${i}`;
   }
@@ -788,20 +784,13 @@ export class SelectQuery extends Query {
     return this.orderClauseSQL(o.expr.toSQL(dialect, ctx), o.dir, o.nulls);
   }
 
-  /** Emit the SELECT, re-attaching any planner CTEs as a leading `WITH` when top-level. */
-  toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    const { ctes, body } = this.emitWith(dialect, ctx);
-    if (ctes.length === 0) return body;
-    return SqlText.concat([SqlText.raw('WITH '), SqlText.join(ctes, ', '), SqlText.raw(' '), body]);
-  }
-
   /**
-   * Emit the SELECT BODY (no leading `WITH`) plus the planner-generated CTE
-   * definitions separately, so an enclosing `CTEStatementQuery` can hoist them
-   * into ONE combined `WITH` (BUG P0-2). `toSQL` re-attaches them as a leading
-   * `WITH` when this SELECT is the top-level statement.
+   * Emit the SELECT. A SELECT never prepends its own `WITH` (relation crossings
+   * lower to plain JOINs, not CTEs), so the body IS the whole statement; an
+   * enclosing `CTEStatementQuery` reads it via the base `emitWith` (which wraps
+   * this `toSQL` as its WITH-free body).
    */
-  override emitWith(dialect: Dialect, ctx: SqlContext): { ctes: ReadonlyArray<SqlText>; body: SqlText } {
+  toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     const engine = ctx.engine;
     // Whether THIS select is the root (entry) query — read from the incoming
     // context BEFORE `withPlanner` clears it for nested emission. Drives a
@@ -812,35 +801,13 @@ export class SelectQuery extends Query {
     const selCtx = ctx.withPlanner(inner, planner);
 
     // 1. Register authored joins through the planner FIRST (they lead, and a
-    //    relation-path over the same relation then reuses the alias).
+    //    hidden backing join over the same relation then reuses the alias).
     for (const join of this.joins) {
       const plan = join.buildPlan(engine, aliasTypes);
-      if (!plan) continue;
-      plan.forEach((hop, hi) => {
-        const last = hi === plan.length - 1;
-        let extraOn: SqlText | undefined;
-        let andKey: string | undefined;
-        if (last && join.and) {
-          extraOn = join.and.toSQL(dialect, selCtx);
-          andKey = canonicalize(join.and);
-        }
-        const customOn = hop.custom
-          ? resolveRelationOnSql(hop.custom.on, hop.custom.localAlias, hop.custom.joinedAlias, selCtx)
-          : undefined;
-        planner.requireJoin({
-          leftAlias: hop.leftAlias,
-          alias: hop.targetAlias,
-          targetType: hop.targetType,
-          keys: hop.keys,
-          customOn,
-          joinType: join.joinType,
-          andKey,
-          extraOn,
-        });
-      });
+      if (plan) join.emitInto(dialect, selCtx, planner, plan);
     }
 
-    // 2. Fields (relation-paths / fan-out aggregates register hidden joins/CTEs).
+    // 2. Fields (computed / secured fields may register hidden backing joins).
     //    The `$total` column is built LAST (§6) — under DISTINCT it must count
     //    the POST-distinct rows, which needs the assembled FROM / WHERE first.
     const baseColSqls = this.fields.map((c, i) =>
@@ -899,15 +866,14 @@ export class SelectQuery extends Query {
     const colSqls = [...baseColSqls];
     if (ctx.includeTotal) colSqls.push(this.totalColumnSQL(dialect, baseColSqls, scan));
 
-    // 7. Assemble the BODY (planner now holds every CTE + join, in document
-    //    order). The planner CTEs are returned SEPARATELY so an enclosing CTE
-    //    statement can hoist them into one combined `WITH`.
+    // 7. Assemble the statement (the planner now holds every join, in document
+    //    order).
     const parts: SqlText[] = [SqlText.raw('SELECT ')];
     if (this.distinct) parts.push(SqlText.raw('DISTINCT '));
     parts.push(SqlText.join(colSqls, ', '), SqlText.concat(scan));
     if (orderSqls.length) parts.push(SqlText.raw(' ORDER BY '), SqlText.join(orderSqls, ', '));
     if (!lo.isEmpty()) parts.push(SqlText.raw(' '), lo);
-    return { ctes: planner.emittedCtes(), body: SqlText.concat(parts) };
+    return SqlText.concat(parts);
   }
 
   /**

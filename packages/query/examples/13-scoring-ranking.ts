@@ -96,7 +96,7 @@ export async function run(): Promise<ExampleReport> {
       { expr: e.semantic('paper', { source: 'topic', field: 'label' }).toJSON(), as: 'score' },
     ],
     from: { kind: 'type', type: 'paper' },
-    joins: [{ on: { source: 'paper', field: 'topicId' }, as: 'topic', joinType: 'inner' }],
+    joins: [{ on: { kind: 'relation', source: 'paper', field: 'topicId', as: 'topic' }, joinType: 'inner' }],
     order: [{ expr: { kind: 'output', name: 'score' }, dir: 'desc' }],
     limit: 10,
   };

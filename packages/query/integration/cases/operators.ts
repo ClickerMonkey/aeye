@@ -97,8 +97,9 @@ export const operatorCases: EvalCase[] = [
       a.aggregate('count'),
       a.resultOf(() => ({
         kind: 'select',
-        fields: [{ expr: e.agg('count', { value: e.path('salesOrderLine', 'product', 'id') }, true).toJSON(), as: 'productCount' }],
+        fields: [{ expr: e.agg('count', { value: e.ref('product', 'id') }, true).toJSON(), as: 'productCount' }],
         from: { kind: 'type', type: 'salesOrderLine' },
+        joins: [e.relJoin('salesOrderLine', 'product', 'product')],
       })),
     ],
   },

@@ -290,31 +290,35 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'x' } }],
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
     expect(fx.engine.cost(def).rows).toBeGreaterThan(0);
     expect(fx.engine.cost({ kind: 'update', type: 'nope', set: [{ field: 'x', value: { kind: 'literal', value: 1 } }] } as UpdateDef)).toEqual({ rows: 0, bytes: 0 });
   });
 
-  it('emits WITH <agg CTE> … UPDATE … FROM and a join `and` predicate', () => {
+  it('emits a joined UPDATE … FROM for a fan-out aggregate and a join `and` predicate', () => {
     const fx = fixture();
-    // SET value references a FAN-OUT aggregate (user.orders.total) ⇒ planner CTE.
+    // SET value references a FAN-OUT aggregate over an explicit relation JOIN
+    // (user.orders.total). Post-refactor there is no hidden pre-aggregation CTE:
+    // the aggregate runs inline over the joined rows via UPDATE … FROM.
     const aggUpdate: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
+      set: [{ field: 'age', value: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } } }],
     };
     const aggSql = fx.engine.toSQL(aggUpdate, 'base').sql;
-    expect(aggSql.startsWith('WITH ')).toBe(true);
-    expect(aggSql).toContain('UPDATE "user" SET "age" = ');
+    expect(aggSql).toBe(
+      'UPDATE "user" SET "age" = sum("order"."total") FROM "order" AS "order" WHERE "user"."id" = "order"."userId"',
+    );
 
     // Authored join WITH an `and` extra predicate + RETURNING.
     const joinAnd: UpdateDef = {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
-      joins: [{ on: { source: 'order', field: 'userId' }, and: { kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' }, and: { kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' }],
     };
     const j = fx.engine.toSQL(joinAnd, 'postgres').sql;
@@ -329,7 +333,7 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
       kind: 'update',
       type: 'order',
       set: [{ field: 'note', value: { kind: 'literal', value: 'x' } }],
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 1 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' }],
     };
@@ -361,8 +365,8 @@ describe('DeleteQuery — validation / cost / SQL / serialization', () => {
       kind: 'delete',
       from: 'order',
       joins: [
-        { on: { source: 'order', field: 'userId' } },
-        { on: { source: 'user', field: 'orders' } },
+        { on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } },
+        { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } },
       ],
     };
     expect(fx.engine.validateQuery(def).list.some((p) => p.code === 'source.duplicate')).toBe(true);
@@ -373,29 +377,33 @@ describe('DeleteQuery — validation / cost / SQL / serialization', () => {
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '<', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 99 } }],
     };
     expect(fx.engine.cost(def).rows).toBeGreaterThan(0);
     expect(fx.engine.cost({ kind: 'delete', from: 'nope' } as DeleteDef)).toEqual({ rows: 0, bytes: 0 });
   });
 
-  it('emits WITH <agg CTE> … DELETE … USING and a join `and` predicate with RETURNING', () => {
+  it('emits a joined DELETE … USING for a fan-out aggregate and a join `and` predicate with RETURNING', () => {
     const fx = fixture();
-    // WHERE references a FAN-OUT aggregate over the deleted target ⇒ planner CTE.
+    // WHERE references a FAN-OUT aggregate over an explicit relation JOIN. Post-
+    // refactor the aggregate runs inline over the joined rows via DELETE … USING
+    // (no hidden pre-aggregation CTE).
     const aggDelete: DeleteDef = {
       kind: 'delete',
       from: 'user',
-      where: [{ kind: 'comparison', op: '>', left: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, right: { kind: 'literal', value: 100 } }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
+      where: [{ kind: 'comparison', op: '>', left: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } }, right: { kind: 'literal', value: 100 } }],
     };
     const aggSql = fx.engine.toSQL(aggDelete, 'base').sql;
-    expect(aggSql.startsWith('WITH ')).toBe(true);
-    expect(aggSql).toContain('DELETE FROM "user"');
+    expect(aggSql).toBe(
+      'DELETE FROM "user" USING "order" AS "order" WHERE "user"."id" = "order"."userId" AND sum("order"."total") > ?',
+    );
 
     const joinAnd: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'userId' }, and: { kind: 'comparison', op: '<', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' }, and: { kind: 'comparison', op: '<', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' }],
     };
     const j = fx.engine.toSQL(joinAnd, 'postgres').sql;
@@ -408,7 +416,7 @@ describe('DeleteQuery — validation / cost / SQL / serialization', () => {
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
     };
     expect(() => fx.engine.toSQL(def, new NoDmlJoinDialect())).toThrow(/Joined DELETE/);
   });
@@ -418,7 +426,7 @@ describe('DeleteQuery — validation / cost / SQL / serialization', () => {
     const def: DeleteDef = {
       kind: 'delete',
       from: 'order',
-      joins: [{ on: { source: 'order', field: 'userId' } }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '<', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 99 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' }],
     };

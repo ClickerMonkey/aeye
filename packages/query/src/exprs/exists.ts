@@ -26,11 +26,11 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export class ExistsExpr extends BoolExpr {
   static readonly KIND = 'exists' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean; test whether related rows exist. CORRELATE the inner query to the outer row with a comparison to the outer Type's field-ref." as const;
+  static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean; test whether related rows exist. CORRELATE the inner query to the outer row with a comparison to the outer Type's field-ref. To cross a relation, add a `relation` join in the INNER query (`joins:[{on:{kind:'relation',source,field,as}}]`) and compare the joined alias's field to the outer scalar." as const;
   /**
-   * Worked example (see `ExprClass.EXAMPLES`) — outer rows that HAVE a matching
-   * related row: the inner `where` CORRELATES to the outer row via a comparison
-   * (`order.userId = user.id`) — the correlation models most often omit.
+   * Worked example (see `ExprClass.EXAMPLES`) — outer `user` rows that HAVE a
+   * matching `order`: the inner query joins `order → user` (relation) as `u` and
+   * CORRELATES via `u.id = user.id` — the correlation models most often omit.
    */
   static readonly EXAMPLES: readonly string[] = [
     JSON.stringify({
@@ -44,11 +44,12 @@ export class ExistsExpr extends BoolExpr {
             kind: 'select',
             fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
             from: { kind: 'type', type: 'order' },
+            joins: [{ on: { kind: 'relation', source: 'order', field: 'user', as: 'u' } }],
             where: [
               {
                 kind: 'comparison',
                 op: '=',
-                left: { kind: 'field-ref', source: 'order', field: 'userId' },
+                left: { kind: 'field-ref', source: 'u', field: 'id' },
                 right: { kind: 'field-ref', source: 'user', field: 'id' },
               },
             ],

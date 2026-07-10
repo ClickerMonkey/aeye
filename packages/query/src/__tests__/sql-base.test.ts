@@ -171,24 +171,28 @@ describe('SQL — base (ANSI) dialect', () => {
           },
         },
       ],
-      // The final SELECT's fan-out aggregate would prepend its OWN `WITH agg_…`
-      // — it must be hoisted into the outer WITH so exactly one `WITH` is emitted.
+      // The final SELECT's fan-out aggregate now runs over an explicit relation
+      // JOIN (no hidden pre-aggregation CTE), so only the outer `big` CTE remains
+      // — still exactly one `WITH` with no second one hoisted in.
       final: {
         kind: 'select',
         fields: [
           { expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' },
-          { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'relation-path', source: 'user', path: ['orders', 'total'] } } }, as: 'spent' },
+          { expr: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'orders', field: 'total' } } }, as: 'spent' },
         ],
         from: { kind: 'type', type: 'user' },
+        joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'orders' } }],
       },
     };
     const out = sql(def);
-    // EXACTLY one `WITH ` and both CTE definitions live under it.
+    // EXACTLY one `WITH ` — the single explicit `big` CTE.
     expect(out.sql.split('WITH ').length - 1).toBe(1);
     expect(out.sql.startsWith('WITH "big" AS (')).toBe(true);
-    expect(out.sql).toContain('"agg_sum_user_orders" AS (');
-    // The final SELECT body follows the single WITH (no second `WITH`).
-    expect(out.sql).toContain('LEFT JOIN "agg_sum_user_orders" ON "user"."id" = "agg_sum_user_orders"."k"');
+    // The fan-out aggregate is a plain relation JOIN the aggregate runs over —
+    // no `agg_…` CTE, no second WITH.
+    expect(out.sql).not.toContain('agg_sum');
+    expect(out.sql).toContain('LEFT JOIN "order" AS "orders" ON "user"."id" = "orders"."userId"');
+    expect(out.sql).toContain('sum("orders"."total") AS "spent"');
     expect(out.sql).not.toContain('AS (SELECT "user"');
   });
 });

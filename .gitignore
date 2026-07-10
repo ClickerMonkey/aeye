@@ -53,3 +53,5 @@ coverage/
 
 # Profiling
 *.cpuprofile
+packages/query/integration/reports/
+

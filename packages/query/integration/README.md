@@ -175,8 +175,8 @@ Structural (read the def; **default `'warn'`**; fail cleanly if the model produc
 | --- | --- |
 | `a.kind(k)` | the top-level query `kind === k`. |
 | `a.from(type)` | the SELECT's `from` binds Type `type` (or a join lands on it). |
-| `a.joins(to?)` | ≥1 relation traversal (explicit join **or** `relation-path` hop); with `to`, some hop's resolved TARGET Type is `to`. |
-| `a.filtersOn(field)` | a `field-ref` to `field` (or a `relation-path` ending in it) appears in a WHERE / HAVING / join-`and` condition. |
+| `a.joins(to?)` | ≥1 relation join; with `to`, some join's resolved TARGET Type is `to`. |
+| `a.filtersOn(field)` | a `field-ref` to `field` (on the base source or a joined alias) appears in a WHERE / HAVING / join-`and` condition. |
 | `a.groupBy()` / `a.having()` | some select has a non-empty `groupBy` / `having`. |
 | `a.aggregate(fn?)` | an `aggregate` expr appears (optionally `function === fn`, e.g. `'sum'`; `count(*)` is `'count'`). |
 | `a.orderBy({ by?, dir? })` | a non-empty query-level ORDER BY; optionally a term referencing output/field `by`, and/or with direction `dir`. |
@@ -202,8 +202,8 @@ Structural assertions read the def by a single **walk** (`shapeOf` in
 `assert.ts`) that collects every select / set-op / expr, the WHERE/HAVING/join
 condition roots (and the field names they reference), the query-level ORDER BY
 terms, LIMIT/OFFSET values, and the `from` sources + joins. `a.joins(to)` and
-`a.from(type)` resolve a relation hop's TARGET Type through the engine registry
-(a `relation-path`'s `source` → its Type, then each segment's relation `.to`).
+`a.from(type)` resolve a relation join's TARGET Type through the engine registry
+(a join `on`'s `source` → its Type, then the relation `field`'s `.to`).
 
 The **data is designed so a wrong query returns a wrong answer** (see the header
 of `data/generate.ts`): two same-named customers/products that differ by id,
@@ -247,9 +247,10 @@ passes when the model's attempt is rejected (produces no valid query).
    `a.refused(sample)` for a refusal, also `'error'`). Every case needs **≥1
    `'error'` assertion**; this is it. Prefer
    explicit filters and `e.*` builders. A few idioms this schema requires:
-   - filter a relation by the target's id via a relation path (the field is the
-     CLEAN relation name, not the hidden FK column):
-     `e.eq(e.path('salesOrder','customer','id'), e.value(1))`;
+   - filter a relation by the target's id via a relation JOIN (the join `on`
+     names the CLEAN relation field; then field-ref the joined alias):
+     `joins: [e.relJoin('salesOrder','customer','customer')]` +
+     `e.eq(e.ref('customer','id'), e.value(1))`;
    - compare a `date` field against a date-typed literal built with `makeDate`:
      `e.gte(e.ref('salesOrder','orderedAt'), e.makeDate(e.value(2026), e.value(1), e.value(1)))`.
 4. Write a `note` naming the **trap** the case exercises.

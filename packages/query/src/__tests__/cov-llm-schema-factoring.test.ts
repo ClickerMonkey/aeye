@@ -79,7 +79,7 @@ const VALID: ReadonlyArray<readonly [string, QueryDef]> = [
   ['param limit', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' }, limit: { kind: 'param', name: 'n' } }],
   ['text-search', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' }, where: [{ kind: 'text-search', source: 'user', field: 'email', query: 'ada' }] }],
   ['order-by', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' }, order: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, dir: 'asc' }] }],
-  ['relation join', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }], from: { kind: 'type', type: 'order' }, joins: [{ on: { source: 'order', field: 'userId' } }] }],
+  ['relation join', { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }], from: { kind: 'type', type: 'order' }, joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'buyer' } }] }],
   ['expr query', { kind: 'expr', expr: { kind: 'literal', value: 1 } }],
   ['set operation', { kind: 'union', left: { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' } }, right: { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user' } } }],
 ];

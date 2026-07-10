@@ -9,7 +9,6 @@ import type { SchemaOptions } from '../node';
 import { LiteralExpr } from './literal';
 import { OutputRefExpr } from './output-ref';
 import { FieldRefExpr } from './field-ref';
-import { RelationPathExpr } from './relation-path';
 import { ParamExpr } from './param';
 import { BinaryExpr } from './binary';
 import { UnaryExpr } from './unary';
@@ -36,7 +35,6 @@ export {
   LiteralExpr,
   OutputRefExpr,
   FieldRefExpr,
-  RelationPathExpr,
   ParamExpr,
   BinaryExpr,
   UnaryExpr,
@@ -65,7 +63,6 @@ export const BUILTIN_EXPRS: readonly ExprClass[] = [
   LiteralExpr,
   OutputRefExpr,
   FieldRefExpr,
-  RelationPathExpr,
   ParamExpr,
   BinaryExpr,
   UnaryExpr,

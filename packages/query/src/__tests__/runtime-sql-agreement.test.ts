@@ -7,8 +7,8 @@
  *  - P0-4: text comparisons case-fold by default (the package's insensitive text
  *    default) in BOTH the runtime and SQL, even for two string literals; a
  *    `sensitive:true` field stays case-sensitive in both.
- *  - P0-5: a `relation-path` crossing a relation that is NOT an authored join
- *    resolves the joined value at runtime, matching the join `toSQL` synthesizes.
+ *  - P0-5: a relation JOIN crossing a belongs-to relation resolves the joined
+ *    value at runtime, matching the LEFT JOIN `toSQL` synthesizes.
  *
  * Since these tests run with no live SQL database, "agreement" is shown by (a)
  * the runtime result rows being the SQL-correct ones and (b) the emitted SQL
@@ -142,18 +142,19 @@ describe('runtime ↔ SQL agreement — P0-4 text case-sensitivity', () => {
   });
 });
 
-// ─── P0-5: relation-path joins synthesized at runtime ────────────────────────
+// ─── P0-5: relation joins resolved at runtime ────────────────────────────────
 
-describe('runtime ↔ SQL agreement — P0-5 relation-path runtime joins', () => {
-  it('a relation-path over a NON-authored join resolves the joined value (run + SQL)', async () => {
+describe('runtime ↔ SQL agreement — P0-5 relation join runtime resolution', () => {
+  it('a relation join crossing order → user resolves the joined value (run + SQL)', async () => {
     const fx = runtimeFixture();
-    // FROM order, reading `order.userId.name` WITHOUT an authored join. Previously
-    // the runtime returned NULL (no materialized join); now it synthesizes the
-    // same LEFT JOIN the planner emits and resolves the user's name.
+    // FROM order, crossing `order.userId` into `user` via a relation join and
+    // reading `name`. The runtime synthesizes the same LEFT JOIN the planner
+    // emits and resolves the user's name.
     const def: SelectDef = {
       kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, as: 'cust' }],
+      fields: [{ expr: { kind: 'field-ref', source: 'order_userId', field: 'name' }, as: 'cust' }],
       from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
       order: [{ expr: ref('order', 'id'), dir: 'asc' }],
     };
     // orders 10,11 ⇒ user 1 (Ada); 12,13 ⇒ user 2 (Bob).
@@ -168,7 +169,7 @@ describe('runtime ↔ SQL agreement — P0-5 relation-path runtime joins', () =>
     expect(sql).toContain('"order"."userId" = "order_userId"."id"');
   });
 
-  it('a relation-path with a missing related record reads NULL (LEFT-join miss)', async () => {
+  it('a relation join with a missing related record reads NULL (LEFT-join miss)', async () => {
     // An order whose userId points at no user resolves to NULL — matching a LEFT
     // JOIN that finds no match. Uses an isolated dataset so the shared fixture is
     // untouched.
@@ -184,8 +185,9 @@ describe('runtime ↔ SQL agreement — P0-5 relation-path runtime joins', () =>
     });
     const def: SelectDef = {
       kind: 'select',
-      fields: [{ expr: { kind: 'relation-path', source: 'order', path: ['userId', 'name'] }, as: 'cust' }],
+      fields: [{ expr: { kind: 'field-ref', source: 'order_userId', field: 'name' }, as: 'cust' }],
       from: { kind: 'type', type: 'order' },
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
       order: [{ expr: ref('order', 'id'), dir: 'asc' }],
     };
     expect((await engine.run(def)).rows).toEqual([{ cust: 'Ada' }, { cust: null }]);

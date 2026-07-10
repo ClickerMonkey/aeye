@@ -29,7 +29,7 @@ describe('relation joins', () => {
         { expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'orderId' },
       ],
       from: { kind: 'type', type: 'user' },
-      joins: [{ on: { source: 'user', field: 'orders' }, joinType: 'left' }],
+      joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, joinType: 'left' }],
       order: [
         { expr: { kind: 'field-ref', source: 'user', field: 'id' }, dir: 'asc' },
         { expr: { kind: 'field-ref', source: 'order', field: 'id' }, dir: 'asc' },
@@ -61,7 +61,7 @@ describe('relation joins', () => {
       ],
       from: { kind: 'type', type: 'order' },
       // belongs-to: order.userId = user.id (no FK hints — the name is the key).
-      joins: [{ on: { source: 'order', field: 'userId' }, as: 'c', joinType: 'inner' }],
+      joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'c' }, joinType: 'inner' }],
       order: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, dir: 'asc' }],
     };
     const result = await engine.run(def);
@@ -73,7 +73,7 @@ describe('relation joins', () => {
     ]);
   });
 
-  it('a join whose target type collides with the FROM type reports source.duplicate; `as` resolves it', async () => {
+  it('a join whose `as` collides with the FROM source reports source.duplicate; a distinct `as` resolves it', async () => {
     const registry = createRegistry();
     registry.registerType(registry.parseType(userTypeDef));
     registry.registerType(registry.parseType(orderTypeDef));
@@ -82,24 +82,23 @@ describe('relation joins', () => {
       executors: { user: arrayExecutor(userRows), order: arrayExecutor(orderRows) },
     });
 
-    // FROM user, then CHAIN user.orders (binds `order`) then order.userId (a
-    // belongs-to back to `user`): the second hop binds under the target type
-    // name `user`, colliding with the FROM source `user`.
+    // FROM user, then CHAIN user.orders (as `order`) then order.userId (a
+    // belongs-to back to user) bound under `as: 'user'` — colliding with the
+    // FROM source `user`.
     const colliding: SelectDef = {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' }],
       from: { kind: 'type', type: 'user' },
       joins: [
-        { on: { source: 'user', field: 'orders' } },
-        { on: { source: 'order', field: 'userId' } },
+        { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } },
+        { on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } },
       ],
     };
     const problems = engine.validateQuery(colliding);
     expect(problems.list.some((p) => p.code === 'source.duplicate')).toBe(true);
 
-    // Adding `as` on the final hop renames it (intermediate hop still binds
-    // `order`), clearing the collision. The query then validates, runs, and
-    // emits SQL that aliases the joined-back user as `owner`.
+    // A distinct final `as` (`owner`) clears the collision. The query then
+    // validates, runs, and emits SQL that aliases the joined-back user as `owner`.
     const resolved: SelectDef = {
       kind: 'select',
       fields: [
@@ -107,10 +106,10 @@ describe('relation joins', () => {
         { expr: { kind: 'field-ref', source: 'owner', field: 'id' }, as: 'ownerId' },
       ],
       from: { kind: 'type', type: 'user' },
-      // Chain: user.orders (binds `order`) then order.userId AS owner.
+      // Chain: user.orders (as `order`) then order.userId AS owner.
       joins: [
-        { on: { source: 'user', field: 'orders' }, joinType: 'inner' },
-        { on: { source: 'order', field: 'userId' }, as: 'owner', joinType: 'inner' },
+        { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' }, joinType: 'inner' },
+        { on: { kind: 'relation', source: 'order', field: 'userId', as: 'owner' }, joinType: 'inner' },
       ],
       order: [
         { expr: { kind: 'field-ref', source: 'user', field: 'id' }, dir: 'asc' },
