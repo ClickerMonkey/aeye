@@ -398,15 +398,25 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   // JSON. The call stashes the reason and `ToolInterrupt`s to stop the loop;
   // `ask` reads `rejectRef.reason` and reports the case as a clean refusal.
   const rejectRef: { reason: string | null } = { reason: null };
+  // GATE: reject only takes effect AFTER the model has actually attempted the
+  // write and hit a genuine POLICY error (a `*-readonly` validation code). This
+  // stops reject from being a "can't format this" give-up on a perfectly valid
+  // write (observed: GPT-5 over-rejecting allowed inserts). A valid insert never
+  // produces a `-readonly` code, so it can't be rejected; a forbidden write does.
+  const policyRef = { sawReadonly: false };
   const rejectTool = new Tool({
     name: 'reject',
     description: 'Decline the request: it targets data that cannot be written.',
     instructions:
-      'Call `reject` ONLY when the request cannot be fulfilled because it writes data that policy forbids — never because the JSON is hard to format, and NEVER substitute a read-only SELECT for a forbidden write. Pick the `reason`: `field-read-only` (setting a server-generated / read-only field, e.g. an `id`), `type-read-only` (writing a whole read-only Type), `append-only-no-delete` (deleting from an append-only Type), `immutable-field` (changing a field that can never change), `reference-data` (editing reference/lookup data).',
+      'Call `reject` ONLY AFTER you have attempted the write and it was refused because policy forbids it (a read-only / append-only error) — never because the JSON is hard to format, and NEVER substitute a read-only SELECT for a forbidden write. Pick the `reason`: `field-read-only` (setting a server-generated / read-only field, e.g. an `id`), `type-read-only` (writing a whole read-only Type), `append-only-no-delete` (deleting from an append-only Type), `immutable-field` (changing a field that can never change), `reference-data` (editing reference/lookup data).',
     schema: z.object({
       reason: z.enum(['field-read-only', 'type-read-only', 'append-only-no-delete', 'immutable-field', 'reference-data']),
     }),
     call: (input: { reason: string }): string => {
+      if (!policyRef.sawReadonly) {
+        // Not a policy failure — send the model back to build the query.
+        return 'reject is not valid here: this request is NOT forbidden by policy. Build the query as asked. (reject is only allowed AFTER an attempted write is refused as read-only / append-only.)';
+      }
       rejectRef.reason = input.reason;
       throw new ToolInterrupt('rejected');
     },
@@ -448,7 +458,11 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     // `Query`; problems ⇒ the `QueryToolError` whose report the prompt re-prompts.
     parse: (raw: unknown): Query | QueryToolError => {
       const r = parseQueryTool(engine, raw, options);
-      if (r instanceof QueryToolError) errRef.last = r;
+      if (r instanceof QueryToolError) {
+        errRef.last = r;
+        // A genuine write-policy failure unlocks the reject tool for this ask.
+        if (r.problems.list.some((p) => /\.(type|field)-readonly$/.test(p.code))) policyRef.sawReadonly = true;
+      }
       return r;
     },
     metadata,
@@ -458,6 +472,7 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
     ask: async (content): Promise<AskResult> => {
       errRef.last = null;
       rejectRef.reason = null;
+      policyRef.sawReadonly = false;
       // Stream (not `get('result')`) for ONE reason: to COUNT model requests —
       // one per initial call + each `outputRetries` re-prompt / delivery-fallback
       // retry — which is the `Nc` retry-storm / fallback-fired signal in the log.
