@@ -14,7 +14,7 @@ import { asFieldType } from '../resolved-type';
 import type { FieldType } from '../field-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { childExprSchema } from './_shared';
+import { childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -111,6 +111,13 @@ export class BetweenExpr extends BoolExpr {
       const ft = asFieldType(rt);
       if (operand instanceof ParamExpr) {
         if (vft) scope.params.observe(operand.name, vft, [...here, key]);
+        return;
+      }
+      // A RELATION field-ref is not a scalar value — reject a relation vs the
+      // value (or a mismatched relation) before the scalar comparability check.
+      const relProblem = relationValueProblem(v, rt);
+      if (relProblem) {
+        p.at(key, () => p.error(RELATION_VS_VALUE, relProblem));
         return;
       }
       if (vft && ft && !vft.comparableWith(ft)) {

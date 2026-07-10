@@ -17,14 +17,14 @@ import type { ResolvedType } from '../resolved-type';
 import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL } from './_shared';
+import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef, list, queryDefRef, isRecord, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { ParamExpr } from './param';
-import { inferSubqueryOutput } from './_subquery';
+import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import { Value } from '../runtime/value';
 import { not3 } from '../runtime/tri';
 import { firstField } from '../runtime/record';
@@ -37,7 +37,7 @@ import { addCost } from '../cost';
 export class InExpr extends BoolExpr {
   static readonly KIND = 'in' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). To project a value across a relation, add a `relation` join in the subquery and field-ref the joined alias. Set `not:true` for NOT IN." as const;
+  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). To project a value across a relation, add a `relation` join in the subquery and field-ref the joined alias — do NOT project/compare a relation field-ref as a scalar id. To correlate the subquery, JOIN the relation and compare the joined key to the outer scalar. Set `not:true` for NOT IN." as const;
   /**
    * Worked examples (see `ExprClass.EXAMPLES`) — the two `in` shapes: an explicit
    * value LIST, and a single-field SUBQUERY that crosses a relation via a
@@ -60,6 +60,28 @@ export class InExpr extends BoolExpr {
         fields: [{ expr: { kind: 'field-ref', source: 'u', field: 'id' } }],
         from: { kind: 'type', type: 'order' },
         joins: [{ on: { kind: 'relation', source: 'order', field: 'user', as: 'u' } }],
+      },
+    } satisfies InExprDef),
+    // A CORRELATED subquery: `order.id IN (ids of orders whose customer is the
+    // SAME as the outer order's)`. The subquery joins BOTH sides' `customer`
+    // relation and compares the JOINED keys (`c2.id = c.id`) — never a relation
+    // field-ref to a scalar. (`c` is the outer query's join alias.)
+    JSON.stringify({
+      kind: 'in',
+      value: { kind: 'field-ref', source: 'order', field: 'id' },
+      in: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'o2', field: 'id' } }],
+        from: { kind: 'aliased', type: 'order', as: 'o2' },
+        joins: [{ on: { kind: 'relation', source: 'o2', field: 'customer', as: 'c2' } }],
+        where: [
+          {
+            kind: 'comparison',
+            op: '=',
+            left: { kind: 'field-ref', source: 'c2', field: 'id' },
+            right: { kind: 'field-ref', source: 'c', field: 'id' },
+          },
+        ],
       },
     } satisfies InExprDef),
   ];
@@ -165,7 +187,10 @@ export class InExpr extends BoolExpr {
           const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx)));
           const eft = asFieldType(rt);
           const skip = el instanceof ParamExpr || this.value instanceof ParamExpr;
-          if (!skip && vft && eft && !vft.comparableWith(eft)) {
+          const relProblem = skip ? undefined : relationValueProblem(v, rt);
+          if (relProblem) {
+            p.at(i, () => p.error(RELATION_VS_VALUE, relProblem));
+          } else if (!skip && vft && eft && !vft.comparableWith(eft)) {
             p.at(i, () =>
               p.error(
                 'in.type',
@@ -180,15 +205,22 @@ export class InExpr extends BoolExpr {
         });
       });
     } else if (this.subquery) {
-      const out = inferSubqueryOutput(engine, scope, this.subquery);
+      // FULLY VALIDATE the (correlated) subquery so a bad ref inside it surfaces,
+      // AND learn its output type for the value-comparability check.
+      const out = p.at('in', () => validateSubqueryOutput(engine, scope, p, ctx, this.subquery!));
       const oft = asFieldType(out);
-      if (vft && oft && !(this.value instanceof ParamExpr) && !vft.comparableWith(oft)) {
-        p.at('in', () =>
-          p.error(
-            'in.type',
-            `IN subquery field (${oft.resolve()}) is not comparable with the value (${vft.resolve()}).`,
-          ),
-        );
+      if (!(this.value instanceof ParamExpr)) {
+        const relProblem = relationValueProblem(v, out);
+        if (relProblem) {
+          p.at('in', () => p.error(RELATION_VS_VALUE, relProblem));
+        } else if (vft && oft && !vft.comparableWith(oft)) {
+          p.at('in', () =>
+            p.error(
+              'in.type',
+              `IN subquery field (${oft.resolve()}) is not comparable with the value (${vft.resolve()}).`,
+            ),
+          );
+        }
       }
     }
 

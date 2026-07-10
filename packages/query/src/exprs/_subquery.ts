@@ -16,6 +16,8 @@ import type { QueryDef } from '../schema';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
+import type { Problems } from '../problem';
+import type { ValidateContext } from '../expr';
 
 /** Infer a subquery's output `ResolvedType` via real query resolution. */
 export function inferSubqueryOutput(
@@ -24,4 +26,28 @@ export function inferSubqueryOutput(
   def: QueryDef,
 ): ResolvedType {
   return engine.parseQuery(def).resolve(engine, scope);
+}
+
+/**
+ * FULLY VALIDATE a subquery's inner query (accumulating its problems into `p`)
+ * and return its output `ResolvedType`. Used by `exists` / `in` (subquery form)
+ * / `subquery` so an error INSIDE the inner query surfaces.
+ *
+ * CORRELATION-AWARE: the inner query's own `validateWalk` seeds a CHILD scope
+ * (binding its FROM / JOIN sources) whose PARENT is `scope` — so a correlated
+ * ref inside the subquery still resolves the OUTER sources via the parent chain,
+ * exactly as `resolve`'s child-scope binding does. Total (never throws); the
+ * caller wraps the call in the right `p.at(...)` path so problems nest under the
+ * subquery.
+ */
+export function validateSubqueryOutput(
+  engine: QueryEngine,
+  scope: QueryScope,
+  p: Problems,
+  ctx: ValidateContext,
+  def: QueryDef,
+): ResolvedType {
+  const q = engine.parseQuery(def);
+  q.validateWalk(engine, scope, p, ctx);
+  return q.resolve(engine, scope);
 }

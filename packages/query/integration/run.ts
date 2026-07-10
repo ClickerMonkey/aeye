@@ -347,9 +347,10 @@ function createAsker(apiKey: string, modelId: string, engine: QueryEngine): Quer
   // Same boundary cast the tool applies to its own wire schema (see tool.ts).
   const wireSchema = querySchema(engine, options) as QuerySchema;
   // `describeEngine` now folds worked examples (per expr kind, function, and query
-  // kind) in from the nodes' own `EXAMPLES` — one source of truth. `maxExamples`
-  // caps how many render per node/function.
-  const instructions = describeEngine(engine, { types, functions: 'all', maxExamples: 2 });
+  // kind) in from the nodes' own `EXAMPLES` — one source of truth. Render ALL of
+  // them for the eval (no `maxExamples` cap) so the model sees every worked
+  // correlation pattern.
+  const instructions = describeEngine(engine, { types, functions: 'all' });
 
   const mode = evalMode();
 

@@ -16,7 +16,7 @@ import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { childQuerySchema, emitSubquerySQL } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, queryDefRef } from '../shape';
-import { inferSubqueryOutput } from './_subquery';
+import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
 import { Value } from '../runtime/value';
@@ -29,7 +29,7 @@ import type { Cost } from '../cost';
 export class SubqueryExpr extends Expr {
   static readonly KIND = 'subquery' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — its inner `query` must project exactly ONE field and yield one row. Use where ONE value is needed (e.g. comparing a field against an aggregate over related rows). To read across a relation inside the subquery, add a `relation` join and field-ref the joined alias. For membership use `in`, for existence use `exists`." as const;
+  static readonly INSTRUCTIONS = "A scalar (single-value) subquery in value position — its inner `query` must project exactly ONE field and yield one row. Use where ONE value is needed (e.g. comparing a field against an aggregate over related rows). To read across a relation inside the subquery, add a `relation` join and field-ref the joined alias. To CORRELATE to the outer row, JOIN the relation and compare the joined key to the outer scalar — do NOT compare a relation field-ref to an id/scalar. For membership use `in`, for existence use `exists`." as const;
   /**
    * Worked example (see `ExprClass.EXAMPLES`) — a scalar subquery in value
    * position: an aggregate over related rows, usable e.g. as one side of a
@@ -51,6 +51,37 @@ export class SubqueryExpr extends Expr {
           },
         ],
         from: { kind: 'type', type: 'order' },
+      },
+    } satisfies SubqueryExprDef),
+    // CORRELATED to the SAME customer as the outer row: the outer query joins
+    // `salesOrder.customer` as `c`; this subquery re-scans `salesOrder` (aliased
+    // `o2`), JOINS its `customer` as `c2`, and correlates `c2.id = c.id` (the
+    // OUTER join alias) — the max total for that customer. NEVER `o2.customer =
+    // c.id` (a relation vs a scalar).
+    JSON.stringify({
+      kind: 'subquery',
+      query: {
+        kind: 'select',
+        fields: [
+          {
+            expr: {
+              kind: 'aggregate',
+              function: 'max',
+              args: { value: { kind: 'field-ref', source: 'o2', field: 'total' } },
+            },
+            as: 'customerMax',
+          },
+        ],
+        from: { kind: 'aliased', type: 'salesOrder', as: 'o2' },
+        joins: [{ on: { kind: 'relation', source: 'o2', field: 'customer', as: 'c2' } }],
+        where: [
+          {
+            kind: 'comparison',
+            op: '=',
+            left: { kind: 'field-ref', source: 'c2', field: 'id' },
+            right: { kind: 'field-ref', source: 'c', field: 'id' },
+          },
+        ],
       },
     } satisfies SubqueryExprDef),
   ];
@@ -97,16 +128,16 @@ export class SubqueryExpr extends Expr {
     return inferSubqueryOutput(engine, scope, this.query);
   }
 
-  /** Infer the output type (full subquery validation is deferred to Phase 3). */
+  /** FULLY VALIDATE the correlated inner query (problems nested under `query`) and return its output type. */
   validateWalk(
     engine: QueryEngine,
     scope: QueryScope,
-    _p: Problems,
-    _ctx: ValidateContext,
+    p: Problems,
+    ctx: ValidateContext,
   ): ResolvedType {
-    // Phase 3 will validate the subquery in full; this phase only infers the
-    // output type (surfacing structural errors via the seam).
-    return inferSubqueryOutput(engine, scope, this.query);
+    // Validate the inner query in a correlation-aware child scope so a bad ref
+    // inside it surfaces; return its resolved output type for the value context.
+    return p.at('query', () => validateSubqueryOutput(engine, scope, p, ctx, this.query));
   }
 
   /** Cost of running the inner query in a child scope. */

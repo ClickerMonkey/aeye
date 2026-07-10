@@ -117,6 +117,50 @@ export class SelectQuery extends Query {
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'filters', source: 'order', fields: ['total'] }],
     } satisfies SelectDef),
+    // The BIGGEST order per customer — CORRELATE a subquery to the outer row by
+    // JOINING the relation and comparing the JOINED KEY, never a relation
+    // field-ref to an id. The outer query joins `salesOrder.customer` as `c`; a
+    // scalar subquery re-scans `salesOrder` (aliased `o2`), joins ITS customer as
+    // `c2`, and correlates `c2.id = c.id` (the OUTER join alias) to get that
+    // customer's max total.
+    JSON.stringify({
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'salesOrder', field: 'id' } }],
+      from: { kind: 'type', type: 'salesOrder' },
+      joins: [{ on: { kind: 'relation', source: 'salesOrder', field: 'customer', as: 'c' } }],
+      where: [
+        {
+          kind: 'comparison',
+          op: '=',
+          left: { kind: 'field-ref', source: 'salesOrder', field: 'total' },
+          right: {
+            kind: 'subquery',
+            query: {
+              kind: 'select',
+              fields: [
+                {
+                  expr: {
+                    kind: 'aggregate',
+                    function: 'max',
+                    args: { value: { kind: 'field-ref', source: 'o2', field: 'total' } },
+                  },
+                },
+              ],
+              from: { kind: 'aliased', type: 'salesOrder', as: 'o2' },
+              joins: [{ on: { kind: 'relation', source: 'o2', field: 'customer', as: 'c2' } }],
+              where: [
+                {
+                  kind: 'comparison',
+                  op: '=',
+                  left: { kind: 'field-ref', source: 'c2', field: 'id' },
+                  right: { kind: 'field-ref', source: 'c', field: 'id' },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    } satisfies SelectDef),
   ];
   /** This query's `kind` discriminant. */
   readonly kind = SelectQuery.KIND;

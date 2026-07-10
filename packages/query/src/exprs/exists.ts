@@ -15,7 +15,7 @@ import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
 import { boolResult, childQuerySchema, emitSubquerySQL } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, queryDefRef } from '../shape';
-import { inferSubqueryOutput } from './_subquery';
+import { validateSubqueryOutput } from './_subquery';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Cost } from '../cost';
@@ -26,7 +26,7 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export class ExistsExpr extends BoolExpr {
   static readonly KIND = 'exists' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean; test whether related rows exist. CORRELATE the inner query to the outer row with a comparison to the outer Type's field-ref. To cross a relation, add a `relation` join in the INNER query (`joins:[{on:{kind:'relation',source,field,as}}]`) and compare the joined alias's field to the outer scalar." as const;
+  static readonly INSTRUCTIONS = "`[NOT] EXISTS (subquery)` → boolean; test whether related rows exist. To CORRELATE the inner query to the outer row, JOIN the relation in the INNER query (`joins:[{on:{kind:'relation',source,field,as}}]`) and compare the JOINED alias's key to the outer scalar (e.g. `{source:alias,field:'id'} = {outer field-ref}`). Do NOT compare a relation field-ref to an id/scalar — that is rejected." as const;
   /**
    * Worked example (see `ExprClass.EXAMPLES`) — outer `user` rows that HAVE a
    * matching `order`: the inner query joins `order → user` (relation) as `u` and
@@ -51,6 +51,40 @@ export class ExistsExpr extends BoolExpr {
                 op: '=',
                 left: { kind: 'field-ref', source: 'u', field: 'id' },
                 right: { kind: 'field-ref', source: 'user', field: 'id' },
+              },
+            ],
+          },
+        },
+      ],
+    } satisfies SelectDef),
+    // ANTI-JOIN: users with NO order over 100. `not:true` NOT EXISTS, correlated
+    // the SAME way — join `order → user` as `u` and compare `u.id = user.id`
+    // (the joined key to the outer scalar), PLUS an inner filter on `total`.
+    JSON.stringify({
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' } }],
+      from: { kind: 'type', type: 'user' },
+      where: [
+        {
+          kind: 'exists',
+          not: true,
+          query: {
+            kind: 'select',
+            fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+            from: { kind: 'type', type: 'order' },
+            joins: [{ on: { kind: 'relation', source: 'order', field: 'user', as: 'u' } }],
+            where: [
+              {
+                kind: 'comparison',
+                op: '=',
+                left: { kind: 'field-ref', source: 'u', field: 'id' },
+                right: { kind: 'field-ref', source: 'user', field: 'id' },
+              },
+              {
+                kind: 'comparison',
+                op: '>',
+                left: { kind: 'field-ref', source: 'order', field: 'total' },
+                right: { kind: 'literal', value: 100 },
               },
             ],
           },
@@ -106,16 +140,16 @@ export class ExistsExpr extends BoolExpr {
     return boolResult([], false, false);
   }
 
-  /** Exercise the subquery structural seam (so shape errors throw early) and resolve to bool. */
+  /** FULLY VALIDATE the correlated inner query (problems nested under `query`) and resolve to bool. */
   validateWalk(
     engine: QueryEngine,
     scope: QueryScope,
-    _p: Problems,
-    _ctx: ValidateContext,
+    p: Problems,
+    ctx: ValidateContext,
   ): ComputedResolved {
-    // Exercise the structural seam so subquery shape errors throw early;
-    // detailed subquery validation lands with the query classes (Phase 3).
-    inferSubqueryOutput(engine, scope, this.query);
+    // Validate the inner query in a correlation-aware child scope so a bad ref
+    // (e.g. a relation-vs-scalar correlation) INSIDE it surfaces.
+    p.at('query', () => validateSubqueryOutput(engine, scope, p, ctx, this.query));
     return this.resolve(engine, scope);
   }
 

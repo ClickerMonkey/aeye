@@ -24,7 +24,10 @@ import {
   anyAggregate,
   categoryOf,
   childExprSchema,
+  relationAsValueMessage,
+  RELATION_VS_VALUE,
 } from './_shared';
+import { relationOf } from '../resolved-type';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { LiteralExpr } from './literal';
@@ -139,6 +142,13 @@ export class BinaryExpr extends Expr {
 
     const checkNumeric = (operand: Expr, rt: ResolvedType, key: 'left' | 'right'): void => {
       if (exempt(operand)) return;
+      // A RELATION field-ref is a whole related row, never a number — reject it
+      // as an arithmetic operand with the join-it hint (not the generic type msg).
+      const rel = relationOf(rt);
+      if (rel) {
+        p.at(key, () => p.error(RELATION_VS_VALUE, relationAsValueMessage(rel)));
+        return;
+      }
       const cat = categoryOf(rt);
       // `+` over text is allowed (concatenation).
       if (this.op === '+' && cat === 'text') return;

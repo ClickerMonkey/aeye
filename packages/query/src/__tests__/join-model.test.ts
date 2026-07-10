@@ -5,7 +5,9 @@
  *  - A `relation` join reproduces the old belongs-to traversal EXACTLY (same
  *    synthesized FK key, LEFT by default, nullable-widened), read with a plain
  *    `{source, field}` field-ref into the REQUIRED `as` alias.
- *  - A `field-ref` to a RELATION field is a `ref.relation` validation error.
+ *  - A `field-ref` to a RELATION field resolves to the whole related Type (not a
+ *    scalar); comparing it to a SCALAR is a `compare.relation-vs-value` error,
+ *    while comparing two relations of the SAME target is allowed (compared by key).
  *  - A MANUAL source-def join adds a source with `and` as its ON condition.
  */
 import { describe, it, expect } from 'vitest';
@@ -72,18 +74,50 @@ describe('relation join reproduces the belongs-to traversal', () => {
   });
 });
 
-describe('a field-ref to a relation field is a ref.relation error', () => {
-  it('reports ref.relation with the join-it hint', () => {
+describe('a field-ref to a relation field resolves to the related Type', () => {
+  it('projects a relation field as a whole-Type output field (no ref.relation error)', () => {
     const fx = runtimeFixture();
     const def: SelectDef = {
       kind: 'select',
       fields: [{ expr: e.ref('order', 'userId').toJSON(), as: 'u' }],
       from: { kind: 'type', type: 'order' },
     };
+    // No blanket relation error: a relation field-ref is allowed, resolving to
+    // the whole related row (a `TypeResolved`).
     const problems = fx.engine.validateQuery(def);
-    const rel = problems.list.find((p) => p.code === 'ref.relation');
+    expect(problems.list.some((p) => p.code === 'ref.relation')).toBe(false);
+    const fields = fx.engine.parseQuery(def).outputFields(fx.engine, fx.engine.globalScope());
+    const u = fields.find((f) => f.name === 'u');
+    expect(u?.fieldType).toBe('type');
+  });
+
+  it('a has-many relation field-ref also resolves to the related Type', () => {
+    const fx = runtimeFixture();
+    // `user.orders` is the materialized has-many inverse (count > 1).
+    const def: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: e.ref('user', 'orders').toJSON(), as: 'o' }],
+      from: { kind: 'type', type: 'user' },
+    };
+    const fields = fx.engine.parseQuery(def).outputFields(fx.engine, fx.engine.globalScope());
+    expect(fields.find((f) => f.name === 'o')?.fieldType).toBe('type');
+  });
+
+  it('comparing a relation field-ref to a SCALAR is a compare.relation-vs-value error', () => {
+    const fx = runtimeFixture();
+    // `order.userId` is a relation; comparing it to the scalar `order.id` is the
+    // correlation bug — join the relation and compare the joined key instead.
+    const def: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: e.ref('order', 'id').toJSON() }],
+      from: { kind: 'type', type: 'order' },
+      where: [e.eq(e.ref('order', 'userId'), e.ref('order', 'id')).toJSON()],
+    };
+    const problems = fx.engine.validateQuery(def);
+    const rel = problems.list.find((p) => p.code === 'compare.relation-vs-value');
     expect(rel).toBeDefined();
     expect(rel!.message).toContain("kind:'relation'");
+    expect(rel!.message).toContain("'order.userId' is a relation");
   });
 });
 
@@ -91,9 +125,9 @@ describe('a manual source-def join uses `and` as its ON', () => {
   it('joins FROM order to a `type: user` source on an explicit predicate', async () => {
     const fx = runtimeFixture();
     // A MANUAL source-def join adds the `user` source directly, and `and` IS the
-    // full ON condition. Crossing the `order.userId` RELATION as a value is a
-    // `ref.relation` error, so the explicit ON is a plain SCALAR predicate here
-    // (`user.age > 40` ⇒ only Bob qualifies to join every order).
+    // full ON condition. Comparing the `order.userId` RELATION to a scalar is a
+    // `compare.relation-vs-value` error, so the explicit ON is a plain SCALAR
+    // predicate here (`user.age > 40` ⇒ only Bob qualifies to join every order).
     const def: SelectDef = {
       kind: 'select',
       fields: [

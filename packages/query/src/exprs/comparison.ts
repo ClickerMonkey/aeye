@@ -11,10 +11,10 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
-import { asFieldType } from '../resolved-type';
+import { asFieldType, valueFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { categoryOf, childExprSchema } from './_shared';
+import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -99,7 +99,7 @@ function lower(operand: SqlText): SqlText {
 export class ComparisonExpr extends BoolExpr {
   static readonly KIND = 'comparison' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`)." as const;
+  static readonly INSTRUCTIONS = "`left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`). Do NOT compare a RELATION field-ref to an id/scalar (e.g. `salesOrder.customer = customer.id`) — that is rejected: to correlate, JOIN the relation (`joins:[{on:{kind:'relation',source,field,as}}]`) and compare the joined key. Comparing two relations of the SAME target IS allowed (compared by FK key)." as const;
   readonly kind = ComparisonExpr.KIND;
 
   /** Wrap `left <op> right` as a scalar comparison predicate. */
@@ -184,8 +184,16 @@ export class ComparisonExpr extends BoolExpr {
           p.error('comparison.like', `Operator '${this.op}' requires a text right operand.`),
         );
       }
-    } else if (!exempt(this.left) && !exempt(this.right) && lft && rft) {
-      if (!lft.comparableWith(rft)) {
+    } else if (!exempt(this.left) && !exempt(this.right)) {
+      // A RELATION field-ref is a whole related row, not a scalar: reject it as a
+      // value (the correlation bug) unless compared to another same-target
+      // relation (then it compares by FK key). Checked before the scalar
+      // comparability check (a relation resolves to a Type, so `lft`/`rft` would
+      // otherwise be undefined and the mismatch would pass silently).
+      const relProblem = relationValueProblem(l, r);
+      if (relProblem) {
+        p.error(RELATION_VS_VALUE, relProblem);
+      } else if (lft && rft && !lft.comparableWith(rft)) {
         p.error(
           'comparison.type',
           `Cannot compare ${lft.resolve()} with ${rft.resolve()} using '${this.op}'.`,
@@ -193,12 +201,15 @@ export class ComparisonExpr extends BoolExpr {
       }
     }
 
-    // Param inference: a param takes the OTHER operand's field type.
-    if (this.left instanceof ParamExpr && rft) {
-      scope.params.observe(this.left.name, rft, [...here, 'left']);
+    // Param inference: a param takes the OTHER operand's VALUE type (a relation
+    // sibling contributes its FK key type, so `relation = :param` types `:param`).
+    const lvt = valueFieldType(l);
+    const rvt = valueFieldType(r);
+    if (this.left instanceof ParamExpr && rvt) {
+      scope.params.observe(this.left.name, rvt, [...here, 'left']);
     }
-    if (this.right instanceof ParamExpr && lft) {
-      scope.params.observe(this.right.name, lft, [...here, 'right']);
+    if (this.right instanceof ParamExpr && lvt) {
+      scope.params.observe(this.right.name, lvt, [...here, 'right']);
     }
 
     return this.resolve(engine, scope);

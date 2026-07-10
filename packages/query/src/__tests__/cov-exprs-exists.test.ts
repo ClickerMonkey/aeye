@@ -12,12 +12,18 @@ import type { ExprDef, QueryDef, SelectDef } from '../schema';
 
 const fx = fixture();
 
-/** A subquery of `order` rows correlated to the outer `user` (its buyer). */
+/**
+ * A subquery of `order` rows correlated to the outer `user` (its buyer). The
+ * correlation JOINS the `order.userId` relation (as `u`) and compares the joined
+ * key `u.id` to the outer `user.id` — the CORRECT pattern (comparing the relation
+ * field-ref `order.userId` to the scalar `user.id` is a `compare.relation-vs-value`).
+ */
 const ordersOfUser: QueryDef = {
   kind: 'select',
   fields: [{ expr: ref('order', 'id') }],
   from: { kind: 'type', type: 'order' },
-  where: [cmp('=', ref('order', 'userId'), ref('user', 'id'))],
+  joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'u' } }],
+  where: [cmp('=', ref('u', 'id'), ref('user', 'id'))],
 };
 
 /** A SELECT of `user.id` filtered by an `[NOT] EXISTS` predicate (ordered). */
@@ -44,9 +50,30 @@ describe('ExistsExpr', () => {
     if (rt.kind === 'computed') expect(rt.nullable).toBe(false);
   });
 
-  it('validateWalk exercises the subquery seam and resolves to bool', () => {
-    const p = fx.engine.validateExpr({ kind: 'exists', query: ordersOfUser }, typeScope(fx));
+  it('validateWalk validates the correlated inner query and resolves to bool', () => {
+    // Bind the OUTER `user` source the subquery correlates to (its `user.id`).
+    const scope = fx.engine.globalScope();
+    scope.bind('user', { kind: 'type', type: fx.user, source: 'user', synthetic: false });
+    const p = fx.engine.validateExpr({ kind: 'exists', query: ordersOfUser }, scope);
     expect(p.hasErrors).toBe(false);
+  });
+
+  it('surfaces a BAD ref INSIDE the correlated subquery (the relation-vs-scalar bug)', () => {
+    const scope = fx.engine.globalScope();
+    scope.bind('user', { kind: 'type', type: fx.user, source: 'user', synthetic: false });
+    // The classic correlation bug: comparing the RELATION `order.userId` to the
+    // scalar `user.id` — now caught inside the subquery (was silent before).
+    const bad: QueryDef = {
+      kind: 'select',
+      fields: [{ expr: ref('order', 'id') }],
+      from: { kind: 'type', type: 'order' },
+      where: [cmp('=', ref('order', 'userId'), ref('user', 'id'))],
+    };
+    const p = fx.engine.validateExpr({ kind: 'exists', query: bad }, scope);
+    const rel = p.list.find((x) => x.code === 'compare.relation-vs-value');
+    expect(rel).toBeDefined();
+    // Nested under the exists `query` path.
+    expect(rel!.path).toContain('query');
   });
 
   it('cost is the inner subquery scan cost', () => {

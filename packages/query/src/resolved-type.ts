@@ -16,6 +16,32 @@ import type { Type } from './type';
 import type { Field } from './field';
 import type { FieldType } from './field-type';
 
+/**
+ * A field-ref to a RELATION field resolves to the RELATED Type (a whole row),
+ * carrying this marker so operators can tell it apart from a scalar value. It
+ * records the ORIGINATING `source.field` (for diagnostics + the FK-key column
+ * to compare by) and the relation's target Type name, so a relation-vs-relation
+ * comparison is compared by FK key and a relation-vs-scalar comparison is
+ * rejected (`compare.relation-vs-value`).
+ */
+export interface RelationResolved {
+  /** The bound source the relation field is read from. */
+  readonly source: string;
+  /** The relation field's name on that source. */
+  readonly field: string;
+  /** The LOCAL key column carrying the value a comparison should compare by. */
+  readonly keyField: string;
+  /**
+   * The SCALAR field type of the relation's key VALUE (a belongs-to holds the
+   * target's identity value; a has-many keys on this Type's identity). Lets a
+   * bind param compared against the relation be typed, and a relation-vs-relation
+   * comparison read as an id compare.
+   */
+  readonly keyType: FieldType;
+  /** The relation's target Type name (its `to`). */
+  readonly to: string;
+}
+
 /** A resolved value that is an entire Type (a whole row/source). */
 export interface TypeResolved {
   kind: 'type';
@@ -24,6 +50,12 @@ export interface TypeResolved {
   source: string;
   /** True when synthesized from a subquery rather than a declared Type. */
   synthetic: boolean;
+  /**
+   * Present when this Type was resolved from a FIELD-REF to a RELATION field
+   * (a whole related row, NOT a scalar value). Absent for a FROM / join /
+   * subquery Type. Drives the relation-vs-value comparison guard.
+   */
+  readonly relation?: RelationResolved;
 }
 
 /** A resolved value that is a single field, carrying its owning Type + source. */
@@ -114,6 +146,26 @@ export function widenNullable(rt: ResolvedType, nullable: boolean = true): Resol
 /** Type guard: a resolved type. */
 export function isType(rt: ResolvedType): rt is TypeResolved {
   return rt.kind === 'type';
+}
+
+/**
+ * The relation info when `rt` is a Type resolved from a relation FIELD-REF
+ * (a belongs-to / has-many field), else `undefined`. Used by the scalar
+ * operators to reject a relation used as a value and to allow (and key-compare)
+ * a relation-vs-relation comparison.
+ */
+export function relationOf(rt: ResolvedType): RelationResolved | undefined {
+  return rt.kind === 'type' ? rt.relation : undefined;
+}
+
+/**
+ * The comparable-VALUE field type of a resolved value: its scalar field type,
+ * else — for a relation Type — the relation's key value type. Used to type a
+ * bind param compared against the operand (a relation compares by its FK key).
+ * A non-relation whole Type has none.
+ */
+export function valueFieldType(rt: ResolvedType): FieldType | undefined {
+  return asFieldType(rt) ?? relationOf(rt)?.keyType;
 }
 
 /** Type guard: a resolved scalar (field or computed value, never a type). */

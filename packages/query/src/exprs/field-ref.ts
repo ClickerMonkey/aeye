@@ -12,7 +12,7 @@ import { fieldRefSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
-import type { ResolvedType, FieldResolved } from '../resolved-type';
+import type { ResolvedType, FieldResolved, TypeResolved, RelationResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
@@ -57,7 +57,7 @@ interface LateralPick {
 export class FieldRefExpr extends Expr {
   static readonly KIND = 'field-ref' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`<source>.<field>` — a SCALAR field’s value from a bound source. `field` may NOT be a relation field: to read across a relation, cross it with a `relation` join (`joins:[{on:{kind:'relation',source,field,as}}]`), then field-ref the join alias." as const;
+  static readonly INSTRUCTIONS = "`<source>.<field>` — a SCALAR field’s value from a bound source. A ref to a RELATION field resolves to the whole related row, NOT a scalar: to READ a related scalar, cross the relation with a `relation` join (`joins:[{on:{kind:'relation',source,field,as}}]`) then field-ref the join alias. To CORRELATE a subquery, join the relation and compare the joined key — do NOT compare a relation field-ref to an id/scalar. A relation field-ref may only be compared to ANOTHER relation of the same target." as const;
   readonly kind = FieldRefExpr.KIND;
 
   /** Wrap a `<source>.<field>` reference by its source alias and field name. */
@@ -99,7 +99,7 @@ export class FieldRefExpr extends Expr {
   }
 
   /** Resolve to the named field on the bound source, widening nullability by the source's. */
-  resolve(_engine: QueryEngine, scope: QueryScope): ResolvedType {
+  resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {
     const bound = scope.lookup(this.source);
     if (!bound || bound.kind !== 'type') {
       // Unknown / non-type source: a nullable text placeholder keeps
@@ -108,6 +108,12 @@ export class FieldRefExpr extends Expr {
     }
     const field = bound.type.field(this.field);
     if (!field) return textResult([], true);
+    // A RELATION field is a whole related row, not a scalar — resolve to the
+    // related Type (marked as a relation ref) so an operator can key-compare two
+    // relations and reject a relation-vs-scalar comparison.
+    if (field.fieldType instanceof RelationFieldType) {
+      return this.resolveRelation(engine, bound.type, field.fieldType);
+    }
     const resolved: FieldResolved = {
       kind: 'field',
       field,
@@ -118,9 +124,48 @@ export class FieldRefExpr extends Expr {
     return resolved;
   }
 
+  /**
+   * Resolve a field-ref to a RELATION field to the related `TypeResolved`,
+   * carrying the `relation` marker (originating `source.field`, the LOCAL FK-key
+   * column, and the target Type name). The target Type is always registered for
+   * a well-formed relation; a dangling `to` falls back to a nullable text
+   * placeholder (and `validateWalk` reports `ref.relation-target`).
+   */
+  private resolveRelation(
+    engine: QueryEngine,
+    ownerType: Type,
+    ft: RelationFieldType,
+    p?: Problems,
+  ): ResolvedType {
+    const target = engine.type(ft.to);
+    if (!target) {
+      p?.error(
+        'ref.relation-target',
+        `Relation '${this.source}.${this.field}' points at unregistered Type '${ft.to}'.${didYouMean(ft.to, engine.registry.typeList().map((t) => t.name))}`,
+      );
+      return textResult([], true);
+    }
+    // The LOCAL key column carrying the value to compare by (belongs-to: the
+    // relation field itself, whose stored value is the target's identity;
+    // has-many: this Type's identity).
+    const keyField = ft.resolveKey(this.field, ownerType, target).localField;
+    // The comparable VALUE type: a belongs-to FK holds the TARGET identity's
+    // value; a has-many keys on this Type's own identity.
+    const keyType = (ft.count === 1 ? target : ownerType).identityField().fieldType;
+    const relation: RelationResolved = { source: this.source, field: this.field, keyField, keyType, to: ft.to };
+    const resolved: TypeResolved = {
+      kind: 'type',
+      type: target,
+      source: this.field,
+      synthetic: false,
+      relation,
+    };
+    return resolved;
+  }
+
   /** Validate the source resolves to a type and has the named field; report problems. */
   validateWalk(
-    _engine: QueryEngine,
+    engine: QueryEngine,
     scope: QueryScope,
     p: Problems,
     ctx: ValidateContext,
@@ -148,18 +193,15 @@ export class FieldRefExpr extends Expr {
       );
       return textResult([], true);
     }
-    // A relation field is NOT a value — it must be CROSSED with a `relation`
-    // join, then a scalar field read off the joined alias.
-    if (field.fieldType instanceof RelationFieldType) {
-      p.error(
-        'ref.relation',
-        `'${this.source}.${this.field}' is a relation, not a value — join it: {on:{kind:'relation',source:'${this.source}',field:'${this.field}',as:'…'}}, then reference {source:'…', field:'<scalar>'}.`,
-      );
-      return textResult([], true);
-    }
     // WRITE-MODEL: gate the field against the operator kind supplied by a
     // containing gating operator (else `'field-ref'` for a standalone ref).
     checkFieldExpr(ctx.fieldExprKind ?? 'field-ref', field, this.source, p);
+    // A RELATION field resolves to the whole related row (a `TypeResolved`), not
+    // a scalar — the scalar operators (comparison / in / between) reject it as a
+    // VALUE (`compare.relation-vs-value`) unless compared to another relation.
+    if (field.fieldType instanceof RelationFieldType) {
+      return this.resolveRelation(engine, bound.type, field.fieldType, p);
+    }
     const resolved: FieldResolved = {
       kind: 'field',
       field,

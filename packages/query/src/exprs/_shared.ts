@@ -10,8 +10,9 @@ import type {
   ResolvedType,
   FieldResolved,
   ComputedResolved,
+  RelationResolved,
 } from '../resolved-type';
-import { isScalar, sourcesOf } from '../resolved-type';
+import { isScalar, sourcesOf, relationOf } from '../resolved-type';
 import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
 import {
@@ -82,6 +83,60 @@ export function categoryOf(rt: ResolvedType): string | undefined {
   if (rt.kind === 'type') return undefined;
   if (rt.kind === 'field') return rt.field.fieldType.resolve();
   return rt.fieldType.resolve();
+}
+
+/**
+ * Diagnostic code for a RELATION field-ref used as a scalar VALUE — the
+ * correlation bug the join-based model fixes. Shared by every scalar operator.
+ */
+export const RELATION_VS_VALUE = 'compare.relation-vs-value';
+
+/** The "join it / compare to another relation" hint for a relation-as-value. */
+function relationHint(rel: RelationResolved, tail: string): string {
+  return (
+    `'${rel.source}.${rel.field}' is a relation, not a value — ` +
+    `join it (\`{on:{kind:'relation',source:'${rel.source}',field:'${rel.field}',as:'…'}}\`) ` +
+    `and compare the joined key, ${tail}`
+  );
+}
+
+/**
+ * The `compare.relation-vs-value` message for a SINGLE relation operand used
+ * where only a scalar value is valid (e.g. an arithmetic operand). A relation
+ * is never a value in such a position — join it and use the joined scalar key.
+ */
+export function relationAsValueMessage(rel: RelationResolved): string {
+  return relationHint(rel, 'or compare it to another relation of the same target.');
+}
+
+/**
+ * Check two operands of a scalar operator for a RELATION used as a value.
+ * Returns a `compare.relation-vs-value` MESSAGE when the pair is invalid, else
+ * `undefined` (the operator then applies its normal scalar checks):
+ *  - relation vs a NON-relation operand (a scalar value, or a whole synthetic
+ *    Type) → invalid (the correlation bug — join the relation and compare the
+ *    joined key instead);
+ *  - relation vs a relation of a DIFFERENT target Type → invalid;
+ *  - relation vs a relation of the SAME target Type → OK (compared by FK key).
+ * The caller exempts params / null literals before calling this.
+ */
+export function relationValueProblem(a: ResolvedType, b: ResolvedType): string | undefined {
+  const ra = relationOf(a);
+  const rb = relationOf(b);
+  if (!ra && !rb) return undefined;
+  if (ra && rb) {
+    // Two relations: allowed iff they point at the SAME target Type.
+    if (ra.to === rb.to) return undefined;
+    return relationHint(
+      ra,
+      `or compare it to another relation of the same target (it is '${ra.to}', but '${rb.source}.${rb.field}' is '${rb.to}').`,
+    );
+  }
+  // Exactly one side is a relation, compared against a non-relation value.
+  const rel = ra ?? rb;
+  /* v8 ignore next -- one of ra/rb is defined here (the `!ra && !rb` case returned above) */
+  if (!rel) return undefined;
+  return relationAsValueMessage(rel);
 }
 
 /** A loose `{ kind: string }` placeholder schema for child-expr slots. */
