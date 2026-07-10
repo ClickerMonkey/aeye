@@ -756,23 +756,50 @@ export interface SelectFieldDef {
   as?: string;
 }
 
-/** Field assignment for INSERT-on-conflict / UPDATE. */
-export interface FieldValueDef {
-  field: string;
-  value: ExprDef;
+/**
+ * A single field's WRITE value on INSERT / UPDATE: EITHER a raw typed value (a
+ * value of the field's own `FieldType.toValueSchema()`) OR a full `ExprDef`.
+ * Both are pure JSON, so a raw value and an expression are told apart by SHAPE:
+ * a non-null object carrying a string `kind` discriminant is an `ExprDef`;
+ * anything else (a scalar / array / plain object) is a raw value.
+ *
+ * NULL SEMANTICS (OpenAI-safe — CRITICAL): an ABSENT key OR a JSON `null` value
+ * means OMIT the field (leave it to its backing default / unset). To EXPLICITLY
+ * set SQL NULL you MUST use a literal-null expr `{ kind:'literal', value:null }`.
+ * A bare JSON `null` is NEVER "set NULL" — OpenAI models emit `null` for omitted
+ * fields and cannot distinguish omit from null, so the parser drops it.
+ */
+export type WriteValueDef = JsonValue | ExprDef;
+
+/**
+ * One INSERT row: a map of field name → its {@link WriteValueDef}. Absent keys
+ * (and JSON-`null`-valued keys) are OMITTED per {@link WriteValueDef}'s null
+ * semantics. Multi-row INSERTs require HOMOGENEOUS keys across every row.
+ */
+export interface InsertRowDef {
+  [field: string]: WriteValueDef;
+}
+
+/**
+ * UPDATE `SET` (and ON CONFLICT DO UPDATE) assignments, keyed by field name —
+ * `{ [field]: WriteValueDef }`. Absent / JSON-`null`-valued keys are OMITTED
+ * (see {@link WriteValueDef}); a literal-null expr sets SQL NULL.
+ */
+export interface SetDef {
+  [field: string]: WriteValueDef;
 }
 
 /**
  * The `ON CONFLICT` clause of an INSERT: the conflict-target `fields`, plus
- * either `doNothing` or an `update` assignment list (DO UPDATE SET …).
+ * either `doNothing` or an `update` assignment record (DO UPDATE SET …).
  */
 export interface OnConflictDef {
   /** Conflict-target columns (the unique key being upserted on). */
   fields: string[];
   /** DO NOTHING on conflict. */
   doNothing?: boolean;
-  /** DO UPDATE SET assignments (may reference the `excluded` row). */
-  update?: FieldValueDef[];
+  /** DO UPDATE SET assignments, keyed by field (may reference the `excluded` row). */
+  update?: SetDef;
 }
 
 /** A `SELECT` statement: projected fields, source, joins, filters, grouping, ordering, paging. */
@@ -797,25 +824,25 @@ export interface SelectDef {
   // .includeTotal` / `engine.toSQL`), NOT a build-time SELECT field.
 }
 
-/** An `INSERT` statement: target Type, columns, value tuples or a select, plus optional RETURNING / ON CONFLICT. */
+/** An `INSERT` statement: target Type, row records or a select, plus optional RETURNING / ON CONFLICT. */
 export interface InsertDef {
   kind: 'insert';
   /** Target Type name. The statement references the target by THIS name. */
   into: string;
-  fields: string[];
-  /** Row tuples (each inner array matches `fields`), OR a select. */
-  values?: ExprDef[][];
+  /** Row records (each a keyed `{ field: WriteValueDef }` map), OR a select. */
+  rows?: InsertRowDef[];
   select?: QueryDef;
   returning?: SelectFieldDef[];
   onConflict?: OnConflictDef;
 }
 
-/** An `UPDATE` statement: target Type, SET assignments, optional joins / WHERE / RETURNING. */
+/** An `UPDATE` statement: target Type, keyed SET assignments, optional joins / WHERE / RETURNING. */
 export interface UpdateDef {
   kind: 'update';
   /** Target Type name. The statement references the target by THIS name. */
   type: string;
-  set: FieldValueDef[];
+  /** SET assignments, keyed by field name (see {@link SetDef}). */
+  set: SetDef;
   joins?: JoinDef[];
   where?: ExprDef[];
   returning?: SelectFieldDef[];

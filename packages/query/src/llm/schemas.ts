@@ -39,9 +39,7 @@ import { withAid } from '../aids';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
-import type { SchemaOptions, ResolvedSchemaDepth, RefDepth, NameDepth, FnDepth, FilterDepth, SelectedFunctions } from '../node';
-import type { FieldBacking } from '../backing';
-import { requiredOnInsert } from '../write-model';
+import type { SchemaOptions, ResolvedSchemaDepth, RefDepth, NameDepth, FnDepth, FilterDepth, WriteDepth, SelectedFunctions } from '../node';
 import {
   enumOf,
   orFold,
@@ -49,6 +47,9 @@ import {
   relationFieldsOf,
   selectFunctions,
   exprKindApplicable,
+  insertRowSchema,
+  updateSetSchema,
+  type BackingLookup,
   SchemaCache,
   type FunctionSelector,
 } from '../schema-build';
@@ -61,7 +62,7 @@ export const DEFAULT_MAX_QUERY_SCHEMA_TYPES = 5;
 // The per-axis level unions (`RefDepth` / `NameDepth` / `FnDepth`) now live in
 // `node.ts` (the shared, `llm`-free module) so `ResolvedSchemaDepth` references
 // them directly. Re-exported here so existing `llm/schemas` imports keep working.
-export type { RefDepth, NameDepth, FnDepth, FilterDepth, ResolvedSchemaDepth } from '../node';
+export type { RefDepth, NameDepth, FnDepth, FilterDepth, WriteDepth, ResolvedSchemaDepth } from '../node';
 
 // The function selection TYPE lives in `node.ts` (so `SchemaOptions` can carry
 // it); the resolving FUNCTION + the `FunctionSelector` authoring union live in
@@ -79,6 +80,8 @@ export interface SchemaDepth {
   functions?: FnDepth;
   /** The `filters` clause. */
   filters?: FilterDepth;
+  /** INSERT-row / UPDATE-SET write shapes. */
+  writes?: WriteDepth;
 }
 
 /** Options accepted by `buildSchemas`. */
@@ -171,8 +174,8 @@ function maxFunctionGroup(s: SelectedFunctions): number {
 /** Expand a preset into a fully-concretized per-axis depth. */
 function expandPreset(preset: 'open' | 'paired'): ResolvedSchemaDepth {
   return preset === 'paired'
-    ? { refs: 'paired', typeNames: 'enum', functions: 'typed', filters: 'paired' }
-    : { refs: 'open', typeNames: 'open', functions: 'open', filters: 'open' };
+    ? { refs: 'paired', typeNames: 'enum', functions: 'typed', filters: 'paired', writes: 'typed' }
+    : { refs: 'open', typeNames: 'open', functions: 'open', filters: 'open', writes: 'open' };
 }
 
 /** The base preset a (partial) `depth` / `strict` resolves against. */
@@ -225,6 +228,20 @@ function degradeFns(d: FnDepth, fnCount: number, max: number): FnDepth {
   return depth;
 }
 
+/**
+ * AUTO-DEGRADE the `writes` axis (mirrors `degradeFns`). Ladder (tightest →
+ * loosest): `typed` → `names` → `open`. The per-Type write objects enumerate a
+ * Type's writable field NAMES, so the field count governs the budget: over it
+ * the shape drops one level looser (`typed` → `names`, then `names` → the free
+ * `z.record(string, Expr)`).
+ */
+function degradeWrites(d: WriteDepth, fieldCount: number, max: number): WriteDepth {
+  let depth = d;
+  if (depth === 'typed' && fieldCount > max) depth = 'names';
+  if (depth === 'names' && fieldCount > max) depth = 'open';
+  return depth;
+}
+
 /** Catalog counts the degrade ladders consult. */
 interface DepthCounts {
   typeCount: number;
@@ -246,6 +263,7 @@ function resolveDepth(options: BuildSchemasOptions, counts: DepthCounts): Resolv
           typeNames: options.depth.typeNames ?? base.typeNames,
           functions: options.depth.functions ?? base.functions,
           filters: options.depth.filters ?? base.filters,
+          writes: options.depth.writes ?? base.writes,
         }
       : base;
 
@@ -258,6 +276,9 @@ function resolveDepth(options: BuildSchemasOptions, counts: DepthCounts): Resolv
     // The `paired` filters clause enumerates `(field, op)` pairs per Type, so it
     // is governed by the field count; over budget it drops to the loose clause.
     filters: d.filters === 'paired' && counts.fieldCount > max ? 'open' : d.filters,
+    // The `names` / `typed` write objects enumerate writable field names, so the
+    // field count governs the budget (mirrors `filters`).
+    writes: degradeWrites(d.writes, counts.fieldCount, max),
   };
 }
 
@@ -480,8 +501,6 @@ export function buildSchemas(
     .object({ expr: Expr, as: z.string().optional() })
     .describe('A selected output field.');
 
-  const FieldValue: z.ZodTypeAny = z.object({ field: z.string(), value: Expr });
-
   // `limitOffset` is reused across Select / SetOp limit+offset; the `id: 'Limit'`
   // factors it into a single shared `$def` instead of inlining each of the four
   // uses, and its `param` branch is the shared cached `param` fragment.
@@ -506,121 +525,116 @@ export function buildSchemas(
     'Query_select',
   ).describe('A SELECT statement.');
 
-  // An on-conflict update assignment may additionally reference the PROPOSED
-  // (excluded) row via `{ kind:'excluded', field }` — folded in only here (the
-  // `excluded` expr is gated out of the general Expr union).
-  const ExcludedExprSchema: z.ZodTypeAny = z
-    .object({ kind: z.literal('excluded'), field: z.string() })
-    .describe('The proposed row inside ON CONFLICT DO UPDATE (EXCLUDED.<field>).');
-  const ConflictFieldValue: z.ZodTypeAny = z.object({ field: z.string(), value: Expr.or(ExcludedExprSchema) });
-
-  const OnConflict: z.ZodTypeAny = z.object({
-    fields: z.array(z.string()),
-    doNothing: z.boolean().optional(),
-    update: z.array(ConflictFieldValue).optional(),
-  });
-
   // ─── WRITE MODEL: per-Type write permissions drive the DML schemas ─────────
   //
   // A Type/field is INSERTABLE / UPDATABLE / DELETABLE (default true); a field's
   // backing (computed / default) further shapes its effective write status +
   // insert-requiredness. These schemas: (1) restrict each DML target's Type-name
-  // enum to the permitted subset; (2) at `refs:'paired'` restrict `Insert.fields`
-  // / `Update.set` to the permitted FIELDS and require the required-on-insert
-  // ones; (3) DROP a DML query kind entirely when NO Type permits it.
+  // enum to the permitted subset; (2) at `writes:'names'`/`'typed'` fold a
+  // per-Type INSERT-row / UPDATE-SET object restricted to the permitted FIELDS
+  // (and, at `typed`, requiring the required-on-insert ones + typing the values);
+  // (3) DROP a DML query kind entirely when NO Type permits it.
   const insertableTypes = types.filter((t) => t.insertable);
   const updatableTypes = types.filter((t) => t.updatable);
   const deletableTypes = types.filter((t) => t.deletable);
   /** The FieldBacking for `typeName.field` off the registry, or `undefined`. */
-  const fbOf = (typeName: string, field: string): FieldBacking | undefined =>
-    registry.backing(typeName)?.fields?.[field];
+  const fbOf: BackingLookup = (typeName, field) => registry.backing(typeName)?.fields?.[field];
   /** A DML target Type-name schema over a permitted subset (enum when `typeNames:'enum'`). */
   const dmlTypeRef = (subset: readonly Type[]): z.ZodTypeAny =>
     depth.typeNames === 'enum'
       ? enumOf(subset.map((t) => t.name)).describe('A permitted target Type name.')
       : z.string().describe('A Type name.');
 
-  /** The paired-per-Type INSERT: `into` pinned, `fields` restricted + required-enforced. */
-  const pairedInsert = (): z.ZodTypeAny =>
+  // An INSERT ON CONFLICT DO UPDATE assignment may additionally reference the
+  // PROPOSED (excluded) row via `{ kind:'excluded', field }` — folded in only
+  // here (the `excluded` expr is gated out of the general Expr union).
+  const ExcludedExprSchema: z.ZodTypeAny = z
+    .object({ kind: z.literal('excluded'), field: z.string() })
+    .describe('The proposed row inside ON CONFLICT DO UPDATE (EXCLUDED.<field>).');
+  const ConflictExpr: z.ZodTypeAny = Expr.or(ExcludedExprSchema);
+
+  /**
+   * The `ON CONFLICT` clause. Its `update` is a keyed SET record whose values
+   * may also be `excluded` exprs; at `names`/`typed` it is the per-Type
+   * `updateSetSchema` (over `t`), else a loose `z.record(string, ConflictExpr)`.
+   */
+  const onConflictSchema = (t?: Type): z.ZodTypeAny => {
+    const update =
+      depth.writes !== 'open' && t
+        ? updateSetSchema(t, fbOf, depth.writes, ConflictExpr)
+        : z.record(z.string(), ConflictExpr).describe('DO UPDATE SET assignments (field → value).');
+    return z.object({
+      fields: z.array(z.string()),
+      doNothing: z.boolean().optional(),
+      update: update.optional(),
+    });
+  };
+
+  /** The open INSERT: `rows` a loose `z.record(string, Expr)` list, `into` per `typeNames`. */
+  const openInsert = (): z.ZodTypeAny =>
+    withAid(
+      z.object({
+        kind: z.literal('insert'),
+        into: dmlTypeRef(insertableTypes),
+        rows: z.array(z.record(z.string(), Expr)).optional().describe('Rows to insert (each a field → value map).'),
+        select: Query.optional(),
+        returning: z.array(SelectField).optional(),
+        onConflict: onConflictSchema().optional(),
+      }),
+      'Query_insert',
+    ).describe('An INSERT statement.');
+
+  /** The per-Type INSERT (`names`/`typed`): `into` pinned, `rows` a typed field→value object. */
+  const namedInsert = (writes: 'names' | 'typed'): z.ZodTypeAny =>
     orFold(
-      insertableTypes.map((t) => {
-        const insertable = t.fields.filter((f) => f.insertableFor(fbOf(t.name, f.name)));
-        const requiredNames = insertable
-          .filter((f) => requiredOnInsert(f, fbOf(t.name, f.name)))
-          .map((f) => f.name);
-        const fieldEnum = insertable.length ? enumOf(insertable.map((f) => f.name)) : z.never();
-        const fieldsArray = z
-          .array(fieldEnum)
-          .describe(requiredNames.length ? `Insertable fields; required: ${requiredNames.join(', ')}.` : 'Insertable fields.');
-        // REQUIRED-on-insert fields must all be present (optional / defaulted ones may be omitted).
-        const fields = requiredNames.length
-          ? fieldsArray.refine((arr) => requiredNames.every((n) => arr.some((x) => x === n)), {
-              message: `Missing required field(s): ${requiredNames.join(', ')}.`,
-            })
-          : fieldsArray;
-        return z
+      insertableTypes.map((t) =>
+        z
           .object({
             kind: z.literal('insert'),
             into: z.literal(t.name),
-            fields,
-            values: z.array(z.array(Expr)).optional(),
+            rows: z.array(insertRowSchema(t, fbOf, writes, Expr)).optional(),
             select: Query.optional(),
             returning: z.array(SelectField).optional(),
-            onConflict: OnConflict.optional(),
+            onConflict: onConflictSchema(t).optional(),
           })
-          .describe(`An INSERT into ${t.name}.`);
-      }),
+          .describe(`An INSERT into ${t.name}.`),
+      ),
     ).describe('An INSERT statement.');
 
-  const Insert: z.ZodTypeAny =
-    depth.refs === 'paired'
-      ? pairedInsert()
-      : withAid(
-          z.object({
-            kind: z.literal('insert'),
-            into: dmlTypeRef(insertableTypes),
-            fields: z.array(z.string()),
-            values: z.array(z.array(Expr)).optional(),
-            select: Query.optional(),
-            returning: z.array(SelectField).optional(),
-            onConflict: OnConflict.optional(),
-          }),
-          'Query_insert',
-        ).describe('An INSERT statement.');
+  const Insert: z.ZodTypeAny = depth.writes === 'open' ? openInsert() : namedInsert(depth.writes);
 
-  /** The paired-per-Type UPDATE: `type` pinned, `set.field` restricted to updatable fields. */
-  const pairedUpdate = (): z.ZodTypeAny =>
+  /** The open UPDATE: `set` a loose `z.record(string, Expr)`, `type` per `typeNames`. */
+  const openUpdate = (): z.ZodTypeAny =>
+    withAid(
+      z.object({
+        kind: z.literal('update'),
+        type: dmlTypeRef(updatableTypes),
+        set: z.record(z.string(), Expr).describe('Fields to set (field → value).'),
+        joins: joinsField,
+        where: z.array(Expr).optional(),
+        returning: z.array(SelectField).optional(),
+      }),
+      'Query_update',
+    ).describe('An UPDATE statement.');
+
+  /** The per-Type UPDATE (`names`/`typed`): `type` pinned, `set` a typed field→value object. */
+  const namedUpdate = (writes: 'names' | 'typed'): z.ZodTypeAny =>
     orFold(
-      updatableTypes.map((t) => {
-        const updatable = t.fields.filter((f) => f.updatableFor(fbOf(t.name, f.name)));
-        const fieldEnum = updatable.length ? enumOf(updatable.map((f) => f.name)) : z.never();
-        return z
+      updatableTypes.map((t) =>
+        z
           .object({
             kind: z.literal('update'),
             type: z.literal(t.name),
-            set: z.array(z.object({ field: fieldEnum, value: Expr })),
+            set: updateSetSchema(t, fbOf, writes, Expr),
             joins: joinsField,
             where: z.array(Expr).optional(),
             returning: z.array(SelectField).optional(),
           })
-          .describe(`An UPDATE of ${t.name}.`);
-      }),
+          .describe(`An UPDATE of ${t.name}.`),
+      ),
     ).describe('An UPDATE statement.');
 
-  const Update: z.ZodTypeAny =
-    depth.refs === 'paired'
-      ? pairedUpdate()
-      : withAid(
-          z.object({
-            kind: z.literal('update'),
-            type: dmlTypeRef(updatableTypes),
-            set: z.array(FieldValue),
-            joins: joinsField,
-            where: z.array(Expr).optional(),
-            returning: z.array(SelectField).optional(),
-          }),
-          'Query_update',
-        ).describe('An UPDATE statement.');
+  const Update: z.ZodTypeAny = depth.writes === 'open' ? openUpdate() : namedUpdate(depth.writes);
 
   const Delete: z.ZodTypeAny = withAid(
     z.object({
@@ -831,6 +845,21 @@ export function depthInstructions(
 
   if (depth.filters === 'paired') {
     notes.push('A `filters` placeholder’s `source` must be a known Type name and its optional `fields` allowlist must name that Type’s fields.');
+  }
+
+  switch (depth.writes) {
+    case 'typed':
+      notes.push(
+        'INSERT rows / UPDATE assignments are keyed field→value objects restricted to the target Type’s writable fields; each value is that field’s typed value OR an expression, and every required-on-insert field must be present. Omit a field (or use JSON null) to leave it unset; to set SQL NULL use a literal-null expression `{ kind:"literal", value:null }`.',
+      );
+      break;
+    case 'names':
+      notes.push(
+        'INSERT rows / UPDATE assignments are keyed field→value objects restricted to the target Type’s writable field names (values are expressions). Omit a field (or use JSON null) to leave it unset; to set SQL NULL use a literal-null expression.',
+      );
+      break;
+    case 'open':
+      break;
   }
 
   return notes.join('\n');

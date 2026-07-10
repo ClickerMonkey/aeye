@@ -76,24 +76,22 @@ describe('unknown-field → nearest field name', () => {
     const badFields: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['nam'],
-      values: [[lit('x')]],
+      rows: [{ nam: lit('x') }],
     };
     expect(msg(rfx.engine.validateQuery(badFields), 'insert.unknown-field')).toContain('did you mean `name`');
 
     const badConflict: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id'],
-      values: [[lit(1)]],
-      onConflict: { fields: ['id'], update: [{ field: 'nam', value: lit('x') }] },
+      rows: [{ id: lit(1) }],
+      onConflict: { fields: ['id'], update: { nam: lit('x') } },
     };
     expect(msg(rfx.engine.validateQuery(badConflict), 'insert.unknown-field')).toContain('did you mean `name`');
 
     const badUpdate: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'nam', value: lit('x') }],
+      set: { nam: lit('x') },
     };
     expect(msg(rfx.engine.validateQuery(badUpdate), 'update.unknown-field')).toContain('did you mean `name`');
   });
@@ -125,12 +123,12 @@ describe('unknown-type → nearest registered Type name', () => {
   const rfx = runtimeFixture(); // registers `user` + `order`
 
   it('insert / update / delete suggest the near Type; a far one stays silent', () => {
-    const ins: InsertDef = { kind: 'insert', into: 'usr', fields: ['id'], values: [[lit(1)]] };
+    const ins: InsertDef = { kind: 'insert', into: 'usr', rows: [{ id: lit(1) }] };
     expect(msg(rfx.engine.validateQuery(ins), 'insert.unknown-type')).toContain('did you mean `user`');
-    const insFar: InsertDef = { kind: 'insert', into: 'zzzzzz', fields: ['id'], values: [[lit(1)]] };
+    const insFar: InsertDef = { kind: 'insert', into: 'zzzzzz', rows: [{ id: lit(1) }] };
     expect(msg(rfx.engine.validateQuery(insFar), 'insert.unknown-type')).not.toContain('did you mean');
 
-    const upd: UpdateDef = { kind: 'update', type: 'usr', set: [{ field: 'id', value: lit(1) }] };
+    const upd: UpdateDef = { kind: 'update', type: 'usr', set: { id: lit(1) } };
     expect(msg(rfx.engine.validateQuery(upd), 'update.unknown-type')).toContain('did you mean `user`');
 
     const del: DeleteDef = { kind: 'delete', from: 'usr' };

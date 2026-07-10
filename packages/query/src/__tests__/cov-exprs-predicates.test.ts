@@ -481,9 +481,8 @@ describe('ExcludedExpr', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name'],
-      values: [[{ kind: 'literal', value: 1 }, { kind: 'literal', value: 'Ada' }]],
-      onConflict: { fields: ['id'], update: [{ field: 'name', value: { kind: 'excluded', field: 'name' } }] },
+      rows: [{ id: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'Ada' } }],
+      onConflict: { fields: ['id'], update: { name: { kind: 'excluded', field: 'name' } } },
     };
     expect(fx.engine.toSQL(def, 'base').sql).toContain('EXCLUDED."name"');
     expect(fx.engine.toSQL(def, 'postgres').sql).toContain('EXCLUDED."name"');

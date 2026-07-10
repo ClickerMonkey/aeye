@@ -625,7 +625,7 @@ describe('relation-join backing: joined DML', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'comment_rating',
-      set: [{ field: 'stars', value: { kind: 'literal', value: 1 } }],
+      set: { stars: { kind: 'literal', value: 1 } },
       joins: [{ on: { kind: 'relation', source: 'comment_rating', field: 'user', as: 'user' } }],
       where: [{ kind: 'comparison', op: '=', left: ref('user', 'name'), right: { kind: 'literal', value: 'Ada' } }],
     };

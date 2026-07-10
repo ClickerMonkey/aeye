@@ -134,7 +134,7 @@ describe('default conditions — ops (UPDATE / DELETE / INSERT)', () => {
     const upd: UpdateDef = {
       kind: 'update',
       type: 'file',
-      set: [{ field: 'name', value: { kind: 'literal', value: 'x' } }],
+      set: { name: { kind: 'literal', value: 'x' } },
     };
     const del: DeleteDef = { kind: 'delete', from: 'file' };
 
@@ -151,7 +151,7 @@ describe('default conditions — ops (UPDATE / DELETE / INSERT)', () => {
     const selectOnly: TypeBacking = {
       defaultConditions: [{ where: { expr: (a) => isNull(ref(a, 'archivedAt')) }, ops: ['select'] }],
     };
-    const upd: UpdateDef = { kind: 'update', type: 'file', set: [{ field: 'name', value: { kind: 'literal', value: 'x' } }] };
+    const upd: UpdateDef = { kind: 'update', type: 'file', set: { name: { kind: 'literal', value: 'x' } } };
     const fx = fileFixture(selectOnly);
     expect((await fx.engine.run(upd)).affected).toBe(4); // all rows — unscoped
     expect(fx.engine.toSQL(upd, 'base').sql).not.toContain('"archivedAt" IS NULL');
@@ -165,13 +165,12 @@ describe('default conditions — ops (UPDATE / DELETE / INSERT)', () => {
     const ins: InsertDef = {
       kind: 'insert',
       into: 'file',
-      fields: ['id', 'name', 'ownerId', 'archivedAt'],
-      values: [[
-        { kind: 'literal', value: 5 },
-        { kind: 'literal', value: 'e' },
-        { kind: 'literal', value: 1 },
-        { kind: 'literal', value: '2022-01-01T00:00:00' },
-      ]],
+      rows: [{
+        id: { kind: 'literal', value: 5 },
+        name: { kind: 'literal', value: 'e' },
+        ownerId: { kind: 'literal', value: 1 },
+        archivedAt: { kind: 'literal', value: '2022-01-01T00:00:00' },
+      }],
     };
     expect((await engine.parseQuery(ins).execute(ctx)).affected).toBe(1); // not blocked
     // The freshly inserted archived row is scoped OUT of a plain select…

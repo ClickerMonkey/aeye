@@ -29,7 +29,7 @@ describe('phase C — DML target / join collision', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'name', value: lit('x') }],
+      set: { name: lit('x') },
       joins: [
         { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } },
         { on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } },
@@ -44,7 +44,7 @@ describe('phase C — DML target / join collision', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'name', value: lit('x') }],
+      set: { name: lit('x') },
       // Aliasing the second hop to `buyer` breaks the collision with `user`.
       joins: [
         { on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } },

@@ -26,15 +26,14 @@ export const writeModelCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'insert',
         into: 'product',
-        fields: ['name', 'category', 'sku', 'price', 'active'],
-        values: [
-          [
-            e.value('Test Widget').toJSON(),
-            e.value(4).toJSON(),
-            e.value('SKU-T1').toJSON(),
-            e.value(199).toJSON(),
-            e.value(true).toJSON(),
-          ],
+        rows: [
+          {
+            name: e.value('Test Widget').toJSON(),
+            category: e.value(4).toJSON(),
+            sku: e.value('SKU-T1').toJSON(),
+            price: e.value(199).toJSON(),
+            active: e.value(true).toJSON(),
+          },
         ],
         returning: [
           { expr: e.ref('product', 'name').toJSON(), as: 'name' },
@@ -54,14 +53,13 @@ export const writeModelCases: EvalCase[] = [
       a.resultOf(() => ({
         kind: 'insert',
         into: 'product',
-        fields: ['name', 'category', 'sku', 'price'],
-        values: [
-          [
-            e.value('Defaulted Widget').toJSON(),
-            e.value(4).toJSON(),
-            e.value('SKU-T2').toJSON(),
-            e.value(50).toJSON(),
-          ],
+        rows: [
+          {
+            name: e.value('Defaulted Widget').toJSON(),
+            category: e.value(4).toJSON(),
+            sku: e.value('SKU-T2').toJSON(),
+            price: e.value(50).toJSON(),
+          },
         ],
         returning: [{ expr: e.ref('product', 'active').toJSON(), as: 'active' }],
       })),
@@ -76,15 +74,14 @@ export const writeModelCases: EvalCase[] = [
       a.refused(() => ({
         kind: 'insert',
         into: 'product',
-        fields: ['id', 'name', 'category', 'sku', 'price'],
-        values: [
-          [
-            e.value(999).toJSON(),
-            e.value('X').toJSON(),
-            e.value(4).toJSON(),
-            e.value('SKU-Z').toJSON(),
-            e.value(1).toJSON(),
-          ],
+        rows: [
+          {
+            id: e.value(999).toJSON(),
+            name: e.value('X').toJSON(),
+            category: e.value(4).toJSON(),
+            sku: e.value('SKU-Z').toJSON(),
+            price: e.value(1).toJSON(),
+          },
         ],
       })),
     ],
@@ -98,7 +95,7 @@ export const writeModelCases: EvalCase[] = [
       a.refused(() => ({
         kind: 'update',
         type: 'customer',
-        set: [{ field: 'createdAt', value: e.value('2020-01-01T00:00:00Z').toJSON() }],
+        set: { createdAt: e.value('2020-01-01T00:00:00Z').toJSON() },
         where: [e.eq(e.ref('customer', 'id'), e.value(1)).toJSON()],
       })),
     ],
@@ -112,7 +109,7 @@ export const writeModelCases: EvalCase[] = [
       a.refused(() => ({
         kind: 'update',
         type: 'currency',
-        set: [{ field: 'name', value: e.value('Dollar').toJSON() }],
+        set: { name: e.value('Dollar').toJSON() },
         where: [e.eq(e.ref('currency', 'code'), e.value('USD')).toJSON()],
       })),
     ],

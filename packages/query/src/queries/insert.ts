@@ -4,13 +4,19 @@
  * (so a following query in the same run sees them). ON CONFLICT matches an
  * existing row by the conflict fields, then either does nothing or applies
  * the update assignments.
+ *
+ * A VALUES row is a KEYED `{ field: value }` record (see `WriteValueDef`): an
+ * absent key / JSON `null` value OMITS the field (its backing default fills in);
+ * a literal-null expr sets SQL NULL. Multi-row INSERTs require HOMOGENEOUS keys
+ * across every row (`insert.row-shape`).
  */
 import type {
-  FieldValueDef,
   InsertDef,
+  InsertRowDef,
   OnConflictDef,
   QueryDef,
   SelectFieldDef,
+  SetDef,
 } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
@@ -29,8 +35,9 @@ import {
   makeResult,
 } from './query';
 import { insertRecord, updateRecord } from './_type';
-import { obj, lit, str, bool, list, exprRef, queryRef } from '../shape';
-import { selectFieldShape, fieldValueShape } from './_shape';
+import { obj, lit, str, bool, list, queryRef } from '../shape';
+import { selectFieldShape, writeRecordShape } from './_shape';
+import { parseWriteRecord } from './_write';
 import { requiredOnInsert } from '../write-model';
 import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
@@ -39,6 +46,9 @@ import type { Type } from '../type';
 import type { Cost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
+
+/** One parsed INSERT row: field name → its value expr (OMITted keys already dropped). */
+export type InsertRow = ReadonlyMap<string, Expr>;
 
 interface ReturningField {
   expr: Expr;
@@ -54,6 +64,11 @@ interface OnConflict {
   update: ConflictAssign[];
 }
 
+/** Convert a keyed write `Map` into the ordered `{ field, expr }` assignment list. */
+function toAssigns(map: ReadonlyMap<string, Expr>): ConflictAssign[] {
+  return [...map].map(([field, expr]) => ({ field, expr }));
+}
+
 /** An `INSERT … VALUES / SELECT` statement with optional RETURNING and ON CONFLICT. */
 export class InsertQuery extends Query {
   /** The Registry dispatch discriminant for this query kind. */
@@ -64,10 +79,8 @@ export class InsertQuery extends Query {
   constructor(
     /** The target Type name rows are inserted into. */
     readonly into: string,
-    /** The target column names, in tuple order. */
-    readonly fields: string[],
-    /** Literal row tuples (one expr per field), or `undefined` for an INSERT … SELECT. */
-    readonly values: Expr[][] | undefined,
+    /** Keyed VALUES rows (field → value expr, OMITted keys dropped), or `undefined` for INSERT … SELECT. */
+    readonly rows: readonly InsertRow[] | undefined,
     /** Source query for INSERT … SELECT, or `undefined` for VALUES. */
     readonly select: Query | undefined,
     /** RETURNING projection (expr + optional alias). */
@@ -81,53 +94,58 @@ export class InsertQuery extends Query {
   /** Parse an `insert` `QueryDef` into an `InsertQuery`. */
   static from(json: QueryDef, registry: Registry): InsertQuery {
     if (json.kind !== 'insert') throw new Error(`InsertQuery.from: expected 'insert', got '${json.kind}'`);
-    const values = json.values?.map((tuple) => tuple.map((e) => registry.parseExpr(e)));
+    const rows = json.rows?.map((r) => parseWriteRecord(r, registry));
     const select = json.select ? registry.parseQuery(json.select) : undefined;
     const returning = (json.returning ?? []).map((c) => ({ expr: registry.parseExpr(c.expr), as: c.as }));
     const onConflict = json.onConflict
       ? {
           fields: [...json.onConflict.fields],
           doNothing: json.onConflict.doNothing ?? false,
-          update: (json.onConflict.update ?? []).map((u) => ({
-            field: u.field,
-            expr: registry.parseExpr(u.value),
-          })),
+          update: toAssigns(parseWriteRecord(json.onConflict.update ?? {}, registry)),
         }
       : undefined;
-    return new InsertQuery(json.into, [...json.fields], values, select, returning, onConflict);
+    return new InsertQuery(json.into, rows, select, returning, onConflict);
   }
 
   /**
    * Owned structural {@link Shape} — the zod-free parallel parser. Builds an
    * `InsertQuery` equal to `from`'s output on a valid def; accumulates every
-   * problem in one pass (never throws). The VALUES-arity / write-model checks
+   * problem in one pass (never throws). The homogeneity / write-model checks
    * remain in `validateWalk`; this shape covers STRUCTURE only. See `shape/`.
    */
   static readonly SHAPE = obj(
     {
       kind: lit('insert'),
       into: str('TypeName'),
-      fields: list(str('FieldName')),
-      values: list(list(exprRef())),
+      rows: list(writeRecordShape('InsertRow')),
       select: queryRef(),
       returning: list(selectFieldShape()),
       onConflict: obj(
         {
           fields: list(str('FieldName')),
           doNothing: bool('DoNothing'),
-          update: list(fieldValueShape()),
+          update: writeRecordShape('SetValue'),
         },
-        (v) => ({ fields: v.fields, doNothing: v.doNothing ?? false, update: v.update ?? [] }),
+        (v): OnConflict => ({
+          fields: v.fields,
+          doNothing: v.doNothing ?? false,
+          update: toAssigns(v.update ?? new Map()),
+        }),
         { optional: ['doNothing', 'update'], aid: 'OnConflict' },
       ),
     },
-    (v) => new InsertQuery(v.into, v.fields, v.values, v.select, v.returning ?? [], v.onConflict),
-    { optional: ['values', 'select', 'returning', 'onConflict'], aid: 'Query_insert' },
+    (v) => new InsertQuery(v.into, v.rows, v.select, v.returning ?? [], v.onConflict),
+    { optional: ['rows', 'select', 'returning', 'onConflict'], aid: 'Query_insert' },
   );
 
   /** The target is referenced by its TYPE NAME (no aliasing on DML targets). */
   private get alias(): string {
     return this.into;
+  }
+
+  /** The VALUES column set — the FIRST row's keys (homogeneity is validated separately). */
+  private valueColumns(): string[] {
+    return this.rows && this.rows.length ? [...this.rows[0]!.keys()] : [];
   }
 
   /** Bind the target Type under its alias into a child scope. */
@@ -157,7 +175,7 @@ export class InsertQuery extends Query {
     return this.returning.map((c, i) => makeField(fieldNameOf(c.expr, c.as, i), c.expr.resolve(engine, inner)));
   }
 
-  /** Validate the target type, fields, VALUES arity, RETURNING, and ON CONFLICT assignments. */
+  /** Validate the target type, fields, row homogeneity, RETURNING, and ON CONFLICT assignments. */
   validateWalk(engine: QueryEngine, scope: QueryScope, p: Problems, _ctx: ValidateContext): void {
     const type = engine.type(this.into);
     if (!type) {
@@ -169,35 +187,42 @@ export class InsertQuery extends Query {
       p.error('insert.type-readonly', `Type '${this.into}' is not insertable.`);
       return;
     }
-    p.at('fields', () => {
-      this.fields.forEach((c, i) => {
-        const field = type.field(c);
-        if (!field) {
-          p.at(i, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${c}'.${didYouMean(c, type.fields.map((f) => f.name))}`));
-        } else if (!field.insertableFor(engine.fieldBacking(this.into, c))) {
-          // WRITE-MODEL: a non-insertable (read-only / computed) field can't be supplied.
-          p.at(i, () => p.error('insert.field-readonly', `Field '${c}' of '${this.into}' is not insertable.`));
+    // Keyed VALUES rows carry the write-model field checks; INSERT … SELECT maps
+    // its output columns by name at run / emit time (validated via the select).
+    if (this.rows) {
+      const columns = this.valueColumns();
+      const canonical = new Set(columns);
+      // Multi-row INSERT: every row must specify the SAME fields (homogeneous).
+      if (this.rows.length > 1) {
+        const heterogeneous = this.rows.some(
+          (row) => row.size !== canonical.size || [...row.keys()].some((k) => !canonical.has(k)),
+        );
+        if (heterogeneous) {
+          p.at('rows', () =>
+            p.error('insert.row-shape', `All INSERT rows into '${this.into}' must specify the same fields.`),
+          );
         }
-      });
-    });
-    // WRITE-MODEL: every required-on-insert field must be present in `fields`.
-    const provided = new Set(this.fields);
-    const missing = type.fields
-      .filter((f) => !provided.has(f.name) && requiredOnInsert(f, engine.fieldBacking(this.into, f.name)))
-      .map((f) => f.name);
-    if (missing.length) {
-      p.at('fields', () =>
-        p.error('insert.missing-required', `INSERT into '${this.into}' is missing required field(s): ${missing.join(', ')}.`),
-      );
-    }
-    if (this.values) {
-      p.at('values', () => {
-        this.values!.forEach((tuple, i) => {
-          if (tuple.length !== this.fields.length) {
-            p.at(i, () => p.error('insert.arity', `Row ${i} has ${tuple.length} values for ${this.fields.length} fields.`));
+      }
+      p.at('rows', () => {
+        columns.forEach((c) => {
+          const field = type.field(c);
+          if (!field) {
+            p.at(c, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${c}'.${didYouMean(c, type.fields.map((f) => f.name))}`));
+          } else if (!field.insertableFor(engine.fieldBacking(this.into, c))) {
+            // WRITE-MODEL: a non-insertable (read-only / computed) field can't be supplied.
+            p.at(c, () => p.error('insert.field-readonly', `Field '${c}' of '${this.into}' is not insertable.`));
           }
         });
       });
+      // WRITE-MODEL: every required-on-insert field must be present.
+      const missing = type.fields
+        .filter((f) => !canonical.has(f.name) && requiredOnInsert(f, engine.fieldBacking(this.into, f.name)))
+        .map((f) => f.name);
+      if (missing.length) {
+        p.at('rows', () =>
+          p.error('insert.missing-required', `INSERT into '${this.into}' is missing required field(s): ${missing.join(', ')}.`),
+        );
+      }
     }
     const inner = this.targetScope(engine, scope);
     const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
@@ -211,11 +236,11 @@ export class InsertQuery extends Query {
       const conflictScope = this.conflictScope(engine, scope);
       const assignCtx: ValidateContext = { ...ctx, allowAggregate: false };
       p.at(['onConflict', 'update'], () => {
-        this.onConflict!.update.forEach((u, i) => {
+        this.onConflict!.update.forEach((u) => {
           if (type && !type.field(u.field)) {
-            p.at([i, 'field'], () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${u.field}'.${didYouMean(u.field, type.fields.map((f) => f.name))}`));
+            p.at(u.field, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${u.field}'.${didYouMean(u.field, type.fields.map((f) => f.name))}`));
           }
-          p.at([i, 'value'], () => u.expr.validateWalk(engine, conflictScope, p, assignCtx));
+          p.at(u.field, () => u.expr.validateWalk(engine, conflictScope, p, assignCtx));
         });
       });
     }
@@ -228,30 +253,24 @@ export class InsertQuery extends Query {
     return [...out];
   }
 
-  /** Estimate `{ rows, bytes }`: the VALUES tuple count (or the source query's rows) at the target's per-row size. */
+  /** Estimate `{ rows, bytes }`: the VALUES row count (or the source query's rows) at the target's per-row size. */
   cost(engine: QueryEngine, scope: QueryScope): Cost {
     const type = engine.type(this.into);
     const perRow = type ? type.bytes : 0;
     let rows = 0;
-    if (this.values) rows = this.values.length;
+    if (this.rows) rows = this.rows.length;
     else if (this.select) rows = this.select.cost(engine, scope).rows;
     return { rows, bytes: rows * perRow };
   }
 
-  /** Materialize tuples into the target's `TypeState`, applying ON CONFLICT, then project RETURNING. */
+  /** Materialize rows into the target's `TypeState`, applying ON CONFLICT, then project RETURNING. */
   async execute(ctx: RuntimeContext): Promise<QueryResult> {
     const engine = ctx.engine;
     const type = engine.type(this.into);
-    const fields = this.outputFields(engine, engine.globalScope());
-    if (!type) return makeResult('insert', [], fields, 0);
-    // WRITE-MODEL (belt-and-suspenders): never write a read-only Type / field.
+    const outFields = this.outputFields(engine, engine.globalScope());
+    if (!type) return makeResult('insert', [], outFields, 0);
+    // WRITE-MODEL (belt-and-suspenders): never write a read-only Type.
     if (!type.insertable) throw typeReadonly('insert', this.into);
-    for (const c of this.fields) {
-      const field = type.field(c);
-      if (field && !field.insertableFor(engine.fieldBacking(this.into, c))) {
-        throw fieldReadonly('insert', this.into, c);
-      }
-    }
     const state = await ctx.typeState(type);
     // Register the target alias → its Type so RETURNING field-refs recover
     // metadata. INSERT has a single target and no joins, so no `source.duplicate`
@@ -259,10 +278,18 @@ export class InsertQuery extends Query {
     ctx.bindSourceType(this.into, type);
 
     const tuples = await this.gatherTuples(ctx);
+    const columns = this.rows ? this.valueColumns() : tuples.length ? Object.keys(tuples[0]!) : [];
+    // WRITE-MODEL (belt-and-suspenders): never write a read-only field.
+    for (const c of columns) {
+      const field = type.field(c);
+      if (field && !field.insertableFor(engine.fieldBacking(this.into, c))) {
+        throw fieldReadonly('insert', this.into, c);
+      }
+    }
     // WRITE-MODEL: materialize a `FieldBacking.default` for every insertable field
-    // OMITTED from `fields` (value / factory, per row). SQL relies on the DB's own
-    // column DEFAULT instead — a JS-factory default is a runtime-only concern.
-    await this.materializeDefaults(ctx, type, tuples);
+    // OMITTED from the row columns (value / factory, per row). SQL relies on the
+    // DB's own column DEFAULT instead — a JS-factory default is runtime-only.
+    await this.materializeDefaults(ctx, type, tuples, columns);
     const stored: SourceRecord[] = [];
     for (const fields of tuples) {
       const existing = this.onConflict ? this.findConflict(state.current, fields) : undefined;
@@ -286,7 +313,7 @@ export class InsertQuery extends Query {
     }
 
     const rows = await this.projectReturning(ctx, stored);
-    return makeResult('insert', rows, fields, stored.length);
+    return makeResult('insert', rows, outFields, stored.length);
   }
 
   /**
@@ -295,9 +322,9 @@ export class InsertQuery extends Query {
    * supplied are left untouched; fields with no default resolve to `undefined`
    * and stay absent (nullable ⇒ NULL; required-missing ⇒ caught by validation).
    */
-  private async materializeDefaults(ctx: RuntimeContext, type: Type, records: SourceRecord[]): Promise<void> {
+  private async materializeDefaults(ctx: RuntimeContext, type: Type, records: SourceRecord[], columns: readonly string[]): Promise<void> {
     const engine = ctx.engine;
-    const provided = new Set(this.fields);
+    const provided = new Set(columns);
     const omitted = type.fields.filter(
       (f) => !provided.has(f.name) && f.insertableFor(engine.fieldBacking(this.into, f.name)),
     );
@@ -310,14 +337,14 @@ export class InsertQuery extends Query {
     }
   }
 
-  /** Materialize the tuples to insert (from VALUES or a SELECT). */
+  /** Materialize the records to insert (from keyed VALUES rows or a SELECT). */
   private async gatherTuples(ctx: RuntimeContext): Promise<SourceRecord[]> {
-    if (this.values) {
+    if (this.rows) {
       const out: SourceRecord[] = [];
-      for (const tuple of this.values) {
+      for (const row of this.rows) {
         const rec: SourceRecord = {};
-        for (let i = 0; i < this.fields.length; i++) {
-          rec[this.fields[i]!] = (await tuple[i]!.evaluate(ctx, null)).raw;
+        for (const [field, expr] of row) {
+          rec[field] = (await expr.evaluate(ctx, null)).raw;
         }
         out.push(rec);
       }
@@ -325,12 +352,11 @@ export class InsertQuery extends Query {
     }
     if (this.select) {
       const result = await this.select.execute(ctx);
+      // INSERT … SELECT maps the SELECT's OUTPUT columns onto the target columns
+      // BY NAME (each select item's `as` / natural name is the target field).
       return result.rows.map((row) => {
         const rec: SourceRecord = {};
-        this.fields.forEach((col, i) => {
-          const src = result.fields[i]?.name;
-          rec[col] = src !== undefined ? row[src] ?? null : null;
-        });
+        for (const f of result.fields) rec[f.name] = row[f.name] ?? null;
         return rec;
       });
     }
@@ -359,20 +385,28 @@ export class InsertQuery extends Query {
     return out;
   }
 
+  /** The target columns emitted in `INSERT INTO t (cols)` — the VALUES keys, or the SELECT's output names. */
+  private sqlColumns(ctx: SqlContext): string[] {
+    if (this.rows) return this.valueColumns();
+    if (this.select) return this.select.outputFields(ctx.engine, ctx.scope).map((f) => f.name);
+    return [];
+  }
+
   /** Emit `INSERT INTO … (cols) VALUES …|SELECT … [ON CONFLICT …] [RETURNING …]`. */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     const inner = ctx.withScope(this.targetScope(ctx.engine, ctx.scope));
+    const columns = this.sqlColumns(ctx);
     const parts: SqlText[] = [
       SqlText.raw('INSERT INTO '),
       dialect.ident(this.into),
       SqlText.raw(' ('),
-      SqlText.join(this.fields.map((c) => dialect.ident(c)), ', '),
+      SqlText.join(columns.map((c) => dialect.ident(c)), ', '),
       SqlText.raw(')'),
     ];
 
-    if (this.values) {
-      const tuples = this.values.map((tuple) =>
-        SqlText.join(tuple.map((e) => e.toSQL(dialect, ctx)), ', ').parens(),
+    if (this.rows) {
+      const tuples = this.rows.map((row) =>
+        SqlText.join(columns.map((c) => row.get(c)!.toSQL(dialect, ctx)), ', ').parens(),
       );
       parts.push(SqlText.raw(' VALUES '), SqlText.join(tuples, ', '));
     } else if (this.select) {
@@ -409,8 +443,14 @@ export class InsertQuery extends Query {
 
   /** Serialize back to an `InsertDef`, omitting empty optional clauses. */
   toJSON(): InsertDef {
-    const def: InsertDef = { kind: 'insert', into: this.into, fields: [...this.fields] };
-    if (this.values) def.values = this.values.map((t) => t.map((e) => e.toJSON()));
+    const def: InsertDef = { kind: 'insert', into: this.into };
+    if (this.rows) {
+      def.rows = this.rows.map((row) => {
+        const out: InsertRowDef = {};
+        for (const [field, expr] of row) out[field] = expr.toJSON();
+        return out;
+      });
+    }
     if (this.select) def.select = this.select.toJSON();
     if (this.returning.length) {
       def.returning = this.returning.map((c): SelectFieldDef => (c.as ? { expr: c.expr.toJSON(), as: c.as } : { expr: c.expr.toJSON() }));
@@ -419,19 +459,20 @@ export class InsertQuery extends Query {
       const oc: OnConflictDef = { fields: [...this.onConflict.fields] };
       if (this.onConflict.doNothing) oc.doNothing = true;
       if (this.onConflict.update.length) {
-        oc.update = this.onConflict.update.map((u): FieldValueDef => ({ field: u.field, value: u.expr.toJSON() }));
+        const update: SetDef = {};
+        for (const u of this.onConflict.update) update[u.field] = u.expr.toJSON();
+        oc.update = update;
       }
       def.onConflict = oc;
     }
     return def;
   }
 
-  /** Deep-clone this insert (cloning values / source query / RETURNING / ON CONFLICT exprs). */
+  /** Deep-clone this insert (cloning rows / source query / RETURNING / ON CONFLICT exprs). */
   clone(): InsertQuery {
     return new InsertQuery(
       this.into,
-      [...this.fields],
-      this.values?.map((t) => t.map((e) => e.clone())),
+      this.rows?.map((row) => new Map([...row].map(([field, expr]) => [field, expr.clone()]))),
       this.select?.clone(),
       this.returning.map((c) => ({ expr: c.expr.clone(), as: c.as })),
       this.onConflict

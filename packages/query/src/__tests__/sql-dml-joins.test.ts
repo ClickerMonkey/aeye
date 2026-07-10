@@ -24,7 +24,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
+      set: { note: { kind: 'literal', value: 'vip' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
@@ -39,7 +39,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
+      set: { note: { kind: 'literal', value: 'vip' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
@@ -53,7 +53,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
+      set: { note: { kind: 'literal', value: 'vip' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'order_userId' } }],
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'order_userId', field: 'name' }, right: { kind: 'literal', value: 'Ada' } }],
     };
@@ -95,14 +95,14 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
+      set: { note: { kind: 'literal', value: 'vip' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
     };
     expect(() => fx.engine.toSQL(def, new NoDmlJoinDialect())).toThrow(/Joined UPDATE/);
   });
 
   it('joinless UPDATE / DELETE still emit the plain form (no FROM/USING)', () => {
-    const upd: UpdateDef = { kind: 'update', type: 'user', set: [{ field: 'age', value: { kind: 'literal', value: 7 } }] };
+    const upd: UpdateDef = { kind: 'update', type: 'user', set: { age: { kind: 'literal', value: 7 } } };
     expect(fx.engine.toSQL(upd, new NoDmlJoinDialect()).sql).toBe('UPDATE "user" SET "age" = ?');
   });
 
@@ -111,7 +111,7 @@ describe('SQL — joined UPDATE / DELETE (BUG P0-1)', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
+      set: { note: { kind: 'literal', value: 'vip' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 40 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],

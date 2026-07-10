@@ -4,7 +4,7 @@
  * relation joins (rooted at the target alias) widen the row so SET / WHERE may
  * read joined fields.
  */
-import type { FieldValueDef, QueryDef, SelectFieldDef, UpdateDef } from '../schema';
+import type { QueryDef, SelectFieldDef, SetDef, UpdateDef } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -28,7 +28,8 @@ import { checkBoolCondition } from './_condition';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { updateRecord } from './_type';
 import { obj, lit, str, list, exprRef } from '../shape';
-import { selectFieldShape, fieldValueShape } from './_shape';
+import { selectFieldShape, writeRecordShape } from './_shape';
+import { parseWriteRecord } from './_write';
 import type { Cost } from '../cost';
 import { scanCost, applyWhere } from './_cost';
 import type { Dialect } from '../sql/dialect';
@@ -82,7 +83,7 @@ export class UpdateQuery extends Query {
     if (json.kind !== 'update') throw new Error(`UpdateQuery.from: expected 'update', got '${json.kind}'`);
     return new UpdateQuery(
       json.type,
-      json.set.map((s) => ({ field: s.field, expr: registry.parseExpr(s.value) })),
+      [...parseWriteRecord(json.set, registry)].map(([field, expr]) => ({ field, expr })),
       (json.joins ?? []).map((j) => QueryJoin.from(j, registry)),
       (json.where ?? []).map((w) => registry.parseExpr(w)),
       (json.returning ?? []).map((c) => ({ expr: registry.parseExpr(c.expr), as: c.as })),
@@ -99,12 +100,19 @@ export class UpdateQuery extends Query {
     {
       kind: lit('update'),
       type: str('TypeName'),
-      set: list(fieldValueShape()),
+      set: writeRecordShape('SetValue'),
       joins: list(QueryJoin.SHAPE),
       where: list(exprRef()),
       returning: list(selectFieldShape()),
     },
-    (v) => new UpdateQuery(v.type, v.set, v.joins ?? [], v.where ?? [], v.returning ?? []),
+    (v) =>
+      new UpdateQuery(
+        v.type,
+        [...v.set].map(([field, expr]) => ({ field, expr })),
+        v.joins ?? [],
+        v.where ?? [],
+        v.returning ?? [],
+      ),
     { optional: ['joins', 'where', 'returning'], aid: 'Query_update' },
   );
 
@@ -377,11 +385,9 @@ export class UpdateQuery extends Query {
 
   /** Serialize back to an `UpdateDef`, omitting empty optional clauses. */
   toJSON(): UpdateDef {
-    const def: UpdateDef = {
-      kind: 'update',
-      type: this.type,
-      set: this.set.map((s): FieldValueDef => ({ field: s.field, value: s.expr.toJSON() })),
-    };
+    const set: SetDef = {};
+    for (const s of this.set) set[s.field] = s.expr.toJSON();
+    const def: UpdateDef = { kind: 'update', type: this.type, set };
     if (this.joins.length) def.joins = this.joins.map((j) => j.toJSON());
     if (this.where.length) def.where = this.where.map((w) => w.toJSON());
     if (this.returning.length) {

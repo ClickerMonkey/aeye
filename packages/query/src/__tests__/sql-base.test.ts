@@ -48,8 +48,7 @@ describe('SQL — base (ANSI) dialect', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name', 'age'],
-      values: [[{ kind: 'literal', value: 'Zed' }, { kind: 'literal', value: 5 }]],
+      rows: [{ name: { kind: 'literal', value: 'Zed' }, age: { kind: 'literal', value: 5 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }],
     };
     const out = sql(def);
@@ -61,9 +60,8 @@ describe('SQL — base (ANSI) dialect', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name'],
-      values: [[{ kind: 'literal', value: 1 }, { kind: 'literal', value: 'Ada' }]],
-      onConflict: { fields: ['id'], update: [{ field: 'name', value: { kind: 'literal', value: 'Ada2' } }] },
+      rows: [{ id: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'Ada' } }],
+      onConflict: { fields: ['id'], update: { name: { kind: 'literal', value: 'Ada2' } } },
     };
     expect(sql(def).sql).toBe(
       'INSERT INTO "user" ("id", "name") VALUES (?, ?) ON CONFLICT ("id") DO UPDATE SET "name" = ?',
@@ -74,9 +72,8 @@ describe('SQL — base (ANSI) dialect', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name'],
-      values: [[{ kind: 'literal', value: 1 }, { kind: 'literal', value: 'Ada' }]],
-      onConflict: { fields: ['id'], update: [{ field: 'name', value: { kind: 'excluded', field: 'name' } }] },
+      rows: [{ id: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'Ada' } }],
+      onConflict: { fields: ['id'], update: { name: { kind: 'excluded', field: 'name' } } },
     };
     expect(sql(def).sql).toBe(
       'INSERT INTO "user" ("id", "name") VALUES (?, ?) ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"',
@@ -87,7 +84,7 @@ describe('SQL — base (ANSI) dialect', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'literal', value: 7 } }],
+      set: { age: { kind: 'literal', value: 7 } },
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'user', field: 'id' }, right: { kind: 'param', name: 'id' } }],
     };
     const out = fx.engine.toSQL(def, 'base', { params: { id: 1 } });

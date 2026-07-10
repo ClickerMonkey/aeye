@@ -14,7 +14,7 @@ import { requiredOnInsert } from '../write-model';
 import { describeType, describeTypes, describeExprs } from '../llm/describe';
 import type { Registry } from '../registry';
 import type { TypeBacking } from '../backing';
-import type { TypeDef, InsertDef, UpdateDef, DeleteDef, ExprDef } from '../schema';
+import type { TypeDef, InsertDef, InsertRowDef, UpdateDef, DeleteDef, ExprDef } from '../schema';
 import type { SourceRecord } from '../runtime/row';
 
 const ref = (source: string, field: string): ExprDef => ({ kind: 'field-ref', source, field });
@@ -61,11 +61,18 @@ function docEngine(rows: SourceRecord[] = []): QueryEngine {
   return new QueryEngine(registry, { executors: { doc: arrayExecutor(rows) } });
 }
 
+/** A field → value write record from a list of field names. */
+function row(fields: string[], value: (f: string) => ExprDef): InsertRowDef {
+  const out: InsertRowDef = {};
+  for (const f of fields) out[f] = value(f);
+  return out;
+}
+
 /** A valid, fully-specified insert (all required fields present). */
 function fullInsert(extra: string[] = []): InsertDef {
   const fields = ['id', 'title', 'body', 'tags', 'rank', 'onlyCmp', ...extra];
   const value = (f: string): ExprDef => (f === 'rank' || f === 'seq' ? lit(1) : f === 'tags' ? { kind: 'literal', value: null } : lit(f));
-  return { kind: 'insert', into: 'doc', fields, values: [fields.map(value)] };
+  return { kind: 'insert', into: 'doc', rows: [row(fields, value)] };
 }
 
 // ─── Model getters (Type / Field) ─────────────────────────────────────────────
@@ -164,20 +171,20 @@ describe('write-model: validation gates', () => {
     const engine = docEngine();
     const readonlyEngine = frozenEngine();
     expect(codes(fullInsert(), engine)).not.toContain('insert.type-readonly');
-    expect(readonlyEngine.validateQuery({ kind: 'insert', into: 'frozen', fields: ['id'], values: [[lit('a')]] }).list.map((p) => p.code)).toContain(
+    expect(readonlyEngine.validateQuery({ kind: 'insert', into: 'frozen', rows: [{ id: lit('a') }] }).list.map((p) => p.code)).toContain(
       'insert.type-readonly',
     );
   });
 
   it('insert.field-readonly rejects a non-insertable field (explicit + computed)', () => {
-    const withSecret: InsertDef = { ...fullInsert(), fields: [...fullInsert().fields, 'secret'], values: [[...fullInsert().values![0]!, lit('x')]] };
+    const withSecret: InsertDef = { ...fullInsert(), rows: [{ ...fullInsert().rows![0]!, secret: lit('x') }] };
     expect(codes(withSecret)).toContain('insert.field-readonly');
-    const withSlug: InsertDef = { ...fullInsert(), fields: [...fullInsert().fields, 'slug'], values: [[...fullInsert().values![0]!, lit('x')]] };
+    const withSlug: InsertDef = { ...fullInsert(), rows: [{ ...fullInsert().rows![0]!, slug: lit('x') }] };
     expect(codes(withSlug)).toContain('insert.field-readonly'); // computed ⇒ read-only
   });
 
   it('insert.missing-required lists the omitted required fields, and passes when all present', () => {
-    const missing: InsertDef = { kind: 'insert', into: 'doc', fields: ['id'], values: [[lit('a')]] };
+    const missing: InsertDef = { kind: 'insert', into: 'doc', rows: [{ id: lit('a') }] };
     const problems = docEngine().validateQuery(missing).list.filter((p) => p.code === 'insert.missing-required');
     expect(problems).toHaveLength(1);
     expect(problems[0]!.message).toContain('title');
@@ -193,14 +200,14 @@ describe('write-model: validation gates', () => {
 
   it('update gates: type-readonly + field-readonly', () => {
     const engine = docEngine();
-    const setLocked: UpdateDef = { kind: 'update', type: 'doc', set: [{ field: 'locked', value: lit('x') }] };
+    const setLocked: UpdateDef = { kind: 'update', type: 'doc', set: { locked: lit('x') } };
     expect(engine.validateQuery(setLocked).list.map((p) => p.code)).toContain('update.field-readonly');
-    const setSlug: UpdateDef = { kind: 'update', type: 'doc', set: [{ field: 'slug', value: lit('x') }] };
+    const setSlug: UpdateDef = { kind: 'update', type: 'doc', set: { slug: lit('x') } };
     expect(engine.validateQuery(setSlug).list.map((p) => p.code)).toContain('update.field-readonly'); // computed
-    const setBody: UpdateDef = { kind: 'update', type: 'doc', set: [{ field: 'body', value: lit('x') }] };
+    const setBody: UpdateDef = { kind: 'update', type: 'doc', set: { body: lit('x') } };
     expect(engine.validateQuery(setBody).list.map((p) => p.code)).not.toContain('update.field-readonly');
 
-    const frozenUpdate: UpdateDef = { kind: 'update', type: 'frozen', set: [{ field: 'id', value: lit('x') }] };
+    const frozenUpdate: UpdateDef = { kind: 'update', type: 'frozen', set: { id: lit('x') } };
     expect(frozenEngine().validateQuery(frozenUpdate).list.map((p) => p.code)).toContain('update.type-readonly');
   });
 
@@ -255,8 +262,8 @@ describe('write-model: validation gates', () => {
 describe('write-model: schema building', () => {
   it('drops the insert/update/delete kinds when NO Type permits them', () => {
     const schemas = buildSchemas(frozenEngine(), { depth: 'paired' });
-    expect(schemas.Query.safeParse({ kind: 'insert', into: 'frozen', fields: [], values: [] }).success).toBe(false);
-    expect(schemas.Query.safeParse({ kind: 'update', type: 'frozen', set: [] }).success).toBe(false);
+    expect(schemas.Query.safeParse({ kind: 'insert', into: 'frozen', rows: [{}] }).success).toBe(false);
+    expect(schemas.Query.safeParse({ kind: 'update', type: 'frozen', set: {} }).success).toBe(false);
     expect(schemas.Query.safeParse({ kind: 'delete', from: 'frozen' }).success).toBe(false);
     // But a SELECT still works.
     expect(schemas.Query.safeParse({ kind: 'select', fields: [{ expr: ref('frozen', 'id') }], from: { kind: 'type', type: 'frozen' } }).success).toBe(true);
@@ -266,23 +273,23 @@ describe('write-model: schema building', () => {
     const engine = perKindEngine();
     const schemas = buildSchemas(engine, { depth: { typeNames: 'enum' } });
     // insOnly is insertable but not updatable / deletable.
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'insOnly', fields: ['id'], values: [[lit('a')]] }).success).toBe(true);
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'updOnly', fields: ['id'], values: [[lit('a')]] }).success).toBe(false);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'updOnly', set: [{ field: 'id', value: lit('a') }] }).success).toBe(true);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'insOnly', set: [{ field: 'id', value: lit('a') }] }).success).toBe(false);
+    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'insOnly', rows: [{ id: lit('a') }] }).success).toBe(true);
+    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'updOnly', rows: [{ id: lit('a') }] }).success).toBe(false);
+    expect(schemas.Update.safeParse({ kind: 'update', type: 'updOnly', set: { id: lit('a') } }).success).toBe(true);
+    expect(schemas.Update.safeParse({ kind: 'update', type: 'insOnly', set: { id: lit('a') } }).success).toBe(false);
     expect(schemas.Delete.safeParse({ kind: 'delete', from: 'delOnly' }).success).toBe(true);
     expect(schemas.Delete.safeParse({ kind: 'delete', from: 'insOnly' }).success).toBe(false);
   });
 
   it('open depth leaves DML Type names as free strings', () => {
     const schemas = buildSchemas(docEngine()); // open
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'anything', fields: ['x'], values: [[lit('a')]] }).success).toBe(true);
+    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'anything', rows: [{ x: lit('a') }] }).success).toBe(true);
   });
 
-  it('paired Insert.fields require the required fields, allow the optional ones, and offer only insertable fields', () => {
+  it('paired Insert.rows require the required fields, allow the optional ones, and offer only insertable fields', () => {
     const schemas = buildSchemas(docEngine(), { depth: 'paired' });
     const ins = (fields: string[]): boolean =>
-      schemas.Insert.safeParse({ kind: 'insert', into: 'doc', fields, values: [fields.map(() => lit('x'))] }).success;
+      schemas.Insert.safeParse({ kind: 'insert', into: 'doc', rows: [row(fields, () => lit('x'))] }).success;
     const required = ['id', 'title', 'body', 'tags', 'rank', 'onlyCmp'];
     expect(ins(required)).toBe(true); // all required present
     expect(ins([...required, 'status'])).toBe(true); // optional allowed
@@ -293,7 +300,7 @@ describe('write-model: schema building', () => {
 
   it('paired Update.set offers only updatable fields', () => {
     const schemas = buildSchemas(docEngine(), { depth: 'paired' });
-    const set = (field: string): boolean => schemas.Update.safeParse({ kind: 'update', type: 'doc', set: [{ field, value: lit('x') }] }).success;
+    const set = (field: string): boolean => schemas.Update.safeParse({ kind: 'update', type: 'doc', set: { [field]: lit('x') } }).success;
     expect(set('body')).toBe(true);
     expect(set('locked')).toBe(false); // updatable:false
     expect(set('slug')).toBe(false); // computed
@@ -315,9 +322,9 @@ describe('write-model: schema building', () => {
 
   it('paired schema tolerates a Type with no insertable / updatable fields', () => {
     const schemas = buildSchemas(computedOnlyEngine(), { depth: 'paired' });
-    // The one field is computed ⇒ no insertable / updatable fields; empty `fields` still parses.
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'comp', fields: [], values: [[]] }).success).toBe(true);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'comp', set: [] }).success).toBe(true);
+    // The one field is computed ⇒ no insertable / updatable fields; an empty row still parses.
+    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'comp', rows: [{}] }).success).toBe(true);
+    expect(schemas.Update.safeParse({ kind: 'update', type: 'comp', set: {} }).success).toBe(true);
   });
 });
 
@@ -347,8 +354,7 @@ describe('write-model: runtime default materialization + guards', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'doc',
-      fields: all,
-      values: [all.map(() => lit('x'))],
+      rows: [row(all, () => lit('x'))],
       returning: [{ expr: ref('doc', 'id'), as: 'id' }],
     };
     expect((await engine.run(def)).rows[0]).toEqual({ id: 'x' });
@@ -366,20 +372,20 @@ describe('write-model: runtime default materialization + guards', () => {
   });
 
   it('belt-and-suspenders: execute throws on a read-only Type / field', async () => {
-    await expect(frozenEngine([{ id: 'a' }]).run({ kind: 'insert', into: 'frozen', fields: ['id'], values: [[lit('a')]] })).rejects.toThrow(
+    await expect(frozenEngine([{ id: 'a' }]).run({ kind: 'insert', into: 'frozen', rows: [{ id: lit('a') }] })).rejects.toThrow(
       /not insertable/,
     );
-    await expect(frozenEngine([{ id: 'a' }]).run({ kind: 'update', type: 'frozen', set: [{ field: 'id', value: lit('b') }] })).rejects.toThrow(
+    await expect(frozenEngine([{ id: 'a' }]).run({ kind: 'update', type: 'frozen', set: { id: lit('b') } })).rejects.toThrow(
       /not updatable/,
     );
     await expect(frozenEngine([{ id: 'a' }]).run({ kind: 'delete', from: 'frozen' })).rejects.toThrow(/not deletable/);
 
     // Field-level guards.
     await expect(
-      docEngine([]).run({ kind: 'insert', into: 'doc', fields: ['secret'], values: [[lit('x')]] }),
+      docEngine([]).run({ kind: 'insert', into: 'doc', rows: [{ secret: lit('x') }] }),
     ).rejects.toThrow(/'secret' of 'doc' is not insertable/);
     await expect(
-      docEngine([{ id: 'a' }]).run({ kind: 'update', type: 'doc', set: [{ field: 'locked', value: lit('x') }] }),
+      docEngine([{ id: 'a' }]).run({ kind: 'update', type: 'doc', set: { locked: lit('x') } }),
     ).rejects.toThrow(/'locked' of 'doc' is not updatable/);
   });
 });

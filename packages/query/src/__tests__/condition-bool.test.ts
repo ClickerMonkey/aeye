@@ -112,7 +112,7 @@ describe('condition.non-bool — WHERE (update)', () => {
   const base = (where: ExprDef[]): UpdateDef => ({
     kind: 'update',
     type: 'order',
-    set: [{ field: 'note', value: lit('x') }],
+    set: { note: lit('x') },
     where,
   });
 

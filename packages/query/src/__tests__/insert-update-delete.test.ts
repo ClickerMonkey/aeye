@@ -15,13 +15,12 @@ describe('insert / update / delete runtime', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name', 'age', 'email'],
-      values: [
-        [
-          { kind: 'literal', value: 'Dee' },
-          { kind: 'literal', value: 50 },
-          { kind: 'literal', value: 'dee@example.com' },
-        ],
+      rows: [
+        {
+          name: { kind: 'literal', value: 'Dee' },
+          age: { kind: 'literal', value: 50 },
+          email: { kind: 'literal', value: 'dee@example.com' },
+        },
       ],
       returning: [
         { expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' },
@@ -40,14 +39,13 @@ describe('insert / update / delete runtime', () => {
     const ins: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name', 'age', 'email'],
-      values: [
-        [
-          { kind: 'literal', value: 99 },
-          { kind: 'literal', value: 'Zed' },
-          { kind: 'literal', value: 21 },
-          { kind: 'literal', value: 'zed@example.com' },
-        ],
+      rows: [
+        {
+          id: { kind: 'literal', value: 99 },
+          name: { kind: 'literal', value: 'Zed' },
+          age: { kind: 'literal', value: 21 },
+          email: { kind: 'literal', value: 'zed@example.com' },
+        },
       ],
     };
     await fx.engine.parseQuery(ins).execute(ctx);
@@ -67,13 +65,12 @@ describe('insert / update / delete runtime', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name', 'age', 'email'],
-      values: [[
-        { kind: 'literal', value: 1 },
-        { kind: 'literal', value: 'NotAda' },
-        { kind: 'literal', value: 1 },
-        { kind: 'literal', value: 'x@example.com' },
-      ]],
+      rows: [{
+        id: { kind: 'literal', value: 1 },
+        name: { kind: 'literal', value: 'NotAda' },
+        age: { kind: 'literal', value: 1 },
+        email: { kind: 'literal', value: 'x@example.com' },
+      }],
       onConflict: { fields: ['id'], doNothing: true },
     };
     const result = await fx.engine.parseQuery(def).execute(ctx);
@@ -86,16 +83,15 @@ describe('insert / update / delete runtime', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name', 'age', 'email'],
-      values: [[
-        { kind: 'literal', value: 1 },
-        { kind: 'literal', value: 'Ada2' },
-        { kind: 'literal', value: 37 },
-        { kind: 'literal', value: 'ada@example.com' },
-      ]],
+      rows: [{
+        id: { kind: 'literal', value: 1 },
+        name: { kind: 'literal', value: 'Ada2' },
+        age: { kind: 'literal', value: 37 },
+        email: { kind: 'literal', value: 'ada@example.com' },
+      }],
       onConflict: {
         fields: ['id'],
-        update: [{ field: 'name', value: { kind: 'literal', value: 'Ada Updated' } }],
+        update: { name: { kind: 'literal', value: 'Ada Updated' } },
       },
       returning: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' }],
     };
@@ -109,20 +105,19 @@ describe('insert / update / delete runtime', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name', 'age', 'email'],
-      values: [[
-        { kind: 'literal', value: 1 },
-        { kind: 'literal', value: 'Ada Proposed' },
-        { kind: 'literal', value: 77 },
-        { kind: 'literal', value: 'ada@example.com' },
-      ]],
+      rows: [{
+        id: { kind: 'literal', value: 1 },
+        name: { kind: 'literal', value: 'Ada Proposed' },
+        age: { kind: 'literal', value: 77 },
+        email: { kind: 'literal', value: 'ada@example.com' },
+      }],
       onConflict: {
         fields: ['id'],
         // name ← the proposed (excluded) name; age ← the proposed age.
-        update: [
-          { field: 'name', value: { kind: 'excluded', field: 'name' } },
-          { field: 'age', value: { kind: 'excluded', field: 'age' } },
-        ],
+        update: {
+          name: { kind: 'excluded', field: 'name' },
+          age: { kind: 'excluded', field: 'age' },
+        },
       },
       returning: [
         { expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' },
@@ -149,7 +144,7 @@ describe('insert / update / delete runtime', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'literal', value: 100 } }],
+      set: { age: { kind: 'literal', value: 100 } },
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'user', field: 'id' }, right: { kind: 'literal', value: 2 } }],
       returning: [
         { expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' },

@@ -10,8 +10,9 @@
  */
 import type { Expr } from '../expr';
 import type { ParamExprDef } from '../schema';
-import { obj, str, exprRef, isRecord, expected, INVALID, type Shape } from '../shape';
-import { ParamExpr } from '../exprs/index';
+import { obj, str, exprRef, isRecord, expected, INVALID, type Shape, type CheckCtx } from '../shape';
+import { LiteralExpr, ParamExpr } from '../exprs/index';
+import { isExprValue } from './_write';
 
 /** A parsed SELECT / RETURNING field — its output expr plus an optional alias. */
 export interface ShapeField {
@@ -28,19 +29,53 @@ export function selectFieldShape(): Shape<ShapeField> {
   );
 }
 
-/** A parsed field assignment — the target field name plus its value expr. */
-export interface ShapeAssign {
-  field: string;
-  expr: Expr;
+/**
+ * One WRITE value → its `Expr`, or `undefined` to OMIT the field (absent key or
+ * a JSON `null` — the OpenAI-safe null semantics; a literal-null expr sets SQL
+ * NULL). A `{ kind }` object is a full expr; a raw scalar becomes a literal.
+ */
+function writeValueShape(): Shape<Expr | undefined> {
+  return {
+    check(json: unknown, ctx: CheckCtx): Expr | undefined | typeof INVALID {
+      if (json === null || json === undefined) return undefined; // OMIT
+      if (isExprValue(json)) {
+        const built = ctx.registry.parseCheckedExpr(json, ctx.problems);
+        return built === undefined ? INVALID : built;
+      }
+      if (typeof json === 'string' || typeof json === 'number' || typeof json === 'boolean') {
+        return new LiteralExpr(json);
+      }
+      ctx.problems.error('shape.type', expected('WriteValue', json));
+      return INVALID;
+    },
+  };
 }
 
-/** Shape for a `FieldValueDef` (`{ field, value }` → `{ field, expr }`). */
-export function fieldValueShape(): Shape<ShapeAssign> {
-  return obj(
-    { field: str('FieldName'), value: exprRef() },
-    (v) => ({ field: v.field, expr: v.value }),
-    { aid: 'FieldValue' },
-  );
+/**
+ * Shape for a keyed WRITE RECORD — an INSERT row / UPDATE SET / ON CONFLICT
+ * update `{ [field]: WriteValueDef }`. Non-object → aid-directed
+ * `shape.not-object`; each value is checked at `problems.at(field, …)`;
+ * OMITted (JSON-`null`) keys are DROPPED. Returns an insertion-ordered
+ * `Map<string, Expr>` (mirroring `writeRecordShape`'s throwing twin). Accumulates.
+ */
+export function writeRecordShape(aid: string): Shape<Map<string, Expr>> {
+  const value = writeValueShape();
+  return {
+    check(json, ctx) {
+      if (!isRecord(json)) {
+        ctx.problems.error('shape.not-object', expected(aid, json));
+        return INVALID;
+      }
+      const out = new Map<string, Expr>();
+      let ok = true;
+      for (const key of Object.keys(json)) {
+        const built = ctx.problems.at(key, () => value.check(json[key], ctx));
+        if (built === INVALID) ok = false;
+        else if (built !== undefined) out.set(key, built); // undefined ⇒ OMIT
+      }
+      return ok ? out : INVALID;
+    },
+  };
 }
 
 /**

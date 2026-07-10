@@ -52,7 +52,6 @@ describe('InsertQuery — INSERT…SELECT with a null-valued source column', () 
     const def: InsertDef = {
       kind: 'insert',
       into: 'order',
-      fields: ['note'],
       select: {
         kind: 'select',
         // order 11 has a null `note`.
@@ -71,8 +70,7 @@ describe('InsertQuery — INSERT…SELECT with a null-valued source column', () 
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name'],
-      values: [[{ kind: 'literal', value: 'Q' }]],
+      rows: [{ name: { kind: 'literal', value: 'Q' } }],
       returning: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }],
     };
     expect(fx.engine.parseQuery(def).toJSON()).toEqual(def);

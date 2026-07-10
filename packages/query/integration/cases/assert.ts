@@ -44,6 +44,7 @@ import type {
   QueryKind,
   SourceRecord,
   ExprDef,
+  WriteValueDef,
   OrderDef,
   JoinDef,
   SourceDef,
@@ -221,6 +222,17 @@ function emptyShape(): QueryShape {
   };
 }
 
+/**
+ * Walk a keyed WRITE value (an INSERT row / UPDATE SET entry): descend only when
+ * it is an `ExprDef` (a non-null object with a string `kind`); a raw typed value
+ * carries no sub-exprs.
+ */
+function walkWriteValue(v: WriteValueDef, s: QueryShape): void {
+  if (v !== null && typeof v === 'object' && !Array.isArray(v) && typeof (v as { kind?: unknown }).kind === 'string') {
+    walkExpr(v as ExprDef, s);
+  }
+}
+
 /** Recursively collect every sub-expr (descends into nested queries). */
 function walkExpr(x: ExprDef, s: QueryShape): void {
   s.exprs.push(x);
@@ -390,13 +402,13 @@ function walkQuery(def: QueryDef, s: QueryShape): void {
       if (def.offset !== undefined) s.offsets.push(def.offset);
       break;
     case 'insert':
-      if (def.values) for (const row of def.values) for (const v of row) walkExpr(v, s);
+      if (def.rows) for (const row of def.rows) for (const v of Object.values(row)) walkWriteValue(v, s);
       if (def.select) walkQuery(def.select, s);
       if (def.returning) for (const r of def.returning) walkExpr(r.expr, s);
-      if (def.onConflict?.update) for (const a of def.onConflict.update) walkExpr(a.value, s);
+      if (def.onConflict?.update) for (const v of Object.values(def.onConflict.update)) walkWriteValue(v, s);
       break;
     case 'update':
-      for (const a of def.set) walkExpr(a.value, s);
+      for (const v of Object.values(def.set)) walkWriteValue(v, s);
       if (def.joins) for (const j of def.joins) walkJoin(j, s);
       if (def.where) for (const w of def.where) pushCondition(w, s);
       if (def.returning) for (const r of def.returning) walkExpr(r.expr, s);

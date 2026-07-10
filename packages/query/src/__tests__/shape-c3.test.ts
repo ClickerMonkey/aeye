@@ -252,13 +252,12 @@ describe('query kinds — equivalence with the throwing parser', () => {
       offset: { kind: 'param', name: 'skip' },
     }));
 
-  it('insert (values + onConflict update + returning)', () =>
+  it('insert (rows + onConflict update + returning)', () =>
     equivQuery({
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name'],
-      values: [[lit1(1), lit1('a')], [lit1(2), lit1('b')]],
-      onConflict: { fields: ['id'], update: [{ field: 'name', value: { kind: 'excluded', field: 'name' } }] },
+      rows: [{ id: lit1(1), name: lit1('a') }, { id: lit1(2), name: lit1('b') }],
+      onConflict: { fields: ['id'], update: { name: { kind: 'excluded', field: 'name' } } },
       returning: [{ expr: fieldRef('user', 'id') }],
     }));
 
@@ -266,7 +265,6 @@ describe('query kinds — equivalence with the throwing parser', () => {
     equivQuery({
       kind: 'insert',
       into: 'user',
-      fields: ['id'],
       select: canonicalSelect('u', 'id', 'user'),
       onConflict: { fields: ['id'], doNothing: true },
     }));
@@ -275,14 +273,14 @@ describe('query kinds — equivalence with the throwing parser', () => {
     equivQuery({
       kind: 'update',
       type: 'user',
-      set: [{ field: 'name', value: lit1('x') }],
+      set: { name: lit1('x') },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'comparison', op: '=', left: fieldRef('user', 'id'), right: lit1(1) }],
       returning: [{ expr: fieldRef('user', 'id') }],
     }));
 
   it('update (bare — set only, no joins/where/returning)', () =>
-    equivQuery({ kind: 'update', type: 'user', set: [{ field: 'name', value: lit1('x') }] }));
+    equivQuery({ kind: 'update', type: 'user', set: { name: lit1('x') } }));
 
   it('set-operation (bare — no all/order/limit/offset)', () =>
     equivQuery({ kind: 'union', left: canonicalSelect('u', 'id', 'user'), right: canonicalSelect('o', 'userId', 'order') }));
@@ -330,11 +328,13 @@ describe('query kinds — malformation + accumulation', () => {
 
   it('insert: onConflict update value is localized', () => {
     const { ctx, problems } = mk();
+    // A raw scalar is a valid write value, so a BAD value must be a malformed
+    // expr (unknown kind) — localized at its field key under `onConflict.update`.
     InsertQuery.SHAPE.check(
-      { kind: 'insert', into: 'user', fields: ['id'], onConflict: { fields: ['id'], update: [{ field: 'name', value: 5 }] } },
+      { kind: 'insert', into: 'user', rows: [{ id: lit1(1) }], onConflict: { fields: ['id'], update: { name: { kind: 'bogus' } } } },
       ctx,
     );
-    expect(problems.list.some((pr) => pr.path.join('.') === 'onConflict.update.0.value')).toBe(true);
+    expect(problems.list.some((pr) => pr.path.join('.') === 'onConflict.update.name')).toBe(true);
   });
 
   it('update: a missing `set` and a bad `type` accumulate in one pass', () => {

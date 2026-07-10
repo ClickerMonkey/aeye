@@ -130,7 +130,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const fanOut: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'literal', value: 1 } }],
+      set: { age: { kind: 'literal', value: 1 } },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'order', field: 'total' }, right: { kind: 'literal', value: 0 } }],
     };
@@ -142,7 +142,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const badJoin: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'literal', value: 5 } }],
+      set: { age: { kind: 'literal', value: 5 } },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'j' } }],
     };
     expect((await fx2.engine.run(badJoin)).affected).toBe(3);
@@ -153,7 +153,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const def: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'literal', value: 9 } }],
+      set: { age: { kind: 'literal', value: 9 } },
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'user', field: 'id' }, right: { kind: 'literal', value: 1 } }],
     };
     const res = await fx.engine.run(def);
@@ -175,7 +175,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const upd: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'total', value: { kind: 'literal', value: 0 } }],
+      set: { total: { kind: 'literal', value: 0 } },
       // a relation join whose `field` is NOT a relation never resolves ⇒ registerJoins skips it.
       joins: [{ on: { kind: 'relation', source: 'order', field: 'note', as: 'j' } }],
     };
@@ -200,7 +200,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
     const upd: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'x' } }],
+      set: { note: { kind: 'literal', value: 'x' } },
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
     };
     expect(fx.engine.parseQuery(upd).toJSON()).toEqual(upd);
@@ -210,7 +210,7 @@ describe('DML — joined runtime, fan-out dedup, unresolvable joins, RLS in SQL'
 describe('InsertQuery — gatherTuples edge cases + serialization', () => {
   it('an INSERT with neither VALUES nor SELECT inserts nothing', async () => {
     const fx = runtimeFixture();
-    const def: InsertDef = { kind: 'insert', into: 'user', fields: ['name'] };
+    const def: InsertDef = { kind: 'insert', into: 'user' };
     expect((await fx.engine.run(def)).affected).toBe(0);
   });
 
@@ -219,7 +219,6 @@ describe('InsertQuery — gatherTuples edge cases + serialization', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name', 'email'],
       select: {
         kind: 'select',
         // SELECT yields only `name` ⇒ `email` has no source column ⇒ null.
@@ -238,8 +237,7 @@ describe('InsertQuery — gatherTuples edge cases + serialization', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'order',
-      fields: ['id', 'note'],
-      values: [[{ kind: 'literal', value: 99 }, { kind: 'literal', value: null }]],
+      rows: [{ id: { kind: 'literal', value: 99 }, note: { kind: 'literal', value: null } }],
       onConflict: { fields: ['note'], doNothing: true },
     };
     // order 11 / 13 already have a null `note` ⇒ conflict ⇒ skipped.
@@ -251,7 +249,6 @@ describe('InsertQuery — gatherTuples edge cases + serialization', () => {
     const withSelect: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name'],
       select: {
         kind: 'select',
         fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'name' }, as: 'name' }],

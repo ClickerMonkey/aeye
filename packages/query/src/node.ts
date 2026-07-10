@@ -66,6 +66,17 @@ export type FnDepth = 'open' | 'names' | 'typed';
 export type FilterDepth = 'open' | 'paired';
 
 /**
+ * INSERT-row / UPDATE-SET write shapes, loosest → tightest (mirrors `FnDepth`):
+ *  - `open`  — a loose `z.record(string, Expr)`: free field names, Expr values.
+ *  - `names` — a per-Type `or`-fold whose keys are that Type's WRITABLE field
+ *              names (an object of optional fields); values stay Exprs.
+ *  - `typed` — a per-Type `or`-fold whose each writable field's value is
+ *              (`field.type.toValueSchema()` | Expr); required-on-insert fields
+ *              are non-optional keys.
+ */
+export type WriteDepth = 'open' | 'names' | 'typed';
+
+/**
  * A FULLY-RESOLVED, per-axis schema-depth bag — every axis concretized to a
  * single level (no presets, no `undefined`), AFTER `maxEnumSize` degradation.
  * It is the runtime form of `buildSchemas`' authoring-time `SchemaDepth` (the
@@ -78,6 +89,7 @@ export interface ResolvedSchemaDepth {
   typeNames: NameDepth;
   functions: FnDepth;
   filters: FilterDepth;
+  writes: WriteDepth;
 }
 
 /**

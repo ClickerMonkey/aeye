@@ -57,8 +57,7 @@ describe('_type helpers — id generation + transactional inserted/updated/delet
     const def: InsertDef = {
       kind: 'insert',
       into: 'widget',
-      fields: ['label'],
-      values: [[{ kind: 'literal', value: 'y' }]],
+      rows: [{ label: { kind: 'literal', value: 'y' } }],
       returning: [{ expr: { kind: 'field-ref', source: 'widget', field: 'id' }, as: 'id' }],
     };
     const res = await engine.run(def);
@@ -71,8 +70,7 @@ describe('_type helpers — id generation + transactional inserted/updated/delet
     const def: InsertDef = {
       kind: 'insert',
       into: 'widget',
-      fields: ['label'],
-      values: [[{ kind: 'literal', value: 'first' }]],
+      rows: [{ label: { kind: 'literal', value: 'first' } }],
       returning: [{ expr: { kind: 'field-ref', source: 'widget', field: 'id' }, as: 'id' }],
     };
     const res = await engine.run(def);
@@ -85,19 +83,18 @@ describe('_type helpers — id generation + transactional inserted/updated/delet
     const ins: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name', 'age', 'email'],
-      values: [[
-        { kind: 'literal', value: 50 },
-        { kind: 'literal', value: 'New' },
-        { kind: 'literal', value: 20 },
-        { kind: 'literal', value: 'new@example.com' },
-      ]],
+      rows: [{
+        id: { kind: 'literal', value: 50 },
+        name: { kind: 'literal', value: 'New' },
+        age: { kind: 'literal', value: 20 },
+        email: { kind: 'literal', value: 'new@example.com' },
+      }],
     };
     await fx.engine.parseQuery(ins).execute(ctx);
     const upd: UpdateDef = {
       kind: 'update',
       type: 'user',
-      set: [{ field: 'age', value: { kind: 'literal', value: 21 } }],
+      set: { age: { kind: 'literal', value: 21 } },
       where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'user', field: 'id' }, right: { kind: 'literal', value: 50 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'user', field: 'age' }, as: 'age' }],
     };
@@ -111,13 +108,12 @@ describe('_type helpers — id generation + transactional inserted/updated/delet
     const ins: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name', 'age', 'email'],
-      values: [[
-        { kind: 'literal', value: 60 },
-        { kind: 'literal', value: 'Temp' },
-        { kind: 'literal', value: 30 },
-        { kind: 'literal', value: 'temp@example.com' },
-      ]],
+      rows: [{
+        id: { kind: 'literal', value: 60 },
+        name: { kind: 'literal', value: 'Temp' },
+        age: { kind: 'literal', value: 30 },
+        email: { kind: 'literal', value: 'temp@example.com' },
+      }],
     };
     await fx.engine.parseQuery(ins).execute(ctx);
     const del: DeleteDef = {
@@ -140,33 +136,34 @@ describe('_type helpers — id generation + transactional inserted/updated/delet
 });
 
 describe('InsertQuery — validation / cost / SQL / serialization', () => {
-  it('reports unknown target type, unknown field, arity mismatch, and ON CONFLICT unknown field', () => {
+  it('reports unknown target type, unknown field, heterogeneous rows, and ON CONFLICT unknown field', () => {
     const fx = runtimeFixture();
-    const badType: InsertDef = { kind: 'insert', into: 'nope', fields: ['x'], values: [[{ kind: 'literal', value: 1 }]] };
+    const badType: InsertDef = { kind: 'insert', into: 'nope', rows: [{ x: { kind: 'literal', value: 1 } }] };
     expect(fx.engine.validateQuery(badType).list.some((p) => p.code === 'insert.unknown-type')).toBe(true);
 
     const badField: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['nope', 'name'],
-      values: [[{ kind: 'literal', value: 1 }, { kind: 'literal', value: 'a' }]],
+      rows: [{ nope: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'a' } }],
     };
     expect(fx.engine.validateQuery(badField).list.some((p) => p.code === 'insert.unknown-field')).toBe(true);
 
-    const badArity: InsertDef = {
+    // Multi-row INSERT with heterogeneous keys ⇒ insert.row-shape.
+    const badShape: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name', 'age'],
-      values: [[{ kind: 'literal', value: 'a' }]],
+      rows: [
+        { name: { kind: 'literal', value: 'a' }, age: { kind: 'literal', value: 1 } },
+        { name: { kind: 'literal', value: 'b' } },
+      ],
     };
-    expect(fx.engine.validateQuery(badArity).list.some((p) => p.code === 'insert.arity')).toBe(true);
+    expect(fx.engine.validateQuery(badShape).list.some((p) => p.code === 'insert.row-shape')).toBe(true);
 
     const badConflictField: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id'],
-      values: [[{ kind: 'literal', value: 1 }]],
-      onConflict: { fields: ['id'], update: [{ field: 'nope', value: { kind: 'literal', value: 1 } }] },
+      rows: [{ id: { kind: 'literal', value: 1 } }],
+      onConflict: { fields: ['id'], update: { nope: { kind: 'literal', value: 1 } } },
     };
     expect(fx.engine.validateQuery(badConflictField).list.some((p) => p.code === 'insert.unknown-field')).toBe(true);
   });
@@ -176,7 +173,6 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name', 'age', 'email'],
       select: {
         kind: 'select',
         fields: [
@@ -204,11 +200,10 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name'],
-      values: [[{ kind: 'literal', value: 1 }, { kind: 'literal', value: 'A' }]],
+      rows: [{ id: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'A' } }],
       onConflict: {
         fields: ['id'],
-        update: [{ field: 'name', value: { kind: 'excluded', field: 'name' } }],
+        update: { name: { kind: 'excluded', field: 'name' } },
       },
       returning: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }],
     };
@@ -224,8 +219,7 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
     const doNothing: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id'],
-      values: [[{ kind: 'literal', value: 1 }]],
+      rows: [{ id: { kind: 'literal', value: 1 } }],
       onConflict: { fields: ['id'], doNothing: true },
     };
     expect(fx.engine.toSQL(doNothing, 'base').sql).toContain('ON CONFLICT ("id") DO NOTHING');
@@ -236,11 +230,10 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['name'],
-      values: [[{ kind: 'literal', value: 'a' }], [{ kind: 'literal', value: 'b' }]],
+      rows: [{ name: { kind: 'literal', value: 'a' } }, { name: { kind: 'literal', value: 'b' } }],
     };
     expect(fx.engine.cost(def).rows).toBe(2);
-    const bad: InsertDef = { kind: 'insert', into: 'nope', fields: ['x'], values: [[{ kind: 'literal', value: 1 }]] };
+    const bad: InsertDef = { kind: 'insert', into: 'nope', rows: [{ x: { kind: 'literal', value: 1 } }] };
     expect(fx.engine.cost(bad)).toEqual({ rows: 1, bytes: 0 });
   });
 
@@ -249,12 +242,11 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
     const def: InsertDef = {
       kind: 'insert',
       into: 'user',
-      fields: ['id', 'name'],
-      values: [[{ kind: 'literal', value: 1 }, { kind: 'literal', value: 'A' }]],
+      rows: [{ id: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'A' } }],
       onConflict: {
         fields: ['id'],
         doNothing: true,
-        update: [{ field: 'name', value: { kind: 'literal', value: 'B' } }],
+        update: { name: { kind: 'literal', value: 'B' } },
       },
       returning: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'k' }],
     };
@@ -270,7 +262,7 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
 
   it('an unknown target type yields zero affected rows at runtime', async () => {
     const fx = runtimeFixture();
-    const res = await fx.engine.run({ kind: 'insert', into: 'nope', fields: ['x'], values: [[{ kind: 'literal', value: 1 }]] } as InsertDef);
+    const res = await fx.engine.run({ kind: 'insert', into: 'nope', rows: [{ x: { kind: 'literal', value: 1 } }] } as InsertDef);
     expect(res.affected).toBe(0);
   });
 });
@@ -278,9 +270,9 @@ describe('InsertQuery — validation / cost / SQL / serialization', () => {
 describe('UpdateQuery — validation / cost / SQL / serialization', () => {
   it('reports unknown target type and unknown SET field', () => {
     const fx = runtimeFixture();
-    const badType: UpdateDef = { kind: 'update', type: 'nope', set: [{ field: 'x', value: { kind: 'literal', value: 1 } }] };
+    const badType: UpdateDef = { kind: 'update', type: 'nope', set: { x: { kind: 'literal', value: 1 } } };
     expect(fx.engine.validateQuery(badType).list.some((p) => p.code === 'update.unknown-type')).toBe(true);
-    const badField: UpdateDef = { kind: 'update', type: 'user', set: [{ field: 'nope', value: { kind: 'literal', value: 1 } }] };
+    const badField: UpdateDef = { kind: 'update', type: 'user', set: { nope: { kind: 'literal', value: 1 } } };
     expect(fx.engine.validateQuery(badField).list.some((p) => p.code === 'update.unknown-field')).toBe(true);
   });
 
@@ -289,12 +281,12 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'x' } }],
+      set: { note: { kind: 'literal', value: 'x' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } }],
     };
     expect(fx.engine.cost(def).rows).toBeGreaterThan(0);
-    expect(fx.engine.cost({ kind: 'update', type: 'nope', set: [{ field: 'x', value: { kind: 'literal', value: 1 } }] } as UpdateDef)).toEqual({ rows: 0, bytes: 0 });
+    expect(fx.engine.cost({ kind: 'update', type: 'nope', set: { x: { kind: 'literal', value: 1 } } } as UpdateDef)).toEqual({ rows: 0, bytes: 0 });
   });
 
   it('emits a joined UPDATE … FROM for a fan-out aggregate and a join `and` predicate', () => {
@@ -306,7 +298,7 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
       kind: 'update',
       type: 'user',
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
-      set: [{ field: 'age', value: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } } }],
+      set: { age: { kind: 'aggregate', function: 'sum', args: { value: { kind: 'field-ref', source: 'order', field: 'total' } } } },
     };
     const aggSql = fx.engine.toSQL(aggUpdate, 'base').sql;
     expect(aggSql).toBe(
@@ -317,7 +309,7 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
     const joinAnd: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'vip' } }],
+      set: { note: { kind: 'literal', value: 'vip' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' }, and: { kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 18 } } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' }],
     };
@@ -332,7 +324,7 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
     const def: UpdateDef = {
       kind: 'update',
       type: 'order',
-      set: [{ field: 'note', value: { kind: 'literal', value: 'x' } }],
+      set: { note: { kind: 'literal', value: 'x' } },
       joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'user' } }],
       where: [{ kind: 'comparison', op: '>', left: { kind: 'field-ref', source: 'user', field: 'age' }, right: { kind: 'literal', value: 1 } }],
       returning: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' }, as: 'id' }],
@@ -345,7 +337,7 @@ describe('UpdateQuery — validation / cost / SQL / serialization', () => {
   it('UpdateQuery.from rejects a non-update def, and an unknown type runs as a no-op', async () => {
     const fx = runtimeFixture();
     expect(() => UpdateQuery.from({ kind: 'select' } as unknown as QueryDef, fx.registry)).toThrow(/expected 'update'/);
-    const res = await fx.engine.run({ kind: 'update', type: 'nope', set: [{ field: 'x', value: { kind: 'literal', value: 1 } }] } as UpdateDef);
+    const res = await fx.engine.run({ kind: 'update', type: 'nope', set: { x: { kind: 'literal', value: 1 } } } as UpdateDef);
     expect(res.affected).toBe(0);
   });
 });
