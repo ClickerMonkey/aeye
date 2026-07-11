@@ -78,39 +78,58 @@ higher; accuracy dominates at 0.60). It is a **relative** score — "best value 
 this set," not an absolute rating. Recompute with `node
 integration/reports/sweep/score.cjs`.
 
-| # | Model | id | **score** | acc | tries | s/case | $/100 |
-|---|-------|-----|----------:|----:|------:|-------:|------:|
-| 1 | **Gemini 3 Flash (preview)** | `google/gemini-3-flash-preview` | **97.3** | **92%** | 1.41 | 3.4 | $1.17 |
-| 2 | GPT-5 mini | `openai/gpt-5-mini` | 86.4 | 90% | 2.16 | 12.5 | **$0.45** |
-| 3 | Gemini 3.5 Flash | `google/gemini-3.5-flash` | 84.2 | 87% | 1.36 | 2.8 | $3.51 |
-| 4 | Gemini 2.5 Flash | `google/gemini-2.5-flash` | 80.6 | 83% | 2.44 | 4.0 | $1.02 |
-| 5 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` | 76.7 | 91% | 1.38 | 5.7 | $9.66 |
-| 6 | Gemini 3.1 Flash Lite | `google/gemini-3.1-flash-lite` | 74.4 | 78% | 1.40 | 2.1 | $0.51 |
-| 7 | Claude Sonnet 4 | `anthropic/claude-sonnet-4` | 73.9 | 91% | 1.50 | 6.6 | $10.69 |
-| 8 | Llama-4-Maverick | `meta-llama/llama-4-maverick` | 46.9 | 74% | 3.17 | 22.0 | $1.05 |
-| 9 | Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | 37.3 | 59%† | 3.22 | 4.9 | $0.44 |
-| 10 | DeepSeek V3 | `deepseek/deepseek-chat` | 30.7 | 65% | 1.56 | 22.8 | $0.57 |
+| # | Model | id | reason | **score** | acc | tries | s/case | $/100 |
+|---|-------|-----|--------|----------:|----:|------:|-------:|------:|
+| 1 | **Gemini 3 Flash (preview)** | `google/gemini-3-flash-preview` |  | **95.8** | **95%** | 1.35 | 3.3 | $1.12 |
+| 2 | Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | low‡ | 93.9 | 94% | 1.42 | 3.4 | $1.20 |
+| 3 | Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | medium‡ | 87.1 | 96% | 1.40 | 13.7 | $1.90 |
+| 4 | GPT-5 mini | `openai/gpt-5-mini` |  | 84.7 | 91% | 2.17 | 10.3 | **$0.44** |
+| 5 | Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | high‡ | 82.5 | 94% | 1.43 | 15.2 | $2.01 |
+| 6 | GPT-5 mini | `openai/gpt-5-mini` | medium‡ | 81.4 | 89% | 2.17 | 10.6 | $0.30 |
+| 7 | GPT-5 mini | `openai/gpt-5-mini` | low‡ | 80.6 | 87% | 2.18 | 7.7 | $0.36 |
+| 8 | Gemini 3.5 Flash | `google/gemini-3.5-flash` |  | 78.6 | 87% | 1.36 | 2.8 | $3.51 |
+| 9 | Gemini 2.5 Flash | `google/gemini-2.5-flash` |  | 75.9 | 83% | 2.44 | 4.0 | $1.02 |
+| 10 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` |  | 70.8 | 91% | 1.38 | 5.7 | $9.66 |
+| 11 | Gemini 3.1 Flash Lite | `google/gemini-3.1-flash-lite` |  | 70.4 | 78% | 1.40 | 2.1 | $0.51 |
+| 12 | Claude Sonnet 4 | `anthropic/claude-sonnet-4` |  | 68.1 | 91% | 1.50 | 6.6 | $10.69 |
+| 13 | GPT-5 mini | `openai/gpt-5-mini` | high‡ | 68.0 | 89% | 2.24 | 25.8 | $0.66 |
+| 14 | Llama-4-Maverick | `meta-llama/llama-4-maverick` |  | 46.1 | 74% | 3.17 | 22.0 | $1.05 |
+| 15 | Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` |  | 37.4 | 59%† | 3.22 | 4.9 | $0.44 |
+| 16 | DeepSeek V3 | `deepseek/deepseek-chat` |  | 31.7 | 65% | 1.56 | 22.8 | $0.57 |
 
 _avg tries = model requests/case (1 = one-shot). $/100 = provider-reported
 `usage.cost` per 100 cases (no local math). s/case = wall-clock.
 †Flash-Lite's 59% is a low-variance draw — see the note below._
 
+_‡ The 6 **reasoning** rows (`QUERY_EVAL_REASONING=low|medium|high`) plus the two
+`gemini-3-flash-preview` / `gpt-5-mini` base rows are one post-footgun-fix batch,
+so the reasoning comparison is apples-to-apples (the other 8 rows are the original
+sweep, ~1 pt lower pre-fix). Every reasoning tier ranks **below its own
+no-reasoning base** — it buys no accuracy (gemini none 95% vs low/high 94%, medium
+96% is within noise; gpt-5-mini none 91% beats every tier) and only adds a latency
+/ cost tax. Reasoning is not worth enabling on either model._
+
 **What the score exposes:**
 
-- **Gemini 3 Flash preview is the outright champion (97.3)** — top accuracy (92%)
-  *and* cheap ($1.17) *and* fast (3.4 s), near one-shot (1.41 tries). Nothing
-  else is close on value.
-- **Both Anthropic frontier models are accuracy-competitive *value-losers*.**
-  Sonnet 4.6 (91%) and Sonnet 4 (91%) tie for 2nd on raw accuracy but rank **5th
-  and 7th** — their **~$10/100** cost (8–9× the champion, for *lower* accuracy)
-  tanks the value. This is exactly why they're dropped from the default sweep.
-- **GPT-5 mini (2nd) is the budget pick** — 90% at the cheapest price ($0.45),
-  held back only by latency (12.5 s) and its Mode-4 retries (2.16/case: it 400s on
+- **Gemini 3 Flash preview (no reasoning) is the outright champion (95.8)** — top
+  accuracy (95%) *and* cheap ($1.12) *and* fast (3.3 s), near one-shot (1.35
+  tries). Nothing else is close on value.
+- **Reasoning ranks below its own base on both models.** Every gemini/gpt-5-mini
+  reasoning tier scores under the same model's no-reasoning row: it buys no
+  accuracy (gemini none 95% ≥ low/high 94%, medium 96% is noise; gpt-5-mini none
+  91% beats all tiers) and only adds a latency/cost tax — gpt-5-mini `high` sinks
+  to **#13** at **25.8 s/case**. Don't enable it (see the Reasoning section).
+- **GPT-5 mini (#4) is the budget pick** — 91% at the cheapest price ($0.44),
+  held back only by latency (10 s) and its Mode-4 retries (2.17/case: it 400s on
   the structured schema and recovers via prompt-text fallback, cheap at mini
   pricing).
-- **Gemini 3.5 Flash is a value trap** — ranks 3rd on the formula (fast) but is
-  **$3.51/100 for 87%**: 3× the champion's price for *lower* accuracy. Almost
-  certainly hidden reasoning tokens; prefer `3-flash-preview`.
+- **Both Anthropic frontier models are accuracy-competitive *value-losers*.**
+  Sonnet 4.6 (91%) and Sonnet 4 (91%) match the frontier on raw accuracy but rank
+  **#10 and #12** — their **~$10/100** cost (8–9× the champion, for *lower*
+  accuracy) tanks the value. This is why they're dropped from the default sweep.
+- **Gemini 3.5 Flash is a value trap** — fast, but **$3.51/100 for 87%**: 3× the
+  champion's price for *lower* accuracy. Almost certainly hidden reasoning tokens;
+  prefer `3-flash-preview`.
 - **Bottom tier** (llama-maverick, deepseek) is killed by ~22 s latency; flash-lite
   by its 59% draw.
 
@@ -154,6 +173,25 @@ Sonnet 4/4.6 and Gemini 3-flash hit **89–91% WITHOUT reasoning at ~1.2 tries**
 and far lower latency. Verdict: reasoning-on-a-cheap-model is poor ROI vs just
 using a frontier model — high variance, big latency/cost tax, sub-frontier
 ceiling.
+
+**Confirmed on the two strongest value models — same verdict, no gain.** A full
+none/low/medium/high sweep of `gemini-3-flash-preview` and `gpt-5-mini` (the 6
+`reason` rows + their base rows in the leaderboard grid above) shows reasoning is
+**flat-to-negative** on both:
+
+| model | none | low | medium | high |
+|-------|------|-----|--------|------|
+| gemini-3-flash-preview | **95%** · 3.3 s | 94% · 3.4 s | 96% · 13.7 s | 94% · 15.2 s |
+| gpt-5-mini | **91%** · 10.3 s | 87% · 7.7 s | 89% · 10.6 s | 89% · 25.8 s |
+
+Gemini gains at most +1 (medium, within noise) for **4–5× the latency**;
+gpt-5-mini is *worse at every tier* — it already reasons by default, so an
+explicit effort disrupts it (and `high` blew latency to **25.8 s/case**). The
+case-level flips are churn, not systematic gains — reasoning even *loses* cases
+the baseline got right (gpt-5-mini drops `cte-recursive-ancestors` at all three
+tiers). Both models are already near their ceiling; thinking tokens don't unlock
+the semantics tail (rank-ties, recursive-CTE, composite-join). Leave reasoning
+off.
 
 ## Fast / cheap tier — price vs performance (2026-07-10)
 
