@@ -133,33 +133,53 @@ function orderItemExprs(o: OrderItem): Expr[] {
 }
 
 /**
- * Prune a `sorter` for a drilled (un-ravelled) query: DROP each catalog sort
- * whose expr is an aggregate (it has no meaning over the row-level result) plus
- * any `defaultSort` entry naming a dropped sort, and KEEP the rest — a sorter
- * usually mixes still-valid group-key sorts with aggregate ones. Returns the
- * pruned `SorterDef`, or `null` when EVERY sort was an aggregate (drop it whole).
- * Each drop is a `drill.order-dropped` warning. (`output` refs in the catalog are
- * already expanded to their underlying exprs before this runs.)
+ * Convert one drilled ORDER / sort expr against the aggregate→output map:
+ *  - an aggregate that matches a CONVERTED select column (`aggByCanon`) becomes
+ *    an `output` ref to that column (which survives the un-ravelling, now holding
+ *    the underlying value) — so `sum(total)` → `output('revenue')`, NOT dropped;
+ *  - a plain non-aggregate expr is kept as-is;
+ *  - anything else still holds an aggregate with no surviving column (an expanded
+ *    `count(*)`, or a nested aggregate) — it cannot be sorted on the row-level
+ *    result, so return `null` (the caller drops it).
  */
-function pruneSorterForDrill(sorter: SorterExpr, i: number, warnings: Problems): SorterDef | null {
+function convertSort(e: Expr, aggByCanon: ReadonlyMap<string, string>): ExprDef | null {
+  const name = aggByCanon.get(canonicalize(e));
+  if (name !== undefined) return { kind: 'output', name };
+  if (e.containsAggregate()) return null;
+  return e.toJSON();
+}
+
+/**
+ * Convert a `sorter` for a drilled query: run each catalog sort through
+ * {@link convertSort}, keeping the converted / non-aggregate ones and DROPPING
+ * (with a warning) any unconvertible sort plus every `defaultSort` naming it.
+ * Returns the rebuilt `SorterDef`, or `null` when none of its sorts survive.
+ */
+function convertSorterForDrill(
+  sorter: SorterExpr,
+  i: number,
+  aggByCanon: ReadonlyMap<string, string>,
+  warnings: Problems,
+): SorterDef | null {
   const sorts: Record<string, ExprDef> = {};
   const dropped = new Set<string>();
   for (const [name, expr] of sorter.sorts) {
-    if (expr.containsAggregate()) {
+    const conv = convertSort(expr, aggByCanon);
+    if (conv) {
+      sorts[name] = conv;
+    } else {
       dropped.add(name);
       warnings.at(['order', i, 'sorts', name], () =>
         warnings.warn(
           'drill.order-dropped',
-          `Dropped aggregate sort '${name}' (${expr.toCode()}) from the sorter — it has no meaning over the un-ravelled rows.`,
+          `Dropped sort '${name}' (${expr.toCode()}) from the sorter — it has no meaning over the un-ravelled rows.`,
         ),
       );
-    } else {
-      sorts[name] = expr.toJSON();
     }
   }
   if (Object.keys(sorts).length === 0) {
     warnings.at(['order', i], () =>
-      warnings.warn('drill.order-dropped', 'Dropped the entire sorter — every one of its sorts is an aggregate.'),
+      warnings.warn('drill.order-dropped', 'Dropped the entire sorter — none of its sorts survive the un-ravelling.'),
     );
     return null;
   }
@@ -467,7 +487,13 @@ export function drillDown(
   });
 
   // (3) Replace aggregate SELECT items with their underlying expression.
+  //     `aggByCanon` maps each CONVERTED aggregate's canonical form → the output
+  //     name it keeps, so an ORDER BY / sorter that sorts by that aggregate can be
+  //     CONVERTED to an `output` ref (the column survives, un-ravelled) rather
+  //     than dropped. A `count(*)` (expanded to many fields, no surviving column)
+  //     is NOT recorded, so a sort over it stays unconvertible → dropped.
   const newFields: SelectFieldDef[] = [];
+  const aggByCanon = new Map<string, string>();
   sq.fields.forEach((c, i) => {
     const e = c.expr;
     if (e instanceof AggregateExpr) {
@@ -500,8 +526,12 @@ export function drillDown(
         );
         return;
       }
-      const def: SelectFieldDef = c.as ? { expr: valueArg.toJSON(), as: c.as } : { expr: valueArg.toJSON() };
-      newFields.push(def);
+      // Always carry an explicit alias (the aggregate's output name) so the
+      // un-ravelled column keeps a STABLE name an `output` ref can target, and
+      // record the aggregate→output mapping for the ORDER BY conversion below.
+      const outName = nameOf(e, c.as, i);
+      aggByCanon.set(canonicalize(e), outName);
+      newFields.push({ expr: valueArg.toJSON(), as: outName });
       return;
     }
     // A non-aggregate field (a group key / plain ref) survives unchanged.
@@ -524,24 +554,28 @@ export function drillDown(
     movedHaving.push(h.toJSON());
   });
 
-  // (5) Keep LIMIT. Aggregate-based ORDER BY has no meaning over the un-ravelled
-  //     rows: DROP a plain aggregate term, but only PRUNE the aggregate entries
-  //     from a `sorter`'s catalog (keeping its still-valid group-key sorts) —
-  //     dropping the whole sorter only when that empties it. All drops are warns.
+  // (5) Keep LIMIT. Aggregate-based ORDER BY has no row-level meaning, but a sort
+  //     by an aggregate that MATCHES a select column is CONVERTED to an `output`
+  //     ref to that (un-ravelled) column rather than dropped; only a sort with no
+  //     surviving column (an expanded `count(*)` / a nested aggregate) is dropped
+  //     — for a sorter, per-sort, keeping the rest. All drops are warnings.
   const keptOrder: (OrderDef | SorterDef)[] = [];
   sq.order.forEach((o, i) => {
     if (o instanceof SorterExpr) {
-      const pruned = pruneSorterForDrill(o, i, warnings);
-      if (pruned) keptOrder.push(pruned);
-    } else if (o.expr.containsAggregate()) {
+      const converted = convertSorterForDrill(o, i, aggByCanon, warnings);
+      if (converted) keptOrder.push(converted);
+      return;
+    }
+    const conv = convertSort(o.expr, aggByCanon);
+    if (conv) {
+      keptOrder.push({ ...o.toJSON(), expr: conv });
+    } else {
       warnings.at(['order', i], () =>
         warnings.warn(
           'drill.order-dropped',
           `Dropped aggregate-based ORDER BY term '${o.expr.toCode()}' — it has no meaning over the un-ravelled rows.`,
         ),
       );
-    } else {
-      keptOrder.push(o.toJSON());
     }
   });
 

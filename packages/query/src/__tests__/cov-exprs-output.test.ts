@@ -312,7 +312,7 @@ describe('output-ref: drill-down expansion', () => {
     if ('error' in d) expect(d.error.list.some((p) => p.code === 'drill.having-aggregate')).toBe(true);
   });
 
-  it('expands an ORDER-only output ref (no groupBy / having) over a bare aggregate', () => {
+  it('CONVERTS an ORDER-only aggregate to an output ref when drilling a bare aggregate', () => {
     const def: SelectDef = {
       kind: 'select',
       fields: [{ expr: { kind: 'aggregate', function: 'sum', args: { value: ref('order', 'total') } }, as: 'revenue' }],
@@ -320,11 +320,12 @@ describe('output-ref: drill-down expansion', () => {
       order: [{ expr: outRef('revenue'), dir: 'desc' }],
     };
     const d = drillDown(def, fx.engine);
-    // A bare aggregate un-ravels; the aggregate ORDER term is dropped (warned).
+    // A bare aggregate un-ravels; the `revenue` column survives, so the aggregate
+    // ORDER term CONVERTS to output('revenue') rather than being dropped.
     expect('query' in d).toBe(true);
     if ('query' in d) {
-      expect(JSON.stringify(d.query.toJSON())).not.toContain('"kind":"output"');
-      expect(d.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(true);
+      expect(JSON.stringify(d.query.toJSON())).toContain('"kind":"output"');
+      expect(d.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(false);
     }
   });
 
