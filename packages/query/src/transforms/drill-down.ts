@@ -41,6 +41,8 @@ import type {
   ScalarValue,
   SelectFieldDef,
   SelectDef,
+  OrderDef,
+  SorterDef,
 } from '../schema';
 import type { SourceRecord } from '../runtime/row';
 import type { QueryEngine } from '../engine';
@@ -51,12 +53,14 @@ import { Problems } from '../problem';
 import {
   SelectQuery,
   fieldNameOf,
+  type OrderItem,
 } from '../queries/index';
 import {
   AggregateExpr,
   FieldRefExpr,
   OutputRefExpr,
   WindowExpr,
+  SorterExpr,
 } from '../exprs/index';
 
 /**
@@ -121,6 +125,23 @@ function containsOutputRef(expr: Expr): boolean {
     if (e instanceof OutputRefExpr) found = true;
   });
   return found;
+}
+
+/** The exprs one `order` entry contributes: a term's `expr`, or a sorter's catalog. */
+function orderItemExprs(o: OrderItem): Expr[] {
+  return o instanceof SorterExpr ? [...o.sorts.values()] : [o.expr];
+}
+
+/** Expand every `output` ref inside a sorter's catalog (keeps the `SorterDef` type). */
+function expandSorterDef(def: SorterDef, outputs: ReadonlyMap<string, ExprDef>): SorterDef {
+  const sorts: Record<string, ExprDef> = {};
+  for (const name of Object.keys(def.sorts)) sorts[name] = expandOutputDef(def.sorts[name]!, outputs);
+  return { ...def, sorts };
+}
+
+/** Expand output refs in one `order` entry (a sorter's catalog, or a term's `expr`). */
+function expandOrderEntry(o: OrderDef | SorterDef, outputs: ReadonlyMap<string, ExprDef>): OrderDef | SorterDef {
+  return 'kind' in o ? expandSorterDef(o, outputs) : { ...o, expr: expandOutputDef(o.expr, outputs) };
 }
 
 /** Map every value of a named-args record through `expandOutputDef`. */
@@ -202,6 +223,11 @@ function expandOutputDef(def: ExprDef, outputs: ReadonlyMap<string, ExprDef>): E
       };
     // Leaves + subquery-holders (their embedded QueryDef carries its own
     // outputs, so it is left untouched): return unchanged.
+    case 'sorter':
+      // A sorter only appears as an ORDER entry (routed via `expandSorterDef`),
+      // never nested in a value — but ExprKind exhaustiveness requires the case;
+      // expand its catalog so a stray nested sorter still can't dangle a ref.
+      return expandSorterDef(def, outputs);
     case 'literal':
     case 'field-ref':
     case 'param':
@@ -229,7 +255,7 @@ function expandSelectOutputs(sq: SelectQuery, engine: QueryEngine): SelectQuery 
   const usesOutput =
     sq.groupBy.some(containsOutputRef) ||
     sq.having.some(containsOutputRef) ||
-    sq.order.some((o) => containsOutputRef(o.expr));
+    sq.order.some((o) => orderItemExprs(o).some(containsOutputRef));
   if (!usesOutput) return sq;
 
   const outputs = new Map<string, ExprDef>();
@@ -238,7 +264,7 @@ function expandSelectOutputs(sq: SelectQuery, engine: QueryEngine): SelectQuery 
   const def = sq.toJSON();
   if (def.groupBy) def.groupBy = def.groupBy.map((d) => expandOutputDef(d, outputs));
   if (def.having) def.having = def.having.map((d) => expandOutputDef(d, outputs));
-  if (def.order) def.order = def.order.map((o) => ({ ...o, expr: expandOutputDef(o.expr, outputs) }));
+  if (def.order) def.order = def.order.map((o) => expandOrderEntry(o, outputs));
   return SelectQuery.from(def, engine.registry);
 }
 
@@ -288,7 +314,7 @@ function referencedParamNames(sq: SelectQuery): Set<string> {
   sq.where.forEach(collect);
   sq.groupBy.forEach(collect);
   sq.having.forEach(collect);
-  sq.order.forEach((o) => collect(o.expr));
+  sq.order.forEach((o) => orderItemExprs(o).forEach(collect));
   const names = new Set<string>(ps.names());
   if (sq.limit !== undefined && typeof sq.limit !== 'number') names.add(sq.limit.name);
   if (sq.offset !== undefined && typeof sq.offset !== 'number') names.add(sq.offset.name);
@@ -459,14 +485,16 @@ export function drillDown(
     movedHaving.push(h.toJSON());
   });
 
-  // (5) Keep LIMIT; drop aggregate-referencing ORDER BY terms (warn).
+  // (5) Keep LIMIT; drop aggregate-referencing ORDER BY entries (warn). A sorter
+  //     is dropped when ANY of its catalog exprs is an aggregate.
   const keptOrder = sq.order
     .filter((o, i) => {
-      if (o.expr.containsAggregate()) {
+      const agg = orderItemExprs(o).find((e) => e.containsAggregate());
+      if (agg) {
         warnings.at(['order', i], () =>
           warnings.warn(
             'drill.order-dropped',
-            `Dropped aggregate-based ORDER BY term '${o.expr.toCode()}' — it has no meaning over the un-ravelled rows.`,
+            `Dropped aggregate-based ORDER BY term '${agg.toCode()}' — it has no meaning over the un-ravelled rows.`,
           ),
         );
         return false;

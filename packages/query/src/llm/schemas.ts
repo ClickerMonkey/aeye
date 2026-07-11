@@ -49,6 +49,7 @@ import {
   exprKindApplicable,
   insertRowSchema,
   updateSetSchema,
+  sorterSchema,
   type BackingLookup,
   SchemaCache,
   type FunctionSelector,
@@ -497,6 +498,14 @@ export function buildSchemas(
     })
     .describe('An ORDER BY entry (its `expr` may reference a SELECT output field by name).');
 
+  // A `sorter` — a DYNAMIC-SORT catalog — is offered ONLY inside a SELECT's
+  // `order` (never in the general Expr union). Its `sorts` values are group-exprs
+  // (an Expr or an `output` ref); the SELECTION is an execution-time input.
+  const Sorter: z.ZodTypeAny = sorterSchema(GroupExpr);
+  const SelectOrderEntry: z.ZodTypeAny = SelectOrder.or(Sorter).describe(
+    'A SELECT ORDER BY entry: a term, or a dynamic-sort `sorter` catalog (selection supplied at run time).',
+  );
+
   const SelectField: z.ZodTypeAny = z
     .object({ expr: Expr, as: z.string().optional() })
     .describe('A selected output field.');
@@ -516,7 +525,7 @@ export function buildSchemas(
       where: z.array(Expr).optional(),
       groupBy: z.array(GroupExpr).optional(),
       having: z.array(GroupExpr).optional(),
-      order: z.array(SelectOrder).optional(),
+      order: z.array(SelectOrderEntry).optional(),
       limit: limitOffset.optional(),
       offset: limitOffset.optional(),
       // `includeTotal` is an EXECUTION-time option (engine.run / engine.toSQL),

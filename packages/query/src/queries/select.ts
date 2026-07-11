@@ -15,6 +15,9 @@ import type {
   QueryDef,
   SelectFieldDef,
   SelectDef,
+  OrderDef,
+  SorterDef,
+  SortSelectionDef,
 } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
@@ -28,7 +31,7 @@ import { recordSignature } from '../runtime/record';
 import { Type } from '../type';
 import type { ParamSet } from '../param';
 import { NumberFieldType } from '../field-types/index';
-import { FieldRefExpr, AggregateExpr, OutputRefExpr, WindowExpr } from '../exprs/index';
+import { FieldRefExpr, AggregateExpr, OutputRefExpr, WindowExpr, SorterExpr } from '../exprs/index';
 import {
   Query,
   type QueryClass,
@@ -41,7 +44,7 @@ import { QuerySource } from './source';
 import { QueryJoin } from './join';
 import { reportDuplicateSources, type BoundSource } from './_sources';
 import { QueryOrder, sortEntries, sortByKeys, type OrderEntry } from './order';
-import { obj, lit, bool, list, exprRef, sourceRef } from '../shape';
+import { obj, lit, bool, list, exprRef, sourceRef, isRecord, type Shape } from '../shape';
 import { selectFieldShape, boundShape } from './_shape';
 import { type Cost, addCost } from '../cost';
 import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost } from './_cost';
@@ -77,6 +80,32 @@ interface ProjectedRow {
   record: SourceRecord;
   row: SourceRow;
   group: readonly SourceRow[];
+}
+
+/**
+ * One `order` entry: EITHER a concrete ORDER BY term (`QueryOrder`) OR a dynamic
+ * `sorter` placeholder that EXPANDS into concrete terms against the execution-time
+ * sort spec (see {@link SorterExpr}).
+ */
+export type OrderItem = QueryOrder | SorterExpr;
+
+/**
+ * Structural shape for one `order` entry — a `sorter` (discriminated by its
+ * `kind`) or a normal `{ expr, dir, nulls? }` term. Dispatches to the owning
+ * class's `SHAPE`; never throws (accumulates), mirroring the other combinators.
+ */
+const orderItemShape: Shape<OrderItem> = {
+  check(json, ctx) {
+    return isRecord(json) && json['kind'] === 'sorter'
+      ? SorterExpr.SHAPE.check(json, ctx)
+      : QueryOrder.SHAPE.check(json, ctx);
+  },
+};
+
+/** Parse one authored `order` entry into its `OrderItem` (sorter, else a term). */
+function parseOrderItem(def: OrderDef | SorterDef, registry: Registry): OrderItem {
+  // Only a `SorterDef` carries a `kind` discriminant; a plain term never does.
+  return 'kind' in def ? SorterExpr.from(def, registry) : QueryOrder.from(def, registry);
 }
 
 /** A `SELECT` statement plus its in-memory execution pipeline (FROM → JOIN → WHERE → GROUP → HAVING → DISTINCT → ORDER → LIMIT). */
@@ -116,6 +145,28 @@ export class SelectQuery extends Query {
       from: { kind: 'type', type: 'user' },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
       where: [{ kind: 'filters', source: 'order', fields: ['total'] }],
+    } satisfies SelectDef),
+    // A DYNAMIC-SORT catalog: the `order` holds ONE `sorter` declaring the named,
+    // caller-selectable sorts (`name`, `age`) plus a `defaultSort`. The end-user's
+    // live re-sort is passed at EXECUTION time (`run(query, { sort:[{sort:'age',
+    // dir:'desc'}] })`), never authored here; with no selection the default applies.
+    JSON.stringify({
+      kind: 'select',
+      fields: [
+        { expr: { kind: 'field-ref', source: 'user', field: 'name' } },
+        { expr: { kind: 'field-ref', source: 'user', field: 'age' } },
+      ],
+      from: { kind: 'type', type: 'user' },
+      order: [
+        {
+          kind: 'sorter',
+          sorts: {
+            name: { kind: 'field-ref', source: 'user', field: 'name' },
+            age: { kind: 'field-ref', source: 'user', field: 'age' },
+          },
+          defaultSort: [{ sort: 'name', dir: 'asc' }],
+        },
+      ],
     } satisfies SelectDef),
     // The BIGGEST order per customer — CORRELATE a subquery to the outer row by
     // JOINING the relation and comparing the JOINED KEY, never a relation
@@ -180,8 +231,8 @@ export class SelectQuery extends Query {
     readonly groupBy: Expr[],
     /** HAVING predicates (ANDed), evaluated over each group. */
     readonly having: Expr[],
-    /** ORDER BY terms. */
-    readonly order: QueryOrder[],
+    /** ORDER BY entries — concrete terms and/or dynamic `sorter` placeholders. */
+    readonly order: OrderItem[],
     /** Row cap: a literal count or a bound `param` (`undefined` when unset). */
     readonly limit: number | ParamExprDef | undefined,
     /** Row offset: a literal count or a bound `param` (`undefined` when unset). */
@@ -201,7 +252,7 @@ export class SelectQuery extends Query {
       (json.where ?? []).map((w) => registry.parseExpr(w)),
       (json.groupBy ?? []).map((g) => registry.parseExpr(g)),
       (json.having ?? []).map((h) => registry.parseExpr(h)),
-      (json.order ?? []).map((o) => QueryOrder.from(o, registry)),
+      (json.order ?? []).map((o) => parseOrderItem(o, registry)),
       json.limit,
       json.offset,
     );
@@ -224,7 +275,7 @@ export class SelectQuery extends Query {
       where: list(exprRef()),
       groupBy: list(exprRef()),
       having: list(exprRef()),
-      order: list(QueryOrder.SHAPE),
+      order: list(orderItemShape),
       limit: boundShape(),
       offset: boundShape(),
     },
@@ -386,8 +437,16 @@ export class SelectQuery extends Query {
         checkBoolCondition(h, rt, p);
       }));
     });
+    // ORDER BY: a normal term validates its `expr` exactly like before; a
+    // `sorter` validates its CATALOG exprs the same way (same outScope + colCtx),
+    // so an `output` ref resolves and a non-orderable / relation-as-value sort is
+    // rejected — see `SorterExpr.validateInOrder`.
     p.at('order', () => {
-      this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, colCtx)));
+      this.order.forEach((o, i) =>
+        o instanceof SorterExpr
+          ? p.at(i, () => o.validateInOrder(engine, outScope, p, colCtx))
+          : p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, colCtx)),
+      );
     });
     // SQL-92 GROUP BY rule: once the SELECT groups, every column referenced in a
     // select field / order-by / having must be a GROUP BY key (matched as a whole
@@ -398,7 +457,12 @@ export class SelectQuery extends Query {
       const groupCodes = this.groupKeyCodes();
       p.at('fields', () => this.fields.forEach((c, i) => p.at([i, 'expr'], () => this.checkGrouped(c.expr, groupCodes, p))));
       p.at('having', () => this.having.forEach((h, i) => p.at(i, () => this.checkGrouped(h, groupCodes, p))));
-      p.at('order', () => this.order.forEach((o, i) => p.at([i, 'expr'], () => this.checkGrouped(o.expr, groupCodes, p))));
+      // A sorter's catalog exprs face the SAME SQL-92 rule as any order term.
+      p.at('order', () => this.order.forEach((o, i) =>
+        o instanceof SorterExpr
+          ? p.at(i, () => o.sorts.forEach((e, name) => p.at(['sorts', name], () => this.checkGrouped(e, groupCodes, p))))
+          : p.at([i, 'expr'], () => this.checkGrouped(o.expr, groupCodes, p)),
+      ));
     }
   }
 
@@ -479,13 +543,40 @@ export class SelectQuery extends Query {
     for (const w of this.where) w.walk(visit);
     for (const g of this.groupBy) g.walk(visit);
     for (const h of this.having) h.walk(visit);
-    for (const o of this.order) o.expr.walk(visit);
+    // A sorter is itself an `Expr` (so `sorters()` can find it) whose catalog
+    // exprs are its children; a normal term walks just its `expr`.
+    for (const o of this.order) (o instanceof SorterExpr ? o : o.expr).walk(visit);
     for (const j of this.joins) if (j.and) j.and.walk(visit);
   }
 
   /** Bind FROM + joins so a `filters` placeholder's `source` resolves for `filters()`. */
   protected override filterScope(engine: QueryEngine, scope: QueryScope): QueryScope {
     return this.bind(engine, scope).scope;
+  }
+
+  /**
+   * The scope a `sorter`'s catalog exprs resolve in for `sorters()` introspection:
+   * FROM + joins PLUS this SELECT's outputs (so an `output`-ref sort resolves),
+   * mirroring the order-by validation scope.
+   */
+  protected override sorterScope(engine: QueryEngine, scope: QueryScope): QueryScope {
+    return this.outputScope(this.bind(engine, scope).scope);
+  }
+
+  /**
+   * Expand this SELECT's `order` entries into concrete {@link QueryOrder} terms
+   * against the execution-time `spec`: a normal term passes through; a `sorter`
+   * EXPANDS (its selected / default terms), so both the runtime sort and the SQL
+   * ORDER BY emission proceed through the SAME order-by machinery. A sorter with
+   * neither a selection nor a `defaultSort` contributes no terms.
+   */
+  private expandOrder(spec: readonly SortSelectionDef[] | undefined): QueryOrder[] {
+    const out: QueryOrder[] = [];
+    for (const item of this.order) {
+      if (item instanceof SorterExpr) out.push(...item.expand(spec));
+      else out.push(item);
+    }
+    return out;
   }
 
   /**
@@ -735,20 +826,25 @@ export class SelectQuery extends Query {
       });
     }
 
-    // 7. ORDER BY: the authored terms, else the FROM Type's `defaultOrder` when
-    //    it applies (same guards + `applyTo` scope as SQL emission). The default
-    //    keys resolve against the FROM alias per row and sort with the SAME
-    //    comparator (dir + nulls) an explicit ORDER BY uses.
+    // 7. ORDER BY: the authored terms — with any `sorter` EXPANDED against the
+    //    execution-time sort spec — else the FROM Type's `defaultOrder` when it
+    //    applies (same guards + `applyTo` scope as SQL emission). The keys resolve
+    //    per row and sort with the SAME comparator (dir + nulls) an explicit
+    //    ORDER BY uses. When an `order` is present but a sorter expands to nothing
+    //    (no selection, no default), the rows stay unsorted (no default fallback).
     let outRows: SourceRecord[];
-    if (this.order.length) {
+    const orderTerms = this.expandOrder(ctx.sortSpec);
+    if (orderTerms.length) {
       const entries: OrderEntry<SourceRecord>[] = projected.map((pr) => ({
         item: pr.record,
         row: pr.row,
         group: pr.group,
       }));
-      outRows = await ctx.withOutputs(outputs, () => sortEntries(entries, this.order, ctx));
-    } else {
+      outRows = await ctx.withOutputs(outputs, () => sortEntries(entries, orderTerms, ctx));
+    } else if (this.order.length === 0) {
       outRows = await this.applyDefaultOrder(engine, ctx, isRoot, projected);
+    } else {
+      outRows = projected.map((pr) => pr.record);
     }
 
     // The full result count BEFORE pagination — the row set after every
@@ -927,7 +1023,7 @@ export class SelectQuery extends Query {
     // applies (unsorted + non-aggregated + non-DISTINCT + in `applyTo` scope),
     // resolved against the FROM alias. An aggregated / DISTINCT / already-ordered
     // select keeps no default (documented in `effectiveDefaultOrder`).
-    let orderSqls = this.order.map((o) => this.orderTermSQL(dialect, outCtx, o));
+    let orderSqls = this.expandOrder(ctx.sortSpec).map((o) => this.orderTermSQL(dialect, outCtx, o));
     // `effectiveDefaultOrder` returns `undefined` when an explicit order is
     // present, so it is the single authority for whether the default applies.
     const def = this.effectiveDefaultOrder(engine, isRoot);

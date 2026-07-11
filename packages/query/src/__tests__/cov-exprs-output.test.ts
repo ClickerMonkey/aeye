@@ -356,6 +356,9 @@ describe('output-ref: drill-down expansion', () => {
       { kind: 'text-search', source: 'order', query: 'x' },
       { kind: 'filters', source: 'order' },
       { kind: 'excluded', field: 'note' },
+      // A (structurally-nested) sorter exercises `expandOutputDef`'s `sorter`
+      // arm — its catalog exprs are expanded like any other child position.
+      { kind: 'sorter', sorts: { byTotal: ref('order', 'total') } },
       ref('order', 'id'),
       lit(true),
     ];

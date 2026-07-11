@@ -39,6 +39,7 @@ export {
   CTEStatementQuery,
   ExprQuery,
 };
+export type { OrderItem } from './select';
 
 /**
  * All built-in Query classes, in a stable order. The set-operation class

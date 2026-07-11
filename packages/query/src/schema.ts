@@ -475,6 +475,28 @@ export interface OrderDef {
   nulls?: 'first' | 'last';
 }
 
+/** One `{ sort, dir }` entry of a sorter's `defaultSort` (a named sort + direction). */
+export interface SortEntryDef {
+  /** A declared sort NAME (a key of the sorter's `sorts`). */
+  sort: string;
+  /** Sort direction for this key. */
+  dir: 'asc' | 'desc';
+}
+
+/**
+ * One entry of a caller's EXECUTION-TIME sort SELECTION — the dynamic-sort
+ * analogue of a bound param / filter value. `sort` names one of a `sorter`
+ * placeholder's declared `sorts`; `dir` (defaulting to `'asc'`) is the direction
+ * to apply. The caller supplies an ORDERED list (multi-key priority) via
+ * `RuntimeOptions.sort` / `engine.toSQL({ sort })`; the LLM never authors it.
+ */
+export interface SortSelectionDef {
+  /** A declared sort name (a key of a `sorter`'s `sorts`). */
+  sort: string;
+  /** Sort direction; defaults to `'asc'` when omitted. */
+  dir?: 'asc' | 'desc';
+}
+
 /**
  * A window function over a partition / order. `function` names a registered
  * WINDOW-shaped function (e.g. `rowNumber`, `rank`, `lag`) — or an
@@ -602,10 +624,34 @@ export interface OutputRefExprDef {
   name: string;
 }
 
+/**
+ * A DYNAMIC-SORT catalog placeholder, valid ONLY inside a SELECT's `order` list —
+ * the ORDER BY analogue of the `filters` placeholder. The query author (or LLM)
+ * declares a CATALOG of named, sortable expressions (`sorts`); the CALLER picks
+ * which of them to sort by — and in what direction / priority — at EXECUTION time
+ * via `RuntimeOptions.sort` / `engine.toSQL({ sort })`, so an end-user can re-sort
+ * a live result. A `sorts` VALUE may be any `ExprDef`, INCLUDING an `output`
+ * reference (sort by a select item without restating its expr).
+ *
+ * At execute / emit time the placeholder EXPANDS into concrete ORDER BY terms:
+ * each caller-selected `{ sort, dir }` looks up `sorts[sort]` and contributes
+ * `(that expr, dir)`. With NO caller selection it falls back to `defaultSort`
+ * (each `{ sort, dir }` → `sorts[sort]`); with neither it contributes no terms.
+ * A selected `sort` name absent from `sorts` is a loud runtime error.
+ */
+export interface SorterDef {
+  kind: 'sorter';
+  /** The catalog of named sortable expressions (sort name → expr). Non-empty. */
+  sorts: Record<string, ExprDef>;
+  /** The default multi-key sort (each `{ sort, dir }`) applied when the caller selects none. */
+  defaultSort?: SortEntryDef[];
+}
+
 /** Discriminated union of every expression shape. */
 export type ExprDef =
   | LiteralExprDef
   | OutputRefExprDef
+  | SorterDef
   | FieldRefExprDef
   | ParamExprDef
   | BinaryExprDef
@@ -814,7 +860,12 @@ export interface SelectDef {
   groupBy?: ExprDef[];
   /** HAVING conditions, ANDed together. */
   having?: ExprDef[];
-  order?: OrderDef[];
+  /**
+   * ORDER BY: a list whose entries are EITHER a normal `{ expr, dir, nulls? }`
+   * term OR a `sorter` placeholder (`{ kind:'sorter', … }`) whose concrete terms
+   * are supplied at execution time (see {@link SorterDef}).
+   */
+  order?: (OrderDef | SorterDef)[];
   /** Row cap — a literal count, or a named param (see the auto-paginate
    *  transform, which binds pagination to params for reuse). */
   limit?: number | ParamExprDef;

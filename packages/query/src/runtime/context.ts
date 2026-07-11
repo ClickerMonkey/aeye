@@ -12,7 +12,7 @@
  *  - a `correlation` row so a correlated subquery can see its outer row;
  *  - a recursion cap for recursive CTEs.
  */
-import type { ExprDef, JsonValue } from '../schema';
+import type { ExprDef, JsonValue, SortSelectionDef } from '../schema';
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
 import type { Embedder } from '../engine';
@@ -58,6 +58,15 @@ export interface RuntimeOptions {
    * exposes and their filterable fields.
    */
   filters?: Record<string, ExprDef | Expr | null>;
+  /**
+   * Execution-time DYNAMIC-SORT selection — an ORDERED list of `{ sort, dir? }`
+   * (multi-key priority; `dir` defaults to `'asc'`). Each `sort` names one of a
+   * `sorter` placeholder's declared `sorts`; the sorter EXPANDS the selection into
+   * concrete ORDER BY terms at execution time. With no selection a sorter falls
+   * back to its `defaultSort`. Use `query.sorters(engine)` to introspect the sort
+   * names a query exposes and their orderable types. Mirrors `engine.toSQL({ sort })`.
+   */
+  sort?: SortSelectionDef[];
   /**
    * Row-level-security provider for the in-memory runtime: a Type's rows are
    * filtered on load by `provider.predicateFor(typeName, typeName)` (AND-ed with
@@ -119,6 +128,8 @@ export class RuntimeContext {
   private readonly paramValues = new Map<string, Value>();
   /** Execution-supplied filter EXPRS (parsed once), keyed by source name. */
   private readonly filterExprs: Readonly<Record<string, Expr>>;
+  /** Execution-supplied dynamic-sort selection (ordered; a sorter expands it). */
+  private readonly sortSelection: readonly SortSelectionDef[];
   /** Optional row-level-security provider for the runtime row filter. */
   private readonly rlsProvider?: RlsProvider;
   /** Type names currently mid-RLS-filter, to break self-referential recursion. */
@@ -141,6 +152,7 @@ export class RuntimeContext {
     this.maxCteIterations = options.maxCteIterations ?? DEFAULT_MAX_CTE_ITERATIONS;
     this.includeTotal = options.includeTotal ?? false;
     this.filterExprs = engine.parseFilters(options.filters);
+    this.sortSelection = options.sort ?? [];
     this.rlsProvider = options.rls;
     this.embedder = options.embedder ?? engine.embedder;
     this.recordEmbedding = options.recordEmbedding;
@@ -163,6 +175,16 @@ export class RuntimeContext {
   /** The execution-supplied filter expr bound to `source`, or `undefined`. */
   filtersFor(source: string): Expr | undefined {
     return this.filterExprs[source];
+  }
+
+  // ─── Execution-time dynamic-sort selection ────────────────────────────────
+
+  /**
+   * The execution-supplied dynamic-sort selection (ordered; possibly empty). A
+   * `sorter` placeholder in a SELECT `order` expands this into concrete terms.
+   */
+  get sortSpec(): readonly SortSelectionDef[] {
+    return this.sortSelection;
   }
 
   // ─── Bound source types (alias → Type) ───────────────────────────────

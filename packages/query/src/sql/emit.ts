@@ -18,6 +18,7 @@ import type { RlsProvider } from './rls';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { Expr } from '../expr';
+import type { SortSelectionDef } from '../schema';
 
 /** A value that may be bound as a SQL parameter. */
 export type SqlValue = string | number | boolean | null;
@@ -169,6 +170,13 @@ export class SqlContext {
      * `defaultOrder` with `applyTo: 'result'` applies (see `SelectQuery`).
      */
     readonly isRoot: boolean = false,
+    /**
+     * Execution-time dynamic-sort selection (ordered; possibly empty), keyed by a
+     * `sorter` placeholder's declared sort names — read by a SELECT `order` when
+     * it EXPANDS a sorter into concrete terms. Propagates to nested levels (a
+     * subquery may carry its own sorter), mirroring `filters`.
+     */
+    readonly sortSpec: readonly SortSelectionDef[] = [],
   ) {}
 
   /** The execution-supplied filter expr bound to `source`, or `undefined`. */
@@ -178,19 +186,19 @@ export class SqlContext {
 
   /** Same context with a different scope (same planner / level / root status). */
   withScope(scope: QueryScope): SqlContext {
-    return new SqlContext(this.dialect, this.engine, scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, this.isRoot);
+    return new SqlContext(this.dialect, this.engine, scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, this.isRoot, this.sortSpec);
   }
 
   /** A nested level (subquery): fresh scope + fresh planner, not in-aggregate.
    *  Neither the outer `$total` flag NOR root status propagates into a nested
    *  level, so a subquery / FROM subquery emits as non-root. */
   withPlanner(scope: QueryScope, planner: JoinCtePlanner): SqlContext {
-    return new SqlContext(this.dialect, this.engine, scope, planner, this.rls, false, this.params, this.filters, false, false);
+    return new SqlContext(this.dialect, this.engine, scope, planner, this.rls, false, this.params, this.filters, false, false, this.sortSpec);
   }
 
   /** Toggle the in-aggregate flag (set when emitting an aggregate argument). */
   asAggregate(on: boolean): SqlContext {
-    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, on, this.params, this.filters, this.includeTotal, this.isRoot);
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, on, this.params, this.filters, this.includeTotal, this.isRoot, this.sortSpec);
   }
 
   /**
@@ -199,6 +207,6 @@ export class SqlContext {
    * branch — so those nested SELECTs never inherit the entry's root status.
    */
   nonRoot(): SqlContext {
-    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, false);
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, false, this.sortSpec);
   }
 }

@@ -13,7 +13,7 @@
  * Do not add a stub for it here; introduce it with its phase so the signature
  * can reference the real Dialect types.
  */
-import type { ExprDef, QueryDef } from './schema';
+import type { ExprDef, QueryDef, SortSelectionDef } from './schema';
 import type { Registry } from './registry';
 import type { Type } from './type';
 import {
@@ -385,8 +385,9 @@ export class QueryEngine {
    * SQL string + ordered bind parameters. `opts.rls` injects per-Type RLS
    * predicates; `opts.params` supplies values for named bind parameters;
    * `opts.filters` (keyed by source) feeds the `filters` placeholders' clauses;
-   * `opts.includeTotal` emits the `COUNT(*) OVER () AS "$total"` column on the
-   * top-level SELECT.
+   * `opts.sort` (an ordered `{ sort, dir? }` list) feeds the `sorter` placeholders
+   * in a SELECT `order`; `opts.includeTotal` emits the `COUNT(*) OVER () AS
+   * "$total"` column on the top-level SELECT.
    */
   toSQL(
     query: Query | QueryDef,
@@ -395,6 +396,7 @@ export class QueryEngine {
       rls?: RlsProvider;
       params?: Readonly<Record<string, SqlValue>>;
       filters?: Record<string, ExprDef | Expr | null>;
+      sort?: SortSelectionDef[];
       includeTotal?: boolean;
     },
   ): { sql: string; params: SqlValue[] } {
@@ -404,10 +406,10 @@ export class QueryEngine {
     const scope = this.globalScope();
     const params = opts?.params ?? {};
     const planner = new JoinCtePlanner(d, this, opts?.rls, params);
-    // Thread the execution-time filter exprs (parsed once, keyed by source) +
-    // includeTotal onto the context so the `filters` placeholders and the
-    // `$total` column read them.
-    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), opts?.includeTotal ?? false, true);
+    // Thread the execution-time filter exprs (parsed once, keyed by source) + the
+    // dynamic-sort selection + includeTotal onto the context so the `filters` /
+    // `sorter` placeholders and the `$total` column read them.
+    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), opts?.includeTotal ?? false, true, opts?.sort ?? []);
     const rendered = q.toSQL(d, ctx).render(d);
     return { sql: rendered.sql, params: [...rendered.params] };
   }

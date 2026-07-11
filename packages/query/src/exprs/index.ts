@@ -8,6 +8,7 @@ import type { ExprClass } from '../expr';
 import type { SchemaOptions } from '../node';
 import { LiteralExpr } from './literal';
 import { OutputRefExpr } from './output-ref';
+import { SorterExpr } from './sorter';
 import { FieldRefExpr } from './field-ref';
 import { ParamExpr } from './param';
 import { BinaryExpr } from './binary';
@@ -34,6 +35,7 @@ import { ExcludedExpr } from './excluded';
 export {
   LiteralExpr,
   OutputRefExpr,
+  SorterExpr,
   FieldRefExpr,
   ParamExpr,
   BinaryExpr,
@@ -62,6 +64,7 @@ export {
 export const BUILTIN_EXPRS: readonly ExprClass[] = [
   LiteralExpr,
   OutputRefExpr,
+  SorterExpr,
   FieldRefExpr,
   ParamExpr,
   BinaryExpr,

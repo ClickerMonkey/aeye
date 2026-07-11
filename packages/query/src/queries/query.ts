@@ -32,7 +32,7 @@ import type { SqlContext, SqlText } from '../sql/emit';
 import { Type } from '../type';
 import { Field } from '../field';
 import { TextFieldType } from '../field-types/index';
-import { FieldRefExpr, AggregateExpr, FiltersExpr } from '../exprs/index';
+import { FieldRefExpr, AggregateExpr, FiltersExpr, SorterExpr } from '../exprs/index';
 
 /**
  * One output field of a query.
@@ -243,6 +243,16 @@ export abstract class Query {
   }
 
   /**
+   * The scope a `sorter`'s catalog exprs resolve in for `sorters()` — like
+   * {@link filterScope} but ALSO exposing the enclosing SELECT's outputs (so an
+   * `output`-ref sort resolves), matching order-by validation. The base binds
+   * nothing; only `SelectQuery` (which owns an `order`) overrides it.
+   */
+  protected sorterScope(_engine: QueryEngine, scope: QueryScope): QueryScope {
+    return scope;
+  }
+
+  /**
    * Introspect the execution-time `filters` this query exposes: every `filters`
    * placeholder found in any clause (via `walkExprs`), keyed by its bound
    * `source`, mapped to the filterable `fields` of that source's Type — resolved
@@ -277,6 +287,32 @@ export abstract class Query {
           return makeField(f.name, resolved);
         });
       out[e.source] = { fields };
+    });
+    return out;
+  }
+
+  /**
+   * Introspect the execution-time DYNAMIC SORTS this query exposes: every named
+   * sort of every `sorter` placeholder found in an `order` list (via `walkExprs`),
+   * keyed by SORT NAME, mapped to that sort expr's RESOLVED orderable type +
+   * nullability (as a `QueryField`, mirroring `filters()`'s field metadata). A
+   * caller / UI uses this to list a query's sort options and their value types,
+   * then re-sort via `engine.run(query, { sort })` / `engine.toSQL({ sort })`.
+   * A query with no `sorter` returns `{}`; sort names are unique across a query's
+   * sorters, so a duplicate is LAST-WINS.
+   */
+  sorters(engine: QueryEngine, scope?: QueryScope): Record<string, QueryField> {
+    // Materialize inverse relations first (idempotent) so each sort expr's type
+    // resolves, exactly as the other introspection entry points do.
+    engine.registry.finalize();
+    const s = scope ?? engine.globalScope();
+    const bound = this.sorterScope(engine, s);
+    const out: Record<string, QueryField> = {};
+    this.walkExprs((e) => {
+      if (!(e instanceof SorterExpr)) return;
+      for (const [name, expr] of e.sorts) {
+        out[name] = makeField(name, expr.resolve(engine, bound));
+      }
     });
     return out;
   }
