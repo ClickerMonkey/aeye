@@ -61,6 +61,82 @@ the request.
 
 ---
 
+## Current value leaderboard — full sweep (2026-07-11)
+
+**The authoritative current numbers.** All 101 cases, default `auto` delivery,
+**no reasoning**, on the current schema — post `relation-path` removal, post
+insert/update redesign (keyed-object `rows` / `set`, `WriteValueDef`), with the
+enum `reject` tool gated behind a real `*-readonly` policy error. Every run is
+archived under `integration/reports/sweep/`. This **supersedes** both the
+schema-delivery matrix and the named-join table below (kept for history).
+
+**Value score** ranks accuracy against cost and speed:
+
+> score = 100 · (**0.60**·accuracyₙ + **0.20**·costₙ + **0.20**·speedₙ)
+
+each term min-max normalized across the ranked set (cheaper & faster score
+higher; accuracy dominates at 0.60). It is a **relative** score — "best value in
+this set," not an absolute rating. Recompute with `node
+integration/reports/sweep/score.cjs`.
+
+| # | Model | id | **score** | acc | tries | s/case | $/100 |
+|---|-------|-----|----------:|----:|------:|-------:|------:|
+| 1 | **Gemini 3 Flash (preview)** | `google/gemini-3-flash-preview` | **97.3** | **92%** | 1.41 | 3.4 | $1.17 |
+| 2 | GPT-5 mini | `openai/gpt-5-mini` | 86.4 | 90% | 2.16 | 12.5 | **$0.45** |
+| 3 | Gemini 3.5 Flash | `google/gemini-3.5-flash` | 84.2 | 87% | 1.36 | 2.8 | $3.51 |
+| 4 | Gemini 2.5 Flash | `google/gemini-2.5-flash` | 80.6 | 83% | 2.44 | 4.0 | $1.02 |
+| 5 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` | 76.7 | 91% | 1.38 | 5.7 | $9.66 |
+| 6 | Gemini 3.1 Flash Lite | `google/gemini-3.1-flash-lite` | 74.4 | 78% | 1.40 | 2.1 | $0.51 |
+| 7 | Claude Sonnet 4 | `anthropic/claude-sonnet-4` | 73.9 | 91% | 1.50 | 6.6 | $10.69 |
+| 8 | Llama-4-Maverick | `meta-llama/llama-4-maverick` | 46.9 | 74% | 3.17 | 22.0 | $1.05 |
+| 9 | Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | 37.3 | 59%† | 3.22 | 4.9 | $0.44 |
+| 10 | DeepSeek V3 | `deepseek/deepseek-chat` | 30.7 | 65% | 1.56 | 22.8 | $0.57 |
+
+_avg tries = model requests/case (1 = one-shot). $/100 = provider-reported
+`usage.cost` per 100 cases (no local math). s/case = wall-clock.
+†Flash-Lite's 59% is a low-variance draw — see the note below._
+
+**What the score exposes:**
+
+- **Gemini 3 Flash preview is the outright champion (97.3)** — top accuracy (92%)
+  *and* cheap ($1.17) *and* fast (3.4 s), near one-shot (1.41 tries). Nothing
+  else is close on value.
+- **Both Anthropic frontier models are accuracy-competitive *value-losers*.**
+  Sonnet 4.6 (91%) and Sonnet 4 (91%) tie for 2nd on raw accuracy but rank **5th
+  and 7th** — their **~$10/100** cost (8–9× the champion, for *lower* accuracy)
+  tanks the value. This is exactly why they're dropped from the default sweep.
+- **GPT-5 mini (2nd) is the budget pick** — 90% at the cheapest price ($0.45),
+  held back only by latency (12.5 s) and its Mode-4 retries (2.16/case: it 400s on
+  the structured schema and recovers via prompt-text fallback, cheap at mini
+  pricing).
+- **Gemini 3.5 Flash is a value trap** — ranks 3rd on the formula (fast) but is
+  **$3.51/100 for 87%**: 3× the champion's price for *lower* accuracy. Almost
+  certainly hidden reasoning tokens; prefer `3-flash-preview`.
+- **Bottom tier** (llama-maverick, deepseek) is killed by ~22 s latency; flash-lite
+  by its 59% draw.
+
+**Qwen 2.5 72B — unrankable outlier.** `qwen/qwen-2.5-72b-instruct` is excluded
+from the value ranking on three counts: (1) **10/101 (10%) in this `auto` sweep** —
+but that's mostly **Mode-3 delivery flakiness** on the complex schema, consistent
+with its historical 6/101 auto; its *real* ability is ~51% in `prompt` mode.
+(2) **Pathologically slow** — 135 s/case average, 10–17 min on the recursive-CTE
+cases (up to 996 s). (3) **OOM-crashes the harness** at the default Node heap (needs
+`NODE_OPTIONS=--max-old-space-size=4096`). Its extreme latency would also distort
+the min-max speed normalization for every real contender, so it's reported
+separately, not ranked. If you need a Qwen data point, run it in
+`QUERY_EVAL_MODE=prompt`.
+
+**Flash-Lite's 59% is variance, not a regression.** Full `gemini-2.5-flash-lite`
+runs on the same code swing **59 / 75 / 81%**. Diffing the 59% run against an 81%
+run: the 31 flipped pass→fail cases are dominated by *trivial* ones falling into
+**retry spirals** (`filter-products-over-500` 1→6 calls, `join-orders-by-rep-name`
+1→12, `fn-window-rownumber` 1→11), 9 cases flip the *other* way, and only 2 of 31
+were write-model. The model didn't lose capability — retries=5 amplifies each
+first-try stumble into a full spiral, so a weak model's pass rate is noise-bounded
+(~72% ±12). The insert/update + reject changes are clean.
+
+---
+
 ## Results matrix (default `auto` delivery unless noted)
 
 | Model | OpenRouter id | Mode | Overall | One-line |
@@ -83,10 +159,12 @@ predates the current harness. **GPT-5.1's and Qwen's low `auto` scores were
 delivery failures, not SQL ability** — their prompt-mode numbers are the real
 measure._
 
-> **⚠ The matrix above is the schema-delivery era (pre-2026-07-10).** It measured
-> models against a schema that had a `relation-path` expr. That construct was
-> then removed — see the next section, which lifted the re-run models by ~15
-> points. Numbers above are the *baseline*, not current.
+> **⚠ HISTORICAL — two eras stale.** This matrix is the schema-delivery era
+> (pre-2026-07-10), measured against a schema that still had a `relation-path`
+> expr. That construct was removed (next section, +~15 pts) and the write model
+> was later redesigned. **For current numbers see [Current value leaderboard]
+> (#current-value-leaderboard--full-sweep-2026-07-11) at the top.** Everything
+> below is kept for history.
 
 ---
 
@@ -167,6 +245,11 @@ ceiling.
 
 ## Fast / cheap tier — price vs performance (post-refactor, 2026-07-10)
 
+> Current pass/cost numbers live in the [value leaderboard](#current-value-leaderboard--full-sweep-2026-07-11)
+> above. This section is the **cost-structure deep-dive** + the retained **Haiku
+> 4.5** data point (Haiku was dropped from the sweep as poor value). Table numbers
+> are an earlier cheap-tier batch; treat the leaderboard as authoritative.
+
 The eval tracks four axes per run, all in `report.json` (and the console /
 `report.md` summary): **pass rate**, **avg attempts/case** (`avgCalls` +
 `avgCallsPassed` — model requests, 1 = one-shot), **$ cost** (`totalCostUsd` /
@@ -199,104 +282,129 @@ The eval tracks four axes per run, all in `report.json` (and the console /
 
 ## The real ceiling: advanced SQL, not schema delivery
 
-Once the schema is delivered (by whatever mode), **every capable model plateaus
-in the low-70s** and fails on the *same* features. These are genuine *modeling*
-errors, not runtime bugs — the oracle runs the same in-memory runtime and
-produces the expected values. Worst categories, essentially universal:
+Once the schema is delivered (by whatever mode) and after the named-join refactor,
+the **frontier reaches 91–92%** — the old "everyone plateaus in the low-70s" wall
+was mostly the `relation-path`/subquery-delivery problem, now fixed. What's left
+is a genuine *modeling*-difficulty tail (not runtime bugs — the oracle runs the
+same in-memory runtime and produces the expected values). Remaining worst
+categories, by cross-model miss rate on the fresh sweep:
 
-| Category | Typical pass | Why models miss |
-|----------|-------------|-----------------|
-| **subquery** | 1–3 / 7 | `in`/`not-in`/`exists`/`not-exists`/correlated — the single hardest area |
-| **cte** (recursive) | 1 / 3 | recursive descendants/ancestors traversal |
-| **window** | 4–10 / 11 | partition-vs-order confusion; tie handling; lag/lead/cumeDist |
-| **set-op** | 1–3 / 5 | `intersect`/`except` row semantics |
-| **aggregate** | 5–6 / 9 | arg-max / nested-max |
-| **write-model refusal** | 2–4 / 6 | **guardrail gap** — models *don't refuse* writing server-generated ids / `createdAt` / currency; they emit the write they should decline |
-| top-n, distinct | ~1 / 2 | ordered top-N, distinct-on |
+| Category | Miss rate (10 models) | Why models miss |
+|----------|----------------------|-----------------|
+| **cte** (recursive) | **43%** | recursive self-reference: the recursive member must query the CTE by name; models emit a non-recursive single hop |
+| **distinct** | **40%** | the aggregate `distinct: true` flag — omitted → row count instead of distinct count |
+| **window** | **38%** | rank tie-and-gap vs rowNumber; firstValue/lastValue **frames**; cumeDist/ntile/nthValue |
+| **write-model refusal** | **35%** | was a guardrail gap; **fixed** to 6/6 (Gemini) via the keyed-object insert/update schema + the enum `reject` tool gated behind a real `*-readonly` policy error — `insert-id` is the last sticky one |
+| **function** | 22% | relation-hop functions (`age`) and exact unit/type semantics |
+| **join** | 18% | composite-FK relations (join on two key columns, not one) |
+| **subquery / aggregate** | ~17% | arg-max (return the owning row, not the max); most subqueries now pass ≤1 model |
 
-Rock-solid across models: filter, operator, array, text-search, is-null, case,
-and (for the stronger models) group-by, date-range, most functions.
+Rock-solid across models (≤8% miss): filter, operator, array, text-search,
+is-null, case, group-by, set-op, top-n, and most date-range.
 
-### Hardest cases — cross-model failure matrix
+### Hardest cases — cross-model failure matrix (2026-07-11 sweep)
 
-From 8 representative runs (Gemini 3-flash-preview / 2.5-flash / 3.5-flash,
-Sonnet 4 / 4.6, DeepSeek, GPT-5.1 `auto`, Qwen `prompt`), the cases ranked by how
-many models failed them:
+The **10 ranked models** (excludes qwen at 10%), each case scored by **how many of
+the 10 failed it** (`error`-severity oracle mismatch). Regenerate with `node
+integration/reports/sweep/failmatrix.cjs`. Distribution: **1** case fails 10/10,
+1 fails 9/10, 2 fail 8/10, then a long tail — **29 of 101 pass on all 10**, and
+only 13 cases fail on ≥4 models. The hard core:
 
-**Failed by ALL 8** — constructs no current model reliably expresses:
+| fails | Case | Category | Root cause (why models miss) |
+|------:|------|----------|------------------------------|
+| **10/10** | `win-rank-month-ties` | window | **rank tie-and-gap arithmetic.** Models *do* pick `rank` (structural assert passes) but order by the raw timestamp, so every row is distinct → `rank` degenerates to `rowNumber` (1,2,3,4) and misses the gap the `dateTrunc('month')` ordering designs in (…3,3,**5**). The diffs are literally the missing gap ("expected 5, got 4"). |
+| **9/10** | `cte-recursive-ancestors-rgb-laptops` | cte | **recursive self-reference.** The recursive member must join `category→parent` and filter `category.id IN (SELECT pid FROM ancestors)` — referencing the CTE from inside its own body. Models emit a single non-recursive join (direct parent only) or bungle the working-table correlation. |
+| **8/10** | `join-return-matching-invoice` | join | **composite-FK relation.** `salesReturn.invoice` joins on **both** `sales_order_id` AND `customer_id`. Models hand-roll a single-column join (keeping refunded orders that should drop) instead of using the named `invoice` relation that carries both keys. |
+| **8/10** | `refusal-insert-product-id` | write-model | **strongest write refusal.** Models overwhelmingly *want* to insert the server-generated `id` rather than decline; the `reject` affordance helps elsewhere but this is the stickiest guardrail. |
+| **7/10** | `fn-age-payment-lag` | function | **`age()` across a relation hop.** Needs `age(payment.paidAt, invoice.issuedAt) > 10` (whole-day span). Models substitute a subtraction / `dateDiff` with the wrong unit or type, or miss the payment→invoice hop. |
+| **6/10** | `op-distinct-products-ordered` | distinct | **`COUNT(DISTINCT …)` flag.** Needs the aggregate's `distinct: true`; models emit plain `count` and inflate 12 → the 48-line row count. |
+| **5/10 ×8** | `agg-argmax-*`, `agg-nested-max-*`, `page-nulls-first-shippedat`, `win-lead`, `win-cumedist`, `win-firstvalue`, `win-lastvalue` | aggregate / window / pagination | arg-max (return the row *owning* the max, not the max); NULLS-FIRST ordering; window **frame** semantics (lastValue/firstValue need an explicit frame or they return the current row); cumeDist/lead defaults. |
 
-| Case | Category |
-|------|----------|
-| `in-customers-with-orders` | subquery |
-| `not-in-products-never-purchased` | subquery |
-| `not-exists-customers-without-orders` | subquery |
-| `correlated-customer-largest-order` | subquery |
-| `set-intersect-east-with-orders` | set-op |
-| `set-except-east-without-orders` | set-op |
-| `win-rank-month-ties` | window (partition-vs-order) |
-| `refusal-insert-product-id` | write-model (guardrail) |
+**Category failure density** (total model-fails ÷ cases, across the 10):
 
-**Failed by 7/8:** `agg-argmax-top-product-revenue`, `agg-nested-max-customer-revenue`,
-`agg-having-avg-not-in-select`, `cte-recursive-descendants-electronics`,
-`op-distinct-products-ordered`, `group-having-two-aggregates`,
-`join-return-matching-invoice`, `win-cumedist-dept-salary`,
-`win-firstvalue-dept-top-salary`, `win-lastvalue-dept-bottom-salary`,
-`refusal-update-currency`, `refusal-delete-payment`.
+| Category | miss rate | read |
+|----------|-----------|------|
+| **cte (recursive)** | **43%** | 13 fails / 3 cases — highest per-case; recursive self-reference is the single hardest construct |
+| **window** | **38%** | 42 fails / 11 cases — the biggest *volume* of failure: ties, frames, cumeDist/ntile/nthValue |
+| **write-model** | **35%** | 21 fails / 6 cases — refusal guardrails (much improved, but `insert-id` remains sticky) |
+| **distinct** | **40%** | 8 / 2 — the `distinct` aggregate flag |
+| function 22% · join 18% · subquery 17% · aggregate 16% | — | tail: relation-hop functions, composite-FK joins, arg-max |
+| filter · set-op · group-by · array · operator · text-search | ≤8% | rock-solid |
 
-**The tell is the clustering.** Entire construct families fail *together* — all
-four subqueries, both set-ops — rather than one-off cases scattered across
-categories. That points less at each case being independently hard and more at
-the **schema for those constructs** (their `kind` discriminator values and
-property names) confusing the model about what to emit. That's the thread to
-pull on next: examine the desired expr for each universally-failed cluster
-against how it's named in the wire schema, and test renamings.
+**What changed vs the old (pre-refactor) matrix — the good news.** The old section
+had **all four subqueries and both set-ops failing universally (8/8)**. After the
+named-join refactor + subquery-body validation, that entire cluster collapsed:
+subquery is now **17% miss** (most cases fail ≤1 model) and set-op **8%**. The
+hard core is no longer "whole construct families fail together" — it's now a
+handful of genuinely-advanced *semantics* cases (rank ties, recursive traversal,
+composite-FK, window frames, arg-max) that even hand-written SQL gets wrong.
+
+**Why these specifically.** The common thread across the survivors is **a
+computation the model can *name* but not get *exactly right*** — it picks `rank`,
+`age`, `count`, `firstValue` correctly (structural asserts pass) but the *result*
+is wrong because a subtlety is dropped: the window's `orderBy` key (month-trunc,
+not raw date), the aggregate's `distinct` flag, the composite join key, the window
+frame, or the recursive correlation. These are **not** schema-naming failures
+(unlike the old subquery cluster, which the refactor fixed) — they're the
+irreducible-difficulty tail. The next lever, if pursued, is worked examples for
+each (a `rank`-with-ties example, a composite-FK-join example, a window-frame
+example), the same tactic that lifted subquery/set-op/cte-descendants.
 
 ---
 
 ## Per-model notes
 
-### Google Gemini — `3-flash-preview` 74% · `2.5-flash` 73% · `3.5-flash` 73% — Mode 1
+### Google Gemini — `3-flash-preview` **92%** · `3.5-flash` 87% · `2.5-flash` 83% · `3.1-flash-lite` 78% · `2.5-flash-lite` 59–81% — Mode 1
 
 - Google structured output **hard-rejects `anyOf`/`oneOf`/`$defs`-ref (HTTP
   400)** — a *format restriction, not a capability gap*. `canExpress` catches it
   statically → `auto` drops the wire schema and delivers it as prompt text.
-- The **strongest family** on this eval; the three variants are within 1 case of
-  each other — the schema-in-prompt path is stable across Gemini generations.
-- Weakest at subquery (1–2/7) and recursive cte (1/3), like everyone.
-- **Availability:** `gemini-2.0-flash-001` and `gemini-3.5-flash` may be absent
-  from the scraped registry / retired; `2.5-flash` and `3-flash-preview` current.
+- The **strongest family** on this eval — **`3-flash-preview` is the overall value
+  champion** (92%, $1.17/100, 3.4 s). `3.5-flash` scores well (87%) but at **$3.51**
+  it's a value trap (probably hidden reasoning tokens) — prefer `3-flash-preview`.
+- **`2.5-flash-lite` is high-variance** — full runs swing 59/75/81%; a weak model
+  where retries=5 amplifies each first-try stumble into a spiral. Don't read a
+  single low draw as a regression (see the leaderboard note).
+- Weakest at recursive cte and the window tie/frame cases, like everyone.
+- **Availability:** slugs churn upstream — sanity-check any Gemini id with
+  `--limit 1` before a full run.
 
-### Anthropic Claude Sonnet — `sonnet-4` 75% · `sonnet-4.6` 72% — Mode 2
+### Anthropic Claude Sonnet — `sonnet-4` 91% · `sonnet-4.6` 91% — Mode 2
 
-- Native structured output (1 call/case); the `anthropic` dialect expresses our
-  schema, no fallback needed.
-- **Sonnet 4 (`anthropic/claude-sonnet-4`): 76/101 (75%)** — top of the pack,
-  though within run-to-run noise of the Gemini tier. **Sonnet 4.6
-  (`claude-sonnet-4.6`): 73/101 (72%)**, with the **best window-function score
-  (10/11)** of any model. Both weak in the usual places: subquery 2/7, cte 1/3,
-  write-model 2/6, set-op 3/5.
+- Native structured output (~1.4 calls/case); the `anthropic` dialect expresses
+  our schema, no fallback needed. Both hit **91%** — accuracy-competitive with the
+  Gemini frontier.
+- **But both are value-losers: ~$10/100** (sonnet-4 $10.69, sonnet-4.6 $9.66) — 8–9×
+  the `gemini-3-flash-preview` champion for *lower* accuracy. Dropped from the
+  default sweep for that reason. Use only if an Anthropic-native data point is
+  needed.
 - **Older Claude is unreachable:** the entire Claude 3.x sonnet line
   (`claude-3.5-sonnet`, `claude-3.7-sonnet`) now **404s on OpenRouter** and is
   absent from the scrape — can't be evaluated here without an Anthropic-direct
   key. Currently reachable sonnets: 4, 4.5, 4.6, 5 (+ the `~…-latest` alias).
 
-### Meta Llama-4-Maverick — `meta-llama/llama-4-maverick` — 68%, Mode 3
+### OpenAI GPT-5 mini — `openai/gpt-5-mini` — 90%, Mode 4 → **budget pick**
+
+- **90% for $0.45/100 — the cheapest strong model** and #2 on the value board.
+  Like GPT-5.1 it **400s on the structured schema** and recovers via the Mode-4
+  prompt-text fallback (2.16 calls/case), but the retries are cheap at mini
+  pricing. The one drawback is **latency** (12.5 s/case) from the double request.
+
+### Meta Llama-4-Maverick — `meta-llama/llama-4-maverick` — 74%, Mode 3
 
 - **Accepts** `response_format` but returns **empty content** on the complex
-  schema → `auto` runtime-fallback retries as prompt text (≈2 calls/case).
-- Not weak at SQL (schema-*less* ≈80% on sampled filters); the failure is
-  decoding the wire schema. Weakest at subquery (2/7), window (4/11), cte (1/3),
-  set-op (3/5); write-model refusal 2/6.
+  schema → `auto` runtime-fallback retries as prompt text (3.17 calls/case).
+- Not weak at SQL per se; the failure is decoding the wire schema, plus **22 s/case**
+  latency (the retries) that tanks its value score.
 
-### DeepSeek V3 — `deepseek/deepseek-chat` — 50%, Mode 2
+### DeepSeek V3 — `deepseek/deepseek-chat` — 65%, Mode 2
 
-- Delivers fine (LENIENT dialect → structured output accepted, mostly 1 call).
-  Its low score is **genuinely weaker SQL**: valid queries that run but return
-  the wrong rows (e.g. `row count 4 vs 8`, `count 6 vs 24`). Misses leak into
-  otherwise-easy categories (filter 6/8, operator 2/3, array 3/5) — the only
-  tested model that stumbles below the "advanced SQL" line.
+- Delivers fine (LENIENT dialect → structured output accepted, ~1.6 calls). Its
+  low score is **genuinely weaker SQL**: valid queries that run but return the
+  wrong rows. Also **22.8 s/case** — the joint-slowest. (Up from the pre-refactor
+  50%, but still bottom-tier value.)
 
-### OpenAI GPT-5.1 — `openai/gpt-5.1` — 66% (prompt); Mode 4 (now auto-recovered)
+### OpenAI GPT-5.1 — `openai/gpt-5.1` — 75% (refactor-era `auto`); Mode 4
 
 - **`400 Provider returned error`** on our full schema (a *simple* `json_schema`
   returns HTTP 200). Before the Mode-4 fallback, every case failed in <1s with
@@ -304,23 +412,26 @@ against how it's named in the wire schema, and test renamings.
   when the model produces nothing).
 - **In `prompt` mode: 67/101 (66%)** — fully competitive with the Gemini/Claude
   tier. The `auto` failure was *entirely* delivery; the model is strong.
-- **Now recovers in `auto`** via the runtime request-error fallback: the
-  structured `400` is caught and retried as prompt text (≈2 calls/case) →
-  **70/101 (69%)** at full scale, matching (here, edging) its prompt-mode 66%.
-  No manual `QUERY_EVAL_MODE=prompt` needed.
+- **Recovers in `auto`** via the runtime request-error fallback: the structured
+  `400` is caught and retried as prompt text (≈2.25 calls/case) — no manual
+  `QUERY_EVAL_MODE=prompt` needed. Post-refactor it reaches **76/101 (75%)**, but
+  at **2.25 calls/case** (every case is a double request) it's an expensive
+  Mode-4 tax; **not re-run in the fresh sweep** (dropped alongside the pricey
+  tier). `gpt-5-mini` is the cheaper way to get the same Mode-4 recovery.
 - Notably a *newer* OpenAI model is **more** restrictive on structured output
-  than gpt-4o (which handled the same schema at ~69%). Weakest: cte 0/3,
-  window 4/11, subquery 3/7.
+  than gpt-4o. Weakest: cte, window, subquery.
 
-### Qwen 2.5 72B — `qwen/qwen-2.5-72b-instruct` — 51% (prompt); Mode 3 (flaky)
+### Qwen 2.5 72B — `qwen/qwen-2.5-72b-instruct` — 10% (fresh `auto`) / 51% (prompt); Mode 3 (flaky)
 
 - `response_format` works on a simple schema; on the complex one it's flaky —
-  sometimes empties (→ runtime fallback → valid-but-wrong query, 2 calls),
-  sometimes yields nothing (1 call). The `auto` score (6/101) is mostly delivery
-  flakiness.
-- **In `prompt` mode: 52/101 (51%)** — this is its *real* ability, and it's
-  genuinely mid-tier: unlike the top models it collapses on **group-by (0/4)**,
-  subquery (0/7), cte (0/3), and join (2/10). Comparable to DeepSeek's tier.
+  sometimes empties (→ runtime fallback → valid-but-wrong query), sometimes yields
+  nothing. The fresh `auto` sweep scored **10/101 (10%)** — mostly delivery
+  flakiness, consistent with its historical 6/101 auto.
+- **In `prompt` mode: 52/101 (51%)** — this is its *real* ability, genuinely
+  mid-tier: it collapses on group-by, subquery, cte, and join.
+- **Operationally painful:** 135 s/case average (up to 996 s on recursive CTE) and
+  **OOM-crashes** the harness at the default Node heap (needs
+  `NODE_OPTIONS=--max-old-space-size=4096`). Excluded from the value ranking.
 
 ### Claude Sonnet 3.7 — `anthropic/claude-3.7-sonnet` — unavailable
 
