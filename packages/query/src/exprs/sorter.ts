@@ -188,8 +188,17 @@ export class SorterExpr extends Expr {
   }
 
   // ─── Evaluation / cost / SQL (never reached for a well-placed sorter) ──────
+  //
+  // A sorter is NOT a value — it never evaluates / emits ITSELF. The real runtime
+  // + SQL sorting lives in `SelectQuery`: it calls `SorterExpr.expand(spec)` (via
+  // `SelectQuery.expandOrder(ctx.sortSpec)` — see select.ts, the ORDER BY phase of
+  // both `run` and `toSQL`) to turn the execution-time sort spec into concrete
+  // `QueryOrder[]`, then runs those through the SAME order-by comparator /
+  // ORDER BY emission an explicit `order` uses. The methods below are reachable
+  // ONLY for a MISPLACED sorter, which `validateWalk` has already rejected
+  // (`sorter.misplaced`); they just degrade harmlessly.
 
-  /** A sorter is never a value; a misplaced one evaluates to NULL (validation rejects it). */
+  /** Dead path (see the note above): a well-placed sorter is expanded by `SelectQuery`; a misplaced one is rejected by validation — so this only NULLs defensively. */
   async evaluate(_ctx: RuntimeContext, _row: SourceRow | null, _group?: readonly SourceRow[]): Promise<Value> {
     return Value.null();
   }
@@ -199,7 +208,7 @@ export class SorterExpr extends Expr {
     return ZERO_COST;
   }
 
-  /** A sorter is never emitted as a value; a misplaced one emits NULL (validation rejects it). */
+  /** Dead path (see the note above): the ORDER BY SQL is emitted by `SelectQuery` from the expanded terms; a misplaced sorter is rejected by validation — so this only NULLs defensively. */
   toSQL(_dialect: Dialect, _ctx: SqlContext): SqlText {
     return SqlText.raw('NULL');
   }
