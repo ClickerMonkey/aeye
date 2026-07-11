@@ -63,4 +63,17 @@ export class Scope {
   child(vars?: Record<string, Value>): Scope {
     return new Scope(this, vars);
   }
+
+  /**
+   * Every variable name visible from this scope — its own bindings plus
+   * every ancestor's, de-duplicated (a shadowed outer name appears once).
+   * Used for "did you mean?" suggestions on an unknown-variable lookup.
+   */
+  names(): string[] {
+    const seen = new Set<string>();
+    for (let s: Scope | null = this; s; s = s.parent) {
+      for (const name of s.vars.keys()) seen.add(name);
+    }
+    return [...seen];
+  }
 }

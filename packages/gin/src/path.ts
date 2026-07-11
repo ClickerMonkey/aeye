@@ -18,6 +18,7 @@ import { ObjType } from './types/obj';
 import type { CodeOptions } from './node';
 import { Code, code, span, joinCode } from './code';
 import type { Effects } from './effects';
+import { didYouMean } from './aids';
 
 /**
  * `true` when accessing a prop whose type is a callable (fn / method)
@@ -387,13 +388,19 @@ export class Path {
       if (step instanceof PropStep) {
         if (current === null) {
           const v = scope.get(step.prop);
-          if (v === undefined) throw new Error(`path: unknown variable '${step.prop}'`);
+          if (v === undefined) {
+            throw new Error(`path: unknown variable '${step.prop}'${didYouMean(step.prop, scope.names())}`);
+          }
           current = v;
           i++;
           continue;
         }
         const prop = current.type.prop(step.prop);
-        if (!prop) throw new Error(`path: no prop '${step.prop}' on type '${current.type.name}'`);
+        if (!prop) {
+          throw new Error(
+            `path: no prop '${step.prop}' on type '${current.type.name}'${didYouMean(step.prop, Object.keys(current.type.props()))}`,
+          );
+        }
 
         const next = this.steps[i + 1];
         const nextIsCall = next instanceof CallStep;
@@ -620,7 +627,8 @@ export class Path {
         if (current === null) {
           const t = scope.get(step.prop);
           if (!t) {
-            p.at(['path', i], () => p.error('var.unknown', `unknown variable '${step.prop}'`));
+            p.at(['path', i], () => p.error('var.unknown',
+              `unknown variable '${step.prop}'${didYouMean(step.prop, [...scope.keys()])}`));
             current = engine.registry.any();
           } else {
             current = t;
@@ -630,7 +638,8 @@ export class Path {
         }
         const propV: Prop | undefined = current.prop(step.prop);
         if (!propV) {
-          p.at(['path', i], () => p.error('prop.unknown', `no prop '${step.prop}' on type '${current!.name}'`));
+          p.at(['path', i], () => p.error('prop.unknown',
+            `no prop '${step.prop}' on type '${current!.name}'${didYouMean(step.prop, Object.keys(current!.props()))}`));
           current = engine.registry.any();
           i++;
           continue;
