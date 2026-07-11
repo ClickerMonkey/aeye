@@ -648,10 +648,25 @@ export interface SorterDef {
 }
 
 /** Discriminated union of every expression shape. */
+/**
+ * An ARG PLACEHOLDER — used ONLY inside an aggregate `FunctionDef`'s un-aggregate
+ * TEMPLATE (see `FunctionDef.unaggregate`) to mark where the aggregate call's
+ * argument `name` is substituted. It is part of the `ExprDef` union so templates
+ * type-check, but it has NO registered Expr class: it is substituted to the call's
+ * real arg BEFORE the template is ever parsed / validated / emitted, so it never
+ * reaches a live query, the parser, or the LLM schema.
+ */
+export interface ArgExprDef {
+  kind: 'arg';
+  /** The aggregate parameter name this placeholder stands in for (e.g. `value`). */
+  name: string;
+}
+
 export type ExprDef =
   | LiteralExprDef
   | OutputRefExprDef
   | SorterDef
+  | ArgExprDef
   | FieldRefExprDef
   | ParamExprDef
   | BinaryExprDef
@@ -1028,6 +1043,24 @@ export interface FunctionDef {
    * must be a literal from the allowed date-field set) by `FunctionCallExpr`.
    */
   rawArgs?: readonly number[];
+  /**
+   * AGGREGATE UN-AGGREGATION template (serializable, so it survives the wire): the
+   * ROW-LEVEL `ExprDef` this aggregate summarizes, with `{ kind:'arg', name }`
+   * placeholders (see {@link ArgExprDef}) for the call's arguments. A drilled
+   * query substitutes each aggregate call's args into this template to recover the
+   * underlying expression — `sum(o.total)` → `o.total` (template `{kind:'arg',
+   * name:'value'}`); `count(v)` → `CASE WHEN v IS NULL THEN 0 ELSE 1 END`. Absent
+   * ⇒ this aggregate cannot be un-aggregated. Used for the ARG-PRESENT form.
+   */
+  unaggregate?: ExprDef;
+  /**
+   * The un-aggregate template for the ARG-LESS form of the aggregate (`count(*)`),
+   * chosen by `AggregateExpr.unaggregate` when the call has no arguments — e.g.
+   * `count(*)` → `{ kind:'literal', value:1 }`. (A `count(*)` un-aggregates to the
+   * constant 1 each row contributes; being field-less, it is then dropped from a
+   * drilled select/order.)
+   */
+  unaggregateEmpty?: ExprDef;
 }
 
 /** A resolved bind parameter — name plus the field type inferred for it. */

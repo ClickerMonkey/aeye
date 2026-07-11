@@ -15,6 +15,7 @@
  * output FieldType through the registry); the engine caches the instances.
  */
 import type {
+  ExprDef,
   FieldTypeDef,
   FunctionDef,
   FunctionParamDef,
@@ -92,6 +93,14 @@ export class QueryFunction {
    * the signature by `describeEngine`. See {@link FunctionDef.examples}.
    */
   readonly examples?: readonly string[];
+  /**
+   * AGGREGATE un-aggregate templates — the row-level `ExprDef` this aggregate
+   * summarizes, with `{kind:'arg', name}` placeholders. `unaggregate` is the
+   * arg-present form, `unaggregateEmpty` the arg-less (`count(*)`) form. See
+   * {@link FunctionDef.unaggregate} and `AggregateExpr.unaggregate`.
+   */
+  readonly unaggregate?: ExprDef;
+  readonly unaggregateEmpty?: ExprDef;
 
   /** Construct from already-parsed parts; use `from` to build from JSON. */
   constructor(spec: {
@@ -103,6 +112,8 @@ export class QueryFunction {
     rawArgs?: readonly number[];
     instructions?: string;
     examples?: readonly string[];
+    unaggregate?: ExprDef;
+    unaggregateEmpty?: ExprDef;
   }) {
     this.name = spec.name;
     this.shape = spec.shape;
@@ -112,6 +123,8 @@ export class QueryFunction {
     this.rawArgs = spec.rawArgs;
     this.instructions = spec.instructions;
     this.examples = spec.examples;
+    this.unaggregate = spec.unaggregate;
+    this.unaggregateEmpty = spec.unaggregateEmpty;
   }
 
   /** Build a runtime function from its JSON, parsing field/Type references. */
@@ -149,6 +162,8 @@ export class QueryFunction {
       rawArgs: json.rawArgs,
       instructions: json.instructions,
       examples: json.examples,
+      unaggregate: json.unaggregate,
+      unaggregateEmpty: json.unaggregateEmpty,
     });
   }
 
@@ -176,6 +191,8 @@ export class QueryFunction {
       ...(this.rawArgs ? { rawArgs: this.rawArgs } : {}),
       ...(this.instructions ? { instructions: this.instructions } : {}),
       ...(this.examples ? { examples: this.examples } : {}),
+      ...(this.unaggregate ? { unaggregate: this.unaggregate } : {}),
+      ...(this.unaggregateEmpty ? { unaggregateEmpty: this.unaggregateEmpty } : {}),
     };
   }
 

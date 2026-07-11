@@ -856,6 +856,21 @@ const countIfRun: AggregateRun = (rows) => {
 
 /** Build an aggregate builtin entry. `instructions` is the terse LLM-facing
  *  usage note; `sql` overrides the emitted call name. */
+// ─── Un-aggregate templates (serializable; see `FunctionDef.unaggregate`) ──────
+/** The universal un-aggregate template for a value aggregate: the `value` arg
+ *  itself (so `sum(o.total)` un-aggregates to `o.total`). */
+const UNAGG_VALUE: ExprDef = { kind: 'arg', name: 'value' };
+/** `count(value)` un-aggregates each row to its 0/1 contribution to the count:
+ *  `CASE WHEN value IS NULL THEN 0 ELSE 1 END`. */
+const UNAGG_COUNT_VALUE: ExprDef = {
+  kind: 'case',
+  branches: [{ when: { kind: 'is-null', value: { kind: 'arg', name: 'value' } }, then: { kind: 'literal', value: 0 } }],
+  else: { kind: 'literal', value: 1 },
+};
+/** `count(*)` un-aggregates to the constant 1 each row contributes (field-less,
+ *  so a drilled select/order then drops it). */
+const UNAGG_ONE: ExprDef = { kind: 'literal', value: 1 };
+
 function aggregate(
   name: string,
   instructions: string,
@@ -864,6 +879,10 @@ function aggregate(
   run: AggregateRun,
   sql?: string,
   examples?: readonly string[],
+  /** Arg-present un-aggregate template (defaults to the `value`-arg rule). */
+  unaggregate: ExprDef = UNAGG_VALUE,
+  /** Arg-less (`count(*)`) un-aggregate template, when the aggregate has one. */
+  unaggregateEmpty?: ExprDef,
 ): BuiltinFunction {
   return {
     def: {
@@ -874,6 +893,8 @@ function aggregate(
       params,
       output,
       ...(sql ? { sql } : {}),
+      unaggregate,
+      ...(unaggregateEmpty ? { unaggregateEmpty } : {}),
     },
     run: { shape: 'aggregate', run },
   };
@@ -881,7 +902,7 @@ function aggregate(
 
 const AGGREGATES: readonly BuiltinFunction[] = [
   aggregate('count', "Count ROWS when `value` is omitted (the `count(*)` form — EMPTY args), or the non-null values of `value` when supplied.", [{ name: 'value', type: ANY, optional: true }], WHOLE, countRun, undefined,
-    [aggExample('count', {})],
+    [aggExample('count', {})], UNAGG_COUNT_VALUE, UNAGG_ONE,
   ),
   aggregate('sum', "Sum of the non-null values.", [{ name: 'value', type: NUMBER }], 'inferred', sumRun),
   aggregate('avg', "Mean of the non-null values.", [{ name: 'value', type: NUMBER }], NUMBER, avgRun),

@@ -16,7 +16,7 @@
  * `AggregateRun`, not here.
  */
 import { z } from 'zod';
-import type { AggregateExprDef, ExprDef } from '../schema';
+import type { AggregateExprDef, ExprDef, JsonValue } from '../schema';
 import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
@@ -66,6 +66,27 @@ export class AggregateExpr extends Expr {
   /** The conventional single `value` argument (absent for `count(*)`). */
   valueArg(): Expr | undefined {
     return this.args.get('value');
+  }
+
+  /**
+   * The ROW-LEVEL expression this aggregate summarizes — i.e. how it
+   * UN-aggregates, recovered from the aggregate's `FunctionDef` un-aggregate
+   * TEMPLATE (a serializable `ExprDef` with `{kind:'arg', name}` placeholders)
+   * with THIS call's arguments substituted in: `sum(o.total)` → `o.total`,
+   * `count(v)` → `CASE WHEN v IS NULL THEN 0 ELSE 1 END`, `count(*)` → `1`. The
+   * arg-less form (`count(*)`) uses the function's `unaggregateEmpty` template.
+   * Returns `undefined` when the aggregate declares NO template (it cannot be
+   * un-aggregated) — a drilled query then drops the containing select / order expr.
+   */
+  unaggregate(engine: QueryEngine): Expr | undefined {
+    const def = engine.registry.function(this.fn);
+    if (!def) return undefined;
+    // Arg-less (`count(*)`) prefers the `unaggregateEmpty` template; otherwise the
+    // normal `unaggregate` template with the call's args substituted.
+    const template = this.valueArg() === undefined ? def.unaggregateEmpty ?? def.unaggregate : def.unaggregate;
+    if (!template) return undefined;
+    const substituted = substituteArgs(template, this.args);
+    return substituted ? engine.registry.parseExpr(substituted) : undefined;
   }
 
   /** Reconstruct an AggregateExpr from its JSON def, parsing named args via the registry. */
@@ -259,6 +280,35 @@ function dedupeArgs(rows: readonly NamedArgs[]): NamedArgs[] {
     out.push(r);
   }
   return out;
+}
+
+/**
+ * Substitute an un-aggregate TEMPLATE's `{kind:'arg', name}` placeholders with a
+ * call's actual argument exprs, yielding a real `ExprDef`. Walks the template JSON
+ * structurally (kind-agnostic), replacing every `arg` node with `args.get(name)`.
+ * Returns `undefined` when the template references an argument the call did NOT
+ * supply (so that form of the aggregate cannot be un-aggregated by this template).
+ */
+function substituteArgs(template: ExprDef, args: ReadonlyMap<string, Expr>): ExprDef | undefined {
+  let missing = false;
+  const walk = (node: JsonValue): JsonValue => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (node !== null && typeof node === 'object') {
+      const rec = node as { readonly [k: string]: JsonValue };
+      if (rec['kind'] === 'arg' && typeof rec['name'] === 'string') {
+        const arg = args.get(rec['name']);
+        if (!arg) { missing = true; return null; }
+        // `ExprDef` is a JSON value; the round-trip cast is the only JSON boundary.
+        return arg.toJSON() as unknown as JsonValue;
+      }
+      const out: { [k: string]: JsonValue } = {};
+      for (const k of Object.keys(rec)) out[k] = walk(rec[k]!);
+      return out;
+    }
+    return node;
+  };
+  const result = walk(template as unknown as JsonValue);
+  return missing ? undefined : (result as unknown as ExprDef);
 }
 
 const _check: ExprClass = AggregateExpr;

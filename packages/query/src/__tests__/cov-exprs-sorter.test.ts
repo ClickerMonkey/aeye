@@ -383,7 +383,7 @@ describe('sorter: drill-down handling', () => {
     if ('query' in d) expect(JSON.stringify(d.query.toJSON())).toContain('"kind":"sorter"');
   });
 
-  it('CONVERTS an output-ref sorter sort to an output ref when drilling (kept, not dropped)', () => {
+  it('UN-AGGREGATES an output-ref sorter sort to its underlying field when drilling (kept, not dropped)', () => {
     const def: SelectDef = {
       kind: 'select',
       fields: [{ expr: ref('order', 'userId'), as: 'userId' }, { expr: { kind: 'aggregate', function: 'sum', args: { value: ref('order', 'total') } }, as: 'revenue' }],
@@ -392,13 +392,13 @@ describe('sorter: drill-down handling', () => {
       order: [{ kind: 'sorter', sorts: { byRev: outRef('revenue') } }],
     };
     const d = drillDown(def, fx.engine);
-    // `revenue = sum(total)` un-ravels to the `total` column, so the sorter is
-    // KEPT with `byRev` converted to output('revenue') — not dropped.
+    // `byRev = output('revenue')` expands to sum(total), which UN-AGGREGATES to the
+    // `total` field, so the sorter is KEPT with `byRev` un-aggregated — not dropped.
     expect('query' in d).toBe(true);
     if ('query' in d) {
       const json = JSON.stringify(d.query.toJSON());
       expect(json).toContain('"kind":"sorter"'); // kept
-      expect(json).toContain('"kind":"output"'); // byRev converted to an output ref
+      expect(json).toContain('"field":"total"'); // byRev un-aggregated to the total field
       expect(d.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(false);
     }
   });

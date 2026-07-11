@@ -8,7 +8,8 @@ import { drillDown, drillDownInto, autoPaginate } from '../transforms/index';
 import type { DrillDownResult } from '../transforms/index';
 import { SelectQuery } from '../queries/index';
 import { runtimeFixture, ref, lit } from './_utils';
-import type { SelectDef } from '../schema';
+import { AggregateExpr } from '../exprs/index';
+import type { SelectDef, ExprDef } from '../schema';
 
 const ok = (r: DrillDownResult): Extract<DrillDownResult, { query: SelectQuery }> => {
   if (!('query' in r)) throw new Error('expected drill success: ' + JSON.stringify('error' in r ? r.error.list : r));
@@ -75,25 +76,25 @@ describe('drillDown edge paths', () => {
     order,
   });
 
-  it('CONVERTS an aggregate ORDER BY term to an output ref (+ moves group-key HAVING to WHERE)', () => {
+  it('UN-AGGREGATES an aggregate ORDER BY term to its underlying field (+ moves group-key HAVING to WHERE)', () => {
     const r = ok(drillDown({
       ...grouped([
-        { expr: sumTotal, dir: 'desc' }, // sum(total) IS the `revenue` column ⇒ output('revenue')
+        { expr: sumTotal, dir: 'desc' }, // sum(total) un-aggregates to `total`
         { expr: ref('order', 'id'), dir: 'asc' },
       ]),
       having: [{ kind: 'comparison', op: '>', left: ref('order', 'id'), right: lit(0) }],
     }, fx.engine));
-    expect(r.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(false); // converted, not dropped
+    expect(r.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(false); // un-aggregated, not dropped
     const out = r.query.toJSON();
     if (out.kind !== 'select') throw new Error('select');
     expect(out.where!.length).toBe(2); // pinned key + moved HAVING (id > 0)
     expect(out.order!.length).toBe(2); // both terms kept
     const first = out.order![0];
     if ('kind' in first) throw new Error('expected a term');
-    expect(first.expr).toEqual({ kind: 'output', name: 'revenue' });
+    expect(first.expr).toEqual({ kind: 'field-ref', source: 'order', field: 'total' });
   });
 
-  it('CONVERTS a matching sorter sort to an output ref and keeps the rest', () => {
+  it('UN-AGGREGATES a matching sorter sort to its underlying field and keeps the rest', () => {
     const r = ok(drillDown(grouped([
       { kind: 'sorter', sorts: { byId: ref('order', 'id'), byRev: sumTotal }, defaultSort: [{ sort: 'byRev', dir: 'desc' }, { sort: 'byId', dir: 'asc' }] },
     ]), fx.engine));
@@ -101,7 +102,7 @@ describe('drillDown edge paths', () => {
     const s = (r.query.toJSON() as SelectDef).order![0];
     if (!('kind' in s) || s.kind !== 'sorter') throw new Error('expected a sorter');
     expect(Object.keys(s.sorts)).toEqual(['byId', 'byRev']);
-    expect(s.sorts['byRev']).toEqual({ kind: 'output', name: 'revenue' }); // converted, not dropped
+    expect(s.sorts['byRev']).toEqual({ kind: 'field-ref', source: 'order', field: 'total' }); // un-aggregated
     expect(s.defaultSort).toEqual([{ sort: 'byRev', dir: 'desc' }, { sort: 'byId', dir: 'asc' }]); // intact
   });
 
@@ -208,5 +209,105 @@ describe('drillDown edge paths', () => {
     const d = drillDownInto(plain, {}, fx.engine);
     expect('error' in d).toBe(true);
     if ('error' in d) expect(d.error.list.map((p) => p.code)).toContain('drill.no-aggregation');
+  });
+});
+
+// ─── drill-down.ts — un-aggregation (unaggregateDef) + AggregateExpr.unaggregate ─
+
+describe('drillDown un-aggregation coverage', () => {
+  const fx = runtimeFixture();
+  const sumT: ExprDef = { kind: 'aggregate', function: 'sum', args: { value: ref('order', 'total') } };
+  const arrT: ExprDef = { kind: 'aggregate', function: 'arrayAgg', args: { value: ref('order', 'note') } };
+  const countStar: ExprDef = { kind: 'aggregate', function: 'count', args: {} };
+  const gt0 = (e: ExprDef): ExprDef => ({ kind: 'comparison', op: '>', left: e, right: lit(0) });
+  const subQ = { kind: 'select', fields: [{ expr: ref('order', 'id') }], from: { kind: 'type', type: 'order' } } as SelectDef;
+  const bareAgg = (field: ExprDef): SelectDef => ({ kind: 'select', fields: [{ expr: field, as: 'x' }], from: { kind: 'type', type: 'order' } });
+
+  it('un-aggregates through EVERY wrapping expr kind (recursion)', () => {
+    const field: ExprDef = { kind: 'logical', op: 'and', operands: [
+      gt0(sumT),                                                             // comparison
+      { kind: 'binary', op: '+', left: sumT, right: lit(1) },               // binary
+      { kind: 'unary', op: '-', operand: sumT },                            // unary
+      { kind: 'between', value: sumT, lower: lit(0), upper: lit(9) },       // between
+      { kind: 'in', value: sumT, in: [lit(1)] },                           // in (list)
+      { kind: 'in', value: sumT, in: subQ },                              // in (subquery — value un-agg, opaque)
+      { kind: 'is-null', value: sumT },                                   // is-null
+      { kind: 'array-op', op: 'contains', target: arrT, value: lit('x') },     // array-op single
+      { kind: 'array-op', op: 'containsAny', target: arrT, value: [lit('x')] }, // array-op list
+      { kind: 'array-op', op: 'isEmpty', target: arrT },                  // array-op none
+      { kind: 'case', branches: [{ when: gt0(sumT), then: lit(1) }], else: lit(0) }, // case (else)
+      { kind: 'case', branches: [{ when: gt0(sumT), then: lit(1) }] },     // case (no else)
+      { kind: 'function-call', function: 'upper', args: { value: sumT } }, // function-call
+      { kind: 'tabular-function-call', function: 'gen', args: { value: sumT } }, // tabular-function-call
+      ref('order', 'id'),                                                  // leaf
+      { kind: 'subquery', query: subQ },                                  // subquery leaf (opaque)
+    ] };
+    const r = ok(drillDown(bareAgg(field), fx.engine));
+    const out = r.query.toJSON();
+    if (out.kind !== 'select') throw new Error('select');
+    // Every aggregate replaced by its value arg; none remain, and it reads fields.
+    expect(JSON.stringify(out.fields)).not.toContain('"kind":"aggregate"');
+    expect(JSON.stringify(out.fields)).toContain('"field":"total"');
+  });
+
+  it('drops a window ORDER term and a count(*) ORDER term (no row-level value)', () => {
+    const def: SelectDef = { ...bareAgg(sumT), order: [
+      { expr: { kind: 'window', function: 'rowNumber', args: {} }, dir: 'asc' }, // window → dropped
+      { expr: countStar, dir: 'asc' }, // count(*) → 1 → field-less → dropped
+    ] };
+    const r = ok(drillDown(def, fx.engine));
+    expect((r.query.toJSON() as SelectDef).order).toBeUndefined();
+    expect(r.warnings.list.filter((p) => p.code === 'drill.order-dropped').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('non-invertible: an aggregate with no template, and a field-less un-aggregation', () => {
+    fx.registry.registerFunction({ name: 'noun', shape: 'aggregate', params: [{ name: 'value', type: 'any' }], output: 'inferred' });
+    // round(noun(total)): function-call → args → aggregate has NO template → null.
+    expect(codes(drillDown(bareAgg({ kind: 'function-call', function: 'round', args: { value: { kind: 'aggregate', function: 'noun', args: { value: ref('order', 'total') } } } }), fx.engine))).toContain('drill.non-invertible');
+    // count(*) + 1 un-aggregates to 1 + 1 — references no field.
+    expect(codes(drillDown(bareAgg({ kind: 'binary', op: '+', left: countStar, right: lit(1) }), fx.engine))).toContain('drill.non-invertible');
+  });
+
+  it('AggregateExpr.unaggregate: value / count(*) / count(v) / no-fn / no-template / missing-arg', () => {
+    const un = (d: ExprDef): ExprDef | undefined => {
+      const e = fx.engine.registry.parseExpr(d);
+      if (!(e instanceof AggregateExpr)) throw new Error('agg');
+      return e.unaggregate(fx.engine)?.toJSON();
+    };
+    expect(un(sumT)).toEqual(ref('order', 'total'));                       // sum(total) → value arg
+    expect(un(countStar)).toEqual({ kind: 'literal', value: 1 });         // count(*) → 1 (empty template)
+    expect((un({ kind: 'aggregate', function: 'count', args: { value: ref('order', 'total') } }) as { kind: string }).kind).toBe('case'); // count(v) → CASE
+    expect(un({ kind: 'aggregate', function: 'nofn', args: {} })).toBeUndefined(); // unknown fn → no def
+    fx.registry.registerFunction({ name: 'notmpl', shape: 'aggregate', params: [{ name: 'value', type: 'any' }], output: 'inferred' });
+    expect(un({ kind: 'aggregate', function: 'notmpl', args: { value: ref('order', 'total') } })).toBeUndefined(); // no template
+    fx.registry.registerFunction({ name: 'needsval', shape: 'aggregate', params: [{ name: 'value', type: 'any', optional: true }], output: 'inferred', unaggregate: { kind: 'arg', name: 'value' } });
+    expect(un({ kind: 'aggregate', function: 'needsval', args: {} })).toBeUndefined(); // arg-less, template needs `value` → missing
+  });
+
+  it('a non-invertible aggregate nulls EVERY wrapping arm (null-propagation)', () => {
+    fx.registry.registerFunction({ name: 'niagg', shape: 'aggregate', params: [{ name: 'value', type: 'any' }], output: 'inferred' }); // no template → non-invertible
+    const ni: ExprDef = { kind: 'aggregate', function: 'niagg', args: { value: ref('order', 'total') } };
+    const okRef = ref('order', 'total');
+    const okArr: ExprDef = { kind: 'aggregate', function: 'arrayAgg', args: { value: ref('order', 'note') } };
+    const wrappers: ExprDef[] = [
+      { kind: 'binary', op: '+', left: ni, right: lit(1) },                          // binary left null
+      { kind: 'binary', op: '+', left: okRef, right: ni },                           // binary right null
+      { kind: 'unary', op: '-', operand: ni },                                       // unary null
+      { kind: 'logical', op: 'and', operands: [gt0(ni), lit(true)] },               // logical (many) null
+      { kind: 'in', value: ni, in: [lit(1)] },                                       // in value null
+      { kind: 'in', value: okRef, in: [ni] },                                        // in-list element null
+      { kind: 'between', value: ni, lower: lit(0), upper: lit(9) },                  // between null
+      { kind: 'is-null', value: ni },                                                // is-null null
+      { kind: 'array-op', op: 'contains', target: ni, value: lit('x') },             // array-op target null
+      { kind: 'array-op', op: 'containsAny', target: okArr, value: [ni] },           // array-op list value null
+      { kind: 'array-op', op: 'contains', target: okArr, value: ni },                // array-op single value null
+      { kind: 'case', branches: [{ when: gt0(ni), then: lit(1) }], else: lit(0) },   // case when null
+      { kind: 'case', branches: [{ when: gt0(okRef), then: ni }], else: lit(0) },    // case then null
+      { kind: 'case', branches: [{ when: gt0(okRef), then: lit(1) }], else: ni },    // case else null
+      { kind: 'function-call', function: 'round', args: { value: ni } },             // function-call args null
+    ];
+    for (const w of wrappers) {
+      expect(codes(drillDown(bareAgg(w), fx.engine))).toContain('drill.non-invertible');
+    }
   });
 });

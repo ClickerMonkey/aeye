@@ -133,46 +133,46 @@ function orderItemExprs(o: OrderItem): Expr[] {
 }
 
 /**
- * Convert one drilled ORDER / sort expr against the aggregate→output map:
- *  - an aggregate that matches a CONVERTED select column (`aggByCanon`) becomes
- *    an `output` ref to that column (which survives the un-ravelling, now holding
- *    the underlying value) — so `sum(total)` → `output('revenue')`, NOT dropped;
- *  - a plain non-aggregate expr is kept as-is;
- *  - anything else still holds an aggregate with no surviving column (an expanded
- *    `count(*)`, or a nested aggregate) — it cannot be sorted on the row-level
- *    result, so return `null` (the caller drops it).
+ * Un-aggregate one drilled ORDER / sort expr to its row-level form:
+ *  - a non-aggregate expr is kept as-is (it already reads the row);
+ *  - an expr containing aggregate(s) is UN-aggregated (`sum(total)` → `total`,
+ *    `max(a)-min(b)` → `a-b`), and kept when the result still references a field;
+ *  - it is DROPPED (`null`) when it cannot be un-aggregated, or un-aggregates to
+ *    something field-less (`count(*)` → `1`) — a sort with no row-level value.
  */
-function convertSort(e: Expr, aggByCanon: ReadonlyMap<string, string>): ExprDef | null {
-  const name = aggByCanon.get(canonicalize(e));
-  if (name !== undefined) return { kind: 'output', name };
-  if (e.containsAggregate()) return null;
-  return e.toJSON();
+function unaggregateSort(e: Expr, engine: QueryEngine): ExprDef | null {
+  const un = unaggregateDef(e.toJSON(), engine);
+  if (un === null) return null; // a window / template-less aggregate cannot be drilled
+  // A sort that HELD an aggregate/window but un-aggregates to a field-less value
+  // (`count(*)` → `1`) carries no row-level information → drop it.
+  if ((e.containsAggregate() || containsWindow(e)) && !defReferencesField(un, engine)) return null;
+  return un;
 }
 
 /**
- * Convert a `sorter` for a drilled query: run each catalog sort through
- * {@link convertSort}, keeping the converted / non-aggregate ones and DROPPING
- * (with a warning) any unconvertible sort plus every `defaultSort` naming it.
+ * Un-aggregate a `sorter` for a drilled query: run each catalog sort through
+ * {@link unaggregateSort}, keeping the survivors and DROPPING (with a warning) any
+ * that can't be un-aggregated, plus every `defaultSort` naming a dropped sort.
  * Returns the rebuilt `SorterDef`, or `null` when none of its sorts survive.
  */
-function convertSorterForDrill(
+function unaggregateSorterForDrill(
   sorter: SorterExpr,
   i: number,
-  aggByCanon: ReadonlyMap<string, string>,
+  engine: QueryEngine,
   warnings: Problems,
 ): SorterDef | null {
   const sorts: Record<string, ExprDef> = {};
   const dropped = new Set<string>();
   for (const [name, expr] of sorter.sorts) {
-    const conv = convertSort(expr, aggByCanon);
-    if (conv) {
-      sorts[name] = conv;
+    const un = unaggregateSort(expr, engine);
+    if (un) {
+      sorts[name] = un;
     } else {
       dropped.add(name);
       warnings.at(['order', i, 'sorts', name], () =>
         warnings.warn(
           'drill.order-dropped',
-          `Dropped sort '${name}' (${expr.toCode()}) from the sorter — it has no meaning over the un-ravelled rows.`,
+          `Dropped sort '${name}' (${expr.toCode()}) from the sorter — it has no row-level value over the un-ravelled rows.`,
         ),
       );
     }
@@ -290,6 +290,7 @@ function expandOutputDef(def: ExprDef, outputs: ReadonlyMap<string, ExprDef>): E
     case 'literal':
     case 'field-ref':
     case 'param':
+    case 'arg':
     case 'exists':
     case 'subquery':
     case 'semantic':
@@ -325,6 +326,139 @@ function expandSelectOutputs(sq: SelectQuery, engine: QueryEngine): SelectQuery 
   if (def.having) def.having = def.having.map((d) => expandOutputDef(d, outputs));
   if (def.order) def.order = def.order.map((o) => expandOrderEntry(o, outputs));
   return SelectQuery.from(def, engine.registry);
+}
+
+/**
+ * UN-AGGREGATE an expr for a drilled query: replace EVERY aggregate node with its
+ * row-level form (`AggregateExpr.unaggregate` — the aggregate's serializable
+ * template with the call's args substituted), recursing through every wrapper so
+ * `max(a) - min(b)` → `a - b`. STOPS at an embedded subquery (its aggregates
+ * belong to its own scope). Returns `null` when ANY aggregate cannot be
+ * un-aggregated (no template) or a window function is present (a window has no
+ * row-level un-ravelling); the caller then drops / rejects the containing expr.
+ */
+function unaggregateDef(def: ExprDef, engine: QueryEngine): ExprDef | null {
+  const one = (d: ExprDef): ExprDef | null => unaggregateDef(d, engine);
+  const many = (ds: readonly ExprDef[]): ExprDef[] | null => {
+    const out: ExprDef[] = [];
+    for (const d of ds) {
+      const u = one(d);
+      if (u === null) return null;
+      out.push(u);
+    }
+    return out;
+  };
+  switch (def.kind) {
+    case 'aggregate': {
+      const agg = engine.registry.parseExpr(def);
+      /* v8 ignore next -- a 'aggregate'-kinded def always parses to an AggregateExpr */
+      if (!(agg instanceof AggregateExpr)) return def;
+      const un = agg.unaggregate(engine);
+      return un ? un.toJSON() : null;
+    }
+    case 'window':
+      return null; // a window function cannot be un-aggregated to a row value
+    case 'binary':
+    case 'comparison': {
+      const l = one(def.left);
+      const r = one(def.right);
+      return l && r ? { ...def, left: l, right: r } : null;
+    }
+    case 'unary': {
+      const o = one(def.operand);
+      return o ? { ...def, operand: o } : null;
+    }
+    case 'logical': {
+      const os = many(def.operands);
+      return os ? { ...def, operands: os } : null;
+    }
+    case 'in': {
+      const v = one(def.value);
+      if (!v) return null;
+      if (Array.isArray(def.in)) {
+        const inl = many(def.in);
+        return inl ? { ...def, value: v, in: inl } : null;
+      }
+      return { ...def, value: v }; // a sub-SELECT `in` is opaque
+    }
+    case 'between': {
+      const v = one(def.value);
+      const lo = one(def.lower);
+      const hi = one(def.upper);
+      return v && lo && hi ? { ...def, value: v, lower: lo, upper: hi } : null;
+    }
+    case 'is-null': {
+      const v = one(def.value);
+      return v ? { ...def, value: v } : null;
+    }
+    case 'array-op': {
+      const target = one(def.target);
+      if (!target) return null;
+      if (Array.isArray(def.value)) {
+        const vs = many(def.value);
+        return vs ? { ...def, target, value: vs } : null;
+      }
+      if (def.value !== undefined) {
+        const v = one(def.value);
+        return v ? { ...def, target, value: v } : null;
+      }
+      return { ...def, target };
+    }
+    case 'case': {
+      const branches: { when: ExprDef; then: ExprDef }[] = [];
+      for (const b of def.branches) {
+        const when = one(b.when);
+        const then = one(b.then);
+        if (!when || !then) return null;
+        branches.push({ when, then });
+      }
+      if (def.else === undefined) return { ...def, branches };
+      const els = one(def.else);
+      return els ? { ...def, branches, else: els } : null;
+    }
+    case 'function-call':
+    case 'tabular-function-call': {
+      const args = unaggregateArgs(def.args, engine);
+      return args ? { ...def, args } : null;
+    }
+    // Leaves + subquery-holders (opaque — their aggregates are their own scope's):
+    case 'literal':
+    case 'field-ref':
+    case 'param':
+    case 'arg':
+    case 'output':
+    case 'sorter':
+    case 'exists':
+    case 'subquery':
+    case 'semantic':
+    case 'text-search':
+    case 'text-score':
+    case 'filters':
+    case 'excluded':
+      return def;
+    /* v8 ignore next 2 -- unreachable: `def.kind` exhaustively covers ExprKind */
+    default:
+      return assertNeverExprKind(def);
+  }
+}
+
+/** Un-aggregate every value of a named-args record; `null` if any value can't. */
+function unaggregateArgs(
+  args: Record<string, ExprDef>,
+  engine: QueryEngine,
+): Record<string, ExprDef> | null {
+  const out: Record<string, ExprDef> = {};
+  for (const [k, v] of Object.entries(args)) {
+    const u = unaggregateDef(v, engine);
+    if (u === null) return null;
+    out[k] = u;
+  }
+  return out;
+}
+
+/** Whether an expr DEF references at least one field once parsed. */
+function defReferencesField(def: ExprDef, engine: QueryEngine): boolean {
+  return referencesField(engine.registry.parseExpr(def));
 }
 
 /* v8 ignore next 3 -- compile-time exhaustiveness guard over ExprKind; never invoked at runtime */
@@ -486,57 +620,50 @@ export function drillDown(
     params.push({ name, key: keyDef, field });
   });
 
-  // (3) Replace aggregate SELECT items with their underlying expression.
-  //     `aggByCanon` maps each CONVERTED aggregate's canonical form → the output
-  //     name it keeps, so an ORDER BY / sorter that sorts by that aggregate can be
-  //     CONVERTED to an `output` ref (the column survives, un-ravelled) rather
-  //     than dropped. A `count(*)` (expanded to many fields, no surviving column)
-  //     is NOT recorded, so a sort over it stays unconvertible → dropped.
+  // (3) UN-AGGREGATE each SELECT item to its underlying row-level expression
+  //     (`sum(o.total)` → `o.total`, `max(a)-min(b)` → `a-b`, `count(v)` → its 0/1
+  //     case). `count(*)` is special — it has no single value, so it EXPANDS to
+  //     the source's fields (showing the underlying rows). An aggregate field that
+  //     cannot be un-aggregated, or un-aggregates to something FIELD-LESS (a
+  //     literal / param), is `drill.non-invertible`.
   const newFields: SelectFieldDef[] = [];
-  const aggByCanon = new Map<string, string>();
   sq.fields.forEach((c, i) => {
     const e = c.expr;
-    if (e instanceof AggregateExpr) {
-      const valueArg = e.valueArg();
-      if (!valueArg) {
-        // count(*) (no args): un-ravel by expanding the source's fields.
-        const expanded = expandStar(sq, engine);
-        if (!expanded) {
-          const alias = nameOf(e, c.as, i);
-          errors.at(['fields', i], () =>
-            errors.error(
-              'drill.non-invertible',
-              `Cannot un-ravel '${alias}': count(*) over a non-type source has no enumerable underlying fields.`,
-            ),
-          );
-          return;
-        }
-        newFields.push(...expanded);
-        return;
-      }
-      // sum/avg/min/max/count(value): the underlying expr is the argument, but
-      // only if it actually reads a field (a literal / param can't be drilled).
-      if (!referencesField(valueArg)) {
-        const alias = nameOf(e, c.as, i);
+    // count(*) (an arg-less aggregate): expand to the source's fields.
+    if (e instanceof AggregateExpr && e.valueArg() === undefined) {
+      const expanded = expandStar(sq, engine);
+      if (!expanded) {
         errors.at(['fields', i], () =>
           errors.error(
             'drill.non-invertible',
-            `Cannot un-ravel aggregate '${alias}': its argument references no field to expand.`,
+            `Cannot un-ravel '${nameOf(e, c.as, i)}': count(*) over a non-type source has no enumerable underlying fields.`,
           ),
         );
         return;
       }
-      // Always carry an explicit alias (the aggregate's output name) so the
-      // un-ravelled column keeps a STABLE name an `output` ref can target, and
-      // record the aggregate→output mapping for the ORDER BY conversion below.
-      const outName = nameOf(e, c.as, i);
-      aggByCanon.set(canonicalize(e), outName);
-      newFields.push({ expr: valueArg.toJSON(), as: outName });
+      newFields.push(...expanded);
       return;
     }
-    // A non-aggregate field (a group key / plain ref) survives unchanged.
-    const def: SelectFieldDef = c.as ? { expr: e.toJSON(), as: c.as } : { expr: e.toJSON() };
-    newFields.push(def);
+    // A plain (non-aggregate) field — a group key / ref — survives unchanged.
+    if (!e.containsAggregate()) {
+      newFields.push(c.as ? { expr: e.toJSON(), as: c.as } : { expr: e.toJSON() });
+      return;
+    }
+    // A field holding aggregate(s): un-aggregate them; a field-less / un-invertible
+    // result cannot be drilled to the underlying rows.
+    const un = unaggregateDef(e.toJSON(), engine);
+    if (un === null || !defReferencesField(un, engine)) {
+      errors.at(['fields', i], () =>
+        errors.error(
+          'drill.non-invertible',
+          `Cannot un-ravel aggregate field '${nameOf(e, c.as, i)}': it has no underlying field-level expression to expand.`,
+        ),
+      );
+      return;
+    }
+    // Carry an explicit alias (the field's alias, else the aggregate's name) so
+    // the un-ravelled column keeps a STABLE output name.
+    newFields.push({ expr: un, as: nameOf(e, c.as, i) });
   });
 
   // (4) Drop GROUP BY / HAVING; move group-key-only HAVING into WHERE.
@@ -554,26 +681,25 @@ export function drillDown(
     movedHaving.push(h.toJSON());
   });
 
-  // (5) Keep LIMIT. Aggregate-based ORDER BY has no row-level meaning, but a sort
-  //     by an aggregate that MATCHES a select column is CONVERTED to an `output`
-  //     ref to that (un-ravelled) column rather than dropped; only a sort with no
-  //     surviving column (an expanded `count(*)` / a nested aggregate) is dropped
-  //     — for a sorter, per-sort, keeping the rest. All drops are warnings.
+  // (5) Keep LIMIT. UN-AGGREGATE each ORDER BY term to its row-level form
+  //     (`sum(total)` → `total`); a term / sorter sort that cannot be
+  //     un-aggregated or has no field-level value (`count(*)` → `1`) is dropped
+  //     (per-sort for a sorter, trimming its `defaultSort`). All drops are warns.
   const keptOrder: (OrderDef | SorterDef)[] = [];
   sq.order.forEach((o, i) => {
     if (o instanceof SorterExpr) {
-      const converted = convertSorterForDrill(o, i, aggByCanon, warnings);
+      const converted = unaggregateSorterForDrill(o, i, engine, warnings);
       if (converted) keptOrder.push(converted);
       return;
     }
-    const conv = convertSort(o.expr, aggByCanon);
-    if (conv) {
-      keptOrder.push({ ...o.toJSON(), expr: conv });
+    const un = unaggregateSort(o.expr, engine);
+    if (un) {
+      keptOrder.push({ ...o.toJSON(), expr: un });
     } else {
       warnings.at(['order', i], () =>
         warnings.warn(
           'drill.order-dropped',
-          `Dropped aggregate-based ORDER BY term '${o.expr.toCode()}' — it has no meaning over the un-ravelled rows.`,
+          `Dropped ORDER BY term '${o.expr.toCode()}' — it has no row-level value over the un-ravelled rows.`,
         ),
       );
     }
