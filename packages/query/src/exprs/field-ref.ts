@@ -13,11 +13,12 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType, FieldResolved, TypeResolved, RelationResolved } from '../resolved-type';
+import { relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
 import { obj, lit, str } from '../shape';
-import { textResult } from './_shared';
+import { textResult, relationAsValueMessage } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -197,10 +198,19 @@ export class FieldRefExpr extends Expr {
     // containing gating operator (else `'field-ref'` for a standalone ref).
     checkFieldExpr(ctx.fieldExprKind ?? 'field-ref', field, this.source, p);
     // A RELATION field resolves to the whole related row (a `TypeResolved`), not
-    // a scalar — the scalar operators (comparison / in / between) reject it as a
-    // VALUE (`compare.relation-vs-value`) unless compared to another relation.
+    // a scalar. It is a VALUE only inside an FK-comparison operator (which sets
+    // `relationValueOk` and runs its own relation-vs-relation / relation-vs-scalar
+    // check). Anywhere else — a select field, aggregate/window value,
+    // `partitionBy`, `orderBy`, group-by key, function arg — a bare relation
+    // field-ref reads as NOTHING at runtime (it may be composite-keyed), so
+    // reject it here with the join-it hint instead of letting it silently no-op.
     if (field.fieldType instanceof RelationFieldType) {
-      return this.resolveRelation(engine, bound.type, field.fieldType, p);
+      const resolved = this.resolveRelation(engine, bound.type, field.fieldType, p);
+      if (!ctx.relationValueOk) {
+        const rel = relationOf(resolved);
+        if (rel) p.error('ref.relation-not-value', relationAsValueMessage(rel));
+      }
+      return resolved;
     }
     const resolved: FieldResolved = {
       kind: 'field',

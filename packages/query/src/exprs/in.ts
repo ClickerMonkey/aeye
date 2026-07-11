@@ -178,13 +178,13 @@ export class InExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'in', ctx)));
+    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'in', ctx, true)));
     const vft = asFieldType(v);
 
     if (this.list) {
       p.at('in', () => {
         this.list!.forEach((el, i) => {
-          const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx)));
+          const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx, true)));
           const eft = asFieldType(rt);
           const skip = el instanceof ParamExpr || this.value instanceof ParamExpr;
           const relProblem = skip ? undefined : relationValueProblem(v, rt);

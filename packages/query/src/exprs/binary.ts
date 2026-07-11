@@ -137,8 +137,12 @@ export class BinaryExpr extends Expr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, ctx));
-    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, ctx));
+    // `relationValueOk`: binary runs its own relation-operand check below (a
+    // relation is never a number → the join-it hint), so suppress the generic
+    // field-ref `ref.relation-not-value` to avoid a duplicate report.
+    const opCtx: ValidateContext = { ...ctx, relationValueOk: true };
+    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, opCtx));
+    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, opCtx));
 
     const checkNumeric = (operand: Expr, rt: ResolvedType, key: 'left' | 'right'): void => {
       if (exempt(operand)) return;

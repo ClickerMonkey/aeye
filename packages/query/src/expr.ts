@@ -76,6 +76,16 @@ export interface ValidateContext {
    * Undefined (the default) means a standalone field-ref, gated as `'field-ref'`.
    */
   readonly fieldExprKind?: ExprKind;
+  /**
+   * Set by the FK-comparison operators (`comparison` / `in` / `between` /
+   * `binary`) when validating an operand, to permit a RELATION field-ref there
+   * (those operators compare two relations by FK key / reject relation-vs-scalar
+   * themselves). Everywhere else it is unset, so a bare relation field-ref used
+   * as a scalar VALUE (a select field, aggregate/window value, `partitionBy`,
+   * `orderBy`, group-by key, function arg) is a `ref.relation-not-value` error —
+   * a relation is a whole related row (possibly composite-keyed), never a value.
+   */
+  readonly relationValueOk?: boolean;
 }
 
 /** The default top-level context: a bare expression may aggregate freely. */

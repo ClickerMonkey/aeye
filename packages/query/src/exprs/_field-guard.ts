@@ -15,8 +15,13 @@ import { FieldRefExpr } from './field-ref';
 /**
  * The context for validating `operand` as the direct subject of a gating
  * operator: a field-ref operand carries `fieldExprKind = kind`; anything else is
- * returned the incoming `ctx` unchanged.
+ * returned the incoming `ctx` unchanged. `relationOk` (set by the FK-comparison
+ * operators — `comparison` / `in` / `between`) additionally permits a RELATION
+ * field-ref operand there, since those operators run their own relation-vs-relation
+ * / relation-vs-scalar checks; a gating operator that leaves it false (`is-null`,
+ * `array-op`) lets a bare relation operand raise `ref.relation-not-value`.
  */
-export function operandCtx(operand: Expr, kind: ExprKind, ctx: ValidateContext): ValidateContext {
-  return operand instanceof FieldRefExpr ? { ...ctx, fieldExprKind: kind } : ctx;
+export function operandCtx(operand: Expr, kind: ExprKind, ctx: ValidateContext, relationOk = false): ValidateContext {
+  if (!(operand instanceof FieldRefExpr)) return ctx;
+  return relationOk ? { ...ctx, fieldExprKind: kind, relationValueOk: true } : { ...ctx, fieldExprKind: kind };
 }

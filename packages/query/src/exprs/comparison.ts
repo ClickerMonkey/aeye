@@ -166,8 +166,8 @@ export class ComparisonExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, operandCtx(this.left, 'comparison', ctx)));
-    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, operandCtx(this.right, 'comparison', ctx)));
+    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, operandCtx(this.left, 'comparison', ctx, true)));
+    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, operandCtx(this.right, 'comparison', ctx, true)));
 
     const lft = asFieldType(l);
     const rft = asFieldType(r);
