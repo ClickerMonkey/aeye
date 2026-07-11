@@ -145,6 +145,45 @@ whether a model can handle gin's higher-order surface at all.
 
 ---
 
+## How much the worked examples matter
+
+`describe.ts` ships worked `(request → ExprDef → output)` examples that
+`@aeye/ginny` itself ships **zero** of — so their lift is worth measuring. Held
+on `google/gemini-3-flash-preview`, 61 cases, `auto` delivery, **4 seeds per
+condition** (except the 0-example probe, 1 seed). Toggle with
+`GIN_EVAL_NO_EXAMPLES=1`.
+
+| Prompt | Pass (per seed) | Mean | vs prev |
+|--------|-----------------|-----:|-------:|
+| **No examples** (signature + type docs only) | 31 | **31 / 61 (51%)** | — |
+| **4 examples** (the original set) | 54, 55, 55, 57 | **55.25 (91%)** | **+24** |
+| **7 examples** (current — adds composite-`new` / `if` / `reduce`) | 56, 57, 58, 58 | **57.25 (94%)** | **+2** |
+
+Two distinct lessons:
+
+- **Examples are load-bearing for the wire format, not just the approach.**
+  Without *any* examples, 9 cases never produce a type-checking `ExprDef` at all
+  (0 such failures with examples), and ~17 more get the logic wrong — a 51% floor.
+  The bulk of a real deployment's adherence rides on shipping a few examples.
+- **The 3 added examples (+2) buy a targeted, mechanistic win**, concentrated in
+  object *construction* — the original examples only showed `new` for scalars, so
+  models fell back to `new {type:{name:'X', extends:'obj'}}` (no props → fields
+  silently dropped). Over 4 seeds each, the composite-`new` example flips
+  `obj-discount-product` **0/4 → 4/4** and `obj-build-person` **1/4 → 4/4**; the
+  only "regressions" are single-seed noise flips (`num-gcd`, `text-reverse-tags`,
+  `control-sign`, each −1), none a clean separation.
+
+**Real-world takeaway:** don't hand a model a bare signature. A signature + type
+docs alone lands ~51%; add a handful of worked examples — especially one showing
+how to *construct* your custom types by bare name — and it clears ~94% on this
+model.
+
+_The leaderboard above predates the 3 added examples (measured at the 4-example
+prompt). Relative model ranking is unaffected — all rows shared that prompt — but
+a refreshed sweep would read ~+2 for models that construct objects._
+
+---
+
 ## Notes
 
 - **The sweep is partial (5/9).** To complete it, run the four cut models and
