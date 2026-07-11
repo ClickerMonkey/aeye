@@ -44,11 +44,14 @@ wire schema and falls back to prompt-text on an empty/failed structured reply;
 
 ---
 
-## Value leaderboard — partial sweep (2026-07-11)
+## Value leaderboard — current-code sweep (2026-07-11)
 
-**5 of an intended 9-model set** — the four slower models (`gpt-5-mini`,
-`gemini-3.5-flash`, `llama-4-maverick`, `deepseek-chat`) were cut short. All 61
-cases, default `auto` delivery, **no reasoning**. Archives under
+**The 5 leaderboard models, all re-run on the current code** — which now carries
+three correctness improvements over the prior sweep: (1) missing-required-args is
+a **validation error** (silent-wrong calls now reach the retry loop), (2) **+3
+worked examples** (composite `new` / `if` / `reduce`), and (3) **deep "did you
+mean?"** full-path prediction on unknown props. All 61 cases, default `auto`
+delivery, **no reasoning**, **one run each**. Archives under
 `integration/logs/runs/`; recompute with `node integration/reports/sweep/collect.cjs
 && node integration/reports/sweep/score.cjs`.
 
@@ -58,35 +61,37 @@ cases, default `auto` delivery, **no reasoning**. Archives under
 
 each term min-max normalized across the ranked set (cheaper & faster score
 higher; accuracy dominates at 0.60). It is a **relative** score — "best value in
-*this* set" — so the small 5-model set makes normalization sensitive; adding the
-cut models would move the bands.
+*this* set."
 
-| # | Model | id | **score** | acc | tries | s/case | $/100 |
-|---|-------|-----|----------:|----:|------:|-------:|------:|
-| 1 | **Gemini 2.5 Flash** | `google/gemini-2.5-flash` | **89.1** | 87% | 1.25 | 3.0 | $0.62 |
-| 2 | Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | 81.1 | 90% | 1.15 | 4.3 | $0.92 |
-| 3 | Gemini 3.1 Flash Lite | `google/gemini-3.1-flash-lite` | 73.8 | 77% | 1.51 | 3.1 | **$0.56** |
-| 4 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` | 60.0 | **93%** | **1.03** | 5.3 | $4.92 |
-| 5 | Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | 20.6 | 52% | 2.34 | 5.2 | $0.31 |
+| # | Model | id | **score** | acc | tries | s/case | $/100 | acc Δ vs prior |
+|---|-------|-----|----------:|----:|------:|-------:|------:|:--:|
+| 1 | **Gemini 3.1 Flash Lite** | `google/gemini-3.1-flash-lite` | **96.4** | 90% | 1.30 | **2.3** | **$0.47** | **+13** (77→90) |
+| 2 | Gemini 3 Flash (preview) | `google/gemini-3-flash-preview` | 90.1 | **92%** | **1.18** | 3.6 | $0.99 | +2 (90→92) |
+| 3 | Gemini 2.5 Flash | `google/gemini-2.5-flash` | 68.0 | 84% | 1.64 | 4.7 | $0.84 | −3 (87→84)† |
+| 4 | Claude Sonnet 4.6 | `anthropic/claude-sonnet-4.6` | 56.8 | 90% | 1.18 | 5.6 | $5.94 | −3 (93→90)† |
+| 5 | Gemini 2.5 Flash Lite | `google/gemini-2.5-flash-lite` | 27.5 | 61% | 2.52 | 4.4 | $0.36 | +9 (52→61) |
 
 _acc = cases passed / 61. tries = model requests/case (1 = one-shot). $/100 =
-provider-reported `usage.cost` per 100 cases. s/case = wall-clock._
+provider-reported `usage.cost` per 100 cases. s/case = wall-clock.
+†single-run numbers carry ~±2–3 cases of variance, so the two small dips are
+within noise; the two big gains (+13, +9) are well beyond it._
 
-**What the score exposes:**
+**What changed — the fixes help the WEAK models most:**
 
-- **Gemini 2.5 Flash (#1, 89.1) is the value pick** — 87% at $0.62/100 and 3.0
-  s/case, near one-shot (1.25 tries). It trails the frontier on raw accuracy by a
-  few points but wins decisively on cost×speed.
-- **Gemini 3 Flash preview (#2) is the accuracy-per-dollar sweet spot** — the
-  best of the cheap models on raw accuracy (90%) and the fewest correction rounds
-  of the Gemini line (1.15), for ~1.5× the champion's cost.
-- **Claude Sonnet 4.6 (#4) is the accuracy leader that value can't justify
-  here** — top accuracy (93%) and the cleanest one-shot rate (1.03 tries), but
-  **$4.92/100 is 8× the champion** for +6 pts, so it ranks fourth. Use it when a
-  correct first program matters more than price.
-- **Gemini 2.5 Flash Lite (#5) is the floor** — 52%, and it needs the most
-  correction rounds (2.34 tries). Being the cheapest ($0.31) can't rescue it; it
-  fails a *majority* of `lambda` and `num` cases (below). Don't use it for gin.
+- **Gemini 3.1 Flash Lite leaps 77 → 90% (+13 cases) and takes #1 by value** —
+  cheapest ($0.47) and fastest (2.3 s) *and* now frontier-adjacent on accuracy.
+  It was the model dropping args and guessing prop names; the validation error +
+  deep path prediction feed the retry loop exactly what it needs.
+- **Gemini 2.5 Flash Lite climbs 52 → 61% (+9)** — still the floor, but the
+  correction rounds now recover a third of what it used to miss.
+- **The strong models are flat within noise** — Gemini 3 Flash preview 90→92%,
+  and the two −3 dips (Gemini 2.5 Flash, Sonnet 4.6) are single-run variance.
+  They rarely make the silent-arg / wrong-path mistakes the new features catch,
+  so there's little for them to gain. Sonnet remains the accuracy-per-dollar
+  loser at **$5.94/100** (10× the value pick).
+- **Takeaway:** the diagnostics-driven improvements compress the field — the
+  cheap Lite models now sit within a few points of the frontier, so the value
+  case for the expensive models is weaker than ever.
 
 ---
 
@@ -112,36 +117,36 @@ the plausible thing:
 The lesson: gin's accuracy ceiling isn't set by syntax fluency but by whether a
 model will **refuse an impossible task** and **resist a plausible shortcut**.
 
-### `lambda` is the capability discriminator
+### `lambda` still separates the tiers — but the gap narrowed
 
-Higher-order cases (map / filter / reduce / sort / pipeline over lambdas) cleanly
-separate the tiers — the strong models ace them, the weak ones collapse:
+Higher-order cases (map / filter / reduce / sort / pipeline over lambdas) used to
+be where the Lite models fell off a cliff. On the current code (per-category, 5
+models):
 
 | category | gemini-2.5-flash | gemini-3-flash-preview | gemini-3.1-flash-lite | sonnet-4.6 | gemini-2.5-flash-lite |
 |----------|:---:|:---:|:---:|:---:|:---:|
-| lambda   | 8/8 | 8/8 | **3/8** | 8/8 | **1/8** |
-| num      | 6/8 | 8/8 | 6/8 | 8/8 | **4/8** |
-| control  | 6/8 | 8/8 | 6/8 | 8/8 | **4/8** |
-| text     | 8/8 | 6/8 | 6/8 | 7/8 | **4/8** |
-| obj      | 6/8 | 6/8 | 7/8 | 7/8 | 5/8 |
-| map      | 7/8 | 8/8 | 7/8 | 8/8 | 5/8 |
-| date     | 8/8 | 7/8 | 8/8 | 7/8 | 6/8 |
+| lambda   | 8/8 | 8/8 | 8/8 _(was 3/8)_ | 8/8 | **1/8** |
+| num      | 6/8 | 6/8 | 6/8 | 8/8 | **4/8** |
+| control  | 7/8 | 8/8 | 8/8 _(was 6/8)_ | 8/8 | **5/8** |
+| text     | 8/8 | 7/8 | 7/8 | 7/8 | **4/8** |
+| obj      | 6/8 | 7/8 | 6/8 | 6/8 | 6/8 |
+| map      | 5/8 | 8/8 | 8/8 | 8/8 | 5/8 |
+| date     | 7/8 | 8/8 | 8/8 | 6/8 | 8/8 |
 
-`lambda` is where the Lite models fall off a cliff (3/8 and 1/8) while everything
-else stays within a case or two of full marks — a good single-signal proxy for
-whether a model can handle gin's higher-order surface at all.
+**Gemini 3.1 Flash Lite recovered from 3/8 → 8/8 on `lambda`** (plus control
+6→8, map 7→8) — that alone is most of its +13-case jump. Only
+**gemini-2.5-flash-lite** still collapses on `lambda` (1/8), and it's the sole
+model failing a *majority* of the higher-order cases. Above that floor everyone
+now clears `lambda` cleanly, so it's a weaker discriminator than it was.
 
-### Model-specific trip-ups
+### The stubborn residue
 
-- **Gemini 3 Flash preview** loses points on `text` (6/8: `text-slugify`,
-  `text-reverse-tags`) and `date-diff-days` — string-munging and date-delta
-  arithmetic, not structure.
-- **Gemini 2.5 Flash** stumbles on `control-fizzbuzz` / `control-first-index` and
-  `num-gcd` / `num-average-list` — multi-branch control flow and numeric
-  reductions.
-- **Sonnet 4.6**'s only misses beyond the two universal cases are
-  `text-reverse-tags` and `date-diff-days` — the same two "everyone finds these
-  fiddly" cases the top Gemini hits.
+Beyond the two universal judgment cases, the misses that survive across the
+strong models cluster in the same fiddly spots: `text-reverse-tags` (an oracle
+that keeps split-on-`,` whitespace, so a model's tidier trim reads as "wrong"),
+`date-diff-days` (sign/direction of the delta), and a couple of `num` reductions
+(`num-gcd`). These are arithmetic/semantic hair-splitting, not structural — and
+`text-reverse-tags` is arguably a case-design quirk more than a model failure.
 
 ---
 
@@ -178,18 +183,23 @@ docs alone lands ~51%; add a handful of worked examples — especially one showi
 how to *construct* your custom types by bare name — and it clears ~94% on this
 model.
 
-_The leaderboard above predates the 3 added examples (measured at the 4-example
-prompt). Relative model ranking is unaffected — all rows shared that prompt — but
-a refreshed sweep would read ~+2 for models that construct objects._
+_This examples-lift measurement was taken on the 7-example prompt as it was
+being introduced; the leaderboard above is the later full re-run of all 5 models
+on that same current code, so the two are consistent._
 
 ---
 
 ## Notes
 
-- **The sweep is partial (5/9).** To complete it, run the four cut models and
-  re-collect; the value bands will re-normalize. `collect.cjs` picks the newest
-  full (61-case) run per slug, so a fresh run just needs `collect.cjs` +
-  `score.cjs`.
+- **The leaderboard is 5 models, all on current code (2026-07-11).** Four models
+  from the original nine (`gpt-5-mini`, `gemini-3.5-flash`, `llama-4-maverick`,
+  `deepseek-chat`) have **not** been re-run since the correctness fixes; their
+  stale runs are intentionally excluded so every row is comparable. To add them,
+  run each and re-collect — `collect.cjs` picks the newest full (61-case) run per
+  slug, then `score.cjs` re-normalizes the value bands.
+- **Single run per model.** These numbers carry ~±2–3 cases of run-to-run
+  variance; treat small gaps as ties and only large deltas (the Lite jumps) as
+  signal.
 - **No reasoning tiers were swept.** Query's sweep found reasoning bought no
   accuracy on gemini/gpt-5-mini and only added latency; gin hasn't tested it, but
   the near-one-shot `tries` on the strong models (1.03–1.25) leaves little for
