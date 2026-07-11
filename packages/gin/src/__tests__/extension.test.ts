@@ -61,6 +61,27 @@ describe('Extension', () => {
     expect(back).not.toBeInstanceOf(Extension);
   });
 
+  test('extends: "obj" folds structural props into the base (fields survive parse)', () => {
+    // Regression: an `extends: 'obj'` type-ref used to strand its props in the
+    // Extension local, which `parse` never consults — so every value parsed to
+    // `{}`. The props are now folded into the obj base and parse round-trips.
+    const r = createRegistry();
+    const Widget = r.parse({
+      name: 'Widget',
+      extends: 'obj',
+      props: { x: { type: { name: 'num' } }, y: { type: { name: 'num' } } },
+    });
+    expect(Widget).toBeInstanceOf(Extension);
+    expect(Widget.name).toBe('Widget');
+    // props() still advertises the fields …
+    expect(Widget.props().x).toBeDefined();
+    expect(Widget.props().y).toBeDefined();
+    // … and, crucially, a parsed VALUE keeps them (was `{}` before the fix).
+    const raw = Widget.parse({ x: 1, y: 2 }).raw as Record<string, { raw: unknown }>;
+    expect(raw['x']?.raw).toBe(1);
+    expect(raw['y']?.raw).toBe(2);
+  });
+
   test('auto-Extension: fn.call is native (no wrap)', () => {
     const r = createRegistry();
     const json = {

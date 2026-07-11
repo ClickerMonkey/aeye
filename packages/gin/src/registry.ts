@@ -511,6 +511,36 @@ export class Registry implements TypeBuilder, TypeScope {
     if (def.extends) {
       const base = scope.lookup(def.extends) ?? this.lookup(def.extends);
       if (!base) throw new Error(`registry.parse: extends references unknown type '${def.extends}'`);
+      // If `extends` names a BUILT-IN class that natively consumes some of the
+      // custom fields present here (obj → props; interface → props/get/call),
+      // those fields are STRUCTURAL and must be folded INTO a base built from
+      // that class — an Extension's `parse` delegates to its base and never
+      // consults the local, so props stranded in the local silently vanish
+      // (an `extends: 'obj'` type would parse every value to `{}`). Leftover,
+      // non-structural fields stay in the Extension local.
+      //
+      // GENERIC extensions are excluded: their props reference type-parameter
+      // placeholders (`{ name: 'T' }` AliasTypes) that must stay in the local
+      // to be resolved against the specialization scope, so they are NOT folded.
+      const baseCls = this.classes.get(def.extends);
+      const isGeneric = def.generic !== undefined && Object.keys(def.generic).length > 0;
+      const structural = baseCls && !isGeneric
+        ? ALL_CUSTOM_FIELDS.filter((f) => def[f] !== undefined && (baseCls.consumes ?? []).includes(f))
+        : [];
+      if (baseCls && structural.length > 0) {
+        const baseDef: TypeDef = {
+          name: def.extends,
+          ...(structural.includes('props') ? { props: def.props } : {}),
+          ...(structural.includes('get') ? { get: def.get } : {}),
+          ...(structural.includes('call') ? { call: def.call } : {}),
+          ...(structural.includes('init') ? { init: def.init } : {}),
+        };
+        const structuralBase = baseCls.from(baseDef, scope);
+        const localDef: TypeDef = { ...def };
+        delete localDef.extends;
+        for (const f of structural) delete localDef[f];
+        return new Extension(this, structuralBase, this.buildLocal(localDef, scope));
+      }
       return new Extension(this, base, this.buildLocal(def, scope));
     }
 
