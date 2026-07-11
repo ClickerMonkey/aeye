@@ -115,3 +115,109 @@ function orList(items: readonly string[]): string {
   // 0 (unreached via `didYouMean`) or 1 item → a plain join.
   return items.join(', ');
 }
+
+// ─── deep (whole-path) suggestion ────────────────────────────────────────────
+
+/**
+ * Sequence-level edit distance between two segment paths — the "path" analogue
+ * of {@link editDistance}. Substituting one segment for another costs their
+ * CHARACTER edit distance (0 when identical, small for a typo); inserting or
+ * deleting a whole segment costs a flat `indel` (default 2), the price of one
+ * wrong structural level. Lower = the paths line up better. Compared
+ * case-insensitively, matching the rest of this module.
+ */
+export function alignSegments(
+  a: readonly string[],
+  b: readonly string[],
+  indel = 2,
+): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[] = [];
+  for (let j = 0; j <= n; j++) dp[j] = j * indel;
+  for (let i = 1; i <= m; i++) {
+    let diag = dp[0]!;
+    dp[0] = i * indel;
+    const ai = a[i - 1]!.toLowerCase();
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j]!;
+      const sub = diag + editDistance(ai, b[j - 1]!.toLowerCase());
+      dp[j] = Math.min(dp[j]! + indel, dp[j - 1]! + indel, sub);
+      diag = tmp;
+    }
+  }
+  return dp[n]!;
+}
+
+/**
+ * Predict the FULL prop path a bad `target` most likely meant, by searching a
+ * node graph outward from `root`. Where {@link didYouMean} only fixes a single
+ * mis-typed key, this reads the WHOLE remaining path — the failing key AND the
+ * steps after it — and finds the reachable path that best lines up with it,
+ * tolerating a typo per segment plus one wrong structural level (an extra or a
+ * missing intermediate). So `user.usr.name` predicts `["user","name"]`, and
+ * `user.name` (when `name` actually lives under `profile`) predicts
+ * `["user","profile","name"]`.
+ *
+ * The graph is supplied abstractly, so the searcher stays free of any type
+ * system:
+ *  - `names(node)` — every selectable segment at a node (fields AND methods);
+ *    these are the LEAF candidates a predicted path may end on.
+ *  - `children(node)` — the NAVIGABLE children `[segment, childNode]` to recurse
+ *    into (e.g. only object-like field types), which keeps the search from
+ *    exploding through scalar method chains.
+ *
+ * Returns the predicted segment path relative to `root`, or `undefined` when
+ * nothing lines up closely enough to be a genuine prediction — the same
+ * conservative bar as {@link didYouMean}, so it never invents an unrelated path.
+ * The prediction's LEAF must itself be a near-match of the target's leaf (what
+ * the caller ultimately wants); anchoring on the leaf kills false positives.
+ * Bounded by `maxDepth` (default `min(6, target.length + 1)`) and `nodeBudget`
+ * (default 2000 node visits); cycle-safe on recursive graphs.
+ */
+export function deepSuggest<N>(
+  root: N,
+  names: (node: N) => readonly string[],
+  children: (node: N) => ReadonlyArray<readonly [string, N]>,
+  target: readonly string[],
+  opts: { maxDepth?: number; nodeBudget?: number } = {},
+): string[] | undefined {
+  if (target.length === 0) return undefined;
+  const maxDepth = opts.maxDepth ?? Math.min(6, target.length + 1);
+  const leaf = target[target.length - 1]!.toLowerCase();
+  const leafBudget = suggestionBudget(leaf.length);
+  // Accept an alignment within each target segment's own typo budget plus one
+  // structural edit (`indel`) — tight enough to fire only on a genuine match.
+  const acceptBudget = target.reduce((s, seg) => s + suggestionBudget(seg.length), 0) + 2;
+
+  let budget = opts.nodeBudget ?? 2000;
+  let best: { score: number; path: string[] } | undefined;
+  const onPath = new Set<N>();
+
+  const walk = (node: N, prefix: string[]): void => {
+    if (budget <= 0) return;
+    for (const name of names(node)) {
+      if (budget <= 0) return;
+      budget--;
+      // Anchor on the LEAF: a prediction of THIS path must END at (a near
+      // spelling of) the leaf the caller ultimately wants.
+      if (editDistance(name.toLowerCase(), leaf) > leafBudget) continue;
+      const path = [...prefix, name];
+      const score = alignSegments(path, target);
+      if (score > acceptBudget) continue;
+      if (!best || score < best.score || (score === best.score && path.length < best.path.length)) {
+        best = { score, path };
+      }
+    }
+    if (prefix.length >= maxDepth || onPath.has(node)) return;
+    onPath.add(node);
+    for (const [name, child] of children(node)) {
+      if (budget <= 0) break;
+      walk(child, [...prefix, name]);
+    }
+    onPath.delete(node);
+  };
+
+  walk(root, []);
+  return best?.path;
+}

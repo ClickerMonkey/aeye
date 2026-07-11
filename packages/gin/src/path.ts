@@ -15,10 +15,12 @@ import type { ValidateContext } from './expr';
 import { LocalScope, type TypeScope } from './type-scope';
 import { joinAuto } from './type';
 import { ObjType } from './types/obj';
+import { IfaceType } from './types/iface';
+import { Extension } from './extension';
 import type { CodeOptions } from './node';
 import { Code, code, span, joinCode } from './code';
 import type { Effects } from './effects';
-import { didYouMean } from './aids';
+import { didYouMean, deepSuggest } from './aids';
 
 /**
  * `true` when accessing a prop whose type is a callable (fn / method)
@@ -74,6 +76,61 @@ function reportMissingArgs(
       p.at(at, () => p.error('call.missing-arg', `missing required argument '${name}'`));
     }
   }
+}
+
+/**
+ * True when `t` navigates like a record — its props are DATA fields worth
+ * descending into (obj / interface, or an Extension of one) rather than the
+ * method surface of a scalar. Bounds the deep-path search to field graphs.
+ */
+function isObjLike(t: Type): boolean {
+  if (t instanceof ObjType || t instanceof IfaceType) return true;
+  if (t instanceof Extension) return isObjLike(t.base);
+  return false;
+}
+
+/**
+ * The "did you mean?" tail for an unknown prop `steps[i]` on `receiver`. Beyond
+ * fixing the single mis-typed key, it reads the REMAINING prop steps (the
+ * failing key plus any that follow) and predicts the full path they most likely
+ * meant, via {@link deepSuggest} over the receiver's field graph — so
+ * `user.usr.name` suggests `user.name` and `user.name` (when `name` lives under
+ * `profile`) suggests `user.profile.name`. A single-segment prediction renders
+ * as the bare key (an ordinary same-level typo); a multi-segment one renders as
+ * the full dotted path from the root when the whole prefix is prop steps, else
+ * relative to the receiver. Returns `''` when there is no confident prediction.
+ */
+function suggestPathTail(receiver: Type, steps: readonly PathStep[], i: number): string {
+  const target: string[] = [];
+  for (let k = i; k < steps.length; k++) {
+    const s = steps[k]!;
+    if (s instanceof PropStep) target.push(s.prop);
+    else break;
+  }
+  if (target.length === 0) return '';
+  const predicted = deepSuggest(
+    receiver,
+    (t: Type) => Object.keys(t.props()),
+    (t: Type) => {
+      const nav: Array<[string, Type]> = [];
+      for (const name of Object.keys(t.props())) {
+        const pt = t.prop(name)?.type;
+        if (pt && isObjLike(pt)) nav.push([name, pt]);
+      }
+      return nav;
+    },
+    target,
+  );
+  if (!predicted || predicted.length === 0) return '';
+  if (predicted.length === 1) return ` — did you mean \`${predicted[0]}\`?`;
+  // Multi-segment prediction — prepend the resolved prefix when it is all props.
+  const prefix: string[] = [];
+  for (let k = 0; k < i; k++) {
+    const s = steps[k]!;
+    if (s instanceof PropStep) prefix.push(s.prop);
+    else { prefix.length = 0; break; }
+  }
+  return ` — did you mean \`${[...prefix, ...predicted].join('.')}\`?`;
 }
 
 /**
@@ -398,7 +455,7 @@ export class Path {
         const prop = current.type.prop(step.prop);
         if (!prop) {
           throw new Error(
-            `path: no prop '${step.prop}' on type '${current.type.name}'${didYouMean(step.prop, Object.keys(current.type.props()))}`,
+            `path: no prop '${step.prop}' on type '${current.type.name}'${suggestPathTail(current.type, this.steps, i)}`,
           );
         }
 
@@ -639,7 +696,7 @@ export class Path {
         const propV: Prop | undefined = current.prop(step.prop);
         if (!propV) {
           p.at(['path', i], () => p.error('prop.unknown',
-            `no prop '${step.prop}' on type '${current!.name}'${didYouMean(step.prop, Object.keys(current!.props()))}`));
+            `no prop '${step.prop}' on type '${current!.name}'${suggestPathTail(current!, this.steps, i)}`));
           current = engine.registry.any();
           i++;
           continue;
