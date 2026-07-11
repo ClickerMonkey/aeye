@@ -132,6 +132,45 @@ function orderItemExprs(o: OrderItem): Expr[] {
   return o instanceof SorterExpr ? [...o.sorts.values()] : [o.expr];
 }
 
+/**
+ * Prune a `sorter` for a drilled (un-ravelled) query: DROP each catalog sort
+ * whose expr is an aggregate (it has no meaning over the row-level result) plus
+ * any `defaultSort` entry naming a dropped sort, and KEEP the rest — a sorter
+ * usually mixes still-valid group-key sorts with aggregate ones. Returns the
+ * pruned `SorterDef`, or `null` when EVERY sort was an aggregate (drop it whole).
+ * Each drop is a `drill.order-dropped` warning. (`output` refs in the catalog are
+ * already expanded to their underlying exprs before this runs.)
+ */
+function pruneSorterForDrill(sorter: SorterExpr, i: number, warnings: Problems): SorterDef | null {
+  const sorts: Record<string, ExprDef> = {};
+  const dropped = new Set<string>();
+  for (const [name, expr] of sorter.sorts) {
+    if (expr.containsAggregate()) {
+      dropped.add(name);
+      warnings.at(['order', i, 'sorts', name], () =>
+        warnings.warn(
+          'drill.order-dropped',
+          `Dropped aggregate sort '${name}' (${expr.toCode()}) from the sorter — it has no meaning over the un-ravelled rows.`,
+        ),
+      );
+    } else {
+      sorts[name] = expr.toJSON();
+    }
+  }
+  if (Object.keys(sorts).length === 0) {
+    warnings.at(['order', i], () =>
+      warnings.warn('drill.order-dropped', 'Dropped the entire sorter — every one of its sorts is an aggregate.'),
+    );
+    return null;
+  }
+  const def: SorterDef = { kind: 'sorter', sorts };
+  if (sorter.defaultSort) {
+    const kept = sorter.defaultSort.filter((d) => !dropped.has(d.sort));
+    if (kept.length) def.defaultSort = kept.map((d) => ({ ...d }));
+  }
+  return def;
+}
+
 /** Expand every `output` ref inside a sorter's catalog (keeps the `SorterDef` type). */
 function expandSorterDef(def: SorterDef, outputs: ReadonlyMap<string, ExprDef>): SorterDef {
   const sorts: Record<string, ExprDef> = {};
@@ -485,23 +524,26 @@ export function drillDown(
     movedHaving.push(h.toJSON());
   });
 
-  // (5) Keep LIMIT; drop aggregate-referencing ORDER BY entries (warn). A sorter
-  //     is dropped when ANY of its catalog exprs is an aggregate.
-  const keptOrder = sq.order
-    .filter((o, i) => {
-      const agg = orderItemExprs(o).find((e) => e.containsAggregate());
-      if (agg) {
-        warnings.at(['order', i], () =>
-          warnings.warn(
-            'drill.order-dropped',
-            `Dropped aggregate-based ORDER BY term '${agg.toCode()}' — it has no meaning over the un-ravelled rows.`,
-          ),
-        );
-        return false;
-      }
-      return true;
-    })
-    .map((o) => o.toJSON());
+  // (5) Keep LIMIT. Aggregate-based ORDER BY has no meaning over the un-ravelled
+  //     rows: DROP a plain aggregate term, but only PRUNE the aggregate entries
+  //     from a `sorter`'s catalog (keeping its still-valid group-key sorts) —
+  //     dropping the whole sorter only when that empties it. All drops are warns.
+  const keptOrder: (OrderDef | SorterDef)[] = [];
+  sq.order.forEach((o, i) => {
+    if (o instanceof SorterExpr) {
+      const pruned = pruneSorterForDrill(o, i, warnings);
+      if (pruned) keptOrder.push(pruned);
+    } else if (o.expr.containsAggregate()) {
+      warnings.at(['order', i], () =>
+        warnings.warn(
+          'drill.order-dropped',
+          `Dropped aggregate-based ORDER BY term '${o.expr.toCode()}' — it has no meaning over the un-ravelled rows.`,
+        ),
+      );
+    } else {
+      keptOrder.push(o.toJSON());
+    }
+  });
 
   if (errors.hasErrors) return { error: errors };
 

@@ -86,6 +86,53 @@ describe('drillDown edge paths', () => {
     expect(out.order!.length).toBe(1); // only the non-aggregate order term kept
   });
 
+  const sumTotal = { kind: 'aggregate' as const, function: 'sum', args: { value: ref('order', 'total') } };
+  const grouped = (order: SelectDef['order']): SelectDef => ({
+    kind: 'select',
+    fields: [
+      { expr: ref('order', 'userId'), as: 'userId' },
+      { expr: sumTotal, as: 'revenue' },
+    ],
+    from: { kind: 'type', type: 'order' },
+    groupBy: [ref('order', 'userId')],
+    order,
+  });
+
+  it('PRUNES only the aggregate sorts from a sorter (keeps the group-key sort + trims defaultSort)', () => {
+    const r = ok(drillDown(grouped([
+      { kind: 'sorter', sorts: { byId: ref('order', 'id'), byRev: sumTotal }, defaultSort: [{ sort: 'byRev', dir: 'desc' }, { sort: 'byId', dir: 'asc' }] },
+    ]), fx.engine));
+    expect(r.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(true);
+    const out = r.query.toJSON();
+    if (out.kind !== 'select') throw new Error('select');
+    const s = out.order![0];
+    if (!('kind' in s) || s.kind !== 'sorter') throw new Error('expected a sorter');
+    expect(Object.keys(s.sorts)).toEqual(['byId']); // byRev (aggregate) pruned
+    expect(s.defaultSort).toEqual([{ sort: 'byId', dir: 'asc' }]); // byRev entry trimmed
+  });
+
+  it('DROPS the whole sorter when every sort is an aggregate', () => {
+    const r = ok(drillDown(grouped([
+      { kind: 'sorter', sorts: { byRev: sumTotal }, defaultSort: [{ sort: 'byRev', dir: 'desc' }] },
+    ]), fx.engine));
+    expect(r.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(true);
+    const out = r.query.toJSON();
+    if (out.kind !== 'select') throw new Error('select');
+    expect(out.order).toBeUndefined(); // sorter emptied ⇒ no ORDER BY
+  });
+
+  it('keeps an all-scalar sorter unchanged through a drill', () => {
+    const r = ok(drillDown(grouped([
+      { kind: 'sorter', sorts: { byId: ref('order', 'id') }, defaultSort: [{ sort: 'byId', dir: 'asc' }] },
+    ]), fx.engine));
+    expect(r.warnings.list.some((p) => p.code === 'drill.order-dropped')).toBe(false);
+    const out = r.query.toJSON();
+    if (out.kind !== 'select') throw new Error('select');
+    const s = out.order![0];
+    if (!('kind' in s) || s.kind !== 'sorter') throw new Error('expected a sorter');
+    expect(Object.keys(s.sorts)).toEqual(['byId']);
+  });
+
   it('handles a group key not projected, distinct / joins / offset, and a SelectQuery input', () => {
     const def: SelectDef = {
       kind: 'select',
