@@ -454,3 +454,44 @@ describe('output-ref: full unary.ts coverage (v8 merge workaround)', () => {
     }
   });
 });
+
+// ─── select.ts — SQL-92 GROUP BY `group.ungrouped-column` rule ─────────────────
+
+describe('group-by: ungrouped-column rule', () => {
+  const fx = fixture();
+  const has = (def: SelectDef): boolean =>
+    fx.engine.validateQuery(def).list.some((x) => x.code === 'group.ungrouped-column');
+  const sum = (f: string): ExprDef => ({ kind: 'aggregate', function: 'sum', args: { value: ref('order', f) } });
+  const sel = (extra: Partial<SelectDef>): SelectDef => ({
+    kind: 'select',
+    fields: [{ expr: ref('order', 'id'), as: 'id' }],
+    from: { kind: 'type', type: 'order' },
+    groupBy: [ref('order', 'id')],
+    ...extra,
+  });
+
+  it('errors on a select column that is neither grouped nor aggregated', () => {
+    expect(has(sel({ fields: [{ expr: ref('order', 'id'), as: 'id' }, { expr: ref('order', 'total'), as: 't' }] }))).toBe(true);
+  });
+
+  it('accepts a grouped column plus an aggregate over the ungrouped one', () => {
+    expect(has(sel({ fields: [{ expr: ref('order', 'id'), as: 'id' }, { expr: sum('total'), as: 'rev' }] }))).toBe(false);
+  });
+
+  it('errors on an ungrouped column in ORDER BY', () => {
+    expect(has(sel({ order: [{ expr: ref('order', 'total'), dir: 'asc' }] }))).toBe(true);
+  });
+
+  it('errors on an ungrouped column in HAVING (recurses into the predicate)', () => {
+    expect(has(sel({ having: [cmp('>', ref('order', 'total'), lit(0))] }))).toBe(true);
+  });
+
+  it('a window function is exempt (computes over the group)', () => {
+    const win: ExprDef = { kind: 'window', function: 'rowNumber', args: {}, orderBy: [{ expr: ref('order', 'id'), dir: 'asc' }] };
+    expect(has(sel({ fields: [{ expr: ref('order', 'id'), as: 'id' }, { expr: win, as: 'rn' }] }))).toBe(false);
+  });
+
+  it('does not fire without a GROUP BY', () => {
+    expect(has({ kind: 'select', fields: [{ expr: ref('order', 'total'), as: 't' }], from: { kind: 'type', type: 'order' } })).toBe(false);
+  });
+});

@@ -28,7 +28,7 @@ import { recordSignature } from '../runtime/record';
 import { Type } from '../type';
 import type { ParamSet } from '../param';
 import { NumberFieldType } from '../field-types/index';
-import { FieldRefExpr, AggregateExpr } from '../exprs/index';
+import { FieldRefExpr, AggregateExpr, OutputRefExpr, WindowExpr } from '../exprs/index';
 import {
   Query,
   type QueryClass,
@@ -389,6 +389,54 @@ export class SelectQuery extends Query {
     p.at('order', () => {
       this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, colCtx)));
     });
+    // SQL-92 GROUP BY rule: once the SELECT groups, every column referenced in a
+    // select field / order-by / having must be a GROUP BY key (matched as a whole
+    // subtree) or sit inside an aggregate — otherwise it is neither grouped nor
+    // aggregated, which SQL rejects and the in-memory runtime would resolve to an
+    // ARBITRARY row's value.
+    if (this.groupBy.length > 0) {
+      const groupCodes = this.groupKeyCodes();
+      p.at('fields', () => this.fields.forEach((c, i) => p.at([i, 'expr'], () => this.checkGrouped(c.expr, groupCodes, p))));
+      p.at('having', () => this.having.forEach((h, i) => p.at(i, () => this.checkGrouped(h, groupCodes, p))));
+      p.at('order', () => this.order.forEach((o, i) => p.at([i, 'expr'], () => this.checkGrouped(o.expr, groupCodes, p))));
+    }
+  }
+
+  /**
+   * The GROUP BY keys as `toCode()` strings, with an `output` key EXPANDED to the
+   * select field it names — so grouping by `output('x')` also covers a bare
+   * reference to that field's underlying expression. Drives {@link checkGrouped}.
+   */
+  private groupKeyCodes(): Set<string> {
+    const outputs = this.outputExprs();
+    const codes = new Set<string>();
+    for (const g of this.groupBy) {
+      const key = g instanceof OutputRefExpr ? outputs.get(g.name) ?? g : g;
+      codes.add(key.toCode());
+    }
+    return codes;
+  }
+
+  /**
+   * Enforce the SQL-92 GROUP BY rule on one select / order-by / having expr
+   * (top-down, pruning): a subtree that IS a group key — or an aggregate / window
+   * — is covered, so stop; a bare column reference reached any other way is
+   * neither grouped nor aggregated and is reported. Composite exprs recurse, so
+   * `region || tier` needs BOTH columns grouped, while a grouped `dateTrunc(...)`
+   * selected verbatim is covered as a whole.
+   */
+  private checkGrouped(expr: Expr, groupCodes: ReadonlySet<string>, p: Problems): void {
+    if (groupCodes.has(expr.toCode())) return;
+    if (expr instanceof AggregateExpr || expr instanceof WindowExpr) return;
+    if (expr instanceof FieldRefExpr) {
+      const code = expr.toCode();
+      p.error(
+        'group.ungrouped-column',
+        `Column '${code}' is neither in GROUP BY nor inside an aggregate. Add it to groupBy, or aggregate it (e.g. max(${code})).`,
+      );
+      return;
+    }
+    expr.forEachChild((c) => this.checkGrouped(c, groupCodes, p));
   }
 
   /** The Type names read by this select (its FROM source's referenced types). */
