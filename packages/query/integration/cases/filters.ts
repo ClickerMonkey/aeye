@@ -160,4 +160,17 @@ export const filterCases: EvalCase[] = [
       })),
     ],
   },
+  {
+    id: 'dynamic-customer-directory',
+    category: 'dynamic',
+    request:
+      'Build a REUSABLE customer directory query the caller parameterizes at run time. It must: (1) only include customers whose credit limit is at least a caller-supplied minimum — a query PARAMETER named `minCredit`; (2) also leave room for the caller to apply their own execution-time FILTERS on the customer; and (3) let the caller choose the sort at run time — by name or by credit limit — defaulting to name ascending, i.e. a dynamic SORTER. Return each customer id, name, region, and credit limit.',
+    note: 'Exercises the THREE execution-time constructs together in one query: a `param` (`minCredit`) in the WHERE, a `filters` placeholder bound to the customer source, and a `sorter` catalog (name / creditLimit) in ORDER BY with a `defaultSort`. Structural: the actual param/filter/sort VALUES are supplied by the caller at run time, never authored here — so this checks the model can COMPOSE all three placeholders, not a result.',
+    assert: [
+      a.from('customer'),
+      a.require(a.hasParam()),
+      a.require(a.hasFilters()),
+      a.require(a.hasSorter()),
+    ],
+  },
 ];

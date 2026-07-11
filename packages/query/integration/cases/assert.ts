@@ -46,6 +46,7 @@ import type {
   ExprDef,
   WriteValueDef,
   OrderDef,
+  SorterDef,
   JoinDef,
   SourceDef,
   SelectDef,
@@ -382,6 +383,22 @@ function pushCondition(x: ExprDef, s: QueryShape): void {
   walkExpr(x, s);
 }
 
+/**
+ * Walk one `order` entry: a dynamic `sorter` (collected as an expr, its catalog
+ * `sorts` walked) or a normal `{ expr, dir }` term (added to `orderTerms` + its
+ * expr walked). Distinguished by the `kind` discriminant only a sorter carries.
+ */
+function walkOrderEntry(o: OrderDef | SorterDef, s: QueryShape): void {
+  if ('kind' in o && o.kind === 'sorter') {
+    s.exprs.push(o);
+    for (const name of Object.keys(o.sorts)) walkExpr(o.sorts[name]!, s);
+  } else {
+    const term = o as OrderDef;
+    s.orderTerms.push(term);
+    walkExpr(term.expr, s);
+  }
+}
+
 function walkQuery(def: QueryDef, s: QueryShape): void {
   s.queryKinds.add(def.kind);
   switch (def.kind) {
@@ -393,11 +410,7 @@ function walkQuery(def: QueryDef, s: QueryShape): void {
       if (def.where) for (const w of def.where) pushCondition(w, s);
       if (def.groupBy) for (const g of def.groupBy) walkExpr(g, s);
       if (def.having) for (const h of def.having) pushCondition(h, s);
-      if (def.order)
-        for (const o of def.order) {
-          s.orderTerms.push(o);
-          walkExpr(o.expr, s);
-        }
+      if (def.order) for (const o of def.order) walkOrderEntry(o, s);
       if (def.limit !== undefined) s.limits.push(def.limit);
       if (def.offset !== undefined) s.offsets.push(def.offset);
       break;
@@ -424,11 +437,7 @@ function walkQuery(def: QueryDef, s: QueryShape): void {
       s.setOps.push(def);
       walkQuery(def.left, s);
       walkQuery(def.right, s);
-      if (def.order)
-        for (const o of def.order) {
-          s.orderTerms.push(o);
-          walkExpr(o.expr, s);
-        }
+      if (def.order) for (const o of def.order) walkOrderEntry(o, s);
       if (def.limit !== undefined) s.limits.push(def.limit);
       if (def.offset !== undefined) s.offsets.push(def.offset);
       break;
@@ -685,6 +694,21 @@ export const a = {
   /** The query is (or contains) a CTE / WITH statement. */
   cte(): Assertion {
     return struct('CTE (WITH)', (shape) => (shape.queryKinds.has('cte') ? null : 'no CTE'));
+  },
+
+  /** The query authors an execution-time `filters` placeholder (anywhere in the tree). */
+  hasFilters(): Assertion {
+    return struct('filters placeholder', (shape) => (shape.exprs.some((x) => x.kind === 'filters') ? null : 'no filters placeholder'));
+  },
+
+  /** The query authors a `param` (an execution-time bind value) somewhere. */
+  hasParam(): Assertion {
+    return struct('param', (shape) => (shape.exprs.some((x) => x.kind === 'param') ? null : 'no param'));
+  },
+
+  /** The query authors a dynamic `sorter` catalog (a caller-selectable ORDER BY). */
+  hasSorter(): Assertion {
+    return struct('sorter', (shape) => (shape.exprs.some((x) => x.kind === 'sorter') ? null : 'no sorter'));
   },
 
   /**
