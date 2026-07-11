@@ -166,7 +166,45 @@ Output for \`{ items:[{done:true},{done:false},{done:true}] }\`: \`2\`.
   {"args":{"other":{"kind":"new","type":{"name":"num"},"value":0}}}
 ]}
 \`\`\`
-Output for \`{ n: -2 }\`: \`false\`.`;
+Output for \`{ n: -2 }\`: \`false\`.
+
+### Example 5 — construct an object, changing one field and COPYING the rest
+For \`(args:{ p:obj{ x:num, y:num } }): obj{ x:num, y:num }\` — "move the point right by 1":
+\`\`\`json
+{ "kind":"new", "type":{"name":"obj","props":{"x":{"type":{"name":"num"}},"y":{"type":{"name":"num"}}}},
+  "value":{
+    "x":{"kind":"get","path":[{"prop":"args"},{"prop":"p"},{"prop":"x"},{"prop":"add"},{"args":{"other":{"kind":"new","type":{"name":"num"},"value":1}}}]},
+    "y":{"kind":"get","path":[{"prop":"args"},{"prop":"p"},{"prop":"y"}]}
+  }}
+\`\`\`
+Output for \`{ p:{ x:3, y:7 } }\`: \`{ x:4, y:7 }\`. Every field the result type declares must
+appear in \`value\` — copy unchanged ones straight from the source.
+**To construct a REGISTERED named type, reference it by BARE NAME** — \`"type":{"name":"Product"}\` —
+and fill its fields in \`value\`. Do NOT re-add \`extends\`/\`props\`: that builds a fresh EMPTY
+type and your fields are silently dropped.
+
+### Example 6 — branch with \`if\` for \`(args:{ temp:num }): text\` — "'hot' if temp > 30 else 'mild'"
+\`\`\`json
+{ "kind":"if",
+  "ifs":[{"condition":{"kind":"get","path":[{"prop":"args"},{"prop":"temp"},{"prop":"gt"},{"args":{"other":{"kind":"new","type":{"name":"num"},"value":30}}}]},
+          "body":{"kind":"new","type":{"name":"text"},"value":"hot"}}],
+  "else":{"kind":"new","type":{"name":"text"},"value":"mild"} }
+\`\`\`
+Output for \`{ temp:35 }\`: \`"hot"\`; for \`{ temp:20 }\`: \`"mild"\`.
+
+### Example 7 — accumulate with \`reduce\` for \`(args:{ xs:list<num> }): num\` — "sum the list"
+\`reduce\` takes an \`fn\` lambda \`(acc, value, index)\` and an \`initial\` value:
+\`\`\`json
+{ "kind":"get", "path":[{"prop":"args"},{"prop":"xs"},{"prop":"reduce"},
+  {"args":{
+    "fn":{"kind":"lambda",
+      "type":{"name":"fn","call":{"args":{"name":"obj","props":{"acc":{"type":{"name":"num"}},"value":{"type":{"name":"num"}},"index":{"type":{"name":"num"}}}},"returns":{"name":"num"}}},
+      "body":{"kind":"get","path":[{"prop":"args"},{"prop":"acc"},{"prop":"add"},{"args":{"other":{"kind":"get","path":[{"prop":"args"},{"prop":"value"}]}}}]}},
+    "initial":{"kind":"new","type":{"name":"num"},"value":0}
+  }}
+]}
+\`\`\`
+Output for \`{ xs:[1,2,3,4] }\`: \`10\`.`;
 
 /**
  * Build the full instruction block for a case: type docs, grammar, this case's
@@ -175,6 +213,9 @@ Output for \`{ n: -2 }\`: \`false\`.`;
  */
 export function describeGin(runtime: CaseRuntime): string {
   const signature = `(${runtime.argsType.toCode()}): ${runtime.returnsType.toCode()}`;
+  // `GIN_EVAL_NO_EXAMPLES=1` drops the 4 worked examples to measure their lift —
+  // the bare-signature condition that matches ginny's zero-example default.
+  const includeExamples = process.env['GIN_EVAL_NO_EXAMPLES']?.trim() !== '1';
   return [
     '# Write a gin function body',
     '',
@@ -196,8 +237,7 @@ export function describeGin(runtime: CaseRuntime): string {
     '## Functions available to your program',
     '',
     buildFnDocs(runtime),
-    '',
-    EXAMPLES,
+    ...(includeExamples ? ['', EXAMPLES] : []),
     '',
     '## Your task',
     '',
