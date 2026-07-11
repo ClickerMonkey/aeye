@@ -49,6 +49,7 @@ import {
 import { buildEngine } from './model';
 import { CASES, type EvalCase } from './cases/index';
 import { normalize, summarize, compareResults, type NormResult, type AssertCtx } from './cases/assert';
+import { createSqlAsker, unfence, type SqlAsker } from './sql-review';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(HERE, 'logs');
@@ -330,6 +331,27 @@ function evalMode(): EvalMode {
   return 'auto';
 }
 
+/**
+ * Output mode (`QUERY_EVAL_OUTPUT`). `query` (default): the model emits our AST
+ * directly. `sql-then-query`: a TWO-STAGE run — stage 1 asks the model for
+ * PostgreSQL (schema-as-tables, see `sql-review.ts`), then stage 2 appends that
+ * SQL to the request (with a note on how our named-relation joins differ) and
+ * asks for the AST. Tests whether letting the model reason in SQL first — where
+ * it demonstrably solves the hard cases — lifts its AST accuracy.
+ */
+function outputMode(): 'query' | 'sql-then-query' {
+  return process.env['QUERY_EVAL_OUTPUT']?.trim() === 'sql-then-query' ? 'sql-then-query' : 'query';
+}
+
+/** The stage-2 preamble: how to read the reference SQL into our query language. */
+const SQL_TRANSLATE_NOTE = [
+  'A PostgreSQL query that already solves this request is provided below as a REFERENCE for the LOGIC (which joins, filters, grouping, ordering, window functions). Translate its MEANING into the query language — do NOT copy SQL syntax or invent SQL-only constructs.',
+  'JOINS DIFFER — this query language has NO raw `JOIN ... ON` clause, and a bare `relation→X` field is NOT a value:',
+  '  - To use ANY column of a related row — INCLUDING its id — you MUST declare a named join in `joins` as { on: { kind: "relation", source, field, as } }, then reference the joined columns via { source: <as>, field } (e.g. join salesOrder→customer as "c", then read { source: "c", field: "id" } or { source: "c", field: "region" }). The relation name carries the key(s), including composite foreign keys — you never write an ON condition.',
+  '  - Do NOT field-ref a `relation→X` field directly (e.g. { source: "salesOrder", field: "customer" }) expecting the foreign-key id — it resolves to nothing. Always go through a named join.',
+  '  - This applies EVERYWHERE a related value is used: select fields, aggregate/window `value`, `partitionBy`, `orderBy`, group-by, and comparisons.',
+].join('\n');
+
 /** Read `QUERY_EVAL_REASONING` (`low`|`medium`|`high`); unset ⇒ reasoning off.
  *  Set via the prompt's `config` → `{ reason: { effort } }`, which OpenRouter
  *  maps to each family's thinking API; reasoning tokens/cost flow into
@@ -546,6 +568,7 @@ async function runOneCase(
   asker: QueryAsker,
   modelId: string,
   c: EvalCase,
+  sqlAsker: SqlAsker | null = null,
 ): Promise<LogEntry> {
   const started = Date.now();
   const entry: LogEntry = {
@@ -571,12 +594,30 @@ async function runOneCase(
   };
 
   try {
+    // Stage 1 (sql-then-query only): get a PostgreSQL solution to reason from.
+    // Its cost/calls are folded into the case total so the two-stage tax is
+    // visible in the report. A stage-1 error just yields no reference SQL — the
+    // stage-2 query prompt still runs on the request alone.
+    let sqlBlock = '';
+    let sqlCalls = 0;
+    let sqlCost = 0;
+    if (sqlAsker) {
+      const gen = await sqlAsker.ask(c.request);
+      sqlCalls = gen.calls;
+      sqlCost = gen.costUsd;
+      const sql = unfence(gen.sql);
+      if (sql && !gen.error) {
+        sqlBlock = [SQL_TRANSLATE_NOTE, '', 'Reference SQL:', '```sql', sql, '```', ''].join('\n');
+      }
+    }
+
     const userContent = [
       // Anchor the model to an INSTANCE, not the schema (it otherwise sometimes',
       // echoes {"type":"object","properties":{...}}). Concrete envelope example:
       'Respond with a single JSON object of the form {"query": <query>} — where <query> is the query itself.',
       'Example shape: {"query": {"kind": "select", "from": {"kind": "type", "type": "..."}, "fields": [{"expr": {"kind": "field-ref", "source": "...", "field": "..."}}]}}',
       '',
+      ...(sqlBlock ? [sqlBlock] : []),
       `User request: ${c.request}`,
     ].join('\n');
 
@@ -584,10 +625,10 @@ async function runOneCase(
     // re-prompts on failure through its own `outputRetries` with the underlined,
     // aid-directed diagnostics — no manual repair round here.
     const built = await asker.ask(userContent);
-    entry.calls = built.calls;
+    entry.calls = built.calls + sqlCalls;
     entry.tokensIn = built.tokensIn;
     entry.tokensOut = built.tokensOut;
-    entry.costUsd = built.costUsd;
+    entry.costUsd = built.costUsd + sqlCost;
     entry.rejected = built.rejected;
     entry.rawText = built.raw ?? null;
     entry.emittedQuery = built.query ? built.query.toJSON() : null;
@@ -690,8 +731,10 @@ function buildDetailJson(entries: LogEntry[]): string {
 async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly EvalCase[]): Promise<number> {
   const modelId = process.env['QUERY_EVAL_MODEL']?.trim() || DEFAULT_MODEL;
   console.log(`\nintegration eval — model: ${modelId} (OpenRouter), ${cases.length} case(s)`);
-  console.log(`schema delivery: ${evalMode()} (QUERY_EVAL_MODE)\n`);
+  console.log(`schema delivery: ${evalMode()} (QUERY_EVAL_MODE) · output: ${outputMode()} (QUERY_EVAL_OUTPUT)\n`);
   const asker = createAsker(apiKey, modelId, engine);
+  // SQL-first→translate: a stage-1 SQL asker feeds the AST prompt (see `outputMode`).
+  const sqlAsker = outputMode() === 'sql-then-query' ? createSqlAsker(apiKey, modelId, engine) : null;
 
   // Cases are independent → run them concurrently (pool of `--concurrency`, default
   // 8). Each worker pulls the next case index; results are logged AS THEY COMPLETE
@@ -710,7 +753,7 @@ async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly E
       const i = next++;
       const c = cases[i];
       if (c === undefined) break;
-      const entry = await runOneCase(engine, asker, modelId, c);
+      const entry = await runOneCase(engine, asker, modelId, c, sqlAsker);
       entries[i] = entry;
       done++;
       const mark = entry.passed ? 'PASS' : 'FAIL';
