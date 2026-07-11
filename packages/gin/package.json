@@ -1,6 +1,6 @@
 {
   "name": "@aeye/gin",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Gin - A type & expression system for LLM agents",
   "type": "module",
   "main": "dist/index.js",
@@ -31,15 +31,18 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@aeye/ai": "^0.3.8",
-    "@aeye/core": "^0.3.8",
-    "@aeye/models": "^0.3.8",
-    "@aeye/openrouter": "^0.3.8",
+    "@aeye/ai": "^0.3.9",
+    "@aeye/core": "^0.3.9",
+    "@aeye/models": "^0.3.9",
+    "@aeye/openrouter": "^0.3.9",
     "tsup": "^8.0.0",
     "tsx": "^4.19.0",
     "vitest": "^3.0.0",
     "typescript": "^5.9.3"
   },
-  "files": ["dist", "aeye-*.md"],
+  "files": [
+    "dist",
+    "aeye-*.md"
+  ],
   "license": "GPL-3.0"
 }

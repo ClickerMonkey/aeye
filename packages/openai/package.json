@@ -1,6 +1,6 @@
 {
   "name": "@aeye/openai",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "@aeye OpenAI - OpenAI integration for @aeye",
   "type": "module",
   "main": "dist/index.js",
@@ -47,8 +47,8 @@
     "aeye-*.md"
   ],
   "dependencies": {
-    "@aeye/ai": "^0.3.8",
-    "@aeye/core": "^0.3.8",
+    "@aeye/ai": "^0.3.9",
+    "@aeye/core": "^0.3.9",
     "openai": "^6.6.0",
     "zod": "^4.1.12"
   },

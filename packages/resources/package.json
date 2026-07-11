@@ -1,6 +1,6 @@
 {
   "name": "@aeye/resources",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Extensible resource parsing, slicing, and resolution utilities",
   "type": "module",
   "main": "dist/index.js",
@@ -65,12 +65,24 @@
     "xlsx": "^0.18.5"
   },
   "peerDependenciesMeta": {
-    "@langchain/textsplitters": { "optional": true },
-    "jszip": { "optional": true },
-    "mammoth": { "optional": true },
-    "node-poppler": { "optional": true },
-    "pdf-parse": { "optional": true },
-    "xlsx": { "optional": true }
+    "@langchain/textsplitters": {
+      "optional": true
+    },
+    "jszip": {
+      "optional": true
+    },
+    "mammoth": {
+      "optional": true
+    },
+    "node-poppler": {
+      "optional": true
+    },
+    "pdf-parse": {
+      "optional": true
+    },
+    "xlsx": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

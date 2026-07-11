@@ -1,6 +1,6 @@
 {
   "name": "@aeye/context",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Pull @aeye's agent context into your repo — flatten every installed @aeye/* package's aeye-*.md into one folder (with a generated index) to point a coding agent at.",
   "type": "module",
   "license": "GPL-3.0",
@@ -16,6 +16,16 @@
   "bin": {
     "aeye-context": "bin/aeye-context.mjs"
   },
-  "files": ["bin", "README.md"],
-  "keywords": ["aeye", "context", "docs", "llm", "agent", "cli"]
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "keywords": [
+    "aeye",
+    "context",
+    "docs",
+    "llm",
+    "agent",
+    "cli"
+  ]
 }
