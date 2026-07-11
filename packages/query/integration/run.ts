@@ -1,0 +1,893 @@
+/**
+ * The integration / eval HARNESS runner for `@aeye/query`.
+ *
+ *   npm run integration:check   # no key — validates fixtures + oracles (CI-safe)
+ *   OPENROUTER_API_KEY=… npm run integration   # runs the real LLM eval
+ *
+ * THREE modes:
+ *  1. `--check` (no key needed): the FIXTURE gate. Every case must declare ≥1
+ *     assertion AND ≥1 `'error'`-severity (correctness) assertion. Every
+ *     `a.resultOf` oracle is parsed + validated against the
+ *     engine, run TWICE (assert deterministic), and asserted non-degenerate
+ *     (well-formed, non-empty, all values defined). Every `a.refused(sample)`
+ *     sample is asserted to FAIL validation. Exits NON-ZERO on any fixture
+ *     problem. This proves the fixtures + oracles + data are internally
+ *     consistent — WITHOUT calling an LLM.
+ *  2. LLM eval (default, needs `OPENROUTER_API_KEY`): ask the model for a query
+ *     per case, parse it, build an `AssertCtx` (its `.toJSON()` def + a lazy
+ *     cached `run()`), and evaluate EVERY assertion. The case PASSES iff every
+ *     `'error'`-severity assertion passes; `'warn'` (structural) assertions are
+ *     evaluated + logged but never fail it. Writes a gitignored `logs/` trail.
+ *  3. No key and no `--check`: print how to run, exit 0.
+ *
+ * Assertions (see `cases/assert.ts`) mix STRUCTURE (walk the emitted query def —
+ * group by / order by / filter / join / aggregate / limit …) with RESULT (rows
+ * match a correct oracle via `compareResults`).
+ */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { z } from 'zod';
+
+import { AI, type Provider } from '@aeye/ai';
+import { Tool, ToolInterrupt } from '@aeye/core';
+import { OpenRouterProvider } from '@aeye/openrouter';
+import { models, strictSupport } from '@aeye/models';
+
+import {
+  parseQueryTool,
+  QueryToolError,
+  querySchema,
+  describeEngine,
+  type QueryEngine,
+  type Query,
+  type QueryDef,
+  type QueryToolInput,
+  type Type,
+} from '../src/index';
+
+import { buildEngine } from './model';
+import { CASES, type EvalCase } from './cases/index';
+import { normalize, summarize, compareResults, type NormResult, type AssertCtx } from './cases/assert';
+import { createSqlAsker, unfence, type SqlAsker } from './sql-review';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const LOGS_DIR = join(HERE, 'logs');
+/**
+ * Permanent per-run archive: `logs/runs/<ISO-ts>__<model>__<mode>/` holding this
+ * run's `report.json` / `report.md` / `failures.md` / `detail.json`. NEVER
+ * overwritten (each run's stamp is unique), so the full detailed history is
+ * preserved for before/after and regression comparisons across schema changes.
+ * The `logs/latest.json` + root `report.*` files stay as convenience pointers to
+ * the most recent run.
+ */
+const RUNS_DIR = join(LOGS_DIR, 'runs');
+
+/** Filesystem-safe unique run id: `<ISO-ts>__<model>__<mode>`. */
+function runStamp(when: Date, modelId: string, mode: string): string {
+  const ts = when.toISOString().replace(/[:.]/g, '-');
+  const model = modelId.replace(/[^a-zA-Z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  return `${ts}__${model}__${mode}`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CLI filter flags (apply in BOTH --check and the LLM eval)
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Read the value that follows a `--flag` in argv (`--flag value`), or null. */
+function flagValue(argv: readonly string[], flag: string): string | null {
+  const i = argv.indexOf(flag);
+  if (i === -1) return null;
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error(`${flag} requires a value`);
+  return v;
+}
+
+/** Split a comma-separated flag value into trimmed, non-empty tokens. */
+function csv(raw: string): string[] {
+  return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Narrow `CASES` by the `--only <id[,id...]>`, `--category <cat[,cat...]>`, and
+ * `--limit <N>` flags (applied in that order). Lets a dev iterate on one failing
+ * case (`--only agg-003`) instead of paying for the whole suite. Throws if a
+ * requested id / category matches nothing, or `--limit` is not a positive int.
+ */
+function selectCases(argv: readonly string[], cases: readonly EvalCase[]): readonly EvalCase[] {
+  let selected = cases;
+
+  const only = flagValue(argv, '--only');
+  if (only !== null) {
+    const ids = new Set(csv(only));
+    selected = selected.filter((c) => ids.has(c.id));
+    const missing = [...ids].filter((id) => !cases.some((c) => c.id === id));
+    if (missing.length > 0) throw new Error(`--only: no case with id ${missing.join(', ')}`);
+  }
+
+  const category = flagValue(argv, '--category');
+  if (category !== null) {
+    const cats = new Set(csv(category));
+    selected = selected.filter((c) => cats.has(c.category));
+    const missing = [...cats].filter((cat) => !cases.some((c) => c.category === cat));
+    if (missing.length > 0) throw new Error(`--category: no case in category ${missing.join(', ')}`);
+  }
+
+  const limit = flagValue(argv, '--limit');
+  if (limit !== null) {
+    const n = Number(limit);
+    if (!Number.isInteger(n) || n <= 0) throw new Error(`--limit must be a positive integer (got ${limit})`);
+    selected = selected.slice(0, n);
+  }
+
+  return selected;
+}
+
+/** Default model for the LLM eval; override with `QUERY_EVAL_MODEL`. */
+const DEFAULT_MODEL = 'openai/gpt-4o';
+
+// ════════════════════════════════════════════════════════════════════════════
+// --check mode (no key) — validate fixtures (oracles + refusal samples)
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Whether every value in every row is defined (non-degeneracy for scalars). */
+function allDefined(result: { rows: NormResult['rows'] }): boolean {
+  return result.rows.every((r) => r.every((v) => v !== undefined));
+}
+
+/**
+ * Validate a single case's fixture obligations WITHOUT an LLM:
+ *  - it declares ≥1 assertion;
+ *  - each `a.resultOf` oracle validates, runs deterministically twice, and is
+ *    non-degenerate (non-empty rows + cols, all values defined);
+ *  - each `a.refused(sample)` sample FAILS validation.
+ * Returns a list of problem strings (empty ⇒ the case's fixtures are coherent).
+ */
+async function checkCase(engine: QueryEngine, c: EvalCase): Promise<string[]> {
+  const problems: string[] = [];
+  if (c.assert.length === 0) {
+    problems.push('no assertions declared');
+    return problems;
+  }
+  // SAFEGUARD: every case needs ≥1 'error'-severity (correctness) assertion, else
+  // — with structure now advisory 'warn' — a structural-only case would pass
+  // vacuously. Mark a result/refusal (default 'error') or promote one via a.require.
+  if (!c.assert.some((asrt) => asrt.severity === 'error')) {
+    problems.push('no error-severity assertion (needs ≥1 result/refusal, or a.require(...) a structural one)');
+  }
+
+  for (const asrt of c.assert) {
+    if (asrt.oracle) {
+      try {
+        const oracle = asrt.oracle(engine);
+        const report = engine.validateQuery(oracle);
+        const errors = report.list.filter((p) => p.severity === 'error');
+        if (errors.length > 0) {
+          problems.push(`oracle has validation errors: ${errors.map((e) => e.code).join(', ')}`);
+          continue;
+        }
+        const first = normalize(await engine.run(oracle));
+        const second = normalize(await engine.run(oracle));
+        const det = compareResults(first, second, 'ordered', 0);
+        if (!det.ok) {
+          problems.push(`oracle non-deterministic across two runs (${det.diff})`);
+          continue;
+        }
+        if (first.fields.length === 0 || first.rows.length === 0) {
+          problems.push(`oracle degenerate (${first.rows.length} rows, ${first.fields.length} cols)`);
+          continue;
+        }
+        if (!allDefined(first)) problems.push('oracle result contains an undefined value');
+      } catch (err) {
+        problems.push(`oracle threw: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    if (asrt.refusalSample) {
+      try {
+        const sample = asrt.refusalSample(engine);
+        const report = engine.validateQuery(sample);
+        const errors = report.list.filter((p) => p.severity === 'error');
+        if (errors.length === 0) problems.push('refusal sample validated but SHOULD have been rejected');
+      } catch {
+        // A throw during validation IS a rejection — acceptable for a refusal sample.
+      }
+    }
+  }
+  return problems;
+}
+
+async function runCheck(engine: QueryEngine, cases: readonly EvalCase[]): Promise<number> {
+  let failures = 0;
+  console.log(`\nintegration:check — validating ${cases.length} case fixture(s) against the data…\n`);
+  for (const c of cases) {
+    const problems = await checkCase(engine, c);
+    if (problems.length === 0) {
+      const oracles = c.assert.filter((a) => a.oracle).length;
+      const samples = c.assert.filter((a) => a.refusalSample).length;
+      const errors = c.assert.filter((a) => a.severity === 'error').length;
+      const warns = c.assert.filter((a) => a.severity === 'warn').length;
+      const detail = [
+        oracles ? `${oracles} oracle(s)` : '',
+        samples ? `${samples} refusal(s)` : '',
+        `${errors} error / ${warns} warn`,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      console.log(`  ok    ${c.id.padEnd(38)} ${detail}`);
+    } else {
+      failures++;
+      console.log(`  FAIL  ${c.id.padEnd(38)} ${problems.join('; ')}`);
+    }
+  }
+
+  console.log(`\n${cases.length - failures}/${cases.length} case fixture(s) coherent.`);
+  if (failures > 0) console.log(`${failures} FAILED — fix the oracle / sample / data until clean.`);
+  return failures === 0 ? 0 : 1;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LLM eval mode (needs OPENROUTER_API_KEY)
+// ════════════════════════════════════════════════════════════════════════════
+
+/** One assertion's outcome for the logs. */
+interface AssertionLog {
+  describe: string;
+  /** `'error'` (correctness gate — fails the case) or `'warn'` (advisory shape). */
+  severity: 'error' | 'warn';
+  needsResult: boolean;
+  passed: boolean;
+  reason: string | null;
+  /** For `a.anyOf`: which child matched (its `describe`), or `null`. */
+  matched: string | null;
+}
+
+/** Per-case log entry written to `logs/latest.json` (keyed by id). */
+interface LogEntry {
+  id: string;
+  category: string;
+  request: string;
+  note: string;
+  model: string;
+  emittedQuery: unknown | null;
+  parseError: string | null;
+  problemCodes: string[];
+  passed: boolean;
+  assertions: AssertionLog[];
+  resultSummary: string | null;
+  durationMs: number;
+  /** Number of model requests this case made (1 + `outputRetries` re-prompts). */
+  calls: number;
+  /** Model token usage + resulting $ cost (usage × `@aeye/models` pricing). */
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  /** The model's `reject` tool reason (enum), when it declined (else null). */
+  rejected: string | null;
+  /** Verbatim model TEXT for schema-less modes (null in `structured`). */
+  rawText: string | null;
+  timestamp: string;
+}
+
+/** The tool's wire schema, typed at the boundary as it validates it (see tool.ts). */
+type QuerySchema = z.ZodType<QueryToolInput>;
+
+/** The result of one model ask: the built query (or null after retries) plus the
+ *  last compiler-style diagnostics for the log trail. */
+interface AskResult {
+  query: Query | null;
+  report: string;
+  codes: string[];
+  /** Number of model requests this ask made (1 + `outputRetries` re-prompts). */
+  calls: number;
+  /** The raw model TEXT streamed for this ask (verbatim), for the log trail —
+   *  what the provider actually emitted before core's extract + `parse`. */
+  raw?: string;
+  /** Model token usage + provider-reported `usage.cost` (USD) accumulated across
+   *  this ask's attempts — read straight off the usage, no local calculation. */
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+  /** When the model called the `reject` tool: its enum reason (else null). A
+   *  reject is a clean refusal (no query), which passes `a.refused`. */
+  rejected: string | null;
+}
+
+interface QueryAsker {
+  /** Ask the model for a query. The prompt uses the QUERY PARSER as its output
+   *  validator (core's `parse` hook) and re-prompts on failure through its own
+   *  `outputRetries` with the underlined / aid-directed report — no manual repair. */
+  ask(content: string): Promise<AskResult>;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Schema-delivery MODE (`QUERY_EVAL_MODE`) — configurable so providers whose
+// structured output rejects our union/$ref query schema can still be evaluated.
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * How the query schema is delivered to the model (`QUERY_EVAL_MODE`), mapped
+ * STRAIGHT onto the prompt's `schemaDelivery`. Core does ALL text→JSON
+ * extraction + `parse` in every mode (see `createAsker`) — this knob only
+ * changes whether the wire schema rides as `response_format` or as prompt text:
+ *  - `auto` (default): send the wire schema where the model's dialect can
+ *    express it (OpenAI), else transparently DROP it and deliver the schema as
+ *    prompt text (Gemini's dialect 400s on our union/$ref schema). Also covers
+ *    the runtime fallback (a model that accepts the schema yet returns empty —
+ *    e.g. llama-4-maverick — is retried in prompt-text on the next iteration).
+ *  - `structured`: FORCE the wire schema (no fallback) — for OpenAI-only runs or
+ *    to observe the raw failure on a dialect that can't express it.
+ *  - `prompt`: always DROP the wire schema and append the JSON Schema as prompt
+ *    text (+ the descriptor's per-family JSON instruction, via core). Gemini.
+ */
+type EvalMode = 'auto' | 'structured' | 'prompt';
+
+/** Read `QUERY_EVAL_MODE` (default `auto`); `schema-in-prompt` is an alias for
+ *  `prompt` (identical now that core appends the schema text on fallback). */
+function evalMode(): EvalMode {
+  const m = process.env['QUERY_EVAL_MODE']?.trim();
+  if (m === 'structured') return 'structured';
+  if (m === 'prompt' || m === 'schema-in-prompt') return 'prompt';
+  return 'auto';
+}
+
+/**
+ * Output mode (`QUERY_EVAL_OUTPUT`). `query` (default): the model emits our AST
+ * directly. `sql-then-query`: a TWO-STAGE run — stage 1 asks the model for
+ * PostgreSQL (schema-as-tables, see `sql-review.ts`), then stage 2 appends that
+ * SQL to the request (with a note on how our named-relation joins differ) and
+ * asks for the AST. Tests whether letting the model reason in SQL first — where
+ * it demonstrably solves the hard cases — lifts its AST accuracy.
+ */
+function outputMode(): 'query' | 'sql-then-query' {
+  return process.env['QUERY_EVAL_OUTPUT']?.trim() === 'sql-then-query' ? 'sql-then-query' : 'query';
+}
+
+/** The stage-2 preamble: how to read the reference SQL into our query language. */
+const SQL_TRANSLATE_NOTE = [
+  'A PostgreSQL query that already solves this request is provided below as a REFERENCE for the LOGIC (which joins, filters, grouping, ordering, window functions). Translate its MEANING into the query language — do NOT copy SQL syntax or invent SQL-only constructs.',
+  'JOINS DIFFER — this query language has NO raw `JOIN ... ON` clause, and a bare `relation→X` field is NOT a value:',
+  '  - To use ANY column of a related row — INCLUDING its id — you MUST declare a named join in `joins` as { on: { kind: "relation", source, field, as } }, then reference the joined columns via { source: <as>, field } (e.g. join salesOrder→customer as "c", then read { source: "c", field: "id" } or { source: "c", field: "region" }). The relation name carries the key(s), including composite foreign keys — you never write an ON condition.',
+  '  - Do NOT field-ref a `relation→X` field directly (e.g. { source: "salesOrder", field: "customer" }) expecting the foreign-key id — it resolves to nothing. Always go through a named join.',
+  '  - This applies EVERYWHERE a related value is used: select fields, aggregate/window `value`, `partitionBy`, `orderBy`, group-by, and comparisons.',
+].join('\n');
+
+/** Read `QUERY_EVAL_REASONING` (`low`|`medium`|`high`); unset ⇒ reasoning off.
+ *  Set via the prompt's `config` → `{ reason: { effort } }`, which OpenRouter
+ *  maps to each family's thinking API; reasoning tokens/cost flow into
+ *  `usage.reasoning`/`usage.cost` so the existing tracking captures the tax. */
+function reasoningEffort(): 'low' | 'medium' | 'high' | undefined {
+  const r = process.env['QUERY_EVAL_REASONING']?.trim().toLowerCase();
+  return r === 'low' || r === 'medium' || r === 'high' ? r : undefined;
+}
+
+/**
+ * Build the AI instance + a `QueryAsker` over OpenRouter (mirrors examples/cli.ts).
+ * The prompt's `parse` REPLACES zod with the query parser: zod stays only as the
+ * wire schema the model emits against, while validation + the retry feedback are
+ * the query package's own compiler-style diagnostics (underlined, aid-directed,
+ * "did you mean"). This is what core's `parse` hook was added for — so the model's
+ * `outputRetries` loop is driven by real query errors, not zod union noise.
+ */
+function createAsker(apiKey: string, modelId: string, engine: QueryEngine): QueryAsker {
+  const providers: Record<string, Provider> = { openrouter: new OpenRouterProvider({ apiKey }) };
+  const metadata = { model: { id: modelId } };
+  // The single narrow `as any` the examples tolerate: the AI metadata typing
+  // can't see our pinned model id / allow-list without it (see examples/cli.ts).
+  const defaultMetadata = { model: { id: modelId }, providers: { allow: ['openrouter'] } } as any;
+  const ai = AI.with()
+    .providers(providers)
+    .create({ defaultMetadata, models, modelOverrides: [...strictSupport] });
+
+  const types = engine.registry.typeList();
+  // Keep the structured schema (not the string fallback) even with 20 Types.
+  // Depth is overridable via QUERY_EVAL_DEPTH (e.g. `paired`) to compare how
+  // tightly the wire schema constrains field/source NAMES (open = free strings,
+  // paired = per-Type enums) — which matters a lot under strict structured output.
+  const depthEnv = process.env['QUERY_EVAL_DEPTH']?.trim();
+  const depth: 'open' | 'paired' | undefined = depthEnv === 'paired' ? 'paired' : depthEnv === 'open' ? 'open' : undefined;
+  const options = { max: types.length + 1, functions: 'all' as const, ...(depth ? { depth } : {}) };
+  // The prompt's `schema` — the model emits against it AND core `decodeWire`s
+  // the response with it BEFORE our `parse` hook runs (so `parse` sees the
+  // CONCEPTUAL value). No Tool is built: we parse directly with `parseQueryTool`.
+  // Same boundary cast the tool applies to its own wire schema (see tool.ts).
+  const wireSchema = querySchema(engine, options) as QuerySchema;
+  // `describeEngine` now folds worked examples (per expr kind, function, and query
+  // kind) in from the nodes' own `EXAMPLES` — one source of truth. Render ALL of
+  // them for the eval (no `maxExamples` cap) so the model sees every worked
+  // correlation pattern.
+  const instructions = describeEngine(engine, { types, functions: 'all' });
+
+  const mode = evalMode();
+
+  // ONE prompt for EVERY delivery mode. The prompt's `schema` + `parse` hook is
+  // the single source of truth for turning the model's reply into a `Query`:
+  // core sends the wire schema as `response_format` (auto/structured) or DROPS it
+  // and appends the schema as prompt text (`prompt`, and `auto` when the dialect
+  // can't express it — Gemini — or the model returns empty — llama), then core
+  // extracts the JSON from the reply (`extractJSONObject`), `decodeWire`s it (only
+  // when a descriptor was pinned), and runs `parse`. The eval NEVER re-implements
+  // text→JSON extraction; `schemaDelivery` (= `mode`) is the only knob that moves.
+  const errRef: { last: QueryToolError | null } = { last: null };
+  // Read through a function so control-flow analysis can't narrow the captured
+  // property to `null` across the (opaque-to-TS) prompt.get() call that mutates it.
+  const takeLastError = (): QueryToolError | null => errRef.last;
+  // A `reject(reason)` affordance: a proper, trained-for way for the model to
+  // DECLINE a request that cannot be a valid query, instead of silently
+  // substituting a harmless SELECT. The `reason` is a CONTROLLED ENUM (drawn
+  // from the write-model `*-readonly` policy codes) — the model can only reject
+  // for a genuine permission reason, NOT because it struggled to format the
+  // JSON. The call stashes the reason and `ToolInterrupt`s to stop the loop;
+  // `ask` reads `rejectRef.reason` and reports the case as a clean refusal.
+  const rejectRef: { reason: string | null } = { reason: null };
+  // GATE: reject only takes effect AFTER the model has actually attempted the
+  // write and hit a genuine POLICY error (a `*-readonly` validation code). This
+  // stops reject from being a "can't format this" give-up on a perfectly valid
+  // write (observed: GPT-5 over-rejecting allowed inserts). A valid insert never
+  // produces a `-readonly` code, so it can't be rejected; a forbidden write does.
+  const policyRef = { sawReadonly: false };
+  const rejectTool = new Tool({
+    name: 'reject',
+    description: 'Decline the request: it targets data that cannot be written.',
+    instructions:
+      'Call `reject` ONLY AFTER you have attempted the write and it was refused because policy forbids it (a read-only / append-only error) — never because the JSON is hard to format, and NEVER substitute a read-only SELECT for a forbidden write. Pick the `reason`: `field-read-only` (setting a server-generated / read-only field, e.g. an `id`), `type-read-only` (writing a whole read-only Type), `append-only-no-delete` (deleting from an append-only Type), `immutable-field` (changing a field that can never change), `reference-data` (editing reference/lookup data).',
+    schema: z.object({
+      reason: z.enum(['field-read-only', 'type-read-only', 'append-only-no-delete', 'immutable-field', 'reference-data']),
+    }),
+    call: (input: { reason: string }): string => {
+      if (!policyRef.sawReadonly) {
+        // Not a policy failure — send the model back to build the query.
+        return 'reject is not valid here: this request is NOT forbidden by policy. Build the query as asked. (reject is only allowed AFTER an attempted write is refused as read-only / append-only.)';
+      }
+      rejectRef.reason = input.reason;
+      throw new ToolInterrupt('rejected');
+    },
+  });
+  type PromptInput = { prompt: string };
+  const prompt = ai.prompt({
+    name: 'query_eval',
+    description: 'Build a structured query from a natural-language request',
+    content: '{{instructions}}\n\n{{userPrompt}}',
+    input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
+    schema: () => wireSchema,
+    tools: [rejectTool] as const,
+    // Optional extended-thinking, gated by `QUERY_EVAL_REASONING` (off by
+    // default). OpenRouter maps `reason.effort` to each family's thinking API.
+    config: () => {
+      const effort = reasoningEffort();
+      return effort ? { reason: { effort } } : {};
+    },
+    // Headroom for the runtime schema-delivery fallback (attempt 1 structured may
+    // come back empty/unparseable for models that accept a `response_format`
+    // json_schema yet reply with empty content — e.g. llama-4-maverick — after
+    // which core promotes delivery to prompt-text and re-issues) PLUS the normal
+    // query-error re-prompts. Was the default 2; 5 covers fallback + retries.
+    outputRetries: 5,
+    // The deeply-recursive query schema is NOT compatible with provider strict
+    // structured output (open+strict → the model drifts into `literal` vs
+    // `field-ref`; paired+strict → OpenAI rejects the ~95KB schema). Opt out of
+    // strict explicitly (the base.ts streaming fix now emits the full ModelInfo,
+    // so without this the request would go out strict and regress).
+    strict: false,
+    // The mode maps STRAIGHT onto core's schema delivery (see `EvalMode`): `auto`
+    // sends the wire schema where it's expressible and drops→prompt-text where it
+    // isn't (Gemini) or the model returned empty (llama); `structured` forces the
+    // wire schema; `prompt` always delivers the schema as text. Core's `parse`
+    // hook runs — and does the JSON extraction — in ALL three.
+    schemaDelivery: mode,
+    // `parse` runs the STANDALONE query parser on the (already wire-decoded when a
+    // descriptor was pinned, CONCEPTUAL) value — no Tool needed. Clean ⇒ the built
+    // `Query`; problems ⇒ the `QueryToolError` whose report the prompt re-prompts.
+    parse: (raw: unknown): Query | QueryToolError => {
+      const r = parseQueryTool(engine, raw, options);
+      if (r instanceof QueryToolError) {
+        errRef.last = r;
+        // A genuine write-policy failure unlocks the reject tool for this ask.
+        if (r.problems.list.some((p) => /\.(type|field)-readonly$/.test(p.code))) policyRef.sawReadonly = true;
+      }
+      return r;
+    },
+    metadata,
+  });
+
+  return {
+    ask: async (content): Promise<AskResult> => {
+      errRef.last = null;
+      rejectRef.reason = null;
+      policyRef.sawReadonly = false;
+      // Stream (not `get('result')`) for ONE reason: to COUNT model requests —
+      // one per initial call + each `outputRetries` re-prompt / delivery-fallback
+      // retry — which is the `Nc` retry-storm / fallback-fired signal in the log.
+      // The text is captured only for the verbatim `raw` log trail; the OUTPUT is
+      // core's parsed `Query` from the `complete` event (never re-parsed here).
+      let calls = 0;
+      let query: Query | undefined;
+      let rawText = '';
+      // Token usage + $ COST across this ask's attempts. `usage.cost` is the
+      // provider-reported cost (OpenRouter returns it per request), already
+      // summed across retries by core's `accumulateUsage`. Take it from the
+      // run-total `usage` event; sum `requestUsage` as a fallback so a case that
+      // THROWS before the final `usage` still reports what it spent.
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let costUsd = 0;
+      let reqIn = 0;
+      let reqOut = 0;
+      let reqCost = 0;
+      // The prompt THROWS when it exhausts `outputRetries` (surfacing the last
+      // error). Catch it so the case is a clean failure that still reports its
+      // call count + diagnostics (via `errRef`), rather than losing both.
+      try {
+        for await (const event of prompt.get('stream', { prompt: content })) {
+          if (event.type === 'request') calls++;
+          else if (event.type === 'requestUsage') {
+            reqIn += (event.usage?.text?.input ?? 0) + (event.usage?.reasoning?.input ?? 0);
+            reqOut += (event.usage?.text?.output ?? 0) + (event.usage?.reasoning?.output ?? 0);
+            reqCost += event.usage?.cost ?? 0;
+          } else if (event.type === 'usage') {
+            tokensIn = (event.usage?.text?.input ?? 0) + (event.usage?.reasoning?.input ?? 0);
+            tokensOut = (event.usage?.text?.output ?? 0) + (event.usage?.reasoning?.output ?? 0);
+            costUsd = event.usage?.cost ?? 0;
+          } else if (event.type === 'textPartial') rawText += event.content;
+          else if (event.type === 'text' || event.type === 'textComplete') rawText = event.content;
+          else if (event.type === 'complete') query = event.output as Query | undefined;
+        }
+      } catch (e) {
+        // The request/parse error is otherwise swallowed (the case just reports
+        // "no valid query"). Surface it under QUERY_EVAL_DEBUG so a delivery
+        // failure (e.g. a provider `400` on the complex schema — see MODELS.md
+        // "Mode 4") isn't mistaken for weak SQL.
+        if (process.env['QUERY_EVAL_DEBUG']) console.error('[ASKERR]', e instanceof Error ? e.message : String(e));
+        /* fall through to the error path below (errRef holds the last report) */
+      }
+      // Prefer the run-total `usage` event; fall back to summed per-request
+      // usage (non-zero even when the run threw before the final `usage`).
+      const finalIn = tokensIn || reqIn;
+      const finalOut = tokensOut || reqOut;
+      const finalCost = costUsd || reqCost;
+      const base = { calls, raw: rawText, tokensIn: finalIn, tokensOut: finalOut, costUsd: finalCost };
+      // The model DECLINED via the reject tool — a clean refusal (no query).
+      if (rejectRef.reason !== null) {
+        return { query: null, report: `rejected: ${rejectRef.reason}`, codes: ['rejected'], rejected: rejectRef.reason, ...base };
+      }
+      if (query) return { query, report: '', codes: [], rejected: null, ...base };
+      const last = takeLastError();
+      return {
+        query: null,
+        report: last?.report ?? '',
+        codes: last ? last.problems.list.map((p) => p.code) : [],
+        rejected: null,
+        ...base,
+      };
+    },
+  };
+}
+
+async function runOneCase(
+  engine: QueryEngine,
+  asker: QueryAsker,
+  modelId: string,
+  c: EvalCase,
+  sqlAsker: SqlAsker | null = null,
+): Promise<LogEntry> {
+  const started = Date.now();
+  const entry: LogEntry = {
+    id: c.id,
+    category: c.category,
+    request: c.request,
+    note: c.note,
+    model: modelId,
+    emittedQuery: null,
+    parseError: null,
+    problemCodes: [],
+    passed: false,
+    assertions: [],
+    resultSummary: null,
+    durationMs: 0,
+    calls: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    costUsd: 0,
+    rejected: null,
+    rawText: null,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    // Stage 1 (sql-then-query only): get a PostgreSQL solution to reason from.
+    // Its cost/calls are folded into the case total so the two-stage tax is
+    // visible in the report. A stage-1 error just yields no reference SQL — the
+    // stage-2 query prompt still runs on the request alone.
+    let sqlBlock = '';
+    let sqlCalls = 0;
+    let sqlCost = 0;
+    if (sqlAsker) {
+      const gen = await sqlAsker.ask(c.request);
+      sqlCalls = gen.calls;
+      sqlCost = gen.costUsd;
+      const sql = unfence(gen.sql);
+      if (sql && !gen.error) {
+        sqlBlock = [SQL_TRANSLATE_NOTE, '', 'Reference SQL:', '```sql', sql, '```', ''].join('\n');
+      }
+    }
+
+    const userContent = [
+      // Anchor the model to an INSTANCE, not the schema (it otherwise sometimes',
+      // echoes {"type":"object","properties":{...}}). Concrete envelope example:
+      'Respond with a single JSON object of the form {"query": <query>} — where <query> is the query itself.',
+      'Example shape: {"query": {"kind": "select", "from": {"kind": "type", "type": "..."}, "fields": [{"expr": {"kind": "field-ref", "source": "...", "field": "..."}}]}}',
+      '',
+      ...(sqlBlock ? [sqlBlock] : []),
+      `User request: ${c.request}`,
+    ].join('\n');
+
+    // The prompt validates with the QUERY PARSER (core's `parse` hook) and
+    // re-prompts on failure through its own `outputRetries` with the underlined,
+    // aid-directed diagnostics — no manual repair round here.
+    const built = await asker.ask(userContent);
+    entry.calls = built.calls + sqlCalls;
+    entry.tokensIn = built.tokensIn;
+    entry.tokensOut = built.tokensOut;
+    entry.costUsd = built.costUsd + sqlCost;
+    entry.rejected = built.rejected;
+    entry.rawText = built.raw ?? null;
+    entry.emittedQuery = built.query ? built.query.toJSON() : null;
+    entry.parseError = built.query === null ? built.report || 'model produced no valid query (after retries)' : null;
+    entry.problemCodes = built.codes;
+
+    // Build the assertion context (lazy, cached run of the MODEL's query).
+    let cachedRun: Promise<NormResult> | null = null;
+    const ctx: AssertCtx = {
+      query: built.query,
+      queryDef: built.query ? built.query.toJSON() : null,
+      parseError: entry.parseError,
+      engine,
+      run: () => {
+        if (cachedRun === null) {
+          if (!built.query) return Promise.reject(new Error('no model query to run'));
+          cachedRun = engine.run(built.query).then(normalize);
+        }
+        return cachedRun;
+      },
+    };
+
+    // Evaluate EVERY assertion, but the case PASSES iff every 'error'-severity
+    // assertion passes. 'warn' assertions are evaluated + logged (so a differing
+    // shape stays visible) yet never fail the case — correctness (rows) is primary.
+    let allErrorsPass = true;
+    for (const asrt of c.assert) {
+      let reason: string | null;
+      try {
+        reason = await asrt.check(ctx);
+      } catch (err) {
+        reason = `threw: ${err instanceof Error ? err.message : String(err)}`;
+      }
+      const passed = reason === null;
+      if (!passed && asrt.severity === 'error') allErrorsPass = false;
+      entry.assertions.push({
+        describe: asrt.describe,
+        severity: asrt.severity,
+        needsResult: asrt.needsResult,
+        passed,
+        reason,
+        matched: asrt.matchInfo?.matched ?? null,
+      });
+    }
+    entry.passed = allErrorsPass;
+
+    // Record the model's own result once (if it ran) for the log trail.
+    if (built.query && c.assert.some((a) => a.needsResult)) {
+      try {
+        entry.resultSummary = summarize(await ctx.run());
+      } catch {
+        entry.resultSummary = null;
+      }
+    }
+    return entry;
+  } catch (err) {
+    entry.parseError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return entry;
+  } finally {
+    entry.durationMs = Date.now() - started;
+  }
+}
+
+/** Build the human-readable failures markdown for a run. */
+function buildFailuresMd(entries: LogEntry[]): string {
+  const failures = entries.filter((e) => !e.passed);
+  const md: string[] = [`# Integration eval failures (${failures.length}/${entries.length})`, ''];
+  for (const e of failures) {
+    md.push(`## ${e.id}  \`${e.category}\``);
+    md.push('', `**Request:** ${e.request}`, '', `**Trap:** ${e.note}`, '');
+    md.push('**Emitted query:**', '```json', JSON.stringify(e.emittedQuery, null, 2), '```', '');
+    const failed = e.assertions.filter((a) => !a.passed && a.severity === 'error');
+    if (failed.length > 0) {
+      md.push('**Failed assertions (error):**');
+      for (const a of failed) md.push(`- ${a.describe} — ${a.reason ?? 'failed'}`);
+      md.push('');
+    }
+    const warned = e.assertions.filter((a) => !a.passed && a.severity === 'warn');
+    if (warned.length > 0) {
+      md.push('**Shape warnings (advisory, non-failing):**');
+      for (const a of warned) md.push(`- ⚠ ${a.describe} — ${a.reason ?? 'differs'}`);
+      md.push('');
+    }
+    if (e.parseError) md.push('**Parse error:**', '```', e.parseError, '```', '');
+    if (e.problemCodes.length > 0) md.push(`**Problem codes:** ${e.problemCodes.join(', ')}`, '');
+    if (e.resultSummary) md.push(`**Model result:** ${e.resultSummary}`, '');
+    md.push('---', '');
+  }
+  return `${md.join('\n')}\n`;
+}
+
+/** The keyed per-case detail (id → full LogEntry) written as `detail.json` /
+ *  `latest.json`. */
+function buildDetailJson(entries: LogEntry[]): string {
+  const keyed: Record<string, LogEntry> = {};
+  for (const e of entries) keyed[e.id] = e;
+  return `${JSON.stringify(keyed, null, 2)}\n`;
+}
+
+async function runLlmEval(engine: QueryEngine, apiKey: string, cases: readonly EvalCase[]): Promise<number> {
+  const modelId = process.env['QUERY_EVAL_MODEL']?.trim() || DEFAULT_MODEL;
+  console.log(`\nintegration eval — model: ${modelId} (OpenRouter), ${cases.length} case(s)`);
+  console.log(`schema delivery: ${evalMode()} (QUERY_EVAL_MODE) · output: ${outputMode()} (QUERY_EVAL_OUTPUT)\n`);
+  const asker = createAsker(apiKey, modelId, engine);
+  // SQL-first→translate: a stage-1 SQL asker feeds the AST prompt (see `outputMode`).
+  const sqlAsker = outputMode() === 'sql-then-query' ? createSqlAsker(apiKey, modelId, engine) : null;
+
+  // Cases are independent → run them concurrently (pool of `--concurrency`, default
+  // 8). Each worker pulls the next case index; results are logged AS THEY COMPLETE
+  // (out of order) with per-case wall time + model-call count, so a slow/retrying
+  // case is visible immediately instead of stalling a silent sequential run.
+  const cflag = flagValue(process.argv, '--concurrency');
+  const concurrency = cflag !== null && Number.isInteger(Number(cflag)) && Number(cflag) > 0 ? Number(cflag) : 8;
+  console.log(`(concurrency: ${concurrency})\n`);
+
+  const entries: LogEntry[] = new Array<LogEntry>(cases.length);
+  const total = cases.length;
+  let next = 0;
+  let done = 0;
+  async function worker(): Promise<void> {
+    while (next < cases.length) {
+      const i = next++;
+      const c = cases[i];
+      if (c === undefined) break;
+      const entry = await runOneCase(engine, asker, modelId, c, sqlAsker);
+      entries[i] = entry;
+      done++;
+      const mark = entry.passed ? 'PASS' : 'FAIL';
+      // Only 'error' assertions fail the case; surface failing 'warn' shapes too so
+      // a correct-but-differently-shaped answer is visible (e.g. "⚠ joins → customer").
+      const errFailed = entry.assertions.filter((a) => !a.passed && a.severity === 'error');
+      const warnFailed = entry.assertions.filter((a) => !a.passed && a.severity === 'warn');
+      const warnNote = warnFailed.map((a) => `⚠ ${a.describe} (warn)`).join(' ');
+      const core = entry.passed
+        ? `${entry.assertions.length} assertion(s) ok`
+        : errFailed.map((a) => `${a.describe}: ${a.reason ?? 'failed'}`).join(' | ') || entry.parseError || 'failed';
+      const detail = [core, warnNote].filter(Boolean).join('  ');
+      console.log(
+        `  [${String(done).padStart(3)}/${total}] ${mark}  ${(entry.durationMs / 1000).toFixed(1).padStart(5)}s ${String(entry.calls).padStart(2)}c  ${c.id.padEnd(34)} ${detail}`,
+      );
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, () => worker()));
+
+  // Summary + reports. `calls` = model requests per case (1 = one-shot; >1 =
+  // re-prompts / delivery-fallback retries). Avg attempts is a COST signal — a
+  // higher pass rate bought with more tries is not strictly better.
+  const passed = entries.filter((e) => e.passed).length;
+  // $ cost — the provider-reported `usage.cost` per case (set in runOneCase),
+  // summed. No local pricing math.
+  const totalCost = entries.reduce((s, e) => s + e.costUsd, 0);
+  const avgCost = entries.length ? totalCost / entries.length : 0;
+  const avgCalls = entries.length ? entries.reduce((s, e) => s + e.calls, 0) / entries.length : 0;
+  // Avg attempts among ONLY the cases that passed — "how cheaply did wins come".
+  const passedEntries = entries.filter((e) => e.passed);
+  const avgCallsPassed = passedEntries.length ? passedEntries.reduce((s, e) => s + e.calls, 0) / passedEntries.length : 0;
+  // Wall-clock latency per case (each case times itself; cases run concurrently)
+  // — a speed signal to weigh next to accuracy + attempts + cost.
+  const avgDurationMs = entries.length ? entries.reduce((s, e) => s + e.durationMs, 0) / entries.length : 0;
+  const byCat = new Map<string, { pass: number; total: number; calls: number }>();
+  for (const e of entries) {
+    const agg = byCat.get(e.category) ?? { pass: 0, total: 0, calls: 0 };
+    agg.total++;
+    agg.calls += e.calls;
+    if (e.passed) agg.pass++;
+    byCat.set(e.category, agg);
+  }
+  const costNote = totalCost > 0 ? `  ·  $${totalCost.toFixed(4)} total ($${(avgCost * 100).toFixed(4)}/100 cases)` : '  ·  cost n/a';
+  console.log(`\n${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%)  ·  avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes)  ·  ${(avgDurationMs / 1000).toFixed(1)}s/case${costNote}`);
+  const catLines: string[] = [];
+  for (const [cat, agg] of [...byCat.entries()].sort()) {
+    const line = `  ${cat.padEnd(14)} ${agg.pass}/${agg.total}  (avg ${(agg.calls / agg.total).toFixed(2)}c)`;
+    console.log(line);
+    catLines.push(line.trim());
+  }
+
+  const now = new Date();
+  const mode = evalMode();
+  const report = {
+    model: modelId,
+    mode,
+    timestamp: now.toISOString(),
+    total: entries.length,
+    passed,
+    passRate: passed / entries.length,
+    avgCalls,
+    avgCallsPassed,
+    avgDurationMs,
+    totalCostUsd: totalCost,
+    avgCostUsd: avgCost,
+    byCategory: Object.fromEntries([...byCat.entries()].map(([k, v]) => [k, { pass: v.pass, total: v.total, avgCalls: v.calls / v.total }])),
+    cases: entries.map((e) => ({
+      id: e.id,
+      category: e.category,
+      passed: e.passed,
+      calls: e.calls,
+      tokensIn: e.tokensIn,
+      tokensOut: e.tokensOut,
+      costUsd: e.costUsd,
+      assertions: e.assertions.map((a) => ({ describe: a.describe, severity: a.severity, passed: a.passed })),
+      durationMs: e.durationMs,
+    })),
+  };
+
+  // Build every artifact once, then write it to BOTH the permanent per-run
+  // archive AND the convenience "latest" pointers.
+  const reportJson = `${JSON.stringify(report, null, 2)}\n`;
+  const reportMd =
+    [`# Integration eval — ${modelId} (${mode})`, '', `${passed}/${entries.length} passed (${((passed / entries.length) * 100).toFixed(0)}%) · avg ${avgCalls.toFixed(2)} attempts/case (${avgCallsPassed.toFixed(2)} on passes) · ${(avgDurationMs / 1000).toFixed(1)}s/case${totalCost > 0 ? ` · $${totalCost.toFixed(4)} total` : ''}`, '', `_${now.toISOString()}_`, '', '## By category', '', ...catLines.map((l) => `- ${l}`), ''].join('\n') + '\n';
+  const detailJson = buildDetailJson(entries);
+  const failuresMd = buildFailuresMd(entries);
+
+  // Permanent archive — a unique dir per run, NEVER overwritten.
+  const stamp = runStamp(now, modelId, mode);
+  const runDir = join(RUNS_DIR, stamp);
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, 'report.json'), reportJson, 'utf8');
+  writeFileSync(join(runDir, 'report.md'), reportMd, 'utf8');
+  writeFileSync(join(runDir, 'detail.json'), detailJson, 'utf8');
+  writeFileSync(join(runDir, 'failures.md'), failuresMd, 'utf8');
+
+  // Convenience pointers to the most recent run (overwritten each time).
+  mkdirSync(LOGS_DIR, { recursive: true });
+  writeFileSync(join(HERE, 'report.json'), reportJson, 'utf8');
+  writeFileSync(join(HERE, 'report.md'), reportMd, 'utf8');
+  writeFileSync(join(LOGS_DIR, 'latest.json'), detailJson, 'utf8');
+  writeFileSync(join(LOGS_DIR, 'failures.md'), failuresMd, 'utf8');
+
+  console.log(`\nArchived run → ${join('logs', 'runs', stamp)}  (report.json/md, detail.json, failures.md)`);
+  console.log(`Latest pointers → report.json/md + logs/latest.json + logs/failures.md`);
+  // The eval is diagnostic — a non-passing model is not a harness failure.
+  return 0;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Entry point
+// ════════════════════════════════════════════════════════════════════════════
+
+async function main(): Promise<void> {
+  const check = process.argv.includes('--check');
+  const { engine } = buildEngine();
+  const cases = selectCases(process.argv, CASES);
+  if (cases.length !== CASES.length) {
+    console.log(`(filtered to ${cases.length}/${CASES.length} case(s) via --only/--category/--limit)`);
+  }
+
+  if (check) {
+    process.exit(await runCheck(engine, cases));
+  }
+
+  const apiKey = process.env['OPENROUTER_API_KEY'];
+  if (!apiKey) {
+    console.log('Set OPENROUTER_API_KEY to run the LLM eval (or use `npm run integration:check`).');
+    process.exit(0);
+  }
+  process.exit(await runLlmEval(engine, apiKey, cases));
+}
+
+void main().catch((err: unknown) => {
+  console.error(`Fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(1);
+});

@@ -18,6 +18,7 @@ import { ObjType } from './types/obj';
 import type { CodeOptions } from './node';
 import { Code, code, span, joinCode } from './code';
 import type { Effects } from './effects';
+import { didYouMean } from './aids';
 
 /**
  * `true` when accessing a prop whose type is a callable (fn / method)
@@ -47,6 +48,32 @@ function isAutoCallable(propType: Type, scope?: TypeScope): boolean {
     if (!prop.type.isOptional()) return false;
   }
   return true;
+}
+
+/**
+ * Report each REQUIRED parameter of `callable` (a non-optional field on its
+ * args obj) that `provided` omits. A method called without its required args
+ * would otherwise bind them to nothing and silently produce a wrong value
+ * (`n.lt` with no `other` reads as a `false` bool; `text.replace` with no
+ * search/replacement returns the string unchanged) — a wrong answer the retry
+ * loop never sees because nothing errors. Surfacing it as a validation error
+ * lets the loop re-prompt with a concrete fix.
+ */
+function reportMissingArgs(
+  callable: Call | undefined,
+  provided: Record<string, Expr>,
+  p: Problems,
+  at: (string | number)[],
+): void {
+  if (!callable) return;
+  const args = callable.args;
+  if (!(args instanceof ObjType)) return;
+  for (const [name, prop] of Object.entries(args.fields)) {
+    if (prop.type.isOptional()) continue;
+    if (!(name in provided)) {
+      p.at(at, () => p.error('call.missing-arg', `missing required argument '${name}'`));
+    }
+  }
 }
 
 /**
@@ -361,13 +388,19 @@ export class Path {
       if (step instanceof PropStep) {
         if (current === null) {
           const v = scope.get(step.prop);
-          if (v === undefined) throw new Error(`path: unknown variable '${step.prop}'`);
+          if (v === undefined) {
+            throw new Error(`path: unknown variable '${step.prop}'${didYouMean(step.prop, scope.names())}`);
+          }
           current = v;
           i++;
           continue;
         }
         const prop = current.type.prop(step.prop);
-        if (!prop) throw new Error(`path: no prop '${step.prop}' on type '${current.type.name}'`);
+        if (!prop) {
+          throw new Error(
+            `path: no prop '${step.prop}' on type '${current.type.name}'${didYouMean(step.prop, Object.keys(current.type.props()))}`,
+          );
+        }
 
         const next = this.steps[i + 1];
         const nextIsCall = next instanceof CallStep;
@@ -594,7 +627,8 @@ export class Path {
         if (current === null) {
           const t = scope.get(step.prop);
           if (!t) {
-            p.at(['path', i], () => p.error('var.unknown', `unknown variable '${step.prop}'`));
+            p.at(['path', i], () => p.error('var.unknown',
+              `unknown variable '${step.prop}'${didYouMean(step.prop, [...scope.keys()])}`));
             current = engine.registry.any();
           } else {
             current = t;
@@ -604,7 +638,8 @@ export class Path {
         }
         const propV: Prop | undefined = current.prop(step.prop);
         if (!propV) {
-          p.at(['path', i], () => p.error('prop.unknown', `no prop '${step.prop}' on type '${current!.name}'`));
+          p.at(['path', i], () => p.error('prop.unknown',
+            `no prop '${step.prop}' on type '${current!.name}'${didYouMean(step.prop, Object.keys(current!.props()))}`));
           current = engine.registry.any();
           i++;
           continue;
@@ -619,6 +654,7 @@ export class Path {
           }
           const callScope: TypeScope = next.callSiteScope(propV.type);
           const callable: Call | undefined = propV.type.call(callScope);
+          reportMissingArgs(callable, next.args, p, ['path', i + 1]);
           if (mode === 'set' && i + 1 === this.steps.length - 1) {
             if (!callable?.set) {
               p.at(['path', i + 1], () => p.error('set.call.no-set', `method '${step.prop}' has no call.set`));
@@ -662,6 +698,18 @@ export class Path {
               `prop '${step.prop}' is computed (read-only); cannot assign to it`));
           }
         }
+        // A method (callable with required args) read WITHOUT a following
+        // `{args:…}` call step silently degrades at runtime — its params bind
+        // to nothing. Require the call so the retry loop can catch it. (Set
+        // mode may legitimately route a bare method through its `call.set`.)
+        const bareCall: Call | undefined = mode === 'get' ? propV.type.call() : undefined;
+        if (bareCall && !isAutoCallable(propV.type)) {
+          p.at(['path', i], () => p.error('call.uncalled',
+            `method '${step.prop}' needs arguments — add an {args:{…}} step to call it`));
+          current = bareCall.returns ?? engine.registry.any();
+          i++;
+          continue;
+        }
         current = propV.type;
         i++;
         continue;
@@ -689,6 +737,7 @@ export class Path {
         if (current) {
           const callScope: TypeScope = step.callSiteScope(current);
           const callable: Call | undefined = current.call(callScope);
+          reportMissingArgs(callable, step.args, p, ['path', i]);
           if (mode === 'set' && isLast) {
             if (!callable?.set) {
               p.at(['path', i], () => p.error('set.call.no-set', `call on type '${current?.name ?? '?'}' has no call.set`));

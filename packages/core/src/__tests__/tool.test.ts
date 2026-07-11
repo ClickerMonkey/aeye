@@ -8,6 +8,11 @@ import { z } from 'zod';
 import { Tool } from '../tool';
 import type { Context } from '../types';
 
+// ---- Type-level assertion helpers -----------------------------------------
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type Expect<T extends true> = T;
+
 describe('Tool', () => {
   describe('Construction', () => {
     it('should create a tool with required fields', () => {
@@ -262,6 +267,233 @@ describe('Tool', () => {
       const validArgs = JSON.stringify({ email: 'user@allowed.com' });
       const parsed = await tool.parse(ctx, validArgs);
       expect(parsed.email).toBe('user@allowed.com');
+    });
+  });
+
+  describe('Custom parse (Zod replacement)', () => {
+    // The optional `parse` hook fully REPLACES Zod. When supplied the
+    // pipeline is JSON.parse → parse → validate; Zod is never consulted.
+    // Lets a caller (e.g. @aeye/query) surface concise, compiler-style
+    // errors with source underlines instead of Zod's aggregate output.
+
+    it('should use the custom parser and skip Zod entirely', async () => {
+      // Zod schema would REJECT this shape (requires { value: number }),
+      // but the custom parser accepts the raw value and produces its own
+      // typed result. Zod must never run, so parse succeeds.
+      const tool = new Tool<{}, {}, string, { value: number }>({
+        name: 'byo-parser',
+        description: 'Bring your own parser',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: (raw) => {
+          const r = raw as { n?: unknown };
+          return { value: Number(r.n) };
+        },
+        call: (input) => input.value,
+      });
+      const ctx = {} as Context<{}, {}>;
+      // Shape Zod would reject ({ n: "5" } has no numeric `value`).
+      const parsed = await tool.parse(ctx, JSON.stringify({ n: '5' }));
+      expect(parsed).toEqual({ value: 5 });
+    });
+
+    it('should short-circuit with a returned Error and NOT surface Zod errors', async () => {
+      const tool = new Tool<{}, {}, string, { value: number }>({
+        name: 'byo-error-return',
+        description: 'Custom parser returns rich error',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: () => new Error('nice compiler-style error ^^^ here'),
+        call: (input) => input.value,
+      });
+      const ctx = {} as Context<{}, {}>;
+      let msg = '';
+      try {
+        await tool.parse(ctx, JSON.stringify({ value: 1 }));
+      } catch (e: any) {
+        msg = e.message;
+      }
+      expect(msg).toBe('nice compiler-style error ^^^ here');
+      // Zod's message vocabulary must not appear — it never ran.
+      expect(msg).not.toMatch(/expected|invalid_type|zod/i);
+    });
+
+    it('should propagate a rich caller-supplied Error subclass (thrown)', async () => {
+      // Mirrors how @aeye/query throws a QueryTypeError carrying a
+      // structured Problem alongside the rendered message.
+      class RichError extends Error {
+        constructor(message: string, readonly problems: Array<{ code: string }>) {
+          super(message);
+          this.name = 'RichError';
+        }
+      }
+      const tool = new Tool<{}, {}, string, { value: number }>({
+        name: 'byo-rich',
+        description: 'Custom parser throws rich error',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: () => {
+          throw new RichError('underlined error', [{ code: 'field-type.unknown' }]);
+        },
+        call: (input) => input.value,
+      });
+      const ctx = {} as Context<{}, {}>;
+      let caught: any;
+      try {
+        await tool.parse(ctx, JSON.stringify({ value: 1 }));
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(RichError);
+      expect(caught.problems).toEqual([{ code: 'field-type.unknown' }]);
+    });
+
+    it('should still run the post-validate hook after custom parse', async () => {
+      const tool = new Tool<{}, {}, string, { value: number }>({
+        name: 'byo-validate',
+        description: 'Custom parser + validate',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: (raw) => ({ value: (raw as { value: number }).value }),
+        validate: (input) => {
+          if (input.value < 0) throw new Error('must be non-negative');
+        },
+        call: (input) => input.value,
+      });
+      const ctx = {} as Context<{}, {}>;
+      await expect(tool.parse(ctx, JSON.stringify({ value: -1 }))).rejects.toThrow('must be non-negative');
+      const parsed = await tool.parse(ctx, JSON.stringify({ value: 3 }));
+      expect(parsed).toEqual({ value: 3 });
+    });
+
+    it('should be fully backward-compatible: no parse option ⇒ Zod path unchanged', async () => {
+      const tool = new Tool<{}, {}, string, { value: number }>({
+        name: 'no-byo',
+        description: 'Default Zod path',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        call: (input) => input.value,
+      });
+      const ctx = {} as Context<{}, {}>;
+      // Valid → Zod accepts.
+      expect(await tool.parse(ctx, JSON.stringify({ value: 9 }))).toEqual({ value: 9 });
+      // Invalid → Zod rejects, exactly as before.
+      await expect(tool.parse(ctx, JSON.stringify({ value: 'nope' }))).rejects.toThrow();
+    });
+
+    it('should drive the DECODED type from parse\'s return type (class instance)', async () => {
+      // A custom `parse` that builds a class instance. The Zod `schema`
+      // stays the WIRE shape ({ value: number }); `parse` turns the raw
+      // wire value into a `Built`. Per the `TDecoded` generic, the handler
+      // `call` (and `validate`) must receive the DECODED `Built`, not the
+      // wire shape.
+      class Built {
+        constructor(readonly value: number) {}
+        doubled(): number {
+          return this.value * 2;
+        }
+      }
+
+      let seenInValidate: unknown;
+      let seenInCall: unknown;
+
+      // No explicit generics: `TParams` infers from `schema` (the wire
+      // shape), and `TDecoded` infers from `parse`'s return type (`Built`).
+      // (TypeScript does not do partial type-argument inference, so proving
+      // inference requires omitting the generics entirely.)
+      const tool = new Tool({
+        name: 'decoded-class',
+        description: 'parse returns a class instance',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: (raw) => new Built(Number((raw as { value: number }).value)),
+        validate: (input) => {
+          // Compile-time: `input` is `Built` (has `doubled`), not `{ value }`.
+          seenInValidate = input.doubled();
+        },
+        // Compile-time: `input` is `Built`; calling `doubled()` type-checks.
+        call: (input) => {
+          seenInCall = input;
+          return input.doubled();
+        },
+      });
+
+      const ctx = {} as Context<{}, {}>;
+
+      // parse() yields the decoded class instance at runtime.
+      const parsed = await tool.parse(ctx, JSON.stringify({ value: 21 }));
+      expect(parsed).toBeInstanceOf(Built);
+      expect(seenInValidate).toBe(42);
+
+      // run() feeds the decoded instance to the handler.
+      const result = await tool.run(new Built(21), ctx);
+      expect(result).toBe(42);
+      expect(seenInCall).toBeInstanceOf(Built);
+
+      // Type-level: assigning to the decoded type must compile; assigning
+      // the wire shape to `Built` must NOT (guards against regressions).
+      const decoded: Built = new Built(1);
+      expect(decoded.doubled()).toBe(2);
+      // @ts-expect-error — the wire shape is not assignable to the decoded type.
+      const bad: Built = { value: 1 };
+      void bad;
+    });
+
+    it('should allow a custom parse that decodes to a PRIMITIVE (number)', async () => {
+      // The widened `TDecoded extends unknown` constraint lets a custom
+      // `parse` return a non-object. Here `parse` collapses the wire shape
+      // to a bare `number`; `call` must therefore receive a `number`.
+      let seenInCall: unknown;
+
+      // No explicit generics: `TParams` infers from `schema` (the wire
+      // shape), `TDecoded` infers from `parse`'s return type (`number`).
+      const tool = new Tool({
+        name: 'decoded-number',
+        description: 'parse returns a bare number',
+        instructions: '',
+        schema: z.object({ value: z.number() }),
+        parse: (raw) => (raw as { value: number }).value + 1,
+        call: (input) => {
+          // Type-level: `input` is exactly `number`, not the wire object.
+          type _CallArgIsNumber = Expect<Equal<typeof input, number>>;
+          seenInCall = input;
+          return input * 10;
+        },
+      });
+
+      const ctx = {} as Context<{}, {}>;
+
+      // parse() yields the decoded primitive at runtime.
+      const parsed = await tool.parse(ctx, JSON.stringify({ value: 41 }));
+      expect(parsed).toBe(42);
+
+      // run() feeds the decoded number straight to the handler.
+      const result = await tool.run(42, ctx);
+      expect(result).toBe(420);
+      expect(seenInCall).toBe(42);
+    });
+
+    it('should allow a custom parse that decodes to an ARRAY', async () => {
+      // Another non-object decoded type: an array. Proves the widening is
+      // not special-cased to primitives.
+      const tool = new Tool({
+        name: 'decoded-array',
+        description: 'parse returns an array',
+        instructions: '',
+        schema: z.object({ csv: z.string() }),
+        parse: (raw) => (raw as { csv: string }).csv.split(',').map(Number),
+        call: (input) => {
+          // Type-level: `input` is `number[]`.
+          type _CallArgIsNumberArray = Expect<Equal<typeof input, number[]>>;
+          return input.reduce((a, b) => a + b, 0);
+        },
+      });
+
+      const ctx = {} as Context<{}, {}>;
+      const parsed = await tool.parse(ctx, JSON.stringify({ csv: '1,2,3' }));
+      expect(parsed).toEqual([1, 2, 3]);
+      const result = await tool.run([1, 2, 3], ctx);
+      expect(result).toBe(6);
     });
   });
 

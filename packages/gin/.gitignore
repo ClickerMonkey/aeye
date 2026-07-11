@@ -2,3 +2,9 @@ schema-dump.json
 schema-dump.*.json
 code-dump.txt
 code-dump.*.txt
+
+# Integration / eval harness run artifacts (never commit)
+integration/logs/
+integration/reports/
+integration/report.json
+integration/report.md

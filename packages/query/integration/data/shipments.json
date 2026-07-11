@@ -1,0 +1,170 @@
+[
+  {
+    "id": 1,
+    "sales_order_id": 1,
+    "status": "shipped",
+    "shippedAt": "2026-01-13",
+    "carrier": "FedEx",
+    "trackingNumber": "TRK1001"
+  },
+  {
+    "id": 2,
+    "sales_order_id": 2,
+    "status": "delivered",
+    "shippedAt": "2026-02-18",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1002"
+  },
+  {
+    "id": 3,
+    "sales_order_id": 4,
+    "status": "delivered",
+    "shippedAt": "2026-03-04",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1004"
+  },
+  {
+    "id": 4,
+    "sales_order_id": 5,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 5,
+    "sales_order_id": 6,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 6,
+    "sales_order_id": 7,
+    "status": "shipped",
+    "shippedAt": "2026-03-18",
+    "carrier": "FedEx",
+    "trackingNumber": "TRK1007"
+  },
+  {
+    "id": 7,
+    "sales_order_id": 8,
+    "status": "delivered",
+    "shippedAt": "2026-02-08",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1008"
+  },
+  {
+    "id": 8,
+    "sales_order_id": 9,
+    "status": "shipped",
+    "shippedAt": "2026-02-02",
+    "carrier": "FedEx",
+    "trackingNumber": "TRK1009"
+  },
+  {
+    "id": 9,
+    "sales_order_id": 10,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 10,
+    "sales_order_id": 11,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 11,
+    "sales_order_id": 12,
+    "status": "delivered",
+    "shippedAt": "2026-03-31",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1012"
+  },
+  {
+    "id": 12,
+    "sales_order_id": 13,
+    "status": "shipped",
+    "shippedAt": "2026-01-08",
+    "carrier": "FedEx",
+    "trackingNumber": "TRK1013"
+  },
+  {
+    "id": 13,
+    "sales_order_id": 14,
+    "status": "delivered",
+    "shippedAt": "2026-02-28",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1014"
+  },
+  {
+    "id": 14,
+    "sales_order_id": 15,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 15,
+    "sales_order_id": 17,
+    "status": "shipped",
+    "shippedAt": "2026-01-21",
+    "carrier": "FedEx",
+    "trackingNumber": "TRK1017"
+  },
+  {
+    "id": 16,
+    "sales_order_id": 18,
+    "status": "delivered",
+    "shippedAt": "2026-04-02",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1018"
+  },
+  {
+    "id": 17,
+    "sales_order_id": 20,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 18,
+    "sales_order_id": 21,
+    "status": "pending",
+    "shippedAt": null,
+    "carrier": null,
+    "trackingNumber": null
+  },
+  {
+    "id": 19,
+    "sales_order_id": 22,
+    "status": "delivered",
+    "shippedAt": "2025-12-23",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1022"
+  },
+  {
+    "id": 20,
+    "sales_order_id": 23,
+    "status": "shipped",
+    "shippedAt": "2026-04-03",
+    "carrier": "FedEx",
+    "trackingNumber": "TRK1023"
+  },
+  {
+    "id": 21,
+    "sales_order_id": 24,
+    "status": "delivered",
+    "shippedAt": "2026-03-21",
+    "carrier": "UPS",
+    "trackingNumber": "TRK1024"
+  }
+]

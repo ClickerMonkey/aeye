@@ -1,10 +1,10 @@
 import Handlebars from "handlebars";
 import { ZodString, ZodType } from 'zod';
 
-import { accumulateReasoning, accumulateUsage, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
+import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
-import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
-import { getDescriptorById, strictify } from "./schema";
+import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
+import { getDescriptorById, strictify, decodeWire } from "./schema";
 
 /** Default cap (chars) for validation error messages surfaced back to the
  *  LLM. Read by `Prompt.truncateValidationError`; subclasses may override
@@ -86,6 +86,7 @@ export interface PromptInput<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
+  TDecoded extends unknown = TOutput,
 > {
   // The name of the prompt.
   name: TName;
@@ -114,6 +115,41 @@ export interface PromptInput<
    * "it just works" against unknown/unannotated models.
    */
   strict?: boolean | number;
+  /**
+   * Schema-delivery policy for the output schema. Tri-state, default `'auto'`:
+   *
+   * - `'auto'` — send the schema as structured output (`response_format`) when
+   *   the selected model's dialect can express it; otherwise transparently DROP
+   *   the wire schema and deliver it as prompt TEXT. The existing extract +
+   *   `parse`/Zod path still validates the model's text JSON. Rescues providers
+   *   (e.g. Gemini) whose structured output 400s on unions/`$ref`. Under `'auto'`
+   *   a RUNTIME fallback also fires (see `runtimeSchemaFallback`): if the model
+   *   accepts the wire schema but replies with empty/unparseable content, or the
+   *   request itself fails (e.g. a provider `400` on a too-complex schema), the
+   *   prompt retries once with prompt-text delivery.
+   * - `'structured'` — always send structured output, even for dialects that
+   *   can't express the schema (pre-fallback behavior).
+   * - `'prompt'` — always DROP the wire schema and deliver it as prompt text.
+   *
+   * Only affects prompts with a structured (non-`ZodString`) `schema`.
+   */
+  schemaDelivery?: SchemaDelivery;
+  /**
+   * Enables the RUNTIME schema-delivery fallback under `schemaDelivery: 'auto'`.
+   * Default `true`. The static (pre-flight) part of `'auto'` — dropping a schema
+   * the dialect can't express — always runs; this governs the two POST-request
+   * recoveries that can only be detected at runtime:
+   *
+   * - the model accepts the wire schema but returns EMPTY/unparseable content, or
+   * - the request FAILS (throws — e.g. a provider `400` that accepts a simple
+   *   `json_schema` but rejects our complex recursive one).
+   *
+   * In either case the prompt promotes delivery to prompt-text and retries once
+   * (consuming one `outputRetries`). Set `false` to disable both — the empty
+   * response becomes an ordinary parse-retry and a request error propagates.
+   * No effect unless `schemaDelivery` resolves to `'auto'`.
+   */
+  runtimeSchemaFallback?: boolean;
   // A configuration object or function/promise that returns a configuration object for the AI request.
   config?: Fn<Partial<Request> | false, [TInput | undefined, Context<TContext, TMetadata>]>;
   // After an iteration, a function that can reconfigure the prompt based on runtime statistics.
@@ -181,14 +217,71 @@ export interface PromptInput<
   metadataFn?: (input: TInput, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
   // If messages on the context should be excluded when rendering the prompt.
   excludeMessages?: boolean;
-  // Optional post-validation hook that runs after Zod parsing succeeds on the final output. Can throw to trigger re-prompting.
-  validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  /**
+   * Optional per-prompt transformer that intercepts each tool's result
+   * BEFORE it's handed to the model. The RETURN VALUE is what the model
+   * sees for that tool's `role: 'tool'` message (serialized exactly like
+   * an untransformed result — a string is used verbatim, anything else is
+   * `JSON.stringify`-d). To pass a result through unchanged, return
+   * `event.result`.
+   *
+   * The `event` is a discriminated union over this prompt's `TTools`:
+   * narrowing on `event.tool` types BOTH `event.result` and `event.args`
+   * for that specific tool; the default branch is the catch-all.
+   *
+   * MODEL-FACING ONLY: the raw result is still what `get('tools')`,
+   * `streamTools`, and the `toolOutput` event's `result` field report.
+   * The presented (possibly transformed) value is additionally exposed on
+   * the `toolOutput` event as `toModel`.
+   *
+   * v1 SCOPE — success results only. Errored / suspended / interrupted /
+   * synthetic (`toolsComplete`) tool slots BYPASS this handler and keep
+   * their existing content path. A handler that THROWS is treated as a
+   * tool error for that slot (the model sees the error content), so the
+   * `tool_call` ↔ `role: 'tool'` pairing guarantee still holds.
+   */
+  onToolResult?: (event: ToolResultEvent<TContext, TMetadata, TTools>) => unknown | Promise<unknown>;
+  /**
+   * Optional custom parser that REPLACES Zod validation of the model's
+   * STRUCTURED OUTPUT entirely.
+   *
+   * By default the structured-output path runs `JSON.parse` → Zod schema
+   * (`safeParseAsync`, after the wire `strictify`) → `validate`. When
+   * `parse` is supplied it takes Zod's place: the pipeline becomes
+   * `JSON.parse` → `parse` → `validate`, and the Zod schema (plus the
+   * descriptor `strictify` normalization) is SKIPPED for validation.
+   *
+   * The function receives the raw `JSON.parse`-d structured value and
+   * fully owns turning it into the typed `TOutput`. It returns EITHER:
+   * - the typed value `TOutput` on success, or
+   * - an `Error` to signal validation failure (equivalently, it may
+   *   `throw` that error) — the output is rejected and flows through the
+   *   SAME output-retry channel a Zod failure would (`outputRetries`),
+   *   surfacing the error's own `.message` back to the model.
+   *
+   * This mirrors `Tool.parse`'s `parse` hook, letting a caller (e.g.
+   * `@aeye/query`'s expr/query parser, which produces a typed AST plus
+   * `Problems`/`Code` diagnostics) return concise, compiler-style errors
+   * with source underlines INSTEAD of Zod's aggregate messages. The
+   * returned/thrown `Error` can be a rich subclass carrying structured
+   * diagnostics (its `message` is what the model-facing channel surfaces;
+   * no Zod vocabulary appears since Zod never runs).
+   *
+   * Only runs where Zod validation runs today: when a structured
+   * (non-`ZodString`) `schema` is present. The `schema` field is still
+   * required and continues to drive the model wire format. Absent ⇒
+   * unchanged behavior (Zod path).
+   */
+  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
+  // Optional post-validation hook that runs after parsing succeeds (Zod or custom `parse`) on the final DECODED output (`TDecoded`). Can throw to trigger re-prompting.
+  validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   // Optional function to determine if the component is applicable in the given context. If this is defined it is used over the default check.
   applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
   // Optional way to explicitly declare the types used in this component.
   types?: {
     input?: TInput;
     output?: TOutput;
+    decoded?: TDecoded;
     context?: TContext;
     metadata?: TMetadata;
   },
@@ -201,8 +294,36 @@ export interface PromptInput<
  */
 export type PromptToolOutput<TTools extends AnyTool[]> =
   TTools extends Array<infer TI>
-    ? TI extends Tool<any, any, infer TName, any, infer TO, any>
+    ? TI extends Tool<any, any, infer TName, any, infer TO, any, any>
       ? { tool: TName, result: Resolved<TO> }
+      : never
+    : never
+;
+
+/**
+ * The event passed to a prompt's `onToolResult` transformer, built as a
+ * discriminated union over the prompt's `TTools` tuple. Narrowing on
+ * `event.tool` (the discriminant) types BOTH `event.result` and
+ * `event.args` for that specific tool; the default branch is the
+ * catch-all covering every tool.
+ *
+ * Mirrors `PromptToolOutput` and the `Tool<...>` type-param order:
+ * `Tool<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>`.
+ * `args` is the tool's parsed input (`TParams`); `result` is the tool's
+ * awaited output (`Resolved<TOutput>`).
+ *
+ * v1 covers SUCCESS results only. A future v2 could add a
+ * `status: 'success' | 'error'` field so a handler can also transform
+ * error results — narrowing on `status` alongside `tool`.
+ *
+ * @template TContext - The prompt's context type.
+ * @template TMetadata - The prompt's metadata type.
+ * @template TTools - The prompt's tools tuple.
+ */
+export type ToolResultEvent<TContext, TMetadata, TTools> =
+  TTools extends Array<infer TI>
+    ? TI extends Tool<any, any, infer TName, infer TArgs, infer TOut, any, any>
+      ? { tool: TName; result: Resolved<TOut>; args: TArgs; ctx: Context<TContext, TMetadata>; request: Request }
       : never
     : never
 ;
@@ -213,7 +334,7 @@ export type PromptToolOutput<TTools extends AnyTool[]> =
  * 'name1' | 'name2' | ...
  */
 export type PromptToolNames<TTools extends AnyTool[]> =
-  TTools extends Tool<any, any, infer TName, any, any, any>[]
+  TTools extends Tool<any, any, infer TName, any, any, any, any>[]
     ? TName
     : never
 ;
@@ -231,14 +352,17 @@ export type PromptTools<TTools extends AnyTool[]> =
  * Converts TTools into tool-related events:
  * 
  * { type: 'toolStart', tool: TTool, args: any } |
- * { type: 'toolOutput', tool: TTool, args: any, result: TOutput } |
+ * { type: 'toolOutput', tool: TTool, args: any, result: TOutput, toModel: unknown } |
  * { type: 'toolError', tool: TTool, args: any, error: string }
  */
 export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
   TTools extends Array<infer TTool>
-    ? TTool extends Tool<infer t0, infer t1, infer t2, infer t3, infer TOutput, infer t4>
+    ? TTool extends Tool<infer t0, infer t1, infer t2, infer t3, infer TOutput, infer t4, infer t5>
       ? { type: 'toolStart', tool: TTool, args: any, request: Request }
-      | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, request: Request }
+      // `result` is the RAW tool output; `toModel` is the value actually
+      // presented to the model (equal to `result` unless a prompt's
+      // `onToolResult` transformer changed it). See PromptInput.onToolResult.
+      | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, toModel: unknown, request: Request }
       | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
       | { type: 'toolSuspend', tool: TTool, args: any, request: Request }
       | { type: 'toolError', tool: TTool, args: any, error: string, rawArgs?: string, request: Request }
@@ -271,7 +395,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
 /**
  * A type representing any prompt component.
  */
-export type AnyPrompt = Prompt<any, any, any, any, any, any>;
+export type AnyPrompt = Prompt<any, any, any, any, any, any, any>;
 
 /**
  * The different modes for retrieving prompt output from the convenience get() method.
@@ -322,12 +446,13 @@ export class Prompt<
   TInput extends object = {},
   TOutput extends object | string = string,
   TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
+  TDecoded extends unknown = TOutput,
 > implements Component<
   TContext,
   TMetadata,
   TName,
   TInput,
-  AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>,
+  AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>,
   TTools
 > {
 
@@ -348,7 +473,7 @@ export class Prompt<
   }
 
   constructor(
-    public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>,
+    public input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded>,
     private retool = resolveFn(input.retool),
     // Schema stays raw. The matching strictify is applied lazily at validation
     // time using the descriptor pinned on `request.responseFormat.descriptor`
@@ -408,8 +533,8 @@ export class Prompt<
   >(
     mode: TGetType = 'result' as TGetType,
     ...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>
-  ): PromptGet<TGetType, TOutput, TTools> {
-    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>;
+  ): PromptGet<TGetType, TDecoded, TTools> {
+    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>;
     const input = (inputMaybe || {}) as TInput;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
     const preferStream = (mode || 'result').startsWith('stream');
@@ -427,7 +552,7 @@ export class Prompt<
             return event.output;
           }
         }
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'tools':
       return (async function() {
         const tools: PromptToolOutput<TTools>[] = [];
@@ -437,10 +562,10 @@ export class Prompt<
           }
         }
         return tools;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'stream':
       return (async function*() {
-        let output: TOutput | undefined = undefined;
+        let output: TDecoded | undefined = undefined;
         for await (const event of stream) {
           yield event;
           if (event.type === 'complete') {
@@ -448,10 +573,10 @@ export class Prompt<
           }
         }
         return output;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'streamTools':
       return (async function*() {
-        let output: TOutput | undefined = undefined;
+        let output: TDecoded | undefined = undefined;
         for await (const event of stream) {
           if (event.type === 'toolOutput') {
             yield { tool: event.tool.name, result: event.result } as PromptToolOutput<TTools>;
@@ -461,10 +586,10 @@ export class Prompt<
           }
         }
         return output;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     case 'streamContent':
       return (async function*() {
-        let output: TOutput | undefined = undefined;
+        let output: TDecoded | undefined = undefined;
         for await (const event of stream) {
           if (event.type === 'textPartial') {
             yield event.content;
@@ -474,7 +599,7 @@ export class Prompt<
           }
         }
         return output;
-      })() as PromptGet<TGetType, TOutput, TTools>;
+      })() as PromptGet<TGetType, TDecoded, TTools>;
     }
   }
 
@@ -489,10 +614,10 @@ export class Prompt<
     TRuntimeContext extends TContext, 
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>): AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown> {
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TInput, TCoreContext]>): AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown> {
     const input = (inputMaybe || {}) as TInput;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
-    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>;
+    const prompt = this as Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>;
 
     return ctx.runner
       // @ts-ignore
@@ -582,12 +707,12 @@ export class Prompt<
       boolean,
       boolean,
       // @ts-ignore
-      Events<Component<TRuntimeContext, TRuntimeMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>> | undefined,
+      Events<Component<TRuntimeContext, TRuntimeMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>> | undefined,
       TCoreContext, 
     ]>
-  ): AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown> {
+  ): AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown> {
     const input = (inputMaybe || {}) as TInput;
-    const events = (eventsMaybe || {}) as Events<Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TOutput, TTools>, TOutput | undefined, unknown>, TTools>>;
+    const events = (eventsMaybe || {}) as Events<Component<TContext, TMetadata, TName, TInput, AsyncGenerator<PromptEvent<TDecoded, TTools>, TDecoded | undefined, unknown>, TTools>>;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
 
     const streamer = ctx.stream && preferStream 
@@ -645,9 +770,20 @@ export class Prompt<
     let toolRetries = this.input.toolRetries ?? ctx.toolRetries ?? 2;
     const toolsComplete = this.input.toolsComplete ?? true;
 
-    let result: TOutput | undefined = undefined;
+    let result: TDecoded | undefined = undefined;
     let lastError: string | undefined = undefined;
     let completeText: string = '';
+    // Runtime schema-delivery fallback guard. A model whose descriptor ALLOWS
+    // the schema (so the static `canExpress` check passes and structured output
+    // is sent) can still fail at runtime in two ways: it returns EMPTY or
+    // unparseable content (see the json-parsing branch below), or the request
+    // itself FAILS with an error (e.g. a provider `400` on a too-complex schema —
+    // see the request-error catch around the stream). Under `schemaDelivery:
+    // 'auto'` (and unless `runtimeSchemaFallback` is `false`) either case promotes
+    // delivery to prompt-text for the RETRY. This flag keeps the promotion
+    // idempotent within a single prompt run — we switch at most once and never
+    // loop. Per-run only; nothing is persisted across requests.
+    let promotedToPromptDelivery = false;
     let maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + 1;
     let requestUsageSent = false;
     let usage: Usage | undefined = undefined;
@@ -663,13 +799,13 @@ export class Prompt<
 
     // Emit is a helper to optionally emit events and return the value passed in so it can be yielded.
     const emit = events?.onPromptEvent && ctx.instance
-      ? (ev: PromptEvent<TOutput, TTools>) => {
+      ? (ev: PromptEvent<TDecoded, TTools>) => {
           // @ts-ignore
           events.onPromptEvent!(ctx.instance!, ev as any);
           return ev;
         }
-      : (ev: PromptEvent<TOutput, TTools>) => ev;
-    const emitTool = (ev: PromptToolEvents<[AnyTool]>) => emit(ev as PromptEvent<TOutput, TTools>);
+      : (ev: PromptEvent<TDecoded, TTools>) => ev;
+    const emitTool = (ev: PromptToolEvents<[AnyTool]>) => emit(ev as PromptEvent<TDecoded, TTools>);
     const emitMessage = (message: Message) => {
       request.messages.push(message);
       return emit({ type: 'message', message, request });
@@ -709,6 +845,15 @@ export class Prompt<
 
       yield emit({ type: 'request', request, iterations });
 
+      // Wrap request execution so a REQUEST-TIME failure can drive the runtime
+      // schema-delivery fallback (Mode 4). A provider that accepts a simple
+      // json_schema but 400s on our complex recursive one THROWS here rather
+      // than returning empty content, so the json-parsing fallback inside the
+      // loop never sees it. On such a failure — under `auto`, structured
+      // actually attempted, fallback enabled, not already promoted, retries
+      // left, and not aborted — promote to prompt-text and retry; else rethrow.
+      let requestFailedNeedsRetry = false;
+      try {
       const stream = streamer(request, ctx, metadata, streamController.signal);
 
       for await (const chunk of stream) {
@@ -742,12 +887,27 @@ export class Prompt<
 
         // Handle tool calls
         if (chunk.toolCallNamed) {
+          const toolName = chunk.toolCallNamed.name;
+          const onToolResult = this.input.onToolResult;
           const toolExecutor = newToolExecution(
             ctx,
             chunk.toolCallNamed,
             toolMap.get(chunk.toolCallNamed.name),
             this.input.validationErrorMaxLength,
             this.truncateValidationError.bind(this),
+            // Boundary: the streaming loop has erased the per-tool types, so
+            // build the discriminated event from the runtime tool name +
+            // parsed args/result and cast once to the public event type
+            // (mirrors the `as PromptEvent<...>` boundary cast in `emitTool`).
+            onToolResult
+              ? (result, args) => onToolResult({
+                  tool: toolName,
+                  result,
+                  args,
+                  ctx,
+                  request,
+                } as ToolResultEvent<TContext, TMetadata, TTools>)
+              : undefined,
           );
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
@@ -796,7 +956,7 @@ export class Prompt<
               yield emitTool({ type: 'toolStart', tool: toolCall.tool!, args: toolCall.args, request });
             }
             if (toolCall.emitOutput()) {
-              yield emitTool({ type: 'toolOutput', tool: toolCall.tool!, args: toolCall.args, result: toolCall.result, request });
+              yield emitTool({ type: 'toolOutput', tool: toolCall.tool!, args: toolCall.args, result: toolCall.result, toModel: toolCall.toModel, request });
             }
             if (toolCall.emitInterrupt()) {
               yield emitTool({ type: 'toolInterrupt', tool: toolCall.tool!, args: toolCall.args, request });
@@ -910,7 +1070,7 @@ export class Prompt<
               }
               await toolExecutor.run();
               if (toolExecutor.emitOutput()) {
-                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, request });
+                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, toModel: toolExecutor.toModel, request });
               }
               if (toolExecutor.emitInterrupt()) {
                 yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -944,7 +1104,7 @@ export class Prompt<
                 yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
               }
               if (toolExecutor.emitOutput()) {
-                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, request });
+                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, toModel: toolExecutor.toModel, request });
               }
               if (toolExecutor.emitInterrupt()) {
                 yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
@@ -992,12 +1152,18 @@ export class Prompt<
             // own retry logic).
             continue;
           }
+          // Model-facing value: on a real success we present `toModel`
+          // (the raw result, or whatever `onToolResult` transformed it into
+          // — set inside run() before success is marked). Any other slot
+          // with a lingering result keeps the raw `result`. Serialized
+          // exactly as before: strings verbatim, everything else JSON.
+          const modelValue = toolExecutor.status === 'success' ? toolExecutor.toModel : toolExecutor.result;
           const content = hasError
             ? toolExecutor.error!
             : hasResult
-              ? typeof toolExecutor.result === 'string'
-                ? toolExecutor.result
-                : JSON.stringify(toolExecutor.result)
+              ? typeof modelValue === 'string'
+                ? modelValue
+                : JSON.stringify(modelValue)
               : this.synthesizeUnpairedResult(toolExecutor);
 
           yield emitMessage({
@@ -1074,15 +1240,15 @@ export class Prompt<
       // If we are finished, parse the output
       if (stop) {
         if (!schema || (schema instanceof ZodString)) {
-          result = content as unknown as TOutput;
+          result = content as unknown as TDecoded;
 
           break; // All good!
         } else {
-          // Grab the JSON part from the content just in case...
-          const potentialJSON = content.substring(
-            content.indexOf('{'),
-            content.lastIndexOf('}') + 1
-          );
+          // Grab the JSON part from the content just in case. In the
+          // schema-delivery prompt-text fallback the model replies with
+          // freeform text (possibly fenced / prose-wrapped), so extract the
+          // outermost balanced `{…}` (see `extractJSONObject`).
+          const potentialJSON = extractJSONObject(content);
 
           let errorMessage = '';
           let resetReason = '';
@@ -1090,6 +1256,51 @@ export class Prompt<
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
+            if (this.input.parse) {
+              // Custom parser REPLACES Zod validation of the structured
+              // output entirely. Mirrors Tool.parse's `parse` hook: the
+              // JSON.parse-d value is first DECODEd back from the provider
+              // wire shape to the CONCEPTUAL value via `decodeWire` (symmetric
+              // with the strictify ENCODE the provider used to build the
+              // request), so the caller's parser stays provider-agnostic — it
+              // never sees array-of-pairs records, numeric-key tuples, or
+              // null-for-optional. The parser returns the typed TOutput on
+              // success or an Error (returned OR thrown) carrying rich,
+              // compiler-style diagnostics. Zod's own validation is skipped. A
+              // returned/thrown Error flows through the SAME output-retry
+              // channel a Zod failure would, surfacing its own `.message`
+              // (no Zod vocabulary — Zod never ran). Absent ⇒ unchanged.
+              // Decode only when a descriptor was pinned; otherwise the wire
+              // shape IS the conceptual shape and `parsedJSON` passes through.
+              const customDescriptorId = typeof request.responseFormat === 'object'
+                ? request.responseFormat.descriptor
+                : undefined;
+              const decoded = customDescriptorId
+                ? decodeWire(schema, parsedJSON, getDescriptorById(customDescriptorId))
+                : parsedJSON;
+              let customResult: TDecoded | Error;
+              try {
+                customResult = await this.input.parse(decoded, ctx);
+              } catch (customError: any) {
+                customResult = customError instanceof Error ? customError : new Error(String(customError));
+              }
+              if (customResult instanceof Error) {
+                errorMessage = this.truncateValidationError(customResult.message, errMax);
+                resetReason = 'schema-parsing';
+              } else {
+                result = customResult;
+
+                try {
+                  await this.input.validate?.(result, ctx);
+                } catch (validationError: any) {
+                  errorMessage = this.truncateValidationError(
+                    `The output failed validation:\n${validationError.message}`,
+                    errMax,
+                  );
+                  resetReason = 'validation';
+                }
+              }
+            } else {
             // Apply the same strictify rewrite the provider used for the wire
             // shape, so array-of-pairs records / numeric-key tuples / etc.
             // normalize back into the natural Zod shape before validation.
@@ -1113,7 +1324,7 @@ export class Prompt<
               );
               resetReason = 'schema-parsing';
             } else {
-              result = parsedSafe.data as unknown as TOutput;
+              result = parsedSafe.data as unknown as TDecoded;
 
               try {
                 await this.input.validate?.(result, ctx);
@@ -1125,12 +1336,40 @@ export class Prompt<
                 resetReason = 'validation';
               }
             }
+            }
           } catch (parseError: any) {
             errorMessage = this.truncateValidationError(
               `The output was not valid JSON:\n${parseError.message}`,
               errMax,
             );
             resetReason = 'json-parsing';
+          }
+
+          // Runtime schema-delivery fallback. The structured response was EMPTY
+          // or its JSON was UNPARSEABLE (`json-parsing` reset — either the
+          // content had no JSON object to extract or `JSON.parse` threw). Some
+          // models (e.g. meta-llama/llama-4-maverick via OpenRouter) accept a
+          // `response_format` json_schema whose descriptor CAN express the
+          // schema yet reply with `finish: stop` and empty content, so the
+          // static `canExpress` fallback in the ai layer never fires. Promote
+          // this prompt's schema delivery to prompt-text for the RETRY: flip
+          // the outgoing request's `responseFormat.schemaDelivery` to 'prompt'
+          // so `applySchemaDeliveryFallback` (ai layer) drops `response_format`
+          // and appends the schema as text + fallback instruction on the next
+          // request build. Only when delivery is 'auto' and structured output
+          // was actually attempted (`responseFormat` still an object), and only
+          // once per run (`promotedToPromptDelivery` guard) so we never loop.
+          // The switch is not remembered beyond this run. This reuses the
+          // existing outputRetries re-prompt mechanism below to re-issue.
+          if (
+            this.input.runtimeSchemaFallback !== false &&
+            resetReason === 'json-parsing' &&
+            !promotedToPromptDelivery &&
+            typeof request.responseFormat === 'object' &&
+            (request.responseFormat.schemaDelivery ?? 'auto') === 'auto'
+          ) {
+            request.responseFormat.schemaDelivery = 'prompt';
+            promotedToPromptDelivery = true;
           }
 
           if (errorMessage) {
@@ -1153,6 +1392,35 @@ export class Prompt<
             break;
           }
         }
+      }
+      } catch (requestError) {
+        if (
+          !ctx.signal?.aborted &&
+          !streamController.signal.aborted &&
+          this.input.runtimeSchemaFallback !== false &&
+          !promotedToPromptDelivery &&
+          typeof request.responseFormat === 'object' &&
+          (request.responseFormat.schemaDelivery ?? 'auto') === 'auto' &&
+          outputRetries > 0
+        ) {
+          // Mode-4 fallback: promote to prompt-text and retry (mirrors the
+          // empty/unparseable json-parsing promotion above). Consumes one
+          // `outputRetries`; the guard makes it fire at most once per run.
+          request.responseFormat.schemaDelivery = 'prompt';
+          promotedToPromptDelivery = true;
+          outputRetries--;
+          yield emit({ type: 'textReset', reason: 'request-error', request });
+          requestFailedNeedsRetry = true;
+        } else {
+          throw requestError;
+        }
+      }
+
+      // A request-time failure was promoted to prompt-text delivery: skip the
+      // rest of this iteration (reconfig/dynamic/parse) and re-issue.
+      if (requestFailedNeedsRetry) {
+        iterations++;
+        continue;
       }
 
       // Call reconfig if provided
@@ -1378,7 +1646,7 @@ export class Prompt<
 
     // Determine response format
     const responseFormat: ResponseFormat = schema && !(schema instanceof ZodString)
-      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1 }
+      ? { type: schema as ZodType<object, object>, strict: this.input.strict ?? 1, schemaDelivery: this.input.schemaDelivery ?? 'auto' }
       : 'text';
 
     return { config, content, tools, toolObjects, responseFormat, schema };
@@ -1609,6 +1877,11 @@ type ToolExecution<T> = {
   run: () => Promise<ToolExecution<T>>;
   args?: any;
   result?: any;
+  /** The value actually presented to the model for this tool's
+   *  `role: 'tool'` message. Equal to `result` unless the owning prompt's
+   *  `onToolResult` transformer changed it. Only set once the tool reaches
+   *  `success` (transforms run on success results only in v1). */
+  toModel?: any;
   error?: string;
   /** Diagnostic info from the parse-fallback when it ran a repair
    *  attempt. `fields` lists which top-level string fields were
@@ -1657,6 +1930,15 @@ function newToolExecution<T extends AnyTool>(
   // can change how tool-arg parse errors are formatted without having
   // to fork the whole prompt loop.
   truncate?: (message: string, max?: number) => string,
+  // Optional per-prompt result transformer (PromptInput.onToolResult),
+  // pre-bound by the loop to build the discriminated event (tool name,
+  // ctx, request) so this function only needs to feed it the raw result
+  // and parsed args. Runs on the SUCCESS path only, INSIDE run() before
+  // the tool is marked `success` / its output emitter is armed — so the
+  // presented value lands on `toModel` and any throw converts the slot to
+  // a normal tool error (correct events + preserved pairing). Absent ⇒
+  // `toModel` is just the raw result.
+  present?: (result: any, args: any) => unknown | Promise<unknown>,
 ) {
   const start = emitter();
   const output = emitter();
@@ -1741,6 +2023,22 @@ function newToolExecution<T extends AnyTool>(
       try {
         execution.status = 'executing';
         execution.result = await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }));
+        // Tool ran successfully. Apply the optional per-prompt result
+        // transformer BEFORE marking success / arming the output emitter,
+        // so the `toolOutput` event carries the presented `toModel` and the
+        // paired `role: 'tool'` content reflects it. A handler that THROWS
+        // is treated exactly like a tool error for this slot — the raw
+        // `result` stays on the executor (get('tools') / streamTools keep
+        // it) while the model-facing channel emits the error, preserving
+        // the tool_call ↔ role:'tool' pairing guarantee.
+        try {
+          execution.toModel = present ? await present(execution.result, execution.args) : execution.result;
+        } catch (e: any) {
+          execution.status = 'error';
+          execution.error = `Error transforming tool result: ${e.message}`;
+          error.ready = true;
+          return execution;
+        }
         execution.status = 'success';
         output.ready = true;
       } catch (e: any) {

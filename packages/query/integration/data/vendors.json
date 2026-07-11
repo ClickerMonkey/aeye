@@ -1,0 +1,44 @@
+[
+  {
+    "id": 1,
+    "name": "Shenzhen Parts",
+    "region": "APAC",
+    "rating": 4.5,
+    "active": true
+  },
+  {
+    "id": 2,
+    "name": "EuroSupply GmbH",
+    "region": "EU",
+    "rating": 4.1,
+    "active": true
+  },
+  {
+    "id": 3,
+    "name": "Midwest Materials",
+    "region": "West",
+    "rating": 3.8,
+    "active": true
+  },
+  {
+    "id": 4,
+    "name": "Acme Supplies",
+    "region": "East",
+    "rating": 4,
+    "active": true
+  },
+  {
+    "id": 5,
+    "name": "Global Widgets",
+    "region": "APAC",
+    "rating": 2.9,
+    "active": false
+  },
+  {
+    "id": 6,
+    "name": "Northwind Traders",
+    "region": "East",
+    "rating": 4.7,
+    "active": true
+  }
+]

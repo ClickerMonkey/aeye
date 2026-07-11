@@ -20,6 +20,7 @@ import type { JSONValue } from './json-type';
 import type { Engine } from './engine';
 import { Problems } from './problem';
 import { Effects } from './effects';
+import { didYouMean } from './aids';
 import type { z } from 'zod';
 
 import { AnyType } from './types/any';
@@ -319,6 +320,17 @@ export class Registry implements TypeBuilder, TypeScope {
     return Array.from(this.exprClasses.values());
   }
 
+  /** Every resolvable type NAME — built-in class names plus every
+   *  programmatically-registered named type (Extensions, interfaces).
+   *  Feeds the "did you mean?" suggestion on an unknown-type / unknown-
+   *  interface parse error. */
+  private typeNameCandidates(): string[] {
+    return [
+      ...this.typeClasses().map((c) => c.NAME),
+      ...this.namedTypeList().map((t) => t.name),
+    ];
+  }
+
   /**
    * Parse anything Expr-shaped into an `Expr` instance — overloaded for
    * three input families:
@@ -480,7 +492,9 @@ export class Registry implements TypeBuilder, TypeScope {
       for (const ifaceName of def.satisfies) {
         const iface = scope.lookup(ifaceName) ?? this.lookup(ifaceName);
         if (!iface) {
-          throw new Error(`registry.parse: satisfies references unknown interface '${ifaceName}'`);
+          throw new Error(
+            `registry.parse: satisfies references unknown interface '${ifaceName}'${didYouMean(ifaceName, this.typeNameCandidates())}`,
+          );
         }
         if (!iface.compatible(result)) {
           throw new Error(`registry.parse: type '${def.name}' claims to satisfy '${ifaceName}' but does not structurally match`);
@@ -510,7 +524,41 @@ export class Registry implements TypeBuilder, TypeScope {
     // in Extension with local additions/narrowings.
     if (def.extends) {
       const base = scope.lookup(def.extends) ?? this.lookup(def.extends);
-      if (!base) throw new Error(`registry.parse: extends references unknown type '${def.extends}'`);
+      if (!base) {
+        throw new Error(
+          `registry.parse: extends references unknown type '${def.extends}'${didYouMean(def.extends, this.typeNameCandidates())}`,
+        );
+      }
+      // If `extends` names a BUILT-IN class that natively consumes some of the
+      // custom fields present here (obj → props; interface → props/get/call),
+      // those fields are STRUCTURAL and must be folded INTO a base built from
+      // that class — an Extension's `parse` delegates to its base and never
+      // consults the local, so props stranded in the local silently vanish
+      // (an `extends: 'obj'` type would parse every value to `{}`). Leftover,
+      // non-structural fields stay in the Extension local.
+      //
+      // GENERIC extensions are excluded: their props reference type-parameter
+      // placeholders (`{ name: 'T' }` AliasTypes) that must stay in the local
+      // to be resolved against the specialization scope, so they are NOT folded.
+      const baseCls = this.classes.get(def.extends);
+      const isGeneric = def.generic !== undefined && Object.keys(def.generic).length > 0;
+      const structural = baseCls && !isGeneric
+        ? ALL_CUSTOM_FIELDS.filter((f) => def[f] !== undefined && (baseCls.consumes ?? []).includes(f))
+        : [];
+      if (baseCls && structural.length > 0) {
+        const baseDef: TypeDef = {
+          name: def.extends,
+          ...(structural.includes('props') ? { props: def.props } : {}),
+          ...(structural.includes('get') ? { get: def.get } : {}),
+          ...(structural.includes('call') ? { call: def.call } : {}),
+          ...(structural.includes('init') ? { init: def.init } : {}),
+        };
+        const structuralBase = baseCls.from(baseDef, scope);
+        const localDef: TypeDef = { ...def };
+        delete localDef.extends;
+        for (const f of structural) delete localDef[f];
+        return new Extension(this, structuralBase, this.buildLocal(localDef, scope));
+      }
       return new Extension(this, base, this.buildLocal(def, scope));
     }
 
@@ -541,7 +589,11 @@ export class Registry implements TypeBuilder, TypeScope {
     if (this.namedTypes.has(def.name)) return this.namedTypes.get(def.name)!;
 
     const cls = this.classes.get(def.name);
-    if (!cls) throw new Error(`registry.parse: unknown type '${def.name}'`);
+    if (!cls) {
+      throw new Error(
+        `registry.parse: unknown type '${def.name}'${didYouMean(def.name, this.typeNameCandidates())}`,
+      );
+    }
 
     // Auto-Extension: if the TypeDef has customization fields the class
     // doesn't natively consume, build the base from the structural fields

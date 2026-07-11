@@ -159,13 +159,10 @@ describe('path auto-call (zero-required-arg methods)', () => {
     expect(probs.list.some((p) => p.code === 'if.condition.type')).toBe(false);
   });
 
-  test('validateWalk: required-arg method without {args:...} is still treated as fn', () => {
-    // num.add takes a required `other`. Reading `n.add` without
-    // calling it should give the fn value — using it directly as
-    // an if condition should warn about the bool mismatch. The
-    // improved message renders the fn's `toCode()` (which produces
-    // `(other: num): num` form), so we look for the return-type
-    // marker `): ` that's unique to fn rendering.
+  test('validateWalk: required-arg method without {args:...} is a validation error', () => {
+    // num.add takes a required `other`. Reading `n.add` without calling it used
+    // to silently degrade to the bare fn value (and, at runtime, a wrong result);
+    // it is now a `call.uncalled` error so the retry loop can catch and fix it.
     const probs = e.validate(
       {
         kind: 'if',
@@ -177,9 +174,9 @@ describe('path auto-call (zero-required-arg methods)', () => {
       },
       new Map([['n', r.num()]]),
     );
-    const cond = probs.list.find((p) => p.code === 'if.condition.type');
-    expect(cond).toBeDefined();
-    expect(cond?.message).toMatch(/\): /);
+    const uncalled = probs.list.find((p) => p.code === 'call.uncalled');
+    expect(uncalled).toBeDefined();
+    expect(uncalled?.message).toContain("method 'add' needs arguments");
   });
 
   test('runtime: method-chain auto-call — text.upper.lower', async () => {

@@ -1,0 +1,155 @@
+[
+  {
+    "id": 1,
+    "name": "Alice Reyes",
+    "department_id": 1,
+    "title": "Account Executive",
+    "hiredAt": "2022-03-01",
+    "salary": 85000,
+    "skills": [
+      "negotiation",
+      "crm"
+    ],
+    "active": true
+  },
+  {
+    "id": 2,
+    "name": "Bob Chen",
+    "department_id": 1,
+    "title": "Account Executive",
+    "hiredAt": "2021-06-15",
+    "salary": 90000,
+    "skills": [
+      "crm",
+      "forecasting"
+    ],
+    "active": true
+  },
+  {
+    "id": 3,
+    "name": "Carol White",
+    "department_id": 1,
+    "title": "Sales Manager",
+    "hiredAt": "2020-01-10",
+    "salary": 120000,
+    "skills": [
+      "leadership",
+      "crm"
+    ],
+    "active": true
+  },
+  {
+    "id": 4,
+    "name": "Dan Lee",
+    "department_id": 2,
+    "title": "Engineer",
+    "hiredAt": "2023-02-01",
+    "salary": 130000,
+    "skills": [
+      "typescript",
+      "sql"
+    ],
+    "active": true
+  },
+  {
+    "id": 5,
+    "name": "Eve Moss",
+    "department_id": 2,
+    "title": "Engineer",
+    "hiredAt": "2022-08-20",
+    "salary": 125000,
+    "skills": [
+      "python",
+      "sql"
+    ],
+    "active": true
+  },
+  {
+    "id": 6,
+    "name": "Frank Ito",
+    "department_id": 3,
+    "title": "Support Agent",
+    "hiredAt": "2023-05-05",
+    "salary": 60000,
+    "skills": [
+      "support"
+    ],
+    "active": true
+  },
+  {
+    "id": 7,
+    "name": "Grace Hall",
+    "department_id": 3,
+    "title": "Support Agent",
+    "hiredAt": "2021-11-11",
+    "salary": 62000,
+    "skills": [
+      "support",
+      "crm"
+    ],
+    "active": false
+  },
+  {
+    "id": 8,
+    "name": "Heidi Vos",
+    "department_id": 4,
+    "title": "Accountant",
+    "hiredAt": "2020-09-09",
+    "salary": 95000,
+    "skills": [
+      "excel",
+      "accounting"
+    ],
+    "active": true
+  },
+  {
+    "id": 9,
+    "name": "Ivan Petro",
+    "department_id": 4,
+    "title": "Controller",
+    "hiredAt": "2019-04-04",
+    "salary": 140000,
+    "skills": [
+      "accounting"
+    ],
+    "active": true
+  },
+  {
+    "id": 10,
+    "name": "Judy Kim",
+    "department_id": 5,
+    "title": "Marketer",
+    "hiredAt": "2023-07-07",
+    "salary": 70000,
+    "skills": [
+      "seo",
+      "content"
+    ],
+    "active": true
+  },
+  {
+    "id": 11,
+    "name": "Karl Ohm",
+    "department_id": 1,
+    "title": "Account Executive",
+    "hiredAt": "2024-01-15",
+    "salary": 80000,
+    "skills": [
+      "crm"
+    ],
+    "active": false
+  },
+  {
+    "id": 12,
+    "name": "Lena Fox",
+    "department_id": 2,
+    "title": "Engineer",
+    "hiredAt": "2024-03-03",
+    "salary": 118000,
+    "skills": [
+      "go",
+      "sql"
+    ],
+    "active": true
+  }
+]

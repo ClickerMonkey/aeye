@@ -7,9 +7,12 @@ Both are `Component`s. A **Tool** is a single callable function exposed to the m
 ```typescript
 class Tool<TContext = {}, TMetadata = {}, TName extends string = string,
   TParams extends object = {}, TOutput = string,
-  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = []>
+  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],
+  TDecoded extends unknown = TParams>
   implements Component<...>
 ```
+
+`TDecoded` is the decoded type a custom `parse` produces from the raw wire args — **any** value (a built class instance, a number, a `Date`, …), not just an object; it types `call`, `validate`, and `metadataFn`. It defaults to the wire `TParams` when no custom `parse` is supplied — `schema` always stays the wire type.
 
 ### `ToolInput` (constructor config)
 
@@ -40,7 +43,7 @@ applicable(ctx?): Promise<boolean>
 metadata(input?, ctx?): TMetadata | Promise<TMetadata>
 ```
 
-`compile` returns `undefined` when the tool isn't applicable / has no schema for the context. `parse` validates the model's JSON `arguments` string against the (descriptor-strictified) schema and runs `validate`; it tolerates one provider misbehavior — top-level JSON-stringified fields are re-parsed and `onRepairAttempt` fires for telemetry.
+`compile` returns `undefined` when the tool isn't applicable / has no schema for the context. `parse` validates the model's JSON `arguments` string against the (descriptor-strictified) schema and runs `validate`; it tolerates one provider misbehavior — top-level JSON-stringified fields are re-parsed and `onRepairAttempt` fires for telemetry. When a custom `parse` is supplied (it REPLACES Zod validation), core first wire-decodes the args to the conceptual shape with the request's `FormatDescriptor` (`decodeWire` — array-of-pairs→record, null→undefined, numeric-key→tuple, …), so a custom parser is provider-agnostic and never sees a model family's wire quirks.
 
 ### Basic tool
 
@@ -171,3 +174,4 @@ const out = await researchAgent.run({ topic: 'Quantum Computing' }, { execute, m
 - An Agent does **no** AI on its own — any model calls come from the prompts/tools it invokes, which need `execute`/`stream` on the forwarded `ctx`.
 - Tool `schema` returning `undefined` (or `applicable` false) excludes the tool from `compile()` output, so the model never sees it for that context.
 - `call` can be sync or async; `TOutput` flows through `Resolved<>` where the framework awaits it (e.g. tool results in prompt events).
+- A tool's return value is what the model sees by default (strings verbatim, otherwise `JSON.stringify`-d). To transform per-prompt what a tool result looks like to the model without changing the tool, use the prompt's [`onToolResult`](./aeye-core-prompts.md#tool-result-transformer) transformer (model-facing only; the raw result stays on `get('tools')`/`streamTools`).

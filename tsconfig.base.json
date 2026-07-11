@@ -27,7 +27,8 @@
       "@aeye/replicate": ["./packages/replicate/src/index.ts"],
       "@aeye/aws": ["./packages/aws/src/index.ts"],
       "@aeye/models": ["./packages/models/src/index.ts"],
-      "@aeye/resources": ["./packages/resources/src/index.ts"]
+      "@aeye/resources": ["./packages/resources/src/index.ts"],
+      "@aeye/query": ["./packages/query/src/index.ts"]
     }
   }
 }

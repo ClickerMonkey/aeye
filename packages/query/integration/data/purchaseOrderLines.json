@@ -1,0 +1,142 @@
+[
+  {
+    "id": 1,
+    "po_id": 1,
+    "product_id": 2,
+    "quantity": 10,
+    "unitCost": 480
+  },
+  {
+    "id": 2,
+    "po_id": 1,
+    "product_id": 4,
+    "quantity": 15,
+    "unitCost": 360
+  },
+  {
+    "id": 3,
+    "po_id": 2,
+    "product_id": 4,
+    "quantity": 15,
+    "unitCost": 360
+  },
+  {
+    "id": 4,
+    "po_id": 2,
+    "product_id": 11,
+    "quantity": 20,
+    "unitCost": 132
+  },
+  {
+    "id": 5,
+    "po_id": 2,
+    "product_id": 3,
+    "quantity": 5,
+    "unitCost": 210
+  },
+  {
+    "id": 6,
+    "po_id": 3,
+    "product_id": 11,
+    "quantity": 20,
+    "unitCost": 132
+  },
+  {
+    "id": 7,
+    "po_id": 4,
+    "product_id": 3,
+    "quantity": 5,
+    "unitCost": 210
+  },
+  {
+    "id": 8,
+    "po_id": 4,
+    "product_id": 6,
+    "quantity": 10,
+    "unitCost": 15
+  },
+  {
+    "id": 9,
+    "po_id": 5,
+    "product_id": 6,
+    "quantity": 10,
+    "unitCost": 15
+  },
+  {
+    "id": 10,
+    "po_id": 5,
+    "product_id": 5,
+    "quantity": 15,
+    "unitCost": 4.8
+  },
+  {
+    "id": 11,
+    "po_id": 5,
+    "product_id": 12,
+    "quantity": 20,
+    "unitCost": 27
+  },
+  {
+    "id": 12,
+    "po_id": 6,
+    "product_id": 5,
+    "quantity": 15,
+    "unitCost": 4.8
+  },
+  {
+    "id": 13,
+    "po_id": 7,
+    "product_id": 12,
+    "quantity": 20,
+    "unitCost": 27
+  },
+  {
+    "id": 14,
+    "po_id": 7,
+    "product_id": 1,
+    "quantity": 5,
+    "unitCost": 720
+  },
+  {
+    "id": 15,
+    "po_id": 8,
+    "product_id": 1,
+    "quantity": 5,
+    "unitCost": 720
+  },
+  {
+    "id": 16,
+    "po_id": 8,
+    "product_id": 2,
+    "quantity": 10,
+    "unitCost": 480
+  },
+  {
+    "id": 17,
+    "po_id": 8,
+    "product_id": 4,
+    "quantity": 15,
+    "unitCost": 360
+  },
+  {
+    "id": 18,
+    "po_id": 9,
+    "product_id": 2,
+    "quantity": 10,
+    "unitCost": 480
+  },
+  {
+    "id": 19,
+    "po_id": 10,
+    "product_id": 4,
+    "quantity": 15,
+    "unitCost": 360
+  },
+  {
+    "id": 20,
+    "po_id": 10,
+    "product_id": 11,
+    "quantity": 20,
+    "unitCost": 132
+  }
+]

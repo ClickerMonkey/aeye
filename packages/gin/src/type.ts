@@ -1062,7 +1062,10 @@ export abstract class Type<T = any, O = any> implements Node {
    * envelope; element slots inside a composite already have their
    * envelope cost counted by the parent's `1 + init`.
    */
-  protected elementComplexity(value: unknown): number {
+  // `public` (not `protected`): container types (list / map / obj / tuple) sum
+  // this over their ELEMENT types, i.e. call it on OTHER `Type` instances — which
+  // a base-typed reference cannot do for a `protected` member.
+  public elementComplexity(value: unknown): number {
     const exprCost = this.exprValueComplexity(value);
     return exprCost > 0 ? exprCost : 1;
   }

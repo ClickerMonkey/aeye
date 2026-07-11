@@ -55,7 +55,8 @@ type AIToolInput<
   TName extends string = string,
   TParams extends object = {},
   TOutput = unknown,
-  TRefs extends Tuple<ComponentFor<T>> = []
+  TRefs extends Tuple<ComponentFor<T>> = [],
+  TDecoded extends unknown = TParams
 > = Omit<ToolInput<
   AIContext<T>,
   AIMetadata<T>,
@@ -63,7 +64,8 @@ type AIToolInput<
   TParams,
   TOutput,
   // @ts-ignore
-  TRefs
+  TRefs,
+  TDecoded
 >, 'types'>;
 
 type AIPromptInput<
@@ -71,7 +73,8 @@ type AIPromptInput<
   TName extends string = string,
   TInput extends object = {},
   TOutput extends object | string = string,
-  TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = []
+  TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = [],
+  TDecoded extends unknown = TOutput
 > = Omit<PromptInput<
   AIContext<T>,
   AIMetadata<T>,
@@ -79,7 +82,8 @@ type AIPromptInput<
   TInput,
   TOutput,
   // @ts-ignore
-  TTools
+  TTools,
+  TDecoded
 >, 'types' | 'retool'> & {
   retool?: Fn<RetoolResult<AIContextRequired<T>, AIMetadataRequired<T>, TTools>, [TInput | undefined, Context<T>]>;
 };
@@ -777,11 +781,12 @@ export class AI<T extends AIBaseTypes> {
     TName extends string = string,
     TInput extends object = {},
     TOutput extends object | string = string,
-    TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = []
+    TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = [],
+    TDecoded extends unknown = TOutput
   >(
-    options: AIPromptInput<T, TName, TInput, TOutput, TTools>
+    options: AIPromptInput<T, TName, TInput, TOutput, TTools, TDecoded>
   ) {
-    const { input, schema, config, reconfig, retool, validate, applicable, metadataFn, ...rest } = options;
+    const { input, schema, config, reconfig, retool, parse, validate, applicable, metadataFn, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -799,7 +804,8 @@ export class AI<T extends AIBaseTypes> {
       TName,
       TInput,
       TOutput,
-      TTools
+      TTools,
+      TDecoded
     >({
       ...rest,
       input: hydrateFn(input, (r) => (async (input, ctxPartial) => {
@@ -819,6 +825,9 @@ export class AI<T extends AIBaseTypes> {
       })),
       metadataFn: hydrateFn(metadataFn, (r) => (async (input, ctxPartial) => {
         return r(input, await getContext(ctxPartial));
+      })),
+      parse: hydrateFn(parse, (r) => (async (raw, ctxPartial) => {
+        return r(raw, await getContext(ctxPartial));
       })),
       validate: hydrateFn(validate, (r) => (async (output, ctxPartial) => {
         return r(output, await getContext(ctxPartial));
@@ -870,11 +879,12 @@ export class AI<T extends AIBaseTypes> {
     TName extends string = string,
     TParams extends object = {},
     TOutput = unknown,
-    TRefs extends Tuple<ComponentFor<T>> = []
+    TRefs extends Tuple<ComponentFor<T>> = [],
+    TDecoded extends unknown = TParams
   >(
-    options: AIToolInput<T, TName, TParams, TOutput, TRefs>
+    options: AIToolInput<T, TName, TParams, TOutput, TRefs, TDecoded>
   ) {
-    const { input, schema, call, validate, applicable, ...rest } = options;
+    const { input, schema, call, parse, validate, applicable, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -892,7 +902,8 @@ export class AI<T extends AIBaseTypes> {
       TName,
       TParams,
       Promise<TOutput>,
-      TRefs
+      TRefs,
+      TDecoded
     >({
       ...rest,
       instructionsFn: hydrateFn(rest.instructionsFn, (r) => (async (ctxPartial) => {
@@ -913,6 +924,9 @@ export class AI<T extends AIBaseTypes> {
       call: hydrateFn(call, (r) => async (params, refs, ctxPartial) => {
         return r(params, refs, await getContext(ctxPartial));
       }),
+      parse: hydrateFn(parse, (r) => (async (raw, ctxPartial) => {
+        return r(raw, await getContext(ctxPartial));
+      })),
       validate: hydrateFn(validate, (r) => (async (params, ctxPartial) => {
         return r(params, await getContext(ctxPartial));
       })),

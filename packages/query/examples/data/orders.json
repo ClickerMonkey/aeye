@@ -1,0 +1,8 @@
+[
+  { "id": 10, "userId": 1, "productId": 100, "total": 25, "status": "paid", "createdAt": "2026-01-04T10:00:00Z" },
+  { "id": 11, "userId": 1, "productId": 101, "total": 80, "status": "paid", "createdAt": "2026-02-12T14:30:00Z" },
+  { "id": 12, "userId": 2, "productId": 103, "total": 200, "status": "paid", "createdAt": "2026-02-20T09:15:00Z" },
+  { "id": 13, "userId": 2, "productId": 102, "total": 10, "status": "refunded", "createdAt": "2026-03-01T11:45:00Z" },
+  { "id": 14, "userId": 3, "productId": 100, "total": 25, "status": "paid", "createdAt": "2026-03-08T16:20:00Z" },
+  { "id": 15, "userId": 3, "productId": 101, "total": 80, "status": "pending", "createdAt": "2026-03-09T08:00:00Z" }
+]

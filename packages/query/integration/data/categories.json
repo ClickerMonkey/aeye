@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1,
+    "name": "Electronics",
+    "slug": "electronics",
+    "parent_id": null
+  },
+  {
+    "id": 2,
+    "name": "Furniture",
+    "slug": "furniture",
+    "parent_id": null
+  },
+  {
+    "id": 3,
+    "name": "Office Supplies",
+    "slug": "office-supplies",
+    "parent_id": null
+  },
+  {
+    "id": 4,
+    "name": "Software",
+    "slug": "software",
+    "parent_id": null
+  },
+  {
+    "id": 5,
+    "name": "Laptops",
+    "slug": "laptops",
+    "parent_id": 1
+  },
+  {
+    "id": 6,
+    "name": "Phones",
+    "slug": "phones",
+    "parent_id": 1
+  },
+  {
+    "id": 7,
+    "name": "Chairs",
+    "slug": "chairs",
+    "parent_id": 2
+  },
+  {
+    "id": 8,
+    "name": "Desks",
+    "slug": "desks",
+    "parent_id": 2
+  },
+  {
+    "id": 9,
+    "name": "Gaming Laptops",
+    "slug": "gaming-laptops",
+    "parent_id": 5
+  },
+  {
+    "id": 10,
+    "name": "Ultrabooks",
+    "slug": "ultrabooks",
+    "parent_id": 5
+  },
+  {
+    "id": 11,
+    "name": "Smartphones",
+    "slug": "smartphones",
+    "parent_id": 6
+  },
+  {
+    "id": 12,
+    "name": "RGB Laptops",
+    "slug": "rgb-laptops",
+    "parent_id": 9
+  }
+]

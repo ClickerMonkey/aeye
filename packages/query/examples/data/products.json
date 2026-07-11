@@ -1,0 +1,6 @@
+[
+  { "id": 100, "name": "Widget", "price": 25, "category": "hardware" },
+  { "id": 101, "name": "Gadget", "price": 80, "category": "hardware" },
+  { "id": 102, "name": "Manual", "price": 10, "category": "books" },
+  { "id": 103, "name": "License", "price": 200, "category": "software" }
+]

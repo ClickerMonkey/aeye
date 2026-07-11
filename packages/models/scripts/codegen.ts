@@ -6,8 +6,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ModelInfo, ModelParameter } from '@aeye/ai';
 
-export const stringify = (x: any, space?: number | string | undefined) => 
-  (JSON.stringify(x, null, space) || '')
+export const stringify = (x: any, space?: number | string | undefined) =>
+  // Drop `null` and non-finite numbers (NaN/Infinity) anywhere in the object so a
+  // stray scraped value can't emit an un-typecheckable field (e.g. `metrics: {
+  // timeToFirstToken: null }` against `number | undefined`).
+  (JSON.stringify(x, (_k, v) => (v === null || (typeof v === 'number' && !Number.isFinite(v)) ? undefined : v), space) || '')
     .replace(/"([^"]+)":/g, '$1:')
     .replace(/\n/g, '\n  ')
     .trim() || undefined;

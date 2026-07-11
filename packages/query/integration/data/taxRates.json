@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "name": "Standard",
+    "rate": 0.08,
+    "region": "West"
+  },
+  {
+    "id": 2,
+    "name": "Reduced",
+    "rate": 0.04,
+    "region": "West"
+  },
+  {
+    "id": 3,
+    "name": "EU VAT",
+    "rate": 0.2,
+    "region": "EU"
+  },
+  {
+    "id": 4,
+    "name": "Zero",
+    "rate": 0,
+    "region": "East"
+  }
+]

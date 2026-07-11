@@ -1,0 +1,192 @@
+[
+  {
+    "id": 1,
+    "sales_order_id": 1,
+    "customer_id": 1,
+    "amount": 1200,
+    "issuedAt": "2026-01-12",
+    "dueAt": "2026-02-11",
+    "status": "paid",
+    "createdAt": "2026-01-12T12:00:00Z"
+  },
+  {
+    "id": 2,
+    "sales_order_id": 2,
+    "customer_id": 1,
+    "amount": 800,
+    "issuedAt": "2026-02-17",
+    "dueAt": "2026-03-19",
+    "status": "paid",
+    "createdAt": "2026-02-17T12:00:00Z"
+  },
+  {
+    "id": 3,
+    "sales_order_id": 4,
+    "customer_id": 1,
+    "amount": 350,
+    "issuedAt": "2026-03-03",
+    "dueAt": "2026-04-02",
+    "status": "paid",
+    "createdAt": "2026-03-03T12:00:00Z"
+  },
+  {
+    "id": 4,
+    "sales_order_id": 5,
+    "customer_id": 1,
+    "amount": 900,
+    "issuedAt": "2026-04-03",
+    "dueAt": "2026-05-03",
+    "status": "paid",
+    "createdAt": "2026-04-03T12:00:00Z"
+  },
+  {
+    "id": 5,
+    "sales_order_id": 6,
+    "customer_id": 2,
+    "amount": 2000,
+    "issuedAt": "2026-01-24",
+    "dueAt": "2026-02-23",
+    "status": "overdue",
+    "createdAt": "2026-01-24T12:00:00Z"
+  },
+  {
+    "id": 6,
+    "sales_order_id": 7,
+    "customer_id": 2,
+    "amount": 600,
+    "issuedAt": "2026-03-17",
+    "dueAt": "2026-04-16",
+    "status": "paid",
+    "createdAt": "2026-03-17T12:00:00Z"
+  },
+  {
+    "id": 7,
+    "sales_order_id": 9,
+    "customer_id": 4,
+    "amount": 3000,
+    "issuedAt": "2026-02-01",
+    "dueAt": "2026-03-03",
+    "status": "paid",
+    "createdAt": "2026-02-01T12:00:00Z"
+  },
+  {
+    "id": 8,
+    "sales_order_id": 10,
+    "customer_id": 4,
+    "amount": 1200,
+    "issuedAt": "2026-03-22",
+    "dueAt": "2026-04-21",
+    "status": "paid",
+    "createdAt": "2026-03-22T12:00:00Z"
+  },
+  {
+    "id": 9,
+    "sales_order_id": 11,
+    "customer_id": 5,
+    "amount": 750,
+    "issuedAt": "2026-02-13",
+    "dueAt": "2026-03-15",
+    "status": "unpaid",
+    "createdAt": "2026-02-13T12:00:00Z"
+  },
+  {
+    "id": 10,
+    "sales_order_id": 12,
+    "customer_id": 5,
+    "amount": 1100,
+    "issuedAt": "2026-03-30",
+    "dueAt": "2026-04-29",
+    "status": "paid",
+    "createdAt": "2026-03-30T12:00:00Z"
+  },
+  {
+    "id": 11,
+    "sales_order_id": 13,
+    "customer_id": 6,
+    "amount": 4000,
+    "issuedAt": "2026-01-07",
+    "dueAt": "2026-02-06",
+    "status": "paid",
+    "createdAt": "2026-01-07T12:00:00Z"
+  },
+  {
+    "id": 12,
+    "sales_order_id": 14,
+    "customer_id": 6,
+    "amount": 2500,
+    "issuedAt": "2026-02-27",
+    "dueAt": "2026-03-29",
+    "status": "paid",
+    "createdAt": "2026-02-27T12:00:00Z"
+  },
+  {
+    "id": 13,
+    "sales_order_id": 15,
+    "customer_id": 7,
+    "amount": 900,
+    "issuedAt": "2026-02-16",
+    "dueAt": "2026-03-18",
+    "status": "paid",
+    "createdAt": "2026-02-16T12:00:00Z"
+  },
+  {
+    "id": 14,
+    "sales_order_id": 17,
+    "customer_id": 8,
+    "amount": 6000,
+    "issuedAt": "2026-01-20",
+    "dueAt": "2026-02-19",
+    "status": "paid",
+    "createdAt": "2026-01-20T12:00:00Z"
+  },
+  {
+    "id": 15,
+    "sales_order_id": 18,
+    "customer_id": 8,
+    "amount": 3200,
+    "issuedAt": "2026-04-01",
+    "dueAt": "2026-05-01",
+    "status": "paid",
+    "createdAt": "2026-04-01T12:00:00Z"
+  },
+  {
+    "id": 16,
+    "sales_order_id": 20,
+    "customer_id": 10,
+    "amount": 1300,
+    "issuedAt": "2026-03-07",
+    "dueAt": "2026-04-06",
+    "status": "paid",
+    "createdAt": "2026-03-07T12:00:00Z"
+  },
+  {
+    "id": 17,
+    "sales_order_id": 21,
+    "customer_id": 11,
+    "amount": 450,
+    "issuedAt": "2026-03-27",
+    "dueAt": "2026-04-26",
+    "status": "unpaid",
+    "createdAt": "2026-03-27T12:00:00Z"
+  },
+  {
+    "id": 18,
+    "sales_order_id": 22,
+    "customer_id": 1,
+    "amount": 1000,
+    "issuedAt": "2025-12-22",
+    "dueAt": "2026-01-21",
+    "status": "paid",
+    "createdAt": "2025-12-22T12:00:00Z"
+  },
+  {
+    "id": 19,
+    "sales_order_id": 23,
+    "customer_id": 6,
+    "amount": 2200,
+    "issuedAt": "2026-04-02",
+    "dueAt": "2026-05-02",
+    "status": "paid",
+    "createdAt": "2026-04-02T12:00:00Z"
+  }
+]

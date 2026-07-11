@@ -23,13 +23,18 @@
     "typecheck": "tsc --noEmit",
     "dump-schema": "tsx scripts/dump-schema.ts",
     "dump-code": "tsx scripts/dump-code.ts",
+    "integration": "tsx integration/run.ts",
+    "integration:check": "tsx integration/run.ts --check",
     "clean": "rimraf dist"
   },
   "dependencies": {
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@aeye/ai": "^0.3.8",
     "@aeye/core": "^0.3.8",
+    "@aeye/models": "^0.3.8",
+    "@aeye/openrouter": "^0.3.8",
     "tsup": "^8.0.0",
     "tsx": "^4.19.0",
     "vitest": "^3.0.0",

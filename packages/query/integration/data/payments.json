@@ -1,0 +1,164 @@
+[
+  {
+    "id": 1,
+    "invoice_id": 1,
+    "customer_id": 1,
+    "amount": 1200,
+    "method": "wire",
+    "paidAt": "2026-01-20",
+    "createdAt": "2026-01-20T12:00:00Z"
+  },
+  {
+    "id": 2,
+    "invoice_id": 2,
+    "customer_id": 1,
+    "amount": 800,
+    "method": "check",
+    "paidAt": "2026-02-25",
+    "createdAt": "2026-02-25T12:00:00Z"
+  },
+  {
+    "id": 3,
+    "invoice_id": 3,
+    "customer_id": 1,
+    "amount": 350,
+    "method": "wire",
+    "paidAt": "2026-03-11",
+    "createdAt": "2026-03-11T12:00:00Z"
+  },
+  {
+    "id": 4,
+    "invoice_id": 4,
+    "customer_id": 1,
+    "amount": 900,
+    "method": "check",
+    "paidAt": "2026-04-11",
+    "createdAt": "2026-04-11T12:00:00Z"
+  },
+  {
+    "id": 5,
+    "invoice_id": 6,
+    "customer_id": 2,
+    "amount": 600,
+    "method": "wire",
+    "paidAt": "2026-03-25",
+    "createdAt": "2026-03-25T12:00:00Z"
+  },
+  {
+    "id": 6,
+    "invoice_id": 7,
+    "customer_id": 4,
+    "amount": 3000,
+    "method": "card",
+    "paidAt": "2026-02-09",
+    "createdAt": "2026-02-09T12:00:00Z"
+  },
+  {
+    "id": 7,
+    "invoice_id": 8,
+    "customer_id": 4,
+    "amount": 1200,
+    "method": "wire",
+    "paidAt": "2026-03-30",
+    "createdAt": "2026-03-30T12:00:00Z"
+  },
+  {
+    "id": 8,
+    "invoice_id": 10,
+    "customer_id": 5,
+    "amount": 1100,
+    "method": "card",
+    "paidAt": "2026-04-07",
+    "createdAt": "2026-04-07T12:00:00Z"
+  },
+  {
+    "id": 9,
+    "invoice_id": 11,
+    "customer_id": 6,
+    "amount": 2000,
+    "method": "wire",
+    "paidAt": "2026-01-15",
+    "createdAt": "2026-01-15T12:00:00Z"
+  },
+  {
+    "id": 10,
+    "invoice_id": 11,
+    "customer_id": 6,
+    "amount": 2000,
+    "method": "wire",
+    "paidAt": "2026-01-20",
+    "createdAt": "2026-01-20T12:00:00Z"
+  },
+  {
+    "id": 11,
+    "invoice_id": 12,
+    "customer_id": 6,
+    "amount": 2500,
+    "method": "check",
+    "paidAt": "2026-03-07",
+    "createdAt": "2026-03-07T12:00:00Z"
+  },
+  {
+    "id": 12,
+    "invoice_id": 13,
+    "customer_id": 7,
+    "amount": 900,
+    "method": "card",
+    "paidAt": "2026-02-24",
+    "createdAt": "2026-02-24T12:00:00Z"
+  },
+  {
+    "id": 13,
+    "invoice_id": 14,
+    "customer_id": 8,
+    "amount": 3000,
+    "method": "wire",
+    "paidAt": "2026-01-28",
+    "createdAt": "2026-01-28T12:00:00Z"
+  },
+  {
+    "id": 14,
+    "invoice_id": 14,
+    "customer_id": 8,
+    "amount": 3000,
+    "method": "wire",
+    "paidAt": "2026-02-02",
+    "createdAt": "2026-02-02T12:00:00Z"
+  },
+  {
+    "id": 15,
+    "invoice_id": 15,
+    "customer_id": 8,
+    "amount": 3200,
+    "method": "card",
+    "paidAt": "2026-04-09",
+    "createdAt": "2026-04-09T12:00:00Z"
+  },
+  {
+    "id": 16,
+    "invoice_id": 16,
+    "customer_id": 10,
+    "amount": 1300,
+    "method": "check",
+    "paidAt": "2026-03-15",
+    "createdAt": "2026-03-15T12:00:00Z"
+  },
+  {
+    "id": 17,
+    "invoice_id": 18,
+    "customer_id": 1,
+    "amount": 1000,
+    "method": "wire",
+    "paidAt": "2025-12-30",
+    "createdAt": "2025-12-30T12:00:00Z"
+  },
+  {
+    "id": 18,
+    "invoice_id": 19,
+    "customer_id": 6,
+    "amount": 2200,
+    "method": "check",
+    "paidAt": "2026-04-10",
+    "createdAt": "2026-04-10T12:00:00Z"
+  }
+]

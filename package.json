@@ -15,6 +15,8 @@
     "packages/ginny",
     "packages/resources",
     "packages/cletus",
+    "packages/query",
+    "packages/context",
     "packages/test-integration"
   ],
   "scripts": {

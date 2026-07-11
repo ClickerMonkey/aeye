@@ -1,8 +1,8 @@
 import Handlebars from 'handlebars';
 import { ZodType } from 'zod';
-import { Fn, resolveFn } from './common';
-import { FormatDescriptor, getDescriptorById, strictify } from './schema';
-import { Component, ComponentCompatible, Context, OptionalParams, ToolDefinition, Tuple } from './types';
+import { Fn, repairStringEncodedFields, resolveFn } from './common';
+import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
+import { Component, ComponentCompatible, Context, OptionalParams, SchemaDelivery, ToolDefinition, Tuple } from './types';
     
 /**
  * Configuration for creating a Tool component.
@@ -22,6 +22,7 @@ export interface ToolInput<
   TParams extends object,
   TOutput,
   TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>,
+  TDecoded extends unknown = TParams,
 > {
   /** The unique name of the tool */
   name: TName;
@@ -56,12 +57,50 @@ export interface ToolInput<
    * explicitly when strict is non-negotiable.
    */
   strict?: boolean | number;
+  /**
+   * Schema-delivery policy for this tool's parameter schema. Tri-state,
+   * default `'auto'`. Mirrors `PromptInput.schemaDelivery` / `SchemaDelivery`:
+   * `'auto'` sends the schema as structured output when the selected model's
+   * dialect can express it and otherwise falls back to prompt text;
+   * `'structured'` always sends it structured; `'prompt'` always delivers it
+   * as prompt text.
+   */
+  schemaDelivery?: SchemaDelivery;
   /** References to other components (tools, prompts, agents) that this tool utilizes */
   refs?: TRefs;
-  /** The function that implements the tool's behavior */
-  call: (input: TParams, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
-  /** Optional post-validation hook that runs after Zod parsing succeeds. Can throw to trigger re-prompting. */
-  validate?: (input: TParams, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  /** The function that implements the tool's behavior. Receives the DECODED
+   * input: when a custom `parse` is supplied its RETURN type drives `TDecoded`
+   * (e.g. a built class instance); otherwise `TDecoded` defaults to the wire
+   * `TParams` (the Zod-inferred shape). */
+  call: (input: TDecoded, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
+  /**
+   * Optional custom parser that REPLACES Zod validation entirely.
+   *
+   * By default `Tool.parse` runs `JSON.parse` → Zod schema → `validate`.
+   * When `parse` is supplied it takes Zod's place: the pipeline becomes
+   * `JSON.parse` → `parse` → `validate`, and the Zod schema (plus its
+   * string-encoded-field repair fallback) is SKIPPED.
+   *
+   * The function receives the raw `JSON.parse`-d value and fully owns
+   * turning it into the typed `TParams`. It returns EITHER:
+   * - the typed value `TParams` on success, or
+   * - an `Error` to signal validation failure (equivalently, it may
+   *   `throw` that error) — parsing short-circuits and the error flows
+   *   through the normal parse error channel.
+   *
+   * This lets a caller (e.g. `@aeye/query`'s expr/query parser, which
+   * already produces a typed AST plus `Problems`/`Code` diagnostics)
+   * return concise, compiler-style errors with source underlines
+   * INSTEAD of Zod's harder-to-follow messages. The returned/thrown
+   * `Error` can be a rich subclass carrying structured diagnostics
+   * (its `message` is what the model-facing error channel surfaces).
+   *
+   * Absent ⇒ unchanged behavior (Zod path). The `schema` field is still
+   * required and continues to be used for `compile()` / model wire format.
+   */
+  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
+  /** Optional post-validation hook that runs after parsing succeeds (Zod or custom `parse`). Receives the DECODED value (`TDecoded`). Can throw to trigger re-prompting. */
+  validate?: (input: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   /**
    * Optional hard cap on the raw arguments STRING length. When set,
    * `Tool.parse` rejects the call BEFORE attempting `JSON.parse` if
@@ -82,10 +121,11 @@ export interface ToolInput<
   /** Metadata about the tool to be passed during execution/streaming. Typically contains requirements, configuration, etc. */
   metadata?: TMetadata;
   /** A function/promise that returns metadata about the tool to be passed during execution/streaming. */
-  metadataFn?: (input: TParams, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
+  metadataFn?: (input: TDecoded, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
   /** Optional way to explicitly declare the types used in this component */
   types?: {
     params?: TParams;
+    decoded?: TDecoded;
     output?: TOutput;
     context?: TContext;
     metadata?: TMetadata;
@@ -95,12 +135,12 @@ export interface ToolInput<
 /**
  * A type representing any tool.
  */
-export type AnyTool = Tool<any, any, any, any, any, any>;
+export type AnyTool = Tool<any, any, any, any, any, any, any>;
 
 /**
  * A type representing a tool compatible with the given context and metadata.
  */
-export type ToolCompatible<TContext, TMetadata> = Tool<TContext, TMetadata, any, any, any, any>;
+export type ToolCompatible<TContext, TMetadata> = Tool<TContext, TMetadata, any, any, any, any, any>;
 
 /**
  * Error class used to indicate that a prompt should be interrupted and control returned to the caller.
@@ -173,7 +213,8 @@ export class Tool<
   TParams extends object = {},
   TOutput = string,
   TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],
-> implements Component<TContext, TMetadata, TName, TParams, TOutput, TRefs> {
+  TDecoded extends unknown = TParams,
+> implements Component<TContext, TMetadata, TName, TDecoded, TOutput, TRefs> {
 
   /**
    * Compiles the instructions template with or without input variables.
@@ -192,7 +233,7 @@ export class Tool<
    * @param input - The tool input configuration.
    */
   constructor(
-    public input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs>,
+    public input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>,
     private instructions = input.instructions ? Tool.compileInstructions(input.instructions, !!input.input) : undefined,
     // Schema stays raw. The provider applies the matching strictify lazily
     // once it knows the chosen model's strict-tools format (descriptor).
@@ -254,7 +295,7 @@ export class Tool<
     schema?: ZodType<TParams>,
     descriptor?: FormatDescriptor | string,
     onRepairAttempt?: (info: { fields: ReadonlyArray<string>; success: boolean }) => void,
-  ): Promise<TParams> {
+  ): Promise<TDecoded> {
     // Hard cap on raw args length, applied BEFORE JSON.parse. Some
     // provider wire dialects (Claude Sonnet 4.5 via OpenRouter,
     // observed) double-encode large tool args AND corrupt the inner
@@ -279,14 +320,51 @@ export class Tool<
       throw new Error(`Not able to build a schema to parse arguments for ${this.input.name}`);
     }
 
+    // The PRE-strictify conceptual schema — passed to `decodeWire` below,
+    // which strictifies internally. Using the already-strictified
+    // `resolvedSchema` would double-wrap the wire transforms.
+    const baseSchema = resolvedSchema;
+
     // Apply the strictify rewrite that matches the provider's chosen wire
     // dialect. The cache makes repeated calls O(1).
+    let fd: FormatDescriptor | undefined;
     if (descriptor) {
-      const fd = typeof descriptor === 'string' ? getDescriptorById(descriptor) : descriptor;
+      fd = typeof descriptor === 'string' ? getDescriptorById(descriptor) : descriptor;
       resolvedSchema = strictify(resolvedSchema, fd);
     }
 
     const raw = JSON.parse(args);
+
+    // Custom parser REPLACES Zod entirely. When supplied, the pipeline is
+    // JSON.parse → decodeWire → parse → validate; Zod's own validation (and
+    // its string-encoded-field repair fallback) is skipped. `decodeWire`
+    // DECODEs the model's wire shape back to the CONCEPTUAL value (symmetric
+    // with strictify's encode) so the custom parser stays provider-agnostic —
+    // it never sees array-of-pairs records, numeric-key tuples, or
+    // null-for-optional. The parser returns the DECODED value (`TDecoded`,
+    // inferred from `parse`'s return type — e.g. a built class instance) on
+    // success or an Error (or throws one) to short-circuit with a rich,
+    // caller-supplied diagnostic (e.g. @aeye/query's Problems/Code output)
+    // instead of Zod's harder-to-follow message. Absent ⇒ unchanged and the
+    // Zod-inferred wire value flows through as the decoded value.
+    if (this.input.parse) {
+      // Decode only when a descriptor is present; otherwise the wire shape IS
+      // the conceptual shape and `raw` passes through untouched.
+      const decoded = fd ? decodeWire(baseSchema, raw, fd) : raw;
+      const result = await this.input.parse(decoded, ctx);
+      if (result instanceof Error) {
+        throw result;
+      }
+      // Post-validation hook runs on the decoded value.
+      if (this.input.validate) {
+        await this.input.validate(result, ctx);
+      }
+      return result;
+    }
+
+    // No custom parser: Zod validates the wire shape. With no `parse`,
+    // `TDecoded` defaults to (and equals) the wire `TParams`, so the
+    // Zod-validated wire value IS the decoded value.
     let parsed: TParams;
     try {
       parsed = await resolvedSchema.parseAsync(raw);
@@ -325,12 +403,16 @@ export class Tool<
       }
     }
 
-    // Run post-validation hook if provided
+    // With no custom `parse`, `TDecoded === TParams`, so the wire value is
+    // the decoded value; `decoded` re-binds it to the `TDecoded` view.
+    const decoded: TDecoded = parsed as TParams & TDecoded;
+
+    // Run post-validation hook if provided (on the decoded value).
     if (this.input.validate) {
-      await this.input.validate(parsed, ctx);
+      await this.input.validate(decoded, ctx);
     }
 
-    return parsed;
+    return decoded;
   }
 
   /**
@@ -389,10 +471,10 @@ export class Tool<
     TRuntimeContext extends TContext, 
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(...[inputMaybe, contextMaybe]: OptionalParams<[TParams, TCoreContext]>): TOutput {
-    const input = (inputMaybe || {}) as TParams;
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TDecoded, TCoreContext]>): TOutput {
+    const input = (inputMaybe || {}) as TDecoded;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
-    const tool = this as Component<TContext, TMetadata, TName, TParams, TOutput, TRefs>;
+    const tool = this as Component<TContext, TMetadata, TName, TDecoded, TOutput, TRefs>;
 
     return ctx.runner
       ? ctx.runner(tool, input, ctx, (innerCtx) => this.input.call(input, this.refs, innerCtx))
@@ -441,18 +523,18 @@ export class Tool<
     TRuntimeContext extends TContext,
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(input?: TParams, ctx?: TCoreContext): Promise<TMetadata>;
+  >(input?: TDecoded, ctx?: TCoreContext): Promise<TMetadata>;
   metadata<
     TRuntimeContext extends TContext,
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(input?: TParams, ctx?: TCoreContext): TMetadata | Promise<TMetadata> {
+  >(input?: TDecoded, ctx?: TCoreContext): TMetadata | Promise<TMetadata> {
     // If both input and context are not specified, just return static metadata
     if (input === undefined && ctx === undefined) {
       return (this.input.metadata || {}) as TMetadata;
     }
 
-    const actualInput = (input || {}) as TParams;
+    const actualInput = (input || {}) as TDecoded;
     const actualCtx = (ctx || {}) as Context<TContext, TMetadata>;
 
     return this.metadataFn(actualInput, actualCtx).then(dynamicMetadata => ({
@@ -461,48 +543,4 @@ export class Tool<
     } as TMetadata));
   }
 
-}
-
-/**
- * Best-effort recovery for one specific model misbehavior: a tool-call
- * args object whose TOP-LEVEL field values are JSON-encoded strings
- * instead of nested objects/arrays. Walks the immediate fields of `raw`
- * and, for each string-valued field that starts with `{` or `[` (after
- * trimming leading whitespace), tries `JSON.parse`. On success the
- * field is swapped for the parsed value. Returns the repaired clone +
- * the list of swapped field names when at least one swap happened;
- * `undefined` when nothing looked recoverable (caller should re-throw
- * the original error in that case).
- *
- * Intentionally top-level only — descending deeper risks "repairing"
- * legitimate JSON-shaped strings inside content fields. The fields we
- * see this on (Claude / Anthropic tool args) are always at the top
- * level of the args object.
- */
-function repairStringEncodedFields(
-  raw: unknown,
-):
-  | { value: Record<string, unknown>; fields: string[]; attempted: string[] }
-  | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const src = raw as Record<string, unknown>;
-  const repaired: Record<string, unknown> = { ...src };
-  const fields: string[] = [];
-  const attempted: string[] = [];
-  for (const [key, value] of Object.entries(src)) {
-    if (typeof value !== 'string') continue;
-    const head = value.trimStart()[0];
-    if (head !== '{' && head !== '[') continue;
-    // Field LOOKS string-encoded — track it whether parse succeeds or
-    // not. Failed inner-parse is its own diagnostic signal (model
-    // double-encoded AND the inner content is malformed), distinct
-    // from "no encoded fields seen at all".
-    attempted.push(key);
-    try {
-      repaired[key] = JSON.parse(value);
-      fields.push(key);
-    } catch { /* malformed inner JSON — keep tracking the attempt */ }
-  }
-  if (attempted.length === 0) return undefined;
-  return { value: repaired, fields, attempted };
 }

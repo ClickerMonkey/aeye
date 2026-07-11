@@ -4,6 +4,7 @@ export type { Node, CodeOptions, SchemaOptions } from './node';
 export { buildSchemas } from './schemas';
 
 // Core
+export { didYouMean, nearest, editDistance, suggestionBudget } from './aids';
 export * from './problem';
 export { Effects, combine as combineEffects, has as hasEffects, formatEffects } from './effects';
 export {

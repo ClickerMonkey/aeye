@@ -1,0 +1,128 @@
+[
+  {
+    "id": 1,
+    "product_id": 1,
+    "currency_code": "USD",
+    "price": 1200,
+    "minQty": 1
+  },
+  {
+    "id": 2,
+    "product_id": 1,
+    "currency_code": "EUR",
+    "price": 1296,
+    "minQty": 1
+  },
+  {
+    "id": 3,
+    "product_id": 1,
+    "currency_code": "GBP",
+    "price": 1524,
+    "minQty": 1
+  },
+  {
+    "id": 4,
+    "product_id": 2,
+    "currency_code": "USD",
+    "price": 800,
+    "minQty": 1
+  },
+  {
+    "id": 5,
+    "product_id": 2,
+    "currency_code": "EUR",
+    "price": 864,
+    "minQty": 1
+  },
+  {
+    "id": 6,
+    "product_id": 3,
+    "currency_code": "USD",
+    "price": 350,
+    "minQty": 1
+  },
+  {
+    "id": 7,
+    "product_id": 4,
+    "currency_code": "USD",
+    "price": 600,
+    "minQty": 1
+  },
+  {
+    "id": 8,
+    "product_id": 4,
+    "currency_code": "EUR",
+    "price": 648,
+    "minQty": 1
+  },
+  {
+    "id": 9,
+    "product_id": 5,
+    "currency_code": "USD",
+    "price": 8,
+    "minQty": 1
+  },
+  {
+    "id": 10,
+    "product_id": 6,
+    "currency_code": "USD",
+    "price": 25,
+    "minQty": 1
+  },
+  {
+    "id": 11,
+    "product_id": 7,
+    "currency_code": "USD",
+    "price": 1500,
+    "minQty": 1
+  },
+  {
+    "id": 12,
+    "product_id": 8,
+    "currency_code": "USD",
+    "price": 300,
+    "minQty": 1
+  },
+  {
+    "id": 13,
+    "product_id": 8,
+    "currency_code": "EUR",
+    "price": 324,
+    "minQty": 1
+  },
+  {
+    "id": 14,
+    "product_id": 9,
+    "currency_code": "USD",
+    "price": 900,
+    "minQty": 1
+  },
+  {
+    "id": 15,
+    "product_id": 9,
+    "currency_code": "EUR",
+    "price": 972,
+    "minQty": 1
+  },
+  {
+    "id": 16,
+    "product_id": 10,
+    "currency_code": "USD",
+    "price": 500,
+    "minQty": 1
+  },
+  {
+    "id": 17,
+    "product_id": 11,
+    "currency_code": "USD",
+    "price": 220,
+    "minQty": 1
+  },
+  {
+    "id": 18,
+    "product_id": 12,
+    "currency_code": "USD",
+    "price": 45,
+    "minQty": 1
+  }
+]

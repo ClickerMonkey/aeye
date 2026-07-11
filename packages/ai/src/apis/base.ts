@@ -222,10 +222,14 @@ export abstract class BaseAPI<
         throw new Error(this.getNoModelFoundErrorForStreaming());
       }
 
-      // Inject selected model into context for provider access
+      // Inject the FULL selected ModelInfo (symmetric with the non-streaming
+      // get() path ~line 158). Previously streaming passed only `.id`, so
+      // `pickModelInfo` couldn't resolve capabilities and structured-output
+      // strict mode was silently dropped for streaming. Opt out of strict per
+      // request via the component's `strict` policy, not by starving this.
       fullCtx.metadata = {
         ...fullCtx.metadata,
-        model: selected.model.id,
+        model: selected.model,
       } as typeof fullCtx.metadata;
 
       // Run onModelSelected hook

@@ -1,0 +1,82 @@
+[
+  {
+    "id": 1,
+    "vendor_id": 1,
+    "warehouse_id": 1,
+    "status": "received",
+    "orderedAt": "2026-01-08",
+    "total": 12000
+  },
+  {
+    "id": 2,
+    "vendor_id": 2,
+    "warehouse_id": 3,
+    "status": "received",
+    "orderedAt": "2026-01-20",
+    "total": 8000
+  },
+  {
+    "id": 3,
+    "vendor_id": 3,
+    "warehouse_id": 1,
+    "status": "sent",
+    "orderedAt": "2026-02-02",
+    "total": 5000
+  },
+  {
+    "id": 4,
+    "vendor_id": 1,
+    "warehouse_id": 2,
+    "status": "received",
+    "orderedAt": "2026-02-18",
+    "total": 15000
+  },
+  {
+    "id": 5,
+    "vendor_id": 4,
+    "warehouse_id": 2,
+    "status": "draft",
+    "orderedAt": "2026-03-01",
+    "total": 3000
+  },
+  {
+    "id": 6,
+    "vendor_id": 6,
+    "warehouse_id": 2,
+    "status": "sent",
+    "orderedAt": "2026-03-12",
+    "total": 9500
+  },
+  {
+    "id": 7,
+    "vendor_id": 2,
+    "warehouse_id": 3,
+    "status": "received",
+    "orderedAt": "2026-03-22",
+    "total": 6200
+  },
+  {
+    "id": 8,
+    "vendor_id": 5,
+    "warehouse_id": 4,
+    "status": "cancelled",
+    "orderedAt": "2026-02-27",
+    "total": 2100
+  },
+  {
+    "id": 9,
+    "vendor_id": 3,
+    "warehouse_id": 1,
+    "status": "received",
+    "orderedAt": "2026-03-29",
+    "total": 7300
+  },
+  {
+    "id": 10,
+    "vendor_id": 6,
+    "warehouse_id": 2,
+    "status": "sent",
+    "orderedAt": "2026-03-31",
+    "total": 4400
+  }
+]
