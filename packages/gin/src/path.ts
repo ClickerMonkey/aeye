@@ -50,6 +50,32 @@ function isAutoCallable(propType: Type, scope?: TypeScope): boolean {
 }
 
 /**
+ * Report each REQUIRED parameter of `callable` (a non-optional field on its
+ * args obj) that `provided` omits. A method called without its required args
+ * would otherwise bind them to nothing and silently produce a wrong value
+ * (`n.lt` with no `other` reads as a `false` bool; `text.replace` with no
+ * search/replacement returns the string unchanged) — a wrong answer the retry
+ * loop never sees because nothing errors. Surfacing it as a validation error
+ * lets the loop re-prompt with a concrete fix.
+ */
+function reportMissingArgs(
+  callable: Call | undefined,
+  provided: Record<string, Expr>,
+  p: Problems,
+  at: (string | number)[],
+): void {
+  if (!callable) return;
+  const args = callable.args;
+  if (!(args instanceof ObjType)) return;
+  for (const [name, prop] of Object.entries(args.fields)) {
+    if (prop.type.isOptional()) continue;
+    if (!(name in provided)) {
+      p.at(at, () => p.error('call.missing-arg', `missing required argument '${name}'`));
+    }
+  }
+}
+
+/**
  * Path — a sequence of steps against a starting value. The third citizen
  * of the gin language alongside Type and Expr. Classes:
  *   PathStep (abstract) ← PropStep, IndexStep, CallStep
@@ -619,6 +645,7 @@ export class Path {
           }
           const callScope: TypeScope = next.callSiteScope(propV.type);
           const callable: Call | undefined = propV.type.call(callScope);
+          reportMissingArgs(callable, next.args, p, ['path', i + 1]);
           if (mode === 'set' && i + 1 === this.steps.length - 1) {
             if (!callable?.set) {
               p.at(['path', i + 1], () => p.error('set.call.no-set', `method '${step.prop}' has no call.set`));
@@ -662,6 +689,18 @@ export class Path {
               `prop '${step.prop}' is computed (read-only); cannot assign to it`));
           }
         }
+        // A method (callable with required args) read WITHOUT a following
+        // `{args:…}` call step silently degrades at runtime — its params bind
+        // to nothing. Require the call so the retry loop can catch it. (Set
+        // mode may legitimately route a bare method through its `call.set`.)
+        const bareCall: Call | undefined = mode === 'get' ? propV.type.call() : undefined;
+        if (bareCall && !isAutoCallable(propV.type)) {
+          p.at(['path', i], () => p.error('call.uncalled',
+            `method '${step.prop}' needs arguments — add an {args:{…}} step to call it`));
+          current = bareCall.returns ?? engine.registry.any();
+          i++;
+          continue;
+        }
         current = propV.type;
         i++;
         continue;
@@ -689,6 +728,7 @@ export class Path {
         if (current) {
           const callScope: TypeScope = step.callSiteScope(current);
           const callable: Call | undefined = current.call(callScope);
+          reportMissingArgs(callable, step.args, p, ['path', i]);
           if (mode === 'set' && isLast) {
             if (!callable?.set) {
               p.at(['path', i], () => p.error('set.call.no-set', `call on type '${current?.name ?? '?'}' has no call.set`));
