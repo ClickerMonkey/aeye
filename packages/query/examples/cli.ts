@@ -305,7 +305,8 @@ interface QueryAsker {
     schema: z.ZodTypeAny,
     engine: QueryEngine,
     types: readonly Type[],
-  ): Promise<unknown>;
+    options: BuildQueryToolOptions,
+  ): Promise<{ query: Query | null; report: string }>;
 }
 
 /** Build the AI instance + a `QueryAsker` over it. */
@@ -346,18 +347,52 @@ async function createAsker(
     i.engine
       ? describeEngine(i.engine, { types: i.types, functions: CLI_FUNCTIONS, maxExamples: 2 })
       : '';
+  const errRef: { last: QueryToolError | null } = { last: null };
+  const parseRef: { engine: QueryEngine | null; options: BuildQueryToolOptions | null } = {
+    engine: null,
+    options: null,
+  };
+  const takeLastError = (): QueryToolError | null => errRef.last;
   const prompt = ai.prompt({
     name: 'query_build',
     description: 'Build a structured query from a natural-language request',
     content: '{{instructions}}\n\n{{userPrompt}}',
     input: (i: PromptInput) => ({ instructions: promptInstructions(i), userPrompt: i.prompt }),
     schema: (i: PromptInput | undefined) => i?.schema ?? false,
+    outputRetries: 5,
+    strict: false,
+    schemaDelivery: 'auto',
+    parse: (raw: unknown): Query | QueryToolError => {
+      const engine = parseRef.engine;
+      const options = parseRef.options;
+      if (!engine || !options) throw new Error('query parser context is unset');
+      const result = parseQueryTool(engine, raw, options);
+      if (result instanceof QueryToolError) errRef.last = result;
+      return result;
+    },
     metadata,
   });
 
   return {
-    ask: (content, schema, engine, types) =>
-      prompt.get('result', { prompt: content, schema, engine, types }),
+    ask: async (content, schema, engine, types, options) => {
+      errRef.last = null;
+      parseRef.engine = engine;
+      parseRef.options = options;
+      try {
+        const query = await prompt.get('result', { prompt: content, schema, engine, types });
+        return { query, report: '' };
+      } catch (err) {
+        return {
+          query: null,
+          report:
+            takeLastError()?.report ??
+            `The model did not return a valid structured query: ${err instanceof Error ? err.message : String(err)}`,
+        };
+      } finally {
+        parseRef.engine = null;
+        parseRef.options = null;
+      }
+    },
   };
 }
 
@@ -391,50 +426,22 @@ function pick(row: SourceRecord, fields: string[]): Record<string, unknown> {
 
 /**
  * Build the per-request USER text: the schema-shape reminder + active
- * constraints, the user request, and (on a repair round) the prior attempt's
- * formatted validation errors. The engine's full capability summary
+ * constraints and the user request. The engine's full capability summary
  * (`describeEngine` + example JSON) is supplied SEPARATELY by the prompt's
  * `{{instructions}}` (see `createAsker`), so it is not repeated here.
  */
-function buildContent(schemaNote: string, request: string, repairReport?: string): string {
+function buildContent(schemaNote: string, request: string): string {
   return [
     schemaNote,
     '',
     'Return ONLY the structured query as the `query` field of the schema.',
     '',
     `User request: ${request}`,
-    repairReport
-      ? `\nYour previous query failed validation:\n${repairReport}\nReturn a corrected query that fixes these problems.`
-      : '',
   ].join('\n');
 }
 
-/** Pull the `query` field out of a model response (loosely-typed). */
-function extractQueryDef(modelOutput: unknown): QueryDef | undefined {
-  if (modelOutput && typeof modelOutput === 'object' && 'query' in modelOutput) {
-    return (modelOutput as { query: QueryDef }).query;
-  }
-  return undefined;
-}
-
 /**
- * Parse a query def through the STANDALONE `parseQueryTool` WITHOUT building a
- * Tool: on failure it returns a `QueryToolError` (its `.report` is the
- * formatted report), which we surface as `{ query: null, report }`. `options`
- * are the same parse options used to render the model-facing schema.
- */
-function tryBuild(
-  engine: QueryEngine,
-  queryDef: QueryDef,
-  options: BuildQueryToolOptions,
-): { query: Query | null; report: string } {
-  const result = parseQueryTool(engine, { query: queryDef }, options);
-  if (result instanceof QueryToolError) return { query: null, report: result.report };
-  return { query: result, report: '' };
-}
-
-/**
- * One full request: narrow Types → ask the model → build → (repair once) →
+ * One full request: narrow Types → ask the model (parser-backed retries) →
  * run. Prints the result or the problems. Never throws — keeps the REPL alive.
  */
 async function handleRequest(
@@ -467,34 +474,21 @@ async function handleRequest(
   const schema = querySchema(engine, options);
   // The engine's full capability summary rides the prompt CONTEXT (see
   // `createAsker`); the per-request text carries only the schema-shape reminder
-  // + the active depth constraints, the user request, and any repair report.
+  // + the active depth constraints and the user request.
   const note = depthInstructions(engine, options);
   const schemaNote = note
     ? `Emit the query as a structured JSON object matching the schema.\nSchema constraints:\n${note}`
     : 'Emit the query as a structured JSON object matching the schema.';
 
-  // ── First attempt ────────────────────────────────────────────────────────
-  let modelOutput = await asker.ask(buildContent(schemaNote, request), schema, engine, selected);
-  let queryDef = extractQueryDef(modelOutput);
-  if (!queryDef) {
-    console.log('The model did not return a structured query. Try rephrasing.');
-    return;
-  }
-  let built = tryBuild(engine, queryDef, options);
-
-  // ── One repair round on validation problems ───────────────────────────────
-  if (!built.query) {
-    console.log('\nFirst attempt had problems; asking the model to repair…');
-    console.log(built.report);
-    modelOutput = await asker.ask(
-      buildContent(schemaNote, request, built.report),
-      schema,
-      engine,
-      selected,
-    );
-    queryDef = extractQueryDef(modelOutput);
-    if (queryDef) built = tryBuild(engine, queryDef, options);
-  }
+  // The prompt validates with `parseQueryTool` and re-prompts through its own
+  // `outputRetries` with the parser's report — no manual repair loop.
+  const built = await asker.ask(
+    buildContent(schemaNote, request),
+    schema,
+    engine,
+    selected,
+    options,
+  );
 
   if (!built.query) {
     console.log('\nStill could not build a valid query:');
@@ -503,7 +497,7 @@ async function handleRequest(
   }
 
   // ── Run + print ────────────────────────────────────────────────────────────
-  if (showSql && queryDef) printSql(engine, queryDef);
+  if (showSql) printSql(engine, built.query.toJSON());
   const result = await engine.run(built.query);
   printResult(result);
 }
