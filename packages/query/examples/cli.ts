@@ -347,12 +347,11 @@ async function createAsker(
     i.engine
       ? describeEngine(i.engine, { types: i.types, functions: CLI_FUNCTIONS, maxExamples: 2 })
       : '';
-  const errRef: { last: QueryToolError | null } = { last: null };
-  const parseRef: { engine: QueryEngine | null; options: BuildQueryToolOptions | null } = {
+  const lastErrorRef: { last: QueryToolError | null } = { last: null };
+  const parserContextRef: { engine: QueryEngine | null; options: BuildQueryToolOptions | null } = {
     engine: null,
     options: null,
   };
-  const takeLastError = (): QueryToolError | null => errRef.last;
   const prompt = ai.prompt({
     name: 'query_build',
     description: 'Build a structured query from a natural-language request',
@@ -363,11 +362,13 @@ async function createAsker(
     strict: false,
     schemaDelivery: 'auto',
     parse: (raw: unknown): Query | QueryToolError => {
-      const engine = parseRef.engine;
-      const options = parseRef.options;
-      if (!engine || !options) throw new Error('query parser context is unset');
+      const engine = parserContextRef.engine;
+      const options = parserContextRef.options;
+      if (!engine || !options) {
+        throw new Error('Parser context (engine and options) must be set before parsing');
+      }
       const result = parseQueryTool(engine, raw, options);
-      if (result instanceof QueryToolError) errRef.last = result;
+      if (result instanceof QueryToolError) lastErrorRef.last = result;
       return result;
     },
     metadata,
@@ -375,9 +376,9 @@ async function createAsker(
 
   return {
     ask: async (content, schema, engine, types, options) => {
-      errRef.last = null;
-      parseRef.engine = engine;
-      parseRef.options = options;
+      lastErrorRef.last = null;
+      parserContextRef.engine = engine;
+      parserContextRef.options = options;
       try {
         const query = await prompt.get('result', { prompt: content, schema, engine, types });
         return { query, report: '' };
@@ -385,12 +386,12 @@ async function createAsker(
         return {
           query: null,
           report:
-            takeLastError()?.report ??
+            lastErrorRef.last?.report ??
             `The model did not return a valid structured query: ${err instanceof Error ? err.message : String(err)}`,
         };
       } finally {
-        parseRef.engine = null;
-        parseRef.options = null;
+        parserContextRef.engine = null;
+        parserContextRef.options = null;
       }
     },
   };
