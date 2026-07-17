@@ -17,6 +17,7 @@ import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
+import { relationCompare, evaluateRelationCompare } from './_relation-compare';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -248,6 +249,17 @@ export class ComparisonExpr extends BoolExpr {
     row: SourceRow,
     group?: readonly SourceRow[],
   ): Promise<boolean | undefined> {
+    // A belongs-to relation operand (`assignedUser = { id }` / `= createdUser`)
+    // lowers to a per-key-column tuple comparison. Only `=` / `<>` compare a
+    // relation; other ops are rejected in `validateWalk`.
+    if (this.op === '=' || this.op === '<>') {
+      const typeOf = (s: string): ReturnType<RuntimeContext['sourceType']> => ctx.sourceType(s) ?? ctx.engine.type(s);
+      const leftRel = relationCompare(this.left, ctx.engine, typeOf);
+      const rightRel = relationCompare(this.right, ctx.engine, typeOf);
+      if (leftRel || rightRel) {
+        return evaluateRelationCompare(this.op, this.left, this.right, leftRel, rightRel, row, ctx, group);
+      }
+    }
     const l = await this.left.evaluate(ctx, row, group);
     const r = await this.right.evaluate(ctx, row, group);
     // SQL three-valued logic: a comparison with a NULL operand is UNKNOWN.
