@@ -49,6 +49,14 @@ export interface TypeSpec {
   deletable?: boolean;
 }
 
+/** The `type.no-identity` message shared by `identityField` / `primaryKey`. */
+function noKeyMessage(typeName: string): string {
+  return (
+    `Type '${typeName}' needs a primary key (a unique index or an 'id' field) ` +
+    `to participate in relations.`
+  );
+}
+
 /**
  * A type-like entity: a named collection of {@link Field}s plus {@link Index}es
  * and cardinality estimates (`count` rows, `bytes` per row) that drive cost.
@@ -123,6 +131,33 @@ export class Type implements Node {
    * a clear error. Relations resolve their keys through this.
    */
   identityField(): Field {
+    const single = this.singleIdentity();
+    if (single) return single;
+    throw new QueryTypeError({ path: [], code: 'type.no-identity', severity: 'error', message: noKeyMessage(this.name) });
+  }
+
+  /**
+   * The ordered PRIMARY KEY fields of this Type — generalizing {@link
+   * identityField} to COMPOSITE keys: the single identity field (a single-part
+   * unique index's field, else `id`) when present, else the fields of the first
+   * multi-part UNIQUE index (last part `count === 1`) whose every part is a
+   * field-ref. Relations map their key columns to these; a relation VALUE is
+   * keyed by these field names. Throws when none exists.
+   */
+  primaryKey(): Field[] {
+    const single = this.singleIdentity();
+    if (single) return [single];
+    for (const idx of this.indexes) {
+      const last = idx.parts[idx.parts.length - 1];
+      if (!last || last.count !== 1) continue; // not a unique index
+      const fields = idx.parts.map((p) => (p.expr.kind === 'field-ref' ? this.field(p.expr.field) : undefined));
+      if (fields.every((f): f is Field => f !== undefined)) return fields;
+    }
+    throw new QueryTypeError({ path: [], code: 'type.no-identity', severity: 'error', message: noKeyMessage(this.name) });
+  }
+
+  /** The single identity field: the first single-part unique index's field, else `id`, else undefined. */
+  private singleIdentity(): Field | undefined {
     for (const idx of this.indexes) {
       if (idx.parts.length !== 1) continue;
       const part = idx.parts[0]!;
@@ -131,14 +166,7 @@ export class Type implements Node {
       const field = this.field(part.expr.field);
       if (field) return field;
     }
-    const byName = this.field('id');
-    if (byName) return byName;
-    throw new QueryTypeError({
-      path: [], code: 'type.no-identity', severity: 'error',
-      message:
-        `Type '${this.name}' needs an identity field (a unique single-field index ` +
-        `or an 'id' field) to participate in relations.`,
-    });
+    return this.field('id');
   }
 
   /**
