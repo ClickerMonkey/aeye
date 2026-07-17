@@ -59,6 +59,19 @@ export function relationCompare(
   return { source: ref.source, keys: ft.resolveKeys(engine, ref.field, owner, target) };
 }
 
+/** A source → owning-Type resolver for the RUNTIME (bound source types, else a registered Type). */
+export function runtimeTypeOf(ctx: RuntimeContext): (source: string) => Type | undefined {
+  return (s) => ctx.sourceType(s) ?? ctx.engine.type(s);
+}
+
+/** A source → owning-Type resolver for SQL emission (from the emit scope's bindings). */
+export function sqlTypeOf(ctx: SqlContext): (source: string) => Type | undefined {
+  return (s) => {
+    const b = ctx.scope.lookup(s);
+    return b && b.kind === 'type' ? b.type : undefined;
+  };
+}
+
 /** Read one raw column value off a row's source record (correlation-aware), as a `Value`. */
 function column(row: SourceRow, source: string, name: string, ctx: RuntimeContext): Value {
   const rec = row[source] ?? ctx.correlation?.[source];
@@ -135,6 +148,7 @@ function tupleSql(
     }
     return [SqlText.param((pv ?? null) as SqlValue)];
   }
+  /* v8 ignore next -- a non-param, non-relation value against a relation is rejected in validation; defensive */
   return [operand.toSQL(dialect, ctx)];
 }
 

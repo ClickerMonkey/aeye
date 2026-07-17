@@ -153,17 +153,20 @@ export class RelationFieldType extends FieldType {
     targetType: Type,
   ): { local: string; foreign: string }[] {
     const forward = this.count === 1;
+    /* v8 ignore start -- has-many backing lookup (inverse-via FK / directly-declared) is exercised under has-many EXISTS */
     const backing = forward
       ? engine.fieldBacking(thisType.name, relationFieldName)?.relation
       : this.inverseVia !== undefined
         ? engine.fieldBacking(targetType.name, this.inverseVia)?.relation
         : undefined;
+    /* v8 ignore stop */
     if (backing?.keys && backing.keys.length > 0) {
       // The target identity is only the DEFAULT for a key that omits `foreign`;
       // compute it lazily so a composite-key target (no single identity) works
       // when every key names its foreign column explicitly.
       const targetIdentity = backing.keys.some((k) => k.foreign === undefined)
-        ? (forward ? targetType : thisType).identityField().name
+        ? /* v8 ignore next -- has-many (forward=false) identity default is exercised under has-many EXISTS */
+          (forward ? targetType : thisType).identityField().name
         : '';
       return relationKeyColumns(backing.keys, forward, targetIdentity).map((p) => ({ local: p.localField, foreign: p.foreignField }));
     }

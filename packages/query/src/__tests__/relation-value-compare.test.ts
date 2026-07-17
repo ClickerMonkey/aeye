@@ -157,6 +157,87 @@ describe('relation-value-compare: composite key', () => {
   });
 });
 
+describe('relation-value-compare: coverage / edges', () => {
+  it('works with the relation on the RIGHT of the comparison', async () => {
+    const fx = runtimeFixture();
+    const def: QueryDef = {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+      from: { kind: 'type', type: 'order' },
+      where: [{ kind: 'comparison', op: '=', left: { kind: 'param', name: 'u' }, right: { kind: 'field-ref', source: 'order', field: 'userId' } }],
+    } as QueryDef;
+    const rows = await fx.engine.run(def, { params: { u: { id: 1 } } });
+    expect(rows.rows.map((r) => r.id).sort()).toEqual([10, 11]);
+    // SQL side too.
+    expect(fx.engine.toSQL(def, 'postgres', { params: { u: { id: 1 } } }).params).toEqual([1]);
+  });
+
+  it('binds NULL for a relation param with no supplied value (SQL)', () => {
+    expect(runtimeFixture().engine.toSQL(userIdCmp('='), 'postgres', {}).params).toEqual([null]);
+  });
+
+  it('Type.primaryKey() returns single or composite key fields, else throws', () => {
+    const fx = runtimeFixture();
+    expect(fx.engine.type('user')!.primaryKey().map((f) => f.name)).toEqual(['id']);
+    expect(compositeEngine().type('region')!.primaryKey().map((f) => f.name)).toEqual(['country', 'code']);
+    const reg = createRegistry();
+    const keyless = reg.parseType({ name: 'keyless', fields: [{ name: 'label', type: { kind: 'text' } }], count: 1, bytes: 8 } as TypeDef);
+    expect(() => keyless.primaryKey()).toThrow(/primary key/);
+    // A NON-unique multi-part index (last part count > 1) is skipped ⇒ still no key.
+    const nonUnique = reg.parseType({ name: 'nu', fields: [{ name: 'a', type: { kind: 'text' } }, { name: 'b', type: { kind: 'text' } }], indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'nu', field: 'a' }, count: 5 }, { expr: { kind: 'field-ref', source: 'nu', field: 'b' }, count: 5 }] }], count: 1, bytes: 8 } as TypeDef);
+    expect(() => nonUnique.primaryKey()).toThrow(/primary key/);
+    // A unique composite index with a NON-field-ref part is skipped too.
+    const exprIdx = reg.parseType({ name: 'ei', fields: [{ name: 'a', type: { kind: 'text' } }], indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'ei', field: 'a' }, count: 5 }, { expr: { kind: 'literal', value: 1 }, count: 1 }] }], count: 1, bytes: 8 } as TypeDef);
+    expect(() => exprIdx.primaryKey()).toThrow(/primary key/);
+  });
+
+  it('resolves a has-many relation field-ref (builds its key metadata) — then rejects it as a value', () => {
+    const fx = runtimeFixture();
+    const p = fx.engine.validateQuery({ kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'orders' } }], from: { kind: 'type', type: 'user' } } as QueryDef);
+    expect(p.list.some((x) => x.code === 'ref.relation-not-value')).toBe(true);
+  });
+
+  it('a relation IN a SUBQUERY falls through to the scalar membership path', async () => {
+    const fx = runtimeFixture();
+    const def: QueryDef = {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+      from: { kind: 'type', type: 'order' },
+      where: [{ kind: 'in', value: { kind: 'field-ref', source: 'order', field: 'userId' }, in: { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'u', field: 'id' } }], from: { kind: 'aliased', type: 'user', as: 'u' }, where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'u', field: 'id' }, right: { kind: 'literal', value: 1 } }] } }],
+    } as QueryDef;
+    const rows = await fx.engine.run(def);
+    expect(rows.rows.map((r) => r.id).sort()).toEqual([10, 11]);
+    // and it emits as a normal IN (subquery), not the per-column OR form.
+    expect(fx.engine.toSQL(def, 'postgres').sql).toMatch(/IN\s*\(/i);
+  });
+
+  it('a plain (non-NOT) relation IN list emits the OR-of-columns form', () => {
+    const def: QueryDef = {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+      from: { kind: 'type', type: 'order' },
+      where: [{ kind: 'in', value: { kind: 'field-ref', source: 'order', field: 'userId' }, in: [{ kind: 'param', name: 'a' }] }],
+    } as QueryDef;
+    const { sql, params } = runtimeFixture().engine.toSQL(def, 'postgres', { params: { a: { id: 5 } } });
+    expect(params).toEqual([5]);
+    expect(sql).not.toMatch(/NOT\s*\(/i);
+  });
+
+  it('a backing key that omits `foreign` defaults to the target identity', async () => {
+    const registry = createRegistry();
+    registry.registerType(registry.parseType({ name: 'user', fields: [{ name: 'id', type: { kind: 'number', whole: true } }], indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, count: 1 }] }], count: 10, bytes: 8 } as TypeDef));
+    registry.registerType(
+      registry.parseType({ name: 'member', fields: [{ name: 'id', type: { kind: 'number', whole: true } }, { name: 'uid', type: { kind: 'number', whole: true } }, { name: 'user', type: { kind: 'relation', to: 'user', count: 1 } }], indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'member', field: 'id' }, count: 1 }] }], count: 10, bytes: 16 } as TypeDef),
+      { fields: { user: { relation: { keys: [{ local: 'uid' }] } } } }, // no `foreign` ⇒ defaults to user.id
+    );
+    registry.finalize();
+    const engine = new QueryEngine(registry, { executors: { member: arrayExecutor([{ id: 1, uid: 7 }, { id: 2, uid: 8 }]) } });
+    const def: QueryDef = { kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'member', field: 'id' } }], from: { kind: 'type', type: 'member' }, where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'member', field: 'user' }, right: { kind: 'param', name: 'u' } }] } as QueryDef;
+    const rows = await engine.run(def, { params: { u: { id: 7 } } });
+    expect(rows.rows.map((r) => r.id)).toEqual([1]);
+  });
+});
+
 describe('relation-value-compare: validation', () => {
   it('rejects an ordering / LIKE operator against a relation', () => {
     const fx = runtimeFixture();

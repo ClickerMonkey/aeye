@@ -27,8 +27,7 @@ import { ParamExpr } from './param';
 import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import { Value } from '../runtime/value';
 import { or3, not3, type Tri } from '../runtime/tri';
-import { relationCompare, evaluateRelationCompare, emitRelationCompare } from './_relation-compare';
-import type { Type } from '../type';
+import { relationCompare, evaluateRelationCompare, emitRelationCompare, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
 import { firstField } from '../runtime/record';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -270,7 +269,7 @@ export class InExpr extends BoolExpr {
   ): Promise<boolean | undefined> {
     // A belongs-to relation `IN` a value LIST is `rel = e1 OR rel = e2 …`, each
     // a per-key-column relation comparison (`NOT IN` is its 3VL negation).
-    const typeOf = (s: string): ReturnType<RuntimeContext['sourceType']> => ctx.sourceType(s) ?? ctx.engine.type(s);
+    const typeOf = runtimeTypeOf(ctx);
     const rel = relationCompare(this.value, ctx.engine, typeOf);
     if (rel && this.list) {
       let acc: Tri = false;
@@ -317,10 +316,7 @@ export class InExpr extends BoolExpr {
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     // A belongs-to relation `IN` a value list emits `(rel = e1) OR (rel = e2) …`
     // (each a per-key-column comparison), `NOT IN` wrapping it in `NOT (...)`.
-    const typeOf = (s: string): Type | undefined => {
-      const b = ctx.scope.lookup(s);
-      return b && b.kind === 'type' ? b.type : undefined;
-    };
+    const typeOf = sqlTypeOf(ctx);
     const rel = relationCompare(this.value, ctx.engine, typeOf);
     if (rel && this.list) {
       const ors = this.list.map((el) =>

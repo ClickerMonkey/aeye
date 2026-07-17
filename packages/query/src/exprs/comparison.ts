@@ -17,8 +17,7 @@ import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
-import { relationCompare, evaluateRelationCompare, emitRelationCompare } from './_relation-compare';
-import type { Type } from '../type';
+import { relationCompare, evaluateRelationCompare, emitRelationCompare, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -261,7 +260,7 @@ export class ComparisonExpr extends BoolExpr {
     // lowers to a per-key-column tuple comparison. Only `=` / `<>` compare a
     // relation; other ops are rejected in `validateWalk`.
     if (this.op === '=' || this.op === '<>') {
-      const typeOf = (s: string): ReturnType<RuntimeContext['sourceType']> => ctx.sourceType(s) ?? ctx.engine.type(s);
+      const typeOf = runtimeTypeOf(ctx);
       const leftRel = relationCompare(this.left, ctx.engine, typeOf);
       const rightRel = relationCompare(this.right, ctx.engine, typeOf);
       if (leftRel || rightRel) {
@@ -316,10 +315,7 @@ export class ComparisonExpr extends BoolExpr {
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     // A belongs-to relation operand lowers to ANDed per-key-column comparisons.
     if (this.op === '=' || this.op === '<>') {
-      const typeOf = (s: string): Type | undefined => {
-        const b = ctx.scope.lookup(s);
-        return b && b.kind === 'type' ? b.type : undefined;
-      };
+      const typeOf = sqlTypeOf(ctx);
       const leftRel = relationCompare(this.left, ctx.engine, typeOf);
       const rightRel = relationCompare(this.right, ctx.engine, typeOf);
       if (leftRel || rightRel) {

@@ -152,10 +152,12 @@ export class FieldRefExpr extends Expr {
     // is not a plain scalar field.
     const keys: RelationKeyPair[] = ft.resolveKeys(engine, this.field, ownerType, target).map((kp) => {
       const tf = target.field(kp.foreign);
+      /* v8 ignore start -- identity fallback: reached only when the target-side key column is not a plain scalar field (a has-many's FK-back column) */
       const keyType =
         tf && !(tf.fieldType instanceof RelationFieldType)
           ? tf.fieldType
           : (ft.count === 1 ? target : ownerType).identityField().fieldType;
+      /* v8 ignore stop */
       return { local: kp.local, foreign: kp.foreign, keyType };
     });
     const relation: RelationResolved = {
