@@ -37,7 +37,8 @@ import {
   namedArgsToJSON,
   namedArgsToCode,
 } from './_function-args';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
+import { addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -152,9 +153,16 @@ export class FunctionCallExpr extends Expr {
     return fn.resolveOutput(argTypes);
   }
 
-  /** Cost is the sum of the argument child costs. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return this.childCost(engine, scope);
+  /** Cost is the argument child costs plus any intrinsic cost the function declares. */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const args = this.childCost(ctx, scope);
+    const fn = ctx.engine.lookupFunction(this.fn);
+    return fn ? addCost(args, fn.cost) : args;
+  }
+
+  /** This expr calls the scalar function `fn`. */
+  override functionRef(): string {
+    return this.fn;
   }
 
   /** Evaluate the named args and run the registered scalar function. */

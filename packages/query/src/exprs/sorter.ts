@@ -39,7 +39,7 @@ import { QueryOrder } from '../queries/order';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import { ZERO_COST, type Cost } from '../cost';
+import { ZERO_COST, addCost, type Cost, type CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -203,9 +203,42 @@ export class SorterExpr extends Expr {
     return Value.null();
   }
 
-  /** A sorter carries no intrinsic value cost. */
-  cost(_engine: QueryEngine, _scope: QueryScope): Cost {
-    return ZERO_COST;
+  /**
+   * A sorter's cost is the cost of the catalog entries it could sort BY: the
+   * caller's runtime selection ({@link CostContext.sort}) when supplied, else its
+   * `defaultSort`, else — as a worst case — its WHOLE catalog (any entry could be
+   * chosen at execution time). Each contributes its expr's own cost, so a sort
+   * key that is a SUBQUERY makes the sorter expensive (evaluated per sorted row
+   * by the SELECT), while sorting by a plain column stays cheap.
+   */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    let c: Cost = ZERO_COST;
+    for (const expr of this.chosenSortExprs(ctx)) c = addCost(c, expr.cost(ctx, scope));
+    return c;
+  }
+
+  /**
+   * The catalog exprs a cost estimate should charge for: the caller's selected
+   * sorts (when a runtime `sort` is supplied), else the `defaultSort`'s sorts,
+   * else every catalog entry (worst case). Selected names absent from the catalog
+   * are skipped (they cost nothing here; a real run reports them loudly).
+   */
+  private chosenSortExprs(ctx: CostContext): Expr[] {
+    return this.referenceExprs(ctx.sort);
+  }
+
+  /**
+   * The catalog exprs a caller's `sort` selection reads (for cost / references):
+   * the selected sorts when a `spec` is supplied, else the `defaultSort`'s sorts,
+   * else every catalog entry (worst case). Selected names absent from the catalog
+   * are skipped.
+   */
+  referenceExprs(spec: readonly SortSelectionDef[] | undefined): Expr[] {
+    const pick = (entries: readonly SortEntryDef[] | readonly SortSelectionDef[]): Expr[] =>
+      entries.map((s) => this.sorts.get(s.sort)).filter((e): e is Expr => e !== undefined);
+    if (spec && spec.length > 0) return pick(spec);
+    if (this.defaultSort && this.defaultSort.length > 0) return pick(this.defaultSort);
+    return [...this.sorts.values()];
   }
 
   /** Dead path (see the note above): the ORDER BY SQL is emitted by `SelectQuery` from the expanded terms; a misplaced sorter is rejected by validation — so this only NULLs defensively. */

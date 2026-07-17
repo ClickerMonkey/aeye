@@ -43,7 +43,8 @@ import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
 import { didYouMean } from '../aids';
 import type { Type } from '../type';
-import type { Cost } from '../cost';
+import type { Affected, Cost, CostContext } from '../cost';
+import { affectedOne } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -254,13 +255,19 @@ export class InsertQuery extends Query {
   }
 
   /** Estimate `{ rows, bytes }`: the VALUES row count (or the source query's rows) at the target's per-row size. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    const type = engine.type(this.into);
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const type = ctx.engine.type(this.into);
     const perRow = type ? type.bytes : 0;
     let rows = 0;
     if (this.rows) rows = this.rows.length;
-    else if (this.select) rows = this.select.cost(engine, scope).rows;
+    else if (this.select) rows = this.select.cost(ctx, scope).rows;
     return { rows, bytes: rows * perRow };
+  }
+
+  /** Rows this INSERT adds (on `into`): the VALUES row count, or the source SELECT's output rows. */
+  override affected(ctx: CostContext, scope: QueryScope): Affected {
+    const rows = this.rows ? this.rows.length : this.select ? this.select.outputCost(ctx, scope).rows : 0;
+    return affectedOne(this.into, rows);
   }
 
   /** Materialize rows into the target's `TypeState`, applying ON CONFLICT, then project RETURNING. */

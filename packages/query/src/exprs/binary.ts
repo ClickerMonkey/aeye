@@ -35,7 +35,7 @@ import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -182,8 +182,8 @@ export class BinaryExpr extends Expr {
   }
 
   /** Cost is the sum of the child operands' costs. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return this.childCost(engine, scope);
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
   }
 
   /** Evaluate both operands and apply the op (NULL-propagating; `+` concatenates non-numbers). */

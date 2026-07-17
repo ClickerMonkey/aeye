@@ -30,8 +30,9 @@ import { updateRecord } from './_type';
 import { obj, lit, str, list, exprRef } from '../shape';
 import { selectFieldShape, writeRecordShape } from './_shape';
 import { parseWriteRecord } from './_write';
-import type { Cost } from '../cost';
-import { scanCost, applyWhere } from './_cost';
+import type { Affected, Cost, CostContext } from '../cost';
+import { AFFECTED_NONE, affectedOne } from '../cost';
+import { scanCost, applyWhere, matchedRows } from './_cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
@@ -219,7 +220,8 @@ export class UpdateQuery extends Query {
   }
 
   /** Estimate `{ rows, bytes }`: the target scan × join fan-out, reduced by WHERE. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const engine = ctx.engine;
     const type = engine.type(this.type);
     if (!type) return { rows: 0, bytes: 0 };
     const { aliasTypes } = this.bind(engine, scope);
@@ -233,7 +235,14 @@ export class UpdateQuery extends Query {
     const baseScan = scanCost(type);
     baseScan.rows = rows;
     baseScan.bytes = rows * perRowBytes;
-    return applyWhere(baseScan, type, this.where, perRowBytes);
+    return applyWhere(ctx, scope, baseScan, type, this.where, perRowBytes);
+  }
+
+  /** Rows this UPDATE mutates: the target type's rows matching WHERE (index / selectivity / OR-aware). */
+  override affected(ctx: CostContext, scope: QueryScope): Affected {
+    const type = ctx.engine.type(this.type);
+    if (!type) return AFFECTED_NONE;
+    return affectedOne(this.type, matchedRows(ctx, scope, type, this.where));
   }
 
   /** Expand joins, filter by WHERE, apply SET to each matched target row, then project RETURNING. */

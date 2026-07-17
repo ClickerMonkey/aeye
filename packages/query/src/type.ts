@@ -27,8 +27,16 @@ export interface TypeSpec {
   indexes: Index[];
   /** Estimated row count. */
   count: number;
-  /** Estimated average bytes per row. */
-  bytes: number;
+  /**
+   * Estimated average bytes per row. When omitted it is DERIVED as the sum of
+   * the fields' {@link Field.bytes} (the whole row is assumed loaded on a scan).
+   */
+  bytes?: number;
+  /**
+   * Estimated milliseconds between changes to this Type's data: `0` = always
+   * changing (the default), `-1` = never (immutable), `60000` = once a minute.
+   */
+  changes?: number;
   /** Eligible for embedding-based semantic similarity across the type's data. */
   semantic?: boolean;
   /** Eligible for full-text search across the type's data. */
@@ -60,6 +68,8 @@ export class Type implements Node {
   readonly count: number;
   /** Estimated average bytes per row (drives byte-cost estimation). */
   readonly bytes: number;
+  /** Estimated ms between changes to this Type's data (`0` = always, `-1` = never). */
+  readonly changes: number;
   /** Whether the whole type is flagged semantic-eligible. */
   readonly semantic: boolean;
   /** Whether the whole type is flagged full-text-search-eligible. */
@@ -79,7 +89,11 @@ export class Type implements Node {
     this.fields = spec.fields;
     this.indexes = spec.indexes;
     this.count = spec.count;
-    this.bytes = spec.bytes;
+    // Whole-row byte size: an explicit spec value, else the SUM of the fields'
+    // (per-field or field-type-default) bytes — a scan loads every field.
+    this.bytes = spec.bytes ?? this.fields.reduce((sum, f) => sum + f.bytes(), 0);
+    // Change rate (ms): default 0 = always changing (opt into -1 / a period).
+    this.changes = spec.changes ?? 0;
     this.semantic = spec.semantic ?? false;
     this.search = spec.search ?? false;
     this.insertable = spec.insertable ?? true;
@@ -165,6 +179,7 @@ export class Type implements Node {
       indexes,
       count: json.count,
       bytes: json.bytes,
+      changes: json.changes,
       semantic: json.semantic,
       search: json.search,
       insertable: json.insertable,
@@ -185,6 +200,8 @@ export class Type implements Node {
       label: z.string().optional(),
       description: z.string().optional(),
       type: fieldTypeDefSchema(),
+      bytes: z.number().optional().describe('Estimated average stored bytes for this field (overrides the field type default).'),
+      changes: z.number().optional().describe('Ms between changes to this field (overrides the Type; 0 = always, -1 = never).'),
       nullable: z.boolean().optional(),
       insertable: z.boolean().optional().describe('Whether the field may be supplied on INSERT (default true).'),
       updatable: z.boolean().optional().describe('Whether the field may be assigned on UPDATE (default true).'),
@@ -199,6 +216,7 @@ export class Type implements Node {
     }).meta({ aid: 'IndexPartDef' }).describe('One ordered part of a composite index.');
     const indexDefSchema = z.object({
       exprs: z.array(indexPartDefSchema).describe('Ordered composite-index parts.'),
+      bytes: z.number().optional().describe('Estimated average bytes per index entry (else derived from the parts).'),
     }).meta({ aid: 'IndexDef' }).describe('A composite index definition.');
     return z.object({
       name: z.string(),
@@ -207,7 +225,8 @@ export class Type implements Node {
       fields: z.array(fieldDefSchema),
       indexes: z.array(indexDefSchema).optional(),
       count: z.number().describe('Estimated total row count.'),
-      bytes: z.number().describe('Estimated average bytes per row.'),
+      bytes: z.number().optional().describe('Estimated average bytes per row (else derived as the sum of the fields\' bytes).'),
+      changes: z.number().optional().describe('Ms between changes to this Type\'s data (0 = always changing, -1 = never).'),
       semantic: z.boolean().optional().describe('Eligible for semantic similarity across the type.'),
       search: z.boolean().optional().describe('Eligible for full-text search across the type.'),
       insertable: z.boolean().optional().describe('Whether rows may be INSERTed (default true).'),
@@ -230,6 +249,8 @@ export class Type implements Node {
       indexes: indexes.length > 0 ? indexes : undefined,
       count: this.count,
       bytes: this.bytes,
+      // Emit `changes` only when set away from the default (0 = always changing).
+      changes: this.changes !== 0 ? this.changes : undefined,
       semantic: this.semantic ? true : undefined,
       search: this.search ? true : undefined,
       // Only emit a write flag when RESTRICTED (false), keeping the default implicit.
@@ -249,6 +270,7 @@ export class Type implements Node {
       indexes: this.indexes.map((i) => i.clone()),
       count: this.count,
       bytes: this.bytes,
+      changes: this.changes,
       semantic: this.semantic,
       search: this.search,
       insertable: this.insertable,

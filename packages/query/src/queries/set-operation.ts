@@ -21,11 +21,11 @@ import type { SourceRecord, SourceRow } from '../runtime/row';
 import { recordSignature } from '../runtime/record';
 import { NumberFieldType } from '../field-types/index';
 import type { ParamSet } from '../param';
-import { Query, type QueryClass, type QueryField, type QueryResult, makeResult, syntheticType } from './query';
+import { Query, type QueryClass, type QueryField, type QueryReferences, type QueryResult, makeResult, mergeReferences, syntheticType } from './query';
 import { QueryOrder, sortEntries, type OrderEntry } from './order';
 import { obj, lit, bool, list, queryRef, type Shape } from '../shape';
 import { boundShape } from './_shape';
-import { type Cost, addCost } from '../cost';
+import { type Cost, type CostContext, addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { boundSQL } from './_sql';
@@ -177,35 +177,56 @@ export class SetOperationQuery extends Query {
     if (this.offset !== undefined && typeof this.offset !== 'number') params.observe(this.offset.name, numeric, ['offset']);
   }
 
-  /** Estimate `{ rows, bytes }`: combine both arms per operation, then cap by a literal LIMIT. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    const l = this.left.cost(engine, scope);
-    const r = this.right.cost(engine, scope);
-    let combined: Cost;
+  /** Estimate the WORK `{ rows, bytes }`: combine both arms' cost per operation, then cap by LIMIT. */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.capByLimit(this.combineBranches(this.left.cost(ctx, scope), this.right.cost(ctx, scope)), ctx);
+  }
+
+  /** Estimate the RESULT SIZE: combine both arms' `outputCost` per operation, then cap by LIMIT. */
+  override outputCost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.capByLimit(this.combineBranches(this.left.outputCost(ctx, scope), this.right.outputCost(ctx, scope)), ctx);
+  }
+
+  /** Reads = the union of BOTH arms' references. */
+  override references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
+    return mergeReferences([this.left.references(engine, scope, ctx), this.right.references(engine, scope, ctx)]);
+  }
+
+  /** Combine the two arms' costs per the set operation (UNION sums, INTERSECT mins, EXCEPT keeps left). */
+  private combineBranches(l: Cost, r: Cost): Cost {
     switch (this.kind) {
       case 'union':
         // UNION (ALL) can produce up to the sum of both arms.
-        combined = addCost(l, r);
-        break;
+        return addCost(l, r);
       case 'intersect':
         // At most the smaller arm survives the intersection.
-        combined = { rows: Math.min(l.rows, r.rows), bytes: Math.min(l.bytes, r.bytes) };
-        break;
+        return { rows: Math.min(l.rows, r.rows), bytes: Math.min(l.bytes, r.bytes) };
       case 'except':
         // EXCEPT keeps at most the left arm.
-        combined = l;
-        break;
+        return l;
       /* v8 ignore next 2 -- exhaustive over SetKind; unreachable */
       default:
         return assertNever(this.kind);
     }
-    // A set-level literal LIMIT caps the combined output rows.
-    if (typeof this.limit === 'number' && combined.rows > 0) {
+  }
+
+  /** Cap a combined cost by the set-level LIMIT (a literal or a `ctx.params`-resolved value). */
+  private capByLimit(combined: Cost, ctx: CostContext): Cost {
+    const limit = this.boundValue(this.limit, ctx);
+    if (limit !== undefined && combined.rows > 0) {
       const perRow = combined.bytes / combined.rows;
-      const rows = Math.min(combined.rows, this.limit);
-      combined = { rows, bytes: rows * perRow };
+      const rows = Math.min(combined.rows, limit);
+      return { rows, bytes: rows * perRow };
     }
     return combined;
+  }
+
+  /** Resolve a LIMIT bound to a number: a literal, else a `ctx.params` value, else undefined. */
+  private boundValue(v: number | ParamExprDef | undefined, ctx: CostContext): number | undefined {
+    if (v === undefined) return undefined;
+    if (typeof v === 'number') return v;
+    const raw = ctx.params?.[v.name];
+    return typeof raw === 'number' ? raw : undefined;
   }
 
   /** Run both arms, combine per the set operation, de-dup unless `all`, then apply set-level ORDER BY / OFFSET / LIMIT. */

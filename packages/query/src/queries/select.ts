@@ -46,8 +46,8 @@ import { reportDuplicateSources, type BoundSource } from './_sources';
 import { QueryOrder, sortEntries, sortByKeys, type OrderEntry } from './order';
 import { obj, lit, bool, list, exprRef, sourceRef, isRecord, type Shape } from '../shape';
 import { selectFieldShape, boundShape } from './_shape';
-import { type Cost, addCost } from '../cost';
-import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost } from './_cost';
+import { type Cost, type CostContext, addCost, bytesOfResolved } from '../cost';
+import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost, coveredScanBytes } from './_cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
@@ -554,6 +554,26 @@ export class SelectQuery extends Query {
     return this.bind(engine, scope).scope;
   }
 
+  /** Resolve `references` field-refs against FROM + joins + this SELECT's outputs. */
+  protected override referenceScope(engine: QueryEngine, scope: QueryScope): QueryScope {
+    return this.sorterScope(engine, scope);
+  }
+
+  /**
+   * Visit the nodes `references` inspects: every field / WHERE / GROUP BY /
+   * HAVING / join-`and` expr, plus — for each `order` entry — only the exprs its
+   * `ctx.sort` SELECTION reads (a `sorter` expands to its selected / default /
+   * whole catalog, never blindly all of it).
+   */
+  protected override forEachReferenceNode(ctx: CostContext, visit: (n: Expr) => void): void {
+    for (const c of this.fields) c.expr.walk(visit);
+    for (const w of this.where) w.walk(visit);
+    for (const g of this.groupBy) g.walk(visit);
+    for (const h of this.having) h.walk(visit);
+    for (const o of this.order) for (const e of o.referenceExprs(ctx.sort)) e.walk(visit);
+    for (const j of this.joins) if (j.and) j.and.walk(visit);
+  }
+
   /**
    * The scope a `sorter`'s catalog exprs resolve in for `sorters()` introspection:
    * FROM + joins PLUS this SELECT's outputs (so an `output`-ref sort resolves),
@@ -659,7 +679,15 @@ export class SelectQuery extends Query {
    *    distinct groups (the upstream scan work is unchanged).
    *  - LIMIT caps OUTPUT rows. ASSUMPTION: a literal LIMIT also caps how many
    *    times a select-position subquery runs (it is evaluated once per RETURNED
-   *    row); we do not model an ORDER BY forcing a larger upstream scan.
+   *    row).
+   *  - ORDER BY evaluates each order term (a concrete term or an EXPANDED
+   *    `sorter`) once per row reaching the sort — the PRE-LIMIT output count — so
+   *    a subquery inside a sort key (or a runtime-selected sorter entry) is real
+   *    per-row work; a plain-column sort adds nothing. We do not model an ORDER
+   *    BY forcing a larger upstream scan.
+   *  - INDEX-ONLY (covered) scan: with no joins / grouping / distinct / aggregate,
+   *    when every column referenced in SELECT + WHERE is a part of one index the
+   *    WHERE probes, the scan is sized by the index ENTRY bytes, not full rows.
    *  - PER-OUTER-ROW work: a subquery / EXISTS / IN-subquery in a SELECT item
    *    runs ONCE PER OUTPUT ROW, so its cost is multiplied by the output row
    *    count; the same expr in WHERE / HAVING is treated as uncorrelated and
@@ -667,7 +695,60 @@ export class SelectQuery extends Query {
    *    `backingCost` (a LATERAL multiplies per outer row; a shared relation join
    *    is counted once).
    */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const { inner, fromType, perRowBytes, matchedRows } = this.matchedEstimate(ctx, scope);
+
+    // Rows reaching the ORDER BY (before any LIMIT cap): an ORDER BY sorts the
+    // whole result, so a per-row sort-key cost is paid this many times.
+    const preLimitRows = matchedRows;
+    // LIMIT caps the OUTPUT rows (a literal, or a param resolved from ctx.params).
+    const limit = this.boundValue(this.limit, ctx);
+    const outputRows = limit !== undefined ? Math.min(matchedRows, limit) : matchedRows;
+    let cost: Cost = { rows: outputRows, bytes: outputRows * perRowBytes };
+
+    // Per-outer-row expr work: a SELECT-position subquery / EXISTS runs once per
+    // OUTPUT row; a WHERE / HAVING subquery is uncorrelated and runs once.
+    for (const c of this.fields) cost = addCost(cost, fanOutCost(c.expr.cost(ctx, inner), outputRows));
+    for (const w of this.where) cost = addCost(cost, fanOutCost(w.cost(ctx, inner), 1));
+    for (const h of this.having) cost = addCost(cost, fanOutCost(h.cost(ctx, inner), 1));
+
+    // ORDER BY: each order term (a concrete term or an EXPANDED sorter) is
+    // evaluated once per row reaching the sort — the pre-LIMIT output count — so
+    // a subquery inside a sort key (or a runtime-selected sorter entry) is real
+    // per-row work. A scalar sort key (`rows === 0`) adds nothing.
+    for (const o of this.order) cost = addCost(cost, fanOutCost(o.cost(ctx, inner), preLimitRows));
+
+    // Hidden joins / LATERALs / RLS the planner injects for computed & secured
+    // fields (shared joins counted once; a LATERAL multiplies per outer row).
+    cost = addCost(cost, backingCost(ctx, inner, this.fields.map((c) => c.expr), fromType, outputRows));
+    return cost;
+  }
+
+  /**
+   * Estimate the RESULT SIZE this SELECT returns: the delivered row count (after
+   * WHERE / GROUP / DISTINCT, then OFFSET dropped and LIMIT capped — each a
+   * literal or a `ctx.params`-resolved value) sized by the PROJECTION width — the
+   * sum of the selected columns' byte widths, NOT the whole scanned row. Contrast
+   * {@link cost}, which totals the WORK (fan-out, subquery scans, penalties).
+   */
+  override outputCost(ctx: CostContext, scope: QueryScope): Cost {
+    const { inner, matchedRows } = this.matchedEstimate(ctx, scope);
+    const available = Math.max(0, matchedRows - (this.boundValue(this.offset, ctx) ?? 0));
+    const limit = this.boundValue(this.limit, ctx);
+    const rows = limit !== undefined ? Math.min(available, limit) : available;
+    const width = this.fields.reduce((w, c) => w + bytesOfResolved(c.expr.resolve(ctx.engine, inner)), 0);
+    return { rows, bytes: rows * width };
+  }
+
+  /**
+   * The shared row estimate both {@link cost} and {@link outputCost} build on:
+   * base scan × join fan-out, reduced by WHERE (index / selectivity), then
+   * collapsed by GROUP BY / a bare aggregate / DISTINCT — the PRE-LIMIT matched
+   * row count — plus the (possibly index-only) per-row scan byte width and the
+   * bound inner scope.
+   */
+  private matchedEstimate(ctx: CostContext, scope: QueryScope): { inner: QueryScope; fromType: Type; perRowBytes: number; matchedRows: number } {
+    const engine = ctx.engine;
     const { scope: inner, aliasTypes } = this.bind(engine, scope);
     const fromType = this.from.resolvedType(engine, inner).type;
 
@@ -681,11 +762,25 @@ export class SelectQuery extends Query {
       if (plan) for (const hop of plan) perRowBytes += hop.targetType.bytes;
     }
 
+    // INDEX-ONLY (covered) scan: with no joins / grouping / distinct / aggregate,
+    // if every column referenced in SELECT + WHERE lives in one index the WHERE
+    // probes, the engine reads index ENTRIES, not whole rows — so size the scan
+    // by the index's per-entry bytes instead of the full-row width.
+    if (
+      !this.joins.length &&
+      !this.groupBy.length &&
+      !this.distinct &&
+      !this.fields.some((c) => c.expr.containsAggregate())
+    ) {
+      const covered = coveredScanBytes(ctx, inner, fromType, this.from.alias, this.fields.map((c) => c.expr), this.where);
+      if (covered !== undefined) perRowBytes = covered;
+    }
+
     // WHERE row reduction (index / selectivity) + scan penalties.
     const baseScan = scanCost(fromType);
     baseScan.rows = rows;
     baseScan.bytes = rows * perRowBytes;
-    let cost = applyWhere(baseScan, fromType, this.where, perRowBytes);
+    let cost = applyWhere(ctx, inner, baseScan, fromType, this.where, perRowBytes);
 
     // GROUP BY ⇒ distinct(keys); a bare aggregate ⇒ one row; else DISTINCT ⇒ the
     // estimated distinct projection. Each reduces OUTPUT rows, not scan work.
@@ -699,23 +794,15 @@ export class SelectQuery extends Query {
       cost = { rows: distinct, bytes: distinct * perRowBytes };
     }
 
-    // LIMIT caps the OUTPUT rows (only a literal cap is known statically).
-    if (typeof this.limit === 'number') {
-      const capped = Math.min(cost.rows, this.limit);
-      cost = { rows: capped, bytes: capped * perRowBytes };
-    }
+    return { inner, fromType, perRowBytes, matchedRows: cost.rows };
+  }
 
-    // Per-outer-row expr work: a SELECT-position subquery / EXISTS runs once per
-    // OUTPUT row; a WHERE / HAVING subquery is uncorrelated and runs once.
-    const outputRows = cost.rows;
-    for (const c of this.fields) cost = addCost(cost, fanOutCost(c.expr.cost(engine, inner), outputRows));
-    for (const w of this.where) cost = addCost(cost, fanOutCost(w.cost(engine, inner), 1));
-    for (const h of this.having) cost = addCost(cost, fanOutCost(h.cost(engine, inner), 1));
-
-    // Hidden joins / LATERALs / RLS the planner injects for computed & secured
-    // fields (shared joins counted once; a LATERAL multiplies per outer row).
-    cost = addCost(cost, backingCost(engine, inner, this.fields.map((c) => c.expr), fromType, outputRows));
-    return cost;
+  /** Resolve a LIMIT / OFFSET bound to a number: a literal, else a `ctx.params` value, else undefined. */
+  private boundValue(v: number | ParamExprDef | undefined, ctx: CostContext): number | undefined {
+    if (v === undefined) return undefined;
+    if (typeof v === 'number') return v;
+    const raw = ctx.params?.[v.name];
+    return typeof raw === 'number' ? raw : undefined;
   }
 
   // ─── Execution ─────────────────────────────────────────────────────────

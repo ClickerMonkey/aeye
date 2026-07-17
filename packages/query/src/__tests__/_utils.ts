@@ -6,6 +6,7 @@
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import { QueryScope } from '../scope';
+import type { CostContext } from '../cost';
 import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { TypeDef, ExprDef } from '../schema';
@@ -111,6 +112,9 @@ export function runtimeFixture(): RuntimeFixture {
 }
 
 // ─── Tiny expr-JSON builders ─────────────────────────────────────────────────
+
+/** A minimal {@link CostContext} wrapping an engine, for direct `expr.cost(...)` calls in tests. */
+export const cctx = (engine: QueryEngine): CostContext => ({ engine });
 
 export const lit = (value: string | number | boolean | null): ExprDef => ({ kind: 'literal', value });
 export const ref = (source: string, field: string): ExprDef => ({ kind: 'field-ref', source, field });

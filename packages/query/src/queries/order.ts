@@ -3,9 +3,11 @@
  * generic stable sort over rows carrying their originating evaluation row +
  * group (so an ORDER BY may reference aggregates of the group).
  */
-import type { ExprDef, OrderDef } from '../schema';
+import type { ExprDef, OrderDef, SortSelectionDef } from '../schema';
 import type { Registry } from '../registry';
 import type { Expr } from '../expr';
+import type { Cost, CostContext } from '../cost';
+import type { QueryScope } from '../scope';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { Value } from '../runtime/value';
@@ -42,6 +44,20 @@ export class QueryOrder {
     (v) => new QueryOrder(v.expr, v.dir, v.nulls),
     { optional: ['nulls'], aid: 'Order' },
   );
+
+  /**
+   * The per-row cost of this ORDER BY term — just its sort expression's cost.
+   * Mirrors {@link SorterExpr.cost} so a SELECT can cost every `order` entry
+   * uniformly (concrete term or dynamic sorter) without a type check.
+   */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.expr.cost(ctx, scope);
+  }
+
+  /** The exprs this term reads for `references` — a concrete term is just its own expr. */
+  referenceExprs(_spec: readonly SortSelectionDef[] | undefined): Expr[] {
+    return [this.expr];
+  }
 
   /** Serialize back to an `OrderDef`, omitting `nulls` when unset. */
   toJSON(): OrderDef {

@@ -37,7 +37,7 @@ import { obj, lit, str } from '../shape';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import { ZERO_COST, type Cost } from '../cost';
+import { ZERO_COST, type Cost, type CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -130,9 +130,9 @@ export class OutputRefExpr extends Expr {
   }
 
   /** Delegate to the target's cost (zero when the reference is unbound). */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
     const target = scope.output(this.name);
-    return target ? target.cost(engine, scope) : ZERO_COST;
+    return target ? target.cost(ctx, scope) : ZERO_COST;
   }
 
   /** Re-evaluate the referenced output expr over the same row / group. */

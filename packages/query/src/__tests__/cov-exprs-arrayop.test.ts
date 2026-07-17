@@ -9,7 +9,7 @@
  * `cost`, `toJSON`, `clone`, and `toCode` (no-value / single / list forms).
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, typeScope, runtimeFixture, ref, lit, param } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, ref, lit, param } from './_utils';
 import { ArrayOpExpr } from '../exprs/array-op';
 import { ParamExpr } from '../exprs/param';
 import { RuntimeContext } from '../runtime/context';
@@ -261,7 +261,7 @@ describe('ArrayOpExpr.cost / toJSON / clone / toCode', () => {
   it('cost is a non-negative byte estimate', () => {
     const scope = typeScope(fx);
     const expr = fx.engine.parse(arrayOp('contains', ref('u', 'tags'), lit('admin')));
-    expect(expr.cost(fx.engine, scope).bytes).toBeGreaterThanOrEqual(0);
+    expect(expr.cost(cctx(fx.engine), scope).bytes).toBeGreaterThanOrEqual(0);
   });
 
   it('toJSON / clone round-trip single / list / no-value forms', () => {

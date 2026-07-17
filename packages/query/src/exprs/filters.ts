@@ -26,7 +26,8 @@ import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
-import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
+import { BoolExpr, type Expr, type ExprClass, type ValidateContext } from '../expr';
+import { ZERO_COST, type Cost, type CostContext } from '../cost';
 import { didYouMean } from '../aids';
 import { obj, lit, str, list } from '../shape';
 import { boolResult } from './_shared';
@@ -119,6 +120,31 @@ export class FiltersExpr extends BoolExpr {
       });
     }
     return boolResult([], false, false);
+  }
+
+  // ─── Cost ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Cost of the EXECUTION-TIME predicate bound to this source (from
+   * {@link CostContext.filters}) — so a subquery inside a supplied filter is real
+   * work that raises the estimate. With no predicate supplied the placeholder is
+   * NEUTRAL (zero cost). Its per-row selectivity / penalty / index-probes flow
+   * separately through {@link conjuncts} (the WHERE cost model expands them).
+   */
+  override cost(ctx: CostContext, scope: QueryScope): Cost {
+    const pred = ctx.filters?.get(this.source);
+    return pred ? pred.cost(ctx, scope) : ZERO_COST;
+  }
+
+  /**
+   * Expand to the supplied predicate's OWN conjuncts, so the WHERE cost model
+   * applies the real filter's selectivity / index-probes / scan penalties as if
+   * it had been authored inline. With no predicate supplied this contributes NO
+   * conjunct (a neutral, always-true placeholder).
+   */
+  override conjuncts(ctx: CostContext, scope: QueryScope): readonly Expr[] {
+    const pred = ctx.filters?.get(this.source);
+    return pred ? pred.conjuncts(ctx, scope) : [];
   }
 
   // ─── Evaluation ────────────────────────────────────────────────────────────

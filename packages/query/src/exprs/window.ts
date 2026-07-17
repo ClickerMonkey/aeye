@@ -46,7 +46,7 @@ import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { JsonValue } from '../schema';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -228,8 +228,13 @@ export class WindowExpr extends Expr {
   }
 
   /** Cost is the sum of the child (args/partition/order) costs. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return this.childCost(engine, scope);
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
+  }
+
+  /** This expr calls the window function `fn`. */
+  override functionRef(): string {
+    return this.fn;
   }
 
   /** Stable string key of the partition-by values for a row. */

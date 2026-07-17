@@ -23,7 +23,7 @@ import { computed } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, scalar } from '../shape';
 import { Value } from '../runtime/value';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -106,7 +106,8 @@ export class LiteralExpr extends Expr {
   }
 
   /** Zero rows; cost is just the resolved value's byte size. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const engine = ctx.engine;
     return { rows: 0, bytes: bytesOfResolved(this.resolve(engine, scope)) };
   }
 

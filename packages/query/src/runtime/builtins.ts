@@ -301,6 +301,18 @@ function scalar(
   };
 }
 
+/** Milliseconds in a day — the change interval of a `date`-granular clock function. */
+const ONE_DAY_MS = 86_400_000;
+
+/**
+ * Tag a built-in with its `changes` rate (ms) — how often its RESULT changes
+ * independent of the data (`0` = always, e.g. `now()` / `random()`; `86400000`
+ * = daily, e.g. `currentDate()`). Folded into `engine.changeInterval`.
+ */
+function withChanges(builtin: BuiltinFunction, changes: number): BuiltinFunction {
+  return { ...builtin, def: { ...builtin.def, changes } };
+}
+
 // ─── Scalar library ──────────────────────────────────────────────────────────
 
 const SCALARS: readonly BuiltinFunction[] = [
@@ -515,7 +527,7 @@ const SCALARS: readonly BuiltinFunction[] = [
   scalar('pi', "The constant π.", [], NUMBER, () => Value.of(Math.PI)),
   scalar('degrees', "Convert radians to degrees.", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), (n) => (n * 180) / Math.PI)),
   scalar('radians', "Convert degrees to radians.", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), (n) => (n * Math.PI) / 180)),
-  scalar('random', "Random number in [0, 1).", [], NUMBER, () => Value.of(Math.random())),
+  withChanges(scalar('random', "Random number in [0, 1).", [], NUMBER, () => Value.of(Math.random())), 0),
   scalar('sin', "Sine (radians).", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), Math.sin)),
   scalar('cos', "Cosine (radians).", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), Math.cos)),
   scalar('tan', "Tangent (radians).", [{ name: 'value', type: NUMBER }], NUMBER, (a) => numeric(arg(a, 'value'), Math.tan)),
@@ -538,20 +550,20 @@ const SCALARS: readonly BuiltinFunction[] = [
     // Emitted (both dialects) as `(CASE WHEN condition THEN then ELSE else END)`.
     (a) => (arg(a, 'condition').toBoolean() ? arg(a, 'then') : arg(a, 'else')),
   ),
-  scalar('now', "Current timestamp.", [], { kind: 'timestamp' }, () => Value.of(new Date().toISOString())),
-  scalar('currentDate', "Today’s date.", [], { kind: 'date' }, () => {
+  withChanges(scalar('now', "Current timestamp.", [], { kind: 'timestamp' }, () => Value.of(new Date().toISOString())), 0),
+  withChanges(scalar('currentDate', "Today’s date.", [], { kind: 'date' }, () => {
     const iso = new Date().toISOString();
     /* v8 ignore next -- `toISOString()` always contains 'T', so `split('T')[0]` is always defined; the `?? iso` is dead */
     return Value.of(iso.split('T')[0] ?? iso);
-  }),
+  }), ONE_DAY_MS),
   // ─── Group 2a: date / time ─────────────────────────────────────────────────
   // Temporal inputs are typed `any` (an ISO date/timestamp string OR a temporal
   // field), so a `date` value is accepted wherever a `timestamp` is. The FIELD
   // arg of the four selectors is a `rawArgs` inline literal (emitted as an
   // `EXTRACT`/`date_part` field, never a bind param). `currentTime`/…, the
   // `EXTRACT`-based extractors, and the pg selector forms live in the dialects.
-  scalar('currentTime', "Current time of day (HH:MM:SS).", [], TEXT, () => Value.of(new Date().toISOString().slice(11, 19))),
-  scalar('currentTimestamp', "Current timestamp.", [], TIMESTAMP, () => Value.of(new Date().toISOString())),
+  withChanges(scalar('currentTime', "Current time of day (HH:MM:SS).", [], TEXT, () => Value.of(new Date().toISOString().slice(11, 19))), 0),
+  withChanges(scalar('currentTimestamp', "Current timestamp.", [], TIMESTAMP, () => Value.of(new Date().toISOString())), 0),
   scalar('datePart', "Numeric component named by `field` (year/month/day/dow/…) of `d`.",
     [{ name: 'field', type: TEXT }, { name: 'd', type: ANY }],
     // Numeric component named by `field` (year/month/day/dow/doy/week/…).

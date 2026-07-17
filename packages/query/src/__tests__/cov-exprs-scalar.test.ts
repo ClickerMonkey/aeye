@@ -9,7 +9,7 @@
  * narrow — the only `as` permitted by the task rules).
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, runtimeFixture, typeScope, lit, ref, param, cmp } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, lit, ref, param, cmp } from './_utils';
 import { BinaryExpr } from '../exprs/binary';
 import { ComparisonExpr } from '../exprs/comparison';
 import { LogicalExpr } from '../exprs/logical';
@@ -157,7 +157,7 @@ describe('BinaryExpr', () => {
     expect(e.toJSON()).toEqual({ kind: 'binary', op: '+', left: { kind: 'literal', value: 1 }, right: { kind: 'literal', value: 2 } });
     expect(e.clone().toJSON()).toEqual(e.toJSON());
     expect(e.toCode()).toBe('(1 + 2)');
-    expect(e.cost(fx.engine, scope).rows).toBe(0);
+    expect(e.cost(cctx(fx.engine), scope).rows).toBe(0);
   });
 
   it('toSQL: base (?) + postgres ($n)', () => {
@@ -345,7 +345,7 @@ describe('LiteralExpr', () => {
     expect(asFieldType(fx.engine.resolveExpr(lit('s'), scope))?.resolve()).toBe('text');
 
     expect(fx.engine.validateExpr(lit(1), scope).hasErrors).toBe(false);
-    expect(LiteralExpr.from(lit(1), fx.registry).cost(fx.engine, scope).rows).toBe(0);
+    expect(LiteralExpr.from(lit(1), fx.registry).cost(cctx(fx.engine), scope).rows).toBe(0);
     expect((await LiteralExpr.from(lit(7), fx.registry).evaluate()).toNumber()).toBe(7);
 
     const e = LiteralExpr.from(lit('hi'), fx.registry);
@@ -380,7 +380,7 @@ describe('ParamExpr', () => {
     // validateWalk references the param (an unobserved one is reported by the set)
     expect(has(fx.engine.validateExpr(param('w'), typeScope(fx)), 'param.untyped')).toBe(true);
 
-    expect(ParamExpr.from(param('p'), fx.registry).cost(fx.engine, typeScope(fx)).rows).toBe(0);
+    expect(ParamExpr.from(param('p'), fx.registry).cost(cctx(fx.engine), typeScope(fx)).rows).toBe(0);
 
     // evaluate: bound value vs unbound NULL
     const bound = new RuntimeContext(fx.engine, { params: { p: 5 } });

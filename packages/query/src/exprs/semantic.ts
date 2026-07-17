@@ -43,7 +43,7 @@ import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord, SourceRow } from '../runtime/row';
 import { recordSignature } from '../runtime/record';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import { SEMANTIC_ROW_PENALTY } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -348,10 +348,18 @@ export class SemanticExpr extends Expr {
     }
   }
 
-  /** Per-row embedding penalty approximating the scoring work. */
-  cost(_engine: QueryEngine, _scope: QueryScope): Cost {
-    // Each row evaluated pays an embedding penalty (a proxy for the work).
-    return { rows: 0, bytes: SEMANTIC_ROW_PENALTY };
+  /** A semantic predicate's own value cost is just its operands' (a boolean). */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
+  }
+
+  /**
+   * Each SCANNED row pays an embedding penalty (a proxy for the similarity
+   * work). Applied per scanned row by the WHERE cost model, rather than folded
+   * once into the value cost (where it was swallowed as a zero-row contribution).
+   */
+  override scanRowPenalty(): number {
+    return SEMANTIC_ROW_PENALTY;
   }
 
   /**

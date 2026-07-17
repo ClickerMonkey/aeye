@@ -24,7 +24,7 @@ import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow, SourceRecord } from '../runtime/row';
 import type { Type } from '../type';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -223,8 +223,13 @@ export class FieldRefExpr extends Expr {
   }
 
   /** Zero rows; cost is just the resolved field's byte size. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return { rows: 0, bytes: bytesOfResolved(this.resolve(engine, scope)) };
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return { rows: 0, bytes: bytesOfResolved(this.resolve(ctx.engine, scope)) };
+  }
+
+  /** A field-ref IS a plain column reference (drives GROUP BY / index-key costing). */
+  override fieldRef(): FieldRefExpr {
+    return this;
   }
 
   /** Read the field's runtime value, honoring backing (joins/compute/access security). */

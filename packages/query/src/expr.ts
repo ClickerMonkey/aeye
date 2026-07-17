@@ -38,8 +38,9 @@ import type { QueryScope } from './scope';
 import type { ParamSet } from './param';
 import type { RuntimeContext } from './runtime/context';
 import type { SourceRow } from './runtime/row';
-import type { Cost } from './cost';
+import type { Cost, CostContext, IndexProbe } from './cost';
 import { ZERO_COST, addCost } from './cost';
+import type { FieldRefExpr } from './exprs/field-ref';
 import type { Dialect } from './sql/dialect';
 import type { SqlContext, SqlText } from './sql/emit';
 import { Problems } from './problem';
@@ -186,7 +187,98 @@ export abstract class Expr implements Node {
    * expr's intrinsic cost (e.g. a correlated subquery's scan, a semantic
    * predicate's penalty).
    */
-  abstract cost(engine: QueryEngine, scope: QueryScope): Cost;
+  abstract cost(ctx: CostContext, scope: QueryScope): Cost;
+
+  // ─── Cost analysis surface (composed by the query cost model) ────────────
+  //
+  // These let the WHERE / index cost model in `queries/_cost.ts` ask each expr
+  // about ITSELF instead of switching on its concrete class. Every default here
+  // is the neutral answer; a kind that participates overrides the one method it
+  // has an opinion about.
+
+  /**
+   * The fraction of scanned rows this predicate KEEPS when used as a WHERE /
+   * HAVING / ON filter (SQL selectivity). `1` = no reduction (the neutral
+   * default). Overridden by the concrete predicates (`comparison` branches on
+   * its own op, `between` / `in` / `is-null` their fixed selectivity, `filters`
+   * delegates to its supplied predicate). Index-covered equality is accounted
+   * for separately by the cost model (via {@link indexProbe}); a predicate need
+   * not discount for it here.
+   */
+  selectivity(_ctx: CostContext, _scope: QueryScope): number {
+    return 1;
+  }
+
+  /**
+   * A per-SCANNED-ROW byte penalty this node implies beyond its value size — a
+   * proxy for embedding / full-text scan work. `0` (neutral) by default;
+   * `semantic` / `text-search` / `text-score` override. The cost model sums
+   * this across a predicate tree ({@link totalScanRowPenalty}) and multiplies by
+   * the scanned-row count.
+   */
+  scanRowPenalty(): number {
+    return 0;
+  }
+
+  /** This node's scan penalty summed over its whole subtree (per scanned row). */
+  totalScanRowPenalty(): number {
+    let total = 0;
+    this.walk((e) => {
+      total += e.scanRowPenalty();
+    });
+    return total;
+  }
+
+  /**
+   * Flatten a conjunction: the AND-connected predicates this expr contributes to
+   * a WHERE. A leaf reports `[this]`; a nested `and` (`((a AND b) AND c) AND d`)
+   * flattens RECURSIVELY to `[a, b, c, d]`, so the index / selectivity model
+   * sees every top-level conjunct regardless of nesting. A `filters` placeholder
+   * expands to its execution-time predicate's conjuncts (or none). `ctx` /
+   * `scope` are threaded so that expansion can consult the supplied filters.
+   */
+  conjuncts(_ctx: CostContext, _scope: QueryScope): readonly Expr[] {
+    return [this];
+  }
+
+  /**
+   * A SHALLOW index-scannable reading of THIS predicate: the column field-ref it
+   * binds to a bounded value set plus that set's `arity` (`col = v` ⇒ 1;
+   * `col IN (a, b, c)` ⇒ 3), or `undefined` when this predicate is not such a
+   * binding. Overridden by `comparison` (`=`) and `in` (value list). Drives
+   * index-prefix matching without the cost model inspecting operand internals.
+   */
+  indexProbe(): IndexProbe | undefined {
+    return undefined;
+  }
+
+  /**
+   * This expr AS a plain column field-ref, or `undefined` when it is anything
+   * else. Overridden by `field-ref` to return itself. Lets the cost model treat
+   * GROUP BY / index keys as columns without an `instanceof`.
+   */
+  fieldRef(): FieldRefExpr | undefined {
+    return undefined;
+  }
+
+  /**
+   * The operands of a disjunction (`OR`), or `undefined` when this is not one.
+   * Overridden by `logical` (`or`). Lets the affected-row estimator union the
+   * branches (index-merge) without inspecting the concrete class.
+   */
+  orOperands(): readonly Expr[] | undefined {
+    return undefined;
+  }
+
+  /**
+   * The registered DB FUNCTION this expr calls, or `undefined` when it is not a
+   * call. Overridden by `function-call` / `aggregate` / `window` / tabular calls.
+   * Lets `Query.references` enumerate invoked functions (and fold their
+   * cost / `changes` / referenced Types) without an `instanceof`.
+   */
+  functionRef(): string | undefined {
+    return undefined;
+  }
 
   // ─── SQL emission (Phase 5) ──────────────────────────────────────────────
 
@@ -199,10 +291,10 @@ export abstract class Expr implements Node {
   abstract toSQL(dialect: Dialect, ctx: SqlContext): SqlText;
 
   /** Sum the costs of this expr's immediate children (a cost building block). */
-  protected childCost(engine: QueryEngine, scope: QueryScope): Cost {
+  protected childCost(ctx: CostContext, scope: QueryScope): Cost {
     let c: Cost = ZERO_COST;
     this.forEachChild((child) => {
-      c = addCost(c, child.cost(engine, scope));
+      c = addCost(c, child.cost(ctx, scope));
     });
     return c;
   }
@@ -366,8 +458,8 @@ export abstract class BoolExpr extends Expr {
    * override this when they imply extra work — `text-search` adds a scan
    * penalty, `in` / `exists` add their subquery's scan cost.
    */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return this.childCost(engine, scope);
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
   }
 
   /**

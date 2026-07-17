@@ -4,7 +4,7 @@
  * method across BOTH SQL dialects plus the runtime 3VL branches.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, typeScope, runtimeFixture, lit, ref, param, cmp } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, lit, ref, param, cmp } from './_utils';
 import { asFieldType } from '../resolved-type';
 import { CaseExpr } from '../exprs/case';
 import { IsNullExpr } from '../exprs/is-null';
@@ -233,7 +233,7 @@ describe('CaseExpr', () => {
       else: lit('one'),
     };
     const expr = fx.engine.parse(def);
-    expect(expr.cost(fx.engine, scope).bytes).toBeGreaterThanOrEqual(0);
+    expect(expr.cost(cctx(fx.engine), scope).bytes).toBeGreaterThanOrEqual(0);
     expect(expr.toJSON()).toEqual(def);
     expect(expr.clone().toJSON()).toEqual(def);
     expect(expr.clone()).not.toBe(expr);
@@ -464,8 +464,8 @@ describe('ExcludedExpr', () => {
     const scopeType = typeScope(fx);
     scopeType.bind(EXCLUDED_SOURCE, { kind: 'type', type: fx.user, source: EXCLUDED_SOURCE, synthetic: false });
     const expr = fx.engine.parse({ kind: 'excluded', field: 'name' });
-    expect(expr.cost(fx.engine, scopeType).rows).toBe(0);
-    expect(expr.cost(fx.engine, typeScope(fx)).rows).toBe(0);
+    expect(expr.cost(cctx(fx.engine), scopeType).rows).toBe(0);
+    expect(expr.cost(cctx(fx.engine), typeScope(fx)).rows).toBe(0);
   });
 
   it('evaluate reads the proposed row (present / absent field / null row)', async () => {
@@ -567,8 +567,8 @@ describe('InExpr', () => {
       value: ref('u', 'id'),
       in: { kind: 'select', fields: [{ expr: ref('o', 'id') }], from: { kind: 'type', type: 'order' } },
     });
-    expect(listExpr.cost(fx.engine, scope).bytes).toBeGreaterThanOrEqual(0);
-    expect(subExpr.cost(fx.engine, scope).bytes).toBeGreaterThanOrEqual(0);
+    expect(listExpr.cost(cctx(fx.engine), scope).bytes).toBeGreaterThanOrEqual(0);
+    expect(subExpr.cost(cctx(fx.engine), scope).bytes).toBeGreaterThanOrEqual(0);
   });
 
   it('evaluateBool (list) under 3VL: matched / NULL element / no-match / NOT IN / NULL value', async () => {

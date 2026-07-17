@@ -32,6 +32,8 @@ import type {
   TypeResolved,
 } from './resolved-type';
 import { asFieldType, sourcesOf } from './resolved-type';
+import type { Cost } from './cost';
+import { ZERO_COST, NEVER_CHANGES } from './cost';
 import { didYouMean } from './aids';
 
 /** A parsed declared parameter: a concrete FieldType, or the `'any'` marker. */
@@ -101,6 +103,16 @@ export class QueryFunction {
    */
   readonly unaggregate?: ExprDef;
   readonly unaggregateEmpty?: ExprDef;
+  /** Intrinsic per-call cost this function adds beyond its args (default none). */
+  readonly cost: Cost;
+  /**
+   * Milliseconds between changes to this function's RESULT independent of the
+   * data (`0` = always — `now()`; `-1` = pure/never — the default; `86400000` =
+   * daily — `currentDate()`). Folded into `engine.changeInterval`.
+   */
+  readonly changes: number;
+  /** Type names this function internally READS (a UDF over a table); folded into cost / references. */
+  readonly references: readonly string[];
 
   /** Construct from already-parsed parts; use `from` to build from JSON. */
   constructor(spec: {
@@ -114,6 +126,9 @@ export class QueryFunction {
     examples?: readonly string[];
     unaggregate?: ExprDef;
     unaggregateEmpty?: ExprDef;
+    cost?: Cost;
+    changes?: number;
+    references?: readonly string[];
   }) {
     this.name = spec.name;
     this.shape = spec.shape;
@@ -125,6 +140,9 @@ export class QueryFunction {
     this.examples = spec.examples;
     this.unaggregate = spec.unaggregate;
     this.unaggregateEmpty = spec.unaggregateEmpty;
+    this.cost = spec.cost ?? ZERO_COST;
+    this.changes = spec.changes ?? NEVER_CHANGES;
+    this.references = spec.references ?? [];
   }
 
   /** Build a runtime function from its JSON, parsing field/Type references. */
@@ -164,6 +182,9 @@ export class QueryFunction {
       examples: json.examples,
       unaggregate: json.unaggregate,
       unaggregateEmpty: json.unaggregateEmpty,
+      cost: json.cost,
+      changes: json.changes,
+      references: json.references,
     });
   }
 
@@ -193,6 +214,10 @@ export class QueryFunction {
       ...(this.examples ? { examples: this.examples } : {}),
       ...(this.unaggregate ? { unaggregate: this.unaggregate } : {}),
       ...(this.unaggregateEmpty ? { unaggregateEmpty: this.unaggregateEmpty } : {}),
+      // Estimation metadata — emitted only when set away from the neutral default.
+      ...(this.cost.rows !== 0 || this.cost.bytes !== 0 ? { cost: this.cost } : {}),
+      ...(this.changes !== NEVER_CHANGES ? { changes: this.changes } : {}),
+      ...(this.references.length > 0 ? { references: [...this.references] } : {}),
     };
   }
 

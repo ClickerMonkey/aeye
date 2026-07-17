@@ -5,7 +5,7 @@
  * JSON / clone / code round-trips.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, typeScope, runtimeFixture, ref, cmp, lit } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, ref, cmp, lit } from './_utils';
 import { asFieldType } from '../resolved-type';
 import { ExistsExpr } from '../exprs/exists';
 import type { ExprDef, QueryDef, SelectDef } from '../schema';
@@ -78,7 +78,7 @@ describe('ExistsExpr', () => {
 
   it('cost is the inner subquery scan cost', () => {
     const e = fx.engine.parse({ kind: 'exists', query: ordersOfUser });
-    expect(e.cost(fx.engine, typeScope(fx)).rows).toBeGreaterThan(0);
+    expect(e.cost(cctx(fx.engine), typeScope(fx)).rows).toBeGreaterThan(0);
   });
 
   it('evaluates (correlated) under EXISTS and NOT EXISTS', async () => {

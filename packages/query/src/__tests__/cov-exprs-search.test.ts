@@ -10,7 +10,7 @@
  * forEachChild, and the private column / sensitivity / query SQL helpers.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, typeScope, runtimeFixture, lit, ref, param } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, lit, ref, param } from './_utils';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import type { Embedder } from '../engine';
@@ -218,12 +218,15 @@ describe('TextSearchExpr', () => {
     expect(c.filter((x) => x.startsWith('text-search.'))).toEqual([]);
   });
 
-  it('cost adds the per-row scan penalty (text and param queries)', () => {
+  it('exposes a per-SCANNED-ROW scan penalty (applied by the WHERE cost model, not the value cost)', () => {
     const scope = typeScope(fx);
-    const textCost = fx.engine.parse({ kind: 'text-search', source: 'u', query: 'x' }).cost(fx.engine, scope);
-    expect(textCost.bytes).toBeGreaterThan(0);
-    const paramCost = fx.engine.parse({ kind: 'text-search', source: 'u', query: param('q') }).cost(fx.engine, scope);
-    expect(paramCost.bytes).toBeGreaterThanOrEqual(textCost.bytes);
+    const text = fx.engine.parse({ kind: 'text-search', source: 'u', query: 'x' });
+    // The value cost is just the operands' (a boolean) — no swallowed penalty…
+    expect(text.cost(cctx(fx.engine), scope).rows).toBe(0);
+    // …the per-scanned-row penalty is reported separately so the scan model can
+    // multiply it by the scanned-row count.
+    expect(text.scanRowPenalty()).toBeGreaterThan(0);
+    expect(text.totalScanRowPenalty()).toBeGreaterThanOrEqual(text.scanRowPenalty());
   });
 
   it('toSQL: named field, whole-source searchable/first-text, both dialects', () => {
@@ -489,10 +492,11 @@ describe('SemanticExpr', () => {
     expect(c.filter((x) => x.startsWith('semantic.'))).toEqual([]);
   });
 
-  it('cost is a per-row embedding penalty', () => {
-    const c = fx.engine.parse({ kind: 'semantic', source: 'u', query: 'x' }).cost(fx.engine, typeScope(fx));
+  it('exposes a per-row embedding penalty via scanRowPenalty (not the value cost)', () => {
+    const e = fx.engine.parse({ kind: 'semantic', source: 'u', query: 'x' });
+    const c = e.cost(cctx(fx.engine), typeScope(fx));
     expect(c.rows).toBe(0);
-    expect(c.bytes).toBeGreaterThan(0);
+    expect(e.scanRowPenalty()).toBeGreaterThan(0);
   });
 
   it('evaluate: no embedder ⇒ 0; null row ⇒ 0', async () => {

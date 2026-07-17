@@ -30,8 +30,8 @@ import { not3 } from '../runtime/tri';
 import { firstField } from '../runtime/record';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
-import { addCost } from '../cost';
+import type { Cost, CostContext, IndexProbe } from '../cost';
+import { addCost, IN_SELECTIVITY } from '../cost';
 
 /** A `value IN (...)` predicate over an explicit list or a subquery. A `BoolExpr`. */
 export class InExpr extends BoolExpr {
@@ -238,11 +238,26 @@ export class InExpr extends BoolExpr {
   }
 
   /** Estimated cost: children plus the inner query's cost when this is the subquery form. */
-  override cost(engine: QueryEngine, scope: QueryScope): Cost {
-    let c = this.childCost(engine, scope);
+  override cost(ctx: CostContext, scope: QueryScope): Cost {
+    let c = this.childCost(ctx, scope);
     // The subquery form scans its inner query (per outer row at runtime).
-    if (this.subquery) c = addCost(c, engine.parseQuery(this.subquery).cost(engine, scope.child()));
+    if (this.subquery) c = addCost(c, ctx.engine.parseQuery(this.subquery).cost(ctx, scope.child()));
     return c;
+  }
+
+  /** Membership keeps ~half the rows (matches a non-indexed range's breadth). */
+  override selectivity(): number {
+    return IN_SELECTIVITY;
+  }
+
+  /**
+   * A `col IN (a, b, c)` value LIST against a column is an index point-probe of
+   * arity = the list length (a `NOT IN` / subquery form is not a point-set).
+   */
+  override indexProbe(): IndexProbe | undefined {
+    if (!this.list || this.not) return undefined;
+    const ref = this.value.fieldRef();
+    return ref ? { ref, arity: this.list.length } : undefined;
   }
 
   /** Evaluate under 3VL: TRUE if any element equals the value; else UNKNOWN if the value or any element is NULL; else FALSE (negated for `NOT IN`). */
