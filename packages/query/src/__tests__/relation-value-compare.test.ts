@@ -4,8 +4,49 @@
  */
 import { describe, it, expect } from 'vitest';
 import { runtimeFixture } from './_utils';
-import type { QueryDef, JsonValue } from '../schema';
+import { createRegistry } from '../registry';
+import { QueryEngine } from '../engine';
+import { arrayExecutor } from '../runtime/executor';
+import type { QueryDef, JsonValue, TypeDef } from '../schema';
 import type { SqlParamValue } from '../sql/emit';
+import type { TypeBacking } from '../backing';
+
+/** An engine where `store.region` is a belongs-to a COMPOSITE-key `region` (country, code). */
+function compositeEngine(): QueryEngine {
+  const registry = createRegistry();
+  const region: TypeDef = {
+    name: 'region',
+    fields: [{ name: 'country', type: { kind: 'text' } }, { name: 'code', type: { kind: 'text' } }],
+    indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'region', field: 'country' }, count: 5 }, { expr: { kind: 'field-ref', source: 'region', field: 'code' }, count: 1 }] }],
+    count: 10,
+    bytes: 20,
+  };
+  const store: TypeDef = {
+    name: 'store',
+    fields: [
+      { name: 'id', type: { kind: 'number', whole: true } },
+      { name: 'regionCountry', type: { kind: 'text' } },
+      { name: 'regionCode', type: { kind: 'text' } },
+      { name: 'region', type: { kind: 'relation', to: 'region', count: 1 } },
+    ],
+    indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'store', field: 'id' }, count: 1 }] }],
+    count: 100,
+    bytes: 40,
+  };
+  // Composite FK: store.region joins region by (regionCountry, regionCode) → (country, code).
+  const storeBacking: TypeBacking = {
+    fields: { region: { relation: { keys: [{ local: 'regionCountry', foreign: 'country' }, { local: 'regionCode', foreign: 'code' }] } } },
+  };
+  registry.registerType(registry.parseType(region));
+  registry.registerType(registry.parseType(store), storeBacking);
+  registry.finalize();
+  const storeRows = [
+    { id: 1, regionCountry: 'US', regionCode: 'CA' },
+    { id: 2, regionCountry: 'US', regionCode: 'NY' },
+    { id: 3, regionCountry: 'CA', regionCode: 'ON' },
+  ];
+  return new QueryEngine(registry, { executors: { store: arrayExecutor(storeRows) } });
+}
 
 /** The SELECT-order-by-userId def for a given op. */
 function userIdCmp(op: '=' | '<>'): QueryDef {
@@ -90,6 +131,29 @@ describe('relation-value-compare: belongs-to IN value list (runtime + SQL)', () 
     expect(params).toEqual([1, 2]);
     expect(sql).toMatch(/NOT\s*\(/i);
     expect(sql).toMatch(/OR/i);
+  });
+});
+
+describe('relation-value-compare: composite key', () => {
+  const storeDef = (op: '=' | '<>'): QueryDef => ({
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 'store', field: 'id' } }],
+    from: { kind: 'type', type: 'store' },
+    where: [{ kind: 'comparison', op, left: { kind: 'field-ref', source: 'store', field: 'region' }, right: { kind: 'param', name: 'r' } }],
+  } as QueryDef);
+
+  it('matches by ALL key columns (runtime)', async () => {
+    const engine = compositeEngine();
+    const rows = await engine.run(storeDef('='), { params: { r: { country: 'US', code: 'CA' } } });
+    expect(rows.rows.map((r) => r.id)).toEqual([1]); // only the US/CA store
+    const none = await engine.run(storeDef('='), { params: { r: { country: 'US', code: 'XX' } } });
+    expect(none.rows).toEqual([]);
+  });
+
+  it('emits an ANDed per-column comparison binding every key part (SQL)', () => {
+    const { sql, params } = compositeEngine().toSQL(storeDef('='), 'postgres', { params: { r: { country: 'US', code: 'CA' } } });
+    expect(params).toEqual(['US', 'CA']); // both key columns bound
+    expect(sql).toMatch(/=\s*\$1\s+AND\s+.*=\s*\$2/i);
   });
 });
 

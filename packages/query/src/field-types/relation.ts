@@ -152,26 +152,23 @@ export class RelationFieldType extends FieldType {
     thisType: Type,
     targetType: Type,
   ): { local: string; foreign: string }[] {
-    let backing: RelationBacking | undefined;
-    let forward: boolean;
-    let targetIdentity: string;
-    if (this.count === 1) {
-      backing = engine.fieldBacking(thisType.name, relationFieldName)?.relation;
-      forward = true;
-      targetIdentity = targetType.identityField().name;
-    } else {
-      backing =
-        this.inverseVia !== undefined
-          ? engine.fieldBacking(targetType.name, this.inverseVia)?.relation
-          : undefined;
-      forward = false;
-      targetIdentity = thisType.identityField().name;
+    const forward = this.count === 1;
+    const backing = forward
+      ? engine.fieldBacking(thisType.name, relationFieldName)?.relation
+      : this.inverseVia !== undefined
+        ? engine.fieldBacking(targetType.name, this.inverseVia)?.relation
+        : undefined;
+    if (backing?.keys && backing.keys.length > 0) {
+      // The target identity is only the DEFAULT for a key that omits `foreign`;
+      // compute it lazily so a composite-key target (no single identity) works
+      // when every key names its foreign column explicitly.
+      const targetIdentity = backing.keys.some((k) => k.foreign === undefined)
+        ? (forward ? targetType : thisType).identityField().name
+        : '';
+      return relationKeyColumns(backing.keys, forward, targetIdentity).map((p) => ({ local: p.localField, foreign: p.foreignField }));
     }
-    const pairs =
-      backing?.keys && backing.keys.length > 0
-        ? relationKeyColumns(backing.keys, forward, targetIdentity)
-        : [this.resolveKey(relationFieldName, thisType, targetType)];
-    return pairs.map((p) => ({ local: p.localField, foreign: p.foreignField }));
+    const single = this.resolveKey(relationFieldName, thisType, targetType);
+    return [{ local: single.localField, foreign: single.foreignField }];
   }
 
   /**
