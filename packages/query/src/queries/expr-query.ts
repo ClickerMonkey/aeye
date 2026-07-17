@@ -11,7 +11,7 @@ import type { Expr, ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import { Query, type QueryClass, type QueryField, type QueryResult, makeField, makeResult } from './query';
 import { obj, lit, exprRef } from '../shape';
-import { type Cost, bytesOfResolved } from '../cost';
+import { type Cost, type CostContext, bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -59,10 +59,15 @@ export class ExprQuery extends Query {
     return [];
   }
 
+  /** Walk the single output expression (so `references` sees its functions). */
+  override walkExprs(visit: (e: Expr) => void): void {
+    this.expr.walk(visit);
+  }
+
   /** Estimate `{ rows, bytes }` — exactly one row sized by the expression's resolved type. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
     // A single-expression query yields exactly one row.
-    return { rows: 1, bytes: bytesOfResolved(this.expr.resolve(engine, scope)) };
+    return { rows: 1, bytes: bytesOfResolved(this.expr.resolve(ctx.engine, scope)) };
   }
 
   /** Evaluate the expression into a single `{ value }` output row. */

@@ -12,6 +12,7 @@ import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
+import { EQ_SELECTIVITY } from '../cost';
 import { boolResult, gatherSources, anyAggregate, childExprSchema } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef } from '../shape';
@@ -91,6 +92,11 @@ export class IsNullExpr extends BoolExpr {
   ): ComputedResolved {
     p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'is-null', ctx)));
     return this.resolve(engine, scope);
+  }
+
+  /** A null test keeps ~a third of the rows (equality-like selectivity). */
+  override selectivity(): number {
+    return EQ_SELECTIVITY;
   }
 
   /** Evaluate the operand and return whether it is (not) null. */

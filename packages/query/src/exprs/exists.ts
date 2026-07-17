@@ -18,7 +18,7 @@ import { obj, lit, bool, queryDefRef } from '../shape';
 import { validateSubqueryOutput } from './_subquery';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -154,9 +154,10 @@ export class ExistsExpr extends BoolExpr {
   }
 
   /** Estimated cost: the subquery's scan cost (its own output is a single boolean). */
-  override cost(engine: QueryEngine, scope: QueryScope): Cost {
+  override cost(ctx: CostContext, scope: QueryScope): Cost {
     // EXISTS scans its subquery; its own output is a single boolean.
-    return engine.parseQuery(this.query).cost(engine, scope.child());
+    const engine = ctx.engine;
+    return engine.parseQuery(this.query).cost(ctx, scope.child());
   }
 
   /** Execute the correlated subquery and return whether it produced any rows (negated for `NOT EXISTS`). */

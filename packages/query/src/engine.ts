@@ -13,7 +13,7 @@
  * Do not add a stub for it here; introduce it with its phase so the signature
  * can reference the real Dialect types.
  */
-import type { ExprDef, QueryDef, SortSelectionDef } from './schema';
+import type { ExprDef, JsonValue, QueryDef, SortSelectionDef } from './schema';
 import type { Registry } from './registry';
 import type { Type } from './type';
 import {
@@ -30,9 +30,9 @@ import {
 } from './backing';
 import type { ResolvedType } from './resolved-type';
 import type { ValidateContext } from './expr';
-import type { Cost, CostConstraints } from './cost';
-import { reportCostProblems } from './cost';
-import type { Query, QueryResult, QueryResultArray } from './queries/query';
+import type { Affected, Cost, CostConstraints, CostContext } from './cost';
+import { reportCostProblems, foldChanges, NEVER_CHANGES } from './cost';
+import type { Query, QueryReferences, QueryResult, QueryResultArray } from './queries/query';
 import { toArrayRows } from './queries/query';
 import type { TypeExecutor } from './runtime/executor';
 import type { FunctionRun } from './runtime/functions';
@@ -72,6 +72,21 @@ export interface QueryEngineOptions {
    * one stored on the registry for the same Type.
    */
   backings?: Record<string, TypeBacking>;
+}
+
+/**
+ * The optional execution-time selections a query may be COSTED with, mirroring
+ * the `filters` / `sort` accepted by `run` / `toSQL`. Supplying them lets a
+ * `filters` / `sorter` placeholder weave the real supplied predicate / sort into
+ * the estimate instead of contributing nothing.
+ */
+export interface CostOptions {
+  /** Execution-time filter predicates per source (authored `ExprDef` or parsed `Expr`). */
+  filters?: Record<string, ExprDef | Expr | null>;
+  /** Execution-time dynamic-sort selection, woven into a `sorter`'s cost. */
+  sort?: SortSelectionDef[];
+  /** Execution-time param VALUES, so a param-bound LIMIT / OFFSET resolves in `outputCost`. */
+  params?: Readonly<Record<string, JsonValue>>;
 }
 
 /**
@@ -299,6 +314,7 @@ export class QueryEngine {
     query: Query | QueryDef,
     scope?: QueryScope,
     constraints?: CostConstraints,
+    options?: CostOptions,
   ): Problems {
     const q = this.toQuery(query);
     const s = scope ?? this.globalScope();
@@ -309,13 +325,83 @@ export class QueryEngine {
       const ex = this.executor(name);
       ex?.validate?.(q, p);
     }
-    if (constraints) reportCostProblems(q.cost(this, s), constraints, p);
+    if (constraints) reportCostProblems(q.cost(this.costContext(options), s), constraints, p);
     return p;
   }
 
-  /** Estimate a query's `{ rows, bytes }` cost against a scope (root if omitted). */
-  cost(query: Query | QueryDef, scope?: QueryScope): Cost {
-    return this.toQuery(query).cost(this, scope ?? this.globalScope());
+  /**
+   * Estimate a query's `{ rows, bytes }` cost against a scope (root if omitted).
+   * `options` may supply the execution-time `filters` / `sort` the query is
+   * costed WITH, so a `filters` / `sorter` placeholder weaves the real supplied
+   * predicate / sort into the estimate (a subquery in a filter then raises the
+   * cost, as it should).
+   */
+  cost(query: Query | QueryDef, scope?: QueryScope, options?: CostOptions): Cost {
+    return this.toQuery(query).cost(this.costContext(options), scope ?? this.globalScope());
+  }
+
+  /**
+   * Estimate the SIZE OF THE RESULT a query hands back — `{ rows, bytes }` where
+   * `rows` is the delivered row count (post-WHERE / GROUP / DISTINCT, capped by a
+   * literal or `options.params`-resolved LIMIT / OFFSET) and `bytes` sizes those
+   * rows by the PROJECTION width (the selected columns), not the whole scanned
+   * row. Contrast {@link cost}, which estimates the WORK to produce the result.
+   */
+  outputCost(query: Query | QueryDef, scope?: QueryScope, options?: CostOptions): Cost {
+    return this.toQuery(query).outputCost(this.costContext(options), scope ?? this.globalScope());
+  }
+
+  /**
+   * Estimate the rows a statement MUTATES — a total plus a per-Type breakdown
+   * ({@link Affected}). An UPDATE / DELETE uses the target Type's indexes +
+   * selectivity (OR-aware) to count the rows its WHERE matches; an INSERT counts
+   * its VALUES / source rows; a CTE SUMS every data-modifying entry plus its
+   * final query per Type. Read-only queries report `{ rows: 0, types: [] }`.
+   * `options.params` resolves a param-bound LIMIT where used.
+   */
+  affected(query: Query | QueryDef, scope?: QueryScope, options?: CostOptions): Affected {
+    return this.toQuery(query).affected(this.costContext(options), scope ?? this.globalScope());
+  }
+
+  /**
+   * Estimate how long (ms) until the DATA behind a query could change — a
+   * freshness / cache-TTL signal. Uses {@link Query.references} (so it counts
+   * ONLY the Types / fields the query actually reads, plus execution-time
+   * `filters` / selected `sort` exprs and invoked functions) and folds their
+   * `changes` rates: `0` (always changing) dominates, a negative (never) is
+   * ignored, else the FASTEST positive interval wins. Each read Type contributes
+   * its row-level rate; a read field with its OWN rate refines it; a called
+   * function (e.g. `currentDate()`) contributes its volatility. A query over only
+   * immutable data / pure literals returns `-1`.
+   */
+  /**
+   * Enumerate what a query READS — its {@link QueryReferences} of Types, specific
+   * fields, and DB functions — including execution-time `filters` predicates and
+   * the `sort`-selected sorter exprs (from `options`). Powers `changeInterval`
+   * and lets a caller inspect the exact surface a query touches.
+   */
+  references(query: Query | QueryDef, scope?: QueryScope, options?: CostOptions): QueryReferences {
+    this.registry.finalize();
+    return this.toQuery(query).references(this, scope ?? this.globalScope(), this.costContext(options));
+  }
+
+  changeInterval(query: Query | QueryDef, scope?: QueryScope, options?: CostOptions): number {
+    this.registry.finalize();
+    const refs = this.toQuery(query).references(this, scope ?? this.globalScope(), this.costContext(options));
+    let acc = NEVER_CHANGES;
+    for (const name of refs.types) {
+      const type = this.type(name);
+      if (type) acc = foldChanges(acc, type.changes);
+    }
+    for (const ref of refs.fields) {
+      const changes = this.type(ref.type)?.field(ref.field)?.changes();
+      if (changes !== undefined) acc = foldChanges(acc, changes);
+    }
+    for (const name of refs.functions) {
+      const fn = this.lookupFunction(name);
+      if (fn) acc = foldChanges(acc, fn.changes);
+    }
+    return acc;
   }
 
   /**
@@ -328,10 +414,24 @@ export class QueryEngine {
     query: Query | QueryDef,
     constraints: CostConstraints,
     scope?: QueryScope,
+    options?: CostOptions,
   ): Problems {
     const p = new Problems();
-    reportCostProblems(this.cost(query, scope), constraints, p);
+    reportCostProblems(this.cost(query, scope, options), constraints, p);
     return p;
+  }
+
+  /**
+   * Build the {@link CostContext} for a cost walk from optional execution-time
+   * selections: the `filters` map is parsed once (source → bound `Expr`) exactly
+   * as `run` / `toSQL` do; `sort` is the dynamic-sort selection. With neither, a
+   * bare `{ engine }` context is returned (placeholders stay neutral).
+   */
+  private costContext(options?: CostOptions): CostContext {
+    if (!options?.filters && !options?.sort && !options?.params) return { engine: this };
+    const parsed = options.filters ? this.parseFilters(options.filters) : undefined;
+    const filters = parsed ? new Map(Object.entries(parsed)) : undefined;
+    return { engine: this, filters, sort: options.sort, params: options.params };
   }
 
   /**

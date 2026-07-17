@@ -33,8 +33,8 @@ import { resolveSearchRun } from '../backing';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
-import { addCost, TEXT_SEARCH_ROW_PENALTY } from '../cost';
+import type { Cost, CostContext } from '../cost';
+import { TEXT_SEARCH_ROW_PENALTY } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { obj, lit, str } from '../shape';
@@ -149,9 +149,14 @@ export class TextScoreExpr extends Expr {
     return this.resolve(engine, scope);
   }
 
-  /** Child cost plus a per-row text-scan penalty. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return addCost(this.childCost(engine, scope), { rows: 0, bytes: TEXT_SEARCH_ROW_PENALTY });
+  /** A text-score's own value cost is just its operands' (it produces a number). */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
+  }
+
+  /** Scoring implies a full-text scan penalty per scanned row (applied by the WHERE cost model). */
+  override scanRowPenalty(): number {
+    return TEXT_SEARCH_ROW_PENALTY;
   }
 
   /**

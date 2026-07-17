@@ -14,6 +14,8 @@ import type { ResolvedType } from '../resolved-type';
 import { asFieldType, valueFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
+import type { IndexProbe } from '../cost';
+import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
@@ -213,6 +215,31 @@ export class ComparisonExpr extends BoolExpr {
     }
 
     return this.resolve(engine, scope);
+  }
+
+  /**
+   * WHERE selectivity by operator: a range (`< <= > >=`) keeps ~half the rows;
+   * equality and the equality-like ops (`= <> like notLike ilike`) keep ~a third.
+   * An index-covered `=` is discounted separately by the cost model (via
+   * {@link indexProbe}); this is the non-indexed fallback.
+   */
+  override selectivity(): number {
+    switch (this.op) {
+      case '<':
+      case '<=':
+      case '>':
+      case '>=':
+        return RANGE_SELECTIVITY;
+      default:
+        return EQ_SELECTIVITY;
+    }
+  }
+
+  /** An `=` against a column is an index point-probe (arity 1); other ops are not. */
+  override indexProbe(): IndexProbe | undefined {
+    if (this.op !== '=') return undefined;
+    const ref = this.left.fieldRef() ?? this.right.fieldRef();
+    return ref ? { ref, arity: 1 } : undefined;
   }
 
   /** Evaluate under 3VL: a NULL operand yields UNKNOWN; text compares case-insensitively unless a `sensitive` field is involved. */

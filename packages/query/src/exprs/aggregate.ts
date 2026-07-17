@@ -42,7 +42,7 @@ import { type NamedArgs, runAggregateFunction } from '../runtime/functions';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -195,10 +195,15 @@ export class AggregateExpr extends Expr {
   }
 
   /** Cost is the per-arg byte cost (or zero for the arg-less `count(*)`). */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
     // An aggregate reads its argument once per scanned row; its own output is a
     // single value. The per-arg byte cost is the meaningful contribution.
-    return this.args.size === 0 ? { rows: 0, bytes: 0 } : this.childCost(engine, scope);
+    return this.args.size === 0 ? { rows: 0, bytes: 0 } : this.childCost(ctx, scope);
+  }
+
+  /** This expr calls the aggregate function `fn`. */
+  override functionRef(): string {
+    return this.fn;
   }
 
   /** Collect each group row's named args (deduped when DISTINCT) and run the registered aggregate. */

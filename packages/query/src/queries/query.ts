@@ -18,7 +18,8 @@ import type { QueryScope } from '../scope';
 import type { ResolvedType, TypeResolved, FieldResolved } from '../resolved-type';
 import { asFieldType } from '../resolved-type';
 import type { ScalarKind } from '../field-type';
-import type { Cost } from '../cost';
+import type { Affected, Cost, CostContext } from '../cost';
+import { AFFECTED_NONE } from '../cost';
 import type { ValidateContext } from '../expr';
 import { ROOT_VALIDATE_CONTEXT } from '../expr';
 import type { Shape } from '../shape';
@@ -33,6 +34,76 @@ import { Type } from '../type';
 import { Field } from '../field';
 import { TextFieldType } from '../field-types/index';
 import { FieldRefExpr, AggregateExpr, FiltersExpr, SorterExpr } from '../exprs/index';
+
+/** One specific field a query reads — its owning Type and field name. */
+export interface FieldReference {
+  readonly type: string;
+  readonly field: string;
+}
+
+/** What a query READS: the Types, specific fields, and DB functions it touches. */
+export interface QueryReferences {
+  /** Every Type read (FROM / joins / subqueries / CTE sources / function reads). */
+  readonly types: readonly string[];
+  /** The specific fields read (resolved to `{ type, field }`), deduped. */
+  readonly fields: readonly FieldReference[];
+  /** The DB functions invoked, deduped. */
+  readonly functions: readonly string[];
+}
+
+/** Merge several {@link QueryReferences} (union of Types / fields / functions). */
+export function mergeReferences(parts: readonly QueryReferences[]): QueryReferences {
+  const types = new Set<string>();
+  const functions = new Set<string>();
+  const fields = new Map<string, FieldReference>();
+  for (const part of parts) {
+    for (const t of part.types) types.add(t);
+    for (const f of part.functions) functions.add(f);
+    for (const fld of part.fields) fields.set(`${fld.type}.${fld.field}`, fld);
+  }
+  return { types: [...types], fields: [...fields.values()], functions: [...functions] };
+}
+
+/**
+ * Accumulate a query's referenced Types / fields / functions from expr subtrees:
+ * a function call notes its name (and any Types the function itself reads); a
+ * field-ref is resolved to `{ type, field }` when a bound `scope` is supplied
+ * (a base query with no binding collects Types + functions only).
+ */
+class ReferenceCollector {
+  readonly types = new Set<string>();
+  private readonly fields = new Map<string, FieldReference>();
+  readonly functions = new Set<string>();
+  constructor(
+    private readonly engine: QueryEngine,
+    private readonly scope: QueryScope | undefined,
+    seedTypes: readonly string[],
+  ) {
+    for (const t of seedTypes) this.types.add(t);
+  }
+
+  /** Inspect ONE expr node: note a function call (+ Types it reads) and, when scoped, a field-ref. */
+  note(n: Expr): void {
+    const fn = n.functionRef();
+    if (fn !== undefined) {
+      this.functions.add(fn);
+      const f = this.engine.lookupFunction(fn);
+      if (f) for (const t of f.references) this.types.add(t);
+    }
+    if (!this.scope) return;
+    const fr = n.fieldRef();
+    if (!fr) return;
+    const rt = fr.resolve(this.engine, this.scope);
+    if (rt.kind === 'field') {
+      this.types.add(rt.type.name);
+      this.fields.set(`${rt.type.name}.${rt.field.name}`, { type: rt.type.name, field: rt.field.name });
+    }
+  }
+
+  result(): QueryReferences {
+    return { types: [...this.types], fields: [...this.fields.values()], functions: [...this.functions] };
+  }
+}
 
 /**
  * One output field of a query.
@@ -324,7 +395,63 @@ export abstract class Query {
    * "(e)" of the plan). Drives `QueryEngine.cost` / `checkCost` and the
    * opt-in cost constraints enforced during validation.
    */
-  abstract cost(engine: QueryEngine, scope: QueryScope): Cost;
+  abstract cost(ctx: CostContext, scope: QueryScope): Cost;
+
+  /**
+   * Estimate the SIZE OF THE RESULT this query returns — output `rows` (capped by
+   * a literal or param-resolved LIMIT / OFFSET) sized by the PROJECTION width,
+   * not the whole scanned row. Distinct from {@link cost} (the WORK to produce
+   * it). The base default is the processing cost; `SelectQuery` / set-operations
+   * / CTEs refine it.
+   */
+  outputCost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.cost(ctx, scope);
+  }
+
+  /**
+   * Estimate the rows this statement MUTATES — a total plus a per-Type breakdown
+   * ({@link Affected}). A read-only query is `{ rows: 0, types: [] }` (the
+   * default); INSERT / UPDATE / DELETE name their target Type, and a CTE
+   * statement SUMS its data-modifying entries plus the final query per Type.
+   */
+  affected(_ctx: CostContext, _scope: QueryScope): Affected {
+    return AFFECTED_NONE;
+  }
+
+  /**
+   * Enumerate what this query READS — the {@link QueryReferences} of Types,
+   * specific fields, and DB functions it touches — INCLUDING execution-time
+   * `filters` predicates and the `sort`-selected sorter catalog exprs (both from
+   * `ctx`). Drives `engine.changeInterval` (freshness). The base collects Types
+   * (from {@link referencedTypes}) + functions (+ any Types a function reads);
+   * `SelectQuery` / set-ops / CTEs override to add the specific FIELDS read,
+   * resolved against their bound scope ({@link referenceScope}).
+   */
+  references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
+    const c = new ReferenceCollector(engine, this.referenceScope(engine, scope), this.referencedTypes());
+    this.forEachReferenceNode(ctx, (n) => c.note(n));
+    if (ctx.filters) for (const pred of ctx.filters.values()) pred.walk((n) => c.note(n));
+    return c.result();
+  }
+
+  /**
+   * The bound scope a `references` walk resolves its field-refs against, or
+   * `undefined` when this query has no meaningful binding (so field-refs are not
+   * resolved — only Types + functions are collected). Overridden by queries that
+   * bind sources (`SelectQuery` returns its sorter scope).
+   */
+  protected referenceScope(_engine: QueryEngine, _scope: QueryScope): QueryScope | undefined {
+    return undefined;
+  }
+
+  /**
+   * Visit every expr NODE `references` should inspect. The default recurses every
+   * clause expr ({@link walkExprs}); `SelectQuery` overrides to expand a `sorter`
+   * to only its `ctx.sort`-SELECTED catalog exprs (not the whole catalog).
+   */
+  protected forEachReferenceNode(_ctx: CostContext, visit: (n: Expr) => void): void {
+    this.walkExprs(visit);
+  }
 
   // ─── Serialization ───────────────────────────────────────────────────────
 

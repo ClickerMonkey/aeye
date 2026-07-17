@@ -28,8 +28,9 @@ import { reportDuplicateSources, type BoundSource } from './_sources';
 import { deleteRecord } from './_type';
 import { obj, lit, str, list, exprRef } from '../shape';
 import { selectFieldShape } from './_shape';
-import type { Cost } from '../cost';
-import { scanCost, applyWhere } from './_cost';
+import type { Affected, Cost, CostContext } from '../cost';
+import { AFFECTED_NONE, affectedOne } from '../cost';
+import { scanCost, applyWhere, matchedRows } from './_cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
@@ -190,7 +191,8 @@ export class DeleteQuery extends Query {
   }
 
   /** Estimate `{ rows, bytes }`: the target scan × join fan-out, reduced by WHERE. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const engine = ctx.engine;
     const type = engine.type(this.from);
     if (!type) return { rows: 0, bytes: 0 };
     const { aliasTypes } = this.bind(engine, scope);
@@ -204,7 +206,14 @@ export class DeleteQuery extends Query {
     const baseScan = scanCost(type);
     baseScan.rows = rows;
     baseScan.bytes = rows * perRowBytes;
-    return applyWhere(baseScan, type, this.where, perRowBytes);
+    return applyWhere(ctx, scope, baseScan, type, this.where, perRowBytes);
+  }
+
+  /** Rows this DELETE removes: the target type's rows matching WHERE (index / selectivity / OR-aware). */
+  override affected(ctx: CostContext, scope: QueryScope): Affected {
+    const type = ctx.engine.type(this.from);
+    if (!type) return AFFECTED_NONE;
+    return affectedOne(this.from, matchedRows(ctx, scope, type, this.where));
   }
 
   /** Expand joins, filter by WHERE, project RETURNING (pre-removal), then delete the matched rows. */

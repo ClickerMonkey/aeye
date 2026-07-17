@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   fixture,
+  cctx,
   typeScope,
   runtimeFixture,
   lit,
@@ -90,7 +91,7 @@ describe('field-ref: resolve / validate / cost / serialization', () => {
 
   it('cost is zero rows + the field byte size; serialization round-trips', () => {
     const e = fx.engine.parse(ref('u', 'name'));
-    const c = e.cost(fx.engine, scope);
+    const c = e.cost(cctx(fx.engine), scope);
     expect(c.rows).toBe(0);
     expect(c.bytes).toBeGreaterThanOrEqual(0);
     expect(e.toJSON()).toEqual({ kind: 'field-ref', source: 'u', field: 'name' });
@@ -443,7 +444,7 @@ describe('subquery', () => {
   });
 
   it('cost runs the inner query in a child scope', () => {
-    expect(fx.engine.parse(scalarSub).cost(fx.engine, scope).bytes).toBeGreaterThanOrEqual(0);
+    expect(fx.engine.parse(scalarSub).cost(cctx(fx.engine), scope).bytes).toBeGreaterThanOrEqual(0);
   });
 
   it('serialization round-trips; static `from` rejects a mismatched kind', () => {
@@ -534,7 +535,7 @@ describe('filters', () => {
     expect(bare.toJSON()).toEqual({ kind: 'filters', source: 'u' });
     expect(bare.clone().toJSON()).toEqual({ kind: 'filters', source: 'u' });
     expect(bare.toCode()).toBe('filters(u)');
-    expect(bare.cost(fx.engine, scope).rows).toBe(0);
+    expect(bare.cost(cctx(fx.engine), scope).rows).toBe(0);
     let n = 0;
     bare.forEachChild(() => n++);
     expect(n).toBe(0);

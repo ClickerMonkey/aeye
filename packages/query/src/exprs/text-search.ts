@@ -28,8 +28,8 @@ import { checkFieldExpr } from '../write-model';
 import { resolveSearchSql, resolveSearchRun } from '../backing';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
-import { addCost, TEXT_SEARCH_ROW_PENALTY } from '../cost';
+import type { Cost, CostContext } from '../cost';
+import { TEXT_SEARCH_ROW_PENALTY } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { obj, lit, str } from '../shape';
@@ -148,10 +148,14 @@ export class TextSearchExpr extends BoolExpr {
     return this.resolve(engine, scope);
   }
 
-  /** Child cost plus a per-row text-scan penalty. */
-  override cost(engine: QueryEngine, scope: QueryScope): Cost {
-    // A text-search predicate implies a per-row scan penalty.
-    return addCost(this.childCost(engine, scope), { rows: 0, bytes: TEXT_SEARCH_ROW_PENALTY });
+  /** A text-search predicate's own value cost is just its operands' (a boolean). */
+  override cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
+  }
+
+  /** Each SCANNED row pays a full-text scan penalty (applied per row by the WHERE cost model). */
+  override scanRowPenalty(): number {
+    return TEXT_SEARCH_ROW_PENALTY;
   }
 
   /**

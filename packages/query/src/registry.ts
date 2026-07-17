@@ -126,6 +126,25 @@ export class Registry {
     return Array.from(this.fieldTypeClasses.values());
   }
 
+  /** Registry-level default average bytes per field-type kind (a `Field` with no explicit `bytes` falls back here). */
+  private readonly defaultFieldTypeBytes = new Map<string, number>();
+
+  /**
+   * Configure the default average stored bytes for a field-type KIND — the
+   * fallback a `Field` of that kind uses when it declares no explicit `bytes`
+   * (before the field type's own {@link FieldType.avgBytes}). Lets a deployment
+   * tune byte-cost estimates centrally (e.g. "our `text` averages 128 bytes").
+   */
+  setDefaultFieldBytes(kind: string, bytes: number): this {
+    this.defaultFieldTypeBytes.set(kind, bytes);
+    return this;
+  }
+
+  /** The configured default bytes for a field-type kind, or `undefined` when unset. */
+  defaultFieldBytes(kind: string): number | undefined {
+    return this.defaultFieldTypeBytes.get(kind);
+  }
+
   /** Parse a `FieldTypeDef` into a `FieldType` instance by dispatching on kind. */
   parseFieldType(json: FieldTypeDef): FieldType {
     const cls = this.fieldTypeClasses.get(json.kind);

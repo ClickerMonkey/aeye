@@ -32,7 +32,7 @@ import {
   namedArgsToJSON,
   namedArgsToCode,
 } from './_function-args';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import { addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -137,16 +137,23 @@ export class TabularFunctionCallExpr extends Expr {
   }
 
   /** Cost is the output type's row cardinality plus the argument child costs. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
     // The produced rows are the resolved output type's cardinality; the args
     // contribute their own (usually zero-row) cost.
+    const engine = ctx.engine;
     const out = this.resolve(engine, scope);
     /* v8 ignore start -- the `: { rows:0,bytes:0 }` alternate is unreachable: resolve() always returns a type-kind (declared or synthetic) */
     const base = out.kind === 'type'
       ? { rows: out.type.count, bytes: out.type.count * out.type.bytes }
       : { rows: 0, bytes: 0 };
     /* v8 ignore stop */
-    return addCost(base, this.childCost(engine, scope));
+    const fn = engine.lookupFunction(this.fn);
+    return addCost(addCost(base, this.childCost(ctx, scope)), fn ? fn.cost : { rows: 0, bytes: 0 });
+  }
+
+  /** This expr calls the tabular function `fn`. */
+  override functionRef(): string {
+    return this.fn;
   }
 
   /**

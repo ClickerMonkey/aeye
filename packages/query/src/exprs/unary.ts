@@ -21,7 +21,7 @@ import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -118,8 +118,8 @@ export class UnaryExpr extends Expr {
   }
 
   /** Cost is the operand's cost. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return this.childCost(engine, scope);
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.childCost(ctx, scope);
   }
 
   /** Evaluate the operand and apply the sign (NULL/non-numeric → NULL). */

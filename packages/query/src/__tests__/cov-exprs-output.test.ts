@@ -15,7 +15,7 @@
  * drill-down expansion of every wrapping expr kind.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, runtimeFixture, typeScope, ref, lit, cmp, param } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, ref, lit, cmp, param } from './_utils';
 import { RuntimeContext } from '../runtime/context';
 import { OutputRefExpr } from '../exprs/output-ref';
 import { UnaryExpr } from '../exprs/unary';
@@ -99,11 +99,11 @@ describe('output-ref: resolve / cost delegation and unbound fallbacks', () => {
   it('cost delegates to the target (else ZERO_COST when unbound)', () => {
     const scope = typeScope(fx).child();
     scope.bindOutputs(new Map<string, Expr>([['amount', fx.engine.parse(ref('o', 'total'))]]));
-    const bound = fx.engine.parse(outRef('amount')).cost(fx.engine, scope);
+    const bound = fx.engine.parse(outRef('amount')).cost(cctx(fx.engine), scope);
     expect(bound.rows).toBe(0);
     expect(bound.bytes).toBeGreaterThanOrEqual(0);
 
-    const unbound = fx.engine.parse(outRef('amount')).cost(fx.engine, typeScope(fx));
+    const unbound = fx.engine.parse(outRef('amount')).cost(cctx(fx.engine), typeScope(fx));
     expect(unbound).toEqual({ rows: 0, bytes: 0 });
   });
 });
@@ -419,7 +419,7 @@ describe('output-ref: full unary.ts coverage (v8 merge workaround)', () => {
     let n = 0;
     e.forEachChild(() => n++);
     expect(n).toBe(1);
-    expect(e.cost(fx.engine, scope).rows).toBe(0);
+    expect(e.cost(cctx(fx.engine), scope).rows).toBe(0);
     expect(e.toJSON()).toEqual({ kind: 'unary', op: '-', operand: { kind: 'field-ref', source: 'o', field: 'total' } });
     expect(e.clone().toJSON()).toEqual(e.toJSON());
     expect(e.toCode()).toBe('-o.total');

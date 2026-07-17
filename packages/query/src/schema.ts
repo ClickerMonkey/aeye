@@ -192,6 +192,13 @@ export interface FieldDef {
   /** Longer human / LLM-facing description. */
   description?: string;
   type: FieldTypeDef;
+  /** Estimated average stored bytes for this field (overrides the field type's default). */
+  bytes?: number;
+  /**
+   * Estimated milliseconds between changes to this field's data (overrides the
+   * Type's rate): `0` = always changing, `-1` = never, `60000` = once a minute.
+   */
+  changes?: number;
   /** When true, the field may hold null / be absent. Default false. */
   nullable?: boolean;
   /** Whether the field may be supplied on INSERT. Default true. */
@@ -222,6 +229,8 @@ export interface IndexPartDef {
  */
 export interface IndexDef {
   exprs: IndexPartDef[];
+  /** Estimated average bytes per index entry (else derived from the parts' fields). */
+  bytes?: number;
 }
 
 /**
@@ -238,8 +247,14 @@ export interface TypeDef {
   indexes?: IndexDef[];
   /** Estimated total row count — drives cost estimation. */
   count: number;
-  /** Estimated average bytes per row — drives byte-cost estimation. */
-  bytes: number;
+  /** Estimated average bytes per row (else derived as the sum of the fields' bytes). */
+  bytes?: number;
+  /**
+   * Estimated milliseconds between changes to this Type's data: `0` = always
+   * changing (the default), `-1` = never (immutable / reference data), `60000` =
+   * once a minute. Drives `engine.changeInterval(query)` — a result's freshness.
+   */
+  changes?: number;
   /** Eligible for embedding-based semantic similarity across the type's data. */
   semantic?: boolean;
   /** Eligible for full-text search across the type's data. */
@@ -1061,6 +1076,16 @@ export interface FunctionDef {
    * drilled select/order.)
    */
   unaggregateEmpty?: ExprDef;
+  /** Intrinsic per-call cost `{ rows, bytes }` this function adds beyond its args. */
+  cost?: { rows: number; bytes: number };
+  /**
+   * Ms between changes to this function's RESULT independent of the data:
+   * `0` = always (`now()`), `-1` = pure / never (default), `86400000` = daily
+   * (`currentDate()`). Folded into `engine.changeInterval`.
+   */
+  changes?: number;
+  /** Type names this function internally READS (folded into cost / references / freshness). */
+  references?: readonly string[];
 }
 
 /** A resolved bind parameter — name plus the field type inferred for it. */

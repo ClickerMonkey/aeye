@@ -14,6 +14,7 @@ import { asFieldType } from '../resolved-type';
 import type { FieldType } from '../field-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
+import { RANGE_SELECTIVITY } from '../cost';
 import { childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef } from '../shape';
@@ -139,6 +140,11 @@ export class BetweenExpr extends BoolExpr {
     }
 
     return this.resolve(engine, scope);
+  }
+
+  /** A range test keeps ~half the rows (range selectivity). */
+  override selectivity(): number {
+    return RANGE_SELECTIVITY;
   }
 
   /** Evaluate `v >= lo AND v <= hi` under 3VL (a NULL bound makes that side UNKNOWN, but FALSE still dominates); negated for `NOT BETWEEN`. */

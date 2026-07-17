@@ -22,9 +22,10 @@ import type { Problems } from '../problem';
 import type { ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import { recordSignature } from '../runtime/record';
-import { Query, type QueryClass, type QueryField, type QueryResult, syntheticType } from './query';
+import { Query, type QueryClass, type QueryField, type QueryReferences, type QueryResult, mergeReferences, syntheticType } from './query';
 import { obj, lit, str, list, queryRef, isRecord, type Shape } from '../shape';
-import type { Cost } from '../cost';
+import type { Affected, Cost, CostContext } from '../cost';
+import { mergeAffected } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -39,6 +40,10 @@ interface CteEntry {
   validate(engine: QueryEngine, inner: QueryScope, p: Problems, ctx: ValidateContext, index: number): void;
   /** Collect referenced Type names (excluding CTE names). */
   collectReferenced(out: Set<string>, cteNames: ReadonlySet<string>): void;
+  /** Rows this entry MUTATES (a data-modifying CTE body); none for a read-only entry. */
+  affected(ctx: CostContext, scope: QueryScope): Affected;
+  /** What this entry's inner query READS (Types / fields / functions). */
+  references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences;
   /** Evaluate the entry, populating `ctx.ctes[name]`. */
   execute(ctx: RuntimeContext): Promise<void>;
   /** Emit `name AS ( … )`. */
@@ -65,6 +70,14 @@ class CTEEntryImpl implements CteEntry {
 
   collectReferenced(out: Set<string>, cteNames: ReadonlySet<string>): void {
     for (const t of this.query.referencedTypes()) if (!cteNames.has(t)) out.add(t);
+  }
+
+  affected(ctx: CostContext, scope: QueryScope): Affected {
+    return this.query.affected(ctx, scope);
+  }
+
+  references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
+    return this.query.references(engine, scope, ctx);
   }
 
   async execute(ctx: RuntimeContext): Promise<void> {
@@ -110,6 +123,14 @@ class CTERecursiveEntryImpl implements CteEntry {
   collectReferenced(out: Set<string>, cteNames: ReadonlySet<string>): void {
     for (const t of this.base.referencedTypes()) if (!cteNames.has(t)) out.add(t);
     for (const t of this.recursiveArm.referencedTypes()) if (!cteNames.has(t)) out.add(t);
+  }
+
+  affected(ctx: CostContext, scope: QueryScope): Affected {
+    return mergeAffected([this.base.affected(ctx, scope), this.recursiveArm.affected(ctx, scope)]);
+  }
+
+  references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
+    return mergeReferences([this.base.references(engine, scope, ctx), this.recursiveArm.references(engine, scope, ctx)]);
   }
 
   async execute(ctx: RuntimeContext): Promise<void> {
@@ -357,9 +378,26 @@ export class CTEStatementQuery extends Query {
   }
 
   /** Estimate `{ rows, bytes }` — the final query's cost, with CTE names bound. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
     // The statement's cost is its final query's cost, with CTE names bound.
-    return this.final.cost(engine, this.bind(engine, scope));
+    return this.final.cost(ctx, this.bind(ctx.engine, scope));
+  }
+
+  /** The RESULT SIZE is the final query's output cost, with CTE names bound. */
+  override outputCost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.final.outputCost(ctx, this.bind(ctx.engine, scope));
+  }
+
+  /** Rows mutated: every data-modifying CTE entry plus the final query, summed per Type. */
+  override affected(ctx: CostContext, scope: QueryScope): Affected {
+    const bound = this.bind(ctx.engine, scope);
+    return mergeAffected([this.final.affected(ctx, bound), ...this.ctes.map((e) => e.affected(ctx, bound))]);
+  }
+
+  /** Reads = the final query's plus every entry's references (Types / fields / functions). */
+  override references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
+    const bound = this.bind(engine, scope);
+    return mergeReferences([this.final.references(engine, bound, ctx), ...this.ctes.map((e) => e.references(engine, bound, ctx))]);
   }
 
   /** Evaluate each CTE in order (populating `ctx.ctes`), then run the final query. */

@@ -16,7 +16,7 @@
  * rejecting it in the general Expr union, and the drill-down expansion / drop.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, runtimeFixture, typeScope, ref, lit, cmp } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, ref, lit, cmp } from './_utils';
 import { createRegistry } from '../registry';
 import { RuntimeContext } from '../runtime/context';
 import { SorterExpr } from '../exprs/sorter';
@@ -97,11 +97,22 @@ describe('sorter: serialization, schema, static from', () => {
 describe('sorter: value-position fallbacks (never reached after validation)', () => {
   const fx = fixture();
 
-  it('resolve ⇒ nullable text; cost ⇒ zero; evaluate ⇒ NULL; toSQL ⇒ NULL', async () => {
+  it('resolve ⇒ nullable text; cost ⇒ its sortable catalog; evaluate ⇒ NULL; toSQL ⇒ NULL', async () => {
     const scope = typeScope(fx);
-    const e = fx.engine.parse(nameAgeSorter());
+    const e = fx.engine.parse(nameAgeSorter()) as SorterExpr;
     expect(fx.engine.resolveExpr(nameAgeSorter(), scope).kind).toBe('computed');
-    expect(e.cost(fx.engine, scope)).toEqual({ rows: 0, bytes: 0 });
+    // With no runtime selection or defaultSort, a sorter costs its WHOLE catalog
+    // (any entry could be chosen) — the sum of `name` + `age` field costs.
+    const whole = e.cost(cctx(fx.engine), scope);
+    expect(whole.rows).toBe(0);
+    expect(whole.bytes).toBe(
+      e.sorts.get('name')!.cost(cctx(fx.engine), scope).bytes +
+        e.sorts.get('age')!.cost(cctx(fx.engine), scope).bytes,
+    );
+    // A runtime `sort` selection narrows the cost to just the chosen entry.
+    const selected = e.cost({ engine: fx.engine, sort: [{ sort: 'name', dir: 'asc' }] }, scope);
+    expect(selected.bytes).toBe(e.sorts.get('name')!.cost(cctx(fx.engine), scope).bytes);
+    expect(selected.bytes).toBeLessThanOrEqual(whole.bytes);
 
     const ctx = new RuntimeContext(fx.engine);
     expect((await e.evaluate(ctx, null)).isNull()).toBe(true);

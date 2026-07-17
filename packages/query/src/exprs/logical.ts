@@ -11,6 +11,7 @@ import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
+import type { CostContext } from '../cost';
 import { categoryOf, childExprSchema } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
@@ -95,6 +96,22 @@ export class LogicalExpr extends BoolExpr {
 
   override forEachChild(visit: (child: Expr) => void): void {
     for (const o of this.operands) visit(o);
+  }
+
+  /**
+   * Flatten an `and` into its constituent conjuncts, RECURSIVELY — so
+   * `((a AND b) AND c) AND d` yields `[a, b, c, d]` and the WHERE cost model sees
+   * every top-level conjunct for selectivity / index matching. `or` / `not` are
+   * opaque (a single conjunct — the default).
+   */
+  override conjuncts(ctx: CostContext, scope: QueryScope): readonly Expr[] {
+    if (this.op !== 'and') return [this];
+    return this.operands.flatMap((o) => o.conjuncts(ctx, scope));
+  }
+
+  /** An `or` exposes its operands so the affected-row estimator can union the branches. */
+  override orOperands(): readonly Expr[] | undefined {
+    return this.op === 'or' ? this.operands : undefined;
   }
 
   /** Validate that each operand is boolean (and that `not` has exactly one operand); resolves to bool. */

@@ -12,7 +12,7 @@
  * toCode, forEachChild, and the full _function-args helper surface.
  */
 import { describe, it, expect } from 'vitest';
-import { fixture, runtimeFixture, typeScope, lit, ref, param } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, lit, ref, param } from './_utils';
 import type { ExprDef, SelectDef, FunctionDef, Order } from '../schema';
 import { AggregateExpr } from '../exprs/aggregate';
 import { WindowExpr } from '../exprs/window';
@@ -165,9 +165,9 @@ describe('AggregateExpr', () => {
   });
 
   it('cost: count(*) is zero, an argumented aggregate sums child cost', () => {
-    const z = fx.engine.parse(agg('count', {})).cost(fx.engine, scope);
+    const z = fx.engine.parse(agg('count', {})).cost(cctx(fx.engine), scope);
     expect(z).toEqual({ rows: 0, bytes: 0 });
-    const c = fx.engine.parse(agg('sum', { value: ref('o', 'total') })).cost(fx.engine, scope);
+    const c = fx.engine.parse(agg('sum', { value: ref('o', 'total') })).cost(cctx(fx.engine), scope);
     expect(c.bytes).toBeGreaterThanOrEqual(0);
   });
 
@@ -352,7 +352,7 @@ describe('WindowExpr', () => {
   it('cost sums the child costs', () => {
     const c = fx.engine
       .parse(win('sum', { value: ref('o', 'total') }, [ref('o', 'userId')]))
-      .cost(fx.engine, scope);
+      .cost(cctx(fx.engine), scope);
     expect(c.bytes).toBeGreaterThanOrEqual(0);
   });
 
@@ -536,7 +536,7 @@ describe('FunctionCallExpr', () => {
   });
 
   it('cost sums the child costs', () => {
-    const c = fx.engine.parse(fcall('lower', { value: ref('o', 'note') })).cost(fx.engine, scope);
+    const c = fx.engine.parse(fcall('lower', { value: ref('o', 'note') })).cost(cctx(fx.engine), scope);
     expect(c.bytes).toBeGreaterThanOrEqual(0);
   });
 
@@ -632,7 +632,7 @@ describe('TabularFunctionCallExpr', () => {
   });
 
   it('cost reflects the output type cardinality plus child costs', () => {
-    const c = fx.engine.parse(tcall('tfn', {})).cost(fx.engine, scope);
+    const c = fx.engine.parse(tcall('tfn', {})).cost(cctx(fx.engine), scope);
     expect(c.rows).toBe(fx.order.count);
   });
 

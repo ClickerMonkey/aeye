@@ -21,7 +21,7 @@ import { obj, lit, str } from '../shape';
 import { TextFieldType } from '../field-types/index';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
@@ -97,7 +97,8 @@ export class ParamExpr extends Expr {
   }
 
   /** Zero rows; cost is just the resolved type's byte size. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const engine = ctx.engine;
     return { rows: 0, bytes: bytesOfResolved(this.resolve(engine, scope)) };
   }
 

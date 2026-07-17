@@ -23,7 +23,7 @@ import { Value } from '../runtime/value';
 import { firstField } from '../runtime/record';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
-import type { Cost } from '../cost';
+import type { Cost, CostContext } from '../cost';
 
 /** A subquery in value position (typically a scalar / single-column result). */
 export class SubqueryExpr extends Expr {
@@ -141,8 +141,9 @@ export class SubqueryExpr extends Expr {
   }
 
   /** Cost of running the inner query in a child scope. */
-  cost(engine: QueryEngine, scope: QueryScope): Cost {
-    return engine.parseQuery(this.query).cost(engine, scope.child());
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const engine = ctx.engine;
+    return engine.parseQuery(this.query).cost(ctx, scope.child());
   }
 
   /** Execute the subquery (correlated to `row` when present) and return its first field. */

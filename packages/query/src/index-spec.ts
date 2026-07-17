@@ -12,6 +12,10 @@
  * normalizes equivalently), and this class's interface stays put.
  */
 import type { ExprDef, IndexDef, IndexPartDef, JsonValue } from './schema';
+import type { Type } from './type';
+
+/** The fallback average bytes for an index part that is not a plain field-ref. */
+const NON_FIELD_PART_BYTES = 8;
 
 /**
  * Deterministic, key-sorted stringification of a JSON value. Two
@@ -74,10 +78,30 @@ export class IndexPart {
 export class Index {
   /** The ordered parts of this composite index (at least one). */
   readonly parts: readonly IndexPart[];
+  /** Explicit average bytes per index entry, when authored (else derived from parts). */
+  private readonly explicitBytes?: number;
 
-  /** Construct an index from its ordered parts (at least one). */
-  constructor(parts: readonly IndexPart[]) {
+  /** Construct an index from its ordered parts (at least one) and optional entry-byte size. */
+  constructor(parts: readonly IndexPart[], bytes?: number) {
     this.parts = parts;
+    this.explicitBytes = bytes;
+  }
+
+  /**
+   * Estimated average bytes of one INDEX ENTRY — an explicit authored `bytes`,
+   * else the SUM of the parts' byte sizes: a field-ref part uses that field's
+   * {@link Field.bytes}; any other expr part uses a small fixed default. Drives
+   * the index-only (covered) scan estimate, where reading index entries is
+   * cheaper than reading whole rows.
+   */
+  bytes(type: Type): number {
+    if (this.explicitBytes !== undefined) return this.explicitBytes;
+    let total = 0;
+    for (const part of this.parts) {
+      const field = part.expr.kind === 'field-ref' ? type.field(part.expr.field) : undefined;
+      total += field ? field.bytes() : NON_FIELD_PART_BYTES;
+    }
+    return total;
   }
 
   /**
@@ -110,12 +134,14 @@ export class Index {
 
   /** Build an Index from its `IndexDef` JSON. */
   static from(json: IndexDef): Index {
-    return new Index(json.exprs.map((p) => new IndexPart(p.expr, p.count)));
+    return new Index(json.exprs.map((p) => new IndexPart(p.expr, p.count)), json.bytes);
   }
 
-  /** Serialize to its `IndexDef` JSON shape. */
+  /** Serialize to its `IndexDef` JSON shape (emitting `bytes` only when authored explicitly). */
   toJSON(): IndexDef {
-    return { exprs: this.parts.map((p) => p.toJSON()) };
+    const def: IndexDef = { exprs: this.parts.map((p) => p.toJSON()) };
+    if (this.explicitBytes !== undefined) def.bytes = this.explicitBytes;
+    return def;
   }
 
   /** Deep-copy this index (round-trips through JSON). */

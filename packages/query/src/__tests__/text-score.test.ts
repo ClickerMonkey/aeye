@@ -21,7 +21,7 @@ import { SqlText } from '../sql/emit';
 import { buildSchemas } from '../llm/schemas';
 import { TextScoreExpr } from '../exprs/text-score';
 import { e } from '../builder';
-import { lit, param } from './_utils';
+import { cctx, lit, param } from './_utils';
 import type { QueryScope } from '../scope';
 import type { TypeDef, SelectDef, ExprDef, QueryDef, TypeBacking } from '../schema';
 import type { SourceRecord } from '../runtime/row';
@@ -311,11 +311,12 @@ describe('TextScoreExpr: conventions', () => {
     expect(codes(eng.validateExpr({ kind: 'text-score', source: 'nosrch', query: 'x' }, scope))).toContain('text-score.not-searchable');
   });
 
-  it('cost adds a per-row scan penalty', () => {
+  it('exposes a per-row scan penalty via scanRowPenalty', () => {
     const scope = engine.globalScope();
     scope.bind('plain', { kind: 'type', type: engine.type('plain')!, source: 'plain', synthetic: false });
-    const c = engine.parse({ kind: 'text-score', source: 'plain', query: 'x' }).cost(engine, scope);
-    expect(c.bytes).toBeGreaterThan(0);
+    const e = engine.parse({ kind: 'text-score', source: 'plain', query: 'x' });
+    expect(e.cost(cctx(engine), scope).rows).toBe(0);
+    expect(e.scanRowPenalty()).toBeGreaterThan(0);
   });
 
   it('toJSON / clone / toCode round-trip (text + param, with/without field)', () => {
