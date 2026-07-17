@@ -23,6 +23,14 @@ import type { SortSelectionDef } from '../schema';
 /** A value that may be bound as a SQL parameter. */
 export type SqlValue = string | number | boolean | null;
 
+/**
+ * A supplied param value: a bindable scalar, OR a RELATION KEY object (`{ pk }`
+ * keyed by the target's PK field names) used on the RHS of a relation
+ * comparison (`assignedUser = { id: 5 }`). A relation comparison decomposes the
+ * object into per-column binds; a scalar binds directly.
+ */
+export type SqlParamValue = SqlValue | Readonly<Record<string, SqlValue>>;
+
 /** A rendered SQL string plus its ordered bind parameters. */
 export interface RenderedSql {
   /** The flat SQL string with dialect-numbered placeholders. */
@@ -147,8 +155,8 @@ export class SqlContext {
     readonly rls: RlsProvider | undefined,
     /** True while emitting inside an aggregate's argument (fan-out routing). */
     readonly inAggregate: boolean = false,
-    /** Bound parameter VALUES (param name → value), for `param` emission. */
-    readonly params: Readonly<Record<string, SqlValue>> = {},
+    /** Bound parameter VALUES (param name → scalar, or a relation `{ pk }` object), for `param` emission. */
+    readonly params: Readonly<Record<string, SqlParamValue>> = {},
     /**
      * Execution-time filter EXPRS (already parsed), keyed by source name — read
      * by a `filters` placeholder's `toSQL`. Propagates to nested levels (a

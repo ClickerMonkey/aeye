@@ -26,7 +26,8 @@ import { type SqlContext, SqlText } from '../sql/emit';
 import { ParamExpr } from './param';
 import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import { Value } from '../runtime/value';
-import { not3 } from '../runtime/tri';
+import { or3, not3, type Tri } from '../runtime/tri';
+import { relationCompare, evaluateRelationCompare, emitRelationCompare, evaluateHasMany, emitHasMany, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
 import { firstField } from '../runtime/record';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -37,7 +38,7 @@ import { addCost, IN_SELECTIVITY } from '../cost';
 export class InExpr extends BoolExpr {
   static readonly KIND = 'in' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). To project a value across a relation, add a `relation` join in the subquery and field-ref the joined alias — do NOT project/compare a relation field-ref as a scalar id. To correlate the subquery, JOIN the relation and compare the joined key to the outer scalar. Set `not:true` for NOT IN." as const;
+  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). When `value` is a RELATION field-ref, the list holds `{ pk }` VALUE params (or bare scalars for a single-key relation): a belongs-to matches by FK key, a has-many by MEMBERSHIP (∈ the related set); `NOT IN` negates. To project a value across a relation in the SUBQUERY form, add a `relation` join and field-ref the joined alias — do NOT project/compare a relation field-ref as a scalar id. To correlate the subquery, JOIN the relation and compare the joined key to the outer scalar. Set `not:true` for NOT IN." as const;
   /**
    * Worked examples (see `ExprClass.EXAMPLES`) — the two `in` shapes: an explicit
    * value LIST, and a single-field SUBQUERY that crosses a relation via a
@@ -266,6 +267,30 @@ export class InExpr extends BoolExpr {
     row: SourceRow,
     group?: readonly SourceRow[],
   ): Promise<boolean | undefined> {
+    // A belongs-to relation `IN` a value LIST is `rel = e1 OR rel = e2 …`, each
+    // a per-key-column relation comparison (`NOT IN` is its 3VL negation).
+    const typeOf = runtimeTypeOf(ctx);
+    const rel = relationCompare(this.value, ctx.engine, typeOf);
+    if (rel && this.list) {
+      // A HAS-MANY `IN` a value list is `∈ e1 OR ∈ e2 …`, each an EXISTS
+      // membership (two-valued); `NOT IN` negates it.
+      if (rel.count > 1) {
+        let found = false;
+        for (const el of this.list) {
+          if (await evaluateHasMany('=', rel, el, row, ctx, group)) {
+            found = true;
+            break;
+          }
+        }
+        return this.not ? !found : found;
+      }
+      let acc: Tri = false;
+      for (const el of this.list) {
+        const elRel = relationCompare(el, ctx.engine, typeOf);
+        acc = or3(acc, await evaluateRelationCompare('=', this.value, el, rel, elRel, row, ctx, group));
+      }
+      return this.not ? not3(acc) : acc;
+    }
     const v = await this.value.evaluate(ctx, row, group);
     // `x IN (...)` is `x = a OR x = b OR …` under 3VL: TRUE if any element is
     // equal; else UNKNOWN if the value or any element is NULL (a NULL makes that
@@ -301,6 +326,21 @@ export class InExpr extends BoolExpr {
 
   /** Emit as a SqlText fragment (`value [NOT] IN (...)` over a list or an emitted subquery). */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    // A belongs-to relation `IN` a value list emits `(rel = e1) OR (rel = e2) …`
+    // (each a per-key-column comparison), `NOT IN` wrapping it in `NOT (...)`.
+    const typeOf = sqlTypeOf(ctx);
+    const rel = relationCompare(this.value, ctx.engine, typeOf);
+    if (rel && this.list) {
+      // A HAS-MANY `IN` a value list is an OR of per-element EXISTS memberships.
+      const ors =
+        rel.count > 1
+          ? this.list.map((el) => emitHasMany('=', rel, el, dialect, ctx))
+          : this.list.map((el) =>
+              emitRelationCompare('=', this.value, el, rel, relationCompare(el, ctx.engine, typeOf), dialect, ctx),
+            );
+      const anded = SqlText.join(ors, ' OR ').parens();
+      return this.not ? SqlText.concat([SqlText.raw('NOT '), anded]) : anded;
+    }
     const rhs = this.list
       ? SqlText.join(this.list.map((e) => e.toSQL(dialect, ctx)), ', ').parens()
       : this.subquery

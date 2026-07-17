@@ -45,7 +45,7 @@ import type { SourceRow } from './runtime/row';
 import type { Value } from './runtime/value';
 import type { Dialect } from './sql/dialect';
 import type { RlsProvider } from './sql/rls';
-import type { SqlValue, RenderedSql } from './sql/emit';
+import type { SqlValue, SqlParamValue, RenderedSql } from './sql/emit';
 import { SqlContext } from './sql/emit';
 import { JoinCtePlanner } from './sql/planner';
 
@@ -494,7 +494,7 @@ export class QueryEngine {
     dialect: string | Dialect,
     opts?: {
       rls?: RlsProvider;
-      params?: Readonly<Record<string, SqlValue>>;
+      params?: Readonly<Record<string, SqlParamValue>>;
       filters?: Record<string, ExprDef | Expr | null>;
       sort?: SortSelectionDef[];
       includeTotal?: boolean;
@@ -593,7 +593,7 @@ export class QueryEngine {
     dialect: string | Dialect,
     opts?: {
       rls?: RlsProvider;
-      params?: Readonly<Record<string, SqlValue>>;
+      params?: Readonly<Record<string, SqlParamValue>>;
       filters?: Record<string, ExprDef | Expr | null>;
     },
   ): RenderedSql {

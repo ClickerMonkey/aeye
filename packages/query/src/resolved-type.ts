@@ -24,22 +24,38 @@ import type { FieldType } from './field-type';
  * comparison is compared by FK key and a relation-vs-scalar comparison is
  * rejected (`compare.relation-vs-value`).
  */
+/**
+ * One join-key column pair of a relation, oriented to the relation's own side:
+ * `local` a column on the relation's SOURCE side, `foreign` the matching column
+ * on the TARGET (the target's PK field for a belongs-to). `keyType` is the
+ * scalar value type flowing across it — used to type a bind param and to
+ * validate a supplied relation VALUE's field.
+ */
+export interface RelationKeyPair {
+  readonly local: string;
+  readonly foreign: string;
+  readonly keyType: FieldType;
+}
+
 export interface RelationResolved {
   /** The bound source the relation field is read from. */
   readonly source: string;
   /** The relation field's name on that source. */
   readonly field: string;
-  /** The LOCAL key column carrying the value a comparison should compare by. */
+  /** The LOCAL key column carrying the value a comparison compares by (`keys[0].local`). */
   readonly keyField: string;
   /**
-   * The SCALAR field type of the relation's key VALUE (a belongs-to holds the
-   * target's identity value; a has-many keys on this Type's identity). Lets a
-   * bind param compared against the relation be typed, and a relation-vs-relation
-   * comparison read as an id compare.
+   * The SCALAR field type of the relation's (leading) key VALUE (`keys[0].keyType`).
+   * A belongs-to holds the target's identity value; a has-many keys on this
+   * Type's identity. Lets a bind param compared against the relation be typed.
    */
   readonly keyType: FieldType;
   /** The relation's target Type name (its `to`). */
   readonly to: string;
+  /** Cardinality: `1` = belongs-to (single target row), `>1` = has-many (a set). */
+  readonly count: number;
+  /** The ORDERED join-key pairs (composite-capable) driving relation comparison lowering. */
+  readonly keys: readonly RelationKeyPair[];
 }
 
 /** A resolved value that is an entire Type (a whole row/source). */

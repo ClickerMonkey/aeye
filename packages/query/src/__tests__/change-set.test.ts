@@ -150,7 +150,7 @@ describe('change 1 — relations + inverse + identity', () => {
       count: 10,
       bytes: 10,
     });
-    expect(() => t.identityField()).toThrow(/needs an identity field/);
+    expect(() => t.identityField()).toThrow(/needs a primary key/);
   });
 });
 

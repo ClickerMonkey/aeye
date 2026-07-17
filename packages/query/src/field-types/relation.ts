@@ -139,6 +139,45 @@ export class RelationFieldType extends FieldType {
   }
 
   /**
+   * The UNALIASED, ordered join-key column pairs for this relation — the
+   * composite/backing-aware generalization of {@link resolveKey}. Each pair is
+   * `{ local, foreign }`: `local` a column on THIS Type's side, `foreign` the
+   * matching column on the TARGET (the target's PK field for a belongs-to). Uses
+   * the field's `RelationBacking.keys` when declared, else the single
+   * name-convention pair. Drives relation comparison lowering (`= <> in`).
+   */
+  resolveKeys(
+    engine: QueryEngine,
+    relationFieldName: string,
+    thisType: Type,
+    targetType: Type,
+  ): { local: string; foreign: string }[] {
+    const forward = this.count === 1;
+    let backing: RelationBacking | undefined;
+    if (forward) {
+      // belongs-to: THIS field declares the FK; its backing lives here.
+      backing = engine.fieldBacking(thisType.name, relationFieldName)?.relation;
+    } else if (this.inverseVia !== undefined) {
+      // A materialized inverse has-many borrows its forward relation's backing.
+      backing = engine.fieldBacking(targetType.name, this.inverseVia)?.relation;
+    }
+    // else: a directly-declared has-many has no forward relation to borrow from —
+    // it stays on the name convention (`resolveKey`).
+    if (backing?.keys && backing.keys.length > 0) {
+      // The target identity is only the DEFAULT for a key that omits `foreign`;
+      // compute it lazily so a composite-key target (no single identity) works
+      // when every key names its foreign column explicitly.
+      const targetIdentity = backing.keys.some((k) => k.foreign === undefined)
+        ? /* v8 ignore next -- a forward=false (has-many) key omitting `foreign` is not reachable via the tested inverse backings */
+          (forward ? targetType : thisType).identityField().name
+        : '';
+      return relationKeyColumns(backing.keys, forward, targetIdentity).map((p) => ({ local: p.localField, foreign: p.foreignField }));
+    }
+    const single = this.resolveKey(relationFieldName, thisType, targetType);
+    return [{ local: single.localField, foreign: single.foreignField }];
+  }
+
+  /**
    * Resolve the full join `ON` for this relation hop, consulting the field's
    * DEV-SIDE `RelationBacking` (physical FK columns / custom predicate) and
    * falling back to `resolveKey`'s NAME CONVENTION when none is declared. The
