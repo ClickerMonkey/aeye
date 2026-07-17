@@ -27,7 +27,7 @@ import { ParamExpr } from './param';
 import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import { Value } from '../runtime/value';
 import { or3, not3, type Tri } from '../runtime/tri';
-import { relationCompare, evaluateRelationCompare, emitRelationCompare, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
+import { relationCompare, evaluateRelationCompare, emitRelationCompare, evaluateHasMany, emitHasMany, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
 import { firstField } from '../runtime/record';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -272,6 +272,18 @@ export class InExpr extends BoolExpr {
     const typeOf = runtimeTypeOf(ctx);
     const rel = relationCompare(this.value, ctx.engine, typeOf);
     if (rel && this.list) {
+      // A HAS-MANY `IN` a value list is `∈ e1 OR ∈ e2 …`, each an EXISTS
+      // membership (two-valued); `NOT IN` negates it.
+      if (rel.count > 1) {
+        let found = false;
+        for (const el of this.list) {
+          if (await evaluateHasMany('=', rel, el, row, ctx, group)) {
+            found = true;
+            break;
+          }
+        }
+        return this.not ? !found : found;
+      }
       let acc: Tri = false;
       for (const el of this.list) {
         const elRel = relationCompare(el, ctx.engine, typeOf);
@@ -319,9 +331,13 @@ export class InExpr extends BoolExpr {
     const typeOf = sqlTypeOf(ctx);
     const rel = relationCompare(this.value, ctx.engine, typeOf);
     if (rel && this.list) {
-      const ors = this.list.map((el) =>
-        emitRelationCompare('=', this.value, el, rel, relationCompare(el, ctx.engine, typeOf), dialect, ctx),
-      );
+      // A HAS-MANY `IN` a value list is an OR of per-element EXISTS memberships.
+      const ors =
+        rel.count > 1
+          ? this.list.map((el) => emitHasMany('=', rel, el, dialect, ctx))
+          : this.list.map((el) =>
+              emitRelationCompare('=', this.value, el, rel, relationCompare(el, ctx.engine, typeOf), dialect, ctx),
+            );
       const anded = SqlText.join(ors, ' OR ').parens();
       return this.not ? SqlText.concat([SqlText.raw('NOT '), anded]) : anded;
     }

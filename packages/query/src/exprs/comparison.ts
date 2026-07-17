@@ -17,7 +17,7 @@ import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
-import { relationCompare, evaluateRelationCompare, emitRelationCompare, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
+import { relationCompare, evaluateRelationCompare, emitRelationCompare, evaluateHasMany, emitHasMany, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -182,6 +182,19 @@ export class ComparisonExpr extends BoolExpr {
       p.error('comparison.relation-order', `A relation compares by identity — use '=' or '<>', not '${this.op}'.`);
     }
 
+    // A HAS-MANY relation (a SET) compares only against a VALUE (its members'
+    // key: a `{ pk }` object / scalar) — never against ANOTHER relation. Set-vs-set
+    // and set-vs-identity relation comparisons are ill-defined here.
+    const lRel = relationOf(l);
+    const rRel = relationOf(r);
+    if (lRel && rRel && (lRel.count > 1 || rRel.count > 1)) {
+      const set = lRel.count > 1 ? lRel : rRel;
+      p.error(
+        'comparison.relation-set',
+        `Has-many relation '${set.source}.${set.field}' compares against a value (its members' key), not another relation ('${(set === lRel ? rRel : lRel).source}.${(set === lRel ? rRel : lRel).field}').`,
+      );
+    }
+
     if (LIKE_OPS.has(this.op)) {
       // LIKE family requires text operands (params exempt — inferred text).
       if (!exempt(this.left) && categoryOf(l) !== 'text') {
@@ -263,6 +276,10 @@ export class ComparisonExpr extends BoolExpr {
       const typeOf = runtimeTypeOf(ctx);
       const leftRel = relationCompare(this.left, ctx.engine, typeOf);
       const rightRel = relationCompare(this.right, ctx.engine, typeOf);
+      // A HAS-MANY operand (a SET) compares by membership → EXISTS over its target.
+      if (leftRel && leftRel.count > 1) return evaluateHasMany(this.op, leftRel, this.right, row, ctx, group);
+      if (rightRel && rightRel.count > 1) return evaluateHasMany(this.op, rightRel, this.left, row, ctx, group);
+      // A belongs-to operand compares by identity (per-key columns).
       if (leftRel || rightRel) {
         return evaluateRelationCompare(this.op, this.left, this.right, leftRel, rightRel, row, ctx, group);
       }
@@ -318,6 +335,9 @@ export class ComparisonExpr extends BoolExpr {
       const typeOf = sqlTypeOf(ctx);
       const leftRel = relationCompare(this.left, ctx.engine, typeOf);
       const rightRel = relationCompare(this.right, ctx.engine, typeOf);
+      // A HAS-MANY operand (a SET) compares by membership → a correlated EXISTS.
+      if (leftRel && leftRel.count > 1) return emitHasMany(this.op, leftRel, this.right, dialect, ctx);
+      if (rightRel && rightRel.count > 1) return emitHasMany(this.op, rightRel, this.left, dialect, ctx);
       if (leftRel || rightRel) {
         return emitRelationCompare(this.op, this.left, this.right, leftRel, rightRel, dialect, ctx);
       }

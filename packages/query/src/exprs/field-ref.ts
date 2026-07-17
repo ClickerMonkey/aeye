@@ -29,6 +29,7 @@ import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { RelationFieldType } from '../field-types/index';
+import type { FieldType } from '../field-type';
 import {
   resolveAccessSql,
   resolveAccessRun,
@@ -152,12 +153,18 @@ export class FieldRefExpr extends Expr {
     // is not a plain scalar field.
     const keys: RelationKeyPair[] = ft.resolveKeys(engine, this.field, ownerType, target).map((kp) => {
       const tf = target.field(kp.foreign);
-      /* v8 ignore start -- identity fallback: reached only when the target-side key column is not a plain scalar field (a has-many's FK-back column) */
-      const keyType =
-        tf && !(tf.fieldType instanceof RelationFieldType)
-          ? tf.fieldType
-          : (ft.count === 1 ? target : ownerType).identityField().fieldType;
-      /* v8 ignore stop */
+      // The target-side key column's scalar type. When that column is not a plain
+      // scalar field — a HAS-MANY's FK-back column is itself the belongs-to
+      // relation — fall back to the OWNER's identity type (this side of a has-many
+      // is compared against this row's identity). A belongs-to's target-side key
+      // is always the target's plain-scalar PK, so it never reaches the fallback.
+      let keyType: FieldType;
+      if (tf && !(tf.fieldType instanceof RelationFieldType)) {
+        keyType = tf.fieldType;
+      } else {
+        /* v8 ignore next -- degenerate: a belongs-to whose target-side key column is not a plain scalar field */
+        keyType = (ft.count === 1 ? target : ownerType).identityField().fieldType;
+      }
       return { local: kp.local, foreign: kp.foreign, keyType };
     });
     const relation: RelationResolved = {

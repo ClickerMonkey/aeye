@@ -92,6 +92,11 @@ describe('relation-value-compare: belongs-to = value (runtime)', () => {
     expect(await ids('=', { id: null })).toEqual([]);
     expect(await ids('<>', { id: null })).toEqual([]);
   });
+
+  it('a wholly-null value yields UNKNOWN (keeps no rows)', async () => {
+    expect(await ids('=', null)).toEqual([]);
+    expect(await ids('<>', null)).toEqual([]);
+  });
 });
 
 /** SELECT order.id WHERE order.userId [NOT] IN (:params...), returning the matched ids. */
@@ -264,6 +269,12 @@ describe('relation-value-compare: belongs-to = value (SQL)', () => {
 
   it('binds a bare scalar param directly (single-key)', () => {
     expect(sqlOf('=', 7).params).toEqual([7]);
+  });
+
+  it('a { pk } object MISSING the key part binds NULL', () => {
+    const { sql, params } = sqlOf('=', {}); // no `id` → column key resolves to NULL
+    expect(params).toEqual([null]);
+    expect(sql).toMatch(/=\s*\$1/);
   });
 
   it('<> wraps the column equality in NOT ( … )', () => {

@@ -275,4 +275,17 @@ describe('a relation pointing at an UNREGISTERED target', () => {
     // `!target` ⇒ a text placeholder, not a whole-Type field.
     expect(fields[0]!.fieldType).toBe('text');
   });
+
+  it('a comparison over the dangling relation emits without lowering (relationCompare bails on !target)', () => {
+    const cmpDef: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: e.ref('holder', 'id').toJSON() }],
+      from: { kind: 'type', type: 'holder' },
+      where: [e.eq(e.ref('holder', 'ghost'), e.param('g')).toJSON()],
+    };
+    // The target `phantom` is unregistered ⇒ relationCompare returns undefined, so
+    // the comparison falls back to a plain scalar emit (no per-key lowering).
+    const { sql } = ghostEngine().toSQL(cmpDef, 'base', { params: { g: 1 } });
+    expect(sql).toContain('"holder"."ghost"');
+  });
 });

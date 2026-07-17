@@ -16,30 +16,42 @@
 import type { Expr } from '../expr';
 import { FieldRefExpr } from './field-ref';
 import { ParamExpr } from './param';
+import { emitSubquerySQL } from './_shared';
 import type { Type } from '../type';
 import type { QueryEngine } from '../engine';
-import type { JsonValue } from '../schema';
+import type { JsonValue, QueryDef, SelectDef, ExprDef } from '../schema';
 import { RelationFieldType } from '../field-types/index';
 import { Value } from '../runtime/value';
 import { and3, not3, type Tri } from '../runtime/tri';
 import type { RuntimeContext } from '../runtime/context';
-import type { SourceRow } from '../runtime/row';
+import type { SourceRow, SourceRecord } from '../runtime/row';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, type SqlValue, SqlText } from '../sql/emit';
 
-/** A belongs-to relation operand's key columns, for comparison lowering. */
+/** The reserved subquery alias a has-many EXISTS binds its target under (avoids shadowing the correlated outer source, e.g. a self-relation). */
+const HAS_MANY_ALIAS = '__rel';
+
+/** A relation operand's join-key columns + cardinality, for comparison lowering. */
 export interface RelationCompare {
   /** The bound source the relation is read from. */
   readonly source: string;
-  /** The ordered join-key pairs: `local` a column on `source`, `foreign` the target PK field. */
+  /**
+   * The ordered join-key pairs: `local` a column on `source`, `foreign` a column
+   * on the TARGET. For a BELONGS-TO, `foreign` is the target PK field; for a
+   * HAS-MANY, it is the target's FK-back column (the join to this row's identity).
+   */
   readonly keys: readonly { local: string; foreign: string }[];
+  /** Cardinality: `1` = belongs-to (a single identity), `>1` = has-many (a set). */
+  readonly count: number;
+  /** The relation's target Type. */
+  readonly target: Type;
 }
 
 /**
- * If `operand` is a BELONGS-TO relation field-ref, its key columns — else
- * `undefined`. `typeOf` maps a bound source to its owning Type (runtime:
- * `ctx.sourceType`; SQL: a `ctx.scope` lookup). Has-many (`count > 1`) is NOT a
- * value comparison (it is a SET — handled via membership elsewhere).
+ * If `operand` is a relation field-ref, its key columns + cardinality + target —
+ * else `undefined`. `typeOf` maps a bound source to its owning Type (runtime:
+ * `ctx.sourceType`; SQL: a `ctx.scope` lookup). A belongs-to (`count === 1`)
+ * compares by identity; a has-many (`count > 1`) compares by membership.
  */
 export function relationCompare(
   operand: Expr,
@@ -53,10 +65,9 @@ export function relationCompare(
   const field = owner.field(ref.field);
   if (!field || !(field.fieldType instanceof RelationFieldType)) return undefined;
   const ft = field.fieldType;
-  if (ft.count !== 1) return undefined; // has-many is a set, not a single identity
   const target = engine.type(ft.to);
   if (!target) return undefined;
-  return { source: ref.source, keys: ft.resolveKeys(engine, ref.field, owner, target) };
+  return { source: ref.source, keys: ft.resolveKeys(engine, ref.field, owner, target), count: ft.count, target };
 }
 
 /** A source → owning-Type resolver for the RUNTIME (bound source types, else a registered Type). */
@@ -72,11 +83,16 @@ export function sqlTypeOf(ctx: SqlContext): (source: string) => Type | undefined
   };
 }
 
-/** Read one raw column value off a row's source record (correlation-aware), as a `Value`. */
+/**
+ * Read one raw column value off a row's source record as a `Value`,
+ * correlation-aware: a source not bound directly on `row` falls back to the outer
+ * (correlation) row, so a correlated relation comparison reads its outer key.
+ */
 function column(row: SourceRow, source: string, name: string, ctx: RuntimeContext): Value {
   const rec = row[source] ?? ctx.correlation?.[source];
-  const raw = rec?.[name];
-  return Value.of(raw === undefined ? null : raw);
+  /* v8 ignore next -- defensive: a compared source is always bound on the row or in the correlation */
+  if (!rec) return Value.null();
+  return cell(rec, name);
 }
 
 /** The ordered key-VALUE tuple for one operand: a relation reads its columns; a value extracts by PK field (or is a lone scalar). */
@@ -107,6 +123,12 @@ function eq3(a: Value, b: Value): Tri {
   return a.compareTo(b) === 0;
 }
 
+/** Read a raw column off a target row as a `Value` (an absent column ⇒ NULL). */
+function cell(rec: SourceRecord, name: string): Value {
+  /* v8 ignore next -- a well-formed target row always has its PK / FK columns; defensive NULL for a missing column */
+  return Value.of(rec[name] ?? null);
+}
+
 /**
  * Evaluate a relation `=` / `<>` comparison under 3VL: build both sides' key
  * tuples and AND their per-column equalities (`<>` is the 3VL negation).
@@ -127,6 +149,51 @@ export async function evaluateRelationCompare(
   let acc: Tri = true;
   for (let i = 0; i < keys.length; i++) acc = and3(acc, eq3(lt[i]!, rt[i]!));
   return op === '=' ? acc : not3(acc);
+}
+
+/** The ordered target-PK value tuple of a relation VALUE: a `{ pk }` object by field name, else a lone scalar (single-key). */
+async function valueTuple(
+  value: Expr,
+  pkFields: readonly string[],
+  row: SourceRow,
+  ctx: RuntimeContext,
+  group: readonly SourceRow[] | undefined,
+): Promise<Value[]> {
+  const v = await value.evaluate(ctx, row, group);
+  if (v.isNull()) return pkFields.map(() => Value.null());
+  const raw = v.raw;
+  if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, JsonValue>;
+    return pkFields.map((f) => Value.of(obj[f] ?? null));
+  }
+  return [v];
+}
+
+/**
+ * Evaluate a HAS-MANY membership comparison: `=` is EXISTS a related row whose PK
+ * equals the value (∈ the set); `<>` is NOT EXISTS. Scans the target Type's rows,
+ * kept to those joining THIS row (the has-many keys) AND matching the value's PK.
+ * Two-valued — EXISTS is never UNKNOWN; a NULL identity / PK matches nothing.
+ */
+export async function evaluateHasMany(
+  op: '=' | '<>',
+  rel: RelationCompare,
+  value: Expr,
+  row: SourceRow,
+  ctx: RuntimeContext,
+  group: readonly SourceRow[] | undefined,
+): Promise<boolean> {
+  const pkFields = rel.target.primaryKey().map((f) => f.name);
+  const outer = rel.keys.map((k) => column(row, rel.source, k.local, ctx));
+  const pkVals = await valueTuple(value, pkFields, row, ctx, group);
+  if (outer.some((v) => v.isNull()) || pkVals.some((v) => v.isNull())) return op !== '=';
+  const rows = (await ctx.typeState(rel.target)).current;
+  const found = rows.some(
+    (tr) =>
+      rel.keys.every((k, i) => eq3(cell(tr, k.foreign), outer[i]!) === true) &&
+      pkFields.every((f, i) => eq3(cell(tr, f), pkVals[i]!) === true),
+  );
+  return op === '=' ? found : !found;
 }
 
 /** The ordered key-column SqlText tuple for one operand (relation → its columns; value → per-PK binds). */
@@ -171,4 +238,57 @@ export function emitRelationCompare(
   const eqs = keys.map((_, i) => SqlText.join([ls[i]!, SqlText.raw('='), rs[i]!], ' '));
   const anded = SqlText.join(eqs, ' AND ').parens();
   return op === '=' ? anded : SqlText.concat([SqlText.raw('NOT '), anded]);
+}
+
+/**
+ * The ordered target-PK scalar components of a has-many VALUE, for SQL binds: a
+ * `{ pk }` param object read by field name, else a lone scalar (single-key). A
+ * has-many always compares against a param (literals / relations are rejected in
+ * validation), so a non-param value is defensively treated as all-NULL.
+ */
+function valueComponentsSql(value: Expr, pkFields: readonly string[], ctx: SqlContext): SqlValue[] {
+  /* v8 ignore next -- a has-many compares only against a param value (literals / relations are rejected in validation); defensive */
+  if (!(value instanceof ParamExpr)) return pkFields.map(() => null);
+  const pv = ctx.params[value.name];
+  if (pv !== null && pv !== undefined && typeof pv === 'object') {
+    const obj = pv as Record<string, SqlValue>;
+    return pkFields.map((f) => obj[f] ?? null);
+  }
+  return [(pv ?? null) as SqlValue];
+}
+
+/**
+ * Emit a HAS-MANY membership comparison as a correlated `[NOT] EXISTS` subquery:
+ * `EXISTS (SELECT 1 FROM <target> __rel WHERE <join> AND <target.pk = value>)`.
+ * `=` → EXISTS, `<>` → NOT EXISTS. Delegates to the SELECT machinery (FROM
+ * naming, correlation scope, planner) via `emitSubquerySQL`; the target binds
+ * under a reserved alias so a self-relation does not shadow the outer source.
+ */
+export function emitHasMany(
+  op: '=' | '<>',
+  rel: RelationCompare,
+  value: Expr,
+  dialect: Dialect,
+  ctx: SqlContext,
+): SqlText {
+  const pkFields = rel.target.primaryKey().map((f) => f.name);
+  const comps = valueComponentsSql(value, pkFields, ctx);
+  const eq = (left: ExprDef, right: ExprDef): ExprDef => ({ kind: 'comparison', op: '=', left, right }) as ExprDef;
+  const col = (source: string, field: string): ExprDef => ({ kind: 'field-ref', source, field });
+  const where: ExprDef[] = [
+    // Correlation: each has-many key joins the target's FK-back column to this row's identity.
+    ...rel.keys.map((k) => eq(col(HAS_MANY_ALIAS, k.foreign), col(rel.source, k.local))),
+    // Membership: the target's PK equals the value's components.
+    ...pkFields.map((pk, i) => eq(col(HAS_MANY_ALIAS, pk), { kind: 'literal', value: comps[i] ?? null })),
+  ];
+  const def: SelectDef = {
+    kind: 'select',
+    // Project the target's PK column (a bare ref, no bound param) — EXISTS
+    // ignores the projected value, and `SELECT 1` would bind a stray literal.
+    fields: [{ expr: col(HAS_MANY_ALIAS, pkFields[0]!) }],
+    from: { kind: 'aliased', type: rel.target.name, as: HAS_MANY_ALIAS },
+    where,
+  };
+  const sub = emitSubquerySQL(dialect, ctx, def as QueryDef);
+  return SqlText.concat([SqlText.raw(op === '=' ? 'EXISTS ' : 'NOT EXISTS '), sub]);
 }
