@@ -24,7 +24,7 @@ import type { RelationOnPair } from '../backing';
 import type { JoinType } from '../queries/join';
 import type { Dialect } from './dialect';
 import { SqlText } from './emit';
-import type { SqlValue } from './emit';
+import type { SqlValue, SqlParamValue } from './emit';
 import type { RlsProvider } from './rls';
 import { rlsPredicate } from './rls';
 import { QueryTypeError } from '../problem';
@@ -125,7 +125,7 @@ export class JoinCtePlanner {
     /** The RLS predicate provider, folded into every planned join / CTE. */
     readonly rls: RlsProvider | undefined,
     /** Bound param values, so RLS predicates with params emit real bindings. */
-    readonly params: Readonly<Record<string, SqlValue>> = {},
+    readonly params: Readonly<Record<string, SqlParamValue>> = {},
     /**
      * Implicit-join mode: lower every required join to a FROM/USING source item
      * plus a WHERE-able key predicate (instead of a `JOIN … ON …` clause). Set

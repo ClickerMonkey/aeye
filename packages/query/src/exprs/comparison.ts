@@ -17,7 +17,8 @@ import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
-import { relationCompare, evaluateRelationCompare } from './_relation-compare';
+import { relationCompare, evaluateRelationCompare, emitRelationCompare } from './_relation-compare';
+import type { Type } from '../type';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -306,6 +307,18 @@ export class ComparisonExpr extends BoolExpr {
 
   /** Emit as a SqlText fragment (ILIKE delegates to the dialect; case-insensitive text wraps both operands in `LOWER(...)`). */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    // A belongs-to relation operand lowers to ANDed per-key-column comparisons.
+    if (this.op === '=' || this.op === '<>') {
+      const typeOf = (s: string): Type | undefined => {
+        const b = ctx.scope.lookup(s);
+        return b && b.kind === 'type' ? b.type : undefined;
+      };
+      const leftRel = relationCompare(this.left, ctx.engine, typeOf);
+      const rightRel = relationCompare(this.right, ctx.engine, typeOf);
+      if (leftRel || rightRel) {
+        return emitRelationCompare(this.op, this.left, this.right, leftRel, rightRel, dialect, ctx);
+      }
+    }
     let left = this.left.toSQL(dialect, ctx);
     let right = this.right.toSQL(dialect, ctx);
     // ILIKE is dialect-specific (native on Postgres, lowered on ANSI).

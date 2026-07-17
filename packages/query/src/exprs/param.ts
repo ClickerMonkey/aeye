@@ -24,7 +24,7 @@ import type { RuntimeContext } from '../runtime/context';
 import type { Cost, CostContext } from '../cost';
 import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
-import { type SqlContext, SqlText } from '../sql/emit';
+import { type SqlContext, type SqlValue, SqlText } from '../sql/emit';
 
 /** A named bind parameter; its type is inferred from usage. */
 export class ParamExpr extends Expr {
@@ -110,8 +110,12 @@ export class ParamExpr extends Expr {
   /** Emit as a bound SqlText param slot (null until a value is supplied). */
   toSQL(_dialect: Dialect, ctx: SqlContext): SqlText {
     // Bind the value supplied for this name (null until provided), as a real
-    // parameter slot — never interpolated.
-    const value = Object.prototype.hasOwnProperty.call(ctx.params, this.name) ? ctx.params[this.name]! : null;
+    // parameter slot — never interpolated. A relation `{ pk }` OBJECT param is
+    // decomposed into per-column binds by the relation comparison, never bound
+    // as a value here, so a stray object binds NULL.
+    const raw = Object.prototype.hasOwnProperty.call(ctx.params, this.name) ? ctx.params[this.name]! : null;
+    /* v8 ignore next -- a relation { pk } object param is decomposed by the comparison; a stray one binds NULL */
+    const value: SqlValue = raw !== null && typeof raw === 'object' ? null : raw;
     return SqlText.param(value);
   }
 

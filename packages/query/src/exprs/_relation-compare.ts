@@ -14,7 +14,8 @@
  * two surfaces lower identically.
  */
 import type { Expr } from '../expr';
-import type { FieldRefExpr } from './field-ref';
+import { FieldRefExpr } from './field-ref';
+import { ParamExpr } from './param';
 import type { Type } from '../type';
 import type { QueryEngine } from '../engine';
 import type { JsonValue } from '../schema';
@@ -23,6 +24,8 @@ import { Value } from '../runtime/value';
 import { and3, not3, type Tri } from '../runtime/tri';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
+import type { Dialect } from '../sql/dialect';
+import { type SqlContext, type SqlValue, SqlText } from '../sql/emit';
 
 /** A belongs-to relation operand's key columns, for comparison lowering. */
 export interface RelationCompare {
@@ -111,4 +114,47 @@ export async function evaluateRelationCompare(
   let acc: Tri = true;
   for (let i = 0; i < keys.length; i++) acc = and3(acc, eq3(lt[i]!, rt[i]!));
   return op === '=' ? acc : not3(acc);
+}
+
+/** The ordered key-column SqlText tuple for one operand (relation → its columns; value → per-PK binds). */
+function tupleSql(
+  operand: Expr,
+  rel: RelationCompare | undefined,
+  keys: readonly { local: string; foreign: string }[],
+  dialect: Dialect,
+  ctx: SqlContext,
+): SqlText[] {
+  if (rel) return rel.keys.map((k) => new FieldRefExpr(rel.source, k.local).toSQL(dialect, ctx));
+  // A value operand: a param binds either a { pk } object (per-column) or a lone
+  // scalar (single key); any other scalar expr emits directly (single key).
+  if (operand instanceof ParamExpr) {
+    const pv = ctx.params[operand.name];
+    if (pv !== null && pv !== undefined && typeof pv === 'object') {
+      const obj = pv as Record<string, SqlValue>;
+      return keys.map((k) => SqlText.param(obj[k.foreign] ?? null));
+    }
+    return [SqlText.param((pv ?? null) as SqlValue)];
+  }
+  return [operand.toSQL(dialect, ctx)];
+}
+
+/**
+ * Emit a relation `=` / `<>` comparison as ANDed per-key-column equalities
+ * (`<>` wraps them in `NOT (...)`), portable across dialects.
+ */
+export function emitRelationCompare(
+  op: '=' | '<>',
+  left: Expr,
+  right: Expr,
+  leftRel: RelationCompare | undefined,
+  rightRel: RelationCompare | undefined,
+  dialect: Dialect,
+  ctx: SqlContext,
+): SqlText {
+  const keys = (leftRel ?? rightRel)!.keys;
+  const ls = tupleSql(left, leftRel, keys, dialect, ctx);
+  const rs = tupleSql(right, rightRel, keys, dialect, ctx);
+  const eqs = keys.map((_, i) => SqlText.join([ls[i]!, SqlText.raw('='), rs[i]!], ' '));
+  const anded = SqlText.join(eqs, ' AND ').parens();
+  return op === '=' ? anded : SqlText.concat([SqlText.raw('NOT '), anded]);
 }

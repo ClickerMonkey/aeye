@@ -5,6 +5,17 @@
 import { describe, it, expect } from 'vitest';
 import { runtimeFixture } from './_utils';
 import type { QueryDef, JsonValue } from '../schema';
+import type { SqlParamValue } from '../sql/emit';
+
+/** The SELECT-order-by-userId def for a given op. */
+function userIdCmp(op: '=' | '<>'): QueryDef {
+  return {
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'id' } }],
+    from: { kind: 'type', type: 'order' },
+    where: [{ kind: 'comparison', op, left: { kind: 'field-ref', source: 'order', field: 'userId' }, right: { kind: 'param', name: 'u' } }],
+  } as QueryDef;
+}
 
 /** SELECT order.id WHERE order.userId <op> :u, returning the matched order ids. */
 async function ids(op: '=' | '<>', u: JsonValue): Promise<number[]> {
@@ -39,5 +50,24 @@ describe('relation-value-compare: belongs-to = value (runtime)', () => {
   it('a null / absent key value yields UNKNOWN (keeps no rows)', async () => {
     expect(await ids('=', { id: null })).toEqual([]);
     expect(await ids('<>', { id: null })).toEqual([]);
+  });
+});
+
+describe('relation-value-compare: belongs-to = value (SQL)', () => {
+  const sqlOf = (op: '=' | '<>', u: SqlParamValue): { sql: string; params: unknown[] } =>
+    runtimeFixture().engine.toSQL(userIdCmp(op), 'postgres', { params: { u } });
+
+  it('decomposes a { pk } object param into per-column binds', () => {
+    const { sql, params } = sqlOf('=', { id: 7 });
+    expect(params).toEqual([7]); // the object's `id`, bound as a real parameter
+    expect(sql).toMatch(/=\s*\$1/);
+  });
+
+  it('binds a bare scalar param directly (single-key)', () => {
+    expect(sqlOf('=', 7).params).toEqual([7]);
+  });
+
+  it('<> wraps the column equality in NOT ( … )', () => {
+    expect(sqlOf('<>', 7).sql).toMatch(/NOT\s*\(/i);
   });
 });

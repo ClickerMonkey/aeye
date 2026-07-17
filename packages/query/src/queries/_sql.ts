@@ -53,6 +53,8 @@ export function fieldReadonly(op: 'insert' | 'update', typeName: string, field: 
 export function boundSQL(v: number | ParamExprDef | undefined, ctx: SqlContext): SqlText | undefined {
   if (v === undefined) return undefined;
   if (typeof v === 'number') return SqlText.raw(String(v));
-  const value: SqlValue = Object.prototype.hasOwnProperty.call(ctx.params, v.name) ? ctx.params[v.name]! : null;
+  const raw = Object.prototype.hasOwnProperty.call(ctx.params, v.name) ? ctx.params[v.name]! : null;
+  /* v8 ignore next -- a relation { pk } object is never a valid LIMIT/OFFSET; guard to a scalar */
+  const value: SqlValue = raw !== null && typeof raw === 'object' ? null : raw;
   return SqlText.param(value);
 }
