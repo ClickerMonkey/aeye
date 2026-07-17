@@ -47,11 +47,11 @@ Every kind is one branch of the `ExprDef` union. Availability in the LLM schema 
 | `relation-path` | Walks relation fields from a source (optionally ending at a scalar); planner synthesizes the joins. |
 | `binary` | Arithmetic `left <op> right` (`+ - * / %`). |
 | `unary` | `<op> operand` (`-` / `+`). |
-| `comparison` | `left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`). |
+| `comparison` | `left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`). A RELATION operand compares by identity in `=`/`<>` only: RHS a same-target relation (FK key) or a `{ pk }` value param; a has-many compares by membership (correlated `EXISTS`). |
 | `logical` | Boolean connective `and` / `or` / `not` over operands. |
 | `is-null` | `value IS [NOT] NULL`. |
 | `between` | `value BETWEEN lower AND upper` (negatable). |
-| `in` | `value IN (list \| subquery)` (negatable). |
+| `in` | `value IN (list \| subquery)` (negatable). A RELATION `value` matches list `{ pk }` values by FK key (belongs-to) or membership (has-many). |
 | `case` | `CASE WHEN … THEN … [ELSE …] END`. |
 | `function-call` | A scalar function call by name with named args. |
 | `aggregate` | An aggregate function over a group (`count(*)` = empty args); optional `distinct`. |

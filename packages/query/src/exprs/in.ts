@@ -38,7 +38,7 @@ import { addCost, IN_SELECTIVITY } from '../cost';
 export class InExpr extends BoolExpr {
   static readonly KIND = 'in' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). To project a value across a relation, add a `relation` join in the subquery and field-ref the joined alias — do NOT project/compare a relation field-ref as a scalar id. To correlate the subquery, JOIN the relation and compare the joined key to the outer scalar. Set `not:true` for NOT IN." as const;
+  static readonly INSTRUCTIONS = "`value IN (list | subquery)` (negatable via `not`): membership test. `in` is EITHER an explicit array of value exprs OR a subquery projecting exactly ONE field (correlated or not). When `value` is a RELATION field-ref, the list holds `{ pk }` VALUE params (or bare scalars for a single-key relation): a belongs-to matches by FK key, a has-many by MEMBERSHIP (∈ the related set); `NOT IN` negates. To project a value across a relation in the SUBQUERY form, add a `relation` join and field-ref the joined alias — do NOT project/compare a relation field-ref as a scalar id. To correlate the subquery, JOIN the relation and compare the joined key to the outer scalar. Set `not:true` for NOT IN." as const;
   /**
    * Worked examples (see `ExprClass.EXAMPLES`) — the two `in` shapes: an explicit
    * value LIST, and a single-field SUBQUERY that crosses a relation via a

@@ -45,6 +45,17 @@ automatically gain the matching has-many field pointing back. The join key on
 either side resolves through each Type's *identity field* (the field of its
 first unique single-field index, else the field named `id`).
 
+A relation field can be **compared directly to a value** in `= <> in notIn`,
+where the value is an object keyed by the target's **primary key** (single or
+composite) — `{ kind: 'comparison', op: '=', left: relRef, right: { kind:
+'param', name: 'u' } }` with `:u = { id: 5 }` (a single-key relation also
+accepts a bare scalar). A **belongs-to** matches its FK columns; a **has-many**
+matches by **membership** — `= value` is a correlated `EXISTS` testing that the
+value's key is in the related set (`<>` / `notIn` → `NOT EXISTS`). Two relations
+of the same target compare by their FK key (`order.customer = invoice.customer`);
+a has-many may not be compared to another relation. Ordering / LIKE on a relation
+is rejected — a relation compares by identity, not order.
+
 Indexes are **composite**: an ordered list of parts, each with a prefix
 distinct-row `count` (non-increasing); the index is unique iff its last part's
 `count === 1`. Text matching is **case-insensitive by default** — set a text

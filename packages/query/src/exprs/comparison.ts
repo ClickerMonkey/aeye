@@ -102,7 +102,7 @@ function lower(operand: SqlText): SqlText {
 export class ComparisonExpr extends BoolExpr {
   static readonly KIND = 'comparison' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`). Do NOT compare a RELATION field-ref to an id/scalar (e.g. `salesOrder.customer = customer.id`) — that is rejected: to correlate, JOIN the relation (`joins:[{on:{kind:'relation',source,field,as}}]`) and compare the joined key. Comparing two relations of the SAME target IS allowed (compared by FK key)." as const;
+  static readonly INSTRUCTIONS = "`left <op> right` → boolean (`= <> < <= > >=`, `like`, `notLike`, `ilike`). A RELATION field-ref compares by IDENTITY with `=`/`<>` ONLY (ordering / LIKE on a relation is rejected). Its RHS may be (a) another relation of the SAME target — compared by FK key (`order.customer = invoice.customer`); or (b) a `{ pk }` VALUE param keyed by the target's primary-key fields (`assignedUser = :u` with `:u = {id:5}`); a single-key relation also accepts a bare scalar param. A BELONGS-TO compares the FK columns; a HAS-MANY compares by MEMBERSHIP — `= value` is TRUE when the value's key is in the related set (correlated EXISTS), `<>` is NOT EXISTS; a has-many may not be compared to another relation. Do NOT compare a relation to a scalar id COLUMN/field-ref (the correlation bug) — JOIN the relation (`joins:[{on:{kind:'relation',source,field,as}}]`) and compare the joined key." as const;
   readonly kind = ComparisonExpr.KIND;
 
   /** Wrap `left <op> right` as a scalar comparison predicate. */
