@@ -11,7 +11,7 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
-import { asFieldType, valueFieldType } from '../resolved-type';
+import { asFieldType, valueFieldType, relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { IndexProbe } from '../cost';
@@ -175,6 +175,13 @@ export class ComparisonExpr extends BoolExpr {
 
     const lft = asFieldType(l);
     const rft = asFieldType(r);
+
+    // A relation compares BY IDENTITY only — `=` / `<>`. Ordering (`< <= > >=`)
+    // or a LIKE against a relation is meaningless (and would silently misread the
+    // key), so reject it even though a bind-param operand is otherwise exempt.
+    if (this.op !== '=' && this.op !== '<>' && (relationOf(l) || relationOf(r))) {
+      p.error('comparison.relation-order', `A relation compares by identity — use '=' or '<>', not '${this.op}'.`);
+    }
 
     if (LIKE_OPS.has(this.op)) {
       // LIKE family requires text operands (params exempt — inferred text).
