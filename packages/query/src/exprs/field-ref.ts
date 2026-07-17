@@ -12,7 +12,7 @@ import { fieldRefSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
-import type { ResolvedType, FieldResolved, TypeResolved, RelationResolved } from '../resolved-type';
+import type { ResolvedType, FieldResolved, TypeResolved, RelationResolved, RelationKeyPair } from '../resolved-type';
 import { relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
@@ -146,14 +146,27 @@ export class FieldRefExpr extends Expr {
       );
       return textResult([], true);
     }
-    // The LOCAL key column carrying the value to compare by (belongs-to: the
-    // relation field itself, whose stored value is the target's identity;
-    // has-many: this Type's identity).
-    const keyField = ft.resolveKey(this.field, ownerType, target).localField;
-    // The comparable VALUE type: a belongs-to FK holds the TARGET identity's
-    // value; a has-many keys on this Type's own identity.
-    const keyType = (ft.count === 1 ? target : ownerType).identityField().fieldType;
-    const relation: RelationResolved = { source: this.source, field: this.field, keyField, keyType, to: ft.to };
+    // The ORDERED join-key pairs (composite/backing-aware). Each pair's VALUE
+    // type is the TARGET-side scalar field's type (the target's PK field for a
+    // belongs-to), falling back to the relevant identity when the target column
+    // is not a plain scalar field.
+    const keys: RelationKeyPair[] = ft.resolveKeys(engine, this.field, ownerType, target).map((kp) => {
+      const tf = target.field(kp.foreign);
+      const keyType =
+        tf && !(tf.fieldType instanceof RelationFieldType)
+          ? tf.fieldType
+          : (ft.count === 1 ? target : ownerType).identityField().fieldType;
+      return { local: kp.local, foreign: kp.foreign, keyType };
+    });
+    const relation: RelationResolved = {
+      source: this.source,
+      field: this.field,
+      keyField: keys[0]!.local,
+      keyType: keys[0]!.keyType,
+      to: ft.to,
+      count: ft.count,
+      keys,
+    };
     const resolved: TypeResolved = {
       kind: 'type',
       type: target,

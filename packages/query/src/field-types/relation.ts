@@ -139,6 +139,42 @@ export class RelationFieldType extends FieldType {
   }
 
   /**
+   * The UNALIASED, ordered join-key column pairs for this relation — the
+   * composite/backing-aware generalization of {@link resolveKey}. Each pair is
+   * `{ local, foreign }`: `local` a column on THIS Type's side, `foreign` the
+   * matching column on the TARGET (the target's PK field for a belongs-to). Uses
+   * the field's `RelationBacking.keys` when declared, else the single
+   * name-convention pair. Drives relation comparison lowering (`= <> in`).
+   */
+  resolveKeys(
+    engine: QueryEngine,
+    relationFieldName: string,
+    thisType: Type,
+    targetType: Type,
+  ): { local: string; foreign: string }[] {
+    let backing: RelationBacking | undefined;
+    let forward: boolean;
+    let targetIdentity: string;
+    if (this.count === 1) {
+      backing = engine.fieldBacking(thisType.name, relationFieldName)?.relation;
+      forward = true;
+      targetIdentity = targetType.identityField().name;
+    } else {
+      backing =
+        this.inverseVia !== undefined
+          ? engine.fieldBacking(targetType.name, this.inverseVia)?.relation
+          : undefined;
+      forward = false;
+      targetIdentity = thisType.identityField().name;
+    }
+    const pairs =
+      backing?.keys && backing.keys.length > 0
+        ? relationKeyColumns(backing.keys, forward, targetIdentity)
+        : [this.resolveKey(relationFieldName, thisType, targetType)];
+    return pairs.map((p) => ({ local: p.localField, foreign: p.foreignField }));
+  }
+
+  /**
    * Resolve the full join `ON` for this relation hop, consulting the field's
    * DEV-SIDE `RelationBacking` (physical FK columns / custom predicate) and
    * falling back to `resolveKey`'s NAME CONVENTION when none is declared. The
