@@ -850,16 +850,31 @@ identifier; suffixed `_2`, `_3`, … on collision with a param the query already
 uses). Failure cases (`drill.no-aggregation` / `non-invertible` /
 `having-aggregate` / `window-unsupported`) return LLM-friendly `Problems`.
 
-## Cost
+## Cost & estimation
 
-Every query has a bottom-up `{ rows, bytes }` estimate driven by Type counts +
-indexes. Constraints reject over-budget queries during validation.
+Bottom-up estimates driven by each Type's cardinality (`count` rows, `bytes`
+per row), its indexes + fixed **selectivity** for predicates (an indexed
+equality narrows toward one row; a non-indexed one applies `EQ_SELECTIVITY`),
+and per-Type / per-field `changes` rates. Five estimators hang off the engine:
 
 ```ts
-const cost = engine.cost(select);                                   // { rows, bytes }
-const problems = engine.validateQuery(select, undefined, { maxRows: 100 });
-// → cost.rows-exceeded when the estimate blows past the cap
+const cost    = engine.cost(select);        // { rows, bytes } — WORK to produce the result (scanned rows)
+const output  = engine.outputCost(select);  // { rows, bytes } — SIZE of the result (delivered rows × projection width)
+const affected = engine.affected(update);   // { rows, types: [{ type, rows }] } — rows an INSERT/UPDATE/DELETE (or CTE) mutates
+const refs    = engine.references(select);  // { types, fields, functions } — exactly what the query READS
+const ttl     = engine.changeInterval(select); // ms until the data behind it could change (0 = always, -1 = never, else fastest rate)
+
+// Constraints reject over-budget queries during validation:
+const problems = engine.validateQuery(select, undefined, { maxRows: 100, maxBytes: 1_000_000 });
+// → cost.rows-exceeded / cost.bytes-exceeded when the estimate blows past a cap
 ```
+
+`cost` estimates work (OR-aware, index-probe driven); `outputCost` sizes the
+delivered result (post-WHERE/GROUP/DISTINCT, capped by LIMIT/OFFSET);
+`affected` counts mutated rows per Type; `references` powers `changeInterval`,
+which folds the read Types' / fields' / functions' `changes` rates into a single
+freshness / cache-TTL signal. All accept the same execution-time
+`options.params` / `filters` / `sort` so the estimate reflects what actually runs.
 
 ## Functions
 
