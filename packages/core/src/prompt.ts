@@ -242,6 +242,42 @@ export interface PromptInput<
    */
   onToolResult?: (event: ToolResultEvent<TContext, TMetadata, TTools>) => unknown | Promise<unknown>;
   /**
+   * Optional per-prompt interceptor invoked for EVERY tool call the model
+   * makes, BEFORE the tool's own handler runs. Lets a caller observe, veto,
+   * mock, cache, or gate a tool call without touching the tool definitions.
+   *
+   * Return semantics:
+   * - A RESULT VALUE short-circuits: the returned value is used AS this tool
+   *   call's result (fed back to the model as the `role: 'tool'` output,
+   *   serialized exactly like a real result — strings verbatim, everything
+   *   else `JSON.stringify`-d) and the tool's own handler is NOT run. The
+   *   value flows through the same success path a real result would, so
+   *   `onToolResult` (if present) still transforms it and the `toolOutput`
+   *   event fires normally.
+   * - `false` (or `undefined`) means "NOT intercepted": the library proceeds
+   *   to run the tool's actual handler as usual. (Because `false`/`undefined`
+   *   are the pass-through sentinels, they can't be injected AS a result —
+   *   return e.g. an object/string to short-circuit.)
+   *
+   * A THROW is NOT swallowed — it propagates through the SAME dispatch path
+   * a throw from the tool's handler would: throwing `ToolInterrupt` parks the
+   * loop (interrupted slot) and throwing `PromptSuspend` suspends it (the
+   * suspend/resume protocol), identical to throwing those from inside a
+   * tool's `call`. Any other throw becomes a tool error for that slot,
+   * preserving the `tool_call` ↔ `role: 'tool'` pairing guarantee.
+   *
+   * `tool` is the matched Tool instance (`tool.name` discriminates which
+   * tool was called); `args` is the parsed tool arguments; `ctx` is the
+   * prompt's context. Runs once per tool call, before parsing errors are
+   * only reached when the args parsed successfully (an invalid tool call
+   * never reaches execution, so the interceptor isn't consulted for it).
+   */
+  onToolIntercept?: (
+    tool: PromptTools<TTools>,
+    args: unknown,
+    ctx: Context<TContext, TMetadata>,
+  ) => unknown | false | Promise<unknown | false>;
+  /**
    * Optional custom parser that REPLACES Zod validation of the model's
    * STRUCTURED OUTPUT entirely.
    *
@@ -888,11 +924,13 @@ export class Prompt<
         // Handle tool calls
         if (chunk.toolCallNamed) {
           const toolName = chunk.toolCallNamed.name;
+          const toolInfo = toolMap.get(chunk.toolCallNamed.name);
           const onToolResult = this.input.onToolResult;
+          const onToolIntercept = this.input.onToolIntercept;
           const toolExecutor = newToolExecution(
             ctx,
             chunk.toolCallNamed,
-            toolMap.get(chunk.toolCallNamed.name),
+            toolInfo,
             this.input.validationErrorMaxLength,
             this.truncateValidationError.bind(this),
             // Boundary: the streaming loop has erased the per-tool types, so
@@ -907,6 +945,16 @@ export class Prompt<
                   ctx,
                   request,
                 } as ToolResultEvent<TContext, TMetadata, TTools>)
+              : undefined,
+            // Pre-bind the interceptor with the matched Tool instance + ctx so
+            // newToolExecution only feeds it the parsed args (mirrors the
+            // `present` binding above). Only bound when the tool actually
+            // resolved — an unknown tool errors out before run() and is never
+            // intercepted. Runs inside run() BEFORE the handler; a returned
+            // value short-circuits, false/undefined proceeds, a throw
+            // propagates through run()'s existing catch (interrupt/suspend/error).
+            onToolIntercept && toolInfo
+              ? (args) => onToolIntercept(toolInfo.tool, args, ctx)
               : undefined,
           );
           toolExecutors.push(toolExecutor);
@@ -1939,6 +1987,17 @@ function newToolExecution<T extends AnyTool>(
   // a normal tool error (correct events + preserved pairing). Absent ⇒
   // `toModel` is just the raw result.
   present?: (result: any, args: any) => unknown | Promise<unknown>,
+  // Optional per-prompt tool interceptor (PromptInput.onToolIntercept),
+  // pre-bound by the loop with the matched Tool instance + ctx so this
+  // function only needs the parsed args. Runs INSIDE run() BEFORE the tool's
+  // own handler. A returned VALUE short-circuits and becomes `result` (the
+  // handler is skipped, then the normal present/success path runs). Returning
+  // `false`/`undefined` means "not intercepted" — the real handler runs. A
+  // throw is NOT caught here: it propagates to run()'s catch and is routed
+  // identically to a throw from the handler (PromptSuspend ⇒ suspended,
+  // ToolInterrupt ⇒ interrupted, anything else ⇒ tool error). Absent ⇒ the
+  // handler always runs.
+  intercept?: (args: any) => unknown | false | Promise<unknown | false>,
 ) {
   const start = emitter();
   const output = emitter();
@@ -2022,7 +2081,17 @@ function newToolExecution<T extends AnyTool>(
       }
       try {
         execution.status = 'executing';
-        execution.result = await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }));
+        // Optional per-prompt interceptor (PromptInput.onToolIntercept) runs
+        // BEFORE the tool's own handler. A returned value SHORT-CIRCUITS — it
+        // becomes the result and the handler never runs. `false`/`undefined`
+        // means "not intercepted": fall through to the real handler. A throw
+        // is intentionally NOT caught here — it flows to the catch below and
+        // is routed exactly like a throw from the handler (ToolInterrupt ⇒
+        // interrupted, PromptSuspend ⇒ suspended, else ⇒ tool error).
+        const intercepted = intercept ? await intercept(execution.args) : false;
+        execution.result = intercepted === false || intercepted === undefined
+          ? await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }))
+          : intercepted;
         // Tool ran successfully. Apply the optional per-prompt result
         // transformer BEFORE marking success / arming the output emitter,
         // so the `toolOutput` event carries the presented `toModel` and the
