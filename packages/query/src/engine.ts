@@ -48,6 +48,7 @@ import type { RlsProvider } from './sql/rls';
 import type { SqlValue, SqlParamValue, RenderedSql } from './sql/emit';
 import { SqlContext } from './sql/emit';
 import { JoinCtePlanner } from './sql/planner';
+import type { SemanticTextToVector, SemanticTextToVectorAsync } from './vector-text';
 
 /**
  * Pluggable text-embedding provider. Semantic similarity exprs (Phase 4) use
@@ -88,6 +89,47 @@ export interface CostOptions {
   /** Execution-time param VALUES, so a param-bound LIMIT / OFFSET resolves in `outputCost`. */
   params?: Readonly<Record<string, JsonValue>>;
 }
+
+/** The dialect-agnostic SQL-emit options common to {@link toSQL} / {@link toSQLAsync}. */
+export interface BaseSqlOptions {
+  /** Per-Type RLS predicate provider. */
+  rls?: RlsProvider;
+  /** Values for named bind parameters (name → scalar, or a relation `{ pk }` object). */
+  params?: Readonly<Record<string, SqlParamValue>>;
+  /** Execution-time filter predicates per source (authored `ExprDef` or parsed `Expr`). */
+  filters?: Record<string, ExprDef | Expr | null>;
+  /** Execution-time dynamic-sort selection, feeding a SELECT `order`'s `sorter`. */
+  sort?: SortSelectionDef[];
+  /** Emit `COUNT(*) OVER () AS "$total"` on the top-level SELECT. */
+  includeTotal?: boolean;
+}
+
+/** Options for {@link QueryEngine.toSQL}. */
+export interface ToSqlOptions extends BaseSqlOptions {
+  /**
+   * SYNCHRONOUS text→vector converter for a `semantic(...)` text term (see
+   * {@link SemanticTextToVector}). A plain-text semantic term with none supplied
+   * throws; use {@link QueryEngine.toSQLAsync} for an async converter.
+   */
+  convertSemanticText?: SemanticTextToVector;
+}
+
+/**
+ * Options for {@link QueryEngine.toSQLAsync} — like {@link ToSqlOptions} except
+ * its `convertSemanticText` may return a `Promise<string>`.
+ */
+export interface ToSqlAsyncOptions extends BaseSqlOptions {
+  /** ASYNC-capable text→vector converter for a `semantic(...)` text term. */
+  convertSemanticText?: SemanticTextToVectorAsync;
+}
+
+/**
+ * A syntactically valid pgvector TEXT literal bound during {@link
+ * QueryEngine.toSQLAsync}'s discarded COLLECTING pass, so rendering that pass
+ * never fails on a placeholder. The pass's SQL is thrown away; only the set of
+ * requested semantic terms is kept.
+ */
+const PLACEHOLDER_VECTOR_TEXT = '[0]';
 
 /**
  * The query engine: holds the {@link Registry}, exposes type / function lookup,
@@ -488,17 +530,79 @@ export class QueryEngine {
    * `opts.sort` (an ordered `{ sort, dir? }` list) feeds the `sorter` placeholders
    * in a SELECT `order`; `opts.includeTotal` emits the `COUNT(*) OVER () AS
    * "$total"` column on the top-level SELECT.
+   *
+   * `opts.convertSemanticText` is a SYNCHRONOUS text→vector converter (see
+   * {@link SemanticTextToVector}): a `semantic(...)` TEXT literal — or the value
+   * of a `semantic(...)` text PARAM — is embedded into a pgvector TEXT literal
+   * (`[…]`) before it is bound. Emission is synchronous, so this form fits only a
+   * caller who can embed synchronously (e.g. a warmed cache / precomputed
+   * vectors); the async {@link toSQLAsync} covers the common model-backed case. A
+   * plain-text semantic term with NO converter THROWS (rather than emitting the
+   * invalid `'<text>'::vector`); a pre-embedded `[…]` vector-text param is always
+   * bound as-is.
    */
   toSQL(
     query: Query | QueryDef,
     dialect: string | Dialect,
-    opts?: {
-      rls?: RlsProvider;
-      params?: Readonly<Record<string, SqlParamValue>>;
-      filters?: Record<string, ExprDef | Expr | null>;
-      sort?: SortSelectionDef[];
-      includeTotal?: boolean;
-    },
+    opts?: ToSqlOptions,
+  ): { sql: string; params: SqlValue[] } {
+    return this.emitSQL(query, dialect, opts, opts?.convertSemanticText);
+  }
+
+  /**
+   * The async counterpart of {@link toSQL} for the common case where converting a
+   * `semantic(...)` text term to a vector is an async model/network call.
+   * `opts.convertSemanticText` may return a `Promise<string>`. Because SQL
+   * emission is synchronous, this resolves every semantic text term UP FRONT: a
+   * first collecting pass gathers every plain-text semantic term (literals AND
+   * text-param values, in subqueries too), each is converted once (deduplicated),
+   * then a second pass emits with the resolved vectors bound. With no
+   * `convertSemanticText` it is identical to {@link toSQL} (and throws the same
+   * way on a plain-text term). Pre-embedded `[…]` vector-text params are bound
+   * as-is (never sent to the converter).
+   */
+  async toSQLAsync(
+    query: Query | QueryDef,
+    dialect: string | Dialect,
+    opts?: ToSqlAsyncOptions,
+  ): Promise<{ sql: string; params: SqlValue[] }> {
+    const convert = opts?.convertSemanticText;
+    // No converter ⇒ the sync path (identical output; throws on a plain-text term).
+    if (!convert) return this.emitSQL(query, dialect, opts, undefined);
+
+    // PASS 1 — collect every plain-text semantic term the emit would convert. The
+    // rendered SQL is discarded; the collecting converter records each term and
+    // returns a valid placeholder vector so rendering does not fail.
+    const terms = new Set<string>();
+    this.emitSQL(query, dialect, opts, (text) => {
+      terms.add(text);
+      return PLACEHOLDER_VECTOR_TEXT;
+    });
+
+    // Convert each distinct term ONCE (async), building a text→vector-text map.
+    const resolved = new Map<string, string>();
+    for (const text of terms) resolved.set(text, await convert(text));
+
+    // PASS 2 — real emit, resolving each term from the map (every text reached
+    // here was recorded in pass 1, so a miss is a defensive invariant break).
+    return this.emitSQL(query, dialect, opts, (text) => {
+      const vec = resolved.get(text);
+      /* v8 ignore next -- every pass-2 term was collected in pass 1 */
+      if (vec === undefined) throw new Error(`QueryEngine.toSQLAsync: unresolved semantic term ${JSON.stringify(text)}.`);
+      return vec;
+    });
+  }
+
+  /**
+   * Shared SQL-emit core for {@link toSQL} / {@link toSQLAsync}: resolve the
+   * dialect, build the root {@link SqlContext} (threading params / filters / sort
+   * / includeTotal + the SYNC `semanticText` converter), and render.
+   */
+  private emitSQL(
+    query: Query | QueryDef,
+    dialect: string | Dialect,
+    opts: BaseSqlOptions | undefined,
+    semanticText: SemanticTextToVector | undefined,
   ): { sql: string; params: SqlValue[] } {
     const d = typeof dialect === 'string' ? this.registry.dialect(dialect) : dialect;
     if (!d) throw new Error(`QueryEngine.toSQL: unknown dialect '${String(dialect)}'.`);
@@ -507,9 +611,10 @@ export class QueryEngine {
     const params = opts?.params ?? {};
     const planner = new JoinCtePlanner(d, this, opts?.rls, params);
     // Thread the execution-time filter exprs (parsed once, keyed by source) + the
-    // dynamic-sort selection + includeTotal onto the context so the `filters` /
-    // `sorter` placeholders and the `$total` column read them.
-    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), opts?.includeTotal ?? false, true, opts?.sort ?? []);
+    // dynamic-sort selection + includeTotal + the semantic-text converter onto the
+    // context so the `filters` / `sorter` placeholders, the `$total` column, and
+    // a `semantic` term read them.
+    const ctx = new SqlContext(d, this, scope, planner, opts?.rls, false, params, this.parseFilters(opts?.filters), opts?.includeTotal ?? false, true, opts?.sort ?? [], semanticText);
     const rendered = q.toSQL(d, ctx).render(d);
     return { sql: rendered.sql, params: [...rendered.params] };
   }

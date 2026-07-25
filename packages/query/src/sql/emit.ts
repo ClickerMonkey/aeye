@@ -19,6 +19,7 @@ import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { Expr } from '../expr';
 import type { SortSelectionDef } from '../schema';
+import type { SemanticTextToVector } from '../vector-text';
 
 /** A value that may be bound as a SQL parameter. */
 export type SqlValue = string | number | boolean | null;
@@ -185,6 +186,15 @@ export class SqlContext {
      * subquery may carry its own sorter), mirroring `filters`.
      */
     readonly sortSpec: readonly SortSelectionDef[] = [],
+    /**
+     * Caller-supplied SYNC converter turning a plain-text semantic term (a
+     * `semantic(...)` literal, or a text-param value) into its pgvector TEXT
+     * literal (`[…]`) so it can be bound + cast `::vector`. Undefined when the
+     * caller supplied none — a `SemanticExpr` that hits a plain-text term then
+     * throws (rather than emitting the invalid `'<text>'::vector`). Propagated to
+     * every nested level so a subquery's semantic terms convert too.
+     */
+    readonly semanticText: SemanticTextToVector | undefined = undefined,
   ) {}
 
   /** The execution-supplied filter expr bound to `source`, or `undefined`. */
@@ -194,19 +204,19 @@ export class SqlContext {
 
   /** Same context with a different scope (same planner / level / root status). */
   withScope(scope: QueryScope): SqlContext {
-    return new SqlContext(this.dialect, this.engine, scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, this.isRoot, this.sortSpec);
+    return new SqlContext(this.dialect, this.engine, scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, this.isRoot, this.sortSpec, this.semanticText);
   }
 
   /** A nested level (subquery): fresh scope + fresh planner, not in-aggregate.
    *  Neither the outer `$total` flag NOR root status propagates into a nested
    *  level, so a subquery / FROM subquery emits as non-root. */
   withPlanner(scope: QueryScope, planner: JoinCtePlanner): SqlContext {
-    return new SqlContext(this.dialect, this.engine, scope, planner, this.rls, false, this.params, this.filters, false, false, this.sortSpec);
+    return new SqlContext(this.dialect, this.engine, scope, planner, this.rls, false, this.params, this.filters, false, false, this.sortSpec, this.semanticText);
   }
 
   /** Toggle the in-aggregate flag (set when emitting an aggregate argument). */
   asAggregate(on: boolean): SqlContext {
-    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, on, this.params, this.filters, this.includeTotal, this.isRoot, this.sortSpec);
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, on, this.params, this.filters, this.includeTotal, this.isRoot, this.sortSpec, this.semanticText);
   }
 
   /**
@@ -215,6 +225,6 @@ export class SqlContext {
    * branch — so those nested SELECTs never inherit the entry's root status.
    */
   nonRoot(): SqlContext {
-    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, false, this.sortSpec);
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, false, this.sortSpec, this.semanticText);
   }
 }

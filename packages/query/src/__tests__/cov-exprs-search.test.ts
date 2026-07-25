@@ -594,13 +594,20 @@ describe('SemanticExpr', () => {
   });
 
   it('toSQL: text + param queries degrade to 0 (base) and emit cosine (postgres)', () => {
-    const text = bothSQL(cfx.engine, selValue('item', { kind: 'semantic', source: 'item', query: 'cat' }));
-    expect(text.base).toContain('0');
-    expect(text.pg).toContain('<=>');
-    expect(text.pg).toContain('"item"."embedding"');
+    // A `semantic(...)` TEXT term / text-param value is embedded to a pgvector
+    // literal via `convertSemanticText` before binding.
+    const convertSemanticText = (): string => '[1,2,3]';
+    const textDef = selValue('item', { kind: 'semantic', source: 'item', query: 'cat' });
+    expect(cfx.engine.toSQL(textDef, 'base', { convertSemanticText }).sql).toContain('0');
+    const textPg = cfx.engine.toSQL(textDef, 'postgres', { convertSemanticText });
+    expect(textPg.sql).toContain('<=>');
+    expect(textPg.sql).toContain('"item"."embedding"');
+    expect(textPg.params).toContain('[1,2,3]');
 
-    const par = bothSQL(cfx.engine, selValue('item', { kind: 'semantic', source: 'item', query: param('q') }));
-    expect(par.pg).toContain('<=>');
+    const parDef = selValue('item', { kind: 'semantic', source: 'item', query: param('q') });
+    const parPg = cfx.engine.toSQL(parDef, 'postgres', { params: { q: 'hi' }, convertSemanticText });
+    expect(parPg.sql).toContain('<=>');
+    expect(parPg.params).toContain('[1,2,3]');
   });
 
   it('toSQL: a typeField pairing query pairs both bound sides (self-pair over the single bound source)', () => {

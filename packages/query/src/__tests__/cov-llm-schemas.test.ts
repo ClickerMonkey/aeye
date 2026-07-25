@@ -10,6 +10,7 @@ import {
   resolveSchemaDepth,
   depthInstructions,
   shouldUseStringSchema,
+  querySchema,
 } from '../llm/schemas';
 import type { TypeDef } from '../schema';
 
@@ -92,5 +93,19 @@ describe('tabular function source branch', () => {
   it('shouldUseStringSchema flags over-budget Type counts', () => {
     expect(shouldUseStringSchema(manyTypes(6).registry.typeList(), 5)).toBe(true);
     expect(shouldUseStringSchema(manyTypes(2).registry.typeList(), 5)).toBe(false);
+  });
+
+  it('the `max` threshold option raises the structured-schema budget (default 5)', () => {
+    const eight = manyTypes(8);
+    const types = eight.registry.typeList();
+    // Default budget (5): 8 Types ⇒ string fallback.
+    expect(shouldUseStringSchema(types)).toBe(true);
+    // Raised to 10 (the downstream's case): 8 Types stays STRUCTURED.
+    expect(shouldUseStringSchema(types, 10)).toBe(false);
+    // `querySchema` honors the same `max` — structured `{ query: <object> }` vs prose `{ query: string }`.
+    const structured = querySchema(eight, { max: 10 });
+    expect(structured.safeParse({ query: 'a natural-language description' }).success).toBe(false);
+    const prose = querySchema(eight); // default max 5 ⇒ string schema
+    expect(prose.safeParse({ query: 'a natural-language description' }).success).toBe(true);
   });
 });

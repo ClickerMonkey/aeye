@@ -16,6 +16,7 @@ import type { ExprDef, JsonValue, SortSelectionDef } from '../schema';
 import type { QueryEngine } from '../engine';
 import type { Type } from '../type';
 import type { Embedder } from '../engine';
+import type { SemanticTextToVectorAsync } from '../vector-text';
 import type { Expr } from '../expr';
 import type { RlsProvider } from '../sql/rls';
 import { resolveAccessRun } from '../backing';
@@ -80,6 +81,15 @@ export interface RuntimeOptions {
   includeTotal?: boolean;
   /** Embedder override (defaults to the engine's). */
   embedder?: Embedder;
+  /**
+   * Caller-supplied text→vector converter for a `semantic(...)` QUERY term (a
+   * text literal, or a text-param value), mirroring the SQL path's
+   * `convertSemanticText`. Returns the pgvector TEXT literal (`[…]`) — parsed
+   * back to a vector for in-memory cosine scoring; a pre-embedded `[…]` value is
+   * used directly. Takes precedence over `embedder` for the query term. With no
+   * converter, the existing embedder path is used unchanged.
+   */
+  convertSemanticText?: SemanticTextToVectorAsync;
   /** Per-record embedding lookup for semantic scoring. */
   recordEmbedding?: (source: string, id: JsonValue) => Promise<number[] | null>;
   /** Cap on recursive-CTE iterations. */
@@ -145,6 +155,8 @@ export class RuntimeContext {
    */
   private readonly sourceTypes = new Map<string, Type>();
   private readonly embedder?: Embedder;
+  /** Caller-supplied text→vector converter for a semantic QUERY term (SQL parity). */
+  readonly convertSemanticText?: SemanticTextToVectorAsync;
   private readonly recordEmbedding?: (source: string, id: JsonValue) => Promise<number[] | null>;
 
   constructor(engine: QueryEngine, options: RuntimeOptions = {}) {
@@ -155,6 +167,7 @@ export class RuntimeContext {
     this.sortSelection = options.sort ?? [];
     this.rlsProvider = options.rls;
     this.embedder = options.embedder ?? engine.embedder;
+    this.convertSemanticText = options.convertSemanticText;
     this.recordEmbedding = options.recordEmbedding;
     if (options.params) {
       for (const name of Object.keys(options.params)) {

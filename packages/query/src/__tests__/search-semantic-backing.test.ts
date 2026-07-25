@@ -48,6 +48,11 @@ const overrideEmbedder: Embedder = {
   },
 };
 
+// A deterministic text→vector-text converter (the SQL-side semantic seam):
+// 'cat' ⇒ '[1,2,3]', everything else ⇒ '[0,0,1]'. Passed as `convertSemanticText`
+// so a `semantic(...)` TEXT term embeds to a pgvector literal instead of throwing.
+const stubConvert = (text: string): string => (text === 'cat' ? '[1,2,3]' : '[0,0,1]');
+
 /** The conceptual `doc` Type — plain, LLM-facing; nothing hints at hidden fields. */
 const docTypeDef: TypeDef = {
   name: 'doc',
@@ -216,16 +221,23 @@ describe('search/semantic backing: SQL emission', () => {
   });
 
   it('postgres: whole-type semantic emits similarity over the hidden vector, param cast ::vector', () => {
-    const { sql } = engine.toSQL(docValue({ kind: 'semantic', source: 'doc', query: 'cat' }), 'postgres');
+    // The TEXT term 'cat' embeds to '[1,2,3]' via the converter; the dialect casts
+    // the bound vector-text param `::vector`.
+    const { sql, params } = engine.toSQL(docValue({ kind: 'semantic', source: 'doc', query: 'cat' }), 'postgres', {
+      convertSemanticText: stubConvert,
+    });
     expect(sql).toContain(`(1 - ("doc"."embedding" <=> $1::vector))`);
+    expect(params).toEqual(['[1,2,3]']);
   });
 
   it('postgres: field-level semantic override wins (title_vec)', () => {
-    const { sql } = engine.toSQL(
+    const { sql, params } = engine.toSQL(
       docValue({ kind: 'semantic', source: 'doc', field: 'title', query: 'cat' }),
       'postgres',
+      { convertSemanticText: stubConvert },
     );
     expect(sql).toContain(`"doc"."title_vec" <=> $1::vector`);
+    expect(params).toEqual(['[1,2,3]']);
   });
 
   it('postgres: a full sql override is emitted verbatim (search + semantic)', () => {
@@ -237,6 +249,7 @@ describe('search/semantic backing: SQL emission', () => {
     const semantic = engine.toSQL(
       docValue({ kind: 'semantic', source: 'doc', field: 'ovr', query: 'cat' }),
       'postgres',
+      { convertSemanticText: stubConvert },
     ).sql;
     expect(semantic).toContain('doc_semantic_override');
   });
@@ -251,6 +264,7 @@ describe('search/semantic backing: SQL emission', () => {
     const semantic = engine.toSQL(
       docValue({ kind: 'semantic', source: 'doc', field: 'deflt', query: 'cat' }),
       'postgres',
+      { convertSemanticText: stubConvert },
     ).sql;
     expect(semantic).toContain(`"doc"."embedding" <=> $1`);
     expect(semantic).not.toContain('::vector');
@@ -272,13 +286,17 @@ describe('search/semantic backing: SQL emission', () => {
       fields: [{ expr: { kind: 'semantic', source: 'd', query: 'cat' }, as: 's' }],
       from: { kind: 'aliased', type: 'doc', as: 'd' },
     };
-    expect(engine.toSQL(aliasedSem, 'postgres').sql).toContain(`"d"."embedding" <=> $1::vector`);
+    expect(engine.toSQL(aliasedSem, 'postgres', { convertSemanticText: stubConvert }).sql).toContain(
+      `"d"."embedding" <=> $1::vector`,
+    );
   });
 
   it('base dialect DEGRADES (LIKE / constant-0) without throwing', () => {
     const search = engine.toSQL(docWhere({ kind: 'text-search', source: 'doc', query: 'cat' }), 'base').sql;
     expect(search).toContain(`LOWER("doc"."search_tsv") LIKE ('%' || LOWER(?) || '%')`);
-    const semantic = engine.toSQL(docValue({ kind: 'semantic', source: 'doc', query: 'cat' }), 'base').sql;
+    const semantic = engine.toSQL(docValue({ kind: 'semantic', source: 'doc', query: 'cat' }), 'base', {
+      convertSemanticText: stubConvert,
+    }).sql;
     // The base similarity degrades to constant 0.
     expect(semantic).toContain('0 AS "s"');
   });
@@ -392,12 +410,16 @@ describe('semantic.toSQL: unbound / non-type sources emit the default form', () 
   const engine = makeEngine();
   const pg = engine.registry.dialect('postgres')!;
 
-  /** A postgres SqlContext whose scope binds a non-type `c` (leaving others unbound). */
+  /**
+   * A postgres SqlContext whose scope binds a non-type `c` (leaving others
+   * unbound). The trailing positional arg is the `semanticText` converter so a
+   * `semantic(...)` text term embeds rather than throwing.
+   */
   function ctx(): SqlContext {
     const scope = engine.globalScope();
     scope.bind('c', engine.resolveExpr(lit(1), scope));
     const planner = new JoinCtePlanner(pg, engine, undefined);
-    return new SqlContext(pg, engine, scope, planner, undefined);
+    return new SqlContext(pg, engine, scope, planner, undefined, false, {}, {}, false, false, [], stubConvert);
   }
 
   it('an UNBOUND source falls through (no backing) to the default embedding column', () => {

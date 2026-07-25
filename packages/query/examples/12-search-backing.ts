@@ -10,8 +10,11 @@
  *   - `toSQL('postgres')` for a `text-search` emits the precomputed-tsvector
  *     predicate `"article"."search_tsv" @@ plainto_tsquery('english', $1)` — NOT
  *     a fresh `to_tsvector(body)` — and for a `semantic` score emits cosine
- *     `1 - ("article"."embedding" <=> $1::vector)` (the query vector bound as a
- *     pgvector PARAM; `toSQL` stays synchronous — no embedder call).
+ *     `1 - ("article"."embedding" <=> $1::vector)`. A `semantic(...)` TEXT term
+ *     is TEXT, not a vector, so it must be embedded before binding: `toSQLAsync`
+ *     takes a `convertSemanticText` seam (text → pgvector TEXT `[…]`) and resolves
+ *     every semantic term up front (sync `toSQL` throws on a plain-text term with
+ *     no converter, rather than emitting the invalid `'<text>'::vector`).
  *   - `run()` in-memory reads the same hidden fields: the `search_tsv` text is
  *     token-matched, and the stored `embedding` is cosine-compared to the query
  *     embedding (a stub embedder supplies vectors here).
@@ -25,6 +28,7 @@ import {
   createRegistry,
   QueryEngine,
   arrayExecutor,
+  toVectorText,
   type Embedder,
   type TypeDef,
   type SelectDef,
@@ -136,17 +140,21 @@ export async function run(): Promise<ExampleReport> {
   errors += engine.validateQuery(semanticSelect).list.filter((p) => p.severity === 'error').length;
   output.push(`validation errors: ${errors}`);
 
+  // The SQL-side semantic seam: embed the query text into pgvector TEXT (`[…]`)
+  // exactly as the runtime embedder would — a real caller would call its model here.
+  const convertSemanticText = async (text: string): Promise<string> => toVectorText(await stubEmbedder.embed(text));
+
   output.push('\ntoSQL(postgres) — whole-type text-search (hidden tsvector):');
   output.push(`  ${engine.toSQL(textWhere, 'postgres').sql}`);
   output.push('\ntoSQL(postgres) — field-level override (title_tsv):');
   output.push(`  ${engine.toSQL(titleWhere, 'postgres').sql}`);
-  output.push('\ntoSQL(postgres) — semantic (hidden pgvector, $n::vector param):');
-  output.push(`  ${engine.toSQL(semanticSelect, 'postgres').sql}`);
+  output.push('\ntoSQLAsync(postgres) — semantic (hidden pgvector, $n::vector param, text embedded):');
+  output.push(`  ${(await engine.toSQLAsync(semanticSelect, 'postgres', { convertSemanticText })).sql}`);
 
   // ── 2. BASE (ANSI) DEGRADE — no throw ────────────────────────────────────────
   output.push('\ntoSQL(base) — degrades tsvector → LIKE, similarity → 0:');
   output.push(`  ${engine.toSQL(textWhere, 'base').sql}`);
-  output.push(`  ${engine.toSQL(semanticSelect, 'base').sql}`);
+  output.push(`  ${(await engine.toSQLAsync(semanticSelect, 'base', { convertSemanticText })).sql}`);
 
   // ── 3. RUN IN-MEMORY over the hidden fields ──────────────────────────────────
   const searched = await engine.run(textWhere);

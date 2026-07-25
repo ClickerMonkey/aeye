@@ -146,7 +146,22 @@ export {
 } from './cost';
 
 // Engine (Phase 3 surface adds run / resolveQuery / validateQuery)
-export { QueryEngine, type Embedder, type QueryEngineOptions } from './engine';
+export {
+  QueryEngine,
+  type Embedder,
+  type QueryEngineOptions,
+  type ToSqlOptions,
+  type ToSqlAsyncOptions,
+} from './engine';
+
+// Semantic text→vector conversion seam + pgvector TEXT helpers
+export {
+  type SemanticTextToVector,
+  type SemanticTextToVectorAsync,
+  isVectorText,
+  toVectorText,
+  parseVectorText,
+} from './vector-text';
 
 // Query structure (Phase 3)
 export {
