@@ -187,12 +187,14 @@ export class SqlContext {
      */
     readonly sortSpec: readonly SortSelectionDef[] = [],
     /**
-     * Caller-supplied SYNC converter turning a plain-text semantic term (a
-     * `semantic(...)` literal, or a text-param value) into its pgvector TEXT
-     * literal (`[…]`) so it can be bound + cast `::vector`. Undefined when the
-     * caller supplied none — a `SemanticExpr` that hits a plain-text term then
-     * throws (rather than emitting the invalid `'<text>'::vector`). Propagated to
-     * every nested level so a subquery's semantic terms convert too.
+     * INTERNAL SYNC converter turning a plain-text semantic term (a `semantic(...)`
+     * literal, or a text-param value) into its pgvector TEXT literal (`[…]`) so it
+     * can be bound + cast `::vector`. Built by `engine.toSQL` from its precomputed
+     * `opts.embeddings` cache (looking each term up + formatting the vector);
+     * throws when the cache lacks the term. Undefined when the caller supplied no
+     * embeddings — a `SemanticExpr` that hits a plain-text term then throws
+     * (rather than emitting the invalid `'<text>'::vector`). Propagated to every
+     * nested level so a subquery's semantic terms resolve too.
      */
     readonly semanticText: SemanticTextToVector | undefined = undefined,
   ) {}

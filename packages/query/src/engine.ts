@@ -48,7 +48,8 @@ import type { RlsProvider } from './sql/rls';
 import type { SqlValue, SqlParamValue, RenderedSql } from './sql/emit';
 import { SqlContext } from './sql/emit';
 import { JoinCtePlanner } from './sql/planner';
-import type { SemanticTextToVector, SemanticTextToVectorAsync } from './vector-text';
+import type { SemanticTextToVector, SemanticEmbeddings } from './vector-text';
+import { embeddingResolver, toVectorText } from './vector-text';
 
 /**
  * Pluggable text-embedding provider. Semantic similarity exprs (Phase 4) use
@@ -90,7 +91,7 @@ export interface CostOptions {
   params?: Readonly<Record<string, JsonValue>>;
 }
 
-/** The dialect-agnostic SQL-emit options common to {@link toSQL} / {@link toSQLAsync}. */
+/** The dialect-agnostic SQL-emit options common to {@link QueryEngine.toSQL} / {@link QueryEngine.semanticTexts}. */
 export interface BaseSqlOptions {
   /** Per-Type RLS predicate provider. */
   rls?: RlsProvider;
@@ -107,27 +108,21 @@ export interface BaseSqlOptions {
 /** Options for {@link QueryEngine.toSQL}. */
 export interface ToSqlOptions extends BaseSqlOptions {
   /**
-   * SYNCHRONOUS text→vector converter for a `semantic(...)` text term (see
-   * {@link SemanticTextToVector}). A plain-text semantic term with none supplied
-   * throws; use {@link QueryEngine.toSQLAsync} for an async converter.
+   * Precomputed text→vector cache (see {@link SemanticEmbeddings}) for every
+   * `semantic(...)` text term — the vectors the caller obtained by embedding the
+   * terms {@link QueryEngine.semanticTexts} returned. Each such term is
+   * looked up here, formatted to pgvector TEXT, and bound (all SYNC). A needed
+   * term ABSENT from the cache throws (never a silently mis-bound
+   * `'<text>'::vector`); an already-`[…]` vector-text term needs no entry.
    */
-  convertSemanticText?: SemanticTextToVector;
-}
-
-/**
- * Options for {@link QueryEngine.toSQLAsync} — like {@link ToSqlOptions} except
- * its `convertSemanticText` may return a `Promise<string>`.
- */
-export interface ToSqlAsyncOptions extends BaseSqlOptions {
-  /** ASYNC-capable text→vector converter for a `semantic(...)` text term. */
-  convertSemanticText?: SemanticTextToVectorAsync;
+  embeddings?: SemanticEmbeddings;
 }
 
 /**
  * A syntactically valid pgvector TEXT literal bound during {@link
- * QueryEngine.toSQLAsync}'s discarded COLLECTING pass, so rendering that pass
- * never fails on a placeholder. The pass's SQL is thrown away; only the set of
- * requested semantic terms is kept.
+ * QueryEngine.semanticTexts}'s discarded COLLECTING pass, so rendering
+ * that pass never fails on a placeholder. The pass's SQL is thrown away; only the
+ * set of requested semantic terms is kept.
  */
 const PLACEHOLDER_VECTOR_TEXT = '[0]';
 
@@ -531,72 +526,90 @@ export class QueryEngine {
    * in a SELECT `order`; `opts.includeTotal` emits the `COUNT(*) OVER () AS
    * "$total"` column on the top-level SELECT.
    *
-   * `opts.convertSemanticText` is a SYNCHRONOUS text→vector converter (see
-   * {@link SemanticTextToVector}): a `semantic(...)` TEXT literal — or the value
-   * of a `semantic(...)` text PARAM — is embedded into a pgvector TEXT literal
-   * (`[…]`) before it is bound. Emission is synchronous, so this form fits only a
-   * caller who can embed synchronously (e.g. a warmed cache / precomputed
-   * vectors); the async {@link toSQLAsync} covers the common model-backed case. A
-   * plain-text semantic term with NO converter THROWS (rather than emitting the
-   * invalid `'<text>'::vector`); a pre-embedded `[…]` vector-text param is always
-   * bound as-is.
+   * `opts.embeddings` is a precomputed text→vector cache (see {@link
+   * SemanticEmbeddings}): a `semantic(...)` TEXT literal — or the value of a
+   * `semantic(...)` text PARAM — is looked up there, formatted to a pgvector TEXT
+   * literal (`[…]`), and bound (all synchronous). Obtain the terms to embed with
+   * {@link semanticTexts}, embed them, fill the cache, then call this. A
+   * plain-text semantic term with NO cache — or one MISSING from the cache —
+   * THROWS (rather than emitting the invalid `'<text>'::vector`); a pre-embedded
+   * `[…]` vector-text param is always bound as-is (never looked up).
    */
   toSQL(
     query: Query | QueryDef,
     dialect: string | Dialect,
     opts?: ToSqlOptions,
   ): { sql: string; params: SqlValue[] } {
-    return this.emitSQL(query, dialect, opts, opts?.convertSemanticText);
+    return this.emitSQL(query, dialect, opts, this.semanticConverter(opts?.embeddings));
   }
 
   /**
-   * The async counterpart of {@link toSQL} for the common case where converting a
-   * `semantic(...)` text term to a vector is an async model/network call.
-   * `opts.convertSemanticText` may return a `Promise<string>`. Because SQL
-   * emission is synchronous, this resolves every semantic text term UP FRONT: a
-   * first collecting pass gathers every plain-text semantic term (literals AND
-   * text-param values, in subqueries too), each is converted once (deduplicated),
-   * then a second pass emits with the resolved vectors bound. With no
-   * `convertSemanticText` it is identical to {@link toSQL} (and throws the same
-   * way on a plain-text term). Pre-embedded `[…]` vector-text params are bound
-   * as-is (never sent to the converter).
+   * Extract the DISTINCT plain-text `semantic(...)` terms in `query` (+ the same
+   * execution-time `opts` `toSQL` sees — `filters` / `params` can carry a semantic
+   * text term) that need embedding, in a STABLE (first-seen) order. Give it a
+   * query + params, get back the text to embed: embed each, fill a
+   * {@link SemanticEmbeddings} cache, then pass that as `toSQL`'s `opts.embeddings`.
+   *
+   * Reuses `toSQL`'s exact emit walk (a discarded COLLECTING pass) rather than a
+   * second walker, so it sees precisely the terms `toSQL` would bind. A term
+   * already in pgvector TEXT form (`[…]`) needs no embedding and is NOT returned;
+   * an absent / relation-`{ pk }` param value is not a semantic term and is
+   * skipped.
    */
-  async toSQLAsync(
-    query: Query | QueryDef,
-    dialect: string | Dialect,
-    opts?: ToSqlAsyncOptions,
-  ): Promise<{ sql: string; params: SqlValue[] }> {
-    const convert = opts?.convertSemanticText;
-    // No converter ⇒ the sync path (identical output; throws on a plain-text term).
-    if (!convert) return this.emitSQL(query, dialect, opts, undefined);
-
-    // PASS 1 — collect every plain-text semantic term the emit would convert. The
-    // rendered SQL is discarded; the collecting converter records each term and
-    // returns a valid placeholder vector so rendering does not fail.
+  semanticTexts(query: Query | QueryDef, opts?: BaseSqlOptions): string[] {
+    // A `Set` dedupes while preserving first-seen (stable) order. The collecting
+    // converter records each plain-text term and returns a valid placeholder
+    // vector so the discarded render never fails on it.
     const terms = new Set<string>();
+    const dialect = this.collectDialect();
     this.emitSQL(query, dialect, opts, (text) => {
       terms.add(text);
       return PLACEHOLDER_VECTOR_TEXT;
     });
-
-    // Convert each distinct term ONCE (async), building a text→vector-text map.
-    const resolved = new Map<string, string>();
-    for (const text of terms) resolved.set(text, await convert(text));
-
-    // PASS 2 — real emit, resolving each term from the map (every text reached
-    // here was recorded in pass 1, so a miss is a defensive invariant break).
-    return this.emitSQL(query, dialect, opts, (text) => {
-      const vec = resolved.get(text);
-      /* v8 ignore next -- every pass-2 term was collected in pass 1 */
-      if (vec === undefined) throw new Error(`QueryEngine.toSQLAsync: unresolved semantic term ${JSON.stringify(text)}.`);
-      return vec;
-    });
+    return [...terms];
   }
 
   /**
-   * Shared SQL-emit core for {@link toSQL} / {@link toSQLAsync}: resolve the
-   * dialect, build the root {@link SqlContext} (threading params / filters / sort
-   * / includeTotal + the SYNC `semanticText` converter), and render.
+   * A dialect for the discarded {@link semanticTexts} pass. The rendered
+   * SQL is thrown away and every dialect drives the same semantic-term walk (a
+   * `semantic(...)` term's query side is emitted — hence collected — regardless of
+   * dialect), so any registered dialect serves; the first is used.
+   */
+  private collectDialect(): Dialect {
+    const d = this.registry.dialectList()[0];
+    if (!d) throw new Error('QueryEngine.semanticTexts: no dialect registered.');
+    return d;
+  }
+
+  /**
+   * Build the INTERNAL sync `semanticText` seam (text → pgvector TEXT) the emit
+   * path threads, from a precomputed {@link SemanticEmbeddings} cache: look the
+   * term up and format its vector with {@link toVectorText}; a term MISSING from
+   * the cache throws the same fail-loud error the emit path would (never a
+   * silently mis-bound `'<text>'::vector`). Returns `undefined` when no cache was
+   * supplied, so a plain-text term then hits the emit path's own "no embeddings"
+   * throw.
+   */
+  private semanticConverter(embeddings: SemanticEmbeddings | undefined): SemanticTextToVector | undefined {
+    if (!embeddings) return undefined;
+    const resolve = embeddingResolver(embeddings);
+    return (text) => {
+      const vector = resolve(text);
+      if (vector === undefined) {
+        throw new Error(
+          `QueryEngine.toSQL: no embedding supplied for the semantic term ${JSON.stringify(text)}. ` +
+            `Collect the terms with 'engine.semanticTexts(query, opts)', embed each, and pass ` +
+            `them via 'opts.embeddings' (a text→vector Map).`,
+        );
+      }
+      return toVectorText(vector);
+    };
+  }
+
+  /**
+   * Shared SQL-emit core for {@link toSQL} / {@link semanticTexts}: resolve
+   * the dialect, build the root {@link SqlContext} (threading params / filters /
+   * sort / includeTotal + the SYNC `semanticText` converter), and render.
    */
   private emitSQL(
     query: Query | QueryDef,

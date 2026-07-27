@@ -56,9 +56,9 @@ describe('SQL — postgres dialect', () => {
       fields: [{ expr: { kind: 'semantic', source: 'u', query: 'curious people' }, as: 'score' }],
       from: { kind: 'aliased', type: 'user', as: 'u' },
     };
-    // The TEXT term is embedded to a pgvector literal via `convertSemanticText`
-    // before it is bound (Postgres cannot cast '<text>'::vector).
-    const out = fx.engine.toSQL(def, 'postgres', { convertSemanticText: () => '[0.1,0.2]' });
+    // The TEXT term is resolved to a pgvector literal via the precomputed
+    // `embeddings` cache before it is bound (Postgres cannot cast '<text>'::vector).
+    const out = fx.engine.toSQL(def, 'postgres', { embeddings: new Map([['curious people', [0.1, 0.2]]]) });
     expect(out.sql).toContain('(1 - ("u"."embedding" <=> $1))');
     expect(out.params).toEqual(['[0.1,0.2]']);
   });
@@ -86,7 +86,7 @@ describe('SQL — postgres dialect', () => {
       from: { kind: 'aliased', type: 'user', as: 'u' },
       where: [{ kind: 'text-search', source: 'u', field: 'email', query: 'q' }],
     };
-    const out = fx.engine.toSQL(def, 'base', { convertSemanticText: () => '[0]' });
+    const out = fx.engine.toSQL(def, 'base', { embeddings: new Map([['x', [0]]]) });
     expect(out.sql).toContain('0 AS "score"');
     expect(out.sql).toContain('LOWER("u"."email") LIKE LOWER(?)');
   });

@@ -151,13 +151,13 @@ export {
   type Embedder,
   type QueryEngineOptions,
   type ToSqlOptions,
-  type ToSqlAsyncOptions,
 } from './engine';
 
-// Semantic text→vector conversion seam + pgvector TEXT helpers
+// Precomputed semantic text→vector embedding cache + pgvector TEXT helpers
 export {
   type SemanticTextToVector,
-  type SemanticTextToVectorAsync,
+  type SemanticEmbeddings,
+  embeddingResolver,
   isVectorText,
   toVectorText,
   parseVectorText,

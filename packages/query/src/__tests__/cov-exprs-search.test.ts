@@ -594,18 +594,18 @@ describe('SemanticExpr', () => {
   });
 
   it('toSQL: text + param queries degrade to 0 (base) and emit cosine (postgres)', () => {
-    // A `semantic(...)` TEXT term / text-param value is embedded to a pgvector
-    // literal via `convertSemanticText` before binding.
-    const convertSemanticText = (): string => '[1,2,3]';
+    // A `semantic(...)` TEXT term / text-param value is resolved to a pgvector
+    // literal via the precomputed `embeddings` cache before binding.
+    const embeddings = new Map([['cat', [1, 2, 3]], ['hi', [1, 2, 3]]]);
     const textDef = selValue('item', { kind: 'semantic', source: 'item', query: 'cat' });
-    expect(cfx.engine.toSQL(textDef, 'base', { convertSemanticText }).sql).toContain('0');
-    const textPg = cfx.engine.toSQL(textDef, 'postgres', { convertSemanticText });
+    expect(cfx.engine.toSQL(textDef, 'base', { embeddings }).sql).toContain('0');
+    const textPg = cfx.engine.toSQL(textDef, 'postgres', { embeddings });
     expect(textPg.sql).toContain('<=>');
     expect(textPg.sql).toContain('"item"."embedding"');
     expect(textPg.params).toContain('[1,2,3]');
 
     const parDef = selValue('item', { kind: 'semantic', source: 'item', query: param('q') });
-    const parPg = cfx.engine.toSQL(parDef, 'postgres', { params: { q: 'hi' }, convertSemanticText });
+    const parPg = cfx.engine.toSQL(parDef, 'postgres', { params: { q: 'hi' }, embeddings });
     expect(parPg.sql).toContain('<=>');
     expect(parPg.params).toContain('[1,2,3]');
   });

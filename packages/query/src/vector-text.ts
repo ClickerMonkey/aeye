@@ -1,12 +1,14 @@
 /**
- * pgvector TEXT helpers + the caller-supplied text→vector conversion seam.
+ * pgvector TEXT helpers + the precomputed text→vector embedding cache.
  *
  * A `semantic(...)` term can be a plain-text LITERAL or a text PARAM value. Such
  * text is NOT an embedding — it must be turned into a vector before it can be
  * compared. Postgres has no array bind type, so a query vector travels as a
  * pgvector TEXT literal (`[a,b,c]`) and is cast `::vector` by the dialect. The
  * embedding itself is a model/network call the query layer does not own, so the
- * CALLER supplies the conversion function (see `SemanticTextToVector`).
+ * CALLER embeds up front (see `semanticTexts`) and passes the resulting
+ * text→vector cache (see {@link SemanticEmbeddings}) into `engine.toSQL` /
+ * `engine.run`; binding then stays fully SYNCHRONOUS.
  *
  * This module has NO runtime imports (pure string/number work), so it sits at
  * the bottom of the module graph and is safe to import from both the SQL and the
@@ -14,19 +16,36 @@
  */
 
 /**
- * Converts a plain-text semantic term — a `semantic(...)` TEXT LITERAL, or the
- * runtime value of a `semantic(...)` text PARAM — into its pgvector TEXT form: a
- * bracketed literal such as `[0.0123,-0.045,…]`. The SYNCHRONOUS form is what SQL
- * emission (`engine.toSQL`) requires, because emission is synchronous.
+ * A caller-supplied SYNC converter turning a plain-text semantic term — a
+ * `semantic(...)` TEXT LITERAL, or the runtime value of a text PARAM — into its
+ * pgvector TEXT form (a bracketed literal such as `[0.0123,-0.045,…]`). It is the
+ * INTERNAL seam the SQL emit path threads (built from a {@link SemanticEmbeddings}
+ * cache by `engine.toSQL`); callers supply the {@link SemanticEmbeddings} cache,
+ * not this converter directly.
  */
 export type SemanticTextToVector = (text: string) => string;
 
 /**
- * The ASYNC-capable form of {@link SemanticTextToVector}, accepted by the
- * asynchronous entry points (`engine.run`, `engine.toSQLAsync`) — they resolve
- * every semantic term up front, before binding.
+ * The precomputed text→vector cache a caller fills after embedding the terms
+ * `semanticTexts` extracted, and passes to `engine.toSQL` / `engine.run`
+ * so a `semantic(...)` text term binds SYNCHRONOUSLY. The primary shape is a
+ * `ReadonlyMap<string, readonly number[]>` (text → vector); a resolver function
+ * is accepted as a superset. A term absent from the cache is a fail-loud error at
+ * bind time (never a silently mis-bound `'<text>'::vector`).
  */
-export type SemanticTextToVectorAsync = (text: string) => string | Promise<string>;
+export type SemanticEmbeddings =
+  | ReadonlyMap<string, readonly number[]>
+  | ((text: string) => readonly number[] | undefined);
+
+/**
+ * Normalize a {@link SemanticEmbeddings} (map OR resolver) into a lookup
+ * function `text → vector | undefined`. Pure — no runtime imports.
+ */
+export function embeddingResolver(
+  embeddings: SemanticEmbeddings,
+): (text: string) => readonly number[] | undefined {
+  return typeof embeddings === 'function' ? embeddings : (text) => embeddings.get(text);
+}
 
 /** Whether `text` is already in pgvector TEXT form (a bracketed `[…]` literal). */
 export function isVectorText(text: string): boolean {

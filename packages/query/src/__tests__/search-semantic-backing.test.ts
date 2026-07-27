@@ -48,10 +48,15 @@ const overrideEmbedder: Embedder = {
   },
 };
 
-// A deterministic text→vector-text converter (the SQL-side semantic seam):
-// 'cat' ⇒ '[1,2,3]', everything else ⇒ '[0,0,1]'. Passed as `convertSemanticText`
-// so a `semantic(...)` TEXT term embeds to a pgvector literal instead of throwing.
+// A deterministic text→vector-text converter (the INTERNAL SQL-side semantic
+// seam a `SqlContext` is constructed with directly): 'cat' ⇒ '[1,2,3]', else
+// '[0,0,1]'.
 const stubConvert = (text: string): string => (text === 'cat' ? '[1,2,3]' : '[0,0,1]');
+
+// The PUBLIC precomputed embeddings cache (`toSQL({ embeddings })`): 'cat' ⇒
+// [1,2,3], so a `semantic(...)` TEXT term resolves to a pgvector literal instead
+// of throwing.
+const stubEmbeddings = new Map<string, readonly number[]>([['cat', [1, 2, 3]]]);
 
 /** The conceptual `doc` Type — plain, LLM-facing; nothing hints at hidden fields. */
 const docTypeDef: TypeDef = {
@@ -224,7 +229,7 @@ describe('search/semantic backing: SQL emission', () => {
     // The TEXT term 'cat' embeds to '[1,2,3]' via the converter; the dialect casts
     // the bound vector-text param `::vector`.
     const { sql, params } = engine.toSQL(docValue({ kind: 'semantic', source: 'doc', query: 'cat' }), 'postgres', {
-      convertSemanticText: stubConvert,
+      embeddings: stubEmbeddings,
     });
     expect(sql).toContain(`(1 - ("doc"."embedding" <=> $1::vector))`);
     expect(params).toEqual(['[1,2,3]']);
@@ -234,7 +239,7 @@ describe('search/semantic backing: SQL emission', () => {
     const { sql, params } = engine.toSQL(
       docValue({ kind: 'semantic', source: 'doc', field: 'title', query: 'cat' }),
       'postgres',
-      { convertSemanticText: stubConvert },
+      { embeddings: stubEmbeddings },
     );
     expect(sql).toContain(`"doc"."title_vec" <=> $1::vector`);
     expect(params).toEqual(['[1,2,3]']);
@@ -249,7 +254,7 @@ describe('search/semantic backing: SQL emission', () => {
     const semantic = engine.toSQL(
       docValue({ kind: 'semantic', source: 'doc', field: 'ovr', query: 'cat' }),
       'postgres',
-      { convertSemanticText: stubConvert },
+      { embeddings: stubEmbeddings },
     ).sql;
     expect(semantic).toContain('doc_semantic_override');
   });
@@ -264,7 +269,7 @@ describe('search/semantic backing: SQL emission', () => {
     const semantic = engine.toSQL(
       docValue({ kind: 'semantic', source: 'doc', field: 'deflt', query: 'cat' }),
       'postgres',
-      { convertSemanticText: stubConvert },
+      { embeddings: stubEmbeddings },
     ).sql;
     expect(semantic).toContain(`"doc"."embedding" <=> $1`);
     expect(semantic).not.toContain('::vector');
@@ -286,7 +291,7 @@ describe('search/semantic backing: SQL emission', () => {
       fields: [{ expr: { kind: 'semantic', source: 'd', query: 'cat' }, as: 's' }],
       from: { kind: 'aliased', type: 'doc', as: 'd' },
     };
-    expect(engine.toSQL(aliasedSem, 'postgres', { convertSemanticText: stubConvert }).sql).toContain(
+    expect(engine.toSQL(aliasedSem, 'postgres', { embeddings: stubEmbeddings }).sql).toContain(
       `"d"."embedding" <=> $1::vector`,
     );
   });
@@ -295,7 +300,7 @@ describe('search/semantic backing: SQL emission', () => {
     const search = engine.toSQL(docWhere({ kind: 'text-search', source: 'doc', query: 'cat' }), 'base').sql;
     expect(search).toContain(`LOWER("doc"."search_tsv") LIKE ('%' || LOWER(?) || '%')`);
     const semantic = engine.toSQL(docValue({ kind: 'semantic', source: 'doc', query: 'cat' }), 'base', {
-      convertSemanticText: stubConvert,
+      embeddings: stubEmbeddings,
     }).sql;
     // The base similarity degrades to constant 0.
     expect(semantic).toContain('0 AS "s"');

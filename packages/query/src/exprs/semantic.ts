@@ -364,12 +364,13 @@ export class SemanticExpr extends Expr {
   }
 
   /**
-   * Embed the query side into a vector (null when unavailable). A caller-supplied
-   * `ctx.convertSemanticText` seam (text→pgvector-text, mirroring the SQL path)
-   * takes precedence when present — the term is converted and parsed back to a
-   * vector; a pre-embedded `[…]` value short-circuits the converter. With no
-   * converter it falls back to the `SemanticBacking`'s `embedder` override, else
-   * the run / engine embedder (unchanged existing behavior).
+   * Resolve the query side into a vector (null when unavailable). A caller-supplied
+   * precomputed embeddings cache (`ctx.resolveEmbedding`, mirroring the SQL path's
+   * `toSQL({ embeddings })`) takes precedence when present — the term's vector is
+   * looked up synchronously; a pre-embedded `[…]` value short-circuits the lookup.
+   * A term MISSING from the cache throws (fail loud). With no cache it falls back
+   * to the `SemanticBacking`'s `embedder` override, else the run / engine embedder
+   * (unchanged existing behavior).
    */
   private async queryVector(
     ctx: RuntimeContext,
@@ -378,11 +379,19 @@ export class SemanticExpr extends Expr {
   ): Promise<number[] | null> {
     const text = q.kind === 'text' ? q.text : ctx.param(q.param.name).toText();
     if (text.length === 0) return null;
-    const convert = ctx.convertSemanticText;
-    if (convert) {
-      // A pre-embedded `[…]` term needs no conversion; anything else is text.
-      const vectorText = isVectorText(text) ? text : await convert(text);
-      return parseVectorText(vectorText);
+    const resolve = ctx.resolveEmbedding;
+    if (resolve) {
+      // A pre-embedded `[…]` term needs no lookup; anything else is plain text.
+      if (isVectorText(text)) return parseVectorText(text);
+      const vector = resolve(text);
+      if (vector === undefined) {
+        throw new Error(
+          `SemanticExpr.evaluate: no embedding supplied for the semantic term ${JSON.stringify(text)}. ` +
+            `Collect the terms with 'engine.semanticTexts(query, opts)', embed each, and pass them ` +
+            `via 'run({ embeddings })' (a text→vector Map).`,
+        );
+      }
+      return [...vector];
     }
     return this.embedText(ctx, text, embedder);
   }
@@ -415,10 +424,10 @@ export class SemanticExpr extends Expr {
     const type = this.boundType(ctx);
     const backing = type ? ctx.engine.semanticBacking(type.name, this.field) : undefined;
     const embedder = backing?.embedder;
-    // A caller-supplied text→vector converter is an alternative to an embedder
-    // for the QUERY term; with neither (and no embedder), there is nothing to
-    // score against ⇒ 0 (unchanged when no converter is set).
-    if (!embedder && !ctx.hasEmbedder() && !ctx.convertSemanticText) return Value.of(0);
+    // A caller-supplied embeddings cache is an alternative to an embedder for the
+    // QUERY term; with neither (and no embedder), there is nothing to score
+    // against ⇒ 0 (unchanged when no cache is set).
+    if (!embedder && !ctx.hasEmbedder() && !ctx.resolveEmbedding) return Value.of(0);
     const queryVec = await this.queryVector(ctx, q, embedder);
     if (!queryVec) return Value.of(0);
     const rec = row[this.source] ?? ctx.correlation?.[this.source];
@@ -578,13 +587,19 @@ export class SemanticExpr extends Expr {
    * plain-text param VALUE) is EMBEDDED into a pgvector TEXT literal (`[…]`) via
    * the caller's `ctx.semanticText` converter before it is bound; the dialect
    * then casts it `::vector`. Two existing valid inputs are preserved untouched:
-   * a PRE-EMBEDDED vector-text param (already `[…]`) is bound as-is, and a `null`
-   * / absent param binds `null`. When a plain-text term is hit but NO converter
-   * was supplied, this THROWS (rather than emitting the invalid `'<text>'::vector`).
+   * a PRE-EMBEDDED vector-text term / param (already `[…]`) is bound as-is, and a
+   * `null` / absent param binds `null`. When a plain-text term is hit but NO
+   * embeddings cache was supplied — or the term is missing from it — this THROWS
+   * (rather than emitting the invalid `'<text>'::vector`).
    */
   private querySQL(_dialect: Dialect, ctx: SqlContext): SqlText {
     const q = this.query;
-    if (q.kind === 'text') return SqlText.param(this.vectorTextForSql(ctx, q.text));
+    if (q.kind === 'text') {
+      // A literal already in pgvector form (`[…]`) is a vector — bind as-is (no
+      // embedding needed); anything else is plain text and must be resolved.
+      if (isVectorText(q.text)) return SqlText.param(q.text);
+      return SqlText.param(this.vectorTextForSql(ctx, q.text));
+    }
     /* v8 ignore next 2 -- unreachable: `toSQL` routes pairing queries to `pairingSQL`; only text / param reach here. */
     if (q.kind !== 'param') return SqlText.raw('0');
     const raw = Object.prototype.hasOwnProperty.call(ctx.params, q.param.name) ? ctx.params[q.param.name] : null;
@@ -599,18 +614,20 @@ export class SemanticExpr extends Expr {
   }
 
   /**
-   * Embed a plain-text semantic term into its pgvector TEXT literal via the
-   * caller's converter, or THROW a directed error when none was supplied.
+   * Resolve a plain-text semantic term to its pgvector TEXT literal via the
+   * caller's precomputed embeddings (`ctx.semanticText`, built from
+   * `toSQL({ embeddings })`), or THROW a directed error when no cache was
+   * supplied. The converter itself throws when the cache lacks THIS term.
    */
   private vectorTextForSql(ctx: SqlContext, text: string): string {
     const convert = ctx.semanticText;
     if (!convert) {
       throw new Error(
         `SemanticExpr.toSQL: the semantic term ${JSON.stringify(text)} is plain text, not a vector, ` +
-          `and cannot be bound as-is (Postgres cannot cast '<text>'::vector). Supply a text→vector ` +
-          `converter — 'engine.toSQLAsync(query, dialect, { convertSemanticText })' (async) or ` +
-          `'engine.toSQL(query, dialect, { convertSemanticText })' (sync, pre-embedded) — or pass ` +
-          `the query vector as a pre-embedded '[…]' vector-text param.`,
+          `and cannot be bound as-is (Postgres cannot cast '<text>'::vector). Collect the terms with ` +
+          `'engine.semanticTexts(query, opts)', embed each, and pass them via ` +
+          `'engine.toSQL(query, dialect, { embeddings })' — or pass the query vector as a pre-embedded ` +
+          `'[…]' vector-text param.`,
       );
     }
     return convert(text);
