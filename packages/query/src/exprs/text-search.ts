@@ -53,7 +53,7 @@ export type { TextSearchQuery } from './text-common';
 export class TextSearchExpr extends BoolExpr {
   static readonly KIND = 'text-search' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "Full-text predicate over a source (optionally one field) → boolean." as const;
+  static readonly INSTRUCTIONS = "Full-text predicate over a source (optionally one field) → boolean. NARROW it to a text `field` unless the Type declares a searchable whole-record DOCUMENT: an unbacked whole-source search is REFUSED (`text-search.unbacked`) rather than guessing a column." as const;
   readonly kind = TextSearchExpr.KIND;
 
   /** Wrap the bound `source` (optional `field`) and the search query text. */

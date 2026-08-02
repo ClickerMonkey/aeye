@@ -37,7 +37,7 @@ import {
 import { insertRecord, updateRecord } from './_type';
 import { obj, lit, str, bool, list, queryRef } from '../shape';
 import { selectFieldShape, writeRecordShape } from './_shape';
-import { parseWriteRecord } from './_write';
+import { parseWriteRecord, validateWriteValue, writeCellSql } from './_write';
 import { requiredOnInsert } from '../write-model';
 import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
@@ -216,6 +216,27 @@ export class InsertQuery extends Query {
           }
         });
       });
+      // Each VALUE cell is validated against its COLUMN. These exprs were
+      // previously never walked at all, so a bad ref inside one was accepted
+      // silently, a `param` cell was never observed against anything (which is
+      // where its type has to come from), and a value of the wrong category
+      // reached SQL unchallenged. Aggregates are not values in a row.
+      //
+      // Cost is one walk per CELL, not per row: row homogeneity pins the column
+      // SET, never the value exprs, so checking only the first row would miss a
+      // bad ref in row 500 of a bulk insert — exactly the case that is hardest
+      // to diagnose from a runtime failure.
+      const valueScope = this.targetScope(engine, scope);
+      const valueCtx: ValidateContext = {
+        inAggregate: false, inWindow: false, allowAggregate: false, groupKeys: [], inGroupBy: false,
+      };
+      p.at('rows', () => {
+        this.rows!.forEach((row, i) => {
+          for (const [column, expr] of row) {
+            p.at([i, column], () => validateWriteValue(engine, valueScope, p, valueCtx, type.field(column), expr));
+          }
+        });
+      });
       // WRITE-MODEL: every required-on-insert field must be present.
       const missing = type.fields
         .filter((f) => !canonical.has(f.name) && requiredOnInsert(f, engine.fieldBacking(this.into, f.name)))
@@ -247,7 +268,7 @@ export class InsertQuery extends Query {
           if (type && !type.field(u.field)) {
             p.at(u.field, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${u.field}'.${didYouMean(u.field, type.fields.map((f) => f.name))}`));
           }
-          p.at(u.field, () => u.expr.validateWalk(engine, conflictScope, p, assignCtx));
+          p.at(u.field, () => validateWriteValue(engine, conflictScope, p, assignCtx, type.field(u.field), u.expr));
         });
       });
     }
@@ -418,8 +439,15 @@ export class InsertQuery extends Query {
     ];
 
     if (this.rows) {
+      // Each cell emits through `writeCellSql` so a DOCUMENT value is cast to
+      // the COLUMN's type — the value's own shape cannot tell a `jsonb` column
+      // from a native `text[]` one.
+      const target = ctx.engine.type(this.into);
       const tuples = this.rows.map((row) =>
-        SqlText.join(columns.map((c) => row.get(c)!.toSQL(dialect, ctx)), ', ').parens(),
+        SqlText.join(
+          columns.map((c) => writeCellSql(row.get(c)!, target?.field(c), dialect, ctx)),
+          ', ',
+        ).parens(),
       );
       parts.push(SqlText.raw(' VALUES '), SqlText.join(tuples, ', '));
     } else if (this.select) {
@@ -438,8 +466,13 @@ export class InsertQuery extends Query {
         // The assignment resolves in the conflict scope (target + `excluded`) so
         // an `EXCLUDED.<field>` emits `EXCLUDED."field"`.
         const conflictCtx = ctx.withScope(this.conflictScope(ctx.engine, ctx.scope));
+        const conflictType = ctx.engine.type(this.into);
         const sets = this.onConflict.update.map((u) =>
-          SqlText.concat([dialect.ident(u.field), SqlText.raw(' = '), u.expr.toSQL(dialect, conflictCtx)]),
+          SqlText.concat([
+            dialect.ident(u.field),
+            SqlText.raw(' = '),
+            writeCellSql(u.expr, conflictType?.field(u.field), dialect, conflictCtx),
+          ]),
         );
         parts.push(SqlText.raw(' DO UPDATE SET '), SqlText.join(sets, ', '));
       }

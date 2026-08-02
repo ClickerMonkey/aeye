@@ -328,13 +328,25 @@ describe('query kinds — malformation + accumulation', () => {
 
   it('insert: onConflict update value is localized', () => {
     const { ctx, problems } = mk();
-    // A raw scalar is a valid write value, so a BAD value must be a malformed
-    // expr (unknown kind) — localized at its field key under `onConflict.update`.
+    // Any JSON value is a valid write value (a document included), and a
+    // `{ kind }` object is read as an EXPRESSION only when the kind is
+    // REGISTERED — so a BAD value must be a registered kind, malformed: a
+    // `comparison` missing its operands, localized at its field key under
+    // `onConflict.update`.
     InsertQuery.SHAPE.check(
-      { kind: 'insert', into: 'user', rows: [{ id: lit1(1) }], onConflict: { fields: ['id'], update: { name: { kind: 'bogus' } } } },
+      { kind: 'insert', into: 'user', rows: [{ id: lit1(1) }], onConflict: { fields: ['id'], update: { name: { kind: 'comparison' } } } },
       ctx,
     );
-    expect(problems.list.some((pr) => pr.path.join('.') === 'onConflict.update.name')).toBe(true);
+    // Its own problems land UNDER that key (`…name.op`, `…name.left`, …).
+    expect(problems.list.some((pr) => pr.path.join('.').startsWith('onConflict.update.name'))).toBe(true);
+
+    // And a value that is not JSON at all is reported AT the key itself.
+    const bad = mk();
+    InsertQuery.SHAPE.check(
+      { kind: 'insert', into: 'user', rows: [{ id: lit1(1) }], onConflict: { fields: ['id'], update: { name: new Date() } } },
+      bad.ctx,
+    );
+    expect(bad.problems.list.some((pr) => pr.code === 'shape.type' && pr.path.join('.') === 'onConflict.update.name')).toBe(true);
   });
 
   it('update: a missing `set` and a bad `type` accumulate in one pass', () => {

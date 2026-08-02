@@ -18,19 +18,26 @@ import type { RlsProvider } from './rls';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { Expr } from '../expr';
-import type { SortSelectionDef } from '../schema';
+import type { JsonValue, SortSelectionDef } from '../schema';
 import type { SemanticTextToVector } from '../vector-text';
 
 /** A value that may be bound as a SQL parameter. */
 export type SqlValue = string | number | boolean | null;
 
 /**
- * A supplied param value: a bindable scalar, OR a RELATION KEY object (`{ pk }`
- * keyed by the target's PK field names) used on the RHS of a relation
- * comparison (`assignedUser = { id: 5 }`). A relation comparison decomposes the
- * object into per-column binds; a scalar binds directly.
+ * A supplied param value:
+ *  - a bindable SCALAR, bound directly;
+ *  - a RELATION KEY object (`{ pk }`, keyed by the target's PK field names) on
+ *    the RHS of a relation comparison (`assignedUser = { id: 5 }`), which the
+ *    comparison decomposes into per-column binds;
+ *  - or a whole JSON DOCUMENT for a `json` / `array` cell, bound as ONE
+ *    parameter through `Dialect.jsonValue` (0.6.1's A9 — such a value used to
+ *    bind SQL `NULL`, so the write succeeded and the data was dropped).
+ *
+ * `JsonValue` subsumes the relation-key object; the three cases are spelled out
+ * because they are read very differently at the point of use.
  */
-export type SqlParamValue = SqlValue | Readonly<Record<string, SqlValue>>;
+export type SqlParamValue = JsonValue;
 
 /** A rendered SQL string plus its ordered bind parameters. */
 export interface RenderedSql {

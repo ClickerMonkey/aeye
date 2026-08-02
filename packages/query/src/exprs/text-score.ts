@@ -56,7 +56,7 @@ import {
 export class TextScoreExpr extends Expr {
   static readonly KIND = 'text-score' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "Numeric full-text relevance score of a source (optionally one field) → number (`ts_rank`)." as const;
+  static readonly INSTRUCTIONS = "Numeric full-text relevance score of a source (optionally one field) → number (`ts_rank`). NARROW it to a text `field` unless the Type declares a searchable whole-record DOCUMENT: an unbacked whole-source score is REFUSED (`text-score.unbacked`) rather than guessing a column." as const;
   readonly kind = TextScoreExpr.KIND;
 
   /** Wrap the bound `source` (optional `field`) and the query text to rank against. */

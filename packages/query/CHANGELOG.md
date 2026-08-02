@@ -3,6 +3,196 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.6.1
+
+Two things: a **P1 write defect (A9)** — a `json` or `array` column could not be written at
+all, and the one road that *parsed* silently bound `NULL` — and a **docstring audit**, since
+this library's docstrings are the prompt a model authors against, so a stale one is a
+behavioural bug.
+
+**This release changes behaviour.** A9 widens what a write cell accepts, adds validation an
+INSERT never performed, and stops a param binding `NULL` over a supplied value. Read *"What
+changes for an existing consumer"* at the end of the A9 section before upgrading.
+
+---
+
+## A9 — a write could not carry a `json` or `array` value (**P1, silent data loss**)
+
+`<type>_insert` / `<type>_update` could not write a `json` or `array` column by ANY road, and
+the roads failed in increasing order of badness:
+
+| road | 0.6.0 |
+| ---- | ----- |
+| a RAW document (`{ theme: 'dark' }`, `['a','b']`) | refused — `shape.type` / `write.unsupported-value` |
+| OMIT the cell instead | `insert.missing-required` on a non-nullable column |
+| an EXPRESSION carrying it | none exists — `LiteralExpr` took a `ScalarValue`, and there is no `toJson` builtin |
+| a `param` bound to it | **parsed, then bound SQL `NULL`** — the write SUCCEEDED and the value was dropped |
+
+The last row is why this is a P1 and not a missing feature: a write that appears to work and
+loses data is worse than a refusal. In the consuming product `json` is how every settings /
+metadata / spec column is declared — 23 of 31 storable types have one.
+
+### The type and the parser disagreed — and the SCHEMA sided with the type
+
+`WriteValueDef` is, and always was, `JsonValue | ExprDef`. The parser (`writeValueToExpr` and
+its `Shape` twin) accepted only `string | number | boolean`. And one layer up, the
+model-facing schema at `writes: 'typed'` renders each cell as
+`field.fieldType.toValueSchema() OR Expr` — which for a `json` field IS the full JSON-value
+schema. **So the schema invited the model to emit a document and the parser then refused it.**
+The parser now follows the type, and all three agree.
+
+### What changed
+
+- **`LiteralExpr` carries a `JsonValue`** (was `ScalarValue`), so an expression can carry a
+  document. It resolves to `json` for an object and `array` for an array — the categories the
+  new write-value check needs — and `LiteralExprDef.value` widens with it.
+- **`Dialect.jsonValue(value, fieldType?)`** is the ONE binding path for a non-scalar. The
+  document travels as its JSON TEXT in a normal parameter slot (so `SqlValue` stays scalar,
+  `RenderedSql.params` is unchanged, and nothing is ever string-interpolated), cast to the
+  column type it is destined for. Base: `CAST(? AS <sqlTypeFor>)`. Postgres overrides, because
+  a NATIVE array column does not accept JSON text — `CAST('["a"]' AS text[])` is a syntax
+  error, a Postgres array literal being `{a,b}` — so a document bound for one is CONSTRUCTED
+  as `ARRAY[$1, $2]::text[]` with per-element binds. That reuses the element-binding pattern
+  the array containment operators already use, needs no array-literal encoder (whose quoting /
+  escaping / NULL rules would be their own defect surface), and makes the empty case the
+  `ARRAY[]::text[]` Postgres accepts precisely because the cast names the type. A
+  `jsonSqlType()` seam names the default target (`json`; Postgres `jsonb`).
+- **Write cells emit through `writeCellSql`**, which supplies the target COLUMN's field type —
+  `Expr.toSQL` sees only the value's own shape, which cannot tell a `jsonb` column from a
+  native `text[]` one. BOTH roads a document can arrive by (a literal, and a param bound to
+  one) route through it, in INSERT VALUES, UPDATE SET and ON CONFLICT DO UPDATE.
+- **A param bound to a non-scalar is BOUND, not nulled.** `ParamExpr.toSQL` binds it through
+  `Dialect.jsonValue` instead of collapsing it to `NULL`. `SqlParamValue` widens to `JsonValue`
+  (it already had to hold a relation `{ pk }` object; a document is the same shape of thing).
+  Relation comparisons still decompose their `{ pk }` object into per-column binds BEFORE this
+  point, so that path is untouched.
+- **A write value is VALIDATED against its column** (`validateWriteValue`), which settles three
+  things only the column can:
+  1. **an INSERT's VALUES exprs are walked at all** — they never were, so a bad ref inside one
+     was accepted silently and surfaced only at emit / run time;
+  2. **a `param` cell is OBSERVED against the column's field type** — the only place a write
+     param's type can come from, which is why `SET x = :p` reported `param.untyped`;
+  3. **a value of an incompatible category is refused** — new code `write.type` (a document
+     into a `text` column, a string into a `json` one). A param and a null literal are exempt;
+     a RELATION column is exempt too, because what you write to it is the TARGET's identity,
+     and `RelationFieldType.comparableWith` deliberately admits only another relation — so
+     asking it here would refuse the ordinary "set the foreign key" write. Relation cells stay
+     exactly as unchecked as they were; typing them against the target's primary key is
+     separate work.
+- **`{ kind }` means an expression only when the kind is REGISTERED.** The `JsonValue | ExprDef`
+  union is only decidable that way: a settings blob carrying a `kind` key
+  (`{ kind: 'section', … }`) is DATA, and reading it as a malformed expression reported an
+  unknown-kind error about a construct the caller never wrote. **The flip side:** a model that
+  TYPOS an expr kind in a write cell now writes a JSON blob instead of getting "unknown
+  expression kind". That ambiguity is inherent to the union; `write.type` catches it for every
+  column that is not itself `json`.
+- **A non-JSON write value is properly rejected.** The input is untrusted, so the new
+  `json(aid)` / `isJsonValue` shape checks a document RECURSIVELY: a `Date`, a function, an
+  `undefined` member or a non-finite number is refused rather than becoming a literal that
+  stringifies to something the caller never wrote (`NaN` stringifies to `null` — the exact bug
+  class this item is about). Depth is bounded, so a cyclic hand-built object is rejected rather
+  than overflowing the stack.
+
+### What changes for an existing consumer
+
+- **A raw document in a write cell now parses** where it used to throw / report `shape.type`.
+- **An INSERT that was silently accepted may now report problems** — its VALUES exprs are
+  validated for the first time. Everything it reports was already wrong at emit / run time.
+- **`write.type` is a new refusal.** A write whose value never suited its column now says so.
+- **`LiteralExpr.value` / `LiteralExprDef.value` widen to `JsonValue`.** Additive for anyone
+  CONSTRUCTING one; a consumer that READS `.value` into a `ScalarValue` slot must narrow.
+- **`SqlParamValue` widens to `JsonValue`** — additive.
+- `Dialect.jsonValue` / `jsonSqlType` are CONCRETE methods with base implementations, so an
+  existing custom dialect keeps compiling.
+
+---
+
+## The docstring audit
+
+The rest of the release. `describeEngine` / `describeExprs` render every node's
+`static INSTRUCTIONS` into the prompt a model reads before authoring a query, so these strings
+are not comments — they are the specification the model works from.
+
+### The defect it started from
+
+`FieldRefExpr.INSTRUCTIONS` shipped 0.6.0 with the PRE-0.6.0 rule:
+
+> *"A ref to a RELATION field resolves to the whole related row, NOT a scalar … cross the
+> relation with a `relation` join."*
+
+A8 made a belongs-to field-ref project the relation's IDENTITY — the local key column(s),
+no join, no scope — so the library was **actively teaching models to avoid the thing its
+own generated CRUD now does**, and a model following the instruction would author the
+RLS-scoped join that A8 exists to eliminate. It now states the current rule: a belongs-to
+ref projects the target's identity off THIS row (legal in `fields` / `RETURNING`, `order`,
+`groupBy`, `is null`, and an identity `=` / `<>` / `in`); a `relation` join is how you read
+the target's OTHER fields; a has-many ref is refused as `ref.relation-has-many`.
+
+### The audit the fix implied
+
+Every `INSTRUCTIONS` / `EXAMPLES` string in the package was checked against what 0.6.0
+actually does. Four more were stale or silent about a 0.6.0 rule (a fifth, `literal`, is
+rewritten by A9 above):
+
+- **`is-null`** — said only ``` `value IS [NOT] NULL` ```. A8 made it the way to ask whether
+  a relation is UNSET (it tests the KEY COLUMNS, so it stays index-usable), which is the
+  audit-column story's other half; a has-many there is `ref.relation-has-many`.
+- **`aggregate`** — silent on `ref.relation-aggregate`, a refusal 0.6.0 introduced. Now says
+  an identity is not aggregable and points at grouping / a joined scalar.
+- **`in`** — silent on `in.relation-composite`, also new in 0.6.0, and its "do NOT project a
+  relation field-ref as a scalar id" now distinguishes the SUBQUERY position (still refused,
+  `compare.relation-vs-value`) from projection in general (legal since A8, yielding an
+  identity OBJECT).
+- **`text-search` / `text-score`** — offered the whole-source form unconditionally, which A6
+  made refusable (`text-search.unbacked` / `text-score.unbacked`) when the Type declares no
+  search DOCUMENT. Both now say: narrow to a field unless the Type is backed.
+
+**`comparison` was already correct** about the param-only rule and is unchanged; a regression
+test now pins it (a relation vs a LITERAL is `compare.relation-vs-value`, vs a PARAM is clean,
+and an ordering op is `comparison.relation-order`). Every other expr / query node's
+`INSTRUCTIONS`, and every shipped `EXAMPLES` string, was checked and found accurate — the
+worked examples all cross relations with a `relation` join and project the joined alias's
+scalar, which 0.6.0 did not change.
+
+### One layer down: the GENERATED field docs had the A1 defect
+
+`describeField`'s generated sentence decided belongs-to from `count === 1`. The registry
+estimates a materialized inverse's count as a row RATIO, so a 1:1 pair — or two Types
+sharing one declared row estimate — described a HAS-MANY to the model as *"Belongs to one
+X"*, i.e. as a projectable identity that a field-ref to it is refused for. It now asks
+`RelationFieldType.isBelongsTo()`, the same discriminator A1 installed everywhere else.
+(`inverseVia` is internal and never in the JSON def, so this one branch reads the FieldType
+rather than the def.)
+
+### Type exports A3 missed
+
+`SqlParamValue` (the value bound to a `toSQL` param — a scalar, or the keyed object a
+relation identity binds as) and `DrillValue` (the same widening on `drillDownInto`'s params)
+were declared but not exported; consumers were spelling them structurally as
+`NonNullable<ToSqlOptions['params']>[string]`. Purely additive.
+
+### Also
+
+`aeye-query.md` (shipped with the package) still advertised the `relation-path` expr kind,
+which no longer exists — in the expr table, the depth/gating tables and the `describeExprs`
+notes. Removed there; historical release-note passages that mention it in the past tense are
+left alone. Its expr table (which mirrors the `INSTRUCTIONS` one-liners) picked up the same
+five corrections.
+
+### Tests
+
+`src/__tests__/write-json-value.test.ts` covers A9, and its assertions with teeth are the
+ROUND TRIPS — write a document, read the same document back through `RETURNING` / a `SELECT` —
+plus the emitted SQL and its BOUND PARAMS, since "it parsed" is exactly what the broken param
+road already did. It also pins the schema/parser agreement at both write depths.
+
+`src/__tests__/instructions-accuracy.test.ts` asserts the RENDERED description — that
+`describeExprs` states the identity rule and no longer contains any retired phrase, swept
+across every expr / query / function `INSTRUCTIONS` and `EXAMPLES` rather than just the node
+that was wrong — and then pins each ERROR CODE an instruction names to the code validation
+actually emits for that case, so a behaviour change that renames or removes a refusal fails
+next to the prose that promised it.
+
 ## 0.6.0
 
 Seven asks from the consuming product, ranked by *silently-wrong × reachable-today ×

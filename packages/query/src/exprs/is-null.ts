@@ -27,7 +27,7 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export class IsNullExpr extends BoolExpr {
   static readonly KIND = 'is-null' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "`value IS [NOT] NULL`." as const;
+  static readonly INSTRUCTIONS = "`value IS [NOT] NULL`. On a BELONGS-TO relation field-ref it tests whether the relation is UNSET — the KEY COLUMNS, so it stays index-usable; a HAS-MANY there is refused (`ref.relation-has-many`) — use `[NOT] EXISTS` over the related rows instead." as const;
   readonly kind = IsNullExpr.KIND;
 
   /** Wrap `value IS [NOT] NULL` as a null test. */

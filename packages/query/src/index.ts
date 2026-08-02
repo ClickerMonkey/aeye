@@ -252,6 +252,10 @@ export {
   SqlText,
   SqlContext,
   type SqlValue,
+  // The bindable VALUE of a `toSQL` param: a scalar, or the keyed object a
+  // relation identity binds as (see `A8` / `DrillValue`). Exported by name so a
+  // caller typing a `params` map need not spell it structurally.
+  type SqlParamValue,
   type RenderedSql,
   raw,
   // NOTE: the SQL `param` combinator is intentionally NOT re-exported here — it

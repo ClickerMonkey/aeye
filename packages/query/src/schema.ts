@@ -141,6 +141,11 @@ export interface RelationFieldTypeDef {
    * The relation field's NAME is the key for ALL purposes — there are no
    * exposed foreign-key fields. `owns` (the FK living on THIS type) is
    * INFERRED as `count === 1`; `count > 1` means the FK lives on the target.
+   * NOTE this holds for a DECLARED def only: the runtime discriminator is
+   * `RelationFieldType.isBelongsTo()` (`count === 1` AND no internal
+   * `inverseVia`), because a registry-materialized inverse is a has-many
+   * whatever its estimated `count` came out as. `inverseVia` is internal and
+   * never appears in this def.
    */
   count: number;
   /**
@@ -394,10 +399,19 @@ export type ComparisonOp =
 /** Boolean connectives. `not` takes exactly one operand. */
 export type LogicalOp = 'and' | 'or' | 'not';
 
-/** A literal scalar value. */
+/**
+ * A literal constant VALUE — a scalar, or a whole JSON document (an object /
+ * array) for a `json` / `array` field.
+ *
+ * The non-scalar half exists because a WRITE CELL had no way to carry one: a
+ * `json` column could not be inserted or updated at all (a raw document was
+ * refused by the write parser, no expression could carry one, and the `param`
+ * route bound SQL `NULL` — see 0.6.1's A9). A non-scalar literal is bound as a
+ * single parameter through `Dialect.jsonValue`, never string-interpolated.
+ */
 export interface LiteralExprDef {
   kind: 'literal';
-  value: ScalarValue;
+  value: JsonValue;
 }
 
 /**

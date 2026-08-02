@@ -98,6 +98,10 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
 
   // ── Scalars / literals ────────────────────────────────────────────────────
   ScalarValue: { label: 'a literal value: string, number, boolean, or null' },
+  LiteralValue: {
+    label:
+      'a literal value: string, number, boolean, null, or a whole JSON document (object / array) for a json / array field',
+  },
   TypeName: { label: 'a registered Type name' },
   FieldName: { label: 'a field name' },
   FunctionName: { label: 'a registered function name' },
@@ -129,7 +133,7 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   SourceName: { label: 'a bound source name' },
   SelectField: { label: 'a select field, an object of { expr, as? }' },
   FieldValue: { label: 'a field assignment, an object of { field, value }' },
-  WriteValue: { label: 'a write value: a typed value or an expression (use JSON null / omit to skip a field)' },
+  WriteValue: { label: 'a write value: a typed value, a JSON document (object / array) for a json / array field, or an expression (use JSON null / omit to skip a field)' },
   InsertRow: { label: 'an INSERT row, a { field: value } object' },
   SetValue: { label: 'a SET record, a { field: value } object' },
   OnConflict: { label: 'an ON CONFLICT clause, an object of { fields, doNothing?, update? }' },

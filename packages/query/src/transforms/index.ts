@@ -8,6 +8,7 @@ export { autoPaginate, type AutoPaginateOptions } from './auto-paginate';
 export {
   drillDown,
   drillDownInto,
+  type DrillValue,
   type DrillParam,
   type DrillDownResult,
   type DrillDownSuccess,

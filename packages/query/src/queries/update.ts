@@ -29,7 +29,7 @@ import { reportDuplicateSources, type BoundSource } from './_sources';
 import { updateRecord } from './_type';
 import { obj, lit, str, list, exprRef } from '../shape';
 import { selectFieldShape, writeRecordShape } from './_shape';
-import { parseWriteRecord } from './_write';
+import { parseWriteRecord, validateWriteValue, writeCellSql } from './_write';
 import type { Affected, Cost, CostContext } from '../cost';
 import { AFFECTED_NONE, affectedOne } from '../cost';
 import { scanCost, applyWhere, matchedRows, selfBinding } from './_cost';
@@ -204,7 +204,10 @@ export class UpdateQuery extends Query {
           // WRITE-MODEL: a non-updatable (read-only / computed) field can't be assigned.
           p.at([i, 'field'], () => p.error('update.field-readonly', `Field '${s.field}' of '${this.type}' is not updatable.`));
         }
-        p.at([i, 'value'], () => s.expr.validateWalk(engine, inner, p, ctx));
+        // Validated against its COLUMN: that is what types a `param` cell (the
+        // reason `SET x = :p` used to report `param.untyped`) and what catches a
+        // value of the wrong category before it reaches SQL.
+        p.at([i, 'value'], () => validateWriteValue(engine, inner, p, ctx, field, s.expr));
       });
     });
     p.at('where', () => this.where.forEach((w, i) => p.at(i, () => {
@@ -359,8 +362,16 @@ export class UpdateQuery extends Query {
     this.registerJoins(dialect, engine, selCtx, planner, aliasTypes);
 
     // 2. SET / WHERE / RETURNING — may register hidden relation joins / CTEs.
+    // Each assignment emits through `writeCellSql` so a DOCUMENT value is cast
+    // to the COLUMN's type — the value's own shape cannot tell a `jsonb` column
+    // from a native `text[]` one.
+    const target = engine.type(this.type);
     const sets = this.set.map((s) =>
-      SqlText.concat([dialect.ident(s.field), SqlText.raw(' = '), s.expr.toSQL(dialect, selCtx)]),
+      SqlText.concat([
+        dialect.ident(s.field),
+        SqlText.raw(' = '),
+        writeCellSql(s.expr, target?.field(s.field), dialect, selCtx),
+      ]),
     );
     const wherePreds: SqlText[] = this.where.map((w) => w.toSQL(dialect, selCtx));
     const rls = rlsPredicate(ctx.rls, dialect, engine, planner, this.type, this.alias);

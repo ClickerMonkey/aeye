@@ -49,7 +49,7 @@
 import type { Problems } from '../problem';
 import type { Registry } from '../registry';
 import type { Expr } from '../expr';
-import type { ScalarValue, QueryDef } from '../schema';
+import type { JsonValue, ScalarValue, QueryDef } from '../schema';
 import type { Query } from '../queries/query';
 import type { QuerySource } from '../queries/source';
 import { aidInfo, describeInput, didYouMean } from '../aids';
@@ -166,6 +166,50 @@ export function scalar(aid: string): Shape<ScalarValue> {
       return INVALID;
     },
   };
+}
+
+/**
+ * ANY JSON value — a scalar, or a whole document (array / object) whose every
+ * leaf is itself JSON. Mismatch → aid-directed `shape.type` + INVALID.
+ *
+ * The RECURSIVE check is what makes this safe to build a `LiteralExpr` from:
+ * the incoming value is `unknown` (off the wire, or out of a caller's
+ * hand-built def), so a `Date`, a function, an `undefined` member or a
+ * non-finite number would otherwise be accepted here and surface only as a
+ * broken bind — or a silently-null column — much later, which is the exact
+ * class of bug the write-value work (A9) exists to end.
+ */
+export function json(aid: string): Shape<JsonValue> {
+  return {
+    check(value, ctx) {
+      if (isJsonValue(value, JSON_MAX_DEPTH)) return value;
+      ctx.problems.error('shape.type', expected(aid, value));
+      return INVALID;
+    },
+  };
+}
+
+/**
+ * Depth cap for {@link isJsonValue}. Deeper than any authored query fragment or
+ * settings document is expected to nest, and shallow enough that a CYCLIC
+ * hand-built object is rejected rather than overflowing the stack (a cycle is
+ * impossible in parsed JSON, but a caller may hand us any object).
+ */
+export const JSON_MAX_DEPTH = 64;
+
+/** Whether `value` is a JSON value all the way down (see {@link json}). */
+export function isJsonValue(value: unknown, depth: number): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  // A non-finite number has NO JSON representation (`JSON.stringify` emits
+  // `null` for it), so accepting one here would write a null.
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (depth <= 0 || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.every((v) => isJsonValue(v, depth - 1));
+  // A CLASS instance (`Date`, `Map`, …) is not a JSON document: it would
+  // stringify to something the caller did not write.
+  const proto: unknown = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  return Object.values(value).every((v) => isJsonValue(v, depth - 1));
 }
 
 /**

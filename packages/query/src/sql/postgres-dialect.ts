@@ -10,6 +10,7 @@ import { BaseDialect } from './base-dialect';
 import { jsonObjectArgs } from './dialect';
 import { SqlText } from './emit';
 import type { FieldType } from '../field-type';
+import type { JsonValue } from '../schema';
 import {
   NumberFieldType,
   TextFieldType,
@@ -82,6 +83,49 @@ export class PostgresDialect extends BaseDialect {
       SqlText.raw('jsonb_build_object('),
       SqlText.join(jsonObjectArgs(entries), ', '),
       SqlText.raw(')'),
+    ]);
+  }
+
+  /** Postgres stores JSON as `jsonb` (it has the equality / ordering operators `json` lacks). */
+  override jsonSqlType(): string {
+    return 'jsonb';
+  }
+
+  /**
+   * Bind a JSON DOCUMENT — with the one Postgres wrinkle that makes the base
+   * implementation wrong here: a NATIVE array column (`text[]`, `integer[]`, …)
+   * does NOT accept JSON text. `CAST('["a","b"]' AS text[])` is a syntax error,
+   * because a Postgres array literal is `{a,b}`.
+   *
+   * So a document destined for a native array is CONSTRUCTED instead —
+   * `ARRAY[$1, $2]::text[]` — with each element bound in its own slot. That
+   * reuses the element-binding pattern the array containment operators already
+   * use, needs no array-literal encoder (whose quoting / escaping / NULL rules
+   * would be their own defect surface), and handles the empty array
+   * (`ARRAY[]::text[]`, which Postgres accepts precisely because the cast names
+   * the type). Elements recurse, so a `jsonb[]` column takes documents.
+   *
+   * Everything else — a `json` / `jsonb` column, a heterogeneous array (which
+   * `sqlTypeFor` already stores as `jsonb`), or a bare document with no declared
+   * target — casts the JSON text to `jsonb`.
+   */
+  override jsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+    const array = fieldType instanceof ArrayFieldType ? fieldType : undefined;
+    const item = array?.item;
+    if (array !== undefined && item !== undefined && Array.isArray(value)) {
+      const elements = value.map((v) =>
+        v !== null && typeof v === 'object' ? this.jsonValue(v, item) : SqlText.param(v),
+      );
+      return SqlText.concat([
+        SqlText.raw('ARRAY['),
+        SqlText.join(elements, ', '),
+        SqlText.raw(`]::${this.sqlTypeFor(array)}`),
+      ]);
+    }
+    return SqlText.concat([
+      SqlText.raw('CAST('),
+      SqlText.param(JSON.stringify(value)),
+      SqlText.raw(` AS ${this.jsonSqlType()})`),
     ]);
   }
 

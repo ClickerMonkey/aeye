@@ -344,7 +344,9 @@ describe('registry.parseCheckedExpr — defensive dispatch', () => {
 
   it('returns undefined when the SHAPE reports a problem', () => {
     const p = new Problems();
-    expect(registry.parseCheckedExpr({ kind: 'literal', value: {} }, p)).toBeUndefined();
+    // A literal now carries any JSON value (a document included), so the invalid
+    // case is a value with NO JSON representation — here a `Date`.
+    expect(registry.parseCheckedExpr({ kind: 'literal', value: new Date() }, p)).toBeUndefined();
     expect(p.hasErrors).toBe(true);
   });
 });

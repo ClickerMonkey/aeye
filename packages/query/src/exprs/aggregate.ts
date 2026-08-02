@@ -50,7 +50,7 @@ import { type SqlContext, SqlText } from '../sql/emit';
 export class AggregateExpr extends Expr {
   static readonly KIND = 'aggregate' as const;
   /** Concise LLM-facing summary of this expr kind (see `ExprClass.INSTRUCTIONS`). */
-  static readonly INSTRUCTIONS = "An aggregate function over a group (`count(*)` = empty args); optional `distinct`." as const;
+  static readonly INSTRUCTIONS = "An aggregate function over a group (`count(*)` = empty args); optional `distinct`. A RELATION field-ref is NOT aggregable (`ref.relation-aggregate`) — its value is an IDENTITY: group by it, or aggregate a scalar off a `relation`-joined alias." as const;
   readonly kind = AggregateExpr.KIND;
 
   /** Wrap a registered aggregate `fn` with its named `args` and a DISTINCT flag. */

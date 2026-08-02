@@ -10,6 +10,7 @@
  * getter so a dialect INSTANCE can be registered directly.
  */
 import type { FieldType } from '../field-type';
+import type { JsonValue } from '../schema';
 import { SqlText } from './emit';
 import type { DialectEntry } from '../registry';
 
@@ -217,6 +218,37 @@ export abstract class Dialect implements DialectEntry {
   }
 
   abstract sqlTypeFor(fieldType: FieldType): string;
+
+  /**
+   * Bind a whole JSON DOCUMENT (an object / array) as ONE parameter, cast to the
+   * column type it is destined for. The single binding path for a non-scalar
+   * VALUE — a `json` cell, an `array` cell, a document literal in a predicate.
+   *
+   * WHY A CAST, AND WHY THE FIELD TYPE. The document travels as its JSON TEXT in
+   * a normal parameter slot (so `SqlValue` stays scalar and nothing is ever
+   * string-interpolated), which means the server must be told what to parse it
+   * AS. Left to inference, the same text is a `jsonb` in one column and a syntax
+   * error in another. `fieldType` — supplied by the WRITE path, which knows the
+   * column — makes that explicit; without it (a bare literal in a `where`, which
+   * knows only its own shape) the dialect's own JSON type is the default.
+   *
+   * The base dialect casts to whatever `sqlTypeFor` names, which is the portable
+   * answer for a JSON-typed column. A dialect with a NATIVE array type (Postgres
+   * `text[]`) must override — an array literal there is not JSON text.
+   */
+  jsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+    const target = fieldType ? this.sqlTypeFor(fieldType) : this.jsonSqlType();
+    return SqlText.concat([
+      SqlText.raw('CAST('),
+      SqlText.param(JSON.stringify(value)),
+      SqlText.raw(` AS ${target})`),
+    ]);
+  }
+
+  /** This dialect's JSON column type — the default cast target for a document. */
+  jsonSqlType(): string {
+    return 'json';
+  }
 
   // ─── Array operators ────────────────────────────────────────────────────────
   //

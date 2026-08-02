@@ -6,6 +6,7 @@ export {
   SqlText,
   SqlContext,
   type SqlValue,
+  type SqlParamValue,
   type RenderedSql,
   raw,
   param,

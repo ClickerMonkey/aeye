@@ -10,7 +10,7 @@
  */
 import type { Expr } from '../expr';
 import type { ParamExprDef } from '../schema';
-import { obj, str, exprRef, isRecord, expected, INVALID, type Shape, type CheckCtx } from '../shape';
+import { obj, str, exprRef, isRecord, isJsonValue, JSON_MAX_DEPTH, expected, INVALID, type Shape, type CheckCtx } from '../shape';
 import { LiteralExpr, ParamExpr } from '../exprs/index';
 import { isExprValue } from './_write';
 
@@ -32,19 +32,25 @@ export function selectFieldShape(): Shape<ShapeField> {
 /**
  * One WRITE value → its `Expr`, or `undefined` to OMIT the field (absent key or
  * a JSON `null` — the OpenAI-safe null semantics; a literal-null expr sets SQL
- * NULL). A `{ kind }` object is a full expr; a raw scalar becomes a literal.
+ * NULL). A `{ kind }` object naming a REGISTERED expr kind is a full expr; any
+ * other JSON value — a scalar or a whole DOCUMENT — becomes a literal.
+ *
+ * The document arm is A9: `WriteValueDef` has always been DOCUMENTED as
+ * `JsonValue | ExprDef`, but this parser accepted only scalars, so a `json` /
+ * `array` column could not be written at all. The parser now matches the type.
  */
 function writeValueShape(): Shape<Expr | undefined> {
   return {
     check(json: unknown, ctx: CheckCtx): Expr | undefined | typeof INVALID {
       if (json === null || json === undefined) return undefined; // OMIT
-      if (isExprValue(json)) {
+      if (isExprValue(json, ctx.registry)) {
         const built = ctx.registry.parseCheckedExpr(json, ctx.problems);
         return built === undefined ? INVALID : built;
       }
-      if (typeof json === 'string' || typeof json === 'number' || typeof json === 'boolean') {
-        return new LiteralExpr(json);
-      }
+      // The input is UNTRUSTED, so the document check is recursive: a `Date`, a
+      // function or a non-finite number is refused here rather than becoming a
+      // literal that stringifies to something the caller never wrote.
+      if (isJsonValue(json, JSON_MAX_DEPTH)) return new LiteralExpr(json);
       ctx.problems.error('shape.type', expected('WriteValue', json));
       return INVALID;
     },

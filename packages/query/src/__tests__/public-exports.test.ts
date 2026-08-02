@@ -6,6 +6,20 @@
  * export, every call site had to re-declare a structural twin that can drift
  * from the real one. This test is a compile-time assertion in test's clothing:
  * if an export is dropped, `tsc` fails on the import, not on an expectation.
+ *
+ * CAVEAT (pre-existing): `tsconfig.json` EXCLUDES every `.test.ts` file, so
+ * `npm run typecheck` never sees this file and vitest only transpiles it — the
+ * "compile-time assertion" is currently only as strong as someone compiling the
+ * tests deliberately, and several literals below (`DefaultOrder`,
+ * `DefaultOrderTerm`, `RelationOn`) do NOT match their real shapes. What the
+ * test still proves at RUNTIME is that the named bindings resolve through the
+ * barrel; a dropped TYPE export is caught only by the import failing to resolve.
+ *
+ * 0.6.1 adds the two names A3 missed: `SqlParamValue` (the value bound to a
+ * `toSQL` param — a scalar, or the keyed object a relation identity binds as)
+ * and `DrillValue` (the same widening on `drillDownInto`'s params), which the
+ * consuming product was spelling structurally as
+ * `NonNullable<ToSqlOptions['params']>[string]`.
  */
 import { describe, it, expect } from 'vitest';
 import * as pkg from '../index';
@@ -21,6 +35,8 @@ import type {
   DefaultOrderScope,
   RelationKeyPair,
   RelationResolved,
+  SqlParamValue,
+  DrillValue,
 } from '../index';
 import { IndexPart, Index, renameSource, aliasedDigest, relationKeyColumns, relationOf, valueFieldType } from '../index';
 import { TextFieldType } from '../field-types/index';
@@ -42,7 +58,11 @@ describe('A3 — the public barrel', () => {
       source: 's', field: 'f', keyField: 'a', keyType: keyPair.keyType,
       to: 't', count: 1, belongsTo: true, keys: [keyPair],
     };
-    expect([keys, on, pair, search, semantic, order, resolved].every((v) => v !== undefined)).toBe(true);
+    // 0.6.1: the two A3 missed. Both widened for a RELATION IDENTITY — a keyed
+    // object where a bare scalar used to be the only shape.
+    const sqlParam: SqlParamValue = { tenantId: 3, userId: 1 };
+    const drill: DrillValue = { id: 'userB' };
+    expect([keys, on, pair, search, semantic, order, resolved, sqlParam, drill].every((v) => v !== undefined)).toBe(true);
   });
 
   it('exports the previously unexported VALUES', () => {

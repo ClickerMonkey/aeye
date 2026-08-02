@@ -107,15 +107,26 @@ export class ParamExpr extends Expr {
     return ctx.param(this.name);
   }
 
-  /** Emit as a bound SqlText param slot (null until a value is supplied). */
-  toSQL(_dialect: Dialect, ctx: SqlContext): SqlText {
-    // Bind the value supplied for this name (null until provided), as a real
-    // parameter slot — never interpolated. A relation `{ pk }` OBJECT param is
-    // decomposed into per-column binds by the relation comparison, never bound
-    // as a value here, so a stray object binds NULL.
-    const raw = Object.prototype.hasOwnProperty.call(ctx.params, this.name) ? ctx.params[this.name]! : null;
-    /* v8 ignore next -- a relation { pk } object param is decomposed by the comparison; a stray one binds NULL */
-    const value: SqlValue = raw !== null && typeof raw === 'object' ? null : raw;
+  /**
+   * Emit as a bound SqlText param slot (NULL until a value is supplied).
+   *
+   * A NON-SCALAR bound value — a JSON document, or a relation `{ pk }` object
+   * that reached here undecomposed — binds through `Dialect.jsonValue`, NOT as
+   * NULL. Binding NULL was the worst outcome available (A9): the statement
+   * SUCCEEDED and the supplied value was silently dropped, so an INSERT of a
+   * `json` column through a param appeared to work and lost the data. A
+   * relation comparison still decomposes its `{ pk }` object into per-column
+   * binds before reaching here, so that path is unchanged; anything that DOES
+   * get here is a value the caller supplied, and is bound as one.
+   *
+   * A write CELL routes through `writeCellSql` first, which also knows the
+   * target column's field type; this is the fallback for every other position,
+   * which knows only the value's own shape.
+   */
+  toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    const raw = Object.prototype.hasOwnProperty.call(ctx.params, this.name) ? ctx.params[this.name] : null;
+    if (raw !== null && raw !== undefined && typeof raw === 'object') return dialect.jsonValue(raw);
+    const value: SqlValue = raw ?? null;
     return SqlText.param(value);
   }
 

@@ -46,10 +46,46 @@ describe('write model — raw values + null-omit semantics (throwing `from` path
     expect(q.toJSON()).toEqual({ kind: 'update', type: 'user', set: { age: lit(null) } });
   });
 
-  it('rejects a raw NON-scalar (array / object) write value — must be an expression', () => {
+  it('A9: accepts a raw DOCUMENT write value (array / object) as a literal', () => {
+    // Until 0.6.1 this threw `write.unsupported-value` — so a `json` / `array`
+    // column could not be written at all, even though `WriteValueDef` has always
+    // been documented as `JsonValue | ExprDef`. The parser now follows the type.
     const fx = runtimeFixture();
-    const def = { kind: 'insert', into: 'user', rows: [{ tags: [1, 2, 3] }] } as unknown as InsertDef;
-    expect(() => fx.engine.parseQuery(def)).toThrow(/Unsupported write value/);
+    const def = { kind: 'insert', into: 'user', rows: [{ tags: ['a', 'b'] }] } as unknown as InsertDef;
+    expect(fx.engine.parseQuery(def).toJSON()).toEqual({
+      kind: 'insert',
+      into: 'user',
+      rows: [{ tags: { kind: 'literal', value: ['a', 'b'] } }],
+    });
+  });
+
+  it('still rejects a write value that is NOT JSON (a Date / a function / NaN)', () => {
+    // The union widened to `JsonValue`, not to "anything": a value with no JSON
+    // representation would stringify to something the caller never wrote, which
+    // is the silent-corruption class this work exists to end.
+    const fx = runtimeFixture();
+    for (const bad of [new Date(), () => 1, Number.NaN]) {
+      const def = { kind: 'insert', into: 'user', rows: [{ tags: bad }] } as unknown as InsertDef;
+      expect(() => fx.engine.parseQuery(def)).toThrow(/Unsupported write value/);
+    }
+  });
+
+  it('a document whose `kind` is not a REGISTERED expr kind stays DATA', () => {
+    // The `JsonValue | ExprDef` union is only decidable if `{ kind }` means an
+    // expression ONLY when the kind exists: a settings blob carrying a `kind`
+    // key is data, and reading it as a malformed expr reported an error about a
+    // construct the caller never wrote.
+    const fx = runtimeFixture();
+    const blob = { kind: 'section', title: 'General' };
+    const def = { kind: 'insert', into: 'user', rows: [{ tags: blob }] } as unknown as InsertDef;
+    expect(fx.engine.parseQuery(def).toJSON()).toEqual({
+      kind: 'insert',
+      into: 'user',
+      rows: [{ tags: { kind: 'literal', value: blob } }],
+    });
+    // …while a REGISTERED kind is still parsed as the expression it names.
+    const asExpr = { kind: 'insert', into: 'user', rows: [{ name: lit('Ray') }] } as unknown as InsertDef;
+    expect(fx.engine.parseQuery(asExpr).toJSON()).toEqual({ kind: 'insert', into: 'user', rows: [{ name: lit('Ray') }] });
   });
 });
 
@@ -72,11 +108,20 @@ describe('write model — defensive `writeRecordShape` (parseCheckedQuery)', () 
     expect(p.list.some((pr) => pr.code === 'shape.not-object' && pr.path.join('.') === 'rows.0')).toBe(true);
   });
 
-  it('reports shape.type for a raw non-scalar / non-expr write value, localized at its key', () => {
+  it('A9: builds a raw DOCUMENT write value, and still reports shape.type for a NON-JSON one', () => {
     const fx = runtimeFixture();
-    const p = new Problems();
-    fx.registry.parseCheckedQuery({ kind: 'insert', into: 'user', rows: [{ name: [1, 2] }] }, p);
-    expect(p.list.some((pr) => pr.code === 'shape.type' && pr.path.join('.') === 'rows.0.name')).toBe(true);
+    const ok = new Problems();
+    const built = fx.registry.parseCheckedQuery({ kind: 'insert', into: 'user', rows: [{ tags: ['a', 'b'] }] }, ok);
+    expect(ok.hasErrors).toBe(false);
+    expect(built?.toJSON()).toEqual({
+      kind: 'insert',
+      into: 'user',
+      rows: [{ tags: { kind: 'literal', value: ['a', 'b'] } }],
+    });
+    // A value with no JSON representation is still refused, localized at its key.
+    const bad = new Problems();
+    fx.registry.parseCheckedQuery({ kind: 'insert', into: 'user', rows: [{ tags: [new Date()] }] }, bad);
+    expect(bad.list.some((pr) => pr.code === 'shape.type' && pr.path.join('.') === 'rows.0.tags')).toBe(true);
   });
 });
 

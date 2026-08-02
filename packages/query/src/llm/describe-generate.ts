@@ -6,7 +6,7 @@
  * so every Type / Field surfaces a human- / LLM-facing doc even when the dev
  * authored none. Values are derived from what the meta-model already knows — a
  * Field from its `FieldType` (kind, bounds, `sensitive` / `semantic` / `search`
- * flags, array item / bounds, a relation's `to` + `count`, nullability) and a
+ * flags, array item / bounds, a relation's `to` + DIRECTION + `count`, nullability) and a
  * Type from its name plus a field / relation / index summary.
  *
  * NOTHING here mutates the stored `TypeDef` / `FieldDef`: each string is
@@ -15,6 +15,7 @@
 import type { Type } from '../type';
 import type { Field } from '../field';
 import type { FieldType } from '../field-type';
+import { RelationFieldType } from '../field-types/index';
 import type { FieldTypeDef } from '../schema';
 
 /** A short/long documentation pair (dev-provided when present, else generated). */
@@ -53,7 +54,9 @@ function boundSuffix(lo: number | undefined, hi: number | undefined, unit: strin
 
 /**
  * A one-line sentence for a field type, derived from its JSON `FieldTypeDef`
- * (whose discriminated `kind` narrows every branch with no cast). Never ends
+ * (whose discriminated `kind` narrows every branch with no cast) — except the
+ * relation branch, which must ask the `FieldType` for its DIRECTION because the
+ * discriminating `inverseVia` is internal and never serialized. Never ends
  * with punctuation — the caller appends it.
  */
 function fieldTypeSentence(ft: FieldType): string {
@@ -72,10 +75,19 @@ function fieldTypeSentence(ft: FieldType): string {
     }
     case 'bool':
       return 'A true/false flag';
-    case 'relation':
-      return def.count === 1
-        ? `Belongs to one ${def.to}`
-        : `Has many ${def.to} (≈${def.count} per row)`;
+    case 'relation': {
+      // WHICH SIDE the key is on is `isBelongsTo()`, never `count` alone: the
+      // registry estimates a MATERIALIZED INVERSE's count as a row RATIO, so a
+      // 1:1 pair — or two Types sharing one declared row estimate — yields
+      // exactly 1. Reading `count === 1` here therefore described every such
+      // inverse to the model as a BELONGS-TO, i.e. as a projectable identity
+      // it does not have (a field-ref to it is refused as
+      // `ref.relation-has-many`). The discriminating `inverseVia` is internal
+      // and never part of the JSON def, so this one branch asks the FieldType.
+      /* v8 ignore next -- `def.kind === 'relation'` ⇒ `ft` is always a RelationFieldType; the `def.count` arm is unreachable */
+      const belongsTo = ft instanceof RelationFieldType ? ft.isBelongsTo() : def.count === 1;
+      return belongsTo ? `Belongs to one ${def.to}` : `Has many ${def.to} (≈${def.count} per row)`;
+    }
     case 'date':
       return 'A calendar date';
     case 'timestamp':
