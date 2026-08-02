@@ -175,7 +175,8 @@ describe('output-ref: runtime evaluate', () => {
     };
     const rows = (await rfx.engine.run(def)).rows;
     // userId 1 and 2 each have 2 orders (cnt 2 > 1); userId 3 (Cleo) has none.
-    expect(rows).toEqual([{ uid: 1, cnt: 2 }, { uid: 2, cnt: 2 }]);
+    // `uid` projects `order.userId`, a RELATION ⇒ its identity object.
+    expect(rows).toEqual([{ uid: { id: 1 }, cnt: 2 }, { uid: { id: 2 }, cnt: 2 }]);
   });
 
   it('delegates when the ref is NESTED inside another expr in ORDER BY', async () => {
@@ -193,7 +194,8 @@ describe('output-ref: runtime evaluate', () => {
     };
     const rows = (await rfx.engine.run(def)).rows;
     // userId 1 revenue 150, userId 2 revenue 225 ⇒ ascending by revenue.
-    expect(rows.map((r) => r['uid'])).toEqual([1, 2]);
+    // `uid` projects the RELATION `order.userId` ⇒ its identity object.
+    expect(rows.map((r) => r['uid'])).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
   it('evaluate ⇒ NULL when no outputs are installed on the context', async () => {

@@ -14,7 +14,7 @@ import type { ResolvedType } from '../resolved-type';
 import { asFieldType, valueFieldType, relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import type { IndexProbe } from '../cost';
+import type { CostContext, IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { relationCompare, evaluateRelationCompare, emitRelationCompare, evaluateHasMany, emitHasMany, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
@@ -169,8 +169,8 @@ export class ComparisonExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, operandCtx(this.left, 'comparison', ctx, true)));
-    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, operandCtx(this.right, 'comparison', ctx, true)));
+    const l = p.at('left', () => this.left.validateWalk(engine, scope, p, operandCtx(this.left, 'comparison', ctx, 'compare')));
+    const r = p.at('right', () => this.right.validateWalk(engine, scope, p, operandCtx(this.right, 'comparison', ctx, 'compare')));
 
     const lft = asFieldType(l);
     const rft = asFieldType(r);
@@ -187,8 +187,8 @@ export class ComparisonExpr extends BoolExpr {
     // and set-vs-identity relation comparisons are ill-defined here.
     const lRel = relationOf(l);
     const rRel = relationOf(r);
-    if (lRel && rRel && (lRel.count > 1 || rRel.count > 1)) {
-      const set = lRel.count > 1 ? lRel : rRel;
+    if (lRel && rRel && (!lRel.belongsTo || !rRel.belongsTo)) {
+      const set = !lRel.belongsTo ? lRel : rRel;
       p.error(
         'comparison.relation-set',
         `Has-many relation '${set.source}.${set.field}' compares against a value (its members' key), not another relation ('${(set === lRel ? rRel : lRel).source}.${(set === lRel ? rRel : lRel).field}').`,
@@ -243,17 +243,38 @@ export class ComparisonExpr extends BoolExpr {
    * equality and the equality-like ops (`= <> like notLike ilike`) keep ~a third.
    * An index-covered `=` is discounted separately by the cost model (via
    * {@link indexProbe}); this is the non-indexed fallback.
+   *
+   * An `=` against a column whose field type declares a CLOSED VALUE SET uses
+   * that type's own `1/n` instead of the fixed third — the one case where the
+   * schema knows the real answer (`FieldType.eqSelectivity`).
    */
-  override selectivity(): number {
+  override selectivity(ctx: CostContext, scope: QueryScope): number {
     switch (this.op) {
       case '<':
       case '<=':
       case '>':
       case '>=':
         return RANGE_SELECTIVITY;
+      case '=':
+        return this.closedSetSelectivity(ctx, scope) ?? EQ_SELECTIVITY;
       default:
         return EQ_SELECTIVITY;
     }
+  }
+
+  /**
+   * The `1/n` an operand's declared closed value set implies, or `undefined`
+   * when neither side declares one. Both operands are consulted so
+   * `:param = order.status` costs the same as `order.status = :param`; when both
+   * declare a set the TIGHTER (smaller) estimate wins, since satisfying both
+   * memberships can only narrow further.
+   */
+  private closedSetSelectivity(ctx: CostContext, scope: QueryScope): number | undefined {
+    const l = asFieldType(this.left.resolve(ctx.engine, scope))?.eqSelectivity();
+    const r = asFieldType(this.right.resolve(ctx.engine, scope))?.eqSelectivity();
+    if (l === undefined) return r;
+    if (r === undefined) return l;
+    return Math.min(l, r);
   }
 
   /** An `=` against a column is an index point-probe (arity 1); other ops are not. */
@@ -277,8 +298,8 @@ export class ComparisonExpr extends BoolExpr {
       const leftRel = relationCompare(this.left, ctx.engine, typeOf);
       const rightRel = relationCompare(this.right, ctx.engine, typeOf);
       // A HAS-MANY operand (a SET) compares by membership → EXISTS over its target.
-      if (leftRel && leftRel.count > 1) return evaluateHasMany(this.op, leftRel, this.right, row, ctx, group);
-      if (rightRel && rightRel.count > 1) return evaluateHasMany(this.op, rightRel, this.left, row, ctx, group);
+      if (leftRel && !leftRel.belongsTo) return evaluateHasMany(this.op, leftRel, this.right, row, ctx, group);
+      if (rightRel && !rightRel.belongsTo) return evaluateHasMany(this.op, rightRel, this.left, row, ctx, group);
       // A belongs-to operand compares by identity (per-key columns).
       if (leftRel || rightRel) {
         return evaluateRelationCompare(this.op, this.left, this.right, leftRel, rightRel, row, ctx, group);
@@ -336,8 +357,8 @@ export class ComparisonExpr extends BoolExpr {
       const leftRel = relationCompare(this.left, ctx.engine, typeOf);
       const rightRel = relationCompare(this.right, ctx.engine, typeOf);
       // A HAS-MANY operand (a SET) compares by membership → a correlated EXISTS.
-      if (leftRel && leftRel.count > 1) return emitHasMany(this.op, leftRel, this.right, dialect, ctx);
-      if (rightRel && rightRel.count > 1) return emitHasMany(this.op, rightRel, this.left, dialect, ctx);
+      if (leftRel && !leftRel.belongsTo) return emitHasMany(this.op, leftRel, this.right, dialect, ctx);
+      if (rightRel && !rightRel.belongsTo) return emitHasMany(this.op, rightRel, this.left, dialect, ctx);
       if (leftRel || rightRel) {
         return emitRelationCompare(this.op, this.left, this.right, leftRel, rightRel, dialect, ctx);
       }

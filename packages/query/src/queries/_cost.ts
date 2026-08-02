@@ -16,12 +16,41 @@
 import type { Expr } from '../expr';
 import type { FieldRefExpr } from '../exprs/field-ref';
 import type { Type } from '../type';
+import type { ExprDef } from '../schema';
 import type { QueryScope } from '../scope';
 import type { JoinSpec } from '../backing';
 import { joinAlias } from '../backing';
 import { RelationFieldType } from '../field-types/index';
-import { exprDigest } from '../index-spec';
+import { aliasedDigest } from '../index-spec';
 import { type Cost, type CostContext, type IndexProbe, ZERO_COST, addCost } from '../cost';
+
+/**
+ * How one BOUND SOURCE in a query maps onto the TYPE-level facts (the indexes)
+ * of the Type it binds. An index part is always written against the Type NAME,
+ * while a query may bind that Type under an alias — so every probe / ref digest
+ * is normalized through this binding before being compared to a part digest.
+ *
+ * Deliberately per-SOURCE rather than a single "the FROM alias" parameter: the
+ * cost model today only consults the scanned Type's indexes, but the matching
+ * primitive a multi-source model would need is exactly this, one binding at a
+ * time.
+ */
+export interface SourceBinding {
+  /** The source name field-refs in the query carry (an alias, or the type name). */
+  readonly source: string;
+  /** The Type bound under `source` — whose indexes are being matched. */
+  readonly type: Type;
+}
+
+/** The binding of a Type bound under its own name (the DML / unaliased case). */
+export function selfBinding(type: Type): SourceBinding {
+  return { source: type.name, type };
+}
+
+/** The digest `ref` matches index parts of `at.type` on (alias-normalized). */
+function boundDigest(ref: { toJSON(): ExprDef }, at: SourceBinding): string {
+  return aliasedDigest(ref.toJSON(), at.source, at.type.name);
+}
 
 /** A plain type-scan cost: every row, at the Type's per-row byte estimate. */
 export function scanCost(type: Type): Cost {
@@ -57,11 +86,16 @@ function probesOf(conjuncts: readonly Expr[]): IndexProbe[] {
   return probes;
 }
 
-/** The canonical digests of every part of every index on `type` (for probe matching). */
-function indexPartDigests(type: Type): Set<string> {
+/** The canonical digests of every part of every index on `at.type` (for probe matching). */
+function indexPartDigests(at: SourceBinding): Set<string> {
   const digests = new Set<string>();
-  for (const idx of type.indexes) for (const part of idx.parts) digests.add(part.digest);
+  for (const idx of at.type.indexes) for (const part of idx.parts) digests.add(part.digest);
   return digests;
+}
+
+/** The probes bound to `at`'s source — the only ones this Type's indexes can serve. */
+function probesAt(probes: readonly IndexProbe[], at: SourceBinding): IndexProbe[] {
+  return probes.filter((p) => p.ref.source === at.source);
 }
 
 /**
@@ -70,11 +104,12 @@ function indexPartDigests(type: Type): Set<string> {
  * index's longest-matched-prefix `count`. `undefined` when no index prefix
  * matches.
  */
-function bestPrefixReduction(type: Type, refs: readonly FieldRefExpr[]): number | undefined {
-  if (refs.length === 0) return undefined;
+function bestPrefixReduction(at: SourceBinding, refs: readonly FieldRefExpr[]): number | undefined {
+  const bound = refs.filter((r) => r.source === at.source);
+  if (bound.length === 0) return undefined;
   let best: number | undefined;
-  for (const idx of type.indexes) {
-    const r = idx.prefixReduction(refs);
+  for (const idx of at.type.indexes) {
+    const r = idx.prefixReduction(bound, { source: at.source, typeName: at.type.name });
     if (r === undefined) continue;
     best = best === undefined ? r : Math.min(best, r);
   }
@@ -87,10 +122,10 @@ function bestPrefixReduction(type: Type, refs: readonly FieldRefExpr[]): number 
  * whose column actually participates in an index part (and whose `arity > 1`)
  * scale the bound; a plain `=` (arity 1) leaves it unchanged.
  */
-function indexArityFactor(partDigests: Set<string>, probes: readonly IndexProbe[]): number {
+function indexArityFactor(partDigests: Set<string>, probes: readonly IndexProbe[], at: SourceBinding): number {
   let factor = 1;
-  for (const pr of probes) {
-    if (pr.arity > 1 && partDigests.has(exprDigest(pr.ref.toJSON()))) factor *= pr.arity;
+  for (const pr of probesAt(probes, at)) {
+    if (pr.arity > 1 && partDigests.has(boundDigest(pr.ref, at))) factor *= pr.arity;
   }
   return factor;
 }
@@ -109,12 +144,12 @@ export function applyWhere(
   ctx: CostContext,
   scope: QueryScope,
   base: Cost,
-  type: Type,
+  at: SourceBinding,
   where: readonly Expr[],
   perRowBytes: number,
 ): Cost {
   const conjuncts = conjunctsOf(ctx, scope, where);
-  const rows = reduceRows(ctx, scope, type, base.rows, conjuncts);
+  const rows = reduceRows(ctx, scope, at, base.rows, conjuncts);
   const penalty = conjuncts.reduce((sum, c) => sum + c.totalScanRowPenalty(), 0) * base.rows;
   return { rows, bytes: rows * perRowBytes + penalty };
 }
@@ -125,10 +160,10 @@ export function applyWhere(
  * conjunct applies its own selectivity. An index-covered point-probe is folded
  * into the prefix reduction and does NOT also apply its selectivity.
  */
-function reduceRows(ctx: CostContext, scope: QueryScope, type: Type, baseRows: number, conjuncts: readonly Expr[]): number {
+function reduceRows(ctx: CostContext, scope: QueryScope, at: SourceBinding, baseRows: number, conjuncts: readonly Expr[]): number {
   const probes = probesOf(conjuncts);
-  const partDigests = indexPartDigests(type);
-  const reduction = bestPrefixReduction(type, probes.map((p) => p.ref));
+  const partDigests = indexPartDigests(at);
+  const reduction = bestPrefixReduction(at, probes.map((p) => p.ref));
 
   let rows = baseRows;
   for (const c of conjuncts) {
@@ -137,11 +172,13 @@ function reduceRows(ctx: CostContext, scope: QueryScope, type: Type, baseRows: n
     // for by the prefix reduction below — skip its selectivity to avoid
     // double-counting. A probe on a column that is only a NON-leading part (no
     // usable prefix, so `reduction` is undefined) still applies its selectivity.
-    if (reduction !== undefined && probe && partDigests.has(exprDigest(probe.ref.toJSON()))) continue;
+    if (reduction !== undefined && probe && probe.ref.source === at.source && partDigests.has(boundDigest(probe.ref, at))) {
+      continue;
+    }
     rows = floor1(rows * c.selectivity(ctx, scope));
   }
   // An index prefix bounds the equality/IN-constrained rows from above.
-  if (reduction !== undefined) rows = Math.min(rows, floor1(reduction * indexArityFactor(partDigests, probes)));
+  if (reduction !== undefined) rows = Math.min(rows, floor1(reduction * indexArityFactor(partDigests, probes, at)));
   return rows;
 }
 
@@ -153,25 +190,25 @@ function reduceRows(ctx: CostContext, scope: QueryScope, type: Type, baseRows: n
  * estimated recursively (so nested AND/OR + per-branch index use all count).
  * An empty WHERE matches every row.
  */
-export function matchedRows(ctx: CostContext, scope: QueryScope, type: Type, where: readonly Expr[]): number {
-  return andMatch(ctx, scope, type, type.count, conjunctsOf(ctx, scope, where));
+export function matchedRows(ctx: CostContext, scope: QueryScope, at: SourceBinding, where: readonly Expr[]): number {
+  return andMatch(ctx, scope, at, at.type.count, conjunctsOf(ctx, scope, where));
 }
 
 /** Rows surviving an implicit-AND of `conjuncts`: index/selectivity over the non-OR ones, then each OR's union fraction. */
-function andMatch(ctx: CostContext, scope: QueryScope, type: Type, base: number, conjuncts: readonly Expr[]): number {
+function andMatch(ctx: CostContext, scope: QueryScope, at: SourceBinding, base: number, conjuncts: readonly Expr[]): number {
   const ors = conjuncts.filter((c) => c.orOperands() !== undefined);
   const rest = conjuncts.filter((c) => c.orOperands() === undefined);
-  let rows = reduceRows(ctx, scope, type, base, rest);
-  for (const or of ors) rows = floor1(rows * orFraction(ctx, scope, type, or));
+  let rows = reduceRows(ctx, scope, at, base, rest);
+  for (const or of ors) rows = floor1(rows * orFraction(ctx, scope, at, or));
   return rows;
 }
 
 /** The fraction of rows an OR keeps: `1 − Π(1 − branchFraction)`, each branch estimated on its own. */
-function orFraction(ctx: CostContext, scope: QueryScope, type: Type, orExpr: Expr): number {
+function orFraction(ctx: CostContext, scope: QueryScope, at: SourceBinding, orExpr: Expr): number {
   let none = 1;
   for (const operand of orExpr.orOperands()!) {
-    const branch = andMatch(ctx, scope, type, type.count, operand.conjuncts(ctx, scope));
-    none *= 1 - branch / type.count;
+    const branch = andMatch(ctx, scope, at, at.type.count, operand.conjuncts(ctx, scope));
+    none *= 1 - branch / at.type.count;
   }
   return 1 - none;
 }
@@ -182,7 +219,7 @@ function orFraction(ctx: CostContext, scope: QueryScope, type: Type, orExpr: Exp
  * standard rough distinct-value heuristic.
  */
 export function distinctEstimate(
-  type: Type,
+  at: SourceBinding,
   groupBy: readonly Expr[],
   scannedRows: number,
 ): number {
@@ -190,7 +227,7 @@ export function distinctEstimate(
     const ref = groupBy[0]!.fieldRef();
     if (ref) {
       // A single key backed by an index uses that index's leading-part count.
-      const reduction = bestPrefixReduction(type, [ref]);
+      const reduction = bestPrefixReduction(at, [ref]);
       if (reduction !== undefined) return Math.max(1, reduction);
     }
   }
@@ -212,8 +249,7 @@ export function distinctEstimate(
 export function coveredScanBytes(
   ctx: CostContext,
   scope: QueryScope,
-  fromType: Type,
-  fromAlias: string,
+  at: SourceBinding,
   fields: readonly Expr[],
   where: readonly Expr[],
 ): number | undefined {
@@ -225,7 +261,7 @@ export function coveredScanBytes(
       if (n.cost(ctx, scope).rows > 0) simple = false;
       const r = n.fieldRef();
       if (!r) return;
-      if (r.source !== fromAlias) simple = false;
+      if (r.source !== at.source) simple = false;
       else refs.push(r);
     });
   };
@@ -233,14 +269,14 @@ export function coveredScanBytes(
   for (const w of where) collect(w);
   if (!simple || refs.length === 0) return undefined;
 
-  const refDigests = new Set(refs.map((r) => exprDigest(r.toJSON())));
-  const probes = probesOf(conjunctsOf(ctx, scope, where));
+  const refDigests = new Set(refs.map((r) => boundDigest(r, at)));
+  const probes = probesAt(probesOf(conjunctsOf(ctx, scope, where)), at);
   if (probes.length === 0) return undefined;
-  for (const idx of fromType.indexes) {
+  for (const idx of at.type.indexes) {
     const partDigests = indexPartDigestsOf(idx.parts);
     const allColumnsIndexed = [...refDigests].every((d) => partDigests.has(d));
-    const whereProbesIndex = probes.some((p) => partDigests.has(exprDigest(p.ref.toJSON())));
-    if (allColumnsIndexed && whereProbesIndex) return idx.bytes(fromType);
+    const whereProbesIndex = probes.some((p) => partDigests.has(boundDigest(p.ref, at)));
+    if (allColumnsIndexed && whereProbesIndex) return idx.bytes(at.type);
   }
   return undefined;
 }

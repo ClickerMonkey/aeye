@@ -41,6 +41,7 @@ import { parseWriteRecord } from './_write';
 import { requiredOnInsert } from '../write-model';
 import { typeReadonly, fieldReadonly } from './_sql';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
+import { identityValueCtx } from '../exprs/_field-guard';
 import { didYouMean } from '../aids';
 import type { Type } from '../type';
 import type { Affected, Cost, CostContext } from '../cost';
@@ -227,8 +228,13 @@ export class InsertQuery extends Query {
     }
     const inner = this.targetScope(engine, scope);
     const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
+    // A RETURNING column may project a relation's identity: for a DELETE in
+    // particular the FK value IS the prior state an undo would restore from, and
+    // an RLS-scoped join loses it exactly when the target row is hidden.
     p.at('returning', () => {
-      this.returning.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, ctx)));
+      this.returning.forEach((c, i) =>
+        p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, identityValueCtx(c.expr, ctx))),
+      );
     });
     // ON CONFLICT DO UPDATE assignments resolve in the conflict scope (target +
     // `excluded`), so an `EXCLUDED.<field>` reference validates against the

@@ -16,7 +16,7 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType, TypeResolved, FieldResolved } from '../resolved-type';
-import { asFieldType } from '../resolved-type';
+import { asFieldType, relationOf } from '../resolved-type';
 import type { ScalarKind } from '../field-type';
 import type { Affected, Cost, CostContext } from '../cost';
 import { AFFECTED_NONE } from '../cost';
@@ -32,7 +32,7 @@ import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
 import { Type } from '../type';
 import { Field } from '../field';
-import { TextFieldType } from '../field-types/index';
+import { TextFieldType, JsonFieldType } from '../field-types/index';
 import { FieldRefExpr, AggregateExpr, FiltersExpr, SorterExpr } from '../exprs/index';
 
 /** One specific field a query reads — its owning Type and field name. */
@@ -501,6 +501,10 @@ export abstract class Query {
  */
 export function makeField(name: string, type: ResolvedType): QueryField {
   const ft = asFieldType(type);
+  // A RELATION resolves to a whole Type, but PROJECTS as its identity object —
+  // a JSON value, and a nullable one (an unset relation reads NULL). Reporting
+  // the `'type'` sentinel here would tell a consumer it received a whole row.
+  if (relationOf(type)?.belongsTo) return { name, type, nullable: true, fieldType: 'json' };
   // `asFieldType` is `undefined` exactly when `type` is a whole Type → the
   // `'type'` sentinel; otherwise the underlying scalar category.
   const fieldType: ScalarKind | 'type' = ft ? ft.resolve() : 'type';
@@ -525,8 +529,10 @@ export function toArrayRows(
 /** Build a synthetic `Type` describing a set of output fields. */
 export function syntheticType(name: string, fields: readonly QueryField[]): Type {
   const built = fields.map((c) => {
-    const ft = asFieldType(c.type) ?? new TextFieldType();
-    const nullable = c.type.kind !== 'type' && c.type.nullable;
+    // A projected relation identity is a JSON object; every other whole-Type
+    // column keeps the historical text placeholder.
+    const ft = asFieldType(c.type) ?? (relationOf(c.type)?.belongsTo ? new JsonFieldType() : new TextFieldType());
+    const nullable = c.type.kind !== 'type' ? c.type.nullable : relationOf(c.type)?.belongsTo === true;
     return new Field({ name: c.name, fieldType: ft, nullable });
   });
   return new Type({ name, fields: built, indexes: [], count: 0, bytes: 0 });

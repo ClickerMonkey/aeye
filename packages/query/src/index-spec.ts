@@ -45,6 +45,48 @@ export function exprDigest(expr: ExprDef): string {
   return stableStringify(json);
 }
 
+/**
+ * Rewrite every `field-ref` node whose `source` is `from` to `to`, inside an
+ * arbitrary JSON tree. Every other node — including a `field-ref` bound to a
+ * DIFFERENT source — is copied unchanged, which is what keeps a join alias that
+ * happens to equal another Type's name from matching that Type's index parts.
+ */
+function renameJson(node: JsonValue, from: string, to: string): JsonValue {
+  if (Array.isArray(node)) return node.map((n) => renameJson(n, from, to));
+  if (node === null || typeof node !== 'object') return node;
+  const out: { [key: string]: JsonValue } = {};
+  for (const key of Object.keys(node)) out[key] = renameJson(node[key]!, from, to);
+  if (out['kind'] === 'field-ref' && out['source'] === from) out['source'] = to;
+  return out;
+}
+
+/**
+ * Rewrite every `field-ref` whose `source` is `from` to `to`, leaving every
+ * other node untouched. Round-trips through JSON (so the result is a plain,
+ * independently-owned def) — the same `JSON.parse`-annotated idiom
+ * {@link exprDigest} uses, no casts.
+ */
+export function renameSource(expr: ExprDef, from: string, to: string): ExprDef {
+  const renamed: ExprDef = JSON.parse(JSON.stringify(renameJson(JSON.parse(JSON.stringify(expr)), from, to)));
+  return renamed;
+}
+
+/**
+ * The digest an ALIASED usage of `expr` matches an index part on.
+ *
+ * An index part is a TYPE-level fact, so it is necessarily written against the
+ * Type NAME (`IndexPartDef.expr` is an `ExprDef`, and a `field-ref` requires a
+ * `source`). A QUERY may bind that same Type under an alias — `FROM user AS u`,
+ * or either side of a self-join — and then its refs read `u.email`, whose raw
+ * digest can never equal the part's `user.email`. Normalizing the USAGE back to
+ * the Type name is what lets a declared index actually apply; the stored part
+ * digest ({@link IndexPart.digest}) is deliberately left exactly as it is.
+ */
+export function aliasedDigest(expr: ExprDef, alias: string, typeName: string): string {
+  if (alias === typeName) return exprDigest(expr);
+  return stableStringify(renameJson(JSON.parse(JSON.stringify(expr)), alias, typeName));
+}
+
 /** One ordered part of a composite index: an expr + its prefix cardinality. */
 export class IndexPart {
   /** Lazily computed canonical digest of `expr`. */
@@ -121,9 +163,20 @@ export class Index {
    * Because part counts are non-increasing, a longer matched prefix always
    * yields a smaller (or equal) estimate — so this returns the tightest bound
    * the supplied predicates can achieve via this index.
+   *
+   * `alias` names the SOURCE the supplied usages are bound under together with
+   * the TYPE this index belongs to; when they differ, each usage is normalized
+   * back to the type name before matching (see {@link aliasedDigest}). Omitting
+   * it keeps the literal, un-normalized match — the identity case, and what
+   * every pre-existing caller gets.
    */
-  prefixReduction(used: ReadonlyArray<{ toJSON(): ExprDef }>): number | undefined {
-    const digests = used.map((u) => exprDigest(u.toJSON()));
+  prefixReduction(
+    used: ReadonlyArray<{ toJSON(): ExprDef }>,
+    alias?: { source: string; typeName: string },
+  ): number | undefined {
+    const digests = used.map((u) =>
+      alias ? aliasedDigest(u.toJSON(), alias.source, alias.typeName) : exprDigest(u.toJSON()),
+    );
     let reduction: number | undefined;
     for (const part of this.parts) {
       if (!digests.includes(part.digest)) break;

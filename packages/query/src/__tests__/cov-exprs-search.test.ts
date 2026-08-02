@@ -68,7 +68,9 @@ const plainTypeDef: TypeDef = {
   bytes: 32,
 };
 
-// No text field at all ⇒ drives `column()`'s `search` pseudo-column fallback.
+// No text field at all — and, since `column()` no longer guesses, only useful
+// for proving the whole-source refusal.
+// (A6: the first-text-field and `search` pseudo-column fallbacks were deleted.)
 const numericTypeDef: TypeDef = {
   name: 'numericType',
   fields: [
@@ -201,9 +203,10 @@ describe('TextSearchExpr', () => {
     expect(
       codes(cfx.engine.validateExpr({ kind: 'text-search', source: 'item', field: 'id', query: 'x' }, scope)),
     ).toContain('text-search.non-text');
-    // A whole-source search on a searchable type ⇒ clean (no text-search errors).
-    const ok = codes(cfx.engine.validateExpr({ kind: 'text-search', source: 'item', query: 'x' }, customScope()));
-    expect(ok.filter((c) => c.startsWith('text-search.'))).toEqual([]);
+    // A whole-source search on a searchable but UNBACKED type is refused: there
+    // is no whole-record document, and the library no longer guesses a column.
+    const unbacked = codes(cfx.engine.validateExpr({ kind: 'text-search', source: 'item', query: 'x' }, customScope()));
+    expect(unbacked).toContain('text-search.unbacked');
     // A field-narrowed search on a text field ⇒ clean.
     const okField = codes(
       cfx.engine.validateExpr({ kind: 'text-search', source: 'item', field: 'title', query: 'x' }, customScope()),
@@ -213,9 +216,15 @@ describe('TextSearchExpr', () => {
 
   it('validateWalk observes a param query', () => {
     const scope = customScope();
-    // The param-query branch runs param.validateWalk; no text-search error arises.
+    // The param-query branch runs param.validateWalk; the only text-search error
+    // is the whole-source `unbacked` refusal (A6), not anything about the param.
     const c = codes(cfx.engine.validateExpr({ kind: 'text-search', source: 'item', query: param('q') }, scope));
-    expect(c.filter((x) => x.startsWith('text-search.'))).toEqual([]);
+    expect(c.filter((x) => x.startsWith('text-search.'))).toEqual(['text-search.unbacked']);
+    // Field-narrowed with a param query ⇒ entirely clean.
+    const narrowed = codes(
+      cfx.engine.validateExpr({ kind: 'text-search', source: 'item', field: 'title', query: param('q') }, scope),
+    );
+    expect(narrowed.filter((x) => x.startsWith('text-search.'))).toEqual([]);
   });
 
   it('exposes a per-SCANNED-ROW scan penalty (applied by the WHERE cost model, not the value cost)', () => {
@@ -229,21 +238,27 @@ describe('TextSearchExpr', () => {
     expect(text.totalScanRowPenalty()).toBeGreaterThanOrEqual(text.scanRowPenalty());
   });
 
-  it('toSQL: named field, whole-source searchable/first-text, both dialects', () => {
+  it('toSQL: a NAMED field emits the dialect search form in both dialects', () => {
     // Named field on `item.title` (non-sensitive ⇒ LOWER / tsvector forms).
     const named = bothSQL(cfx.engine, itemWhere({ kind: 'text-search', source: 'item', field: 'title', query: 'foo' }));
     expect(named.base).toContain('LOWER(');
     expect(named.base).toContain('LIKE');
     expect(named.pg).toContain('to_tsvector(');
     expect(named.pg).toContain('plainto_tsquery(');
+  });
 
-    // Whole-source over `item` ⇒ first searchable field (`title`).
-    const whole = cfx.engine.toSQL(itemWhere({ kind: 'text-search', source: 'item', query: 'foo' }), 'base').sql;
-    expect(whole).toContain('"item"."title"');
+  it('toSQL: an UNBACKED whole-source search REFUSES instead of guessing a column (A6)', () => {
+    // Previously this silently resolved to the first `search`-flagged field
+    // (`item.title`) — a whole-document search that quietly became a one-column
+    // search, and which column depended on field ORDER.
+    expect(() => cfx.engine.toSQL(itemWhere({ kind: 'text-search', source: 'item', query: 'foo' }), 'base')).toThrow(
+      /text-search\.unbacked/,
+    );
 
-    // Whole-source over `plainType` ⇒ no searchable field, first text field (`label`).
-    const firstText = cfx.engine
-      .toSQL(
+    // Same for a type whose only text field is unflagged: the "first text field"
+    // fallback is gone too.
+    expect(() =>
+      cfx.engine.toSQL(
         {
           kind: 'select',
           fields: [{ expr: ref('plainType', 'id'), as: 'id' }],
@@ -251,9 +266,8 @@ describe('TextSearchExpr', () => {
           where: [{ kind: 'text-search', source: 'plainType', query: 'foo' }],
         },
         'base',
-      )
-      .sql;
-    expect(firstText).toContain('"plainType"."label"');
+      ),
+    ).toThrow(/text-search\.unbacked/);
   });
 
   it('toSQL: sensitive field emits a plain LIKE (no LOWER), both dialects', () => {
@@ -264,17 +278,14 @@ describe('TextSearchExpr', () => {
     expect(sensitive.pg).not.toContain('to_tsvector(');
   });
 
-  it('toSQL column(): pseudo-column fallback for unbound / non-type / no-text sources', () => {
+  it('toSQL column(): an unnarrowed search REFUSES for unbound / non-type / no-text sources (A6)', () => {
     const { dialect, ctx } = baseCtx(customScope());
-    // Unbound source ⇒ fallback `"ghost"."search"`.
-    const ghost = new TextSearchExpr('ghost', undefined, { kind: 'text', text: 'x' });
-    expect(ghost.toSQL(dialect, ctx).render(dialect).sql).toContain('"ghost"."search"');
-    // Non-type binding `c` ⇒ fallback.
-    const nonType = new TextSearchExpr('c', undefined, { kind: 'text', text: 'x' });
-    expect(nonType.toSQL(dialect, ctx).render(dialect).sql).toContain('"c"."search"');
-    // A bound type with no text field ⇒ fallback.
-    const noText = new TextSearchExpr('numericType', undefined, { kind: 'text', text: 'x' });
-    expect(noText.toSQL(dialect, ctx).render(dialect).sql).toContain('"numericType"."search"');
+    // Every one of these used to resolve to a `"<source>"."search"` pseudo-column
+    // that nothing declared. The message names the source and both remedies.
+    for (const source of ['ghost', 'c', 'numericType']) {
+      const expr = new TextSearchExpr(source, undefined, { kind: 'text', text: 'x' });
+      expect(() => expr.toSQL(dialect, ctx)).toThrow(new RegExp(`text-search\.unbacked.*'${source}'`));
+    }
   });
 
   it('toSQL sensitiveColumn(): unbound / non-type / missing-field named sources are non-sensitive', () => {

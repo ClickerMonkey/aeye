@@ -306,15 +306,28 @@ describe('search/semantic backing: SQL emission', () => {
     expect(semantic).toContain('0 AS "s"');
   });
 
-  it('an unbacked Type keeps the default SQL forms', () => {
+  it('an unbacked Type keeps the default SQL forms when the search NAMES a field', () => {
+    const noteWhere: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'note', field: 'id' }, as: 'id' }],
+      from: { kind: 'type', type: 'note' },
+      where: [{ kind: 'text-search', source: 'note', field: 'text', query: 'cat' }],
+    };
+    const { sql } = engine.toSQL(noteWhere, 'postgres');
+    expect(sql).toContain('to_tsvector("note"."text")');
+  });
+
+  it('an unbacked Type REFUSES a whole-source search rather than guessing a column (A6)', () => {
+    // `note` has a `search`-flagged field but no SearchBacking, so there is no
+    // whole-record document. This used to resolve — silently — to `note.text`.
     const noteWhere: SelectDef = {
       kind: 'select',
       fields: [{ expr: { kind: 'field-ref', source: 'note', field: 'id' }, as: 'id' }],
       from: { kind: 'type', type: 'note' },
       where: [{ kind: 'text-search', source: 'note', query: 'cat' }],
     };
-    const { sql } = engine.toSQL(noteWhere, 'postgres');
-    expect(sql).toContain('to_tsvector("note"."text")');
+    expect(() => engine.toSQL(noteWhere, 'postgres')).toThrow(/text-search\.unbacked/);
+    expect(engine.validateQuery(noteWhere).list.map((pr) => pr.code)).toContain('text-search.unbacked');
   });
 });
 

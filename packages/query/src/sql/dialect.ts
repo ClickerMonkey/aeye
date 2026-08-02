@@ -14,6 +14,24 @@ import { SqlText } from './emit';
 import type { DialectEntry } from '../registry';
 
 /** The abstract SQL-dialect contract; concrete dialects override the engine-specific points. */
+/**
+ * The alternating `'key', value` argument list of a JSON-object constructor.
+ *
+ * The KEY is emitted as a quoted SQL string LITERAL, never a bind param: it is
+ * part of the query's STRUCTURE (a target identity field name off the schema),
+ * not data, and binding it would push a stray parameter into every query that
+ * projects a relation — shifting the positions of the real ones. Quotes are
+ * doubled defensively even though these names come from the meta-model.
+ */
+export function jsonObjectArgs(entries: readonly { key: string; value: SqlText }[]): SqlText[] {
+  const args: SqlText[] = [];
+  for (const e of entries) {
+    args.push(SqlText.raw(`'${e.key.replace(/'/g, "''")}'`));
+    args.push(e.value);
+  }
+  return args;
+}
+
 export abstract class Dialect implements DialectEntry {
   /** The dialect's canonical name (e.g. `'base'`, `'postgres'`). */
   abstract readonly name: string;
@@ -180,6 +198,24 @@ export abstract class Dialect implements DialectEntry {
   }
 
   /** The SQL field type for a field type in this dialect. */
+  /**
+   * Build a JSON OBJECT from ordered `key → value` pairs — how a relation's
+   * IDENTITY reaches the result boundary (`{ id: 5 }`, `{ tenantId: 3, userId: 1 }`).
+   *
+   * `json_build_object` is not ANSI, but neither is `json_array_length` which
+   * this base dialect already emits for `arrayLength`: the portable dialect is
+   * portable-ISH, and degrading a structured value to a concatenated string
+   * would be worse than depending on the same JSON support that is already
+   * assumed. Dialects with a richer JSON type override this.
+   */
+  jsonObject(entries: readonly { key: string; value: SqlText }[]): SqlText {
+    return SqlText.concat([
+      SqlText.raw('json_build_object('),
+      SqlText.join(jsonObjectArgs(entries), ', '),
+      SqlText.raw(')'),
+    ]);
+  }
+
   abstract sqlTypeFor(fieldType: FieldType): string;
 
   // ─── Array operators ────────────────────────────────────────────────────────

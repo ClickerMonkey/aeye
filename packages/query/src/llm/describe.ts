@@ -26,8 +26,9 @@ import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
-import { RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
+import { RelationFieldType, TextFieldType, MoneyFieldType, NumberFieldType } from '../field-types/index';
 import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
+import { describeValues } from '../field-types/_values';
 import { defaultConditionWithout } from '../default-conditions';
 import { exprKindApplicable } from '../schema-build';
 import { fieldMeta, typeMeta } from './describe-generate';
@@ -115,7 +116,11 @@ function fieldTypeTag(field: Field): string {
     const flags: string[] = [];
     if (ft.options.search) flags.push('search');
     if (ft.options.semantic) flags.push('semantic');
-    return flags.length ? `text(${flags.join(',')})` : 'text';
+    const base = flags.length ? `text(${flags.join(',')})` : 'text';
+    return base + describeValues(ft.options.values);
+  }
+  if (ft instanceof NumberFieldType) {
+    return 'number' + describeValues(ft.options.values);
   }
   return ft.kind;
 }

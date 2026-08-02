@@ -109,6 +109,8 @@ function fieldIsSemantic(field: Field): boolean {
   const ft = field.fieldType;
   return ft instanceof TextFieldType && (ft.options.semantic === true || ft.options.search === true);
 }
+/* The same predicate as `Type.isFieldSemantic`; kept local so this module does
+ * not need a Type instance to answer it for a field it already holds. */
 
 /**
  * Resolve a pairing query to its bound source's Type against `scope`: a
@@ -278,7 +280,9 @@ export class SemanticExpr extends Expr {
       const type = bound.type;
       if (!type.isSemantic()) {
         // The target Type must be semantic-eligible: flagged `semantic`, or
-        // exposing a semantic/search text field (or relation).
+        // exposing a semantic/search TEXT field. Relation fields no longer
+        // count — a foreign key is a join, not an embedding — so a Type whose
+        // only "evidence" was owning a reference is now correctly rejected.
         p.error(
           'semantic.not-eligible',
           `Source '${this.source}' (type '${type.name}') is not semantic-eligible.`,

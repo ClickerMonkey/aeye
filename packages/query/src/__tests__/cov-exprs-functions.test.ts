@@ -259,8 +259,10 @@ describe('AggregateExpr runtime', () => {
     const rfx = runtimeFixture();
     const sum = await rfx.engine.run(aggSel(agg('sum', { value: ref('order', 'total') })));
     expect(sum.rows).toEqual([
-      { userId: 1, v: 150 },
-      { userId: 2, v: 225 },
+      // `order.userId` is a RELATION: projecting it yields the target's IDENTITY
+      // object (`{ id }`), not the bare FK scalar.
+      { userId: { id: 1 }, v: 150 },
+      { userId: { id: 2 }, v: 225 },
     ]);
     const avg = await rfx.engine.run(aggSel(agg('avg', { value: ref('order', 'total') })));
     expect(avg.rows[0]!['v']).toBe(75);
@@ -277,8 +279,8 @@ describe('AggregateExpr runtime', () => {
     // Every order's userId repeats inside its group ⇒ count(DISTINCT userId)=1.
     const r = await rfx.engine.run(aggSel(agg('count', { value: ref('order', 'userId') }, true)));
     expect(r.rows).toEqual([
-      { userId: 1, v: 1 },
-      { userId: 2, v: 1 },
+      { userId: { id: 1 }, v: 1 },
+      { userId: { id: 2 }, v: 1 },
     ]);
   });
 

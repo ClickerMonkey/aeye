@@ -8,20 +8,37 @@
  * a direct field-ref; every other operand is validated unchanged (so a deeply
  * nested field-ref self-gates as `'field-ref'`, never the operator's kind).
  */
-import type { Expr, ValidateContext } from '../expr';
+import type { Expr, RelationUse, ValidateContext } from '../expr';
 import type { ExprKind } from '../schema';
 import { FieldRefExpr } from './field-ref';
 
 /**
  * The context for validating `operand` as the direct subject of a gating
  * operator: a field-ref operand carries `fieldExprKind = kind`; anything else is
- * returned the incoming `ctx` unchanged. `relationOk` (set by the FK-comparison
- * operators — `comparison` / `in` / `between`) additionally permits a RELATION
- * field-ref operand there, since those operators run their own relation-vs-relation
- * / relation-vs-scalar checks; a gating operator that leaves it false (`is-null`,
- * `array-op`) lets a bare relation operand raise `ref.relation-not-value`.
+ * returned the incoming `ctx` unchanged. `relationUse` (see
+ * `ValidateContext.relationUse`) additionally says how a RELATION field-ref
+ * operand may be used here — `'compare'` for the FK-comparison operators, which
+ * run their own relation-vs-relation / relation-vs-scalar checks, `'value'` for
+ * a position that reads the relation's identity (`is-null`). A gating operator
+ * that passes neither (`array-op`) lets a bare relation operand be refused.
  */
-export function operandCtx(operand: Expr, kind: ExprKind, ctx: ValidateContext, relationOk = false): ValidateContext {
+export function operandCtx(
+  operand: Expr,
+  kind: ExprKind,
+  ctx: ValidateContext,
+  relationUse?: RelationUse,
+): ValidateContext {
   if (!(operand instanceof FieldRefExpr)) return ctx;
-  return relationOk ? { ...ctx, fieldExprKind: kind, relationValueOk: true } : { ...ctx, fieldExprKind: kind };
+  return relationUse ? { ...ctx, fieldExprKind: kind, relationUse } : { ...ctx, fieldExprKind: kind };
+}
+
+/**
+ * The context for validating `expr` at a position that reads a relation's
+ * IDENTITY as a value — a select field / RETURNING, an ORDER BY term, a GROUP BY
+ * key. Applied ONLY when `expr` IS the field-ref, mirroring `operandCtx`: were it
+ * merged into the ambient context it would flow down into nested exprs and quietly
+ * permit `upper(note.author)`, which is not a defined thing.
+ */
+export function identityValueCtx(expr: Expr, ctx: ValidateContext): ValidateContext {
+  return expr instanceof FieldRefExpr ? { ...ctx, relationUse: 'value' } : ctx;
 }

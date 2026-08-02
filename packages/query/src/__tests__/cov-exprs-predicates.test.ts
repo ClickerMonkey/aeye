@@ -593,13 +593,32 @@ describe('InExpr', () => {
 
   it('evaluateBool (subquery) under 3VL: matched and NULL-in-subquery', async () => {
     const rt = runtimeFixture();
-    // userId values {1,1,2,2} ⇒ users 1 and 2 match.
+    // userId values {1,1,2,2} ⇒ users 1 and 2 match. The subquery CROSSES the
+    // relation with a `relation` join and projects the JOINED alias's scalar id
+    // — the library's prescribed shape. Projecting `order.userId` directly would
+    // yield that relation's IDENTITY object, and comparing a relation to a
+    // scalar is refused by validation (`compare.relation-vs-value`) — see below.
     const matched: ExprDef = {
+      kind: 'in',
+      value: ref('user', 'id'),
+      in: {
+        kind: 'select',
+        fields: [{ expr: ref('ou', 'id') }],
+        from: { kind: 'type', type: 'order' },
+        joins: [{ on: { kind: 'relation', source: 'order', field: 'userId', as: 'ou' } }],
+      },
+    };
+    expect((await rt.engine.run(whereUsers(matched))).rows).toEqual([{ id: 1 }, { id: 2 }]);
+
+    // The un-joined form is (and already was) a validation error.
+    const relationProjected: ExprDef = {
       kind: 'in',
       value: ref('user', 'id'),
       in: { kind: 'select', fields: [{ expr: ref('order', 'userId') }], from: { kind: 'type', type: 'order' } },
     };
-    expect((await rt.engine.run(whereUsers(matched))).rows).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(rt.engine.validateQuery(whereUsers(relationProjected)).list.map((p) => p.code)).toContain(
+      'compare.relation-vs-value',
+    );
 
     // note has NULLs and never equals an id ⇒ no match, the NULL makes it UNKNOWN ⇒ no row.
     const nullable: ExprDef = {

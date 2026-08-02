@@ -118,9 +118,11 @@ describe('TextScoreExpr: SQL', () => {
     const field = bothSQL(engine, scoreOf('plain', { kind: 'text-score', source: 'plain', field: 'title', query: 'ranking' }));
     expect(field.pg).toBe('SELECT ts_rank(to_tsvector("plain"."title"), plainto_tsquery($1)) AS "score" FROM "plain" AS "plain"');
     expect(field.base).toBe('SELECT CASE WHEN LOWER("plain"."title") LIKE LOWER(?) THEN 1 ELSE 0 END AS "score" FROM "plain" AS "plain"');
-    // Whole-source ⇒ the first searchable field (`title`).
-    const whole = engine.toSQL(scoreOf('plain', { kind: 'text-score', source: 'plain', query: 'ranking' }), 'postgres').sql;
-    expect(whole).toContain('ts_rank(to_tsvector("plain"."title")');
+    // Whole-source over an UNBACKED type is REFUSED (A6): it used to silently
+    // rank the first `search`-flagged field (`title`).
+    expect(() =>
+      engine.toSQL(scoreOf('plain', { kind: 'text-score', source: 'plain', query: 'ranking' }), 'postgres'),
+    ).toThrow(/text-search\.unbacked/);
   });
 
   it('a hidden vectorField ranks the precomputed tsvector (pg ts_rank + language; base degrade)', () => {
@@ -286,6 +288,8 @@ describe('TextScoreExpr: conventions', () => {
   it('validateWalk reports every Problem code (and clean cases)', () => {
     const scope: QueryScope = engine.globalScope();
     scope.bind('plain', { kind: 'type', type: engine.type('plain')!, source: 'plain', synthetic: false });
+    // `art` carries a whole-type SearchBacking — the BACKED whole-source case.
+    scope.bind('art', { kind: 'type', type: engine.type('art')!, source: 'art', synthetic: false });
     scope.bind('c', engine.resolveExpr(lit(1), scope));
     // unknown-source
     expect(codes(engine.validateExpr({ kind: 'text-score', source: 'nope', query: 'x' }, scope))).toContain('text-score.unknown-source');
@@ -295,8 +299,10 @@ describe('TextScoreExpr: conventions', () => {
     expect(codes(engine.validateExpr({ kind: 'text-score', source: 'plain', field: 'zzz', query: 'x' }, scope))).toContain('text-score.unknown-field');
     // non-text (a number field)
     expect(codes(engine.validateExpr({ kind: 'text-score', source: 'plain', field: 'qty', query: 'x' }, scope))).toContain('text-score.non-text');
-    // A whole-source score on a searchable type ⇒ clean.
-    expect(codes(engine.validateExpr({ kind: 'text-score', source: 'plain', query: 'x' }, scope)).filter((c) => c.startsWith('text-score.'))).toEqual([]);
+    // A whole-source score on a searchable but UNBACKED type ⇒ `unbacked` (A6).
+    expect(codes(engine.validateExpr({ kind: 'text-score', source: 'plain', query: 'x' }, scope))).toContain('text-score.unbacked');
+    // A whole-source score on a BACKED type ⇒ clean.
+    expect(codes(engine.validateExpr({ kind: 'text-score', source: 'art', query: 'x' }, scope)).filter((c) => c.startsWith('text-score.'))).toEqual([]);
     // A field-narrowed score on a text field ⇒ clean; a param query is observed.
     expect(codes(engine.validateExpr({ kind: 'text-score', source: 'plain', field: 'title', query: param('q') }, scope)).filter((c) => c.startsWith('text-score.'))).toEqual([]);
   });

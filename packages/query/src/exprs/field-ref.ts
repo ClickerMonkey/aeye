@@ -18,7 +18,7 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { didYouMean } from '../aids';
 import { obj, lit, str } from '../shape';
-import { textResult, relationAsValueMessage } from './_shared';
+import { textResult, relationAsValueMessage, hasManyValueMessage, relationAggregateMessage } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -29,6 +29,7 @@ import { bytesOfResolved } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { RelationFieldType } from '../field-types/index';
+import { relationIdentityValue, relationIdentitySql } from './_relation-value';
 import type { FieldType } from '../field-type';
 import {
   resolveAccessSql,
@@ -163,7 +164,7 @@ export class FieldRefExpr extends Expr {
         keyType = tf.fieldType;
       } else {
         /* v8 ignore next -- degenerate: a belongs-to whose target-side key column is not a plain scalar field */
-        keyType = (ft.count === 1 ? target : ownerType).identityField().fieldType;
+        keyType = (ft.isBelongsTo() ? target : ownerType).identityField().fieldType;
       }
       return { local: kp.local, foreign: kp.foreign, keyType };
     });
@@ -174,6 +175,7 @@ export class FieldRefExpr extends Expr {
       keyType: keys[0]!.keyType,
       to: ft.to,
       count: ft.count,
+      belongsTo: ft.isBelongsTo(),
       keys,
     };
     const resolved: TypeResolved = {
@@ -219,19 +221,16 @@ export class FieldRefExpr extends Expr {
     // WRITE-MODEL: gate the field against the operator kind supplied by a
     // containing gating operator (else `'field-ref'` for a standalone ref).
     checkFieldExpr(ctx.fieldExprKind ?? 'field-ref', field, this.source, p);
-    // A RELATION field resolves to the whole related row (a `TypeResolved`), not
-    // a scalar. It is a VALUE only inside an FK-comparison operator (which sets
-    // `relationValueOk` and runs its own relation-vs-relation / relation-vs-scalar
-    // check). Anywhere else — a select field, aggregate/window value,
-    // `partitionBy`, `orderBy`, group-by key, function arg — a bare relation
-    // field-ref reads as NOTHING at runtime (it may be composite-keyed), so
-    // reject it here with the join-it hint instead of letting it silently no-op.
+    // A RELATION field resolves to the whole related row (a `TypeResolved`).
+    // Whether that is legal here — and what it MEANS — is decided by
+    // `ctx.relationUse` (see `ValidateContext`): an FK-comparison operator
+    // handles it itself; an identity-value position reads the key off this row;
+    // anywhere else it is refused, with a message that says WHICH of the three
+    // reasons applies rather than one blanket code for all of them.
     if (field.fieldType instanceof RelationFieldType) {
       const resolved = this.resolveRelation(engine, bound.type, field.fieldType, p);
-      if (!ctx.relationValueOk) {
-        const rel = relationOf(resolved);
-        if (rel) p.error('ref.relation-not-value', relationAsValueMessage(rel));
-      }
+      const rel = relationOf(resolved);
+      if (rel) this.checkRelationUse(rel, p, ctx);
       return resolved;
     }
     const resolved: FieldResolved = {
@@ -242,6 +241,30 @@ export class FieldRefExpr extends Expr {
       nullable: field.nullable,
     };
     return resolved;
+  }
+
+  /**
+   * Report the relation-as-value problem for this position, if any. Split into
+   * three distinct outcomes because they have three different fixes:
+   *  - an identity-value position + a BELONGS-TO ⇒ fine, it has a local key;
+   *  - an identity-value position + a HAS-MANY ⇒ there is no key on this row at
+   *    all and its "value" is a set, so say that instead of the join-it hint;
+   *  - inside an AGGREGATE ⇒ an identity is not summable/averageable/max-able
+   *    under any representation, so say that;
+   *  - anywhere else ⇒ the long-standing "join it" hint.
+   */
+  private checkRelationUse(rel: RelationResolved, p: Problems, ctx: ValidateContext): void {
+    if (ctx.relationUse === 'compare') return;
+    if (ctx.relationUse === 'value') {
+      if (rel.belongsTo) return;
+      p.error('ref.relation-has-many', hasManyValueMessage(rel));
+      return;
+    }
+    if (ctx.inAggregate) {
+      p.error('ref.relation-aggregate', relationAggregateMessage(rel));
+      return;
+    }
+    p.error('ref.relation-not-value', relationAsValueMessage(rel));
   }
 
   /** Zero rows; cost is just the resolved field's byte size. */
@@ -256,6 +279,29 @@ export class FieldRefExpr extends Expr {
 
   /** Read the field's runtime value, honoring backing (joins/compute/access security). */
   async evaluate(ctx: RuntimeContext, row: SourceRow | null): Promise<Value> {
+    if (!row) return Value.null();
+    // A RELATION field's value is its IDENTITY, read off THIS row's own key
+    // columns — no join, no target scope. Field-level security still applies
+    // (a denied relation reads NULL like any other denied field).
+    const identity = relationIdentityValue(this, ctx, row);
+    if (identity) return this.securedRun(identity, ctx, row);
+    return this.columnValue(ctx, row);
+  }
+
+  /**
+   * Read this ref as a plain COLUMN, skipping the relation-identity projection.
+   *
+   * Needed because a belongs-to's local key column and the relation FIELD share
+   * a name under the package's name convention (`order.userId` is both the
+   * relation and the column holding its key). Every internal reader of a key
+   * column — relation comparison lowering, ORDER BY / GROUP BY expansion, an
+   * `IN` against a scalar subquery — wants the COLUMN; going through
+   * {@link evaluate} would resolve the relation again and hand back the identity
+   * object. Backing (compute / lateral / stored-name remap / access) still
+   * applies exactly as it does for any other column.
+   */
+  async columnValue(ctx: RuntimeContext, row: SourceRow | null): Promise<Value> {
+    /* v8 ignore next -- defensive: every caller (evaluate, the key-column readers) already has a row */
     if (!row) return Value.null();
     // Fall back to the correlation row so a correlated subquery sees its
     // outer source.
@@ -296,6 +342,20 @@ export class FieldRefExpr extends Expr {
       if (ar.kind === 'visible' && !ar.visible) return Value.null();
     }
     return value;
+  }
+
+  /**
+   * Apply this field's `access` backing (FLS) to an already-computed value: a
+   * denied field reads NULL. Shared by the relation-identity path, which
+   * bypasses the stored/compute/lateral resolution but must not bypass security.
+   */
+  private async securedRun(value: Value, ctx: RuntimeContext, row: SourceRow): Promise<Value> {
+    /* v8 ignore next 2 -- unreachable: the relation identity only resolves for a source bound to a Type */
+    const type = ctx.sourceType(this.source) ?? ctx.engine.type(this.source);
+    const access = type ? ctx.engine.fieldBacking(type.name, this.field)?.access : undefined;
+    if (!access) return value;
+    const ar = await resolveAccessRun(access, this.source, row, ctx);
+    return ar.kind === 'visible' && !ar.visible ? Value.null() : value;
   }
 
   /** Read a stored field off the bound record, attaching the conceptual field's metadata. */
@@ -408,6 +468,28 @@ export class FieldRefExpr extends Expr {
 
   /** Emit as a SqlText column ref, lowering backing (joins/compute/access) when present. */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    // A RELATION field projects its IDENTITY object from this row's own key
+    // columns (see `_relation-value.ts`). It plans no join, so it survives an
+    // RLS scope that would have hidden the target row — which is the whole
+    // point: the FK value belongs to the reader's row, not the target's.
+    const identity = relationIdentitySql(this, dialect, ctx);
+    if (identity) {
+      // An identity only resolves for a source bound to a Type, so the lookup
+      // below always finds one — it is re-read here purely to name the Type.
+      const rel = ctx.scope.lookup(this.source);
+      /* v8 ignore next -- unreachable: `relationIdentitySql` already required a bound Type */
+      const owner = rel && rel.kind === 'type' ? rel.type.name : undefined;
+      return this.securedSql(identity, dialect, ctx, owner);
+    }
+    return this.columnSQL(dialect, ctx);
+  }
+
+  /**
+   * Emit this ref as a plain COLUMN, skipping the relation-identity projection —
+   * the SQL twin of {@link columnValue}, and needed for the same reason (a
+   * belongs-to's key column shares the relation field's name).
+   */
+  columnSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     const bound = ctx.scope.lookup(this.source);
     const typeName = bound && bound.kind === 'type' ? bound.type.name : undefined;
     const fb = typeName === undefined ? undefined : ctx.engine.fieldBacking(typeName, this.field);
@@ -435,6 +517,33 @@ export class FieldRefExpr extends Expr {
     // 2. Field-level security ⇒ `CASE WHEN <access> THEN <value> ELSE NULL END`.
     if (!fb.access) return value;
     const acc: AccessSql = resolveAccessSql(fb.access, this.source, ctx);
+    switch (acc.kind) {
+      case 'noop':
+      case 'allow':
+        return value;
+      case 'deny':
+        return SqlText.raw('NULL');
+      case 'predicate':
+        return SqlText.join(
+          [SqlText.raw('CASE WHEN'), acc.sql, SqlText.raw('THEN'), value, SqlText.raw('ELSE NULL END')],
+          ' ',
+        );
+      /* v8 ignore next 2 -- unreachable: AccessSql union is exhaustively handled above */
+      default:
+        return assertNeverAccess(acc);
+    }
+  }
+
+  /**
+   * Apply this field's `access` backing (FLS) to an already-emitted fragment —
+   * the SQL twin of {@link securedRun}, so a relation identity is secured by the
+   * same rule as any other column.
+   */
+  private securedSql(value: SqlText, dialect: Dialect, ctx: SqlContext, typeName: string | undefined): SqlText {
+    /* v8 ignore next -- unreachable: the only caller resolved a bound Type to get here */
+    const access = typeName === undefined ? undefined : ctx.engine.fieldBacking(typeName, this.field)?.access;
+    if (!access) return value;
+    const acc: AccessSql = resolveAccessSql(access, this.source, ctx);
     switch (acc.kind) {
       case 'noop':
       case 'allow':

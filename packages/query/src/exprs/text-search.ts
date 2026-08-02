@@ -120,9 +120,19 @@ export class TextSearchExpr extends BoolExpr {
     } else if (bound.kind !== 'type') {
       p.error('text-search.not-a-type', `Source '${this.source}' is not a type, so it cannot be searched.`);
     } else if (this.field === undefined) {
-      // Whole-source search ⇒ the Type itself must be full-text-search-eligible.
+      // Whole-source search ⇒ the TYPE (not merely one of its fields) must be
+      // declared searchable, AND actually backed. A `SearchBacking` IS the
+      // "this document exists and here is how to search it" declaration; with
+      // none, the only thing left was a guess about which column stood in for
+      // the document, so refuse and name both remedies.
       if (!bound.type.isSearchable()) {
         p.error('text-search.not-searchable', `Type '${bound.type.name}' is not full-text-search-eligible.`);
+      } else if (engine.searchBacking(bound.type.name, undefined) === undefined) {
+        p.error(
+          'text-search.unbacked',
+          `Type '${bound.type.name}' is declared searchable but has no search backing, so it has no ` +
+            `whole-record document to search. Narrow the search to a text field, or declare a SearchBacking for the Type.`,
+        );
       }
     } else {
       // Field-narrowed search ⇒ the field must exist and be text.

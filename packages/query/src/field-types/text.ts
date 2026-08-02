@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { FieldTypeDef, TextFieldTypeDef } from '../schema';
+import type { FieldTypeDef, TextFieldTypeDef, FieldValueDef } from '../schema';
+import { fieldValuesSchema, closedSetValueSchema, compactFieldValues, eqSelectivityOf } from './_values';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
@@ -18,6 +19,8 @@ export interface TextOptions {
   search?: boolean;
   /** When true, text matching is case-sensitive (default: case-insensitive). */
   sensitive?: boolean;
+  /** The closed set of values this column may hold (see `NumberOptions.values`). */
+  values?: FieldValueDef[];
 }
 
 function compact(o: TextOptions): TextOptions {
@@ -28,6 +31,8 @@ function compact(o: TextOptions): TextOptions {
   if (o.semantic !== undefined) out.semantic = o.semantic;
   if (o.search !== undefined) out.search = o.search;
   if (o.sensitive !== undefined) out.sensitive = o.sensitive;
+  const values = compactFieldValues(o.values);
+  if (values) out.values = values;
   return out;
 }
 
@@ -68,8 +73,8 @@ export class TextFieldType extends FieldType {
         message: `TextFieldType.from: expected kind 'text', got '${json.kind}'`,
       });
     }
-    const { minLength, maxLength, pattern, semantic, search, sensitive } = json;
-    return new TextFieldType(compact({ minLength, maxLength, pattern, semantic, search, sensitive }));
+    const { minLength, maxLength, pattern, semantic, search, sensitive, values } = json;
+    return new TextFieldType(compact({ minLength, maxLength, pattern, semantic, search, sensitive, values }));
   }
 
   /** The Zod schema for this field type's JSON def. */
@@ -82,12 +87,18 @@ export class TextFieldType extends FieldType {
       semantic: z.boolean().optional().describe('Eligible for embedding-based semantic similarity.'),
       search: z.boolean().optional().describe('Eligible for full-text search.'),
       sensitive: z.boolean().optional().describe('When true, text matching is CASE-SENSITIVE (default: case-insensitive).'),
+      values: fieldValuesSchema(),
     }).meta({ aid: 'FieldType_text' }).describe('String field type.');
   }
 
   /** Resolve to the `text` scalar comparison category. */
   resolve(): ScalarKind {
     return 'text';
+  }
+
+  /** A declared closed set of `n` members makes `= x` a `1/n` predicate. */
+  override eqSelectivity(): number | undefined {
+    return eqSelectivityOf(this.options.values);
   }
 
   /** Estimated average stored byte size (half the max length, else 32). */
@@ -105,8 +116,12 @@ export class TextFieldType extends FieldType {
     return this.options.maxLength !== undefined ? `varchar(${this.options.maxLength})` : 'text';
   }
 
-  /** Zod schema validating a string, honoring length / pattern options. */
+  /** Zod schema validating a string, honoring the closed value set else length / pattern options. */
   toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+    // A closed set IS the value schema — length / pattern only ever described
+    // the same members less precisely.
+    const closed = closedSetValueSchema(this.options.values);
+    if (closed) return closed;
     let s = z.string();
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
@@ -119,9 +134,9 @@ export class TextFieldType extends FieldType {
     return { kind: TextFieldType.NAME, ...compact(this.options) };
   }
 
-  /** A copy of this field type (cloning the options bag). */
+  /** A copy of this field type (deep-cloning the options bag's value set). */
   clone(): TextFieldType {
-    return new TextFieldType({ ...this.options });
+    return new TextFieldType({ ...this.options, values: this.options.values?.map((v) => ({ ...v })) });
   }
 }
 

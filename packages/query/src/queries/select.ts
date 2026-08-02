@@ -47,7 +47,9 @@ import { QueryOrder, sortEntries, sortByKeys, type OrderEntry } from './order';
 import { obj, lit, bool, list, exprRef, sourceRef, isRecord, type Shape } from '../shape';
 import { selectFieldShape, boundShape } from './_shape';
 import { type Cost, type CostContext, addCost, bytesOfResolved } from '../cost';
-import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost, coveredScanBytes } from './_cost';
+import { scanCost, applyWhere, distinctEstimate, fanOutCost, backingCost, coveredScanBytes, type SourceBinding } from './_cost';
+import { identityValueCtx } from '../exprs/_field-guard';
+import { relationKeySqls } from '../exprs/_relation-value';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
@@ -419,8 +421,13 @@ export class SelectQuery extends Query {
     // SELECT's outputs, so an `output` reference can delegate to its target.
     // WHERE / fields do NOT (an `output` ref there ⇒ `output.not-available`).
     const outScope = this.outputScope(inner);
+    // A select FIELD may project a relation's identity (`identityValueCtx`), so
+    // an audit column like `createdBy` reads as a value instead of forcing an
+    // RLS-scoped join that nulls the id along with the hidden row.
     p.at('fields', () => {
-      this.fields.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, colCtx)));
+      this.fields.forEach((c, i) =>
+        p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, identityValueCtx(c.expr, colCtx))),
+      );
     });
     p.at('where', () => {
       this.where.forEach((w, i) => p.at(i, () => {
@@ -428,8 +435,10 @@ export class SelectQuery extends Query {
         checkBoolCondition(w, rt, p);
       }));
     });
+    // GROUP BY over an identity is structural (over the key columns), so a
+    // relation key is a legal grouping key.
     p.at('groupBy', () => {
-      this.groupBy.forEach((g, i) => p.at(i, () => g.validateWalk(engine, outScope, p, groupCtx)));
+      this.groupBy.forEach((g, i) => p.at(i, () => g.validateWalk(engine, outScope, p, identityValueCtx(g, groupCtx))));
     });
     p.at('having', () => {
       this.having.forEach((h, i) => p.at(i, () => {
@@ -445,7 +454,9 @@ export class SelectQuery extends Query {
       this.order.forEach((o, i) =>
         o instanceof SorterExpr
           ? p.at(i, () => o.validateInOrder(engine, outScope, p, colCtx))
-          : p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, colCtx)),
+          // ORDER BY over an identity is lexicographic over the declared key
+          // order, so a relation term is a legal sort key.
+          : p.at([i, 'expr'], () => o.expr.validateWalk(engine, outScope, p, identityValueCtx(o.expr, colCtx))),
       );
     });
     // SQL-92 GROUP BY rule: once the SELECT groups, every column referenced in a
@@ -751,6 +762,10 @@ export class SelectQuery extends Query {
     const engine = ctx.engine;
     const { scope: inner, aliasTypes } = this.bind(engine, scope);
     const fromType = this.from.resolvedType(engine, inner).type;
+    // The FROM Type is reachable under its BOUND source name, which is the alias
+    // for `{kind:'aliased'}` (and either side of a self-join) — index parts are
+    // written against the Type name, so every probe normalizes through this.
+    const at: SourceBinding = { source: this.from.alias, type: fromType };
 
     // Base scan, then fan out MULTIPLICATIVELY by each relation join's
     // cardinality (compounding down the join chain).
@@ -772,7 +787,7 @@ export class SelectQuery extends Query {
       !this.distinct &&
       !this.fields.some((c) => c.expr.containsAggregate())
     ) {
-      const covered = coveredScanBytes(ctx, inner, fromType, this.from.alias, this.fields.map((c) => c.expr), this.where);
+      const covered = coveredScanBytes(ctx, inner, at, this.fields.map((c) => c.expr), this.where);
       if (covered !== undefined) perRowBytes = covered;
     }
 
@@ -780,17 +795,17 @@ export class SelectQuery extends Query {
     const baseScan = scanCost(fromType);
     baseScan.rows = rows;
     baseScan.bytes = rows * perRowBytes;
-    let cost = applyWhere(ctx, inner, baseScan, fromType, this.where, perRowBytes);
+    let cost = applyWhere(ctx, inner, baseScan, at, this.where, perRowBytes);
 
     // GROUP BY ⇒ distinct(keys); a bare aggregate ⇒ one row; else DISTINCT ⇒ the
     // estimated distinct projection. Each reduces OUTPUT rows, not scan work.
     if (this.groupBy.length) {
-      const distinct = distinctEstimate(fromType, this.groupBy, cost.rows);
+      const distinct = distinctEstimate(at, this.groupBy, cost.rows);
       cost = { rows: distinct, bytes: distinct * perRowBytes };
     } else if (this.fields.some((c) => c.expr.containsAggregate())) {
       cost = { rows: 1, bytes: perRowBytes };
     } else if (this.distinct) {
-      const distinct = distinctEstimate(fromType, this.fields.map((c) => c.expr), cost.rows);
+      const distinct = distinctEstimate(at, this.fields.map((c) => c.expr), cost.rows);
       cost = { rows: distinct, bytes: distinct * perRowBytes };
     }
 
@@ -1054,9 +1069,16 @@ export class SelectQuery extends Query {
     ]);
   }
 
-  /** One ORDER BY term: `<expr> ASC|DESC [NULLS FIRST|LAST]`. */
-  private orderTermSQL(dialect: Dialect, ctx: SqlContext, o: QueryOrder): SqlText {
-    return this.orderClauseSQL(o.expr.toSQL(dialect, ctx), o.dir, o.nulls);
+  /**
+   * One ORDER BY term: `<expr> ASC|DESC [NULLS FIRST|LAST]`. A RELATION term
+   * expands to ONE clause per key column (each inheriting the term's direction
+   * and NULLs placement) — lexicographic over the declared key order, and
+   * index-usable, where sorting the assembled JSON object would be neither.
+   */
+  private orderTermSQL(dialect: Dialect, ctx: SqlContext, o: QueryOrder): SqlText[] {
+    const keys = relationKeySqls(o.expr, dialect, ctx);
+    const sqls = keys ?? [o.expr.toSQL(dialect, ctx)];
+    return sqls.map((s) => this.orderClauseSQL(s, o.dir, o.nulls));
   }
 
   /**
@@ -1104,13 +1126,16 @@ export class SelectQuery extends Query {
     //    against a child scope exposing this SELECT's outputs (same planner), so
     //    an `output` reference EXPANDS to its target's SQL.
     const outCtx = selCtx.withScope(this.outputScope(inner));
-    const groupSqls = this.groupBy.map((g) => g.toSQL(dialect, outCtx));
+    // A relation GROUP BY key expands to its key COLUMNS: grouping the assembled
+    // identity object would group by a constructed JSON value, which most
+    // dialects have no equality operator for at all.
+    const groupSqls = this.groupBy.flatMap((g) => relationKeySqls(g, dialect, outCtx) ?? [g.toSQL(dialect, outCtx)]);
     const havingSqls = this.having.map((h) => h.toSQL(dialect, outCtx));
     // ORDER BY: the authored terms, else the FROM Type's `defaultOrder` when it
     // applies (unsorted + non-aggregated + non-DISTINCT + in `applyTo` scope),
     // resolved against the FROM alias. An aggregated / DISTINCT / already-ordered
     // select keeps no default (documented in `effectiveDefaultOrder`).
-    let orderSqls = this.expandOrder(ctx.sortSpec).map((o) => this.orderTermSQL(dialect, outCtx, o));
+    let orderSqls = this.expandOrder(ctx.sortSpec).flatMap((o) => this.orderTermSQL(dialect, outCtx, o));
     // `effectiveDefaultOrder` returns `undefined` when an explicit order is
     // present, so it is the single authority for whether the default applies.
     const def = this.effectiveDefaultOrder(engine, isRoot);

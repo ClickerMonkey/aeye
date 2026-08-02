@@ -96,6 +96,18 @@ export abstract class FieldType implements Node {
   }
 
   /**
+   * The fraction of rows a non-indexed EQUALITY predicate on a column of this
+   * type is expected to keep, when the type itself knows better than the
+   * package-wide `EQ_SELECTIVITY` guess. A closed value set of `n` members
+   * answers `1/n`: a two-value flag keeps half the table, a fifty-value code
+   * keeps 2% — today both are costed at the same fixed third. `undefined`
+   * (the default) means "no better estimate; use the fixed one".
+   */
+  eqSelectivity(): number | undefined {
+    return undefined;
+  }
+
+  /**
    * Whether TEXTUAL matching / comparison on a value of this type is
    * CASE-SENSITIVE. Default false (case-insensitive); only `text` fields
    * flagged `sensitive` override this to `true`. Non-text types never do

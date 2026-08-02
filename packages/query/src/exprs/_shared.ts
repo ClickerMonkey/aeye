@@ -110,6 +110,36 @@ export function relationAsValueMessage(rel: RelationResolved): string {
 }
 
 /**
+ * The `ref.relation-has-many` message: a has-many has no key on the referencing
+ * row — its value is a SET, not an identity — so no representation of it fits a
+ * single cell. Distinct from `relationAsValueMessage` on purpose: the fix is
+ * different, and both used to arrive as the same code for the same non-reason.
+ */
+export function hasManyValueMessage(rel: RelationResolved): string {
+  return (
+    `'${rel.source}.${rel.field}' is a HAS-MANY relation: it has no key on this row (the foreign key ` +
+    `lives on '${rel.to}'), and its value is a SET, not an identity. Join it ` +
+    `(\`{on:{kind:'relation',source:'${rel.source}',field:'${rel.field}',as:'…'}}\`) and read / aggregate ` +
+    `the joined source, or test membership with '=' / 'in' against a target key.`
+  );
+}
+
+/**
+ * The `ref.relation-aggregate` message. A relation's value is its IDENTITY — an
+ * object keyed by the target's identity fields — and aggregating an identity is
+ * not defined: `max` of two identities has no meaning, and `sum` / `avg` less
+ * still. Ordering and grouping over an identity ARE defined (lexicographic and
+ * structural over the declared key order), which is why they are permitted and
+ * this is not.
+ */
+export function relationAggregateMessage(rel: RelationResolved): string {
+  return (
+    `'${rel.source}.${rel.field}' is a relation: its value is an IDENTITY, which cannot be aggregated. ` +
+    `Group BY it (or order by it) instead, aggregate one of the joined target's scalar fields, or count rows.`
+  );
+}
+
+/**
  * Check two operands of a scalar operator for a RELATION used as a value.
  * Returns a `compare.relation-vs-value` MESSAGE when the pair is invalid, else
  * `undefined` (the operator then applies its normal scalar checks):

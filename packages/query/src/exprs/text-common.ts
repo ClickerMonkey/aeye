@@ -10,7 +10,7 @@
 import type { Registry } from '../registry';
 import { ParamExpr } from './param';
 import { INVALID, type Shape } from '../shape';
-import { TextFieldType } from '../field-types/index';
+import { QueryTypeError } from '../problem';
 import type { Type } from '../type';
 import type { SearchBacking } from '../backing';
 import type { RuntimeContext } from '../runtime/context';
@@ -65,22 +65,30 @@ export function boundTypeOf(ctx: RuntimeContext, source: string): Type | undefin
 }
 
 /**
- * The SQL column to search / rank: the named `field`, else the source's first
- * `search`-flagged text field, else its first text field, else a `search`
- * pseudo-column fallback.
+ * The SQL column to search / rank — the named `field`, and NOTHING ELSE.
+ *
+ * An UNNARROWED search/score has no column of its own: what it wants is the
+ * Type's searchable DOCUMENT, which only a `SearchBacking` can supply (a
+ * precomputed `vectorField`, or a `sql` override). This used to guess one —
+ * the first `search`-flagged text field, else the first text field of any kind,
+ * else a column literally named `search` — so a query asking for a multi-field
+ * document silently searched one column, and which column depended on field
+ * ORDER. Validation now refuses the unbacked whole-source form up front
+ * (`text-search.unbacked` / `text-score.unbacked`), so reaching here without a
+ * `field` means a backing was declared but offers no SQL path; refusing is the
+ * only honest answer left.
  */
 export function searchColumn(dialect: Dialect, ctx: SqlContext, source: string, field: string | undefined): SqlText {
   if (field !== undefined) return dialect.field(source, field);
   const bound = ctx.scope.lookup(source);
-  if (bound && bound.kind === 'type') {
-    const searchable = bound.type.fields.find(
-      (f) => f.fieldType instanceof TextFieldType && f.fieldType.options.search === true,
-    );
-    if (searchable) return dialect.field(source, searchable.name);
-    const text = bound.type.fields.find((f) => f.fieldType.resolve() === 'text');
-    if (text) return dialect.field(source, text.name);
-  }
-  return dialect.field(source, 'search');
+  const typeName = bound && bound.kind === 'type' ? bound.type.name : source;
+  throw new QueryTypeError({
+    path: [], code: 'text-search.unbacked', severity: 'error',
+    message:
+      `Whole-source text search / score on '${source}' (type '${typeName}') has no SQL-emitting search ` +
+      `backing (a 'vectorField' or a 'sql' override), so there is no column to search. Narrow it to a ` +
+      `text field, or complete the Type's SearchBacking.`,
+  });
 }
 
 /** The `SearchBacking` in effect for a bound `source` (+ field), or `undefined`. */
@@ -90,8 +98,13 @@ export function searchBackingOf(ctx: SqlContext, source: string, field: string |
   return ctx.engine.searchBacking(bound.type.name, field);
 }
 
-/** Case-sensitivity of the searched field (false for whole-source / unbound / non-type). */
+/**
+ * Case-sensitivity of the searched field (false for an unbound / non-type
+ * source). The `field === undefined` guard is defensive only: an unnarrowed
+ * search never reaches here, because `searchColumn` refuses it first.
+ */
 export function searchSensitive(ctx: SqlContext, source: string, field: string | undefined): boolean {
+  /* v8 ignore next -- unreachable: `searchColumn` refuses an unnarrowed search before this is called */
   if (field === undefined) return false;
   const bound = ctx.scope.lookup(source);
   if (!bound || bound.kind !== 'type') return false;

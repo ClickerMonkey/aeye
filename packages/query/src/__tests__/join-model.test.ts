@@ -82,13 +82,18 @@ describe('a field-ref to a relation field resolves to the related Type', () => {
       fields: [{ expr: e.ref('order', 'userId').toJSON(), as: 'u' }],
       from: { kind: 'type', type: 'order' },
     };
-    // No blanket relation error: a relation field-ref is allowed, resolving to
-    // the whole related row (a `TypeResolved`).
+    // No blanket relation error: a BELONGS-TO field-ref projects the target's
+    // IDENTITY, read off this row's own key column.
     const problems = fx.engine.validateQuery(def);
     expect(problems.list.some((p) => p.code === 'ref.relation')).toBe(false);
+    expect(problems.list.some((p) => p.code === 'ref.relation-not-value')).toBe(false);
     const fields = fx.engine.parseQuery(def).outputFields(fx.engine, fx.engine.globalScope());
     const u = fields.find((f) => f.name === 'u');
-    expect(u?.fieldType).toBe('type');
+    // It resolves to the related Type, but it PROJECTS as a JSON identity object
+    // — and it is nullable, since an unset relation reads NULL.
+    expect(u?.type.kind).toBe('type');
+    expect(u?.fieldType).toBe('json');
+    expect(u?.nullable).toBe(true);
   });
 
   it('a has-many relation field-ref also resolves to the related Type', () => {
@@ -100,7 +105,11 @@ describe('a field-ref to a relation field resolves to the related Type', () => {
       from: { kind: 'type', type: 'user' },
     };
     const fields = fx.engine.parseQuery(def).outputFields(fx.engine, fx.engine.globalScope());
+    // A HAS-MANY has no key on this row, so it does not project as an identity —
+    // it stays the `'type'` sentinel, and validation refuses it as a value.
     expect(fields.find((f) => f.name === 'o')?.fieldType).toBe('type');
+    const problems = fx.engine.validateQuery(def);
+    expect(problems.list.map((p) => p.code)).toContain('ref.relation-has-many');
   });
 
   it('comparing a relation field-ref to a SCALAR is a compare.relation-vs-value error', () => {

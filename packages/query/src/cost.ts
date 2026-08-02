@@ -25,7 +25,7 @@
  * state, no `any`, no casts.
  */
 import type { ResolvedType } from './resolved-type';
-import { asFieldType } from './resolved-type';
+import { asFieldType, relationOf } from './resolved-type';
 import type { Problems } from './problem';
 import type { QueryEngine } from './engine';
 import type { Expr } from './expr';
@@ -200,6 +200,10 @@ export function bytesOfResolved(rt: ResolvedType): number {
   // A resolved FIELD prefers its own (possibly authored / registry-defaulted)
   // byte size; anything else falls back to the field type's avgBytes.
   if (rt.kind === 'field') return rt.field.bytes();
+  // A RELATION resolves to a whole Type but PROJECTS as its identity — the
+  // width of its key columns, not of the target row (no join is planned).
+  const rel = relationOf(rt);
+  if (rel) return rel.keys.reduce((sum: number, k) => sum + k.keyType.avgBytes(), 0);
   return asFieldType(rt)?.avgBytes() ?? 0;
 }
 

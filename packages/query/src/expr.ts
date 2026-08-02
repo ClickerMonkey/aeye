@@ -78,16 +78,31 @@ export interface ValidateContext {
    */
   readonly fieldExprKind?: ExprKind;
   /**
-   * Set by the FK-comparison operators (`comparison` / `in` / `between` /
-   * `binary`) when validating an operand, to permit a RELATION field-ref there
-   * (those operators compare two relations by FK key / reject relation-vs-scalar
-   * themselves). Everywhere else it is unset, so a bare relation field-ref used
-   * as a scalar VALUE (a select field, aggregate/window value, `partitionBy`,
-   * `orderBy`, group-by key, function arg) is a `ref.relation-not-value` error —
-   * a relation is a whole related row (possibly composite-keyed), never a value.
+   * How a RELATION field-ref is allowed to be used at this position, if at all:
+   *
+   *  - `'compare'` — set by the FK-comparison operators (`comparison` / `in` /
+   *    `between` / `binary`), which handle the relation THEMSELVES: a belongs-to
+   *    compares by key columns, a has-many by membership, and a
+   *    relation-vs-scalar is rejected by the operator.
+   *  - `'value'` — set where a relation's IDENTITY is a well-defined value: a
+   *    select field / RETURNING, an ORDER BY term, a GROUP BY key, a null test.
+   *    Only a BELONGS-TO has one (the key lives on this row); a has-many is a
+   *    SET and is refused with a message that says so.
+   *  - unset — a relation is not a value here at all (a function argument, a
+   *    `case` arm, an arithmetic operand, an aggregate), and a bare relation
+   *    field-ref is an error.
+   *
+   * Set ONLY for a DIRECT field-ref operand (see `_field-guard.ts`), so it never
+   * leaks down into a nested expression that would not have earned it.
    */
-  readonly relationValueOk?: boolean;
+  readonly relationUse?: RelationUse;
 }
+
+/**
+ * How a RELATION field-ref may be used at a given validation position — see
+ * `ValidateContext.relationUse`.
+ */
+export type RelationUse = 'compare' | 'value';
 
 /** The default top-level context: a bare expression may aggregate freely. */
 export const ROOT_VALIDATE_CONTEXT: ValidateContext = {

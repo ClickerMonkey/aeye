@@ -49,7 +49,7 @@ export * from './field-types/index';
 
 // Meta-model
 export { Field, type FieldSpec } from './field';
-export { Index, exprDigest } from './index-spec';
+export { Index, IndexPart, exprDigest, renameSource, aliasedDigest } from './index-spec';
 export { Type, type TypeSpec } from './type';
 
 // Resolution
@@ -58,11 +58,15 @@ export {
   type TypeResolved,
   type FieldResolved,
   type ComputedResolved,
+  type RelationResolved,
+  type RelationKeyPair,
   asFieldType,
   sourcesOf,
   widenNullable,
   isType,
   isScalar,
+  relationOf,
+  valueFieldType,
 } from './resolved-type';
 
 // Registry
@@ -105,6 +109,15 @@ export {
   type DefaultCondition,
   type DefaultConditionOp,
   type JoinBacking,
+  type RelationBacking,
+  type RelationOn,
+  type RelationOnPair,
+  type SearchBacking,
+  type SemanticBacking,
+  type DefaultOrder,
+  type DefaultOrderTerm,
+  type DefaultOrderDir,
+  type DefaultOrderScope,
   type JoinSpec,
   type RelationJoinSpec,
   type LateralJoinSpec,
@@ -121,6 +134,7 @@ export {
   resolveComputeRun,
   resolveJoinSql,
   resolveJoinRun,
+  relationKeyColumns,
   defaultConditionOps,
   resolveDefaultConditionSql,
   resolveDefaultConditionRun,

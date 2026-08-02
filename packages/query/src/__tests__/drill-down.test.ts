@@ -91,9 +91,10 @@ describe('drillDownInto — over the in-memory dataset', () => {
   it('extracts a row\'s key values and returns that user\'s underlying rows', async () => {
     const fx = runtimeFixture();
 
-    // Aggregate revenue per user, then pick user 1's row.
+    // Aggregate revenue per user, then pick user 1's row. `order.userId` is a
+    // RELATION, so the grouped row carries its IDENTITY object, not a bare id.
     const aggregated = await fx.engine.run(revenuePerUser());
-    const userOneRow = aggregated.rows.find((r) => r['userId'] === 1);
+    const userOneRow = aggregated.rows.find((r) => JSON.stringify(r['userId']) === JSON.stringify({ id: 1 }));
     expect(userOneRow).toBeDefined();
     if (!userOneRow) return;
 
@@ -101,13 +102,14 @@ describe('drillDownInto — over the in-memory dataset', () => {
     expect('query' in drilled).toBe(true);
     if (!('query' in drilled)) return;
 
-    // The extracted bind values map the param name → the row's key value.
-    expect(drilled.params).toEqual({ userId: 1 });
+    // The extracted bind values map the param name → the row's key value — the
+    // identity object, which is exactly the shape a relation comparison binds.
+    expect(drilled.params).toEqual({ userId: { id: 1 } });
 
     // Running with those params returns ONLY user 1's underlying orders (2).
     const run = await fx.engine.run(drilled.query, { params: drilled.params });
     expect(run.rows.length).toBe(2);
-    expect(run.rows.every((r) => r['userId'] === 1)).toBe(true);
+    expect(run.rows.every((r) => JSON.stringify(r['userId']) === JSON.stringify({ id: 1 }))).toBe(true);
   });
 
   it('drill.missing-group-value when the group row lacks a key value', () => {

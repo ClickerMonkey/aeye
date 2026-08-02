@@ -12,6 +12,7 @@ import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { Value } from '../runtime/value';
 import { obj, enumOf, exprRef, type Shape } from '../shape';
+import { relationKeyRefsRun } from '../exprs/_relation-value';
 
 /** One ORDER BY term (expr + direction + nulls placement) plus a stable sort over grouped rows. */
 export class QueryOrder {
@@ -112,6 +113,37 @@ export function sortByKeys<T>(
   return decorated.map((d) => d.item);
 }
 
+/** A sort term reduced to what the comparator needs: one key READER + its direction. */
+interface SortKeyTerm extends ResolvedOrderTerm {
+  /** Produce this term's sort key for one row (+ its group). */
+  read(ctx: RuntimeContext, row: SourceRow, group: readonly SourceRow[]): Promise<Value>;
+}
+
+/**
+ * Expand each term into the keys actually sorted on. A RELATION term sorts by
+ * its ORDERED KEY COLUMNS — lexicographic over the declared key order, which is
+ * what ordering an identity means — rather than by the assembled identity
+ * OBJECT, whose comparison would run over its JSON encoding (so `{id:10}` would
+ * sort before `{id:9}`). Each expanded column inherits the term's direction and
+ * NULLs placement; every other term expands to itself.
+ *
+ * The columns are read via `columnValue`, since a belongs-to's key column shares
+ * the relation FIELD's name and a plain `evaluate` would hand back the identity.
+ */
+function expandSortTerms(terms: readonly QueryOrder[], ctx: RuntimeContext): SortKeyTerm[] {
+  const out: SortKeyTerm[] = [];
+  for (const t of terms) {
+    const keys = relationKeyRefsRun(t.expr, ctx);
+    if (keys) {
+      for (const k of keys) out.push({ read: (c, row) => k.columnValue(c, row), dir: t.dir, nulls: t.nulls });
+    } else {
+      const expr = t.expr;
+      out.push({ read: (c, row, group) => expr.evaluate(c, row, group), dir: t.dir, nulls: t.nulls });
+    }
+  }
+  return out;
+}
+
 /**
  * Stable-sort `entries` by `terms`. Each term's value is pre-evaluated per
  * entry, then a comparator applies direction + nulls placement. NULLs default
@@ -122,14 +154,15 @@ export async function sortEntries<T>(
   terms: readonly QueryOrder[],
   ctx: RuntimeContext,
 ): Promise<T[]> {
+  const expanded = expandSortTerms(terms, ctx);
   const decorated = await Promise.all(
     entries.map(async (e) => {
       const keys: Value[] = [];
-      for (const t of terms) keys.push(await t.expr.evaluate(ctx, e.row, e.group));
+      for (const t of expanded) keys.push(await t.read(ctx, e.row, e.group));
       return { item: e.item, keys };
     }),
   );
-  return sortByKeys(decorated, terms);
+  return sortByKeys(decorated, expanded);
 }
 
 /** Compare two values for one term, honoring direction + nulls placement. */

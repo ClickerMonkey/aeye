@@ -63,8 +63,8 @@ function camelHead(name: string): string {
  *
  * CONVENTION: a relation field's NAME is the key for all purposes. There are
  * no exposed foreign-key fields — `owns` (FK on THIS type, "belongs-to") is
- * INFERRED as `count === 1`; `count > 1` ⇒ has-many (FK on the target). See
- * `resolveKey`.
+ * INFERRED as `count === 1` AND no `inverseVia` (see `isBelongsTo`); otherwise
+ * has-many (FK on the target). See `resolveKey`.
  *
  * `inverseRelation`, when set on a belongs-to relation, asks the registry to
  * materialize a one-to-many relation of that name back on the TARGET Type.
@@ -116,16 +116,34 @@ export class RelationFieldType extends FieldType {
   }
 
   /**
+   * True when the FOREIGN KEY lives on THIS Type — a declared belongs-to. The
+   * cardinality alone is NOT the discriminator: a MATERIALIZED INVERSE (one
+   * carrying {@link inverseVia}) is never belongs-to however its estimated
+   * `count` came out, because `Registry.finalize()` derives that count from a
+   * ROW RATIO (`round(source.count / target.count)`) — so a 1:1 pair, or two
+   * unmeasured Types sharing one declared row estimate, legitimately yields 1.
+   *
+   * Reading `count === 1` alone made such an inverse resolve its join as
+   * `order.invoice = invoice.id`, where `order.invoice` is the SYNTHETIC
+   * relation field the registry just added rather than a column — every
+   * traversal then matched zero rows, silently. The FK side is knowable from
+   * `inverseVia`; this is where that knowledge is applied.
+   */
+  isBelongsTo(): boolean {
+    return this.count === 1 && this.inverseVia === undefined;
+  }
+
+  /**
    * Resolve the join key for this relation, given the relation field's NAME and
    * the two Types it relates. The relation field's NAME is the key:
-   *  - belongs-to (`count === 1`): `this.<relName> = target.<identity>` —
+   *  - belongs-to ({@link isBelongsTo}): `this.<relName> = target.<identity>` —
    *    the local relation field holds the target's identity value.
-   *  - has-many  (`count > 1`):    `this.<identity> = target.<fk>` — where the
-   *    FK on the target is `inverseVia` (for a materialized inverse) else the
-   *    declaring Type's name in camelCase.
+   *  - has-many: `this.<identity> = target.<fk>` — where the FK on the target
+   *    is `inverseVia` (for a materialized inverse) else the declaring Type's
+   *    name in camelCase.
    */
   resolveKey(relationFieldName: string, thisType: Type, targetType: Type): RelationKey {
-    if (this.count === 1) {
+    if (this.isBelongsTo()) {
       return {
         localField: relationFieldName,
         foreignField: targetType.identityField().name,
@@ -152,7 +170,7 @@ export class RelationFieldType extends FieldType {
     thisType: Type,
     targetType: Type,
   ): { local: string; foreign: string }[] {
-    const forward = this.count === 1;
+    const forward = this.isBelongsTo();
     let backing: RelationBacking | undefined;
     if (forward) {
       // belongs-to: THIS field declares the FK; its backing lives here.
@@ -185,7 +203,7 @@ export class RelationFieldType extends FieldType {
    * source, `targetAlias` = the target), so aliased / self-joins resolve.
    *
    * The backing lives on the OWNING (belongs-to) relation. A materialized
-   * inverse has-many (`count > 1` with an `inverseVia`) REUSES the SAME FK: its
+   * inverse has-many (one carrying an `inverseVia`) REUSES the SAME FK: its
    * forward relation's `relation` backing on the target Type, with the key
    * orientation SWAPPED (the declaring side is now the join's target). A
    * directly-declared has-many (no `inverseVia`) has no forward relation to
@@ -204,7 +222,7 @@ export class RelationFieldType extends FieldType {
     let targetIdentity: string; // belongs-to TARGET identity — the default `foreign`.
     let declarerAlias: string; // bound alias of the belongs-to (declaring) side.
     let joinedAlias: string; // bound alias of the belongs-to target side.
-    if (this.count === 1) {
+    if (this.isBelongsTo()) {
       // belongs-to: THIS field declares the FK; its backing lives here.
       backing = engine.fieldBacking(thisType.name, relationFieldName)?.relation;
       forward = true;

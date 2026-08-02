@@ -14,7 +14,7 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
-import { asFieldType } from '../resolved-type';
+import { asFieldType, relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL, relationValueProblem, RELATION_VS_VALUE } from './_shared';
@@ -28,6 +28,7 @@ import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import { Value } from '../runtime/value';
 import { or3, not3, type Tri } from '../runtime/tri';
 import { relationCompare, evaluateRelationCompare, emitRelationCompare, evaluateHasMany, emitHasMany, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
+import { FieldRefExpr } from './field-ref';
 import { firstField } from '../runtime/record';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
@@ -179,13 +180,13 @@ export class InExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'in', ctx, true)));
+    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'in', ctx, 'compare')));
     const vft = asFieldType(v);
 
     if (this.list) {
       p.at('in', () => {
         this.list!.forEach((el, i) => {
-          const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx, true)));
+          const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx, 'compare')));
           const eft = asFieldType(rt);
           const skip = el instanceof ParamExpr || this.value instanceof ParamExpr;
           const relProblem = skip ? undefined : relationValueProblem(v, rt);
@@ -206,6 +207,18 @@ export class InExpr extends BoolExpr {
         });
       });
     } else if (this.subquery) {
+      // A relation vs a single-field subquery compares ONE key column, so a
+      // COMPOSITE-key relation has nothing a one-field subquery could match.
+      // Say so rather than silently comparing only the leading key part.
+      const vRel = relationOf(v);
+      if (vRel && vRel.keys.length > 1) {
+        p.error(
+          'in.relation-composite',
+          `Relation '${vRel.source}.${vRel.field}' has a COMPOSITE key (${vRel.keys.map((k) => k.foreign).join(', ')}), ` +
+            `so a subquery projecting one field cannot match it. Use an explicit list of { pk } identity values, ` +
+            `or join the relation and compare the joined columns.`,
+        );
+      }
       // FULLY VALIDATE the (correlated) subquery so a bad ref inside it surfaces,
       // AND learn its output type for the value-comparability check.
       const out = p.at('in', () => validateSubqueryOutput(engine, scope, p, ctx, this.subquery!));
@@ -274,7 +287,7 @@ export class InExpr extends BoolExpr {
     if (rel && this.list) {
       // A HAS-MANY `IN` a value list is `∈ e1 OR ∈ e2 …`, each an EXISTS
       // membership (two-valued); `NOT IN` negates it.
-      if (rel.count > 1) {
+      if (!rel.belongsTo) {
         let found = false;
         for (const el of this.list) {
           if (await evaluateHasMany('=', rel, el, row, ctx, group)) {
@@ -291,7 +304,12 @@ export class InExpr extends BoolExpr {
       }
       return this.not ? not3(acc) : acc;
     }
-    const v = await this.value.evaluate(ctx, row, group);
+    // A relation vs a single-field SUBQUERY: the subquery projects ONE scalar
+    // (the target's key), so the comparable value is this row's KEY COLUMN, not
+    // the relation's assembled identity object. Composite keys cannot match a
+    // one-field subquery at all and are refused in `validateWalk`.
+    const keyRef = rel && this.subquery ? new FieldRefExpr(rel.source, rel.keys[0]!.local) : undefined;
+    const v = keyRef ? await keyRef.columnValue(ctx, row) : await this.value.evaluate(ctx, row, group);
     // `x IN (...)` is `x = a OR x = b OR …` under 3VL: TRUE if any element is
     // equal; else UNKNOWN if the value or any element is NULL (a NULL makes that
     // disjunct UNKNOWN); else FALSE. `NOT IN` is its 3VL negation, so a NULL in
@@ -333,7 +351,7 @@ export class InExpr extends BoolExpr {
     if (rel && this.list) {
       // A HAS-MANY `IN` a value list is an OR of per-element EXISTS memberships.
       const ors =
-        rel.count > 1
+        !rel.belongsTo
           ? this.list.map((el) => emitHasMany('=', rel, el, dialect, ctx))
           : this.list.map((el) =>
               emitRelationCompare('=', this.value, el, rel, relationCompare(el, ctx.engine, typeOf), dialect, ctx),
@@ -346,10 +364,12 @@ export class InExpr extends BoolExpr {
       : this.subquery
         ? emitSubquerySQL(dialect, ctx, this.subquery)
         : SqlText.raw('()');
-    return SqlText.join(
-      [this.value.toSQL(dialect, ctx), SqlText.raw(this.not ? 'NOT IN' : 'IN'), rhs],
-      ' ',
-    );
+    // A relation vs a SUBQUERY compares its KEY COLUMN against the subquery's
+    // single projected field — emitting the identity OBJECT here would compare a
+    // constructed JSON value against a scalar (see `evaluateBool`).
+    const keyRef = rel && this.subquery ? new FieldRefExpr(rel.source, rel.keys[0]!.local) : undefined;
+    const lhs = keyRef ? keyRef.columnSQL(dialect, ctx) : this.value.toSQL(dialect, ctx);
+    return SqlText.join([lhs, SqlText.raw(this.not ? 'NOT IN' : 'IN'), rhs], ' ');
   }
 
   /** Serialize back to its JSON ExprDef. */

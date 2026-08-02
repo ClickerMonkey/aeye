@@ -43,10 +43,27 @@ export type ScalarValue = string | number | boolean | null;
 // ============================================================================
 
 /**
+ * One member of a field's CLOSED VALUE SET (see `NumberOptions.values` /
+ * `TextFieldTypeDef.values`) — the stored value plus an optional human label.
+ *
+ * The label rides along with the value deliberately: `FieldDef` already carries
+ * a `label` that `describeField` renders, so naming is not foreign to this
+ * package, and splitting membership from presentation would put ONE closed set
+ * in two places that can drift.
+ */
+export interface FieldValueDef {
+  /** The stored value — one member of the closed set. */
+  value: string | number;
+  /** Human-facing name for this member (defaults to the value itself). */
+  label?: string;
+}
+
+/**
  * Numeric option bag, shared by the `number` field type and by `money`'s
  * inner numeric configuration.
  *  - `whole`     — integral values only.
  *  - `minPlaces` / `maxPlaces` — decimal-place bounds (display / precision).
+ *  - `values`    — a CLOSED SET this column may hold (see below).
  */
 export interface NumberOptions {
   min?: number;
@@ -54,6 +71,17 @@ export interface NumberOptions {
   whole?: boolean;
   minPlaces?: number;
   maxPlaces?: number;
+  /**
+   * The closed set of values this column may hold — an enum expressed as a
+   * CONSTRAINT ON the underlying scalar rather than as a separate field-type
+   * `kind` (which would fork every comparison / SQL-type / value-schema path
+   * for what is one extra fact). Three things depend on it and none of them are
+   * reachable from outside the library: equality SELECTIVITY becomes a
+   * defensible `1/n` instead of the fixed guess, the model-facing description
+   * can say `one of a|b|c`, and `toValueSchema()` narrows to the members
+   * instead of answering "any number". Composes with `min`/`max`.
+   */
+  values?: FieldValueDef[];
 }
 
 /** The `number` field type — a numeric value with the shared `NumberOptions`. */
@@ -77,6 +105,13 @@ export interface TextFieldTypeDef {
    * Default false ⇒ case-insensitive (text operators lower-case both operands).
    */
   sensitive?: boolean;
+  /**
+   * The closed set of values this column may hold — see `NumberOptions.values`
+   * for why membership is a query fact. Composes with `pattern`: a regex
+   * expresses a SHAPE, a value set expresses MEMBERSHIP, and they are different
+   * facts, so both may be declared.
+   */
+  values?: FieldValueDef[];
 }
 
 /** The `money` field type — a monetary amount plus optional currency. */
@@ -245,6 +280,19 @@ export interface TypeDef {
   description?: string;
   fields: FieldDef[];
   indexes?: IndexDef[];
+  /**
+   * The field (or ordered fields) that IDENTIFY a row. When present it is THE
+   * answer for `Type.identityField()` / `Type.primaryKey()`: index ORDER becomes
+   * irrelevant, and a unique index on any other column is just a unique index.
+   *
+   * Without it identity is INFERRED as "the first single-part unique index, else
+   * the field named `id`" — which makes the identity of a Type depend on the
+   * order its indexes happen to be listed in. A Type declaring both `id` and a
+   * unique `email`, with the email index listed first, silently identifies by
+   * `email`, and every relation into it then joins a stored id against an email.
+   * Declaring it removes that whole class of failure.
+   */
+  identity?: string | string[];
   /** Estimated total row count — drives cost estimation. */
   count: number;
   /** Estimated average bytes per row (else derived as the sum of the fields' bytes). */

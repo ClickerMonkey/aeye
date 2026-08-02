@@ -100,8 +100,8 @@ describe('custom function runtime — all four shapes', () => {
     const result = await fx.engine.run(def);
     // user 1: ids 10*11 = 110; user 2: ids 12*13 = 156.
     expect(result.rows).toEqual([
-      { userId: 1, prod: 110 },
-      { userId: 2, prod: 156 },
+      { userId: { id: 1 }, prod: 110 },
+      { userId: { id: 2 }, prod: 156 },
     ]);
   });
 

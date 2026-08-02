@@ -69,7 +69,8 @@ describe('includeTotal — runtime', () => {
       limit: 1,
     };
     const result = await fx.engine.run(def, { includeTotal: true });
-    expect(result.rows).toEqual([{ userId: 1 }]);
+    // A projected RELATION is its identity object (A8).
+    expect(result.rows).toEqual([{ userId: { id: 1 } }]);
     expect(result.total).toBe(2);
   });
 });
@@ -116,8 +117,11 @@ describe('includeTotal — SQL', () => {
     };
     const { sql } = fx.engine.toSQL(distinctDef, 'base', { includeTotal: true });
     expect(sql).toBe(
-      'SELECT DISTINCT "order"."userId" AS "userId", ' +
-        '(SELECT COUNT(*) FROM (SELECT DISTINCT "order"."userId" AS "userId" FROM "order" AS "order") AS "$dt") AS "$total" ' +
+      // `order.userId` is a RELATION: it projects its IDENTITY object off this
+      // row's own key column (no join), NULL when the key is unset.
+      'SELECT DISTINCT CASE WHEN "order"."userId" IS NULL THEN NULL ELSE json_build_object(\'id\', "order"."userId") END AS "userId", ' +
+        '(SELECT COUNT(*) FROM (SELECT DISTINCT CASE WHEN "order"."userId" IS NULL THEN NULL ELSE ' +
+        'json_build_object(\'id\', "order"."userId") END AS "userId" FROM "order" AS "order") AS "$dt") AS "$total" ' +
         'FROM "order" AS "order" LIMIT 1',
     );
     // The pre-DISTINCT window form is NOT used here.

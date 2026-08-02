@@ -25,6 +25,12 @@ export interface TypeSpec {
   fields: Field[];
   /** The (composite) indexes declared on this Type. */
   indexes: Index[];
+  /**
+   * The field (or ordered fields) that IDENTIFY a row. When set it is THE
+   * answer for {@link Type.identityField} / {@link Type.primaryKey} and index
+   * order stops mattering. Omit to fall back to the inferred rule.
+   */
+  identity?: string | string[];
   /** Estimated row count. */
   count: number;
   /**
@@ -52,9 +58,15 @@ export interface TypeSpec {
 /** The `type.no-identity` message shared by `identityField` / `primaryKey`. */
 function noKeyMessage(typeName: string): string {
   return (
-    `Type '${typeName}' needs a primary key (a unique index or an 'id' field) ` +
-    `to participate in relations.`
+    `Type '${typeName}' needs a primary key (a declared 'identity', a unique index, ` +
+    `or an 'id' field) to participate in relations.`
   );
+}
+
+/** Normalize a declared `identity` (a bare name or an ordered list) to a name list. */
+function identityNames(identity: string | readonly string[] | undefined): readonly string[] | undefined {
+  if (identity === undefined) return undefined;
+  return typeof identity === 'string' ? [identity] : identity;
 }
 
 /**
@@ -72,6 +84,12 @@ export class Type implements Node {
   readonly fields: Field[];
   /** The (composite) indexes declared on this Type. */
   readonly indexes: Index[];
+  /**
+   * The DECLARED identity field names, in key order — normalized from the spec's
+   * `string | string[]`. `undefined` means identity is INFERRED (first
+   * single-part unique index, else `id`), which is index-order dependent.
+   */
+  readonly identity?: readonly string[];
   /** Estimated total row count (drives cost estimation). */
   readonly count: number;
   /** Estimated average bytes per row (drives byte-cost estimation). */
@@ -96,6 +114,7 @@ export class Type implements Node {
     this.description = spec.description;
     this.fields = spec.fields;
     this.indexes = spec.indexes;
+    this.identity = identityNames(spec.identity);
     this.count = spec.count;
     // Whole-row byte size: an explicit spec value, else the SUM of the fields'
     // (per-field or field-type-default) bytes — a scan loads every field.
@@ -126,9 +145,10 @@ export class Type implements Node {
 
   /**
    * The IDENTITY field used as the join key on this Type's side of a relation:
-   * the field referenced by the first single-part UNIQUE index (one part,
-   * `count === 1`, whose expr is a field-ref), else the field named `id`, else
-   * a clear error. Relations resolve their keys through this.
+   * the DECLARED `identity` when it names exactly one field, else the field
+   * referenced by the first single-part UNIQUE index (one part, `count === 1`,
+   * whose expr is a field-ref), else the field named `id`, else a clear error.
+   * Relations resolve their keys through this.
    */
   identityField(): Field {
     const single = this.singleIdentity();
@@ -138,13 +158,15 @@ export class Type implements Node {
 
   /**
    * The ordered PRIMARY KEY fields of this Type — generalizing {@link
-   * identityField} to COMPOSITE keys: the single identity field (a single-part
-   * unique index's field, else `id`) when present, else the fields of the first
-   * multi-part UNIQUE index (last part `count === 1`) whose every part is a
-   * field-ref. Relations map their key columns to these; a relation VALUE is
-   * keyed by these field names. Throws when none exists.
+   * identityField} to COMPOSITE keys: the DECLARED `identity` when set, else the
+   * single identity field (a single-part unique index's field, else `id`), else
+   * the fields of the first multi-part UNIQUE index (last part `count === 1`)
+   * whose every part is a field-ref. Relations map their key columns to these; a
+   * relation VALUE is keyed by these field names. Throws when none exists.
    */
   primaryKey(): Field[] {
+    const declared = this.declaredIdentity();
+    if (declared) return declared;
     const single = this.singleIdentity();
     if (single) return [single];
     for (const idx of this.indexes) {
@@ -156,8 +178,37 @@ export class Type implements Node {
     throw new QueryTypeError({ path: [], code: 'type.no-identity', severity: 'error', message: noKeyMessage(this.name) });
   }
 
-  /** The single identity field: the first single-part unique index's field, else `id`, else undefined. */
+  /**
+   * The fields named by an explicit `identity` declaration, in key order, or
+   * `undefined` when none is declared. A declared name that is not a field on
+   * this Type is an ERROR rather than a silent fall-back to the inferred rule —
+   * falling back would reintroduce exactly the index-order dependence the
+   * declaration exists to remove, and would do it invisibly.
+   */
+  private declaredIdentity(): Field[] | undefined {
+    if (this.identity === undefined) return undefined;
+    const found = this.identity.map((name) => this.field(name));
+    const missing = this.identity.filter((_, i) => found[i] === undefined);
+    if (missing.length > 0) {
+      throw new QueryTypeError({
+        path: [], code: 'type.identity-unknown-field', severity: 'error',
+        message:
+          `Type '${this.name}' declares identity field(s) ${missing.map((m) => `'${m}'`).join(', ')} ` +
+          `that it does not have. Declared identity: ${this.identity.join(', ')}.`,
+      });
+    }
+    return found.filter((f): f is Field => f !== undefined);
+  }
+
+  /**
+   * The single identity field: the DECLARED `identity` when it is exactly one
+   * field, else the first single-part unique index's field, else `id`, else
+   * undefined. A declared COMPOSITE identity has no single field, so it yields
+   * `undefined` here and is answered by {@link primaryKey}.
+   */
   private singleIdentity(): Field | undefined {
+    const declared = this.declaredIdentity();
+    if (declared) return declared.length === 1 ? declared[0] : undefined;
     for (const idx of this.indexes) {
       if (idx.parts.length !== 1) continue;
       const part = idx.parts[0]!;
@@ -170,29 +221,61 @@ export class Type implements Node {
   }
 
   /**
-   * Fields eligible for semantic-aware querying: text fields flagged
-   * `semantic` or `search`, plus all relation fields (which can drive
-   * cross-entity semantic joins).
+   * Fields eligible for semantic-aware querying: text fields flagged `semantic`
+   * or `search`.
+   *
+   * Relation fields are NOT included. They used to be — on the theory that they
+   * could drive cross-entity semantic joins — which made almost every Type
+   * report itself semantic-eligible on the strength of having a foreign key, and
+   * a whole-source semantic score then silently ran over a Type nobody had
+   * declared semantic. A relation is a join, not an embedding.
    */
   semanticFields(): Field[] {
-    return this.fields.filter((f) => {
-      const ft = f.fieldType;
-      if (ft instanceof TextFieldType) return ft.options.semantic === true || ft.options.search === true;
-      return ft instanceof RelationFieldType;
-    });
+    return this.fields.filter((f) => this.isFieldSemantic(f));
   }
 
-  /** Whether this Type is eligible for embedding-based semantic similarity. */
+  /**
+   * Whether ONE field is declared semantic-eligible: a text field flagged
+   * `semantic` (or `search`, whose index is the same kind of derived artifact).
+   */
+  isFieldSemantic(field: Field): boolean {
+    const ft = field.fieldType;
+    return ft instanceof TextFieldType && (ft.options.semantic === true || ft.options.search === true);
+  }
+
+  /**
+   * Whether semantic scoring is possible ANYWHERE on this Type — the whole type
+   * is flagged, or at least one field is. This is the ELIGIBILITY question
+   * (does the `semantic` expr apply to this Type at all), which is what schema
+   * gating and the capability description ask.
+   *
+   * What an UNNARROWED score reads is the row's embedding over
+   * {@link semanticFields}, which no longer counts relation fields — so a Type
+   * whose only "evidence" was owning a foreign key is no longer eligible at
+   * all. See {@link isFieldSemantic} for the per-field question.
+   */
   isSemantic(): boolean {
     return this.semantic || this.semanticFields().length > 0;
   }
 
-  /** Whether this Type is eligible for full-text search. */
+  /** Whether ONE field is declared full-text searchable. */
+  isFieldSearchable(field: Field): boolean {
+    const ft = field.fieldType;
+    return ft instanceof TextFieldType && ft.options.search === true;
+  }
+
+  /**
+   * Whether full-text search is possible ANYWHERE on this Type — the whole type
+   * is flagged, or at least one field is. The ELIGIBILITY question, used for
+   * schema gating and the capability description.
+   *
+   * It is NOT the answer to "can this type be searched WITHOUT naming a field":
+   * that needs a `SearchBacking` (the searchable document), whose absence is now
+   * refused as `text-search.unbacked` rather than guessed at. See
+   * {@link isFieldSearchable} for the per-field question.
+   */
   isSearchable(): boolean {
-    if (this.search) return true;
-    return this.fields.some(
-      (f) => f.fieldType instanceof TextFieldType && f.fieldType.options.search === true,
-    );
+    return this.search || this.fields.some((f) => this.isFieldSearchable(f));
   }
 
   /** Build a Type from its JSON, parsing fields/indexes via `registry`. */
@@ -205,6 +288,7 @@ export class Type implements Node {
       description: json.description,
       fields,
       indexes,
+      identity: json.identity,
       count: json.count,
       bytes: json.bytes,
       changes: json.changes,
@@ -252,6 +336,9 @@ export class Type implements Node {
       description: z.string().optional(),
       fields: z.array(fieldDefSchema),
       indexes: z.array(indexDefSchema).optional(),
+      identity: z.union([z.string(), z.array(z.string())]).optional().describe(
+        'The field (or ordered fields) that IDENTIFY a row. Declare it and index order stops deciding identity.',
+      ),
       count: z.number().describe('Estimated total row count.'),
       bytes: z.number().optional().describe('Estimated average bytes per row (else derived as the sum of the fields\' bytes).'),
       changes: z.number().optional().describe('Ms between changes to this Type\'s data (0 = always changing, -1 = never).'),
@@ -275,6 +362,9 @@ export class Type implements Node {
       description: this.description,
       fields,
       indexes: indexes.length > 0 ? indexes : undefined,
+      // Emitted in its NORMALIZED form: a single declared field round-trips as a
+      // bare name whether it was authored as `'id'` or `['id']`.
+      identity: this.identity === undefined ? undefined : this.identity.length === 1 ? this.identity[0] : [...this.identity],
       count: this.count,
       bytes: this.bytes,
       // Emit `changes` only when set away from the default (0 = always changing).
@@ -296,6 +386,7 @@ export class Type implements Node {
       description: this.description,
       fields: this.fields.map((f) => f.clone()),
       indexes: this.indexes.map((i) => i.clone()),
+      identity: this.identity === undefined ? undefined : [...this.identity],
       count: this.count,
       bytes: this.bytes,
       changes: this.changes,

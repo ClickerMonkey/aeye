@@ -17,6 +17,7 @@ import { boolResult, gatherSources, anyAggregate, childExprSchema } from './_sha
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
+import { relationKeySqls } from './_relation-value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Dialect } from '../sql/dialect';
@@ -90,7 +91,9 @@ export class IsNullExpr extends BoolExpr {
     p: Problems,
     ctx: ValidateContext,
   ): ComputedResolved {
-    p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'is-null', ctx)));
+    // A relation's identity IS testable for null — all-key-columns-null means
+    // the relation is unset, which is precisely what `IS NULL` should answer.
+    p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'is-null', ctx, 'value')));
     return this.resolve(engine, scope);
   }
 
@@ -109,8 +112,23 @@ export class IsNullExpr extends BoolExpr {
     return this.not ? !v.isNull() : v.isNull();
   }
 
-  /** Emit as a SqlText fragment (`value IS [NOT] NULL`). */
+  /**
+   * Emit as a SqlText fragment (`value IS [NOT] NULL`).
+   *
+   * A RELATION operand tests its KEY COLUMNS, not the assembled identity
+   * object: the object is a constructed value and is never SQL NULL, so
+   * `json_build_object(...) IS NULL` would be a constant false. Unset means any
+   * key column is null (a partial composite key cannot join), so `IS NULL` is
+   * the OR over them and `IS NOT NULL` the AND of their negations — which also
+   * keeps the predicate index-usable. Matches the runtime, where a relation
+   * ref with any null key evaluates to NULL.
+   */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
+    const keys = relationKeySqls(this.value, dialect, ctx);
+    if (keys) {
+      const tests = keys.map((k) => SqlText.concat([k, SqlText.raw(this.not ? ' IS NOT NULL' : ' IS NULL')]));
+      return SqlText.join(tests, this.not ? ' AND ' : ' OR ').parens();
+    }
     return SqlText.concat([
       this.value.toSQL(dialect, ctx),
       SqlText.raw(this.not ? ' IS NOT NULL' : ' IS NULL'),

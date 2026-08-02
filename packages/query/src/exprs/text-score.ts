@@ -121,9 +121,16 @@ export class TextScoreExpr extends Expr {
     } else if (bound.kind !== 'type') {
       p.error('text-score.not-a-type', `Source '${this.source}' is not a type, so it cannot be scored.`);
     } else if (this.field === undefined) {
-      // Whole-source score ⇒ the Type itself must be full-text-search-eligible.
+      // Whole-source score ⇒ same rule as `text-search`: the TYPE must be
+      // declared searchable AND backed (see `TextSearchExpr.validateWalk`).
       if (!bound.type.isSearchable()) {
         p.error('text-score.not-searchable', `Type '${bound.type.name}' is not full-text-search-eligible.`);
+      } else if (engine.searchBacking(bound.type.name, undefined) === undefined) {
+        p.error(
+          'text-score.unbacked',
+          `Type '${bound.type.name}' is declared searchable but has no search backing, so it has no ` +
+            `whole-record document to rank. Narrow the score to a text field, or declare a SearchBacking for the Type.`,
+        );
       }
     } else {
       // Field-narrowed score ⇒ the field must exist and be text.

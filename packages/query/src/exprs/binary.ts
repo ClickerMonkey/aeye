@@ -140,7 +140,7 @@ export class BinaryExpr extends Expr {
     // `relationValueOk`: binary runs its own relation-operand check below (a
     // relation is never a number → the join-it hint), so suppress the generic
     // field-ref `ref.relation-not-value` to avoid a duplicate report.
-    const opCtx: ValidateContext = { ...ctx, relationValueOk: true };
+    const opCtx: ValidateContext = { ...ctx, relationUse: 'compare' };
     const l = p.at('left', () => this.left.validateWalk(engine, scope, p, opCtx));
     const r = p.at('right', () => this.right.validateWalk(engine, scope, p, opCtx));
 

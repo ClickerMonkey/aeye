@@ -100,17 +100,29 @@ export type DrillDownResult = DrillDownSuccess | DrillDownFailure;
 
 /**
  * A successful `drillDownInto`: the rebuilt query plus the EXTRACTED param
- * VALUE map (each drill param's name → the scalar pulled from the group row),
+ * VALUE map (each drill param's name → the value pulled from the group row),
  * ready for `engine.run(query, { params })`.
  */
 export interface DrillDownIntoSuccess {
   /** The un-ravelled SELECT returning the underlying rows. */
   query: SelectQuery;
-  /** Bind-param values pulled from the group row (param name → scalar). */
-  params: Record<string, ScalarValue>;
+  /**
+   * Bind-param values pulled from the group row (param name → value). Usually a
+   * scalar; a group key that is a RELATION carries that relation's IDENTITY
+   * object (`{ id: 5 }`), which is exactly the shape the rebuilt query's
+   * relation comparison binds.
+   */
+  params: Record<string, DrillValue>;
   /** Non-fatal notes carried over from `drillDown`. */
   warnings: Problems;
 }
+
+/**
+ * A value a drill param can carry: a scalar, or the IDENTITY OBJECT of a
+ * relation group key (keyed by the target's identity field names — see the
+ * relation comparison lowering, which accepts exactly this shape).
+ */
+export type DrillValue = ScalarValue | { [key: string]: ScalarValue };
 
 /** Coerce the input to a parsed `SelectQuery` (parsing a def when needed). */
 function asSelectQuery(select: SelectQuery | SelectDef, engine: QueryEngine): SelectQuery {
@@ -471,6 +483,17 @@ function isScalar(value: JsonValue | undefined): value is ScalarValue {
   return value === null || (value !== undefined && typeof value !== 'object');
 }
 
+/**
+ * Whether `value` can be bound as a drill param: a scalar, or a flat object of
+ * scalars — a relation group key's IDENTITY. An array (or a nested object) is
+ * not a key and is refused.
+ */
+function isDrillValue(value: JsonValue | undefined): value is DrillValue {
+  if (isScalar(value)) return true;
+  if (value === undefined || Array.isArray(value)) return false;
+  return Object.values(value).every((v) => isScalar(v));
+}
+
 /** Whether an expr references at least one field (a `field-ref`). */
 function referencesField(expr: Expr): boolean {
   let found = false;
@@ -747,15 +770,15 @@ export function drillDownInto(
   if ('error' in drilled) return drilled;
 
   const errors = new Problems();
-  const values: Record<string, ScalarValue> = {};
+  const values: Record<string, DrillValue> = {};
   drilled.params.forEach((dp, i) => {
     const present = Object.prototype.hasOwnProperty.call(groupRow, dp.field);
     const value = present ? groupRow[dp.field] : undefined;
-    if (!present || !isScalar(value)) {
+    if (!present || !isDrillValue(value)) {
       errors.at(['groupBy', i], () =>
         errors.error(
           'drill.missing-group-value',
-          `Group key '${engine.parse(dp.key).toCode()}' has no scalar value under field '${dp.field}' in the supplied group row.`,
+          `Group key '${engine.parse(dp.key).toCode()}' has no bindable value under field '${dp.field}' in the supplied group row.`,
         ),
       );
       return;

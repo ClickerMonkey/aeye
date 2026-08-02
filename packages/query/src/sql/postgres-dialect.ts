@@ -7,6 +7,7 @@
  *  - richer field types (`text`, `jsonb`, `timestamptz`, `numeric`).
  */
 import { BaseDialect } from './base-dialect';
+import { jsonObjectArgs } from './dialect';
 import { SqlText } from './emit';
 import type { FieldType } from '../field-type';
 import {
@@ -68,6 +69,20 @@ export class PostgresDialect extends BaseDialect {
       ],
       ' ',
     );
+  }
+
+  /**
+   * `jsonb_build_object` rather than the base `json_build_object`: `jsonb` has
+   * equality and ordering operators, so a projected identity can also be
+   * DISTINCTed or compared, where a `json` value cannot be (Postgres has no
+   * equality operator for `json` at all).
+   */
+  override jsonObject(entries: readonly { key: string; value: SqlText }[]): SqlText {
+    return SqlText.concat([
+      SqlText.raw('jsonb_build_object('),
+      SqlText.join(jsonObjectArgs(entries), ', '),
+      SqlText.raw(')'),
+    ]);
   }
 
   /** Cast the query param to the pgvector type so `similarity` type-checks (`<param>::vector`). */

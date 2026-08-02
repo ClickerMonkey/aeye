@@ -52,8 +52,16 @@ export interface RelationResolved {
   readonly keyType: FieldType;
   /** The relation's target Type name (its `to`). */
   readonly to: string;
-  /** Cardinality: `1` = belongs-to (single target row), `>1` = has-many (a set). */
+  /** Declared cardinality of the related rows (`1` = one-to-one / belongs-to shaped). */
   readonly count: number;
+  /**
+   * Which side the FOREIGN KEY is on: true = belongs-to, so this row holds the
+   * target's identity locally; false = has-many, a SET keyed on the target.
+   * Read this rather than `count` — a MATERIALIZED INVERSE can carry an
+   * estimated `count` of 1 and is still a has-many (see
+   * `RelationFieldType.isBelongsTo`).
+   */
+  readonly belongsTo: boolean;
   /** The ORDERED join-key pairs (composite-capable) driving relation comparison lowering. */
   readonly keys: readonly RelationKeyPair[];
 }

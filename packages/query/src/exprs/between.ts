@@ -103,9 +103,9 @@ export class BetweenExpr extends BoolExpr {
     ctx: ValidateContext,
   ): ResolvedType {
     const here = p.here;
-    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'between', ctx, true)));
-    const lo = p.at('lower', () => this.lower.validateWalk(engine, scope, p, operandCtx(this.lower, 'between', ctx, true)));
-    const hi = p.at('upper', () => this.upper.validateWalk(engine, scope, p, operandCtx(this.upper, 'between', ctx, true)));
+    const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'between', ctx, 'compare')));
+    const lo = p.at('lower', () => this.lower.validateWalk(engine, scope, p, operandCtx(this.lower, 'between', ctx, 'compare')));
+    const hi = p.at('upper', () => this.upper.validateWalk(engine, scope, p, operandCtx(this.upper, 'between', ctx, 'compare')));
 
     const vft = asFieldType(v);
     const check = (operand: Expr, rt: ResolvedType, key: 'lower' | 'upper'): void => {

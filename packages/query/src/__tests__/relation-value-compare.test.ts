@@ -196,10 +196,17 @@ describe('relation-value-compare: coverage / edges', () => {
     expect(() => exprIdx.primaryKey()).toThrow(/primary key/);
   });
 
-  it('resolves a has-many relation field-ref (builds its key metadata) — then rejects it as a value', () => {
+  it('resolves a has-many relation field-ref (builds its key metadata) — then rejects it with a STATEABLE reason', () => {
     const fx = runtimeFixture();
     const p = fx.engine.validateQuery({ kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'orders' } }], from: { kind: 'type', type: 'user' } } as QueryDef);
-    expect(p.list.some((x) => x.code === 'ref.relation-not-value')).toBe(true);
+    // A belongs-to would project its identity here; a HAS-MANY has no key on
+    // this row at all, and now says exactly that instead of the generic
+    // "relation, not a value" used for every refusal alike.
+    const hasMany = p.list.find((x) => x.code === 'ref.relation-has-many');
+    expect(hasMany).toBeDefined();
+    expect(hasMany!.message).toContain('HAS-MANY');
+    expect(hasMany!.message).toContain('no key on this row');
+    expect(p.list.some((x) => x.code === 'ref.relation-not-value')).toBe(false);
   });
 
   it('a relation IN a SUBQUERY falls through to the scalar membership path', async () => {

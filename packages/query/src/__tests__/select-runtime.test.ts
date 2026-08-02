@@ -101,7 +101,9 @@ describe('select runtime', () => {
       order: [{ expr: { kind: 'field-ref', source: 'order', field: 'userId' }, dir: 'asc' }],
     };
     const result = await fx.engine.run(def);
-    expect(result.rows).toEqual([{ userId: 1 }, { userId: 2 }]);
+    // A projected RELATION is its identity object (A8); DISTINCT still collapses
+    // duplicates because the objects are structurally equal.
+    expect(result.rows).toEqual([{ userId: { id: 1 } }, { userId: { id: 2 } }]);
   });
 
   it('LIMIT via bound param', async () => {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FieldTypeDef, NumberFieldTypeDef, NumberOptions } from '../schema';
+import { fieldValuesSchema, closedSetValueSchema, compactFieldValues, eqSelectivityOf } from './_values';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
@@ -16,6 +17,7 @@ export function numberOptionsSchema(): z.ZodTypeAny {
     whole: z.boolean().optional().describe('True only when genuinely integral (counts, ids).'),
     minPlaces: z.number().int().optional().describe('Decimal-place floor; omit unless required.'),
     maxPlaces: z.number().int().optional().describe('Decimal-place ceiling; omit unless required.'),
+    values: fieldValuesSchema(),
   });
 }
 
@@ -27,11 +29,17 @@ export function compactNumberOptions(o: NumberOptions): NumberOptions {
   if (o.whole !== undefined) out.whole = o.whole;
   if (o.minPlaces !== undefined) out.minPlaces = o.minPlaces;
   if (o.maxPlaces !== undefined) out.maxPlaces = o.maxPlaces;
+  const values = compactFieldValues(o.values);
+  if (values) out.values = values;
   return out;
 }
 
 /** Build a value-side Zod number schema honoring a NumberOptions bag. */
 export function numberValueSchema(o: NumberOptions): z.ZodTypeAny {
+  // A closed set IS the value schema — the bounds it composes with are already
+  // satisfied (or violated) by the declared members themselves.
+  const closed = closedSetValueSchema(o.values);
+  if (closed) return closed;
   let s = o.whole ? z.number().int() : z.number();
   if (o.min !== undefined) s = s.min(o.min);
   if (o.max !== undefined) s = s.max(o.max);
@@ -63,8 +71,8 @@ export class NumberFieldType extends FieldType {
         message: `NumberFieldType.from: expected kind 'number', got '${json.kind}'`,
       });
     }
-    const { min, max, whole, minPlaces, maxPlaces } = json;
-    return new NumberFieldType(compactNumberOptions({ min, max, whole, minPlaces, maxPlaces }));
+    const { min, max, whole, minPlaces, maxPlaces, values } = json;
+    return new NumberFieldType(compactNumberOptions({ min, max, whole, minPlaces, maxPlaces, values }));
   }
 
   /** The Zod schema for this field type's JSON def. */
@@ -76,12 +84,18 @@ export class NumberFieldType extends FieldType {
       whole: z.boolean().optional().describe('True only when genuinely integral (counts, ids).'),
       minPlaces: z.number().int().optional().describe('Decimal-place floor; omit unless required.'),
       maxPlaces: z.number().int().optional().describe('Decimal-place ceiling; omit unless required.'),
+      values: fieldValuesSchema(),
     }).meta({ aid: 'FieldType_number' }).describe('Numeric field type.');
   }
 
   /** Resolve to the `number` scalar comparison category. */
   resolve(): ScalarKind {
     return 'number';
+  }
+
+  /** A declared closed set of `n` members makes `= x` a `1/n` predicate. */
+  override eqSelectivity(): number | undefined {
+    return eqSelectivityOf(this.options.values);
   }
 
   /** Estimated average stored byte size. */
@@ -104,9 +118,9 @@ export class NumberFieldType extends FieldType {
     return { kind: NumberFieldType.NAME, ...compactNumberOptions(this.options) };
   }
 
-  /** A copy of this field type (cloning the options bag). */
+  /** A copy of this field type (deep-cloning the options bag's value set). */
   clone(): NumberFieldType {
-    return new NumberFieldType({ ...this.options });
+    return new NumberFieldType({ ...this.options, values: this.options.values?.map((v) => ({ ...v })) });
   }
 }
 

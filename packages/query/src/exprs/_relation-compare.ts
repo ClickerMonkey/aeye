@@ -1,7 +1,7 @@
 /**
  * Relation comparison lowering shared by `ComparisonExpr` / `InExpr`.
  *
- * A BELONGS-TO relation (`count === 1`) compared to a relation VALUE (an object
+ * A BELONGS-TO relation compared to a relation VALUE (an object
  * keyed by the target's PK field names, e.g. `{ id: 5 }`), a bare scalar (a
  * single-key convenience), or another same-target relation lowers to a
  * per-key-column comparison: `AND_i ( source.local_i <op> other_i )`, driven by
@@ -41,8 +41,13 @@ export interface RelationCompare {
    * HAS-MANY, it is the target's FK-back column (the join to this row's identity).
    */
   readonly keys: readonly { local: string; foreign: string }[];
-  /** Cardinality: `1` = belongs-to (a single identity), `>1` = has-many (a set). */
-  readonly count: number;
+  /**
+   * Which side the FK is on: true = belongs-to (a single identity held on THIS
+   * row), false = has-many (a SET, keyed on the target). Derived from
+   * `RelationFieldType.isBelongsTo()`, NOT from `count` alone — a materialized
+   * inverse can carry an estimated `count` of 1 and is still a has-many.
+   */
+  readonly belongsTo: boolean;
   /** The relation's target Type. */
   readonly target: Type;
 }
@@ -50,8 +55,8 @@ export interface RelationCompare {
 /**
  * If `operand` is a relation field-ref, its key columns + cardinality + target —
  * else `undefined`. `typeOf` maps a bound source to its owning Type (runtime:
- * `ctx.sourceType`; SQL: a `ctx.scope` lookup). A belongs-to (`count === 1`)
- * compares by identity; a has-many (`count > 1`) compares by membership.
+ * `ctx.sourceType`; SQL: a `ctx.scope` lookup). A belongs-to compares by
+ * identity; a has-many compares by membership.
  */
 export function relationCompare(
   operand: Expr,
@@ -67,7 +72,12 @@ export function relationCompare(
   const ft = field.fieldType;
   const target = engine.type(ft.to);
   if (!target) return undefined;
-  return { source: ref.source, keys: ft.resolveKeys(engine, ref.field, owner, target), count: ft.count, target };
+  return {
+    source: ref.source,
+    keys: ft.resolveKeys(engine, ref.field, owner, target),
+    belongsTo: ft.isBelongsTo(),
+    target,
+  };
 }
 
 /** A source → owning-Type resolver for the RUNTIME (bound source types, else a registered Type). */
@@ -204,7 +214,9 @@ function tupleSql(
   dialect: Dialect,
   ctx: SqlContext,
 ): SqlText[] {
-  if (rel) return rel.keys.map((k) => new FieldRefExpr(rel.source, k.local).toSQL(dialect, ctx));
+  // `columnSQL`, not `toSQL`: a belongs-to's key column shares the relation
+  // FIELD's name, so a plain emit would rebuild the identity object here.
+  if (rel) return rel.keys.map((k) => new FieldRefExpr(rel.source, k.local).columnSQL(dialect, ctx));
   // A value operand: a param binds either a { pk } object (per-column) or a lone
   // scalar (single key); any other scalar expr emits directly (single key).
   if (operand instanceof ParamExpr) {

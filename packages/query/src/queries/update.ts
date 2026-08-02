@@ -32,7 +32,8 @@ import { selectFieldShape, writeRecordShape } from './_shape';
 import { parseWriteRecord } from './_write';
 import type { Affected, Cost, CostContext } from '../cost';
 import { AFFECTED_NONE, affectedOne } from '../cost';
-import { scanCost, applyWhere, matchedRows } from './_cost';
+import { scanCost, applyWhere, matchedRows, selfBinding } from './_cost';
+import { identityValueCtx } from '../exprs/_field-guard';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 import { JoinCtePlanner } from '../sql/planner';
@@ -211,7 +212,12 @@ export class UpdateQuery extends Query {
       checkBoolCondition(w, rt, p);
     })));
     const colCtx: ValidateContext = { ...ctx, allowAggregate: true };
-    p.at('returning', () => this.returning.forEach((c, i) => p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, colCtx))));
+    // A RETURNING column may project a relation's identity: for a DELETE in
+    // particular the FK value IS the prior state an undo would restore from, and
+    // an RLS-scoped join loses it exactly when the target row is hidden.
+    p.at('returning', () => this.returning.forEach((c, i) =>
+      p.at([i, 'expr'], () => c.expr.validateWalk(engine, inner, p, identityValueCtx(c.expr, colCtx))),
+    ));
   }
 
   /** The single target Type name this update writes. */
@@ -235,14 +241,14 @@ export class UpdateQuery extends Query {
     const baseScan = scanCost(type);
     baseScan.rows = rows;
     baseScan.bytes = rows * perRowBytes;
-    return applyWhere(ctx, scope, baseScan, type, this.where, perRowBytes);
+    return applyWhere(ctx, scope, baseScan, selfBinding(type), this.where, perRowBytes);
   }
 
   /** Rows this UPDATE mutates: the target type's rows matching WHERE (index / selectivity / OR-aware). */
   override affected(ctx: CostContext, scope: QueryScope): Affected {
     const type = ctx.engine.type(this.type);
     if (!type) return AFFECTED_NONE;
-    return affectedOne(this.type, matchedRows(ctx, scope, type, this.where));
+    return affectedOne(this.type, matchedRows(ctx, scope, selfBinding(type), this.where));
   }
 
   /** Expand joins, filter by WHERE, apply SET to each matched target row, then project RETURNING. */
