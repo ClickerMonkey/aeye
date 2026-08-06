@@ -21,14 +21,21 @@ import {
   TextFieldType,
 } from '../field-types/index';
 
-/** Build a `ComputedResolved` of an explicit field type. */
+/**
+ * Build a `ComputedResolved` of an explicit field type. `aggregateFn` names the
+ * APPLIED aggregate when the value IS one aggregate call; it is OMITTED (not set
+ * to `undefined`) otherwise, so a resolved type never carries a key it has no
+ * answer for.
+ */
 export function computed(
   fieldType: FieldType,
   sources: readonly FieldResolved[],
   nullable: boolean,
   aggregate: boolean,
+  aggregateFn?: string,
 ): ComputedResolved {
-  return { kind: 'computed', fieldType, sources, nullable, aggregate };
+  const rt: ComputedResolved = { kind: 'computed', fieldType, sources, nullable, aggregate };
+  return aggregateFn === undefined ? rt : { ...rt, aggregateFn };
 }
 
 /** Build a boolean computed result. */

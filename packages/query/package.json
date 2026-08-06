@@ -1,6 +1,6 @@
 {
   "name": "@aeye/query",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Query - An LLM-friendly relational query language, runtime & SQL converter",
   "type": "module",
   "main": "dist/index.js",

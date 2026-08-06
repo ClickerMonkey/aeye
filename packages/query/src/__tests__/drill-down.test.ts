@@ -4,15 +4,16 @@
  * Covers: the rebuilt query pins each group key to `key = param(name)` with a
  * correct `DrillParam` mapping; `drillDownInto` extracts a chosen row's values
  * and the drilled query returns that group's underlying rows; `query.params`
- * reports the drill params (and `limit`/`offset` after `autoPaginate`); and one
- * test per `drill.*` failure code.
+ * reports the drill params (and `limit`/`offset` after `autoPaginate`); one test
+ * per `drill.*` failure code; and (A13, 0.6.2) that `count(*)` does not
+ * re-project a column the SELECT already carries.
  */
 import { describe, it, expect } from 'vitest';
 import { drillDown, drillDownInto, autoPaginate } from '../transforms/index';
 import type { DrillDownResult, DrillDownIntoSuccess } from '../transforms/index';
-import type { SelectDef } from '../schema';
+import type { SelectDef, ExprDef } from '../schema';
 import { SelectQuery } from '../queries/index';
-import { runtimeFixture } from './_utils';
+import { runtimeFixture, ref } from './_utils';
 
 /** Build the canonical "revenue per user" aggregate select. */
 function revenuePerUser(): SelectDef {
@@ -140,6 +141,91 @@ describe('query.params — introspection', () => {
     expect(byName.has('offset')).toBe(true);
     expect(byName.get('limit')!.type.kind).toBe('number');
     expect(byName.get('offset')!.type.kind).toBe('number');
+  });
+});
+
+// ─── A13: `count(*)` must not re-project a column the SELECT already has ─────
+
+describe('A13 — the group key is projected ONCE, not twice', () => {
+  const countStar: ExprDef = { kind: 'aggregate', function: 'count', args: {} };
+
+  /** `SELECT <key> [AS alias], count(*) FROM order GROUP BY <key>`. */
+  const groupedCount = (key: ExprDef, as?: string): SelectDef => ({
+    kind: 'select',
+    fields: [as === undefined ? { expr: key } : { expr: key, as }, { expr: countStar, as: 'cnt' }],
+    from: { kind: 'type', type: 'order' },
+    groupBy: [key],
+  });
+
+  /** The drilled projection's expr defs, in order. */
+  const projection = (def: SelectDef): ExprDef[] => {
+    const fx = runtimeFixture();
+    const r = drillDown(def, fx.engine);
+    if (!('query' in r)) throw new Error(`expected success: ${JSON.stringify(r.error.list)}`);
+    const out = r.query.toJSON();
+    if (out.kind !== 'select') throw new Error('expected a select');
+    return out.fields.map((f) => f.expr);
+  };
+
+  it('un-ravels `key, count(*)` to each column exactly once', () => {
+    // THE defect, in the single most common shape a drill-down is generated
+    // from: `count(*)` expands to the FROM type's fields, which ALREADY include
+    // the surviving group key — so the key came back twice (a table with two
+    // identical "Status" columns; on mobile, each card listing it twice).
+    expect(projection(groupedCount(ref('order', 'note'), 'note'))).toEqual([
+      ref('order', 'note'), // the group key, surviving unchanged…
+      ref('order', 'id'),
+      ref('order', 'userId'),
+      ref('order', 'total'), // …and NOT `order.note` a second time
+    ]);
+  });
+
+  it('skips the key even when the surviving item carries a DIFFERENT alias', () => {
+    // The expansion is keyed on the EXPRESSION, so an alias on the group key
+    // cannot smuggle a second copy of the column back in.
+    expect(projection(groupedCount(ref('order', 'note'), 'theNote'))).toEqual([
+      ref('order', 'note'),
+      ref('order', 'id'),
+      ref('order', 'userId'),
+      ref('order', 'total'),
+    ]);
+  });
+
+  it('keys the skip on the CANONICAL FORM, never on the output name', () => {
+    // `total` projected UNDER THE NAME `note`. Deduplicating by output name
+    // would drop the star's real `note` column (its name is taken) and keep
+    // `total` — the wrong column, silently. The canonical form drops `total`,
+    // which is the one actually already projected.
+    expect(projection(groupedCount(ref('order', 'total'), 'note'))).toEqual([
+      ref('order', 'total'), // projected as "note"
+      ref('order', 'id'),
+      ref('order', 'userId'),
+      ref('order', 'note'), // the REAL note column survives the expansion
+    ]);
+  });
+
+  it('still expands to EVERY field when the SELECT projects none of them', () => {
+    // A bare `count(*)` has nothing to skip — the un-ravelling is the whole row.
+    expect(projection({
+      kind: 'select',
+      fields: [{ expr: countStar, as: 'cnt' }],
+      from: { kind: 'type', type: 'order' },
+    })).toEqual([ref('order', 'id'), ref('order', 'userId'), ref('order', 'total'), ref('order', 'note')]);
+  });
+
+  it('the RUN reports each column once — what the consumer renders', async () => {
+    // The structural assertions above say what is emitted; this says what a
+    // consumer SEES, which is where the duplicate was observed. A duplicated
+    // column is invisible in `rows` (a row object collapses the repeated key)
+    // and visible in `fields` — the list a table/card view renders from.
+    const fx = runtimeFixture();
+    const drilled = drillDownInto(groupedCount(ref('order', 'note'), 'note'), { note: 'first', cnt: 1 }, fx.engine);
+    if (!('query' in drilled)) throw new Error('expected success');
+    const run = await fx.engine.run(drilled.query, { params: drilled.params });
+    const names = run.fields.map((f) => f.name);
+    expect(names).toEqual(['note', 'id', 'userId', 'total']);
+    expect(new Set(names).size).toBe(names.length);
+    expect(run.rows).toEqual([{ note: 'first', id: 10, userId: { id: 1 }, total: 100 }]);
   });
 });
 

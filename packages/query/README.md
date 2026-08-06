@@ -337,6 +337,16 @@ const result = await engine.run(query, { params, filters, includeTotal });
 //   result.total  — pre-limit row count, when run with `includeTotal: true`
 ```
 
+Each field's `type` is the full `ResolvedType`. A **computed** one carries
+`aggregate` (does a group collapse happen anywhere in this expression?) and
+`aggregateFn` — the APPLIED aggregate's name, present exactly when the value IS
+one aggregate call. `sum(hours) as total_hours` reports `aggregateFn: 'sum'`
+under any alias; `max(a) - min(b)` reports `aggregate: true` with NO
+`aggregateFn` (it contains aggregates but is none); a window over an
+aggregate-shaped function reports neither. Read it rather than inferring the
+function from the output column NAME, which cannot see through an alias and
+mistakes `hours * 2 as count` for an aggregate.
+
 Everything composes around that one call:
 
 - **Params.** A `param` (`{ kind: 'param', name }`) infers its type from how it
@@ -849,6 +859,13 @@ The param NAME is derived from the carrying output field (sanitized to a valid
 identifier; suffixed `_2`, `_3`, … on collision with a param the query already
 uses). Failure cases (`drill.no-aggregation` / `non-invertible` /
 `having-aggregate` / `window-unsupported`) return LLM-friendly `Problems`.
+
+Each aggregate is replaced by its underlying row-level expression, and `count(*)`
+— which has no single value — expands to the FROM type's fields MINUS the ones
+the SELECT already projects itself. So `SELECT status, count(*) … GROUP BY status`
+drills to `status` plus the remaining columns, with the group key projected ONCE.
+The skip is keyed on the EXPRESSION (its canonical form), never on the output
+name: two different expressions may legitimately share a name.
 
 ## Cost & estimation
 

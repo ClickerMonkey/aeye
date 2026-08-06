@@ -140,20 +140,30 @@ export class AggregateExpr extends Expr {
     for (const a of this.args.values()) visit(a);
   }
 
-  /** Resolve to the function's declared output type, marked aggregate and nullable (except `count`). */
+  /**
+   * Resolve to the function's declared output type, marked aggregate and nullable
+   * (except `count`), and carrying the APPLIED function's name.
+   *
+   * `aggregateFn` is set on BOTH roads — including the unknown-function fallback,
+   * where the name is still the fact of what was written even though the
+   * resolution is a placeholder. This is the ONE node that can answer "which
+   * aggregate is this?": every wrapping expr reports `aggregate: true` from its
+   * children without a single applied function, and `Function.resolveOutput`
+   * never sets it, so nothing propagates a stale name upward.
+   */
   resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
       // Unknown aggregate: a nullable numeric aggregate keeps downstream
       // resolution total; `validateWalk` reports the real `aggregate.unknown`.
-      return computed(new NumberFieldType(), [], true, true);
+      return computed(new NumberFieldType(), [], true, true, this.fn);
     }
     const base = fn.resolveOutput(resolveNamedArgs(this.args, engine, scope));
     if (base.kind !== 'computed') return base;
     // Aggregate nullability is structural: every aggregate but `count` can be
     // NULL over an empty group; `count` never is.
     const nullable = this.fn !== 'count';
-    return { ...base, nullable, aggregate: true };
+    return { ...base, nullable, aggregate: true, aggregateFn: this.fn };
   }
 
   /** Validate aggregate placement (not in WHERE, not nested) and the function's own named-arg checks. */

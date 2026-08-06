@@ -21,6 +21,11 @@
  * and both roads emit through {@link writeCellSql}, which hands the target
  * COLUMN's field type to `Dialect.jsonValue` — the difference between a `jsonb`
  * cast and the `ARRAY[…]::text[]` a native array column needs.
+ *
+ * A12 (0.6.2) — THAT ROUTING NOW ASKS THE COLUMN, NOT THE VALUE. Asking the
+ * value ("is it a document?") missed the JSON *scalar*: a bare string / number /
+ * boolean is a legal value of a `json` column and was bound raw and uncast, so
+ * Postgres rejected the statement at run time. See {@link writeCellSql}.
  */
 import type { Expr, ValidateContext } from '../expr';
 import type { QueryEngine } from '../engine';
@@ -149,14 +154,37 @@ export function validateWriteValue(
 }
 
 /**
- * Emit ONE write cell, giving a DOCUMENT value the target COLUMN's field type.
+ * Emit ONE write cell, giving a JSON value the target COLUMN's field type.
  *
- * A document has to be told what to be cast to, and only the write position
+ * A JSON value has to be told what to be cast to, and only the write position
  * knows: `Expr.toSQL` sees the value's own shape and nothing else, so a
  * `['a','b']` bound for a Postgres `text[]` would otherwise be cast to `jsonb`
- * and rejected by the server. BOTH roads a document can arrive by are routed
- * here — a `LiteralExpr` carrying it, and a `param` bound to it — so neither
- * falls back to the shape-only default, and neither can bind NULL.
+ * and rejected by the server. BOTH roads a value can arrive by are routed here —
+ * a `LiteralExpr` carrying it, and a `param` bound to it — so neither falls back
+ * to the shape-only default, and neither can bind NULL.
+ *
+ * A12 — THE COLUMN DECIDES, NOT THE VALUE'S SHAPE. Until 0.6.2 the routing asked
+ * the VALUE ("is it a document?"), which left a JSON *scalar* — a bare string,
+ * number or boolean, every one of them a legal value of a `json` column — bound
+ * raw and uncast: `VALUES ($1, $2)`, which Postgres rejects (`column is of type
+ * jsonb but expression is of type text`) with nothing upstream to catch it. A
+ * cast ALONE would not have fixed it either — `CAST('a bare string' AS jsonb)`
+ * is invalid JSON input — so the value must be JSON-ENCODED as well, which is
+ * exactly the pair `Dialect.jsonValue` applies. It is reachable only through a
+ * `param`: a scalar LITERAL into a `json` column is refused at validation
+ * (`write.type`, `JsonFieldType.comparableWith`), while a param is exempt from
+ * that check because it takes the COLUMN's type (`validateWriteValue`) and its
+ * value only exists at emit time. Both roads are routed the same way regardless,
+ * since `toSQL` carries no guarantee that validation ran.
+ *
+ * SQL NULL stays SQL NULL. A null literal is the documented — and only — way to
+ * write SQL NULL, and an unbound param binds NULL; routing either through
+ * `jsonValue` would emit `CAST('null' AS jsonb)`, i.e. the JSON *value* `null`,
+ * a different thing. So a null is always left to `Expr.toSQL`.
+ *
+ * An `array` column is deliberately NOT included: a scalar is not a value of an
+ * array column at all (there is no correct cast to emit — `CAST('x' AS text[])`
+ * is a syntax error), so it stays a value problem, not an emission one.
  */
 export function writeCellSql(
   expr: Expr,
@@ -164,22 +192,27 @@ export function writeCellSql(
   dialect: Dialect,
   ctx: SqlContext,
 ): SqlText {
-  const document = writeDocument(expr, ctx);
-  return document !== undefined ? dialect.jsonValue(document, field?.fieldType) : expr.toSQL(dialect, ctx);
+  const value = writeCellValue(expr, ctx);
+  if (value !== undefined && value !== null && (typeof value === 'object' || isJsonColumn(field))) {
+    return dialect.jsonValue(value, field?.fieldType);
+  }
+  return expr.toSQL(dialect, ctx);
+}
+
+/** Whether this write cell's target column is a `json` one (the A12 routing key). */
+function isJsonColumn(field: Field | undefined): boolean {
+  return field?.fieldType.resolve() === 'json';
 }
 
 /**
- * The JSON DOCUMENT this write cell carries — a literal's own value, or the
- * value bound to a param — or `undefined` when the cell is a scalar or an
- * expression to emit normally.
+ * The JSON VALUE this write cell carries at emit time — a literal's own value,
+ * or the value bound to a param — or `undefined` when the cell is an expression
+ * to emit normally (a ref, a function call, an unbound param).
  */
-function writeDocument(expr: Expr, ctx: SqlContext): JsonValue | undefined {
-  if (expr instanceof LiteralExpr) {
-    return expr.value !== null && typeof expr.value === 'object' ? expr.value : undefined;
-  }
+function writeCellValue(expr: Expr, ctx: SqlContext): JsonValue | undefined {
+  if (expr instanceof LiteralExpr) return expr.value;
   if (expr instanceof ParamExpr && Object.prototype.hasOwnProperty.call(ctx.params, expr.name)) {
-    const bound = ctx.params[expr.name];
-    return bound !== null && bound !== undefined && typeof bound === 'object' ? bound : undefined;
+    return ctx.params[expr.name];
   }
   return undefined;
 }

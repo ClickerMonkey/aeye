@@ -3,6 +3,225 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.6.2
+
+Three asks from the consuming product's adoption of `0.6.1`. Two are defects that reach the
+DATABASE with nothing upstream to catch them, and both shipped because the case was never
+tested; the third closes a gap in what a resolved type tells a consumer:
+
+- **A13** — `drillDown` projected the GROUP KEY twice for `SELECT key, count(*) … GROUP BY key`,
+  the single most common shape a drill-down is generated from. Cosmetic, but universally visible.
+- **A12** — a `json` PARAM bound to a JSON *scalar* emitted uncast, un-encoded SQL, which
+  Postgres rejects at run time.
+- **A14** — the APPLIED aggregate function never crossed the wire, so a consumer labelling a
+  computed column had to infer it from the column's output NAME.
+
+**None of the three is a breaking change.** A13 REMOVES a duplicate column from a drilled
+projection (one consumer-visible note in its section); A12 turns a statement that failed at the
+server into one that runs; A14 is purely additive. Nothing that worked before behaves
+differently.
+
+Also here: `date` / `timestamp` writes are now TESTED — they never were, which is A11's root
+cause — pinned exactly as `0.6.1` shipped them. **A11 itself is NOT fixed**; see below.
+
+---
+
+## A13 — `drillDown` projected the group key TWICE (**P2, cosmetic but universal**)
+
+Observed live, not derived: clicking a slice of a grouped pie chart opened a table with two
+identical "Status" columns, and on mobile each card listed "Status todo" twice.
+
+It falls straight out of step (3) of the algorithm. For `SELECT status, count(*) FROM task
+GROUP BY status`:
+
+- `status` is a plain non-aggregate — *"a group key / ref — survives unchanged"* — and is
+  pushed as-is;
+- `count(*)` is an arg-less aggregate, so `expandStar()` pushes **one `field-ref` per field of
+  the FROM type** — which includes `status` again.
+
+So the un-ravelled projection was `[status, …every column…]`, with the key duplicated for every
+`count(*)`-over-a-grouped-key query. Nothing was *wrong* in the result — the rows are right and
+the extra column is consistent — which is why it survived.
+
+### What changed
+
+`expandStar` now takes the set of canonical forms the SELECT **already projects itself** and
+skips those fields. `drillDown` builds that set from the items that survive un-ravelling
+UNCHANGED, out of the `colInfo` it already computes one block earlier for group-key matching.
+
+The key is the **canonical form** (`canonicalize` / `exprDigest`), never the output NAME. Two
+different expressions may legitimately project under one name, and the same expression may
+carry an alias: `SELECT total AS "note", count(*)` deduplicated by NAME would have dropped the
+star's real `note` column and kept `total` — the wrong column, silently.
+
+Only the UNCHANGED survivors seed the set. An aggregate that un-ravels to a bare field is
+re-aliased to the aggregate's own output name (`sum(total)` → `total AS "revenue"`), so
+`SELECT key, count(*), sum(total)` still projects `total` twice — once as itself, once as
+`"revenue"`. That is left alone deliberately: dropping either deletes a column NAME a caller
+can read, and which one to keep is a presentation decision, not the transform's.
+
+### What changes for an existing consumer
+
+A drilled projection built from `count(*)` **no longer repeats** a column the SELECT projects
+itself. A consumer that indexes the drilled `fields` array POSITIONALLY past the group key sees
+the columns shift left by one per skipped field; one that reads by NAME is unaffected (and was
+reading a duplicate name before).
+
+---
+
+## A12 — a `json` param bound to a SCALAR emitted uncast SQL (**P3, run-time failure**)
+
+`writeCellSql` routed a write value through `Dialect.jsonValue` only when the VALUE was a
+DOCUMENT. A JSON *scalar* — a bare string, a number, a boolean, each a legal value of a `json`
+column — was bound raw:
+
+```
+json param <- {"a":1}           INSERT … VALUES ($1, CAST($2 AS jsonb))   params: ["x","{\"a\":1}"]
+json param <- "a bare string"   INSERT … VALUES ($1, $2)                  params: ["x","a bare string"]
+```
+
+Postgres rejects the second (`column is of type jsonb but expression is of type text`). Not a
+regression — `0.6.0`'s literal road bound it uncast too — but a run-time failure with nothing
+before the server to catch it.
+
+### The COLUMN decides, not the value's shape
+
+Asking the value is the defect: only the write position knows the column, and only the column
+can say what the cast has to be. `writeCellSql` now encodes-and-casts whenever the target column
+is `json`, whatever shape the value has.
+
+**A cast alone would not have fixed it.** `CAST('a bare string' AS jsonb)` is invalid JSON input
+— one run-time error swapped for another — so the value must be JSON-ENCODED as well, which is
+exactly the pair `Dialect.jsonValue` already applies (`"a bare string"`, `42`, `true`).
+
+Three boundaries the fix holds:
+
+- **SQL NULL stays SQL NULL.** A null literal is the documented — and only — way to write SQL
+  NULL, and an unbound param binds NULL. Routing either through `jsonValue` would emit
+  `CAST('null' AS jsonb)`, i.e. the JSON *value* `null`, a different thing in a `jsonb` column.
+  A null is always left to `Expr.toSQL`.
+- **An `array` column is NOT included.** A scalar is not a value of an array column at all, and
+  there is no correct cast to emit (`CAST('x' AS text[])` is a syntax error), so it stays a
+  VALUE problem — `write.type` on the literal road — not something emission can paper over.
+- **A text column is untouched**: only a `json` target encodes.
+
+Reachable only through a `param`, incidentally: a scalar LITERAL into a `json` column is already
+refused at validation (`write.type`, via `JsonFieldType.comparableWith`), while a param is exempt
+from that check because it takes the COLUMN's type and its value exists only at emit time. Both
+roads are routed identically anyway — `toSQL` carries no guarantee that validation ran — without
+loosening the refusal.
+
+### What changes for an existing consumer
+
+A `json` cell whose value is a JSON scalar now emits `CAST($n AS jsonb)` binding the JSON-ENCODED
+text (`"a bare string"`, not `a bare string`). Statements that previously failed at the server now
+run. A consumer asserting on the emitted SQL / params for that case must update; there is no value
+for which working SQL became different working SQL.
+
+---
+
+## A14 — a resolved type now names the APPLIED aggregate (**additive**)
+
+`ComputedResolved` — and so every `QueryField.type` a consumer reads — said only
+`aggregate: true | false`. WHICH aggregate was applied lived on the live `AggregateExpr` and
+never crossed the wire, so labelling a computed column meant recovering the function from the
+column's OUTPUT NAME. That works for the common case, and soundly: `fieldNameOf` is
+`as ?? (field-ref ? field : aggregate ? fn : col<i>)`, so an unaliased aggregate's output name
+IS its function name, and the consumer then confirms that name against the function catalog.
+
+But it is evidence rather than fact, with two dead spots:
+
+- an **ALIASED** aggregate (`sum(hours) as total_hours`) cannot be recovered at all;
+- a non-aggregate **aliased onto a function name** (`hours * 2 as count`) recovers a false
+  positive that only the `aggregate` flag then rejects.
+
+### `aggregateFn?: string`, a SIBLING — not `aggregate: false | string`
+
+Both shapes were on the table and the sibling is the right one, for a reason beyond it being
+the non-breaking option: **the two fields answer different questions.** `aggregate` is a
+property of the whole SUBTREE — "does a group collapse happen in here?", which is what drives
+placement validation and grouping — while the applied function is a property of exactly ONE
+node. Folding them into `false | string` forces a meaningless value for every composite:
+`max(a) - min(b)` genuinely IS an aggregate and genuinely has no single applied function, so
+the union would have to re-admit `true`, ending up as `boolean | string` — strictly worse than
+a sibling. Presence is then meaningful on its own: `aggregateFn` is set exactly when the value
+IS one aggregate call.
+
+`AggregateExpr.resolve` is the only writer, on both roads — including the unknown-function
+fallback, where the resolution is a placeholder but the name is still the fact of what was
+written. Nothing propagates it upward: `Function.resolveOutput` builds its `ComputedResolved`
+fresh, and `WindowExpr` spreads that base while forcing `aggregate: false`, so `sum(x) OVER (…)`
+reports neither — it is per-row and collapses nothing. A scalar `function-call` does not set it
+either; this names the aggregate that was APPLIED, not any function that was called.
+
+The key is OMITTED rather than set to `undefined` when there is no applied aggregate, so a
+consumer serializing the resolved type across a boundary emits nothing rather than a null
+column.
+
+This is the same lesson as A13, one layer up: A13's drill-down dedupe keys on the canonical
+form precisely because output names are unreliable, and this stops a consumer having to read
+one.
+
+### What changes for an existing consumer
+
+Purely additive — a new optional property on `ComputedResolved`, and one optional trailing
+parameter on the `computed()` builder. Every existing read of `.aggregate` keeps its meaning.
+
+---
+
+## A11 — temporal writes are now TESTED, and deliberately UNCHANGED
+
+A9's `write.type` check compares a write value's category against its column's, and a
+`LiteralExpr`'s category comes from the value's JS type — so it can only ever be `text` /
+`number` / `bool` / `json` / `array`. **No literal is assignable to a `date` or `timestamp`
+column**, and there is no third road: `LiteralExpr.resolve()` has no arm yielding a temporal type
+and no `toDate` / `toTimestamp` builtin exists to wrap one. A `param` is the only cell shape that
+writes a temporal column.
+
+That shipped because **the suite never wrote a temporal column at all**. `0.6.2` adds
+`src/__tests__/write-temporal-value.test.ts`, which states BOTH halves as they are today: the
+param road works end to end, and every literal is `write.type`. It also records the fact that
+makes this worth revisiting — the model-facing `writes: 'typed'` schema renders each cell as
+`field.fieldType.toValueSchema() OR Expr`, and `DateFieldType.toValueSchema()` **is** an ISO-date
+string, so the schema invites the model to emit exactly what the validator refuses. That is the
+same schema ⇄ parser disagreement A9 closed for `json` / `array`.
+
+**No behaviour changed.** Widening it is a real design decision — which values a temporal column
+accepts as a literal, and whether "the column's own value schema is the authority" is applied to
+every kind (for `json` it would flip `write.type` on `"not a document"` from refusal to
+acceptance, weakening a shipped guarantee). So it stays open, and is now pinned rather than
+untested.
+
+---
+
+## Tests
+
+`src/__tests__/drill-down.test.ts` gains the A13 block. Its assertions with teeth are the exact
+PROJECTION (a `toEqual` over the emitted expr defs, which a duplicate breaks) and the RUN's
+reported `fields` — the list a consumer actually renders, and where the duplicate was seen. A
+duplicated column is invisible in `rows`, because a row object collapses the repeated key. One
+case projects `total` under the name `note` to prove the skip is keyed on the EXPRESSION: keyed
+on the name it would drop the wrong column.
+
+`src/__tests__/write-json-value.test.ts` gains the A12 block: the encoded param VALUE as well as
+the cast (a cast over un-encoded text is still broken SQL), the SQL-NULL exemptions, the `array`
+and `text` columns staying untouched, and the literal road emitting correctly while still being
+refused by validation. It also closes three emission paths the suite never reached — an array of
+DOCUMENTS (`ARRAY[CAST($1 AS jsonb), …]::jsonb[]`), a document with NO target column falling back
+to the dialect's own json type, and a PARAM bound to a document outside a write cell.
+
+`src/__tests__/aggregate-fn-resolved.test.ts` is new (A14). Its two load-bearing cases are the
+dead spots the output name could not cover — an ALIASED aggregate, and `total * 2 as count`
+whose name says "aggregate" and whose expression is not one — asserted through `outputFields`,
+the surface a consumer reads, rather than against `resolve()` in isolation. The NEGATIVES carry
+as much weight: a composite over two aggregates has no single applied function, and a window
+over an aggregate-shaped function is not an aggregate at all, so a regression that propagated a
+child's name upward or set one for a window is caught here and nowhere else.
+
+`src/__tests__/write-temporal-value.test.ts` is new (A11, above).
+
+---
+
 ## 0.6.1
 
 Two things: a **P1 write defect (A9)** — a `json` or `array` column could not be written at

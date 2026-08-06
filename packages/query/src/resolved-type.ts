@@ -105,6 +105,34 @@ export interface ComputedResolved {
   nullable: boolean;
   /** Whether this computation is (or contains) an aggregate. */
   aggregate: boolean;
+  /**
+   * The APPLIED aggregate function's name (`'sum'`, `'count'`, …) — present
+   * exactly when this value IS one aggregate call, absent when it merely
+   * CONTAINS one (`max(a) - min(b)` is `aggregate: true` with no single applied
+   * function) and absent for every non-aggregate.
+   *
+   * It is a SIBLING of `aggregate` rather than a widening of it because the two
+   * answer different questions: `aggregate` is a property of the whole SUBTREE
+   * ("does a group collapse happen in here?", which drives placement validation
+   * and grouping), while this is a property of ONE node. Folding them into
+   * `false | string` would force a meaningless value for every composite.
+   *
+   * WHY IT EXISTS. Without it, a consumer labelling a computed column has to
+   * recover the function from the column's OUTPUT NAME — `fieldNameOf` is
+   * `as ?? (field-ref ? field : aggregate ? fn : col<i>)`, so an UNALIASED
+   * aggregate's output name IS its function name — and then confirm that name
+   * against the function catalog. That is evidence rather than fact, and it has
+   * two dead spots: an ALIASED aggregate (`sum(hours) as total_hours`) cannot be
+   * recovered at all, and a non-aggregate aliased onto a function name
+   * (`hours * 2 as count`) is a false positive that only `aggregate` then
+   * rejects. Reading this closes both.
+   *
+   * A WINDOW is deliberately excluded, even over an aggregate-shaped function
+   * (`sum(x) OVER (…)`): it is per-row, collapses nothing, and already reports
+   * `aggregate: false`. A scalar `function-call` does not set it either — this
+   * names the aggregate that was APPLIED, not any function that was called.
+   */
+  aggregateFn?: string;
 }
 
 /** The discriminated union of every expression / source resolution outcome. */

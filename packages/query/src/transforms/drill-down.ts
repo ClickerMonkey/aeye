@@ -18,7 +18,8 @@
  *     AGGREGATED query's OUTPUT field that carries that key's value per row.
  *     No `groupRow`, no literals.
  *  3. Replace each aggregate SELECT item with its underlying non-aggregated
- *     expr: `sum(o.total)` → `o.total`, `count(*)` → all FROM fields. An
+ *     expr: `sum(o.total)` → `o.total`, `count(*)` → every FROM field the SELECT
+ *     does not already project itself (so a group key is not duplicated). An
  *     aggregate over a non-field argument (a literal / param) is
  *     `drill.non-invertible` (names the offending alias).
  *  4. Drop GROUP BY / HAVING. A HAVING clause that references group keys (no
@@ -48,6 +49,7 @@ import type { SourceRecord } from '../runtime/row';
 import type { QueryEngine } from '../engine';
 import type { Expr } from '../expr';
 import { canonicalize } from '../expr';
+import { exprDigest } from '../index-spec';
 import { ParamSet } from '../param';
 import { Problems } from '../problem';
 import {
@@ -562,18 +564,40 @@ function uniqueParamName(field: string, taken: Set<string>): string {
 }
 
 /**
- * Expand `count(*)` into a field-ref per field of the FROM type. Returns
- * `undefined` when the FROM source isn't a plain type (so its fields can't
- * be enumerated) — the caller treats that as non-invertible.
+ * Expand `count(*)` into a field-ref per field of the FROM type, SKIPPING every
+ * field the SELECT already projects itself (`projected`, canonical forms —
+ * built by the caller from the items that survive un-ravelling unchanged).
+ * Returns `undefined` when the FROM source isn't a plain type (so its fields
+ * can't be enumerated) — the caller treats that as non-invertible.
+ *
+ * WHY THE SKIP. `count(*)` un-ravels to "the underlying rows", i.e. the FROM
+ * type's fields — but a group key is BOTH a surviving select item and one of
+ * those fields, so `SELECT status, count(*) … GROUP BY status` drilled to
+ * `[status, …every column…]` with `status` projected TWICE. That is the single
+ * most common shape a drill-down is generated from, and the duplicate column is
+ * visible in every consumer that renders the result.
+ *
+ * Keyed on the CANONICAL form ({@link canonicalize} / `exprDigest`, the same
+ * digest the caller's `colInfo` carries), never on the output NAME: two
+ * different expressions may legitimately project under one name, and the same
+ * expression may carry an alias.
  */
-function expandStar(select: SelectQuery, engine: QueryEngine): SelectFieldDef[] | undefined {
+function expandStar(
+  select: SelectQuery,
+  engine: QueryEngine,
+  projected: ReadonlySet<string>,
+): SelectFieldDef[] | undefined {
   const from = select.from;
   if (from.sourceKind !== 'type' || from.typeName === undefined) return undefined;
   const type = engine.type(from.typeName);
   if (!type) return undefined;
-  return type.fields.map((f): SelectFieldDef => ({
-    expr: { kind: 'field-ref', source: from.alias, field: f.name },
-  }));
+  const fields: SelectFieldDef[] = [];
+  for (const f of type.fields) {
+    const expr: ExprDef = { kind: 'field-ref', source: from.alias, field: f.name };
+    if (projected.has(exprDigest(expr))) continue;
+    fields.push({ expr });
+  }
+  return fields;
 }
 
 /**
@@ -628,6 +652,18 @@ export function drillDown(
     name: nameOf(c.expr, c.as, i),
   }));
 
+  // The canonical form of every item that SURVIVES step (3) UNCHANGED (a group
+  // key / plain ref). A `count(*)` in the same SELECT expands to the FROM type's
+  // fields, which OVERLAP these — so the expansion skips them and each column is
+  // projected once. Only the survivors go in: an aggregate that un-ravels to a
+  // field is re-aliased to the aggregate's own output name (`sum(total)` →
+  // `total AS "revenue"`), so the star's own `total` column is not the same
+  // column, and dropping it would delete a name the caller can read.
+  const projected = new Set<string>();
+  sq.fields.forEach((c, i) => {
+    if (!c.expr.containsAggregate()) projected.add(colInfo[i]!.canon);
+  });
+
   // (2) Pin each group key to a fresh bind PARAM (`key = param(name)`), and
   //     record the `field → param` mapping so a caller can supply the value.
   const taken = referencedParamNames(sq);
@@ -646,15 +682,16 @@ export function drillDown(
   // (3) UN-AGGREGATE each SELECT item to its underlying row-level expression
   //     (`sum(o.total)` → `o.total`, `max(a)-min(b)` → `a-b`, `count(v)` → its 0/1
   //     case). `count(*)` is special — it has no single value, so it EXPANDS to
-  //     the source's fields (showing the underlying rows). An aggregate field that
-  //     cannot be un-aggregated, or un-aggregates to something FIELD-LESS (a
-  //     literal / param), is `drill.non-invertible`.
+  //     the source's fields (showing the underlying rows), MINUS the ones this
+  //     SELECT already projects itself. An aggregate field that cannot be
+  //     un-aggregated, or un-aggregates to something FIELD-LESS (a literal /
+  //     param), is `drill.non-invertible`.
   const newFields: SelectFieldDef[] = [];
   sq.fields.forEach((c, i) => {
     const e = c.expr;
-    // count(*) (an arg-less aggregate): expand to the source's fields.
+    // count(*) (an arg-less aggregate): expand to the source's not-yet-projected fields.
     if (e instanceof AggregateExpr && e.valueArg() === undefined) {
-      const expanded = expandStar(sq, engine);
+      const expanded = expandStar(sq, engine, projected);
       if (!expanded) {
         errors.at(['fields', i], () =>
           errors.error(

@@ -15,13 +15,17 @@
  * The assertions with teeth here are the ROUND TRIPS — write a document, read
  * the same document back out — plus the emitted SQL and its BOUND PARAMS, since
  * "it parsed" is exactly what the broken param road already did.
+ *
+ * A12 (0.6.2) closes the other half: the cast was decided by the VALUE's shape,
+ * so a JSON *scalar* bound to a `json` column emitted uncast SQL that Postgres
+ * rejects. The COLUMN decides now — see the A12 block below.
  */
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import { arrayExecutor } from '../runtime/executor';
 import { buildSchemas } from '../llm/schemas';
-import type { TypeDef, SelectDef, InsertDef, UpdateDef, JsonValue } from '../schema';
+import type { TypeDef, SelectDef, InsertDef, UpdateDef, ExprDef, JsonValue } from '../schema';
 
 /** A Type shaped like the ones this ask came from: a settings blob + a tag list. */
 const widgetDef: TypeDef = {
@@ -34,6 +38,9 @@ const widgetDef: TypeDef = {
     { name: 'settings', type: { kind: 'json' } },
     { name: 'tags', type: { kind: 'array', item: { kind: 'text' } }, nullable: true },
     { name: 'blobs', type: { kind: 'array' }, nullable: true },
+    // A native array whose ELEMENTS are documents — the one shape that makes
+    // `Dialect.jsonValue` recurse into itself (see the emission block below).
+    { name: 'docs', type: { kind: 'array', item: { kind: 'json' } }, nullable: true },
   ],
   indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'widget', field: 'id' }, count: 1 }] }],
   count: 100,
@@ -174,6 +181,54 @@ describe('A9 — a document binds as one parameter, cast to the column type', ()
     expect(sql).toContain('"settings" = CAST($1 AS jsonb)');
     expect(sql).toContain('"tags" = ARRAY[$2]::text[]');
   });
+
+  it('an array of DOCUMENTS binds each element as its own cast document', () => {
+    // The element binding recurses: a native `jsonb[]` is CONSTRUCTED like any
+    // other native array, but each element is itself a document and so takes the
+    // same encode-and-cast treatment rather than being bound raw.
+    const docs: InsertDef = {
+      kind: 'insert',
+      into: 'widget',
+      rows: [{ id: 1, name: 'w', settings: {}, docs: [{ a: 1 }, { b: 2 }] }],
+    };
+    const { sql, params } = engineOf().toSQL(docs, 'postgres');
+    expect(sql).toContain('ARRAY[CAST($4 AS jsonb), CAST($5 AS jsonb)]::jsonb[]');
+    expect(params.slice(3)).toEqual(['{"a":1}', '{"b":2}']);
+  });
+
+  /** `SELECT id FROM widget WHERE settings = <right>` — a document OUTSIDE a write cell. */
+  const whereSettings = (right: ExprDef): SelectDef => ({
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 'widget', field: 'id' }, as: 'id' }],
+    from: { kind: 'type', type: 'widget' },
+    where: [{
+      kind: 'comparison',
+      op: '=',
+      left: { kind: 'field-ref', source: 'widget', field: 'settings' },
+      right,
+    }],
+  });
+
+  it("a document with NO target column falls back to the dialect's own json type", () => {
+    // Outside a write cell nothing supplies a target column — a document literal
+    // in a WHERE knows only its own shape — so the cast names the DIALECT's json
+    // type. The base dialect's is portable `json`; Postgres overrides to `jsonb`.
+    const select = whereSettings({ kind: 'literal', value: SETTINGS });
+    expect(engineOf().validateQuery(select).list.map((p) => p.code)).toEqual([]);
+    expect(engineOf().toSQL(select, 'base').sql).toContain('= CAST(? AS json)');
+    expect(engineOf().toSQL(select, 'postgres').sql).toContain('= CAST($1 AS jsonb)');
+  });
+
+  it('a PARAM bound to a document outside a write cell binds the same way', () => {
+    // The write path routes through `writeCellSql`; every other position falls
+    // back to `ParamExpr.toSQL`, which must bind the document rather than
+    // collapse it to NULL — the A9 failure, in the one position A9's tests did
+    // not reach.
+    const select = whereSettings({ kind: 'param', name: 'cfg' });
+    const { sql, params } = engineOf().toSQL(select, 'postgres', { params: { cfg: SETTINGS } });
+    expect(sql).toContain('= CAST($1 AS jsonb)');
+    expect(params).toEqual([JSON.stringify(SETTINGS)]);
+  });
 });
 
 // ─── The PARAM road: bound, never silently NULL ──────────────────────────────
@@ -219,6 +274,105 @@ describe('A9 — a param bound to a document is BOUND, never silently NULL', () 
   it('an unbound param still binds NULL (nothing was supplied to bind)', () => {
     const { params } = engineOf().toSQL(insert, 'postgres');
     expect(params).toContain(null);
+  });
+});
+
+// ─── A12: the CAST is decided by the COLUMN, not by the value's shape ────────
+
+describe('A12 — a json cell is JSON-encoded and cast because the COLUMN is json', () => {
+  /** `INSERT … (settings) VALUES (:cfg)` — the only road a scalar reaches a json cell. */
+  const insert: InsertDef = {
+    kind: 'insert',
+    into: 'widget',
+    rows: [{ id: 1, name: 'w', settings: { kind: 'param', name: 'cfg' } }],
+  };
+
+  it.each([
+    ['a bare string', '"a bare string"'],
+    [42, '42'],
+    [true, 'true'],
+  ] as const)('encodes + casts the scalar %j bound to a json param', (value, encoded) => {
+    // Until 0.6.2 the routing asked the VALUE ("is it a document?"), so a JSON
+    // SCALAR — every one of these a legal value of a `json` column — was bound
+    // raw and uncast (`VALUES ($1, $2)`), which Postgres rejects at run time
+    // with nothing upstream to catch it.
+    const { sql, params } = engineOf().toSQL(insert, 'postgres', { params: { cfg: value } });
+    expect(sql).toContain('CAST($3 AS jsonb)');
+    // BOTH halves matter: a cast alone would emit `CAST('a bare string' AS jsonb)`,
+    // which is invalid JSON input — one run-time error swapped for another.
+    expect(params[2]).toBe(encoded);
+  });
+
+  it('round-trips a scalar bound to a json column through the runtime', async () => {
+    const engine = engineOf();
+    const withReturning: InsertDef = { ...insert, returning: [...readBackColumns] };
+    expect((await engine.run(withReturning, { params: { cfg: 'a bare string' } })).rows).toEqual([
+      { id: 1, settings: 'a bare string', tags: null },
+    ]);
+  });
+
+  it('a NULL still binds SQL NULL — never the JSON value `null`', () => {
+    // The exemption that has to survive the widening: a null literal is the
+    // documented (and only) way to write SQL NULL, and an unbound param binds
+    // NULL. Routing either through `jsonValue` would emit `CAST('null' AS jsonb)`
+    // — the JSON value `null`, which is a different thing in a jsonb column.
+    const bound = engineOf().toSQL(insert, 'postgres', { params: { cfg: null } });
+    expect(bound.sql).toContain('VALUES ($1, $2, $3)');
+    expect(bound.params[2]).toBe(null);
+    const nullLiteral: UpdateDef = {
+      kind: 'update',
+      type: 'widget',
+      set: { settings: { kind: 'literal', value: null } },
+    };
+    expect(engineOf().toSQL(nullLiteral, 'postgres').sql).toContain('"settings" = NULL');
+  });
+
+  it('an UPDATE SET casts a scalar the same way', () => {
+    const update: UpdateDef = { kind: 'update', type: 'widget', set: { settings: { kind: 'param', name: 'cfg' } } };
+    const { sql, params } = engineOf().toSQL(update, 'postgres', { params: { cfg: 7 } });
+    expect(sql).toContain('"settings" = CAST($1 AS jsonb)');
+    expect(params[0]).toBe('7');
+  });
+
+  it('the base dialect casts a scalar to its own portable json type', () => {
+    const { sql, params } = engineOf().toSQL(insert, 'base', { params: { cfg: 'x' } });
+    expect(sql).toContain('CAST(? AS json)');
+    expect(params).toContain('"x"');
+  });
+
+  it('a NATIVE array column is left alone — a scalar there has no correct cast', () => {
+    // `CAST('x' AS text[])` is a syntax error, and a scalar is not a value of an
+    // array column at all. That stays a VALUE problem (`write.type` on the
+    // literal road), not something emission can paper over.
+    const arrayInsert: InsertDef = {
+      kind: 'insert',
+      into: 'widget',
+      rows: [{ id: 1, name: 'w', settings: {}, tags: { kind: 'param', name: 't' } }],
+    };
+    const { sql } = engineOf().toSQL(arrayInsert, 'postgres', { params: { t: 'x' } });
+    expect(sql).toContain('VALUES ($1, $2, CAST($3 AS jsonb), $4)');
+  });
+
+  it('a text column is untouched — only a json column encodes', () => {
+    const { sql, params } = engineOf().toSQL(
+      { kind: 'insert', into: 'widget', rows: [{ id: 1, name: { kind: 'param', name: 'n' }, settings: {} }] },
+      'postgres',
+      { params: { n: 'w' } },
+    );
+    expect(sql).toContain('VALUES ($1, $2, CAST($3 AS jsonb))');
+    expect(params[1]).toBe('w'); // the raw string, not `"w"`
+  });
+
+  it('emission does not assume validation ran — the literal road casts too, and is still refused', () => {
+    // A scalar LITERAL into a json column is refused by `write.type`
+    // (`JsonFieldType.comparableWith`), which is why only the param road could
+    // reach the database. `toSQL` carries no guarantee that validation ran, so
+    // it emits the correct statement anyway — without loosening the refusal.
+    const literal: InsertDef = { kind: 'insert', into: 'widget', rows: [{ id: 1, name: 'w', settings: 'bare' }] };
+    expect(engineOf().validateQuery(literal).list.map((p) => p.code)).toContain('write.type');
+    const { sql, params } = engineOf().toSQL(literal, 'postgres');
+    expect(sql).toContain('CAST($3 AS jsonb)');
+    expect(params[2]).toBe('"bare"');
   });
 });
 
