@@ -76,8 +76,14 @@ export interface RuntimeOptions {
    */
   rls?: RlsProvider;
   /**
-   * When true, a top-level SELECT also reports `total` — the result count after
-   * WHERE/JOIN/GROUP/HAVING/DISTINCT but BEFORE limit/offset.
+   * When true, the ENTRY SELECT also reports `total` — the result count after
+   * WHERE/JOIN/GROUP/HAVING/DISTINCT but BEFORE limit/offset. ONLY the entry
+   * query's total is observable: a NESTED select (a CTE body, a set-op branch, a
+   * FROM subquery) hands its result to a parent that builds a fresh one. So a
+   * query whose ENTRY is a SET OPERATION reports NO `total` — mirroring SQL,
+   * where `$total` is a PROJECTED column and emitting it per arm would change
+   * the set comparison and therefore the ROWS. Wrap the set operation in a
+   * SELECT over a `subquery` source when a paged set operation needs a count.
    */
   includeTotal?: boolean;
   /** Embedder override (defaults to the engine's). */

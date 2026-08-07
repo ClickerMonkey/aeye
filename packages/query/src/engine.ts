@@ -101,7 +101,16 @@ export interface BaseSqlOptions {
   filters?: Record<string, ExprDef | Expr | null>;
   /** Execution-time dynamic-sort selection, feeding a SELECT `order`'s `sorter`. */
   sort?: SortSelectionDef[];
-  /** Emit `COUNT(*) OVER () AS "$total"` on the top-level SELECT. */
+  /**
+   * Emit `COUNT(*) OVER () AS "$total"` on the ENTRY SELECT — and ONLY there.
+   * Every nesting boundary clears it, because `$total` is a PROJECTED column: an
+   * arm's `$total` participates in a set operation's comparison and silently
+   * changes the ROWS (UNION stops de-duplicating; INTERSECT / EXCEPT compare
+   * counts they were never meant to see), and a CTE body would pay a window
+   * aggregate nothing selects. A query whose ENTRY is a SET OPERATION therefore
+   * emits no `$total` at all — matching `run`, which reports none. Wrap it in a
+   * SELECT over a `subquery` source when a paged set operation needs a count.
+   */
   includeTotal?: boolean;
 }
 
@@ -524,7 +533,8 @@ export class QueryEngine {
    * `opts.filters` (keyed by source) feeds the `filters` placeholders' clauses;
    * `opts.sort` (an ordered `{ sort, dir? }` list) feeds the `sorter` placeholders
    * in a SELECT `order`; `opts.includeTotal` emits the `COUNT(*) OVER () AS
-   * "$total"` column on the top-level SELECT.
+   * "$total"` column on the ENTRY SELECT only (a set operation gets none — see
+   * {@link BaseSqlOptions.includeTotal}).
    *
    * `opts.embeddings` is a precomputed text→vector cache (see {@link
    * SemanticEmbeddings}): a `semantic(...)` TEXT literal — or the value of a

@@ -173,8 +173,16 @@ export class SqlContext {
      */
     readonly filters: Readonly<Record<string, Expr>> = {},
     /**
-     * Whether the (top-level) SELECT should emit `COUNT(*) OVER () AS "$total"`.
-     * Reset to false at nested levels (a subquery never emits the outer total).
+     * Whether the ENTRY (root) SELECT should emit `COUNT(*) OVER () AS "$total"`.
+     * Cleared at EVERY nesting boundary — `withPlanner` for a subquery / FROM
+     * subquery, `nonRoot()` for a CTE body / set-op branch — so `$total` is only
+     * ever a column of the query the caller actually asked to count.
+     *
+     * That is not an optimization. `$total` is a PROJECTED column, so inside a
+     * set-operation arm it participates in the set comparison and silently
+     * corrupts the ROWS: UNION stops de-duplicating, and INTERSECT / EXCEPT
+     * compare per-arm counts they were never meant to see. A CTE body would
+     * additionally pay a window aggregate nothing selects.
      */
     readonly includeTotal: boolean = false,
     /**
@@ -232,8 +240,11 @@ export class SqlContext {
    * Mark the NEXT emitted query as NON-root (same level otherwise). Used at the
    * boundaries `withPlanner` does not cover — a CTE body and a set-operation
    * branch — so those nested SELECTs never inherit the entry's root status.
+   * It clears `includeTotal` for the same reason `withPlanner` does: `$total` is
+   * a PROJECTED column, and a nested SELECT that projects it changes what the
+   * enclosing statement sees (see the `includeTotal` field docs).
    */
   nonRoot(): SqlContext {
-    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, this.includeTotal, false, this.sortSpec, this.semanticText);
+    return new SqlContext(this.dialect, this.engine, this.scope, this.planner, this.rls, this.inAggregate, this.params, this.filters, false, false, this.sortSpec, this.semanticText);
   }
 }

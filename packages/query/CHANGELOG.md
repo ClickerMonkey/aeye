@@ -3,6 +3,48 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## Unreleased
+
+Two asks from the consuming product's adoption of `0.6.2`.
+
+### A15 — `includeTotal` projected `COUNT(*) OVER ()` inside every set-operation arm (**P0, wrong ROWS**)
+
+`SqlContext.nonRoot()` — the boundary used for a CTE body and a set-operation branch —
+propagated `includeTotal`, where the sibling `withPlanner()` (subquery / FROM subquery) cleared
+it. A union emitted with `includeTotal: true` therefore looked like this:
+
+```sql
+(SELECT "task"."id", COUNT(*) OVER () AS "$total" FROM …)
+UNION ALL
+(SELECT "task"."id", COUNT(*) OVER () AS "$total" FROM …)
+```
+
+`$total` is a **projected column**, so it takes part in the set comparison. Measured downstream
+against a real engine on two arms whose counts differ, `INTERSECT` returned **0 rows** (vs 2),
+`EXCEPT` returned **the whole left arm** (vs 1), and `UNION` **stopped de-duplicating**. It
+corrupts the rows, not merely the count, and it can over- or under-report. A CTE body paid the
+same window aggregate with nothing selecting it. `run` and `toSQL` also disagreed: the in-memory
+`run(union, { includeTotal: true }).total` was already `undefined`.
+
+**Fixed** by clearing `includeTotal` at that boundary too, so `$total` is emitted **only on the
+ENTRY query**. Whether a set operation's total should be a wrapped count or absent was decided in
+favour of **absent** — it is what the in-memory engine already reported, and a missing number is
+recoverable where a wrong one is not. Both engines now agree: a query whose entry is a set
+operation reports no `total` and emits no `$total`. To page a set operation *and* count it, wrap
+it in a SELECT over a `subquery` source and ask for the total there (documented in the README).
+
+The invariant is now tested as a **property over query shapes** rather than an example — for
+every shape (select / distinct / grouped / union / intersect / except / set-op nested in a set
+op / CTE statement / CTE whose final is a set op / FROM subquery / IN subquery), the rows under
+`includeTotal: true` equal the rows without it, and the emitted SQL projects `$total` at most
+once. It fails at every nesting depth, not just the one that was reported.
+
+**Consumer-visible:** a `toSQL(setOperation, { includeTotal: true })` that previously returned a
+per-arm `$total` column now returns none. Any consumer workaround that refuses to request the
+count for a top-level set operation can be deleted.
+
+---
+
 ## 0.6.2
 
 Three asks from the consuming product's adoption of `0.6.1`. Two are defects that reach the

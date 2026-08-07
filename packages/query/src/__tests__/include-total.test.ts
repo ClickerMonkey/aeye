@@ -2,12 +2,13 @@
  * EXECUTION-time `includeTotal` (Feature 2): a SELECT can report `total` — the
  * result count after WHERE/JOIN/GROUP/HAVING/DISTINCT but BEFORE limit/offset.
  * `includeTotal` is NOT a SelectDef field; it is passed to `engine.run` /
- * `engine.toSQL`. Covers the in-memory runtime total, grouped totals, and the
- * emitted `COUNT(*) OVER () AS "$total"` SQL (base + postgres).
+ * `engine.toSQL`. Covers the in-memory runtime total, grouped totals, the
+ * emitted `COUNT(*) OVER () AS "$total"` SQL (base + postgres), and the
+ * ROOT-ONLY property that keeps `$total` from changing the rows (P0-A).
  */
 import { describe, it, expect } from 'vitest';
 import { runtimeFixture, fixture } from './_utils';
-import type { SelectDef } from '../schema';
+import type { CTEStatementDef, QueryDef, SelectDef, SetOperationDef } from '../schema';
 
 describe('includeTotal — runtime', () => {
   it('reports the full filtered count even when LIMIT slices the rows', async () => {
@@ -126,5 +127,212 @@ describe('includeTotal — SQL', () => {
     );
     // The pre-DISTINCT window form is NOT used here.
     expect(sql).not.toContain('COUNT(*) OVER ()');
+  });
+});
+
+// ─── ROOT-ONLY property (BUG P0-A) ───────────────────────────────────────────
+
+/**
+ * `$total` is a PROJECTED column, so a nested SELECT that carries it is not
+ * merely wasteful — inside a set-operation arm it participates in the set
+ * comparison and CHANGES THE ROWS (UNION stops de-duplicating; INTERSECT /
+ * EXCEPT compare counts they were never meant to see). The invariant below is
+ * therefore stated over query SHAPES rather than one example, so it holds at
+ * every nesting depth:
+ *
+ *   for every query shape Q:
+ *     run(Q, { includeTotal: true }).rows === run(Q).rows                (runtime)
+ *     toSQL(Q, { includeTotal: true }) projects `$total` AT MOST ONCE,
+ *       and only on the ENTRY query                                     (SQL)
+ *
+ * The SQL half is what fails when `SqlContext.nonRoot()` propagates the flag:
+ * each set-op arm and each CTE body then projects its own `$total`.
+ */
+
+/** `user.id <op> n`, projected as `id` — the arm builder for the corpus. */
+const users = (op: '>=' | '<=' | '>' | '<', n: number): SelectDef => ({
+  kind: 'select',
+  fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' }],
+  from: { kind: 'type', type: 'user' },
+  where: [
+    {
+      kind: 'comparison',
+      op,
+      left: { kind: 'field-ref', source: 'user', field: 'id' },
+      right: { kind: 'literal', value: n },
+    },
+  ],
+  order: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, dir: 'asc' }],
+});
+
+/** A 3-row arm (ids 1,2,3) and a 2-row arm (ids 2,3) — DIFFERENT counts, which
+ *  is exactly what makes a per-arm `$total` corrupt the set comparison. */
+const wide = users('>=', 1);
+const narrow = users('>=', 2);
+
+const setOp = (kind: SetOperationDef['kind'], all?: boolean): SetOperationDef => ({
+  kind,
+  left: wide,
+  right: narrow,
+  ...(all ? { all } : {}),
+});
+
+/** Query shapes covering every nesting boundary `$total` could leak across. */
+const shapes: ReadonlyArray<{ name: string; query: QueryDef; totalColumns: number }> = [
+  { name: 'plain select', query: users('>=', 1), totalColumns: 1 },
+  { name: 'select + limit', query: { ...users('>=', 1), limit: 1 }, totalColumns: 1 },
+  { name: 'distinct select', query: { ...users('>=', 1), distinct: true }, totalColumns: 1 },
+  {
+    name: 'grouped select',
+    query: {
+      kind: 'select',
+      fields: [
+        { expr: { kind: 'field-ref', source: 'order', field: 'userId' }, as: 'userId' },
+        { expr: { kind: 'aggregate', function: 'count', args: {} }, as: 'n' },
+      ],
+      from: { kind: 'type', type: 'order' },
+      groupBy: [{ kind: 'field-ref', source: 'order', field: 'userId' }],
+    } satisfies SelectDef,
+    totalColumns: 1,
+  },
+  // A set operation reports NO total — in either engine — rather than a wrong one.
+  { name: 'union (de-duplicating)', query: setOp('union'), totalColumns: 0 },
+  { name: 'union all', query: setOp('union', true), totalColumns: 0 },
+  { name: 'intersect', query: setOp('intersect'), totalColumns: 0 },
+  { name: 'except', query: setOp('except'), totalColumns: 0 },
+  {
+    name: 'set op with set-level limit',
+    query: { ...setOp('union'), limit: 2 } satisfies SetOperationDef,
+    totalColumns: 0,
+  },
+  {
+    name: 'set op nested as an arm of a set op',
+    query: { kind: 'except', left: setOp('union'), right: narrow } satisfies SetOperationDef,
+    totalColumns: 0,
+  },
+  {
+    name: 'cte statement (final select)',
+    query: {
+      kind: 'cte',
+      ctes: [{ name: 'w', query: wide }],
+      final: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'w', field: 'id' }, as: 'id' }],
+        from: { kind: 'type', type: 'w' },
+      },
+    } satisfies CTEStatementDef,
+    totalColumns: 1,
+  },
+  {
+    name: 'cte statement whose final is a set operation',
+    query: {
+      kind: 'cte',
+      ctes: [{ name: 'w', query: wide }],
+      final: {
+        kind: 'union',
+        left: {
+          kind: 'select',
+          fields: [{ expr: { kind: 'field-ref', source: 'w', field: 'id' }, as: 'id' }],
+          from: { kind: 'type', type: 'w' },
+        },
+        right: narrow,
+      },
+    } satisfies CTEStatementDef,
+    totalColumns: 0,
+  },
+  {
+    name: 'select over a FROM subquery',
+    query: {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 's', field: 'id' }, as: 'id' }],
+      from: { kind: 'subquery', as: 's', query: wide },
+    } satisfies SelectDef,
+    totalColumns: 1,
+  },
+  {
+    name: 'select wrapping a SET OPERATION as a FROM subquery (the counted form)',
+    query: {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 's', field: 'id' }, as: 'id' }],
+      from: { kind: 'subquery', as: 's', query: setOp('union') },
+    } satisfies SelectDef,
+    totalColumns: 1,
+  },
+  {
+    name: 'select with an IN subquery',
+    query: {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' }, as: 'id' }],
+      from: { kind: 'type', type: 'user' },
+      where: [{ kind: 'in', value: { kind: 'field-ref', source: 'user', field: 'id' }, in: narrow }],
+    } satisfies SelectDef,
+    totalColumns: 1,
+  },
+];
+
+/** How many `$total` columns the emitted SQL projects. */
+function totalColumns(sql: string): number {
+  return sql.split('AS "$total"').length - 1;
+}
+
+describe('includeTotal — property: it never changes the rows (BUG P0-A)', () => {
+  for (const shape of shapes) {
+    it(`runtime rows are identical with and without includeTotal — ${shape.name}`, async () => {
+      const fx = runtimeFixture();
+      const withTotal = await fx.engine.run(shape.query, { includeTotal: true });
+      const without = await fx.engine.run(shape.query);
+      expect(withTotal.rows).toEqual(without.rows);
+      // ...and the shape actually returns rows, so the equality is not vacuous.
+      expect(without.rows.length).toBeGreaterThan(0);
+    });
+
+    it(`SQL projects $total only on the entry query — ${shape.name}`, () => {
+      const fx = fixture();
+      const { sql } = fx.engine.toSQL(shape.query, 'base', { includeTotal: true });
+      expect(totalColumns(sql)).toBe(shape.totalColumns);
+      // Whatever the entry query is, the SQL without the flag never mentions it.
+      expect(fx.engine.toSQL(shape.query, 'base').sql).not.toContain('$total');
+    });
+  }
+
+  it('a set operation reports no total in EITHER engine, rather than a wrong one', async () => {
+    const result = await runtimeFixture().engine.run(setOp('union'), { includeTotal: true });
+    expect(result.total).toBeUndefined();
+    const { sql } = fixture().engine.toSQL(setOp('union'), 'base', { includeTotal: true });
+    expect(sql).not.toContain('$total');
+  });
+
+  it('wrapping the set operation in a SELECT is how a paged set op gets a count', async () => {
+    const wrapped: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 's', field: 'id' }, as: 'id' }],
+      from: { kind: 'subquery', as: 's', query: setOp('union') },
+      order: [{ expr: { kind: 'field-ref', source: 's', field: 'id' }, dir: 'asc' }],
+      limit: 1,
+    };
+    const result = await runtimeFixture().engine.run(wrapped, { includeTotal: true });
+    // UNION of {1,2,3} with {2,3} de-dupes to 3 rows; LIMIT 1 returns the first.
+    expect(result.rows).toEqual([{ id: 1 }]);
+    expect(result.total).toBe(3);
+    const { sql } = fixture().engine.toSQL(wrapped, 'base', { includeTotal: true });
+    expect(totalColumns(sql)).toBe(1);
+    // The `$total` sits on the OUTER select, never inside the union arms.
+    expect(sql.indexOf('AS "$total"')).toBeLessThan(sql.indexOf('UNION'));
+  });
+
+  it('a CTE body carries no $total (a window aggregate nothing selects)', () => {
+    const cte: CTEStatementDef = {
+      kind: 'cte',
+      ctes: [{ name: 'w', query: wide }],
+      final: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'w', field: 'id' }, as: 'id' }],
+        from: { kind: 'type', type: 'w' },
+      },
+    };
+    const { sql } = fixture().engine.toSQL(cte, 'base', { includeTotal: true });
+    const body = sql.slice(sql.indexOf('('), sql.indexOf(')') + 1);
+    expect(body).not.toContain('$total');
+    expect(totalColumns(sql)).toBe(1);
   });
 });

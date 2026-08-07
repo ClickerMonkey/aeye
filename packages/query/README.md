@@ -369,6 +369,25 @@ Everything composes around that one call:
   `SelectDef` field): `run` captures the pre-limit count into `result.total`,
   and `toSQL(query, dialect, { includeTotal: true })` emits
   `COUNT(*) OVER () AS "$total"`.
+
+  It applies to the **ENTRY query only** — never a CTE body, a set-operation
+  arm, or a FROM subquery. `$total` is a PROJECTED column, so an arm that
+  carried it would take part in the set comparison and change the **rows**:
+  `UNION` would stop de-duplicating, and `INTERSECT` / `EXCEPT` would compare
+  per-arm counts they were never meant to see. A query whose entry is a **set
+  operation therefore reports no total at all** (`result.total` is `undefined`;
+  the SQL carries no `$total`) rather than a wrong one — both engines agree.
+  To page a set operation *and* count it, wrap it in a SELECT and count there:
+
+  ```ts
+  const counted = {
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 's', field: 'id' } }],
+    from: { kind: 'subquery', as: 's', query: theUnion },
+    limit: 20,
+  } satisfies SelectDef;
+  await engine.run(counted, { includeTotal: true }); // → { rows, total }
+  ```
 - **Pagination.** `autoPaginate` adds `limit` / `offset` as bind PARAMS, so
   pagination is just supplying their values:
 

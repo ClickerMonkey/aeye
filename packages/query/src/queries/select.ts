@@ -965,6 +965,11 @@ export class SelectQuery extends Query {
     const result = makeResult('select', outRows, fields);
     // `$total` is surfaced as `result.total`, NOT as a declared output field.
     // `includeTotal` is an EXECUTION-time option, read off the RuntimeContext.
+    // A NESTED select (a CTE body, a set-op branch, a FROM subquery) sets it on
+    // a result its parent DISCARDS — every such parent builds a fresh result —
+    // so only the ENTRY query's total is ever observable, which is exactly what
+    // SQL emits (`SqlContext.nonRoot` / `withPlanner` clear the flag). An
+    // enclosing set operation therefore reports NO total in either engine.
     if (ctx.includeTotal) result.total = total;
     return result;
   }
