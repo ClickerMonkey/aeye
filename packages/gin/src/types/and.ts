@@ -3,6 +3,7 @@ import type { Registry } from '../registry';
 import type { PropDef, TypeDef } from '../schema';
 import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, PropSpec, type Rnd, Type } from '../type';
+import { ObjType } from './obj';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -56,22 +57,82 @@ export class AndType extends Type<any, AndOptions> {
     return this.parts.every((p) => p.valid(raw, scope));
   }
 
-  parse(json: unknown, scope?: TypeScope): Value<any> {
-    // Every part must accept the raw value.
+  /**
+   * The single Type this intersection PARSES / CONSTRUCTS through.
+   *
+   * `parse` takes the AUTHORED (JSON) form; `valid` is a predicate over the
+   * RUNTIME form (an obj's props are `Value`s, a list's items are `Value`s).
+   * Checking `valid(json)` therefore rejects everything an object or container
+   * part would happily parse — no value satisfied `and<obj{a}, obj{b}>` at all.
+   * So an And parses through one type and only THEN checks each part:
+   *
+   *  - no parts   → `undefined` (an empty And is universal; nothing to parse
+   *                 through, and `valid` accepts anything);
+   *  - one part   → that part;
+   *  - ALL parts objects → the MERGED obj (see {@link mergedObjFields}) —
+   *                 exactly what `and<obj{a: text}, obj{b: num}>` MEANS
+   *                 (`{a: text, b: num}`). Parsing through one part alone would
+   *                 drop the other's fields and then fail its own `valid` check;
+   *  - otherwise  → the FIRST part. The remaining parts are then pure
+   *                 constraints checked by `valid` on the runtime value, which
+   *                 is how `and<num, num{min=3}>` and
+   *                 `and<list<text>, list<text>{maxLength=2}>` work.
+   */
+  private effective(): Type | undefined {
+    const parts = this.parts;
+    if (parts.length === 0) return undefined;
+    if (parts.length === 1) return parts[0]!;
+    const merged = this.mergedObjFields();
+    return merged ? this.registry.obj(merged) : parts[0]!;
+  }
+
+  /**
+   * The DECLARED fields of an all-object intersection, unioned by name with
+   * same-name fields intersected via `and` — or `undefined` when the parts are
+   * not all objects. Reads each part's `fields` rather than its `props()`,
+   * because `props()` also exposes an obj's NATIVE members (`keys`, `values`,
+   * `has`, …) and rebuilding an obj from those would declare each native as a
+   * structural `fn` field the parser then demands a value for.
+   */
+  private mergedObjFields(): Record<string, Prop | PropSpec> | undefined {
+    const objs: ObjType[] = [];
     for (const p of this.parts) {
-      if (!p.valid(json, scope)) {
+      if (!(p instanceof ObjType)) return undefined;
+      objs.push(p);
+    }
+    const out: Record<string, Prop | PropSpec> = {};
+    for (const o of objs) {
+      for (const [name, prop] of Object.entries(o.fields)) {
+        const existing = out[name];
+        out[name] = existing ? { type: this.registry.and([existing.type, prop.type]) } : prop;
+      }
+    }
+    return out;
+  }
+
+  parse(json: unknown, scope?: TypeScope): Value<any> {
+    // Parse the AUTHORED form through the effective type to obtain the RUNTIME
+    // representation, then check every part against THAT — `valid` is a
+    // predicate over runtime values, not over JSON (see `effective`).
+    const base = this.effective();
+    if (!base) return new Value(this, json);
+    const raw = base.parse(json, scope).raw;
+    for (const p of this.parts) {
+      if (!p.valid(raw, scope)) {
         throw new TypeError({
           path: [], code: 'and.constraint',
           message: `and: value fails part ${p.name}`, severity: 'error',
         });
       }
     }
-    return new Value(this, json);
+    return new Value(this, raw);
   }
 
   encode(raw: any, scope?: TypeScope): any {
-    // Take any part's dump (they should all agree on valid values).
-    return this.parts[0]?.encode(raw, scope) ?? raw;
+    // Encode through the SAME type `parse` built the runtime value with, so the
+    // round-trip is lossless. Taking `parts[0]` would drop every field the other
+    // object parts contribute (`and<obj{a}, obj{b}>` would encode away `b`).
+    return this.effective()?.encode(raw, scope) ?? raw;
   }
 
   create(): any {
@@ -111,9 +172,18 @@ export class AndType extends Type<any, AndOptions> {
     return this;
   }
 
+  /**
+   * Collapse to the equivalent single type where one exists: a one-part And is
+   * its part, and an And of OBJECTS is the merged obj — `and<obj{a: text},
+   * obj{b: num}>` simply IS `obj{a: text, b: num}` (see {@link effective}).
+   * Anything else (a constraint intersection like `and<num, num{min=3}>`, or a
+   * mix of kinds) has no single-type equivalent and stays an And.
+   */
   simplify(): Type {
     if (this.parts.length === 1) return this.parts[0]!;
-    return this;
+    if (this.parts.length === 0) return this;
+    const merged = this.mergedObjFields();
+    return merged ? this.registry.obj(merged) : this;
   }
 
   narrow(_local: Partial<AndOptions>): AndOptions {

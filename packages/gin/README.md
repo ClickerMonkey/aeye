@@ -542,7 +542,9 @@ type nullable<T> {
 }
 
 type or<...variants>      // union; props/get/call when ALL variants share them
-type and<...parts>        // intersection; props from ANY part
+type and<...parts>        // intersection; props from ANY part. ALL-object parts
+                          //   merge (and<obj{a},obj{b}> ≡ obj{a,b}); otherwise
+                          //   the first part parses and the rest constrain.
 type not<excluded>        // any value EXCEPT one matching excluded
 type literal<T>           // one specific constant value of T
 type enum<V>              // named constants of value type V

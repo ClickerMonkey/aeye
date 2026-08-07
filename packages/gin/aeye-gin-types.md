@@ -66,7 +66,7 @@ r.optional<T>(inner);   // T or absent
 r.nullable<T>(inner);   // T or null
 r.not(excluded);
 r.or([Type, ...]);      // union
-r.and([Type, ...]);     // intersection
+r.and([Type, ...]);     // intersection — see "Intersections (`and`)"
 r.enum(values: Record<string, V>, valueType: Type<V>);
 r.literal(inner: Type<T>, value: T);
 
@@ -91,6 +91,25 @@ r.method(args: Record<string, Type>, returns: Type, nativeId: string,
 > Gotcha: `r.fn(...)` takes ONE options object (`{ args, returns? }`), and
 > `r.method(args, ...)` takes `args` as a plain `Record<string, Type>` (each
 > entry becomes an obj field) — not an obj type.
+
+## Intersections (`and`)
+
+`and<A, B, …>` accepts a value iff every part accepts it. Because `parse` takes
+the **authored** form while `valid` is a predicate over the **runtime** form
+(composites hold nested `Value`s), an `and` cannot simply hand the JSON to each
+part — it parses through the intersection's *effective* type first and then
+checks each part against the resulting runtime value:
+
+| parts | parses through | example |
+|---|---|---|
+| none | nothing — an empty `and` is universal | `and<>` accepts anything |
+| one | that part | `and<num>` ≡ `num` |
+| **all objects** | the **merged obj** — every part's declared fields, same-name fields intersected | `and<obj{a: text}, obj{b: num}>` ≡ `obj{a: text, b: num}` and accepts `{a:'x', b:1}` |
+| anything else | the FIRST part; the rest act as constraints on the runtime value | `and<num, num{min=3}>` accepts `5`, refuses `1`; `and<list<text>, list<text>{maxLength=2}>` accepts `['a','b']`, refuses three items |
+
+`simplify()` collapses the all-object case to that merged obj; a constraint
+intersection has no single-type equivalent and stays an `and`. A part that
+refuses the parsed value raises `and.constraint` naming the failing part.
 
 ## Generics
 
