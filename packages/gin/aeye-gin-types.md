@@ -129,6 +129,30 @@ Generics appear in function types (`<R>(args): R`), parameterized types
 (`list<V>`, `map<K,V>`, `optional<T>`), and methods that introduce their own
 parameters (`list.map<R>(fn): list<R>`).
 
+## Default values (`create`)
+
+`type.create()` is a type's zero value — what `{ kind: 'new', type }` with no
+`value` produces. It returns the **runtime** form (composites hold nested
+`Value`s), and it honours the type's own constraints:
+
+**`T.parse(T.create())` succeeds for every inhabitable `T`** — a type's
+constructor never produces a value its own parser refuses. So
+`num{max:-3}.create()` is `-3` (zero clamped into the range, not `0`),
+`text{minLength:2}.create()` is two characters, `list{minLength:2}.create()`
+has two items, and `and<num, num{min=3}>.create()` is `3`.
+
+Two limits, both deliberate:
+
+- **Uninhabitable types** — `not<any>`, `and<num, text>` — have no value to
+  create, so `parse` refusing their `create()` is the correct answer.
+- **No derivable witness** — a `pattern` regex has no general inverse, and a
+  `fn` value is a JS function / Expr. `create()` returns a placeholder of the
+  right JS type there; supply a real value yourself.
+
+`parse` accepts a type's own runtime form as well as its authored JSON form, so
+`create()` / `random()` output can be fed straight back in (a `map` takes both a
+live `Map` and the `[{key, value}]` array).
+
 ## Compatibility
 
 `a.compatible(b, opts?, scope?)` answers "is every value of `b` a valid `a`" —

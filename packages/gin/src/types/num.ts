@@ -76,8 +76,23 @@ export class NumType extends Type<number, NumOptions> {
     return raw;
   }
 
+  /**
+   * Zero, CLAMPED into the declared range — a type's constructor must not
+   * produce a value its own `parse` refuses. `num{max:-3}.create()` used to be
+   * `0`, which the type then rejected as out of range. A contradictory range
+   * (`min > max`) is uninhabitable, so the result there is best-effort.
+   */
   create(): number {
-    return this.options.min ?? 0;
+    const { min, max, whole } = this.options;
+    let n = 0;
+    if (min !== undefined && n < min) n = min;
+    if (max !== undefined && n > max) n = max;
+    if (whole && !Number.isInteger(n)) {
+      // Round INTO the range: up, unless that would break `max`.
+      const up = Math.ceil(n);
+      n = max !== undefined && up > max ? Math.floor(n) : up;
+    }
+    return n;
   }
 
   random(rnd: Rnd): number {

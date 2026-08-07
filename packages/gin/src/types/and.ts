@@ -135,14 +135,38 @@ export class AndType extends Type<any, AndOptions> {
     return this.effective()?.encode(raw, scope) ?? raw;
   }
 
+  /**
+   * A zero value the WHOLE intersection accepts. `parts[0].create()` satisfied
+   * only the first part: `and<num, num{min=3}>.create()` was `0`, which the type
+   * then refused, and an object intersection got only the first part's fields.
+   * So: build through the effective type (which carries all of an object
+   * intersection's fields), and when a later part's constraint rejects that,
+   * fall back to each part's own zero value in turn — `num{min=3}.create()` is 3.
+   */
   create(): any {
-    return this.parts[0]?.create() ?? null;
+    const base = this.effective();
+    if (!base) return null;
+    for (const candidate of [base, ...this.parts]) {
+      const raw = candidate.create();
+      if (this.valid(raw)) return raw;
+    }
+    // Uninhabitable (`and<num, text>`) — no value satisfies every part. Return
+    // the effective type's zero so the caller still gets the right SHAPE.
+    return base.create();
   }
 
+  /**
+   * The same candidate walk as {@link create}, so a random value satisfies every
+   * part whenever one of the parts can produce one.
+   */
   random(rnd: Rnd): any {
-    // Random from first part; callers of And over primitive types are
-    // typically building structural intersections where this is enough.
-    return this.parts[0]?.random(rnd) ?? null;
+    const base = this.effective();
+    if (!base) return null;
+    for (const candidate of [base, ...this.parts]) {
+      const raw = candidate.random(rnd);
+      if (this.valid(raw)) return raw;
+    }
+    return base.random(rnd);
   }
 
   like(other: Type): Type {

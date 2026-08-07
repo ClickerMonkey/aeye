@@ -80,8 +80,15 @@ export class TextType extends Type<string, TextOptions> {
     return raw;
   }
 
+  /**
+   * The empty string, padded to `minLength` — a type's constructor must not
+   * produce a value its own `parse` refuses, and `text{minLength:2}.create()`
+   * used to be `''`. Padding uses `'a'` (the alphabet `random` draws from). A
+   * `pattern` cannot be synthesized from, so a patterned text stays best-effort.
+   */
   create(): string {
-    return '';
+    const min = this.options.minLength ?? 0;
+    return min > 0 ? 'a'.repeat(min) : '';
   }
 
   random(rnd: Rnd): string {

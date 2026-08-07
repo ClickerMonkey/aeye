@@ -10,6 +10,11 @@ import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { JSONOf, JSONValue } from '../json-type';
 
 
+/** Whether a `Map` value slot already holds a RUNTIME `[Value<K>, Value<V>]` entry. */
+function isRuntimeEntry(v: unknown): v is [Value, Value] {
+  return Array.isArray(v) && v.length === 2 && v[0] instanceof Value && v[1] instanceof Value;
+}
+
 /**
  * MapType<K, V> — keyed collection with generic key/value types.
  *
@@ -68,14 +73,24 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   }
 
   parse(json: unknown, scope?: TypeScope): Value<Map<K, V>> {
-    if (!Array.isArray(json)) {
+    // Accept the AUTHORED forms (`[{key, value}]` / `[[key, value]]`) AND the
+    // RUNTIME form — a live `Map`, which is what `create()` / `random()` produce
+    // and what `valid()` requires. Without this a map was the one builtin whose
+    // own constructor produced a value its own parser refused
+    // (`map.parse(map.create())` threw). A runtime entry is already
+    // `[Value<K>, Value<V>]`; anything else is read as a plain `key → value`
+    // pair, so a hand-built `Map` works too.
+    const entries: unknown = json instanceof Map
+      ? Array.from(json as Map<unknown, unknown>, ([k, v]) => (isRuntimeEntry(v) ? v : [k, v]))
+      : json;
+    if (!Array.isArray(entries)) {
       throw new TypeError({
         path: [], code: 'map.invalid',
         message: `map.parse: expected array of [key, value] pairs`, severity: 'error',
       });
     }
     const m = new Map<unknown, [Value<K>, Value<V>]>();
-    for (const entry of json) {
+    for (const entry of entries) {
       const [rawK, rawV] = Array.isArray(entry)
         ? entry
         : [(entry as { key?: unknown; value?: unknown }).key,

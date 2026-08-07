@@ -187,6 +187,11 @@ A gin program is a tree of `Expr` JSON objects. Every node has
 If the type has `init`, `value` is parsed as `init.args` and the
 constructor runs. Otherwise `value` is parsed as `type` directly. With
 no `value`, returns `Value(type, type.create())` — the type's default.
+`create()` honours the type's own constraints, so `T.parse(T.create())`
+succeeds for every inhabitable `T` (`num{max:-3}.create()` is `-3`,
+`text{minLength:2}.create()` is two chars, `and<num,num{min=3}>` is `3`).
+The exceptions are uninhabitable types (`not<any>`, `and<num,text>`) and
+constraints with no derivable witness (a regex `pattern`, a `fn` value).
 
 ### `get` — read through a path
 
