@@ -43,6 +43,34 @@ once. It fails at every nesting depth, not just the one that was reported.
 per-arm `$total` column now returns none. Any consumer workaround that refuses to request the
 count for a top-level set operation can be deleted.
 
+### A16 — `autoPaginate` had no failure channel (**P2**)
+
+It was typed `SelectDef`-only, but its JSON branch simply spread whatever it was handed and set
+`limit` / `offset` on the copy. Given a `CTEStatementDef` — reachable from the `QueryDef` union
+or a cast — it returned a statement carrying two keys `CTEStatementDef` does not declare.
+Measured: the parser **silently drops them**, `validate` reports zero problems, and the emitted
+SQL has no `LIMIT` / `OFFSET` at all. The caller gets an object that looks paged, passes
+`{ params: { limit, offset } }`, and reads the whole table. It was the one transform in
+`src/transforms/` with no way to say "I cannot page this".
+
+**Fixed** by defining it on the kinds that genuinely have a row bound, and refusing the rest:
+
+- `select` — its own LIMIT / OFFSET (unchanged);
+- `union` / `intersect` / `except` — the SET-LEVEL bound over the combined rows, never an arm's
+  (paging an arm would change which rows the set operation compares). This already worked; it is
+  now in the type and under test;
+- `cte` — **newly supported**, paged through its `final` query (recursively). A `WITH` returns
+  what its `final` returns; a CTE body is an intermediate result and is never paged;
+- everything else (`insert` / `update` / `delete` / `expr`) throws `QueryTypeError` with code
+  `paginate.unsupported-kind`, naming the offending kind.
+
+Also new: `canAutoPaginate(query)` for callers holding an arbitrary `Query` / `QueryDef`, plus
+the exported `PaginatableDef` / `PaginatableQuery` unions.
+
+**Consumer-visible:** a call that previously returned a silently unpaged `cte` now returns a
+correctly paged one; a call on a DML / expr query that previously returned a meaningless object
+now throws.
+
 ---
 
 ## 0.6.2

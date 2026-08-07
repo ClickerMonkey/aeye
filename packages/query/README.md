@@ -398,6 +398,15 @@ Everything composes around that one call:
   await engine.run(paged, { params: { limit: 10, offset: 0 } });
   ```
 
+  It pages exactly the kinds that HAVE a row bound: a **`select`** (its own
+  LIMIT / OFFSET), a **set operation** (`union` / `intersect` / `except` — the
+  SET-LEVEL bound over the combined rows, never an arm's, since paging an arm
+  would change which rows the set operation compares), and a **`cte`**, which is
+  paged through its `final` query (a CTE body is an intermediate result). Every
+  other kind — `insert` / `update` / `delete` / `expr` — has no bound to bind and
+  **throws** `QueryTypeError` with code `paginate.unsupported-kind`. Ask first
+  with `canAutoPaginate(query)` when you hold an arbitrary `QueryDef`.
+
 - **Drill-down.** `drillDownInto` rebuilds the underlying-rows query and extracts
   the drill PARAMS from a chosen aggregated row — then it is the same `run` call
   with those params (see [Drill-down](#drill-down)).
