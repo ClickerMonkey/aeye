@@ -3,7 +3,7 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
-## Unreleased
+## 0.6.3
 
 Two asks from the consuming product's adoption of `0.6.2`.
 
