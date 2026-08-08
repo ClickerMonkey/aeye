@@ -140,4 +140,47 @@ describe('Extension', () => {
     expect(t.base).toBeInstanceOf(NumType);
     expect((t.base as NumType).options.min).toBe(0);
   });
+
+  describe('extending a type whose narrow() has nothing to narrow', () => {
+    // The base is rebuilt by splicing the NARROWED options into the original's
+    // wire def, which is only sound where the runtime and wire forms coincide.
+    // `or`/`and` hold `variants`/`parts` in memory and emit `types` on the
+    // wire, and their `narrow` has no per-part semantics — it hands the base's
+    // own options straight back. Splicing those in produced a base with ZERO
+    // parts: `or<>` refused every value, `and<>` accepted every value, both
+    // silently. The rebuild is now skipped when narrowing changed nothing.
+
+    test('or keeps its variants', () => {
+      const r = createRegistry();
+      const either = r.extend(r.or([r.text(), r.num()]), { name: 'Either', options: {} });
+      expect(either.base.toCode()).toBe('or<text, num>');
+      expect(either.parse('x').raw).toBe('x');
+      expect(either.parse(1).raw).toBe(1);
+      expect(() => either.parse(true)).toThrow();
+    });
+
+    test('and keeps its parts', () => {
+      const r = createRegistry();
+      const both = r.extend(r.and([r.obj({ a: { type: r.text() } })]), { name: 'Both', options: {} });
+      expect(both.base.toCode()).toBe('and<obj{a: text}>');
+      // `and<>` would have accepted this — an intersection over no parts is universal.
+      expect(() => both.parse({ b: 1 })).toThrow();
+    });
+
+    test('a REAL narrowing still rebuilds the base and enforces the tighter bound', () => {
+      const r = createRegistry();
+      const pos = r.extend(r.num(), { name: 'Pos', options: { min: 1 } });
+      expect((pos.base as NumType).options.min).toBe(1);
+      expect(pos.parse(5).raw).toBe(5);
+      expect(() => pos.parse(0)).toThrow();
+    });
+
+    test('a narrowing that merges with the base keeps both bounds', () => {
+      const r = createRegistry();
+      const slug = r.extend(r.text({ maxLength: 9 }), { name: 'Slug', options: { minLength: 2 } });
+      expect(slug.valid('abc')).toBe(true);
+      expect(slug.valid('a')).toBe(false);
+      expect(slug.valid('0123456789')).toBe(false);
+    });
+  });
 });

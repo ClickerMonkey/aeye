@@ -73,6 +73,19 @@ export interface ExtensionLocal<T = any, O = any> {
  * methods (read/write/invokeMethod/…) are available on the normalized
  * Extension.local. Idempotent for already-wrapped values.
  */
+/** Did narrowing change the base's options at all? Shallow by design — option
+ *  values are scalars or (for `not` / `tuple` / `or` / `and`) the very objects
+ *  the base already holds, so identity per key is the right comparison and
+ *  costs nothing. */
+function sameOptions(narrowed: unknown, base: unknown): boolean {
+  if (narrowed === base) return true;
+  if (typeof narrowed !== 'object' || narrowed === null || typeof base !== 'object' || base === null) return false;
+  const a = narrowed as Record<string, unknown>;
+  const b = base as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
+}
+
 function normalizeLocal<T, O>(local: ExtensionLocal<T, O>, registry: Registry): ExtensionLocal<T, O> {
   return {
     ...local,
@@ -103,7 +116,19 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       ? original.narrow(local.options)
       : (original.options as O);
 
-    const effectiveBase = local.options
+    // Rebuild the base only when narrowing actually CHANGED something. The
+    // rebuild splices RUNTIME options into a WIRE def, which is only sound for
+    // the types whose two forms coincide — `or`/`and` keep `variants`/`parts`
+    // in memory but `types` on the wire, and `not` keeps a live `Type` where
+    // the wire wants a TypeDef. Their `narrow` has no per-part semantics and
+    // hands the base's own options straight back, so before this guard
+    // `extend(or([text, num]), {options})` spliced `{variants:[…]}` into a def
+    // that reads `options.types` and produced `or<>` — an Extension whose base
+    // refused every value (`and<>` went the other way and accepted every
+    // value). Nothing changed ⇒ nothing to rebuild ⇒ the corruption cannot
+    // happen; a real narrowing (`num`, `text`, `list`, …) returns a fresh
+    // merged options object and rebuilds exactly as before.
+    const effectiveBase = local.options && !sameOptions(narrowedOptions, original.options)
       ? (registry.parse({ ...original.toJSON(), options: narrowedOptions as any }) as Type<T>)
       : original;
 
