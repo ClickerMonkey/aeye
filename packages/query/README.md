@@ -353,6 +353,15 @@ Everything composes around that one call:
   is used and is bound at run time via `options.params`. Introspect what a built
   query expects with `query.params(engine)` → `ParamDef[]` (name + inferred
   type).
+
+  It reports every param the statement binds **at any depth**, so what it
+  declares is always enough to bind the emitted SQL. That includes a
+  `limit` / `offset` bound, which lives outside the walked expr tree: on the
+  statement itself, on a **`cte`'s `final`** (where `autoPaginate` puts it), on a
+  set-operation **arm** or its set-level bound, and inside a FROM / `in` /
+  `exists` subquery or an `insert … select` source. An under-reported bound is
+  not a cosmetic gap — the SQL still emits `LIMIT ?` and a caller that binds the
+  declared signature leaves it NULL, which Postgres reads as *no limit*.
 - **Filters.** `options.filters` is a `Record<source, ExprDef | Expr | null>` —
   a single **boolean Expr** per source (or `null` / absent for none). The
   `filters` EXPR in the query is only a placeholder (`{ source, fields? }`); the

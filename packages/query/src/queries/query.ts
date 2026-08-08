@@ -11,7 +11,7 @@
  *  - SERIALIZATION (`toJSON` / `clone`).
  *  - EXECUTION   (`execute`) — run in-memory, returning rows + metadata.
  */
-import type { JsonValue, ParamDef, QueryDef, QueryKind } from '../schema';
+import type { JsonValue, ParamDef, ParamExprDef, QueryDef, QueryKind } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -24,7 +24,6 @@ import type { ValidateContext } from '../expr';
 import { ROOT_VALIDATE_CONTEXT } from '../expr';
 import type { Shape } from '../shape';
 import { Problems } from '../problem';
-import type { ParamSet } from '../param';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord } from '../runtime/row';
 import type { Expr } from '../expr';
@@ -32,7 +31,7 @@ import type { Dialect } from '../sql/dialect';
 import type { SqlContext, SqlText } from '../sql/emit';
 import { Type } from '../type';
 import { Field } from '../field';
-import { TextFieldType, JsonFieldType } from '../field-types/index';
+import { TextFieldType, JsonFieldType, NumberFieldType } from '../field-types/index';
 import { FieldRefExpr, AggregateExpr, FiltersExpr, SorterExpr } from '../exprs/index';
 
 /** One specific field a query reads — its owning Type and field name. */
@@ -255,6 +254,10 @@ export abstract class Query {
    * Params that are referenced but never observed against any type (so no type
    * can be inferred) are OMITTED here — they carry no `type` to report;
    * `validateQuery` surfaces them separately as `param.untyped`.
+   *
+   * Out-of-tree bounds (`limit` / `offset`) are picked up by the same walk —
+   * each kind that OWNS a row bound observes it from its own `validateWalk`
+   * (see {@link observeRowBounds}), so a bound at ANY nesting depth lands here.
    */
   params(engine: QueryEngine, scope?: QueryScope): ParamDef[] {
     // Materialize inverse relations first (idempotent) so a relation key's
@@ -263,21 +266,40 @@ export abstract class Query {
     const s = scope ?? engine.globalScope();
     const p = new Problems();
     this.validateWalk(engine, s, p, ROOT_VALIDATE_CONTEXT);
-    // Some params never appear in a walked expr position — a SELECT's
-    // `limit` / `offset` bind params (added by `autoPaginate`) live OUTSIDE the
-    // expr tree. Let the subclass observe those against their implied type so
-    // they show up too.
-    this.observeBoundParams(s.params);
     return s.params.toJSON();
   }
 
   /**
-   * Observe any bind params that live OUTSIDE this query's walked expr tree
-   * (e.g. a SELECT's `limit` / `offset`), so `params()` reports them with the
-   * right inferred type. Base: none. Overridden by `SelectQuery`.
+   * Observe a `limit` / `offset` ROW BOUND that is bound to a `param` (see
+   * `autoPaginate`) against a number field type — a bound is always a row count
+   * — so `params()` reports it with an inferred type. A bound lives OUTSIDE the
+   * walked expr tree, so nothing else in the walk ever reaches it.
+   *
+   * INVARIANT: the kind that EMITS a row bound is the kind that observes it, and
+   * it does so from its own `validateWalk`. That is what makes the report correct
+   * at every NESTING DEPTH — `validateWalk` already recurses into a CTE body and
+   * its `final`, a set-operation arm, and a FROM / IN / EXISTS subquery, and every
+   * scope in that recursion shares ONE `ParamSet`. Observing only at the ROOT
+   * (what `params()` used to do, via a `SelectQuery`-only hook) reported a paged
+   * `cte` as taking NO params at all while `toSQL` still emitted
+   * `LIMIT $1 OFFSET $2` — an unbindable statement whose declared signature was
+   * empty (bug A17).
+   *
+   * The observation is recorded at the walk's CURRENT path (`p.here`, the
+   * accessor that exists for exactly this), so a `param.conflict` naming a bound
+   * points at the statement that OWNS it (`final.limit`) rather than at a
+   * root-relative `limit` that does not exist.
    */
-  protected observeBoundParams(_params: ParamSet): void {
-    /* default: no out-of-tree params */
+  protected observeRowBounds(
+    scope: QueryScope,
+    p: Problems,
+    limit: number | ParamExprDef | undefined,
+    offset: number | ParamExprDef | undefined,
+  ): void {
+    const numeric = new NumberFieldType();
+    const at = p.here;
+    if (limit !== undefined && typeof limit !== 'number') scope.params.observe(limit.name, numeric, [...at, 'limit']);
+    if (offset !== undefined && typeof offset !== 'number') scope.params.observe(offset.name, numeric, [...at, 'offset']);
   }
 
   /**

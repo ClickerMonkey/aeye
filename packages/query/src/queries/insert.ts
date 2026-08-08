@@ -177,7 +177,7 @@ export class InsertQuery extends Query {
     return this.returning.map((c, i) => makeField(fieldNameOf(c.expr, c.as, i), c.expr.resolve(engine, inner)));
   }
 
-  /** Validate the target type, fields, row homogeneity, RETURNING, and ON CONFLICT assignments. */
+  /** Validate the target type, the source SELECT, fields, row homogeneity, RETURNING, and ON CONFLICT assignments. */
   validateWalk(engine: QueryEngine, scope: QueryScope, p: Problems, _ctx: ValidateContext): void {
     const type = engine.type(this.into);
     if (!type) {
@@ -249,6 +249,16 @@ export class InsertQuery extends Query {
     }
     const inner = this.targetScope(engine, scope);
     const ctx: ValidateContext = { inAggregate: false, inWindow: false, allowAggregate: true, groupKeys: [], inGroupBy: false };
+    // INSERT … SELECT: the source query was NEVER walked, so nothing inside it
+    // was checked and — the reason this surfaced with A17 — none of its params
+    // reached the shared `ParamSet`. `params()` therefore reported an INSERT …
+    // SELECT as taking NO params while the emitter bound every one of them, an
+    // unbindable statement (the A17 symptom, one level worse: not just the row
+    // bound, EVERY param in the source). It is a standalone row source, so it
+    // resolves in the OUTER scope — the INSERT target is matched by output column
+    // NAME at run / emit time, never referenced from inside the select.
+    const source = this.select;
+    if (source) p.at('select', () => source.validateWalk(engine, scope, p, ctx));
     // A RETURNING column may project a relation's identity: for a DELETE in
     // particular the FK value IS the prior state an undo would restore from, and
     // an RLS-scoped join loses it exactly when the target row is hidden.

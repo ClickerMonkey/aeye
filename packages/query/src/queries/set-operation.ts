@@ -19,8 +19,6 @@ import { FieldRefExpr } from '../exprs/index';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRecord, SourceRow } from '../runtime/row';
 import { recordSignature } from '../runtime/record';
-import { NumberFieldType } from '../field-types/index';
-import type { ParamSet } from '../param';
 import { Query, type QueryClass, type QueryField, type QueryReferences, type QueryResult, makeResult, mergeReferences, syntheticType } from './query';
 import { QueryOrder, sortEntries, type OrderEntry } from './order';
 import { obj, lit, bool, list, queryRef, type Shape } from '../shape';
@@ -163,18 +161,15 @@ export class SetOperationQuery extends Query {
         this.order.forEach((o, i) => p.at([i, 'expr'], () => o.expr.validateWalk(engine, inner, p, colCtx)));
       });
     }
+    // LAST, mirroring `SelectQuery` — the SET-LEVEL bounds live outside both arms
+    // and the order terms, so observing here reports them at whatever depth this
+    // set operation sits (A17).
+    this.observeRowBounds(scope, p, this.limit, this.offset);
   }
 
   /** The union of both arms' referenced Type names. */
   referencedTypes(): readonly string[] {
     return [...new Set([...this.left.referencedTypes(), ...this.right.referencedTypes()])];
-  }
-
-  /** Set-level `limit` / `offset` params live outside the walked expr tree. */
-  protected override observeBoundParams(params: ParamSet): void {
-    const numeric = new NumberFieldType();
-    if (this.limit !== undefined && typeof this.limit !== 'number') params.observe(this.limit.name, numeric, ['limit']);
-    if (this.offset !== undefined && typeof this.offset !== 'number') params.observe(this.offset.name, numeric, ['offset']);
   }
 
   /** Estimate the WORK `{ rows, bytes }`: combine both arms' cost per operation, then cap by LIMIT. */

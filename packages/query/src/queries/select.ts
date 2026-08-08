@@ -29,8 +29,6 @@ import type { SourceRecord, SourceRow } from '../runtime/row';
 import { Value } from '../runtime/value';
 import { recordSignature } from '../runtime/record';
 import { Type } from '../type';
-import type { ParamSet } from '../param';
-import { NumberFieldType } from '../field-types/index';
 import { FieldRefExpr, AggregateExpr, OutputRefExpr, WindowExpr, SorterExpr } from '../exprs/index';
 import {
   Query,
@@ -475,6 +473,13 @@ export class SelectQuery extends Query {
           : p.at([i, 'expr'], () => this.checkGrouped(o.expr, groupCodes, p)),
       ));
     }
+    // LAST, so a bound param keeps its position AFTER the clause params in the
+    // insertion-ordered report. This SELECT's own LIMIT / OFFSET may be bound to
+    // a `param` (see `autoPaginate`) and live outside every clause walked above,
+    // so nothing else reaches them — observing here means they are reported at
+    // whatever depth this SELECT sits (a CTE's `final`, a set-op arm, a FROM /
+    // IN / EXISTS subquery), since the whole tree shares one `ParamSet` (A17).
+    this.observeRowBounds(scope, p, this.limit, this.offset);
   }
 
   /**
@@ -653,22 +658,6 @@ export class SelectQuery extends Query {
     const paginated = this.limit !== undefined || this.offset !== undefined;
     const inScope = scope === 'all' || (scope === 'paginated' ? paginated : isRoot || paginated);
     return inScope ? order : undefined;
-  }
-
-  /**
-   * `limit` / `offset` may be bound to a `param` (see `autoPaginate`), but they
-   * live outside the walked expr tree, so `params()` never observes them. They
-   * are always integer row counts, so observe each against a number field type
-   * — making them surface in `params()` with the right inferred type.
-   */
-  protected override observeBoundParams(params: ParamSet): void {
-    const numeric = new NumberFieldType();
-    if (this.limit !== undefined && typeof this.limit !== 'number') {
-      params.observe(this.limit.name, numeric, ['limit']);
-    }
-    if (this.offset !== undefined && typeof this.offset !== 'number') {
-      params.observe(this.offset.name, numeric, ['offset']);
-    }
   }
 
   // ─── Cost estimation ─────────────────────────────────────────────────────
