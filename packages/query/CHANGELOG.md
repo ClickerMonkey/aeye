@@ -3,6 +3,63 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.6.4
+
+One ask from the consuming product's adoption of `0.6.3`.
+
+### A17 — `params()` reported a paged `cte` as taking NO params (**P1, unbindable statement**)
+
+`Query.params()` is what a caller (and, downstream, a stored query fn) uses to DECLARE the
+arguments a statement takes. Measured on `0.6.3` against the same two-param window:
+
+```
+autoPaginate(select).params(engine)   →  ['limit', 'offset']
+autoPaginate(cte).params(engine)      →  []                    ← the same two params, on `final`
+toSQL(autoPaginate(cte), { params: {} })
+   →  WITH "recent" AS (…) SELECT … LIMIT ? OFFSET ?      params: [null, null]
+```
+
+A REPORTING gap, not an emit gap, which is what made it quiet: the SQL is right and the
+description of the SQL is wrong. A caller who faithfully bound exactly what `params()` declared
+got `LIMIT NULL OFFSET NULL` — which Postgres reads as *no limit, no offset*, i.e. the whole
+table, with no error anywhere. Downstream a paged `cte` became a query fn with no `limit`
+argument: unbindable, and unpageable by its caller.
+
+**Root cause, and why it was never `cte`-specific.** `params()` ran the validation walk (which
+populates the shared `ParamSet`) and then called `this.observeBoundParams(s.params)` **on the
+root only**. A `limit` / `offset` bound lives OUTSIDE the walked expr tree, so that hook was the
+only thing that ever saw one — and it was invoked at exactly one node. `cte` is where it was
+reported, but **nothing below the root was observed**: measured on `0.6.3`, a bound on a
+set-operation arm, a FROM subquery, an `in` / `exists` subquery, a CTE body, and a nested `cte`
+all reported `[]` while emitting `LIMIT ?`.
+
+**Fixed** by deleting the root-only hook and moving the observation into each owning kind's own
+`validateWalk` — the walk that already recurses into every one of those positions, with one
+`ParamSet` shared across the whole scope chain. The invariant is now local and self-evident:
+**the kind that EMITS a row bound is the kind that observes it**, so there is no second traversal
+to drift. `SelectQuery` and `SetOperationQuery` are the only kinds with a bound, and both now go
+through the shared `Query.observeRowBounds` helper (which also removes the duplicated logic).
+
+Found while tracing it, and fixed here because it is the same symptom one level worse:
+**`InsertQuery.validateWalk` never walked its `select` at all.** An `insert … select` therefore
+reported not just the row bound but **every** param inside the source query as absent (measured:
+`params()` → `[]` for a source whose WHERE binds `$1`), and a bad reference inside it — an
+unknown source, an unknown field — produced ZERO problems. The source is now validated in the
+outer scope, with problems nested under `select`.
+
+The guarantee is tested as a **property over query shapes** rather than as the one reported
+example: for every shape (paged select / paged `cte` / nested `cte` / paged set operation / `cte`
+over a paged set operation / a bound on a `cte` body, a set-op arm, a FROM / `in` / `exists`
+subquery, a DELETE's `in` subquery, an `insert … select` source), binding EXACTLY the params
+`params()` declares leaves no emitted bind slot null.
+
+**Consumer-visible:** `params()` now returns MORE params for the shapes above — the ones the
+emitter was already binding. A paged plain `select` is byte-for-byte unchanged, including report
+ORDER (clause params still come first). An `insert … select` that was silently accepted with a
+bad reference inside its source query now reports that error; it was never a valid statement.
+
+---
+
 ## 0.6.3
 
 Two asks from the consuming product's adoption of `0.6.2`.
