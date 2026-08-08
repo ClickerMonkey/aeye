@@ -18,6 +18,9 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
   static readonly NAME = 'nullable';
   readonly name = NullableType.NAME;
 
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = ['T'] as const;
+
   static from(json: TypeDef, scope: TypeScope): NullableType {
     const registry = scope.registry;
     const inner = json.generic?.T

@@ -17,6 +17,9 @@ export class DateType extends Type<Date, DateOptions> {
   static readonly NAME = 'date';
   readonly name = DateType.NAME;
 
+  static readonly optionKeys = ['min', 'max', 'utc'] as const satisfies readonly (keyof DateOptions)[];
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): DateType {
     const registry = scope.registry;
     return new DateType(scope, (json.options ?? {}) as DateOptions);

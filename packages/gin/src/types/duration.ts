@@ -17,6 +17,10 @@ export class DurationType extends Type<number, Record<string, never>> {
   static readonly NAME = 'duration';
   readonly name = DurationType.NAME;
 
+  /** `duration` reads nothing beyond `name`. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = [] as const;
+
   static from(_json: TypeDef, scope: TypeScope): DurationType {
     const registry = scope.registry;
     return new DurationType(scope, {});

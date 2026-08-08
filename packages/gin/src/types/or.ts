@@ -27,6 +27,10 @@ export class OrType extends Type<any, OrOptions> {
   static readonly NAME = 'or';
   readonly name = OrType.NAME;
 
+  /** WIRE key is `types`; the runtime option field is `variants`. */
+  static readonly optionKeys = ['types'] as const;
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): OrType {
     const registry = scope.registry;
     const variants = ((json.options?.types ?? []) as TypeDef[]).map((t) => scope.parse(t));

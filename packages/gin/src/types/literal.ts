@@ -33,6 +33,9 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
   static readonly NAME = 'literal';
   readonly name = LiteralType.NAME;
 
+  static readonly optionKeys = ['value'] as const satisfies readonly (keyof LiteralOptions)[];
+  static readonly genericKeys = ['T'] as const;
+
   readonly inner: Type<T>;
 
   static from(json: TypeDef, scope: TypeScope): LiteralType {

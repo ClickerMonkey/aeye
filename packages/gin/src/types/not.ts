@@ -20,6 +20,10 @@ export class NotType extends Type<any, NotOptions> {
   static readonly NAME = 'not';
   readonly name = NotType.NAME;
 
+  /** The excluded type is an OPTION (`options.excluded`), not a generic. */
+  static readonly optionKeys = ['excluded'] as const satisfies readonly (keyof NotOptions)[];
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): NotType {
     const registry = scope.registry;
     const excluded = json.options?.excluded

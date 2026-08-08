@@ -22,6 +22,9 @@ third option:
 
 - **Validate before execution.** A program is parsed and type-checked against the
   registry; broken programs are rejected before they run.
+- **No silent mis-builds.** `parse` refuses a `TypeDef` key it does not read, so a
+  def with a slot wrong cannot become a plausible, wrong type. See
+  [strict parsing](./aeye-gin-types.md#the-typedef-wire-format-and-strict-parsing).
 - **Round-trippable JSON.** Programs survive `JSON.stringify` / `JSON.parse`
   losslessly — persist, index, edit, replay.
 - **A real type system.** Generics, interfaces, structural subtyping, extensions,

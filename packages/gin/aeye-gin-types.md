@@ -92,6 +92,53 @@ r.method(args: Record<string, Type>, returns: Type, nativeId: string,
 > `r.method(args, ...)` takes `args` as a plain `Record<string, Type>` (each
 > entry becomes an obj field) — not an obj type.
 
+## The `TypeDef` wire format, and strict parsing
+
+A serialized type is a `TypeDef`, and gin reads exactly eleven keys off it:
+
+`name`, `docs`, `extends`, `satisfies`, `generic`, `options`, `init`, `props`,
+`get`, `call`, `constraint`.
+
+Three of those are slots with per-class contents, and putting a value in the
+wrong one is the mistake that used to be expensive:
+
+| Slot | Holds | Per class |
+|---|---|---|
+| `generic` | **type arguments**, by parameter name | `list`→`V`; `map`→`K`,`V`; `optional`/`nullable`/`literal`/`typ`→`T`; `enum`→`V`; `function` declares its own |
+| `options` | **scalar constraints / payloads** | `num`→`min`,`max`,`whole`,`minPrecision`,`maxPrecision`,`prefix`,`suffix`; `text`→`minLength`,`maxLength`,`pattern`,`flags`; `bool`→`trueText`,`falseText`; `list`→`minLength`,`maxLength`; `color`→`hasAlpha`; `date`→`min`,`max`,`utc`; `timestamp`→ those plus `precision`; `tuple`→`elements`; `or`/`and`→`types`; `enum`→`values`; `literal`→`value`; `not`→`excluded`. Every other class takes none. |
+| `props`/`get`/`call`/`init` | **surfaces** | `obj` consumes `props`; `interface` consumes `props`/`get`/`call`; `function` consumes `call`. On any other class these wrap the type in an Extension. |
+
+**`parse` refuses any key outside those sets.** Every slot has a silent default
+— a `list` with no `generic.V` is `list<any>`, a missing `options` is `{}` — so
+a mis-keyed def used to parse to something plausible and wrong:
+
+```ts
+r.parse({ name: 'list', options: { item: userType } });      // was: list<any>, no error
+r.parse({ name: 'text', options: { values: ['a', 'b'] } });  // was: plain text, accepting anything
+```
+
+Tolerating those was never forward compatibility. An unknown TOP-LEVEL key is
+dropped, so the author's intent vanishes; an unknown `options` key is *kept*
+through `toJSON` while constraining nothing, so the declaration reads back
+correct and lies for as long as it exists. Both are errors now, and the error is
+written to be acted on — it names the nearest valid key on a typo, points a
+misplaced TypeDef at the `generic` parameter it belongs in, and respells a
+closed set of constants as the `enum` it should have been:
+
+```
+registry.parse: type 'text' has unknown options key 'values' — a closed set of
+constants is an `enum` in gin, not an option: {"name":"enum","generic":{"V":
+{"name":"text"}},"options":{"values":{"todo":"todo","done":"done"}}}; valid
+options for 'text': minLength, maxLength, pattern, flags
+```
+
+Two shapes are deliberately NOT key-checked, because their keys are not being
+ignored: a def naming a **registered type** resolves to that instance by
+identity, and `generic` on an **`extends`** def declares the extension's own
+type parameters rather than binding a class's. A type class registered by a
+third party via `define(...)` is likewise unchecked until it declares
+`optionKeys` / `genericKeys` on its `TypeClass`.
+
 ## Intersections (`and`)
 
 `and<A, B, …>` accepts a value iff every part accepts it. Because `parse` takes

@@ -23,6 +23,11 @@ export class NumType extends Type<number, NumOptions> {
   static readonly NAME = 'num';
   readonly name = NumType.NAME;
 
+  static readonly optionKeys = [
+    'min', 'max', 'whole', 'minPrecision', 'maxPrecision', 'prefix', 'suffix',
+  ] as const satisfies readonly (keyof NumOptions)[];
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): NumType {
     const registry = scope.registry;
     return new NumType(scope, (json.options ?? {}) as NumOptions);

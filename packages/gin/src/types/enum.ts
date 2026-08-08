@@ -22,6 +22,9 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
   static readonly NAME = 'enum';
   readonly name = EnumType.NAME;
 
+  static readonly optionKeys = ['values'] as const satisfies readonly (keyof EnumOptions)[];
+  static readonly genericKeys = ['V'] as const;
+
   static from(json: TypeDef, scope: TypeScope): EnumType {
     const registry = scope.registry;
     const V = json.generic?.V ? scope.parse(json.generic.V) : registry.text();

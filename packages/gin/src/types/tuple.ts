@@ -23,6 +23,10 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
   static readonly NAME = 'tuple';
   readonly name = TupleType.NAME;
 
+  /** A tuple's positional types are its OPTIONS, not generics. */
+  static readonly optionKeys = ['elements'] as const satisfies readonly (keyof TupleOptions)[];
+  static readonly genericKeys = [] as const;
+
   readonly elements: Type[];
 
   static from(json: TypeDef, scope: TypeScope): TupleType {

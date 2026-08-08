@@ -16,6 +16,10 @@ export class AnyType extends Type<any, Record<string, never>> {
   static readonly NAME = 'any';
   readonly name = AnyType.NAME;
 
+  /** `any` reads nothing beyond `name`. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = [] as const;
+
   static from(_json: TypeDef, scope: TypeScope): AnyType {
     const registry = scope.registry;
     return new AnyType(scope, {});

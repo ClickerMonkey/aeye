@@ -18,6 +18,9 @@ export class ColorType extends Type<number, ColorOptions> {
   static readonly NAME = 'color';
   readonly name = ColorType.NAME;
 
+  static readonly optionKeys = ['hasAlpha'] as const satisfies readonly (keyof ColorOptions)[];
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): ColorType {
     const registry = scope.registry;
     return new ColorType(scope, (json.options ?? {}) as ColorOptions);

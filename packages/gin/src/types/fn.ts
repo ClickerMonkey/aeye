@@ -22,6 +22,10 @@ export class FnType extends Type<any, Record<string, never>> {
   static readonly consumes = ['call'] as const;
   readonly name = FnType.NAME;
 
+  /** A fn's signature is its `call`; its `generic` entries are DECLARATIONS,
+   *  so there is no fixed parameter set and `generic` goes unchecked. */
+  static readonly optionKeys = [] as const;
+
   readonly _call: Call;
 
   static from(json: TypeDef, scope: TypeScope): FnType {

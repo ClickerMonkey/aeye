@@ -22,6 +22,9 @@ export class TextType extends Type<string, TextOptions> {
   static readonly NAME = 'text';
   readonly name = TextType.NAME;
 
+  static readonly optionKeys = ['minLength', 'maxLength', 'pattern', 'flags'] as const satisfies readonly (keyof TextOptions)[];
+  static readonly genericKeys = [] as const;
+
   private _regex?: RegExp;
 
   static from(json: TypeDef, scope: TypeScope): TextType {

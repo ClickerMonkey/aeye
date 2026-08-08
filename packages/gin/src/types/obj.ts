@@ -21,6 +21,10 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   static readonly consumes = ['props'] as const;
   readonly name = ObjType.NAME;
 
+  /** An obj's fields are its `props` — it takes no options and no generics. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = [] as const;
+
   /** Runtime prop specs. Structural fields — each has at least `type`. */
   readonly fields: Record<string, Prop>;
 

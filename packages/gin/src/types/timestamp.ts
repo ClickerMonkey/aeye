@@ -21,6 +21,9 @@ export class TimestampType extends Type<Date, TimestampOptions> {
   static readonly NAME = 'timestamp';
   readonly name = TimestampType.NAME;
 
+  static readonly optionKeys = ['min', 'max', 'utc', 'precision'] as const satisfies readonly (keyof TimestampOptions)[];
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): TimestampType {
     const registry = scope.registry;
     return new TimestampType(scope, (json.options ?? {}) as TimestampOptions);

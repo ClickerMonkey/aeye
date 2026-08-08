@@ -19,6 +19,9 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   static readonly NAME = 'optional';
   readonly name = OptionalType.NAME;
 
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = ['T'] as const;
+
   static from(json: TypeDef, scope: TypeScope): OptionalType {
     const registry = scope.registry;
     const inner = json.generic?.T

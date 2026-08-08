@@ -25,6 +25,10 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   static readonly NAME = 'list';
   readonly name = ListType.NAME;
 
+  static readonly optionKeys = ['minLength', 'maxLength'] as const satisfies readonly (keyof ListOptions)[];
+  /** The ELEMENT type — `{options:{item}}` used to parse silently to `list<any>`. */
+  static readonly genericKeys = ['V'] as const;
+
   static from(json: TypeDef, scope: TypeScope): ListType {
     const registry = scope.registry;
     const item = json.generic?.V ? scope.parse(json.generic.V) : registry.any();

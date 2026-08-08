@@ -16,11 +16,11 @@ const engine = createEngine(r);
 
 | Method | Purpose |
 |---|---|
-| `parse(def, scope?)` | `TypeDef` → `Type`. |
+| `parse(def, scope?)` | `TypeDef` → `Type`. Refuses any key it would not read — see [strict parsing](./aeye-gin-types.md#the-typedef-wire-format-and-strict-parsing). |
 | `parseExpr(def, scope?)` | `ExprDef` → `Expr` (idempotent on `Expr`; `undefined` passes through). |
 | `parseValue(json, expectedType?, scope?)` | `{type,value}` envelope or raw → `Value`. |
 | `lookup(name)` | `Type` by name (registered instance → built-in fallback). |
-| `define(cls)` | Register a built-in Type **class** for JSON dispatch. |
+| `define(cls)` | Register a built-in Type **class** for JSON dispatch. Declare `optionKeys` / `genericKeys` on it to opt into strict parsing. |
 | `register(type)` | Register a named Type **instance** (typically an Extension). |
 | `extend(base, local)` | Create a named Extension (real subtype); `base` is a `Type` or name. |
 | `augment(name, { props?, get?, call?, init? })` | Add to an existing type by name. |

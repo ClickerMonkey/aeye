@@ -29,6 +29,10 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   static readonly NAME = 'map';
   readonly name = MapType.NAME;
 
+  /** `map` is structure-only: both slots are type parameters. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = ['K', 'V'] as const;
+
   static from(json: TypeDef, scope: TypeScope): MapType {
     const registry = scope.registry;
     const K = json.generic?.K ? scope.parse(json.generic.K) : registry.text();

@@ -28,6 +28,10 @@ export class AndType extends Type<any, AndOptions> {
   static readonly NAME = 'and';
   readonly name = AndType.NAME;
 
+  /** WIRE key is `types`; the runtime option field is `parts`. */
+  static readonly optionKeys = ['types'] as const;
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): AndType {
     const registry = scope.registry;
     const parts = ((json.options?.types ?? []) as TypeDef[]).map((t) => scope.parse(t));

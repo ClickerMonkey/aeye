@@ -16,6 +16,9 @@ export class BoolType extends Type<boolean, BoolOptions> {
   static readonly NAME = 'bool';
   readonly name = BoolType.NAME;
 
+  static readonly optionKeys = ['trueText', 'falseText'] as const satisfies readonly (keyof BoolOptions)[];
+  static readonly genericKeys = [] as const;
+
   static from(json: TypeDef, scope: TypeScope): BoolType {
     const registry = scope.registry;
     return new BoolType(scope, (json.options ?? {}) as BoolOptions);

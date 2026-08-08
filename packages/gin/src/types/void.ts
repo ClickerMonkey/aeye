@@ -16,6 +16,10 @@ export class VoidType extends Type<void, Record<string, never>> {
   static readonly NAME = 'void';
   readonly name = VoidType.NAME;
 
+  /** `void` reads nothing beyond `name`. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = [] as const;
+
   static from(_json: TypeDef, scope: TypeScope): VoidType {
     const registry = scope.registry;
     return new VoidType(scope, {});

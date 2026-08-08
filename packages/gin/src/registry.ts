@@ -21,6 +21,7 @@ import type { Engine } from './engine';
 import { Problems } from './problem';
 import { Effects } from './effects';
 import { didYouMean } from './aids';
+import { checkWireKeys } from './wire';
 import type { z } from 'zod';
 
 import { AnyType } from './types/any';
@@ -71,6 +72,26 @@ import { registerBuiltinNatives } from './natives';
 export interface TypeClass {
   readonly NAME: string;
   readonly consumes?: readonly CustomField[];
+  /**
+   * The keys this class reads out of `TypeDef.options`. Declaring it opts
+   * the class into the unknown-key refusal in `parse` (see `wire.ts`) —
+   * `{name:'list', options:{item: …}}` becomes an error instead of a silent
+   * `list<any>`. An EMPTY array means "takes no options" and is still
+   * checked; leaving it undefined means "unchecked" so a third-party class
+   * registered via `define(...)` keeps working until it opts in.
+   *
+   * These are WIRE keys — what `from` reads — which for `and` / `or` is not
+   * the same as the runtime options field (`options.types` on the wire,
+   * `parts` / `variants` in memory).
+   */
+  readonly optionKeys?: readonly string[];
+  /**
+   * The type-parameter names this class reads out of `TypeDef.generic`
+   * (`V` for list, `K`/`V` for map, …), with the same opt-in semantics as
+   * {@link TypeClass.optionKeys}. Left undefined by `fn`, whose generics are
+   * DECLARED by the def rather than fixed by the class.
+   */
+  readonly genericKeys?: readonly string[];
   /** Build a Type from its JSON. `scope` is the type-name resolution
    *  scope (Registry as the root, LocalScope layers above for fn
    *  generics / call.types aliases). Use `scope.registry` to access
@@ -484,6 +505,18 @@ export class Registry implements TypeBuilder, TypeScope {
         }
       }
     }
+
+    // Refuse keys gin would IGNORE. Every slot below has a silent default
+    // (no `generic.V` → `list<any>`, no `options` → `{}`), so a mis-keyed def
+    // otherwise parses to a plausible, wrong type. See `wire.ts` for why this
+    // is a hard error rather than tolerated forward-compatibility. The class
+    // governing `options` is the `extends` target on an extension (whose
+    // options NARROW the base's) and the def's own name otherwise; a
+    // registered named type shadows its class and is resolved by identity, so
+    // its slots are not statically known and go unchecked.
+    const owner = def.extends ?? def.name;
+    const ownerCls = this.namedTypes.has(owner) ? undefined : this.classes.get(owner);
+    checkWireKeys(def, ownerCls, def.extends === undefined, this);
 
     const result = this.parseInner(def, scope);
 

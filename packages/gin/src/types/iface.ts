@@ -31,6 +31,10 @@ export class IfaceType extends Type<any, Record<string, never>> {
   static readonly consumes = ['props', 'get', 'call'] as const;
   readonly name = IfaceType.NAME;
 
+  /** An iface's contract is `props` / `get` / `call` — no options, no generics. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = [] as const;
+
   readonly _props: Record<string, Prop>;
   readonly _get?: GetSet;
   readonly _call?: Call;

@@ -17,6 +17,10 @@ export class NullType extends Type<null, Record<string, never>> {
   static readonly NAME = 'null';
   readonly name = NullType.NAME;
 
+  /** `null` reads nothing beyond `name`. */
+  static readonly optionKeys = [] as const;
+  static readonly genericKeys = [] as const;
+
   static from(_json: TypeDef, scope: TypeScope): NullType {
     const registry = scope.registry;
     return new NullType(scope, {});

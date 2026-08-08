@@ -1,5 +1,6 @@
 // Schema (JSON shapes)
 export * from './schema';
+export { TYPE_DEF_KEYS, checkWireKeys, type CoversKeys, type AssertCovered } from './wire';
 export type { Node, CodeOptions, SchemaOptions } from './node';
 export { buildSchemas } from './schemas';
 

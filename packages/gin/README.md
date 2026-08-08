@@ -313,6 +313,18 @@ gin has TWO levels of parsing — they compose:
    scope?)` turns an `ExprDef` into an `Expr`. Inverse:
    `type.toJSON()` / `expr.toJSON()`. Round-trips losslessly.
 
+   `parse` is STRICT about keys. A `TypeDef` may carry only `name`,
+   `docs`, `extends`, `satisfies`, `generic`, `options`, `init`,
+   `props`, `get`, `call`, `constraint`, and each class declares what
+   may appear inside its `generic` and its `options`. Anything else is
+   an error rather than an ignored key, because every slot has a
+   silent default: `{name:'list', options:{item: T}}` — the element
+   type belongs in `generic.V` — would otherwise parse to `list<any>`
+   without complaint. The error names the offending key and, where it
+   can, the construct that was meant: the nearest valid key on a typo,
+   the `generic` parameter a stray TypeDef belongs in, or the `enum` a
+   closed set of constants should have been.
+
 2. **Runtime data → typed values.** Once you have a `Type`, calling
    `type.parse(jsonData)` validates the data and returns a `Value<T>`
    — the runtime currency. A `Value` is a `{type, raw}` pair where
