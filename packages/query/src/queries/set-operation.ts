@@ -182,6 +182,13 @@ export class SetOperationQuery extends Query {
     return this.capByLimit(this.combineBranches(this.left.outputCost(ctx, scope), this.right.outputCost(ctx, scope)), ctx);
   }
 
+  /** The statements this set operation nests: both arms (each in its own child scope). */
+  protected override forEachNestedQuery(ctx: CostContext, scope: QueryScope, visit: (q: Query, s: QueryScope) => void): void {
+    super.forEachNestedQuery(ctx, scope, visit);
+    visit(this.left, scope.child());
+    visit(this.right, scope.child());
+  }
+
   /** Reads = the union of BOTH arms' references. */
   override references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
     return mergeReferences([this.left.references(engine, scope, ctx), this.right.references(engine, scope, ctx)]);

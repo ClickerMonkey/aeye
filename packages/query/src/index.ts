@@ -95,7 +95,7 @@ export * from './builder';
 // Scope / params / functions (Phase 2)
 export { QueryScope } from './scope';
 export { ParamSet } from './param';
-export { QueryFunction } from './function';
+export { QueryFunction, mergeOfAggregateCall } from './function';
 
 // Type backing (Phase H1) — dev-side computed fields + RLS/FLS
 // Named hidden joins + LATERAL / CROSS APPLY (Phase H2)
@@ -149,6 +149,7 @@ export {
   EQ_SELECTIVITY,
   RANGE_SELECTIVITY,
   IN_SELECTIVITY,
+  RECURSIVE_CTE_LEVELS,
   SEMANTIC_ROW_PENALTY,
   TEXT_SEARCH_ROW_PENALTY,
   addCost,

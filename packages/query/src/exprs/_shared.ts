@@ -5,7 +5,7 @@
  */
 import { z } from 'zod';
 import type { FieldType } from '../field-type';
-import type { QueryDef } from '../schema';
+import type { AggregateMerge, QueryDef } from '../schema';
 import type {
   ResolvedType,
   FieldResolved,
@@ -22,20 +22,36 @@ import {
 } from '../field-types/index';
 
 /**
- * Build a `ComputedResolved` of an explicit field type. `aggregateFn` names the
- * APPLIED aggregate when the value IS one aggregate call; it is OMITTED (not set
- * to `undefined`) otherwise, so a resolved type never carries a key it has no
- * answer for.
+ * The APPLIED aggregate a computed value IS — three facts that only mean
+ * anything together, so they are supplied (and stamped onto a
+ * `ComputedResolved`) as ONE unit rather than as three independently-omittable
+ * arguments that could drift apart.
+ */
+export interface AppliedAggregate {
+  /** The aggregate function's name (`'sum'`, `'count'`, …). */
+  readonly fn: string;
+  /** Whether the call was `DISTINCT`. */
+  readonly distinct: boolean;
+  /** How two of this CALL's values merge over a union of groups (DISTINCT applied). */
+  readonly merge: AggregateMerge;
+}
+
+/**
+ * Build a `ComputedResolved` of an explicit field type. `applied` describes the
+ * APPLIED aggregate when the value IS one aggregate call; all three of its fields
+ * are OMITTED (not set to `undefined`) otherwise, so a resolved type never
+ * carries a key it has no answer for.
  */
 export function computed(
   fieldType: FieldType,
   sources: readonly FieldResolved[],
   nullable: boolean,
   aggregate: boolean,
-  aggregateFn?: string,
+  applied?: AppliedAggregate,
 ): ComputedResolved {
   const rt: ComputedResolved = { kind: 'computed', fieldType, sources, nullable, aggregate };
-  return aggregateFn === undefined ? rt : { ...rt, aggregateFn };
+  if (!applied) return rt;
+  return { ...rt, aggregateFn: applied.fn, aggregateDistinct: applied.distinct, aggregateMerge: applied.merge };
 }
 
 /** Build a boolean computed result. */

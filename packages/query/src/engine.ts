@@ -144,6 +144,23 @@ export class QueryEngine {
   readonly registry: Registry;
   /** Optional embedding provider (semantic features, Phase 4). */
   readonly embedder?: Embedder;
+  /**
+   * The NEUTRAL cost context over this engine — no execution-time `filters` /
+   * `sort` / `params`.
+   *
+   * Used wherever a RESOLUTION path has to estimate: a DERIVED source sizes the
+   * synthetic Type it binds from its own body (`QuerySource.resolvedType`, a CTE
+   * name's binding — A18). Neutral on purpose, for two reasons. Those selections
+   * belong to the ENCLOSING query — `engine.run` ANDs a `filters` predicate into
+   * a select's WHERE by source name, and neither it nor a `sort` reaches inside a
+   * derived table — and one shared instance gives every such estimate a single
+   * identity to memoize against (see `ScopeMemo`), which is what keeps a deeply
+   * nested statement's resolution linear. The consequence to know: a `LIMIT` bound
+   * to a PARAM *inside* a CTE body / derived table is estimated UNCAPPED (the
+   * conservative direction); one on the statement's own `final` still resolves,
+   * because that is costed with the caller's real context.
+   */
+  readonly neutralCost: CostContext = { engine: this };
 
   /** Cache of parsed runtime functions, keyed by name. */
   private readonly functionCache = new Map<string, QueryFunction>();

@@ -3,6 +3,146 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.6.5
+
+Two asks raised by the consuming product's widget layer on `0.6.4`, both re-derived against
+this source before anything was written. Additive: no exported name changed meaning, no
+signature lost a parameter. What DOES change is the NUMBERS `cost` reports for a statement
+that reads a derived source — see the consumer note under A18, because a budget that used to
+pass one will now correctly refuse it.
+
+### A18 — a derived source's cost was STRUCTURALLY zero, so no budget could fire on it (**P1**)
+
+Every DERIVED source — a CTE name, a FROM subquery, a manually-joined subquery source — binds a
+SYNTHETIC Type, and `syntheticType` built it `count: 0, bytes: 0`. The cost model reads
+`Type.count` for a base scan and for a join's fan-out, so anything reading a derived source
+estimated at zero. That is not a loose estimate: everywhere else the honest caveat is *"the
+input is a `TypeDef.count` the author declared"*; here there was no input at all, and the number
+was a hard zero nobody supplied.
+
+The shape the product reported, over a `tiny` declaring `count: 10` and a `task` declaring
+`count: 1_000_000`:
+
+```
+WITH touched AS (DELETE FROM tiny RETURNING id)
+SELECT touched.id FROM touched INNER JOIN task ON true
+
+  cost()                   {rows: 0, bytes: 0}          <- structural zero
+  checkCost(maxRows: any)  PASS                          <- no cost budget could fire
+  affected()               {rows: 10, types:[tiny=10]}   <- honest; the write IS ten rows
+  delivers                 10_000_000 rows
+```
+
+Every gate passed it, correctly — and this is the one shape `autoPaginate` deliberately declines
+to cap, because a `LIMIT` would truncate the receipt while the database ran the write to
+completion. So a statement authorable today streamed ten million rows with no bound of any kind.
+
+**Wider than filed, and worse without a `WITH`.** `syntheticType` is the common cause, so the
+same hole is reachable through a plain derived table: measured on `0.6.4`,
+`SELECT … FROM (SELECT … FROM task) x` — one million rows, no CTE — also costs `{rows: 0}`, and
+a join over such a source fans out by `Math.max(1, 0)` = **1** instead of by its real
+cardinality.
+
+**Fixed** by giving `syntheticType` an optional third argument: the derived source's own
+`outputCost`, i.e. the rows a reader of that name will scan and their width. `QuerySource`
+supplies it for a subquery source and `CTEStatementQuery.bind` for each CTE name (entries bind
+in order, so entry *i* is estimated with `0..i-1` already bound). Two related corrections fall
+out of having the number at all:
+
+- **A `cte` root's cost now adds every ENTRY's own work**, not just the `final`'s. An entry runs
+  whether or not `final` reads it — `WITH t AS (SELECT … FROM million) SELECT count(*) FROM t`
+  reads a million rows to produce one — and this package's runtime literally MATERIALIZES each
+  entry's whole result in memory (`ctx.ctes.set(name, rows)`), so those rows are the most real
+  cost the statement has. `outputCost` is unchanged: entries are work, not rows delivered.
+- **A RECURSIVE entry is the seed plus `RECURSIVE_CTE_LEVELS` (4) expansions** of its arm, the
+  arm costed with the CTE name bound to the seed's size. The fixpoint depth is data-dependent
+  and not statically knowable, so the model assumes a shallow hierarchy — an org chart, a
+  category tree — rather than the runtime's 1000-iteration safety cap, which would refuse every
+  ordinary closure under any budget. The point is that a recursive body is not FREE.
+
+**`affected` now descends into EVERY nesting position.** Also recorded in the ask, and closed
+rather than documented. It was implemented per kind, and the kinds that had it were the ones
+someone remembered: measured on `0.6.4`, a data-modifying `WITH` reported `{rows: 0, types: []}`
+from a FROM subquery, a joined subquery source, a `subquery` / `exists` / `in` subquery in any
+clause, a set-operation arm, and an `insert … select` source. Postgres refuses a data-modifying
+`WITH` below the top level, so most of those are not live against a database — but they ARE live
+against this package's own in-memory runtime, which executes each nested statement for real (the
+test deletes rows through a FROM subquery to show it). The fix is structural: every kind declares
+its nested statements once (`Query.forEachNestedQuery`, with expr-carried ones free via the new
+`Expr.nestedQueryDef` hook, beside `fieldRef` / `orOperands` / `functionRef`), and `affected` is
+the sum over that enumeration plus the statement's own target. A position added later is counted
+by declaring itself. Two things came along with it: `walkExprs` is now implemented for
+`insert` / `update` / `delete` (its doc always claimed DML walked its `set` / `where` /
+`returning`; it walked nothing), and a `cte`'s per-Type breakdown is now in document order
+(entries, then `final`) instead of `final`-first. `rows` is unchanged.
+
+**And a performance fix the change forced, which also repays a pre-existing debt.** Sizing a
+derived source makes BINDING non-trivial, and each level binds its inner statement twice (once
+for its FIELDS, once for its SIZE), so nesting became exponential — 20 nested `WITH`s took
+**40s**. Binding is a pure function of `(query, engine, scope)` that mutates nothing, so it is
+now memoized per scope (`ScopeMemo`) on `SelectQuery` and `CTEStatementQuery`. That is linear
+again — 200 levels in ~2ms — and it also fixes an exponential that was there BEFORE this
+release: 20 nested FROM subqueries took 722ms on `0.6.4` (they resolved the same subtree 4× per
+level) and now take ~1ms.
+
+**Consumer-visible, and deliberately so:** `engine.cost` / `checkCost` report real numbers for a
+`cte` or a derived table where they reported `{rows: 0, bytes: 0}`, so a `maxRows` / `maxBytes`
+budget that silently passed such a statement will now refuse it — which is the entire ask. One
+fidelity note stated rather than hidden: those estimates are taken with `engine.neutralCost` (a
+new per-engine `CostContext` with no execution-time `filters` / `sort` / `params`), because
+those selections belong to the ENCLOSING query and do not reach inside a derived table — and one
+shared identity is what makes the memoization hit. The consequence is that a `LIMIT` bound to a
+PARAM *inside* a CTE body / derived table is estimated UNCAPPED (the conservative direction); a
+bound on the statement's own `final` still resolves, since that is costed with the caller's real
+context.
+
+### A19 — an aggregate did not declare HOW ITS VALUES MERGE, and `DISTINCT` was not on the resolved output at all (**P2**)
+
+The consumer is a visual that cannot draw every group and folds the tail into a residual — a
+pie's *Other* slice, a cross-tab's *Other* row and column. A residual is only honest if it is the
+true value **over the groups it replaces**, so the widget layer has to answer *"given one value
+per group, what is the value over all of them?"*. That is a property of the FUNCTION, and nothing
+on the wire carried it; the only alternative was a hard-coded per-function table in every
+consumer, which is wrong the moment a caller registers an aggregate of its own.
+
+Worked, because the wrong answers are plausible: four owners, `avg(hours)` per owner, the visual
+draws two and folds Cy (1 row, 10 hours ⇒ avg 10) and Dee (9 rows, 18 hours ⇒ avg 2). The
+residual is `(10 + 18) / 10` = **2.8**. Adding the cells gives **12**; averaging them gives
+**6**. Both are numbers a reader accepts without hesitating, and the input that would fix it —
+each group's row COUNT — is not in the result at all.
+
+**Added `FunctionDef.merge`** (`AggregateMerge` = `'sum' | 'min' | 'max' | 'and' | 'or' |
+'none'`): the operation `⊕` for which `f(A ∪ B) = f(A) ⊕ f(B)` holds for EVERY partition.
+Builtins declare `count`/`sum`/`countIf` ⇒ `'sum'`, `min`/`max` ⇒ `'min'`/`'max'`,
+`boolAnd`/`boolOr` ⇒ `'and'`/`'or'`. `avg`, `stddev`, `variance`, `stringAgg` and `arrayAgg`
+declare NOTHING, deliberately — the first three need each group's weight and the collectors need
+a separator/ordering a pair of values cannot supply. Absent ⇒ `'none'`, so an aggregate whose
+author said nothing is treated as un-mergeable and a consumer fails SAFE. Declarable only on an
+`aggregate` shape; resolving one that is not throws, exactly as an unknown output Type does,
+rather than ignoring the key.
+
+**And `DISTINCT` now survives resolution.** `AggregateExpr.resolve` returned
+`{...base, nullable, aggregate: true, aggregateFn}` — so `count(hours)` and
+`count(DISTINCT hours)` produced BYTE-IDENTICAL output fields (same fieldType, same nullable,
+same `aggregateFn`, same single source) while emitting different SQL and answering different
+questions. `ComputedResolved` gains two fields, present on exactly the nodes `aggregateFn` is:
+
+- **`aggregateDistinct`** — was the call `DISTINCT`? (`false` is an answer, so it is not omitted.)
+- **`aggregateMerge`** — the merge of THIS CALL: the declared operation with the DISTINCT rule
+  already applied. `count(x)` ⇒ `'sum'`; `count(DISTINCT x)` ⇒ `'none'`, because de-duplication
+  is GLOBAL and two such values cannot be added; `min(DISTINCT x)` ⇒ `'min'`, because min / max /
+  and / or are idempotent and DISTINCT cannot change them. Resolved here rather than left to the
+  consumer, because the browser holds no engine: neither the registry lookup nor the call is
+  available on the far side of the wire. `mergeOfAggregateCall(declared, distinct)` is exported
+  for anyone who wants to apply the rule themselves; it is total over the vocabulary and over
+  `undefined`.
+
+Found while implementing it and fixed here: **`count(*)` with `distinct` emitted
+`count(DISTINCT *)`**, which is a syntax error on every dialect, while the runtime deliberately
+ignored the flag for the arg-less form. Emit and run now agree — `validateWalk` reports
+`aggregate.distinct-no-args` (DISTINCT de-duplicates argument VALUES and there are none), and
+emission drops it so a caller that emits without validating still produces valid SQL.
+
 ## 0.6.4
 
 One ask from the consuming product's adoption of `0.6.3`.

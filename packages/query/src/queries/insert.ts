@@ -45,7 +45,7 @@ import { identityValueCtx } from '../exprs/_field-guard';
 import { didYouMean } from '../aids';
 import type { Type } from '../type';
 import type { Affected, Cost, CostContext } from '../cost';
-import { affectedOne } from '../cost';
+import { affectedOne, mergeAffected } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -301,10 +301,32 @@ export class InsertQuery extends Query {
     return { rows, bytes: rows * perRow };
   }
 
-  /** Rows this INSERT adds (on `into`): the VALUES row count, or the source SELECT's output rows. */
+  /**
+   * Walk every clause expr — each VALUES row's assigned values, RETURNING, and an
+   * ON CONFLICT DO UPDATE's assignments — recursing via `Expr.walk`. The
+   * traversal primitive a statement-wide fact is built on
+   * (`forEachNestedQuery`, and so `affected`).
+   */
+  override walkExprs(visit: (e: Expr) => void): void {
+    for (const row of this.rows ?? []) for (const e of row.values()) e.walk(visit);
+    for (const r of this.returning) r.expr.walk(visit);
+    for (const a of this.onConflict?.update ?? []) a.expr.walk(visit);
+  }
+
+  /** The statements this INSERT nests: its clause exprs' plus the source SELECT. */
+  protected override forEachNestedQuery(ctx: CostContext, scope: QueryScope, visit: (q: Query, s: QueryScope) => void): void {
+    super.forEachNestedQuery(ctx, scope, visit);
+    if (this.select) visit(this.select, scope.child());
+  }
+
+  /**
+   * Rows this INSERT adds (on `into`): the VALUES row count, or the source
+   * SELECT's output rows — PLUS whatever its nested statements mutate (an
+   * `INSERT … SELECT` whose source is a data-modifying `WITH` writes twice).
+   */
   override affected(ctx: CostContext, scope: QueryScope): Affected {
     const rows = this.rows ? this.rows.length : this.select ? this.select.outputCost(ctx, scope).rows : 0;
-    return affectedOne(this.into, rows);
+    return mergeAffected([affectedOne(this.into, rows), super.affected(ctx, scope)]);
   }
 
   /** Materialize rows into the target's `TypeState`, applying ON CONFLICT, then project RETURNING. */

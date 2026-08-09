@@ -15,6 +15,7 @@
  * output FieldType through the registry); the engine caches the instances.
  */
 import type {
+  AggregateMerge,
   ExprDef,
   FieldTypeDef,
   FunctionDef,
@@ -103,6 +104,15 @@ export class QueryFunction {
    */
   readonly unaggregate?: ExprDef;
   readonly unaggregateEmpty?: ExprDef;
+  /**
+   * How two of this AGGREGATE's per-group values combine into the value over the
+   * union of those groups ({@link AggregateMerge}). Always answered — an
+   * aggregate that declares nothing (and every non-aggregate) reports `'none'`,
+   * so a consumer asking "can these two values be combined, and how" gets a total
+   * answer for a caller-registered function as well as a builtin. See
+   * {@link FunctionDef.merge}.
+   */
+  readonly merge: AggregateMerge;
   /** Intrinsic per-call cost this function adds beyond its args (default none). */
   readonly cost: Cost;
   /**
@@ -126,6 +136,7 @@ export class QueryFunction {
     examples?: readonly string[];
     unaggregate?: ExprDef;
     unaggregateEmpty?: ExprDef;
+    merge?: AggregateMerge;
     cost?: Cost;
     changes?: number;
     references?: readonly string[];
@@ -140,6 +151,9 @@ export class QueryFunction {
     this.examples = spec.examples;
     this.unaggregate = spec.unaggregate;
     this.unaggregateEmpty = spec.unaggregateEmpty;
+    // Un-mergeable unless the author says otherwise — the safe default, and the
+    // only honest one for a non-aggregate.
+    this.merge = spec.merge ?? 'none';
     this.cost = spec.cost ?? ZERO_COST;
     this.changes = spec.changes ?? NEVER_CHANGES;
     this.references = spec.references ?? [];
@@ -147,6 +161,15 @@ export class QueryFunction {
 
   /** Build a runtime function from its JSON, parsing field/Type references. */
   static from(json: FunctionDef, registry: Registry): QueryFunction {
+    // A merge is a claim about combining PER-GROUP values, which only an
+    // aggregate produces. Refusing it here turns a meaningless declaration into
+    // an immediate registration error instead of a silently ignored key.
+    if (json.merge !== undefined && json.shape !== 'aggregate') {
+      throw new Error(
+        `QueryFunction.from: function '${json.name}' declares merge '${json.merge}' but is '${json.shape}', not an aggregate.`,
+      );
+    }
+
     const params: ResolvedParam[] = json.params.map((p: FunctionParamDef) => ({
       name: p.name,
       fieldType: p.type === 'any' ? undefined : registry.parseFieldType(p.type),
@@ -182,6 +205,7 @@ export class QueryFunction {
       examples: json.examples,
       unaggregate: json.unaggregate,
       unaggregateEmpty: json.unaggregateEmpty,
+      merge: json.merge,
       cost: json.cost,
       changes: json.changes,
       references: json.references,
@@ -214,6 +238,7 @@ export class QueryFunction {
       ...(this.examples ? { examples: this.examples } : {}),
       ...(this.unaggregate ? { unaggregate: this.unaggregate } : {}),
       ...(this.unaggregateEmpty ? { unaggregateEmpty: this.unaggregateEmpty } : {}),
+      ...(this.merge !== 'none' ? { merge: this.merge } : {}),
       // Estimation metadata — emitted only when set away from the neutral default.
       ...(this.cost.rows !== 0 || this.cost.bytes !== 0 ? { cost: this.cost } : {}),
       ...(this.changes !== NEVER_CHANGES ? { changes: this.changes } : {}),
@@ -368,6 +393,27 @@ export class QueryFunction {
       }
     }
   }
+}
+
+/**
+ * The merge semantics of ONE aggregate CALL: the function's declared
+ * {@link AggregateMerge}, reduced to `'none'` when the call is DISTINCT and the
+ * declared operation is not idempotent.
+ *
+ * De-duplication is GLOBAL, not per-group: two groups' `count(DISTINCT x)` values
+ * cannot be added, because a value counted in both must be counted once over the
+ * union and the per-group results no longer say which values those were. Only the
+ * idempotent operations survive it — `min`/`max` over a set are unchanged by
+ * duplicates, as are `and`/`or` — so `'sum'` is the single arm DISTINCT cancels.
+ *
+ * Total by construction: every `AggregateMerge` (and `undefined`, for a function
+ * that declares none) maps to an answer, so a consumer never needs a per-function
+ * table of its own — the exact hard-coded list this declaration exists to delete.
+ */
+export function mergeOfAggregateCall(declared: AggregateMerge | undefined, distinct: boolean): AggregateMerge {
+  if (declared === undefined) return 'none';
+  if (!distinct) return declared;
+  return declared === 'sum' ? 'none' : declared;
 }
 
 /* v8 ignore start -- compile-time exhaustiveness guard; never invoked at runtime */

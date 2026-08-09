@@ -22,10 +22,10 @@ import type { Problems } from '../problem';
 import type { ValidateContext } from '../expr';
 import type { RuntimeContext } from '../runtime/context';
 import { recordSignature } from '../runtime/record';
-import { Query, type QueryClass, type QueryField, type QueryReferences, type QueryResult, mergeReferences, syntheticType } from './query';
+import { Query, ScopeMemo, type QueryClass, type QueryField, type QueryReferences, type QueryResult, mergeReferences, syntheticType } from './query';
 import { obj, lit, str, list, queryRef, isRecord, type Shape } from '../shape';
-import type { Affected, Cost, CostContext } from '../cost';
-import { mergeAffected } from '../cost';
+import type { Cost, CostContext } from '../cost';
+import { addCost, RECURSIVE_CTE_LEVELS } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
 
@@ -36,12 +36,20 @@ interface CteEntry {
   readonly recursive: boolean;
   /** The output fields used to bind this CTE's synthetic type downstream. */
   boundFields(engine: QueryEngine, scope: QueryScope): QueryField[];
+  /**
+   * The SIZE OF THE ROWS this entry materializes under its name — what a later
+   * entry / the `final` query READS when it selects `FROM <name>`, and so the
+   * cardinality its bound synthetic Type must carry (A18).
+   */
+  estimate(ctx: CostContext, scope: QueryScope): Cost;
+  /** The WORK this entry itself does (it runs whether or not `final` reads it). */
+  cost(ctx: CostContext, scope: QueryScope): Cost;
   /** Validate the entry's inner queries (reporting at `ctes[index]`). */
   validate(engine: QueryEngine, inner: QueryScope, p: Problems, ctx: ValidateContext, index: number): void;
   /** Collect referenced Type names (excluding CTE names). */
   collectReferenced(out: Set<string>, cteNames: ReadonlySet<string>): void;
-  /** Rows this entry MUTATES (a data-modifying CTE body); none for a read-only entry. */
-  affected(ctx: CostContext, scope: QueryScope): Affected;
+  /** Every STATEMENT this entry runs (one body, or a recursive pair). */
+  forEachQuery(visit: (q: Query) => void): void;
   /** What this entry's inner query READS (Types / fields / functions). */
   references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences;
   /** Evaluate the entry, populating `ctx.ctes[name]`. */
@@ -64,6 +72,16 @@ class CTEEntryImpl implements CteEntry {
     return this.query.outputFields(engine, scope);
   }
 
+  /** The body's RESULT SIZE — the rows it materializes under this name. */
+  estimate(ctx: CostContext, scope: QueryScope): Cost {
+    return this.query.outputCost(ctx, scope);
+  }
+
+  /** The body's own WORK (a `WITH` runs every entry, read by `final` or not). */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    return this.query.cost(ctx, scope);
+  }
+
   validate(engine: QueryEngine, inner: QueryScope, p: Problems, ctx: ValidateContext, index: number): void {
     p.at([index, 'query'], () => this.query.validateWalk(engine, inner, p, ctx));
   }
@@ -72,8 +90,8 @@ class CTEEntryImpl implements CteEntry {
     for (const t of this.query.referencedTypes()) if (!cteNames.has(t)) out.add(t);
   }
 
-  affected(ctx: CostContext, scope: QueryScope): Affected {
-    return this.query.affected(ctx, scope);
+  forEachQuery(visit: (q: Query) => void): void {
+    visit(this.query);
   }
 
   references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
@@ -115,6 +133,41 @@ class CTERecursiveEntryImpl implements CteEntry {
     return this.base.outputFields(engine, scope);
   }
 
+  /**
+   * The seed plus {@link RECURSIVE_CTE_LEVELS} runs of the recursive arm. The
+   * arm READS the CTE by name, so it is costed in a scope where that name is
+   * bound to the SEED's size — otherwise it would resolve to an unknown (zero-row)
+   * source and the whole recursion would estimate at the seed. The true fixpoint
+   * depth is data-dependent and not statically knowable; see the constant.
+   */
+  estimate(ctx: CostContext, scope: QueryScope): Cost {
+    const seed = this.base.outputCost(ctx, scope);
+    const level = this.recursiveArm.outputCost(ctx, this.seedScope(ctx, scope, seed));
+    return {
+      rows: seed.rows + level.rows * RECURSIVE_CTE_LEVELS,
+      bytes: seed.bytes + level.bytes * RECURSIVE_CTE_LEVELS,
+    };
+  }
+
+  /** Both arms' WORK, the recursive one paid once per assumed level. */
+  cost(ctx: CostContext, scope: QueryScope): Cost {
+    const seed = this.base.cost(ctx, scope);
+    const arm = this.recursiveArm.cost(ctx, this.seedScope(ctx, scope, this.base.outputCost(ctx, scope)));
+    return { rows: seed.rows + arm.rows * RECURSIVE_CTE_LEVELS, bytes: seed.bytes + arm.bytes * RECURSIVE_CTE_LEVELS };
+  }
+
+  /** A scope binding THIS CTE's name to the seed's shape + size, for costing the recursive arm. */
+  private seedScope(ctx: CostContext, scope: QueryScope, seed: Cost): QueryScope {
+    const child = scope.child();
+    child.bind(this.name, {
+      kind: 'type',
+      type: syntheticType(this.name, this.base.outputFields(ctx.engine, scope), seed),
+      source: this.name,
+      synthetic: true,
+    });
+    return child;
+  }
+
   validate(engine: QueryEngine, inner: QueryScope, p: Problems, ctx: ValidateContext, index: number): void {
     p.at([index, 'base'], () => this.base.validateWalk(engine, inner, p, ctx));
     p.at([index, 'recursive'], () => this.recursiveArm.validateWalk(engine, inner, p, ctx));
@@ -125,8 +178,9 @@ class CTERecursiveEntryImpl implements CteEntry {
     for (const t of this.recursiveArm.referencedTypes()) if (!cteNames.has(t)) out.add(t);
   }
 
-  affected(ctx: CostContext, scope: QueryScope): Affected {
-    return mergeAffected([this.base.affected(ctx, scope), this.recursiveArm.affected(ctx, scope)]);
+  forEachQuery(visit: (q: Query) => void): void {
+    visit(this.base);
+    visit(this.recursiveArm);
   }
 
   references(engine: QueryEngine, scope: QueryScope, ctx: CostContext): QueryReferences {
@@ -339,20 +393,50 @@ export class CTEStatementQuery extends Query {
     { aid: 'Query_cte' },
   );
 
-  /** Bind each CTE name as a synthetic type so downstream refs type-check. */
+  /**
+   * Bind each CTE name as a synthetic type so downstream refs type-check — each
+   * carrying its BODY's estimated size, which is what a reader of that name will
+   * actually scan.
+   *
+   * Before `0.6.5` the bound Type was built `count: 0, bytes: 0`, so a `WITH`
+   * cost ZERO however much it read: the root's cost IS the `final`'s cost, and
+   * `final` scans these Types. That made every cost budget structurally
+   * un-fireable on a `cte` — a `DELETE … RETURNING` of ten rows cross-joined to a
+   * million-row table passed `checkCost` at `{rows: 0}` and delivered ten million
+   * (A18). The estimate the body needs is one the engine can already compute, and
+   * the entries bind in order, so entry `i` is estimated with entries `0..i-1`
+   * already bound (a CTE may read an earlier one).
+   *
+   * Costing each body here means `bind` is no longer free, and `bind` runs on the
+   * validate / resolve / emit paths too. That is deliberate — ONE binding shape,
+   * used everywhere, cannot drift into "the count is right when you ask for cost
+   * and zero when you ask for fields" — and it is paid once per scope
+   * ({@link ScopeMemo}), which is what keeps a deeply nested statement linear.
+   *
+   * The estimate is taken with `engine.neutralCost`: execution-time `filters` /
+   * `sort` / `params` are the CALLER's selections against the enclosing query's
+   * sources, so a `LIMIT` bound to a param INSIDE a body is estimated uncapped
+   * (the conservative direction). One on `final` still resolves — the `final` is
+   * costed with the caller's real context.
+   */
   private bind(engine: QueryEngine, scope: QueryScope): QueryScope {
-    const child = scope.child();
-    for (const cte of this.ctes) {
-      const cols = cte.boundFields(engine, child);
-      child.bind(cte.name, {
-        kind: 'type',
-        type: syntheticType(cte.name, cols),
-        source: cte.name,
-        synthetic: true,
-      });
-    }
-    return child;
+    return this.bindMemo.get(engine, scope, () => {
+      const child = scope.child();
+      for (const cte of this.ctes) {
+        const cols = cte.boundFields(engine, child);
+        child.bind(cte.name, {
+          kind: 'type',
+          type: syntheticType(cte.name, cols, cte.estimate(engine.neutralCost, child)),
+          source: cte.name,
+          synthetic: true,
+        });
+      }
+      return child;
+    });
   }
+
+  /** Memoizes {@link bind} per enclosing scope — see {@link ScopeMemo}. */
+  private readonly bindMemo = new ScopeMemo<QueryScope>();
 
   /** The output fields — those of the final query, with CTE names bound. */
   outputFields(engine: QueryEngine, scope: QueryScope): QueryField[] {
@@ -377,21 +461,38 @@ export class CTEStatementQuery extends Query {
     return [...out];
   }
 
-  /** Estimate `{ rows, bytes }` — the final query's cost, with CTE names bound. */
+  /**
+   * Estimate the WORK: the final query's cost (over the now non-zero CTE Types)
+   * PLUS every entry's own cost. An entry is not free just because `final`
+   * collapses its rows — `WITH t AS (SELECT … FROM million) SELECT count(*) FROM t`
+   * reads a million rows to produce one — and this runtime MATERIALIZES each
+   * entry's whole result in memory (`CTEEntryImpl.execute`), so those rows are
+   * the most real cost the statement has.
+   */
   cost(ctx: CostContext, scope: QueryScope): Cost {
-    // The statement's cost is its final query's cost, with CTE names bound.
-    return this.final.cost(ctx, this.bind(ctx.engine, scope));
+    const bound = this.bind(ctx.engine, scope);
+    return this.ctes.reduce((total, cte) => addCost(total, cte.cost(ctx, bound)), this.final.cost(ctx, bound));
   }
 
-  /** The RESULT SIZE is the final query's output cost, with CTE names bound. */
+  /**
+   * The RESULT SIZE is the final query's output cost, with CTE names bound —
+   * entries do NOT add here: they are work, not rows delivered to the caller.
+   */
   override outputCost(ctx: CostContext, scope: QueryScope): Cost {
     return this.final.outputCost(ctx, this.bind(ctx.engine, scope));
   }
 
-  /** Rows mutated: every data-modifying CTE entry plus the final query, summed per Type. */
-  override affected(ctx: CostContext, scope: QueryScope): Affected {
+  /**
+   * The statements this `WITH` nests: every entry's body (both arms of a
+   * recursive one) and the `final` query, all under the bound scope. `affected`
+   * falls out of this — a data-modifying entry is counted because it is a nested
+   * statement, not because CTEs have a rule of their own.
+   */
+  protected override forEachNestedQuery(ctx: CostContext, scope: QueryScope, visit: (q: Query, s: QueryScope) => void): void {
     const bound = this.bind(ctx.engine, scope);
-    return mergeAffected([this.final.affected(ctx, bound), ...this.ctes.map((e) => e.affected(ctx, bound))]);
+    super.forEachNestedQuery(ctx, bound, visit);
+    for (const cte of this.ctes) cte.forEachQuery((q) => visit(q, bound));
+    visit(this.final, bound);
   }
 
   /** Reads = the final query's plus every entry's references (Types / fields / functions). */

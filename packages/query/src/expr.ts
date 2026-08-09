@@ -27,7 +27,7 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 import type { z } from 'zod';
-import type { ExprDef, ExprKind } from './schema';
+import type { ExprDef, ExprKind, QueryDef } from './schema';
 import type { Shape } from './shape';
 import type { CodeOptions, Node, SchemaOptions } from './node';
 import type { Registry } from './registry';
@@ -292,6 +292,20 @@ export abstract class Expr implements Node {
    * cost / `changes` / referenced Types) without an `instanceof`.
    */
   functionRef(): string | undefined {
+    return undefined;
+  }
+
+  /**
+   * The nested STATEMENT this expr runs, as its serializable def, or `undefined`
+   * when it holds none. Overridden by `subquery` / `exists` / the subquery form
+   * of `in` — the three positions an expr can carry a whole query.
+   *
+   * Declared here, beside `fieldRef` / `orOperands` / `functionRef`, so a walk
+   * can find EVERY nested statement without switching on expr classes: it is what
+   * makes `Query.affected` total (a data-modifying statement nested in a WHERE is
+   * still a mutation) rather than a list of the positions someone remembered.
+   */
+  nestedQueryDef(): QueryDef | undefined {
     return undefined;
   }
 

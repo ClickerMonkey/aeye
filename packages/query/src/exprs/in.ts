@@ -251,6 +251,11 @@ export class InExpr extends BoolExpr {
     return this.resolve(engine, scope);
   }
 
+  /** The statement the SUBQUERY form runs; the value-list form runs none. */
+  override nestedQueryDef(): QueryDef | undefined {
+    return this.subquery;
+  }
+
   /** Estimated cost: children plus the inner query's cost when this is the subquery form. */
   override cost(ctx: CostContext, scope: QueryScope): Cost {
     let c = this.childCost(ctx, scope);

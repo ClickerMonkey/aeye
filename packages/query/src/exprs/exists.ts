@@ -153,6 +153,11 @@ export class ExistsExpr extends BoolExpr {
     return this.resolve(engine, scope);
   }
 
+  /** The statement this expr runs (so a nested-statement walk finds it). */
+  override nestedQueryDef(): QueryDef {
+    return this.query;
+  }
+
   /** Estimated cost: the subquery's scan cost (its own output is a single boolean). */
   override cost(ctx: CostContext, scope: QueryScope): Cost {
     // EXISTS scans its subquery; its own output is a single boolean.

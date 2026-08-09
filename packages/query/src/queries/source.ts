@@ -161,11 +161,29 @@ export class QuerySource {
         synthetic: true,
       };
     }
-    const cols = this.subquery!.outputFields(engine, scope.child());
-    return { kind: 'type', type: syntheticType(this.alias, cols), source: this.alias, synthetic: true };
+    // A DERIVED source: the synthetic Type it binds carries the subquery's own
+    // RESULT SIZE, because that is what a scan of this alias reads. Without it
+    // the Type is `count: 0` and `SELECT … FROM (SELECT … FROM million) x` costs
+    // ZERO — the same structural hole A18 reported on a CTE name, reachable here
+    // with no `WITH` at all — and a join over such a source fans out by 1 rather
+    // than by its real cardinality.
+    //
+    // The estimate is taken with the engine's NEUTRAL cost context: execution-time
+    // `filters` / `sort` / `params` are the ENCLOSING query's selections against
+    // ITS sources and do not reach inside a derived table — and the shared
+    // instance is what lets the inner statement's binding memoize (`ScopeMemo`).
+    const inner = scope.child();
+    const cols = this.subquery!.outputFields(engine, inner);
+    const estimate = this.subquery!.outputCost(engine.neutralCost, inner);
+    return { kind: 'type', type: syntheticType(this.alias, cols, estimate), source: this.alias, synthetic: true };
   }
 
-  /** Bind this source's alias into `scope`. */
+  /**
+   * Bind this source's alias into `scope`. A convenience for a caller that wants
+   * only the binding; one that ALSO needs the resolved Type should call
+   * `resolvedType` once and bind THAT, because resolving a derived source now
+   * estimates its body and is not free (`SelectQuery.computeBind` does so).
+   */
   bindInto(engine: QueryEngine, scope: QueryScope): void {
     scope.bind(this.alias, this.resolvedType(engine, scope));
   }

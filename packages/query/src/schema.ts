@@ -1075,6 +1075,32 @@ export type QueryKind = QueryDef['kind'];
 /** What category of function this is (drives output resolution + SQL emit). */
 export type FunctionShape = 'scalar' | 'tabular' | 'window' | 'aggregate';
 
+/**
+ * How two values of one AGGREGATE combine into the value over the UNION of the
+ * groups that produced them — the fact a consumer needs to fold a tail of groups
+ * into a residual ("Other" slice / row / column) without re-running the query.
+ *
+ * For `f` applied to DISJOINT groups `A` and `B`, the declared operation `⊕` must
+ * satisfy `f(A ∪ B) = f(A) ⊕ f(B)` for every partition — a claim about the
+ * function, not about one dataset:
+ *  - `'sum'` — additive (`count`, `sum`, `countIf`).
+ *  - `'min'` / `'max'` — extremal (`min`, `max`).
+ *  - `'and'` / `'or'` — boolean folds (`boolAnd`, `boolOr`).
+ *  - `'none'` — NOT recoverable from the per-group values alone, and the default
+ *    for any function that does not declare otherwise. `avg` is the canonical
+ *    case: the merge needs each group's WEIGHT (its row count), which the result
+ *    does not carry — adding the means or averaging them are both simply wrong.
+ *    `stddev` / `variance` need the same; `stringAgg` / `arrayAgg` depend on a
+ *    separator / ordering a pair of values cannot supply.
+ *
+ * `'sum'` is the one arm DISTINCT invalidates — de-duplication is global, so two
+ * `count(DISTINCT x)` values cannot be added — while `min`/`max`/`and`/`or` are
+ * idempotent and merge identically with or without it. A consumer should read the
+ * already-resolved answer on `ComputedResolved.aggregateMerge` rather than
+ * re-derive that rule (see `mergeOfAggregateCall`).
+ */
+export type AggregateMerge = 'sum' | 'min' | 'max' | 'and' | 'or' | 'none';
+
 /** A declared function parameter. `type: 'any'` accepts any field type. */
 export interface FunctionParamDef {
   name: string;
@@ -1138,6 +1164,19 @@ export interface FunctionDef {
    * drilled select/order.)
    */
   unaggregateEmpty?: ExprDef;
+  /**
+   * AGGREGATE MERGE semantics — how two of this aggregate's per-group values
+   * combine into the value over the union of those groups ({@link AggregateMerge}).
+   * Declarable ONLY on an `aggregate`-shaped function — resolving one that is
+   * not THROWS (`QueryFunction.from`, exactly as an unknown output Type does),
+   * because the notion is meaningless for a scalar / window / tabular call and a
+   * silently ignored key is worse than a loud one.
+   * Absent ⇒ `'none'` — an aggregate whose author did not say is treated as
+   * un-mergeable, so a consumer folding groups fails SAFE rather than inventing
+   * arithmetic. Surfaced per CALL (DISTINCT accounted for) on
+   * `ComputedResolved.aggregateMerge`.
+   */
+  merge?: AggregateMerge;
   /** Intrinsic per-call cost `{ rows, bytes }` this function adds beyond its args. */
   cost?: { rows: number; bytes: number };
   /**

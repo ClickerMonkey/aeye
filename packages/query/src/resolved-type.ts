@@ -15,6 +15,7 @@
 import type { Type } from './type';
 import type { Field } from './field';
 import type { FieldType } from './field-type';
+import type { AggregateMerge } from './schema';
 
 /**
  * A field-ref to a RELATION field resolves to the RELATED Type (a whole row),
@@ -133,6 +134,32 @@ export interface ComputedResolved {
    * names the aggregate that was APPLIED, not any function that was called.
    */
   aggregateFn?: string;
+  /**
+   * Whether the APPLIED aggregate call was `DISTINCT` (`count(DISTINCT x)`).
+   * Present exactly when {@link aggregateFn} is, and `false` for an ordinary
+   * call — a companion FACT, not a flag omitted when false, because "not
+   * distinct" is an answer a consumer relies on.
+   *
+   * It exists because `count(x)` and `count(DISTINCT x)` resolved IDENTICALLY
+   * before `0.6.5`: same `fieldType`, same `nullable`, same `aggregateFn`, the
+   * same single source. They answer different questions and combine by different
+   * rules, and nothing on the wire could tell them apart.
+   */
+  aggregateDistinct?: boolean;
+  /**
+   * How two values of THIS CALL combine into the value over the union of the
+   * groups that produced them — the function's declared `AggregateMerge` with
+   * DISTINCT already accounted for (`count(x)` ⇒ `'sum'`, `count(DISTINCT x)` ⇒
+   * `'none'`, `min(DISTINCT x)` ⇒ `'min'`). Present exactly when
+   * {@link aggregateFn} is, and `'none'` when the call cannot be merged — so a
+   * consumer folding a tail of groups into a residual ("Other") reads ONE field
+   * and gets a total answer, including for an aggregate a caller registered.
+   *
+   * Resolved HERE rather than left to the consumer because the browser holds no
+   * engine: the registry lookup (and the DISTINCT rule that goes with it) is not
+   * available on the far side of the wire.
+   */
+  aggregateMerge?: AggregateMerge;
 }
 
 /** The discriminated union of every expression / source resolution outcome. */

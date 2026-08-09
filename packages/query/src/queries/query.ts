@@ -19,7 +19,7 @@ import type { ResolvedType, TypeResolved, FieldResolved } from '../resolved-type
 import { asFieldType, relationOf } from '../resolved-type';
 import type { ScalarKind } from '../field-type';
 import type { Affected, Cost, CostContext } from '../cost';
-import { AFFECTED_NONE } from '../cost';
+import { mergeAffected } from '../cost';
 import type { ValidateContext } from '../expr';
 import { ROOT_VALIDATE_CONTEXT } from '../expr';
 import type { Shape } from '../shape';
@@ -431,13 +431,40 @@ export abstract class Query {
   }
 
   /**
-   * Estimate the rows this statement MUTATES — a total plus a per-Type breakdown
-   * ({@link Affected}). A read-only query is `{ rows: 0, types: [] }` (the
-   * default); INSERT / UPDATE / DELETE name their target Type, and a CTE
-   * statement SUMS its data-modifying entries plus the final query per Type.
+   * Visit every NESTED STATEMENT this query contains, each with the scope it is
+   * evaluated in. The base finds the ones an EXPR carries — a `subquery` /
+   * `exists` / subquery-form `in`, via {@link Expr.nestedQueryDef} over
+   * {@link walkExprs} — in a child scope, exactly as those exprs cost and run
+   * them. A kind that nests a statement somewhere ELSE overrides and adds it:
+   * `SelectQuery` / `UpdateQuery` / `DeleteQuery` their FROM / JOIN subquery
+   * sources (under their own bound scope), `InsertQuery` its `select` source,
+   * `SetOperationQuery` both arms, `CTEStatementQuery` its entries + `final`.
+   *
+   * ONE enumeration, so a statement-level fact derived from it is total by
+   * construction rather than by remembering every position — see
+   * {@link affected}.
    */
-  affected(_ctx: CostContext, _scope: QueryScope): Affected {
-    return AFFECTED_NONE;
+  protected forEachNestedQuery(ctx: CostContext, scope: QueryScope, visit: (q: Query, s: QueryScope) => void): void {
+    this.walkExprs((e) => {
+      const def = e.nestedQueryDef();
+      if (def) visit(ctx.engine.parseQuery(def), scope.child());
+    });
+  }
+
+  /**
+   * Estimate the rows this statement MUTATES — a total plus a per-Type breakdown
+   * ({@link Affected}). A read-only query is `{ rows: 0, types: [] }`; INSERT /
+   * UPDATE / DELETE add their target Type; and EVERY kind sums what its nested
+   * statements mutate ({@link forEachNestedQuery}), so a data-modifying `WITH`
+   * below a FROM subquery / a set-operation arm / a WHERE `in` is counted rather
+   * than silently reported as zero. Same-Type rows are summed into one entry.
+   */
+  affected(ctx: CostContext, scope: QueryScope): Affected {
+    const parts: Affected[] = [];
+    this.forEachNestedQuery(ctx, scope, (q, s) => parts.push(q.affected(ctx, s)));
+    // `mergeAffected([])` is the read-only answer, so a query that nests nothing
+    // needs no special case.
+    return mergeAffected(parts);
   }
 
   /**
@@ -548,8 +575,50 @@ export function toArrayRows(
   return rows.map((row) => fields.map((f) => row[f.name] ?? null));
 }
 
-/** Build a synthetic `Type` describing a set of output fields. */
-export function syntheticType(name: string, fields: readonly QueryField[]): Type {
+/**
+ * A per-SCOPE memo for a query's SOURCE BINDING — the child scope a `select` /
+ * `cte` derives from an enclosing one.
+ *
+ * Binding is a pure function of `(this query, engine, scope)`: it reads the
+ * catalog and the enclosing bindings and mutates nothing (no caller ever binds
+ * into the scope it hands back). It is also no longer CHEAP — a derived source
+ * (a CTE name's body, a FROM subquery) estimates its own result to size the
+ * synthetic Type it binds (A18) — and the same statement is bound repeatedly at
+ * the same scope: `resolvedType` asks a subquery for its FIELDS and then for its
+ * SIZE, and each of those binds the same inner statement again. Unmemoized that
+ * is 2 walks per nesting level, i.e. EXPONENTIAL in depth: measured 40s for 20
+ * nested `WITH`s, against ~0ms before (when the walk stopped at a zero-row Type
+ * and did nothing). Memoized it is linear again.
+ *
+ * Keyed by the scope OBJECT and guarded on the engine, so a binding computed
+ * against one lexical position is never reused for another.
+ */
+export class ScopeMemo<T> {
+  private readonly byScope = new WeakMap<QueryScope, { engine: QueryEngine; value: T }>();
+
+  /** The memoized binding for `scope` under `engine`, computing it on a miss. */
+  get(engine: QueryEngine, scope: QueryScope, compute: () => T): T {
+    const hit = this.byScope.get(scope);
+    if (hit && hit.engine === engine) return hit.value;
+    const value = compute();
+    this.byScope.set(scope, { engine, value });
+    return value;
+  }
+}
+
+/**
+ * Build a synthetic `Type` describing a set of output fields.
+ *
+ * `estimate` is the DERIVED SOURCE's own result size (its `outputCost`) — the
+ * rows a reader of this Type will see, and their total width. Supply it whenever
+ * the caller knows the query behind the fields (a CTE name's body, a FROM /
+ * JOIN subquery): the cost model reads `Type.count` for a base scan and a join's
+ * fan-out, so a synthetic Type WITHOUT it is a hard, un-authored zero that makes
+ * everything reading the derived source structurally free (A18). Omit it only
+ * where the Type describes a shape and never a scan — a result's `outputType`, a
+ * set operation's ORDER BY scope.
+ */
+export function syntheticType(name: string, fields: readonly QueryField[], estimate?: Cost): Type {
   const built = fields.map((c) => {
     // A projected relation identity is a JSON object; every other whole-Type
     // column keeps the historical text placeholder.
@@ -557,7 +626,12 @@ export function syntheticType(name: string, fields: readonly QueryField[]): Type
     const nullable = c.type.kind !== 'type' ? c.type.nullable : relationOf(c.type)?.belongsTo === true;
     return new Field({ name: c.name, fieldType: ft, nullable });
   });
-  return new Type({ name, fields: built, indexes: [], count: 0, bytes: 0 });
+  const count = Math.max(0, estimate?.rows ?? 0);
+  // `Type.bytes` is PER ROW while an estimate's `bytes` is the total, so divide.
+  // With no rows there is no per-row width to recover — and none is read either,
+  // since every byte estimate multiplies by the (zero) count.
+  const bytes = count > 0 ? (estimate?.bytes ?? 0) / count : 0;
+  return new Type({ name, fields: built, indexes: [], count, bytes });
 }
 
 /** Build a `TypeResolved` over a synthetic Type for the given fields. */

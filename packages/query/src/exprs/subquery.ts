@@ -140,6 +140,11 @@ export class SubqueryExpr extends Expr {
     return p.at('query', () => validateSubqueryOutput(engine, scope, p, ctx, this.query));
   }
 
+  /** The statement this expr runs (so a nested-statement walk finds it). */
+  override nestedQueryDef(): QueryDef {
+    return this.query;
+  }
+
   /** Cost of running the inner query in a child scope. */
   cost(ctx: CostContext, scope: QueryScope): Cost {
     const engine = ctx.engine;

@@ -763,8 +763,11 @@ describe('cost-model: affected', () => {
       } }],
       final: { kind: 'delete', from: 'order' },
     } as QueryDef;
-    // final DELETE order (5000) + entry DELETE user (1 unique row), one entry each.
-    expect(fx.engine.affected(cte)).toEqual({ rows: 5001, types: [{ type: 'order', rows: 5000 }, { type: 'user', rows: 1 }] });
+    // entry DELETE user (1 unique row) + final DELETE order (5000), one entry each.
+    // The breakdown is in DOCUMENT order (which is also EXECUTION order: a `WITH`
+    // runs every entry, then `final`) — 0.6.5 derives it from the one
+    // nested-statement enumeration instead of listing `final` first.
+    expect(fx.engine.affected(cte)).toEqual({ rows: 5001, types: [{ type: 'user', rows: 1 }, { type: 'order', rows: 5000 }] });
   });
 
   it('a CTE SUMS same-Type mutations into one breakdown entry', () => {

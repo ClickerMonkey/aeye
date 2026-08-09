@@ -14,6 +14,7 @@
  */
 import type {
   AggregateExprDef,
+  AggregateMerge,
   ExprDef,
   FieldTypeDef,
   FunctionCallExprDef,
@@ -883,43 +884,62 @@ const UNAGG_COUNT_VALUE: ExprDef = {
  *  so a drilled select/order then drops it). */
 const UNAGG_ONE: ExprDef = { kind: 'literal', value: 1 };
 
+/**
+ * The optional half of an aggregate builtin's declaration. An options BAG rather
+ * than more positional parameters: with `merge` there are five of them, and the
+ * `count` entry already had to pass `undefined` for a slot it does not use.
+ */
+interface AggregateOptions {
+  /** SQL name override for emission (`stringAgg` → `string_agg`). */
+  sql?: string;
+  /** Worked call examples surfaced under the signature by `describeEngine`. */
+  examples?: readonly string[];
+  /** Arg-present un-aggregate template (defaults to the `value`-arg rule). */
+  unaggregate?: ExprDef;
+  /** Arg-less (`count(*)`) un-aggregate template, when the aggregate has one. */
+  unaggregateEmpty?: ExprDef;
+  /** How per-group values COMBINE over a union of groups (default `'none'`). */
+  merge?: AggregateMerge;
+}
+
 function aggregate(
   name: string,
   instructions: string,
   params: FunctionDef['params'],
   output: FunctionDef['output'],
   run: AggregateRun,
-  sql?: string,
-  examples?: readonly string[],
-  /** Arg-present un-aggregate template (defaults to the `value`-arg rule). */
-  unaggregate: ExprDef = UNAGG_VALUE,
-  /** Arg-less (`count(*)`) un-aggregate template, when the aggregate has one. */
-  unaggregateEmpty?: ExprDef,
+  opts: AggregateOptions = {},
 ): BuiltinFunction {
   return {
     def: {
       name,
       shape: 'aggregate',
       instructions,
-      ...(examples ? { examples } : {}),
+      ...(opts.examples ? { examples: opts.examples } : {}),
       params,
       output,
-      ...(sql ? { sql } : {}),
-      unaggregate,
-      ...(unaggregateEmpty ? { unaggregateEmpty } : {}),
+      ...(opts.sql ? { sql: opts.sql } : {}),
+      unaggregate: opts.unaggregate ?? UNAGG_VALUE,
+      ...(opts.unaggregateEmpty ? { unaggregateEmpty: opts.unaggregateEmpty } : {}),
+      ...(opts.merge ? { merge: opts.merge } : {}),
     },
     run: { shape: 'aggregate', run },
   };
 }
 
+// Every aggregate below declares its MERGE — how two per-group values combine
+// over the union of those groups (`AggregateMerge`). The un-declared ones are
+// un-declared on purpose and default to `'none'`: `avg` / `stddev` / `variance`
+// need each group's WEIGHT, which the value does not carry, and `stringAgg` /
+// `arrayAgg` need a separator / ordering two values cannot supply.
 const AGGREGATES: readonly BuiltinFunction[] = [
-  aggregate('count', "Count ROWS when `value` is omitted (the `count(*)` form — EMPTY args), or the non-null values of `value` when supplied.", [{ name: 'value', type: ANY, optional: true }], WHOLE, countRun, undefined,
-    [aggExample('count', {})], UNAGG_COUNT_VALUE, UNAGG_ONE,
+  aggregate('count', "Count ROWS when `value` is omitted (the `count(*)` form — EMPTY args), or the non-null values of `value` when supplied.", [{ name: 'value', type: ANY, optional: true }], WHOLE, countRun,
+    { examples: [aggExample('count', {})], unaggregate: UNAGG_COUNT_VALUE, unaggregateEmpty: UNAGG_ONE, merge: 'sum' },
   ),
-  aggregate('sum', "Sum of the non-null values.", [{ name: 'value', type: NUMBER }], 'inferred', sumRun),
+  aggregate('sum', "Sum of the non-null values.", [{ name: 'value', type: NUMBER }], 'inferred', sumRun, { merge: 'sum' }),
   aggregate('avg', "Mean of the non-null values.", [{ name: 'value', type: NUMBER }], NUMBER, avgRun),
-  aggregate('min', "Smallest non-null value.", [{ name: 'value', type: ANY }], 'inferred', minRun),
-  aggregate('max', "Largest non-null value.", [{ name: 'value', type: ANY }], 'inferred', maxRun),
+  aggregate('min', "Smallest non-null value.", [{ name: 'value', type: ANY }], 'inferred', minRun, { merge: 'min' }),
+  aggregate('max', "Largest non-null value.", [{ name: 'value', type: ANY }], 'inferred', maxRun, { merge: 'max' }),
   // ─── Group 2d: statistical / collecting aggregates ─────────────────────────
   // `stddev`/`variance` are the SAMPLE (n-1) forms and emit `name(args)` on both
   // dialects. `stringAgg`/`arrayAgg`/`boolAnd`/`boolOr` are postgres-native; the
@@ -931,12 +951,12 @@ const AGGREGATES: readonly BuiltinFunction[] = [
     [{ name: 'value', type: ANY }, { name: 'sep', type: TEXT }],
     TEXT,
     stringAggRun,
-    'string_agg',
+    { sql: 'string_agg' },
   ),
-  aggregate('arrayAgg', "Collect every value into an array.", [{ name: 'value', type: ANY }], ARRAY, arrayAggRun, 'array_agg'),
-  aggregate('boolAnd', "True when every non-null value is true.", [{ name: 'value', type: BOOL }], BOOL, boolAggRun('and'), 'bool_and'),
-  aggregate('boolOr', "True when any non-null value is true.", [{ name: 'value', type: BOOL }], BOOL, boolAggRun('or'), 'bool_or'),
-  aggregate('countIf', "Count rows where `cond` is true.", [{ name: 'cond', type: BOOL }], WHOLE, countIfRun),
+  aggregate('arrayAgg', "Collect every value into an array.", [{ name: 'value', type: ANY }], ARRAY, arrayAggRun, { sql: 'array_agg' }),
+  aggregate('boolAnd', "True when every non-null value is true.", [{ name: 'value', type: BOOL }], BOOL, boolAggRun('and'), { sql: 'bool_and', merge: 'and' }),
+  aggregate('boolOr', "True when any non-null value is true.", [{ name: 'value', type: BOOL }], BOOL, boolAggRun('or'), { sql: 'bool_or', merge: 'or' }),
+  aggregate('countIf', "Count rows where `cond` is true.", [{ name: 'cond', type: BOOL }], WHOLE, countIfRun, { merge: 'sum' }),
 ];
 
 // ─── Window library ──────────────────────────────────────────────────────────

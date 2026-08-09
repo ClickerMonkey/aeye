@@ -167,6 +167,21 @@ export const RANGE_SELECTIVITY = 0.5;
 /** Fixed selectivity of a non-indexed membership predicate (`col IN (...)`). */
 export const IN_SELECTIVITY = 0.5;
 
+/**
+ * Levels of expansion assumed when estimating a RECURSIVE CTE's size: the seed
+ * plus this many runs of the recursive arm.
+ *
+ * The true fixpoint depth is not statically knowable — it depends on the DATA —
+ * so this is a deliberate small constant, in the same spirit as the fixed
+ * selectivities above. It is chosen SMALL rather than at the runtime's safety cap
+ * (`DEFAULT_MAX_CTE_ITERATIONS` = 1000, which is the wrong shape of answer here):
+ * a recursive CTE in practice walks a hierarchy — an org chart, a category tree,
+ * a comment thread — a handful of levels deep, and estimating one at the safety
+ * cap would refuse every ordinary closure under any budget. The point is that a
+ * recursive body is not FREE, which is what it estimated at before `0.6.5`.
+ */
+export const RECURSIVE_CTE_LEVELS = 4;
+
 /** Per-row byte penalty for a semantic-similarity predicate (embedding work). */
 export const SEMANTIC_ROW_PENALTY = 1000;
 /** Per-row byte penalty for a full-text-search predicate (scan work). */

@@ -26,7 +26,8 @@ import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
-import { computed, childExprSchema } from './_shared';
+import { computed, childExprSchema, type AppliedAggregate } from './_shared';
+import { mergeOfAggregateCall, type QueryFunction } from '../function';
 import { withAid, didYouMean } from '../aids';
 import { obj, lit, str, bool, record, exprRef } from '../shape';
 import {
@@ -141,29 +142,51 @@ export class AggregateExpr extends Expr {
   }
 
   /**
+   * The APPLIED-aggregate facts this call stamps onto its resolution: the
+   * function name, whether it was DISTINCT, and how two of ITS values merge over
+   * a union of groups. `merge` is resolved here — the function's declaration
+   * reduced by the DISTINCT rule — rather than left to the consumer, because a
+   * consumer reading `QueryField.type` over the wire has neither the engine to
+   * look the declaration up nor the call to see the DISTINCT.
+   */
+  private applied(fn: QueryFunction | undefined): AppliedAggregate {
+    return { fn: this.fn, distinct: this.distinct, merge: mergeOfAggregateCall(fn?.merge, this.distinct) };
+  }
+
+  /**
    * Resolve to the function's declared output type, marked aggregate and nullable
-   * (except `count`), and carrying the APPLIED function's name.
+   * (except `count`), and carrying the APPLIED function's name, DISTINCT-ness and
+   * merge semantics.
    *
-   * `aggregateFn` is set on BOTH roads — including the unknown-function fallback,
-   * where the name is still the fact of what was written even though the
-   * resolution is a placeholder. This is the ONE node that can answer "which
-   * aggregate is this?": every wrapping expr reports `aggregate: true` from its
-   * children without a single applied function, and `Function.resolveOutput`
-   * never sets it, so nothing propagates a stale name upward.
+   * Those three are set on BOTH roads — including the unknown-function fallback,
+   * where the written name is still the fact of what was written even though the
+   * resolution is a placeholder (an unknown function declares no merge, so that
+   * road answers `'none'`). This is the ONE node that can answer "which aggregate
+   * is this?": every wrapping expr reports `aggregate: true` from its children
+   * without a single applied function, and `Function.resolveOutput` never sets
+   * it, so nothing propagates a stale name upward.
    */
   resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
       // Unknown aggregate: a nullable numeric aggregate keeps downstream
       // resolution total; `validateWalk` reports the real `aggregate.unknown`.
-      return computed(new NumberFieldType(), [], true, true, this.fn);
+      return computed(new NumberFieldType(), [], true, true, this.applied(undefined));
     }
     const base = fn.resolveOutput(resolveNamedArgs(this.args, engine, scope));
     if (base.kind !== 'computed') return base;
     // Aggregate nullability is structural: every aggregate but `count` can be
     // NULL over an empty group; `count` never is.
     const nullable = this.fn !== 'count';
-    return { ...base, nullable, aggregate: true, aggregateFn: this.fn };
+    const applied = this.applied(fn);
+    return {
+      ...base,
+      nullable,
+      aggregate: true,
+      aggregateFn: applied.fn,
+      aggregateDistinct: applied.distinct,
+      aggregateMerge: applied.merge,
+    };
   }
 
   /** Validate aggregate placement (not in WHERE, not nested) and the function's own named-arg checks. */
@@ -181,6 +204,16 @@ export class AggregateExpr extends Expr {
     }
     if (ctx.inAggregate) {
       p.error('aggregate.nested', `Aggregate '${this.fn}' cannot be nested inside another aggregate.`);
+    }
+    // DISTINCT de-duplicates the ARGUMENT VALUES, so the arg-less `count(*)` form
+    // has nothing to de-duplicate: the runtime already ignores the flag there
+    // (`evaluate`) and `count(DISTINCT *)` is not valid SQL on any dialect. Say so
+    // rather than emit a statement the database rejects.
+    if (this.distinct && this.args.size === 0) {
+      p.error(
+        'aggregate.distinct-no-args',
+        `Aggregate '${this.fn}' is DISTINCT but has no arguments — DISTINCT de-duplicates argument VALUES, and '${this.fn}(*)' has none. Drop 'distinct', or pass the value to de-duplicate.`,
+      );
     }
 
     // Recurse with aggregate context so nested aggregates are caught.
@@ -236,12 +269,18 @@ export class AggregateExpr extends Expr {
    * there are no args (`count(*)`). Fan-out over a relation is now expressed as
    * an explicit `relation` JOIN in the query's `joins`, so the aggregate simply
    * runs over the (already-joined) rows; there is no hidden pre-aggregation CTE.
+   *
+   * DISTINCT is dropped for the ARG-LESS form: it de-duplicates argument values
+   * and there are none, the runtime ignores it there too (`evaluate`), and
+   * `count(DISTINCT *)` is a syntax error on every dialect. `validateWalk`
+   * reports it (`aggregate.distinct-no-args`); emission stays TOTAL for a caller
+   * that emits without validating first.
    */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
-    const distinctSql = this.distinct ? SqlText.raw('DISTINCT ') : SqlText.empty();
+    const distinctSql = this.distinct && this.args.size > 0 ? SqlText.raw('DISTINCT ') : SqlText.empty();
     // `count(*)` — the arg-less star form (no builtin override applies).
     if (this.args.size === 0) {
-      return SqlText.concat([SqlText.raw(`${this.fn}(`), distinctSql, SqlText.raw('*'), SqlText.raw(')')]);
+      return SqlText.concat([SqlText.raw(`${this.fn}(`), SqlText.raw('*'), SqlText.raw(')')]);
     }
     const argSql = [...this.args.values()].map((a) => a.toSQL(dialect, ctx.asAggregate(true)));
     // A dialect may emit a builtin aggregate with a special / portable form

@@ -32,6 +32,7 @@ import { Type } from '../type';
 import { FieldRefExpr, AggregateExpr, OutputRefExpr, WindowExpr, SorterExpr } from '../exprs/index';
 import {
   Query,
+  ScopeMemo,
   type QueryClass,
   type QueryField,
   type QueryResult,
@@ -106,6 +107,20 @@ const orderItemShape: Shape<OrderItem> = {
 function parseOrderItem(def: OrderDef | SorterDef, registry: Registry): OrderItem {
   // Only a `SorterDef` carries a `kind` discriminant; a plain term never does.
   return 'kind' in def ? SorterExpr.from(def, registry) : QueryOrder.from(def, registry);
+}
+
+/**
+ * A SELECT's bound SOURCES: the child scope its FROM + joins bind into, the
+ * alias → Type map join planning needs, and the FROM Type resolved once. Named
+ * (rather than inline) because it is what {@link ScopeMemo} caches.
+ */
+interface BoundSources {
+  /** The child scope with every source alias bound. */
+  readonly scope: QueryScope;
+  /** alias → the Type bound under it (FROM plus every join hop). */
+  readonly aliasTypes: Map<string, Type>;
+  /** The FROM source's Type, resolved exactly once. */
+  readonly fromType: Type;
 }
 
 /** A `SELECT` statement plus its in-memory execution pipeline (FROM → JOIN → WHERE → GROUP → HAVING → DISTINCT → ORDER → LIMIT). */
@@ -327,15 +342,27 @@ export class SelectQuery extends Query {
     return inner.child().bindOutputs(this.outputExprs());
   }
 
-  /** Bind FROM + joins into a fresh child scope; also collect alias → Type. */
-  private bind(engine: QueryEngine, scope: QueryScope): {
-    scope: QueryScope;
-    aliasTypes: Map<string, Type>;
-  } {
+  /**
+   * Bind FROM + joins into a fresh child scope; also collect alias → Type and
+   * return the FROM Type resolved ONCE. Resolving a source is no longer free —
+   * a derived (subquery) source estimates its body to size the synthetic Type it
+   * binds (A18) — so the single resolution is reused by every caller instead of
+   * each re-resolving and re-costing the same subtree.
+   */
+  private bind(engine: QueryEngine, scope: QueryScope): BoundSources {
+    return this.bindMemo.get(engine, scope, () => this.computeBind(engine, scope));
+  }
+
+  /** Memoizes {@link bind} per enclosing scope — see {@link ScopeMemo}. */
+  private readonly bindMemo = new ScopeMemo<BoundSources>();
+
+  /** The uncached binding work {@link bind} memoizes. */
+  private computeBind(engine: QueryEngine, scope: QueryScope): BoundSources {
     const child = scope.child();
-    this.from.bindInto(engine, child);
+    const from = this.from.resolvedType(engine, child);
+    child.bind(this.from.alias, from);
     const aliasTypes = new Map<string, Type>();
-    aliasTypes.set(this.from.alias, this.from.resolvedType(engine, child).type);
+    aliasTypes.set(this.from.alias, from.type);
     for (const join of this.joins) {
       const plan = join.buildPlan(engine, aliasTypes);
       if (plan) {
@@ -350,7 +377,7 @@ export class SelectQuery extends Query {
         }
       }
     }
-    return { scope: child, aliasTypes };
+    return { scope: child, aliasTypes, fromType: from.type };
   }
 
   /** Resolve the output fields by binding FROM + joins and resolving each select expr. */
@@ -570,6 +597,24 @@ export class SelectQuery extends Query {
     return this.bind(engine, scope).scope;
   }
 
+  /**
+   * The statements this SELECT nests: every clause expr's (the base), plus the
+   * DERIVED SOURCES — a FROM subquery and any manually-joined subquery source —
+   * visited under this select's own bound scope.
+   */
+  protected override forEachNestedQuery(ctx: CostContext, scope: QueryScope, visit: (q: Query, s: QueryScope) => void): void {
+    const inner = this.bind(ctx.engine, scope).scope;
+    super.forEachNestedQuery(ctx, inner, visit);
+    for (const source of this.sources()) if (source.subquery) visit(source.subquery, inner);
+  }
+
+  /** The FROM source plus every manually-joined source (a relation join adds none). */
+  private sources(): QuerySource[] {
+    const out = [this.from];
+    for (const j of this.joins) if (j.on.kind === 'source') out.push(j.on.source);
+    return out;
+  }
+
   /** Resolve `references` field-refs against FROM + joins + this SELECT's outputs. */
   protected override referenceScope(engine: QueryEngine, scope: QueryScope): QueryScope {
     return this.sorterScope(engine, scope);
@@ -749,8 +794,7 @@ export class SelectQuery extends Query {
    */
   private matchedEstimate(ctx: CostContext, scope: QueryScope): { inner: QueryScope; fromType: Type; perRowBytes: number; matchedRows: number } {
     const engine = ctx.engine;
-    const { scope: inner, aliasTypes } = this.bind(engine, scope);
-    const fromType = this.from.resolvedType(engine, inner).type;
+    const { scope: inner, aliasTypes, fromType } = this.bind(engine, scope);
     // The FROM Type is reachable under its BOUND source name, which is the alias
     // for `{kind:'aliased'}` (and either side of a self-join) — index parts are
     // written against the Type name, so every probe normalizes through this.

@@ -29,7 +29,7 @@ import { deleteRecord } from './_type';
 import { obj, lit, str, list, exprRef } from '../shape';
 import { selectFieldShape } from './_shape';
 import type { Affected, Cost, CostContext } from '../cost';
-import { AFFECTED_NONE, affectedOne } from '../cost';
+import { affectedOne, mergeAffected } from '../cost';
 import { scanCost, applyWhere, matchedRows, selfBinding } from './_cost';
 import { identityValueCtx } from '../exprs/_field-guard';
 import type { Dialect } from '../sql/dialect';
@@ -215,11 +215,33 @@ export class DeleteQuery extends Query {
     return applyWhere(ctx, scope, baseScan, selfBinding(type), this.where, perRowBytes);
   }
 
-  /** Rows this DELETE removes: the target type's rows matching WHERE (index / selectivity / OR-aware). */
+  /**
+   * Walk every clause expr — WHERE, RETURNING, and each join's `and` predicate —
+   * recursing into descendants via `Expr.walk`. The traversal primitive a
+   * statement-wide fact is built on (`forEachNestedQuery`, and so `affected`).
+   */
+  override walkExprs(visit: (e: Expr) => void): void {
+    for (const w of this.where) w.walk(visit);
+    for (const r of this.returning) r.expr.walk(visit);
+    for (const j of this.joins) if (j.and) j.and.walk(visit);
+  }
+
+  /** The statements this DELETE nests: its clause exprs' plus any manually-joined subquery source. */
+  protected override forEachNestedQuery(ctx: CostContext, scope: QueryScope, visit: (q: Query, s: QueryScope) => void): void {
+    super.forEachNestedQuery(ctx, scope, visit);
+    for (const j of this.joins) if (j.on.kind === 'source' && j.on.source.subquery) visit(j.on.source.subquery, scope.child());
+  }
+
+  /**
+   * Rows this DELETE removes: the target type's rows matching WHERE (index /
+   * selectivity / OR-aware), PLUS whatever its nested statements mutate (a
+   * data-modifying `WITH` inside a WHERE subquery is still a mutation).
+   */
   override affected(ctx: CostContext, scope: QueryScope): Affected {
+    const nested = super.affected(ctx, scope);
     const type = ctx.engine.type(this.from);
-    if (!type) return AFFECTED_NONE;
-    return affectedOne(this.from, matchedRows(ctx, scope, selfBinding(type), this.where));
+    if (!type) return nested;
+    return mergeAffected([affectedOne(this.from, matchedRows(ctx, scope, selfBinding(type), this.where)), nested]);
   }
 
   /** Expand joins, filter by WHERE, project RETURNING (pre-removal), then delete the matched rows. */
