@@ -1,6 +1,6 @@
 {
   "name": "@aeye/gin",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "Gin - A type & expression system for LLM agents",
   "type": "module",
   "main": "dist/index.js",
@@ -25,7 +25,8 @@
     "dump-code": "tsx scripts/dump-code.ts",
     "integration": "tsx integration/run.ts",
     "integration:check": "tsx integration/run.ts --check",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "zod": "^4.1.12"
