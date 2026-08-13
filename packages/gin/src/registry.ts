@@ -619,7 +619,21 @@ export class Registry implements TypeBuilder, TypeScope {
     }
 
     // Previously-registered named type (Extension or programmatically defined).
-    if (this.namedTypes.has(def.name)) return this.namedTypes.get(def.name)!;
+    // A reference that carries `generic` is a SPECIALIZATION of that type —
+    // `{name:'QueryResult', generic:{Row:{…}}}`. Before this the bindings
+    // were silently dropped and the unbound declaration handed straight
+    // back, so `QueryResult<Row>` bound to a concrete row behaved, and
+    // printed, as a bare `QueryResult`.
+    if (this.namedTypes.has(def.name)) {
+      const named = this.namedTypes.get(def.name)!;
+      if (def.generic && named instanceof Extension) {
+        const bindings = Object.fromEntries(
+          Object.entries(def.generic).map(([k, v]) => [k, this.parse(v, scope)]),
+        );
+        return named.specialize(bindings);
+      }
+      return named;
+    }
 
     const cls = this.classes.get(def.name);
     if (!cls) {

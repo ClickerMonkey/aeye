@@ -22,7 +22,7 @@ const engine = createEngine(r);
 | `lookup(name)` | `Type` by name (registered instance → built-in fallback). |
 | `define(cls)` | Register a built-in Type **class** for JSON dispatch. Declare `optionKeys` / `genericKeys` on it to opt into strict parsing. |
 | `register(type)` | Register a named Type **instance** (typically an Extension). |
-| `extend(base, local)` | Create a named Extension (real subtype); `base` is a `Type` or name. |
+| `extend(base, local)` | Create a named Extension (real subtype); `base` is a `Type` or name. Declare type parameters with `generic`, and bind them at a use site with `Extension.specialize({ … })` — or by parsing `{name, generic:{…}}`. |
 | `augment(name, { props?, get?, call?, init? })` | Add to an existing type by name. |
 | `augmentation(name)` | Read an augmentation back. |
 | `setNative(id, impl, effects?)` | Wire a JS fn as a gin native (with declared effects). |

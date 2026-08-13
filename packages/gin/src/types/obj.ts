@@ -2,7 +2,7 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, Prop, type PropSpec, type Rnd, Type } from '../type';
+import { type CompatOptions, GetSet, indentOf, joinAuto, Prop, type PropSpec, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -288,7 +288,26 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       const propDocs = prop.docs && includeComments ? `/* ${prop.docs} */ ` : '';
       return `${propDocs}${label}: ${t.toCode(undefined, options)}`;
     });
-    return this.docsPrefix(options) + `obj{${parts.join(', ')}}`;
+    // `joinAuto`, not `Array.join` — every other delimited renderer in the
+    // library (`renderGenerics`, `formatParams`, `optionsCode`) already
+    // wraps at length, so a plain join here meant a method's arguments
+    // wrapped while the obj they returned did not, inside one rendered
+    // block, from one library. An obj was the only delimited form that
+    // never wrapped at ANY length (the envelope below ran to 233 chars).
+    return this.docsPrefix(options)
+      + `obj{${joinAuto(parts, { indent: indentOf(options) })}}`;
+  }
+
+  /** An obj referenced as a base is just `obj` — its fields move into the
+   *  extending type's body rather than onto its header line. See
+   *  `Type.toCodeRef`. */
+  toCodeRef(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + 'obj';
+  }
+
+  /** The fields `toCodeRef` elides. An obj's fields ARE its structure. */
+  refProps(): Record<string, Prop> {
+    return this.fields;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

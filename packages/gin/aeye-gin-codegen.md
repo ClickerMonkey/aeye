@@ -21,6 +21,138 @@ exactly what an LLM sees for each type in its prompt).
 > Gotcha: `toCode` is a **string**; only `toGinCode` / `toJSONCode` carry spans.
 > `formatProblem`/`formatProblems` need a `Code`, so feed them the latter.
 
+> Rendering is **display-only**. gin has no parser for its printed code — a
+> model authors `TypeDef` / `ExprDef` **JSON**, which `registry.parse` /
+> `registry.parseExpr` consume. The round trip that matters is
+> `registry.parse(type.toJSON())`, not `parse(print(t))`.
+
+## `CodeOptions`
+
+Every `toCode` / `toCodeDefinition` call takes the same options bag:
+
+| Option | Default | Effect |
+|---|---|---|
+| `indent` | `'  '` | One level of indent. Applies to the definition body, wrapped parameter lists and every wrapped delimited form. |
+| `includeComments` | `true` | When false, suppresses `/// docs` lines and inline `/* docs */`. |
+| `expectsValue` | `false` | Expr-only — statement vs. value position. |
+
+## `toCodeDefinition` — the layout a model reads
+
+```
+/// Everything a person is.
+type todo_task extends obj {
+  id: text
+  title: text
+  description?: text
+  due_date?: timestamp
+  priority?: enum<text>{low, medium, high}
+  status?: enum<text>{todo, "in progress", done, blocked}
+
+  /// Update one todo_task row, addressed by id.
+  update(
+    title?: text
+    status?: enum<text>{todo, "in progress", done, blocked}
+  ): QueryResult<obj{id: text}>
+}
+```
+
+Four rules govern it:
+
+**1. The body is line-oriented UNCONDITIONALLY.** One member per line, and a
+method's parameters one per line whenever there is more than one — closing paren
+on its own line, newline as the separator (no trailing commas). This is *not*
+width-triggered: a definition is a declaration, so predictability beats
+compactness and the print diffs cleanly when a type gains a field. A lone
+parameter stays on the method's line however long it is.
+
+Type **expressions** keep the width-triggered wrap (`joinAuto`), including `obj`
+— `obj{id: text}` stays compact, and a long one breaks across lines.
+
+**2. `extends <base>` names the base; it never inlines its structure.** The
+clause is kept because inheritance is information — `obj` carries props the
+extending type will never list. But an **anonymous** base (`obj`, `iface`) prints
+as its bare class name and its declared members move into the body, in base-then-
+local order. A **named** base prints as its name and its members stay implicit
+under it:
+
+```
+type Derived extends Base {
+  y: num          // Base's `x` is inherited, not re-listed
+}
+```
+
+Option narrowing is not a member and stays on the clause: `type Email extends
+text{pattern="^\\d+$"} {}`.
+
+The hooks are `Type.toCodeRef()` (reference form) and `Type.refProps()` /
+`refGet()` / `refCall()` (the members that form elides). A custom type overriding
+`toCodeRef` participates automatically — whatever the clause hides, the body
+shows.
+
+**3. Docs render as `/// text`** — a doc line, distinct at a glance from an
+ordinary `//` comment.
+
+**4. Generic references render their binding.** See below.
+
+## Enum shorthand
+
+An enum member whose **value equals its label** prints as the label alone:
+
+```ts
+r.enum({ low: 'low', medium: 'medium' }, r.text()).toCode()
+// enum<text>{low, medium}
+
+r.enum({ RED: 'red' }, r.text()).toCode()
+// enum<text>{RED="red"}          ← they differ, so both halves are kept
+
+r.enum({ 'in progress': 'in progress' }, r.text()).toCode()
+// enum<text>{"in progress"}      ← quoted: not a bare identifier
+```
+
+`label="value"` is reserved for members where the two actually differ, which is
+the only case where the second half carries information. On a realistic type
+whose enums are all label-equals-value, this removes ~60% of the enum text.
+
+The collapse is specific to `enum`. `optionsCode` — which renders `num{whole=true,
+min=0}` and friends — is untouched: there a key and its value are different
+facts, and collapsing them would be a lie.
+
+## Generics at a use site
+
+A named generic renders its **bindings** when it is specialized, and prints bare
+when it is not:
+
+```ts
+const Row = r.alias('Row');
+const QueryResult = r.extend('obj', {
+  name: 'QueryResult',
+  generic: { Row },
+  props: { rows: { type: r.list(Row) } },
+});
+r.register(QueryResult);
+
+QueryResult.toCode();                                   // 'QueryResult'
+QueryResult.toCodeDefinition().split('\n')[0];          // 'type QueryResult<Row> extends obj {'
+
+const bound = QueryResult.specialize({ Row: r.obj({ id: { type: r.text() } }) });
+bound.toCode();                                         // 'QueryResult<obj{id: text}>'
+```
+
+`specialize(bindings)` returns a **clone** — the registered declaration is never
+mutated, and two specializations of one generic coexist. Bindings for names that
+are not declared parameters are ignored.
+
+The binding is honoured, not merely printed: the clone carries a `LocalScope`
+over its own scope, so the `AliasType` placeholders inside its props / call / get
+resolve to the bound type through `valid`, `parse`, `props`, `call` and friends.
+
+A wire reference carrying `generic` specializes too, so this survives JSON:
+
+```ts
+r.parse({ name: 'QueryResult', generic: { Row: { name: 'obj', props: { id: { type: { name: 'text' } } } } } })
+  .toCode();                                            // 'QueryResult<obj{id: text}>'
+```
+
 ## The `Code` value
 
 `Code` is `{ text: string, spans: Span[] }`. A `Span` ties a character range

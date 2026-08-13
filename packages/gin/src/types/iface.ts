@@ -10,6 +10,7 @@ import {
   type PropSpec,
   type Rnd,
   Type,
+  indentOf,
   joinAuto,
 } from '../type';
 import { z } from 'zod';
@@ -223,8 +224,31 @@ export class IfaceType extends Type<any, Record<string, never>> {
       const ret = this._call.returns?.toCode(undefined, options) ?? 'void';
       parts.push(`(${this._call.args.toCode(undefined, options)}): ${ret}`);
     }
-    const body = parts.length === 0 ? 'iface' : `iface{${joinAuto(parts)}}`;
+    const body = parts.length === 0
+      ? 'iface'
+      : `iface{${joinAuto(parts, { indent: indentOf(options) })}}`;
     return this.docsPrefix(options) + body;
+  }
+
+  /** An iface referenced as a base is just `iface` — its contract moves
+   *  into the extending type's body. See `Type.toCodeRef`. */
+  toCodeRef(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + 'iface';
+  }
+
+  /** The three halves of the contract `toCodeRef` elides — an iface's
+   *  `toCode` inlines all of props, index signature and call signature,
+   *  so all three come back in the extending type's body. */
+  refProps(): Record<string, Prop> {
+    return this._props;
+  }
+
+  refGet(): GetSet | undefined {
+    return this._get;
+  }
+
+  refCall(): Call | undefined {
+    return this._call;
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

@@ -67,7 +67,8 @@ r.nullable<T>(inner);   // T or null
 r.not(excluded);
 r.or([Type, ...]);      // union
 r.and([Type, ...]);     // intersection — see "Intersections (`and`)"
-r.enum(values: Record<string, V>, valueType: Type<V>);
+r.enum(values: Record<string, V>, valueType: Type<V>);  // prints `enum<text>{low, medium}`
+                                                        // when value === label — see Codegen
 r.literal(inner: Type<T>, value: T);
 
 r.date(options?: { min?; max?; utc? });

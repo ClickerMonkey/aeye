@@ -1195,7 +1195,7 @@ export abstract class Type<T = any, O = any> implements Node {
    * by default — type docs would otherwise repeat at every reference,
    * burying real signal in noise (every `args.x: T` annotation, every
    * `new T {...}`, every type parameter would carry the full prose). Docs
-   * stay on the type definition (rendered as a `// docs` header by
+   * stay on the type definition (rendered as a `/// docs` header by
    * `toCodeDefinition`) where they describe the type ONCE. The hook
    * exists so a subclass could opt back in with policy if needed; today
    * none do.
@@ -1208,6 +1208,57 @@ export abstract class Type<T = any, O = any> implements Node {
    *  built-in classes; Extension overrides to show its base type. */
   protected extendsClause(_options?: CodeOptions): string {
     return '';
+  }
+
+  /**
+   * This type as a REFERENCE rather than a declaration — how it should
+   * appear in an `extends <base>` clause. Defaults to `toCode()`, which
+   * is already the reference form for all but two classes: `obj` and
+   * `interface` inline their whole MEMBER BLOCK, and that block on a
+   * header line is the defect this hook exists for (`type todo_task
+   * extends obj{id: text, due_date?: timestamp, …}` — 250 characters
+   * before the body even starts).
+   *
+   * Note what is deliberately NOT elided: option narrowing stays
+   * (`extends text{pattern="^\\d+$"}`) because it is compact, it is not
+   * a member, and there is nowhere else in the definition to put it;
+   * and `list<T>` / `map<K,V>` / `tuple<…>` / fn signatures stay whole
+   * because their arguments are a type EXPRESSION, not a member block.
+   *
+   * The contract with {@link refProps}: whatever this elides, the
+   * definition body recovers. See `Extension.definitionProps`.
+   */
+  toCodeRef(registry?: Registry, options?: CodeOptions): string {
+    return this.toCode(registry, options);
+  }
+
+  /**
+   * The props {@link toCodeRef} elides — this type's OWN declared
+   * structural surface, excluding the universal props every type carries.
+   * Empty by default; `obj` returns its fields and `interface` its
+   * declared props.
+   *
+   * Public (not protected) because `Extension` reads it off `this.base`,
+   * which is typed as the base class.
+   */
+  refProps(): Record<string, Prop | PropSpec> {
+    return {};
+  }
+
+  /**
+   * The index signature {@link toCodeRef} elides, if its `toCode` showed
+   * one. Undefined by default — and notably undefined on `obj`, whose
+   * `get()` is DERIVED from its fields and never appeared in the inlined
+   * form, so recovering it would add a per-field key union nobody wrote.
+   */
+  refGet(): GetSet | undefined {
+    return undefined;
+  }
+
+  /** The call signature {@link toCodeRef} elides, if its `toCode` showed
+   *  one. Undefined by default; `interface` overrides. */
+  refCall(): Call | undefined {
+    return undefined;
   }
 
   /**
@@ -1228,7 +1279,40 @@ export abstract class Type<T = any, O = any> implements Node {
         && (t.options as { name?: string } | undefined)?.name === k;
       return t.name === 'any' || selfRef ? k : `${k}: ${t.toCode(undefined, options)}`;
     });
-    return `<${joinAuto(parts)}>`;
+    return `<${joinAuto(parts, { indent: indentOf(options) })}>`;
+  }
+
+  /**
+   * Render a generic-parameter map as the ARGUMENT list at a use site —
+   * `<obj{id: text}>`, the bindings alone, no parameter names. Empty when
+   * every entry is still an unbound declaration placeholder (a self-
+   * referencing `AliasType`, or `any`), because an unspecialized
+   * reference has no bindings to show.
+   *
+   * The counterpart to {@link renderGenerics}, which renders the same map
+   * as a DECLARATION (`<Row>` / `<Row: Bound>`) on a type header. One map,
+   * two positions: `type QueryResult<Row> …` declares, `QueryResult<obj{id:
+   * text}>` uses. Without this a bound reference printed bare, losing the
+   * row type — which is the entire point of naming the envelope.
+   */
+  static renderGenericArgs(
+    generic: Record<string, Type>,
+    options?: CodeOptions,
+  ): string {
+    const keys = Object.keys(generic);
+    if (keys.length === 0) return '';
+    const bound = keys.some((k) => !Type.isGenericPlaceholder(k, generic[k]!));
+    if (!bound) return '';
+    const parts = keys.map((k) => generic[k]!.toCode(undefined, options));
+    return `<${joinAuto(parts, { indent: indentOf(options) })}>`;
+  }
+
+  /** True when `t` is `k`'s unbound DECLARATION placeholder rather than a
+   *  binding for it — `any` (unconstrained) or the self-referencing
+   *  `AliasType` that `registry.alias(k)` produces. */
+  static isGenericPlaceholder(k: string, t: Type): boolean {
+    if (t.name === 'any') return true;
+    return t.name === 'alias' && (t.options as { name?: string } | undefined)?.name === k;
   }
 
   /**
@@ -1236,8 +1320,19 @@ export abstract class Type<T = any, O = any> implements Node {
    * signatures (`a: T, b?: U`). `r.method({...})` always builds an
    * obj type for args, so duck-typing on `.fields` covers the common
    * case; anything else falls back to a single `args: <code>` param.
+   *
+   * `layout: 'lines'` puts every parameter on its own line (newline as
+   * the separator, no commas) whenever there is more than one, regardless
+   * of width. That is the DECLARATION layout — see `toCodeDefinition` for
+   * why a declaration is line-oriented unconditionally. `'auto'` (the
+   * default, and what every expression-position caller keeps) wraps only
+   * when the compact form gets long.
    */
-  static formatParams(args: Type, options?: CodeOptions): string {
+  static formatParams(
+    args: Type,
+    options?: CodeOptions,
+    layout: 'auto' | 'lines' = 'auto',
+  ): string {
     const fields = (args as unknown as { fields?: Record<string, Prop> }).fields;
     if (!fields) return args.name === 'void' || args.name === 'any'
       ? ''
@@ -1248,7 +1343,16 @@ export abstract class Type<T = any, O = any> implements Node {
       const docs = prop.docs && options?.includeComments !== false ? `/* ${prop.docs} */ ` : '';
       return `${docs}${name}${optional ? '?' : ''}: ${t.toCode(undefined, options)}`;
     });
-    return joinAuto(parts);
+    const indent = indentOf(options);
+    if (layout === 'auto') return joinAuto(parts, { indent });
+    // A lone parameter stays on the method's line whatever its length —
+    // there is nothing to line it up against, so breaking it out costs two
+    // lines and buys nothing. (`joinAuto` splits at 32 characters, which is
+    // why `filter(fn: (value: num, index: num): bool)` used to wrap.)
+    if (parts.length <= 1) return parts.join('');
+    // Newline IS the separator — a trailing comma on a line-oriented list
+    // is pure noise, and the body of a definition already reads this way.
+    return `\n${parts.map((p) => indentBlock(p, indent)).join('\n')}\n`;
   }
 
   // ─── toCodeDefinition hooks (overridable in Extension) ─────────────
@@ -1267,20 +1371,40 @@ export abstract class Type<T = any, O = any> implements Node {
    * surface to an LLM: fields, methods (via props whose type is callable),
    * index signature (via `get()`), and call signature (via `call()`).
    *
-   *   type Task {
-   *     // short headline
-   *     title: string
-   *     // completed?
-   *     done: boolean
-   *     due?: Date | undefined
-   *     // object.has
-   *     has(key: string): boolean
-   *     [key: "title" | "done" | "due"]: string | boolean | Date | undefined
+   *   type Task extends obj {
+   *     /// short headline
+   *     title: text
+   *     /// completed?
+   *     done: bool
+   *     due?: timestamp
+   *     /// object.has
+   *     has(key: text): bool
+   *     [key: "title" | "done" | "due"]: text | bool | timestamp
    *   }
+   *
+   * **The body is line-oriented UNCONDITIONALLY** — one member per line,
+   * and a method's parameters one per line whenever there is more than
+   * one, with the closing paren on its own line. Not width-triggered.
+   * A definition is a DECLARATION, not an expression: predictability
+   * beats compactness for something a reader (a model, mostly) scans
+   * top-to-bottom, and a stable one-fact-per-line layout diffs cleanly
+   * when a type gains a field. Type EXPRESSIONS keep the width-triggered
+   * `joinAuto` wrap, because there the compact form is usually the
+   * readable one.
+   *
+   * Members are rendered anchored at column 0 and stepped in ONCE here,
+   * so a wrapped parameter list nests under its method instead of
+   * colliding with it (see {@link indentBlock}). `CodeOptions.indent`
+   * chooses the step.
    */
   toCodeDefinition(options?: CodeOptions): string {
-    const lines: string[] = [];
+    /** One rendered member, anchored at column 0. Indented as a block below. */
+    const members: string[] = [];
     const includeComments = options?.includeComments !== false;
+    const indent = indentOf(options);
+    /** `///` — a DOC line, distinguishable at a glance from an ordinary
+     *  `//` comment by the same reader convention TS and Rust use. */
+    const doc = (text: string): string => `/// ${text}`;
 
     // Call-local type aliases — rendered first so they read like
     // class-level type-alias declarations and can be referenced when
@@ -1288,32 +1412,32 @@ export abstract class Type<T = any, O = any> implements Node {
     const call = this.definitionCall();
     if (call?.types) {
       for (const [name, t] of Object.entries(call.types)) {
-        lines.push(`  type ${name} = ${t.toCode(undefined, options)};`);
+        members.push(`type ${name} = ${t.toCode(undefined, options)};`);
       }
     }
 
     // Constructor — rendered first so the shape reads like a class.
     const init = this.definitionInit();
     if (init) {
-      if (init.docs && includeComments) lines.push(`  // ${init.docs}`);
-      lines.push(`  new(${Type.formatParams(init.args, options)})`);
+      if (init.docs && includeComments) members.push(doc(init.docs));
+      members.push(`new(${Type.formatParams(init.args, options, 'lines')})`);
     }
 
     // Call signature (`fn` / iface with call / Extension with call).
     if (call) {
       const ret = call.returns?.toCode(undefined, options) ?? 'void';
-      lines.push(`  (${Type.formatParams(call.args, options)}): ${ret}`);
+      members.push(`(${Type.formatParams(call.args, options, 'lines')}): ${ret}`);
     }
 
     // Index signature.
     const gs = this.definitionGet();
-    if (gs) lines.push(`  [key: ${gs.key.toCode(undefined, options)}]: ${gs.value.toCode(undefined, options)}`);
+    if (gs) members.push(`[key: ${gs.key.toCode(undefined, options)}]: ${gs.value.toCode(undefined, options)}`);
 
     // Fields + methods.
     const ownGenerics = new Set(Object.keys(this.generic));
     for (const [name, raw] of Object.entries(this.definitionProps())) {
       const prop = raw instanceof Prop ? raw : Prop.from(raw);
-      if (prop.docs && includeComments) lines.push(`  // ${prop.docs}`);
+      if (prop.docs && includeComments) members.push(doc(prop.docs));
       const optional = prop.type.isOptional();
       const t = optional ? prop.type.required() : prop.type;
       const opt = optional ? '?' : '';
@@ -1334,15 +1458,17 @@ export abstract class Type<T = any, O = any> implements Node {
           Object.entries(t.generic).filter(([k]) => !ownGenerics.has(k)),
         );
         const gParams = Type.renderGenerics(methodGen, options);
-        lines.push(`  ${name}${opt}${gParams}(${Type.formatParams(propCall!.args, options)}): ${ret}`);
+        members.push(`${name}${opt}${gParams}(${Type.formatParams(propCall!.args, options, 'lines')}): ${ret}`);
       } else {
-        lines.push(`  ${name}${opt}: ${t.toCode(undefined, options)}`);
+        members.push(`${name}${opt}: ${t.toCode(undefined, options)}`);
       }
     }
 
-    const docLine = this.docs && includeComments ? `// ${this.docs}\n` : '';
+    const docLine = this.docs && includeComments ? `${doc(this.docs)}\n` : '';
     const header = `${docLine}type ${this.name}${Type.renderGenerics(this.generic, options)}${this.extendsClause(options)}`;
-    return lines.length === 0 ? `${header} {}` : `${header} {\n${lines.join('\n')}\n}`;
+    if (members.length === 0) return `${header} {}`;
+    const body = members.map((m) => indentBlock(m, indent)).join('\n');
+    return `${header} {\n${body}\n}`;
   }
 
   // ─── SUPER HOOKS (for Extension overrides) ───────────────────────────────
@@ -1566,7 +1692,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
  */
 export function joinAuto(
   items: string[],
-  opts: { sep?: string; threshold?: number; totalThreshold?: number } = {},
+  opts: { sep?: string; threshold?: number; totalThreshold?: number; indent?: string } = {},
 ): string {
   if (items.length === 0) return '';
   const sep = opts.sep ?? ', ';
@@ -1579,8 +1705,37 @@ export function joinAuto(
   // Strip trailing whitespace from the separator so the wrapped form
   // emits e.g. `,\n` (not `, \n`) — newline already does the spacing.
   const wrapSep = sep.replace(/\s+$/, '');
-  const indented = items.map((i) => '  ' + i.replace(/\n/g, '\n  '));
-  return `\n${indented.join(`${wrapSep}\n`)}\n`;
+  const indent = opts.indent ?? DEFAULT_INDENT;
+  return `\n${items.map((i) => indentBlock(i, indent)).join(`${wrapSep}\n`)}\n`;
+}
+
+/**
+ * The one-level indent every wrapped / line-oriented render steps in by.
+ * Overridable per call through `CodeOptions.indent` — resolved in exactly
+ * one place (`indentOf`) so the option cannot be honoured by some
+ * renderers and silently ignored by others, which is what it did before.
+ */
+export const DEFAULT_INDENT = '  ';
+
+/** `CodeOptions.indent`, or {@link DEFAULT_INDENT}. */
+export function indentOf(options?: CodeOptions): string {
+  return options?.indent ?? DEFAULT_INDENT;
+}
+
+/**
+ * Indent EVERY line of `text` — the first one included — by `prefix`.
+ *
+ * Every line, not just the continuations, because **a renderer emits its
+ * block anchored at column 0 and its PARENT steps the whole thing in**.
+ * That is what makes indentation compose with nesting instead of each
+ * renderer hard-coding an absolute column. Before this, `joinAuto`
+ * indented continuations by a literal two spaces no matter where the
+ * block was spliced in, so a method's wrapped parameters landed at the
+ * same column as the method itself and its closing paren landed at
+ * column 0 — visible in gin's own `list.reduce` definition.
+ */
+export function indentBlock(text: string, prefix: string): string {
+  return prefix + text.replace(/\n/g, `\n${prefix}`);
 }
 
 // ============================================================================

@@ -1,6 +1,6 @@
 import type { Registry } from './registry';
-import type { TypeScope } from './type-scope';
-import type { TypeDef } from './schema';
+import { LocalScope, type TypeScope } from './type-scope';
+import type { PropDef, TypeDef } from './schema';
 import { Value, val } from './value';
 import {
   Call,
@@ -86,6 +86,24 @@ function sameOptions(narrowed: unknown, base: unknown): boolean {
   return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
 }
 
+/**
+ * The `props` slot of an Extension's wire def: the anonymous base's own
+ * members, then the local additions (local wins a name conflict, matching
+ * `Extension.props()`' composition order). `undefined` when both are
+ * empty, so a props-free type keeps emitting no `props` key at all.
+ */
+function mergeJSONProps(
+  basePropsFromRef: Record<string, Prop | PropSpec>,
+  local: Record<string, Prop | PropSpec> | undefined,
+): Record<string, PropDef> | undefined {
+  const baseKeys = Object.keys(basePropsFromRef);
+  if (baseKeys.length === 0) return local ? Prop.toJSONMap(local) : undefined;
+  return {
+    ...Prop.toJSONMap(basePropsFromRef),
+    ...(local ? Prop.toJSONMap(local) : {}),
+  };
+}
+
 function normalizeLocal<T, O>(local: ExtensionLocal<T, O>, registry: Registry): ExtensionLocal<T, O> {
   return {
     ...local,
@@ -111,7 +129,28 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   readonly local: ExtensionLocal<T, O>;
 
-  constructor(registry: Registry, original: Type<T>, local: ExtensionLocal<T, O>) {
+  /**
+   * Generic ARGUMENTS this instance was specialized with, or undefined for
+   * the unspecialized declaration. Only entries that are real bindings
+   * appear — a parameter still standing at its own placeholder is not a
+   * binding, and putting one here would make `AliasType` resolve `Row` to
+   * the very alias named `Row`.
+   */
+  readonly bindings?: Record<string, Type>;
+
+  constructor(
+    registry: Registry,
+    original: Type<T>,
+    local: ExtensionLocal<T, O>,
+    /**
+     * Resolution scope for the placeholders inside `local`. Defaults to
+     * the registry (the unspecialized case). {@link specialize} passes a
+     * `LocalScope` carrying the generic arguments, which is what makes a
+     * bound `QueryResult<Row=…>` actually behave as the bound type rather
+     * than merely print like one.
+     */
+    scope?: TypeScope,
+  ) {
     const narrowedOptions = local.options
       ? original.narrow(local.options)
       : (original.options as O);
@@ -137,28 +176,36 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     // call sites is handled by passing an extra TypeScope into the
     // resolution-touching methods (parse / valid / call / props / etc.) —
     // AliasType reads the override layer first, then its captured scope.
-    super(registry, narrowedOptions, local.generic ?? {});
+    super(scope ?? registry, narrowedOptions, local.generic ?? {});
     this.original = original;
     this.base = effectiveBase;
     this.local = normalizeLocal(local, registry);
     this.name = local.name;
     this.docs = local.docs;
+    const bound = Object.entries(local.generic ?? {})
+      .filter(([k, t]) => !Type.isGenericPlaceholder(k, t));
+    this.bindings = bound.length > 0 ? Object.fromEntries(bound) : undefined;
   }
 
   // ─── VALUE OPERATIONS (delegate to effective base) ─────────────────────
 
+  // Every scope-taking delegation runs the caller's scope through
+  // `bindScope` so a SPECIALIZED instance actually behaves as its
+  // bindings — otherwise `QueryResult<obj{id: text}>` would print a
+  // binding it does not honour, which is worse than printing nothing.
+
   valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
-    return this.base.valid(raw, scope);
+    return this.base.valid(raw, this.bindScope(scope));
   }
 
   parse(json: unknown, scope?: TypeScope): Value<T> {
-    const v = this.base.parse(json, scope);
+    const v = this.base.parse(json, this.bindScope(scope));
     // Re-wrap so Value.type is this Extension, not the base.
     return new Value(this, v.raw);
   }
 
   encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
-    return this.base.encode(raw, scope);
+    return this.base.encode(raw, this.bindScope(scope));
   }
 
   create(): RuntimeOf<T> {
@@ -234,7 +281,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     // so authors can shadow either base or augmentation on conflict.
     const ownAug = this.registry.augmentation(this.name);
     return {
-      ...this.base.props(scope),
+      ...this.base.props(this.bindScope(scope)),
       ...(ownAug?.props ?? {}),
       ...(this.local.props ?? {}),
     };
@@ -243,19 +290,19 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   get(scope?: TypeScope): GetSet | undefined {
     return this.local.get
       ?? this.registry.augmentation(this.name)?.get
-      ?? this.base.get(scope);
+      ?? this.base.get(this.bindScope(scope));
   }
 
   call(scope?: TypeScope): Call | undefined {
     return this.local.call
       ?? this.registry.augmentation(this.name)?.call
-      ?? this.base.call(scope);
+      ?? this.base.call(this.bindScope(scope));
   }
 
   init(scope?: TypeScope): Init | undefined {
     return this.local.init
       ?? this.registry.augmentation(this.name)?.init
-      ?? this.base.init(scope);
+      ?? this.base.init(this.bindScope(scope));
   }
 
   // ─── SCHEMA ROUND-TRIP ─────────────────────────────────────────────────
@@ -286,9 +333,28 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       docs: this.docs,
       generic: Object.keys(mergedGeneric).length > 0 ? mergedGeneric : undefined,
       options: mergedOptions && Object.keys(mergedOptions).length > 0 ? mergedOptions : undefined,
-      props: this.local.props ? Prop.toJSONMap(this.local.props) : undefined,
-      get: this.local.get?.toJSON(),
-      call: this.local.call?.toJSON(),
+      // An ANONYMOUS structural base's own members ride along in the SAME
+      // `props` / `get` / `call` slots as the local additions.
+      //
+      // Not a merge for elegance — without it the base's members were
+      // simply DROPPED, and `registry.parse(t.toJSON())` produced a type
+      // that accepted different values than the one it serialized:
+      // `extend(obj{id, title}, {name:'todo_task', props:{note}})` came
+      // back as `obj{note}`, so a row missing `id` and `title` — which
+      // the original refused — round-tripped into a valid one.
+      //
+      // A TypeDef has exactly ONE `props` slot and `extends: 'obj'` makes
+      // it structural, so a single merged slot is the only faithful wire
+      // form; parse folds the whole thing back into the structural base.
+      // A NAMED base contributes nothing here (`Type.refProps` is empty
+      // for an Extension), so an inherited prop is never copied down into
+      // the deriving type — it stays implicit under its base's name.
+      props: mergeJSONProps(
+        crossExtend ? this.original.refProps() : {},
+        this.local.props,
+      ),
+      get: (this.local.get ?? (crossExtend ? this.original.refGet() : undefined))?.toJSON(),
+      call: (this.local.call ?? (crossExtend ? this.original.refCall() : undefined))?.toJSON(),
       init: this.local.init?.toJSON(),
       constraint: this.local.constraint ? this.local.constraint.toJSON() : undefined,
     };
@@ -310,26 +376,132 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       call: this.local.call,
       init: this.local.init,
       constraint: this.local.constraint?.clone(),
-    });
+    // A specialized clone must keep resolving its bindings, so the
+    // resolution scope travels with the copy.
+    }, this.bindings ? this.scope : undefined);
   }
 
-  toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + this.name; }
+  /**
+   * A reference to this Extension is its NAME — plus its generic
+   * ARGUMENTS when it has been specialized (`QueryResult<obj{id: text}>`).
+   * An unspecialized reference still prints bare (`QueryResult`), because
+   * `<Row>` there would be the declaration echoed back, not information.
+   *
+   * The binding matters: a `QueryResult<Row>` that printed bare at a use
+   * site lost the row type, which is the whole reason to name the
+   * envelope. See {@link specialize} for how a bound instance is made.
+   */
+  toCode(_registry?: Registry, options?: CodeOptions): string {
+    return this.docsPrefix(options) + this.name + Type.renderGenericArgs(this.generic, options);
+  }
 
-  /** Renders `type Email extends text{pattern="..."}` headers in
-   *  `toCodeDefinition`. Uses `base` (narrowed) rather than `original`
-   *  so the constraints the Extension sits atop are visible. */
+  /**
+   * Renders `type Email extends text{pattern="..."}` headers in
+   * `toCodeDefinition`. Uses `base` (narrowed) rather than `original`
+   * so the constraints the Extension sits atop are visible.
+   *
+   * The base is rendered as a REFERENCE (`Type.toCodeRef`), so an
+   * anonymous `obj` base contributes `extends obj` rather than inlining
+   * its whole field list onto the header line. The clause survives
+   * because inheritance is information — `obj` carries props this type
+   * will never list — but the base's structure belongs in the body, and
+   * {@link definitionProps} puts it there.
+   */
   protected extendsClause(options?: CodeOptions): string {
-    return ` extends ${this.base.toCode(undefined, options)}`;
+    return ` extends ${this.base.toCodeRef(undefined, options)}`;
+  }
+
+  /**
+   * Did the `extends` clause print the base by name and thereby elide its
+   * declared members? If so the definition body must recover them —
+   * an anonymous base is not reachable by any name, so members hidden on
+   * both sides would simply vanish from the print.
+   *
+   * Derived by comparing the two renderings rather than testing the
+   * base's class, so a new structural type that overrides `toCodeRef`
+   * participates automatically and the two halves can never disagree
+   * about what was hidden.
+   */
+  private baseMembersElided(options?: CodeOptions): boolean {
+    return this.base.toCodeRef(undefined, options) !== this.base.toCode(undefined, options);
   }
 
   // Definition hooks — an Extension's rendered body shows only the
-  // additions it declares on top of its base. The base's surface lives
-  // under the `extends` clause, not duplicated inside the block.
-  protected definitionInit():  Init    | undefined { return this.local.init; }
-  protected definitionCall():  Call    | undefined { return this.local.call; }
-  protected definitionGet():   GetSet  | undefined { return this.local.get; }
+  // additions it declares on top of its base, PLUS whatever the `extends`
+  // clause elided (see `baseMembersElided`). A base that prints as a
+  // resolvable name keeps its surface implicit under that name; a base
+  // that printed as bare `obj` hands its fields over to the body.
+  //
+  // The recovery reads the `ref*` hooks and NOT the effective `init()` /
+  // `get()` / `call()`, because the contract is exactly "what the inlined
+  // form showed": an obj's `get()` is a key union DERIVED from its fields
+  // and never appeared inline, so recovering it would invent a member.
+  protected definitionInit(): Init | undefined {
+    return this.local.init;
+  }
+  protected definitionCall(): Call | undefined {
+    return this.local.call ?? (this.baseMembersElided() ? this.base.refCall() : undefined);
+  }
+  protected definitionGet(): GetSet | undefined {
+    return this.local.get ?? (this.baseMembersElided() ? this.base.refGet() : undefined);
+  }
   protected definitionProps(): Record<string, Prop | PropSpec> {
-    return this.local.props ?? {};
+    // Base members first so the shape reads before the additions do, and
+    // a local override of a base field lands in the base field's slot.
+    return {
+      ...(this.baseMembersElided() ? this.base.refProps() : {}),
+      ...(this.local.props ?? {}),
+    };
+  }
+
+  /**
+   * This Extension with its type parameters BOUND — the use-site form of
+   * a generic (`QueryResult.specialize({ Row: rowType })` renders as
+   * `QueryResult<obj{id: text}>`).
+   *
+   * The returned instance is a clone: the registered declaration is never
+   * mutated, so two specializations of one generic coexist. Bindings are
+   * carried two ways, and both are needed:
+   *
+   *  - in `local.generic` (hence `this.generic`), which is what the
+   *    renderer reads; and
+   *  - in a `LocalScope` layered over this type's own scope, which is
+   *    what the `AliasType` placeholders inside `local.props` / `call` /
+   *    `get` resolve through. Resolution in gin is scope-driven — there is
+   *    no eager substitution pass — so without the scope the render would
+   *    claim a binding the type does not actually honour.
+   *
+   * Names not declared as parameters of this Extension are ignored: a
+   * binding for something that is not a parameter is a caller error that
+   * must not silently widen the type's surface.
+   */
+  specialize(bindings: Record<string, Type>): Extension<T, O> {
+    const applied: Record<string, Type> = { ...(this.local.generic ?? {}) };
+    const bound: Record<string, Type> = {};
+    for (const k of Object.keys(this.local.generic ?? {})) {
+      const b = bindings[k];
+      if (!b) continue;
+      applied[k] = b;
+      bound[k] = b;
+    }
+    if (Object.keys(bound).length === 0) return this;
+    return new Extension<T, O>(
+      this.registry,
+      this.original,
+      { ...this.local, generic: applied },
+      new LocalScope(this.scope, bound),
+    );
+  }
+
+  /**
+   * Overlay this instance's generic arguments onto a caller-supplied
+   * resolution scope. The arguments sit INNERMOST — a specialization is
+   * fixed at the reference, so it wins over whatever the surrounding
+   * call site happens to bind for the same name.
+   */
+  private bindScope(scope?: TypeScope): TypeScope | undefined {
+    if (!this.bindings) return scope;
+    return scope ? new LocalScope(scope, this.bindings) : this.scope;
   }
 
   /**
