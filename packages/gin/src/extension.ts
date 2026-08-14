@@ -1,4 +1,4 @@
-import type { Registry } from './registry';
+import type { Registry, TypeAugmentation } from './registry';
 import { LocalScope, type TypeScope } from './type-scope';
 import type { PropDef, TypeDef } from './schema';
 import { Value, val } from './value';
@@ -436,20 +436,45 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   // `get()` / `call()`, because the contract is exactly "what the inlined
   // form showed": an obj's `get()` is a key union DERIVED from its fields
   // and never appeared inline, so recovering it would invent a member.
+  //
+  // A `registry.augment(<this name>, …)` addition is an ADDITION ON THIS
+  // TYPE, not part of the base's implicit surface, so it belongs in the
+  // body exactly like a local one. Leaving it out was a real defect: the
+  // one product native with behaviour attached four methods by
+  // augmentation, and reached the model as data fields with nothing it
+  // could call — `props()` answered them, the definition did not. Each
+  // hook reads the SAME precedence its runtime counterpart above uses
+  // (local → own augmentation → base), so what the print shows and what
+  // a path-walk dispatches against cannot diverge.
+  //
+  // Only the augmentation registered under THIS name is consulted. One
+  // registered against the BASE's name arrives through `base.props()` /
+  // `base.get()` and stays implicit under the `extends` clause, which
+  // keeps the "additions only, never the base" property intact.
+  private ownAugmentation(): TypeAugmentation | undefined {
+    return this.registry.augmentation(this.name);
+  }
   protected definitionInit(): Init | undefined {
-    return this.local.init;
+    return this.local.init ?? this.ownAugmentation()?.init;
   }
   protected definitionCall(): Call | undefined {
-    return this.local.call ?? (this.baseMembersElided() ? this.base.refCall() : undefined);
+    return this.local.call
+      ?? this.ownAugmentation()?.call
+      ?? (this.baseMembersElided() ? this.base.refCall() : undefined);
   }
   protected definitionGet(): GetSet | undefined {
-    return this.local.get ?? (this.baseMembersElided() ? this.base.refGet() : undefined);
+    return this.local.get
+      ?? this.ownAugmentation()?.get
+      ?? (this.baseMembersElided() ? this.base.refGet() : undefined);
   }
   protected definitionProps(): Record<string, Prop | PropSpec> {
     // Base members first so the shape reads before the additions do, and
-    // a local override of a base field lands in the base field's slot.
+    // a local override of a base field lands in the base field's slot;
+    // then augmentation, then local — `props()`' composition order, so a
+    // local prop shadowing an augmented one prints the local one.
     return {
       ...(this.baseMembersElided() ? this.base.refProps() : {}),
+      ...(this.ownAugmentation()?.props ?? {}),
       ...(this.local.props ?? {}),
     };
   }

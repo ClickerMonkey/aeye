@@ -212,8 +212,24 @@ export class Registry implements TypeBuilder, TypeScope {
    *
    * Augmented surface flows through every consumer: path-walker
    * dispatches against augmented `props` / `get` / `call`,
-   * `validateWalk` static analysis sees them, `toCodeDefinition`
-   * renders them in the type's surface block.
+   * `validateWalk` static analysis sees them, and `toCodeDefinition`
+   * renders them in the type's surface block — for a built-in AND for
+   * a named `Extension`, where they print in the body alongside the
+   * Extension's own local members (base → augmentation → local, the
+   * order `props()` composes). Until 0.3.13 the Extension arm silently
+   * dropped them from the print, so a type could carry methods at run
+   * time that the definition a model reads never mentioned.
+   *
+   * An augmentation registered against the BASE's name stays implicit
+   * under the `extends` clause and is not re-listed in the deriving
+   * type's body — the definition body is always "what this type adds".
+   *
+   * Augmentation is REGISTRY-SIDE surface, never wire shape: it does
+   * not appear in `toJSON()` and does not enter `toValueSchema()` /
+   * `toNewSchema()`. That is what makes it the right slot for methods
+   * on a type whose value contract must stay closed (a bare `{ id }`
+   * handle keeps parsing), and the reason the print is the only thing
+   * that had to change.
    */
   augment(name: string, addition: TypeAugmentation): this {
     // Normalize each field through the class `.from()` factories so

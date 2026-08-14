@@ -263,6 +263,22 @@ To genuinely *replace* behavior, use an Extension; augmentations only add.
 The augmented surface flows through every consumer: path-walks, static analysis,
 and code rendering all see it — and so does the LLM via `buildSchemas`.
 
+**Where it shows up in the print.** `toCodeDefinition()` lists augmented members
+in the body of a built-in *and* of a named Extension, after the base's members
+and before the Extension's own local ones (`props()`' composition order; a local
+member of the same name shadows the augmented one and prints once). An
+augmentation registered against the **base's** name stays implicit under the
+`extends` clause — the body is always "what this type adds". Fixed in **0.3.13**;
+before it, an Extension's augmented members were reachable at run time and absent
+from the definition a model reads.
+
+**Augmentation is registry-side surface, never wire shape** — it does not appear
+in `toJSON()` and does not enter `toValueSchema()` / `toNewSchema()`. That makes
+it the right slot for METHODS on a type whose value contract must stay closed: a
+handle that must keep parsing from a bare `{ id }` cannot declare its methods as
+local props (those land in the value schema), so it declares them here and they
+still print.
+
 ## Built-in type catalog
 
 `createRegistry()` registers these classes (`BUILTIN_TYPES`, in order):

@@ -167,7 +167,16 @@ is gentler than extension:
 
 The augmented surface flows through every consumer: path-walks
 dispatch against augmented props; static analysis sees them; code
-rendering shows them. No subclassing or wrapper required.
+rendering shows them — in the `toCodeDefinition` body of a built-in
+AND of a named Extension, alongside that Extension's own members
+(0.3.13 fixed the Extension arm, which used to drop them from the
+print). No subclassing or wrapper required.
+
+Augmentation is REGISTRY-SIDE surface, never wire shape: it stays out
+of `toJSON()` and out of `toValueSchema()` / `toNewSchema()`. So it is
+the slot for methods on a type whose VALUE contract must stay closed —
+a `resource` handle that must keep parsing from a bare `{ id }` gets
+its `markdown()` / `url()` here, not as local props.
 
 When you want to genuinely REPLACE behavior (not just add), use an
 Extension — extensions own their entire surface and can override

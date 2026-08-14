@@ -339,3 +339,150 @@ describe('Registry.augment', () => {
     expect(eff?.run.toJSON()).toEqual({ kind: 'native', id: 'init.first' });
   });
 });
+
+/**
+ * An augmentation on a NAMED Extension must reach `toCodeDefinition` —
+ * that print is the whole description of the type a model gets, so a
+ * surface that exists at run time and not in the print is a capability
+ * the model cannot know about.
+ *
+ * The motivating case, measured: a `resource` handle (an Extension over
+ * an anonymous `obj`) carried its four methods by `augment`, because the
+ * bare `{ id }` handle is its VALUE contract — a local prop would land
+ * in `toValueSchema` and stop that handle parsing. `props()` answered the
+ * methods, the definition showed none of them, and the one native with
+ * behaviour reached the model as data fields and nothing to call.
+ *
+ * Two properties constrain the fix and are pinned below: the body still
+ * shows only what this type ADDS (a base's surface stays implicit under
+ * `extends`), and `toJSON` / `toValueSchema` are untouched — an
+ * augmentation is registry-side surface, never wire shape.
+ */
+describe('augmentation on a named Extension reaches the definition print', () => {
+  /** The product's `resource` in miniature: a named handle over an
+   *  anonymous obj, with its behaviour attached by `augment`. */
+  const resourceFixture = () => {
+    const r = createRegistry();
+    const resource = r.extend(
+      r.obj({ id: { type: r.text() }, title: { type: r.optional(r.text()) } }),
+      { name: 'resource', docs: 'a stored file' },
+    );
+    r.register(resource);
+    r.augment('resource', {
+      props: {
+        markdown: r.method({}, r.text(), 'resource.markdown', { docs: 'the file as markdown' }),
+        url: r.method({}, r.text(), 'resource.url'),
+      },
+    });
+    return { r, resource };
+  };
+
+  test('EXTENSION arm — augmented props render as methods, after the base fields', () => {
+    const { resource } = resourceFixture();
+    expect(resource.toCodeDefinition()).toBe(
+      [
+        '/// a stored file',
+        'type resource extends obj {',
+        '  id: text',
+        '  title?: text',
+        '  /// the file as markdown',
+        '  markdown(): text',
+        '  url(): text',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  test('BUILT-IN arm — the arm that already worked keeps working', () => {
+    const r = createRegistry();
+    r.augment('num', { props: { doubled: r.method({}, r.num(), 'num.doubled') } });
+    expect(r.num().toCodeDefinition()).toContain('  doubled(): num\n');
+  });
+
+  test('a local prop SHADOWS an augmented one of the same name — printed once', () => {
+    const r = createRegistry();
+    r.augment('resource', { props: { url: r.method({}, r.text(), 'resource.url') } });
+    const resource = r.extend(r.obj({ id: { type: r.text() } }), {
+      name: 'resource',
+      props: { url: { type: r.text() } },
+    });
+    r.register(resource);
+    const def = resource.toCodeDefinition();
+    // The local wins, exactly as `props()` composes it — the augmented
+    // method must not ALSO print, or the type would declare `url` twice.
+    expect(def).toContain('  url: text\n');
+    expect(def).not.toContain('url()');
+    expect(def.match(/\burl\b/g)).toHaveLength(1);
+  });
+
+  test('an augmentation on the BASE\'s name stays implicit under `extends`', () => {
+    const r = createRegistry();
+    r.augment('num', { props: { stamp: r.method({}, r.text(), 'num.stamp') } });
+    const positive = r.extend(r.num({ whole: true, min: 1 }), { name: 'PositiveInt' });
+    r.register(positive);
+    // It IS part of the effective surface (that is `props()`' job)…
+    expect(positive.prop('stamp')).toBeDefined();
+    // …but the definition body shows only what THIS type adds; `stamp`
+    // belongs to `num` and is reachable under the base's own name.
+    expect(positive.toCodeDefinition()).toBe('type PositiveInt extends num{whole=true, min=1} {}');
+  });
+
+  test('augmented get / call / init reach the definition too', () => {
+    const r = createRegistry();
+    const handle = r.extend(r.obj({ id: { type: r.text() } }), { name: 'handle' });
+    r.register(handle);
+    r.augment('handle', {
+      get: new GetSet({ key: r.text(), value: r.text() }),
+      call: new Call({ args: r.obj({ n: { type: r.num() } }), returns: r.text() }),
+      init: new Init({ args: r.obj({ path: { type: r.text() } }), run: r.nativeExpr('handle.init') }),
+    });
+    expect(handle.toCodeDefinition()).toBe(
+      [
+        'type handle extends obj {',
+        '  new(path: text)',
+        '  (n: num): text',
+        '  [key: text]: text',
+        '  id: text',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  test('the WIRE form is untouched — parse(toJSON()) is an equal type', () => {
+    const { r, resource } = resourceFixture();
+    const json = resource.toJSON();
+    // An augmentation is registry-side surface, so it must not leak into
+    // the def; a consumer reloading this def in a registry WITHOUT the
+    // augmentation would otherwise get props it cannot dispatch.
+    expect(Object.keys(json.props ?? {})).toEqual(['id', 'title']);
+    const back = r.parse(json);
+    expect(back.toJSON()).toEqual(json);
+    expect(back.toCode()).toBe(resource.toCode());
+    // Reloaded in the SAME registry the augmentation is registered in,
+    // the print comes back identical — the print reads the registry.
+    expect(back.toCodeDefinition()).toBe(resource.toCodeDefinition());
+  });
+
+  test('toValueSchema accepts exactly what it accepted before — a bare handle', () => {
+    const { resource } = resourceFixture();
+    const schema = resource.toValueSchema();
+    // The bare `{ id }` handle is the value contract. This is the whole
+    // reason the methods live on the augmentation and not in `local.props`
+    // (a local method prop enters the value schema and breaks this), so
+    // the definition fix had to leave the schema alone.
+    expect(schema.parse({ id: 'x' })).toEqual({ id: 'x' });
+    expect(schema.safeParse({ id: 'x', title: 't' }).success).toBe(true);
+    expect(schema.safeParse({ title: 't' }).success).toBe(false);
+    // …and the augmented methods are NOT members of the value.
+    expect(Object.keys(schema.parse({ id: 'x' }) as object)).toEqual(['id']);
+  });
+
+  test('the effective surface and the printed one agree', () => {
+    const { resource } = resourceFixture();
+    const def = resource.toCodeDefinition();
+    for (const name of ['markdown', 'url']) {
+      expect(resource.prop(name)).toBeDefined();
+      expect(def).toContain(`${name}(): text`);
+    }
+  });
+});

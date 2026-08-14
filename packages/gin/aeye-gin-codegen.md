@@ -71,9 +71,9 @@ Type **expressions** keep the width-triggered wrap (`joinAuto`), including `obj`
 **2. `extends <base>` names the base; it never inlines its structure.** The
 clause is kept because inheritance is information — `obj` carries props the
 extending type will never list. But an **anonymous** base (`obj`, `iface`) prints
-as its bare class name and its declared members move into the body, in base-then-
-local order. A **named** base prints as its name and its members stay implicit
-under it:
+as its bare class name and its declared members move into the body, ahead of the
+type's own members (full order in rule 5). A **named** base prints as its name and
+its members stay implicit under it:
 
 ```
 type Derived extends Base {
@@ -93,6 +93,34 @@ shows.
 ordinary `//` comment.
 
 **4. Generic references render their binding.** See below.
+
+**5. The body is everything this type ADDS — including its augmentations.**
+Members attached with `registry.augment(<this type's name>, …)` print in the body
+of a built-in and of a named Extension alike, between the base's recovered
+members and the Extension's own local ones (`props()`' composition order; a local
+member of the same name shadows the augmented one and prints once). `get` / `call`
+/ `init` follow the same precedence they have at run time — local, then this
+type's augmentation, then whatever the `extends` clause elided.
+
+An augmentation registered against the **base's** name is *not* re-listed: it is
+reachable under the base's own name, exactly like an inherited prop.
+
+```ts
+r.register(r.extend(r.obj({ id: { type: r.text() } }), { name: 'resource' }));
+r.augment('resource', { props: { markdown: r.method({}, r.text(), 'resource.markdown') } });
+r.lookup('resource')!.toCodeDefinition();
+// type resource extends obj {
+//   id: text
+//   markdown(): text
+// }
+```
+
+Fixed in **0.3.13** — before it the Extension arm dropped augmented members from
+the print, so a type could answer `props()` with methods the definition a model
+reads never mentioned. Augmentation remains registry-side surface: it is absent
+from `toJSON()` and from `toValueSchema()` / `toNewSchema()`, which is what lets
+a closed value contract (a handle parsed from a bare `{ id }`) carry methods at
+all.
 
 ## Enum shorthand
 
