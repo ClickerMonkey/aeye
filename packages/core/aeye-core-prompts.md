@@ -47,6 +47,13 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 
 `PromptReconfigInput` stats include: `iteration`, `maxIterations`, `toolParseErrors`, `toolCallErrors`, `tools` (names), `toolSuccesses`, and remaining `toolRetries` / `outputRetries` / `forgetRetries`. `PromptReconfig` lets you return `{ config?, maxIterations?, toolRetries?, outputRetries?, forgetRetries? }`.
 
+Four semantics of that hook are load-bearing and are not visible in the types:
+
+- **`PromptReconfig.maxIterations` is RELATIVE, not absolute.** The loop assigns `maxIterations = iterations + value`, so returning `N` means "this round plus `N - 1` more". Return `budget - stats.iteration` to set an absolute ceiling. Returning `0` **breaks out immediately** — and with no result parsed yet the run then throws its own generic `failed without a specified error`, so `0` is not a graceful stop.
+- **`PromptReconfigInput.maxIterations` is the ceiling as it stood BEFORE this call** — whatever the previous round set. A decision that must track a ceiling you are raising in the same call has to use your own value, not this field.
+- **The error/success counters are cumulative for the run**, not per round: `toolSuccesses` / `toolParseErrors` / `toolCallErrors` only ever grow, so "did THIS round make progress?" is a delta you keep yourself. `toolRetries` / `outputRetries` / `forgetRetries` are the opposite — they are the *remaining* allowances and count down.
+- **`reconfig` runs at the END of an iteration**, after tool dispatch and output parsing and before the `dynamic` re-resolve — so anything it changes takes effect on the NEXT model call.
+
 ## Methods
 
 ```typescript
