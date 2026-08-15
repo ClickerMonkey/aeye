@@ -37,7 +37,7 @@ export class GetExpr extends Expr {
       path: z
         .array(pathStepSchema(opts))
         .describe(
-          'Steps walked left-to-right starting from a scope variable. Step shapes: `{prop:"name"}` for prop/method access, `{args:{…}}` to call the previous step, `{key:Expr}` for index access. The first step MUST be a prop step (the scope-var name). Result is the final step\'s value.',
+          'Steps walked left-to-right starting from a scope variable. Step shapes: `{prop:"name"}` for prop/method access, `{args:{…}}` to call the previous step, `{key:Expr}` for index access. The first step MUST be a prop step (the scope-var name). A step names exactly ONE shape — a call is its own step, so a method with arguments is `[{"prop":"m"},{"args":{…}}]` and never `{"prop":"m","args":{…}}`. Result is the final step\'s value.',
         ),
     }).meta({ aid: 'Expr_get' });
   }

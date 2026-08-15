@@ -140,6 +140,47 @@ type parameters rather than binding a class's. A type class registered by a
 third party via `define(...)` is likewise unchecked until it declares
 `optionKeys` / `genericKeys` on its `TypeClass`.
 
+### The nested shapes, and path steps
+
+A `TypeDef` is not the only wire shape gin reads, and since **0.4.0** the same
+refusal covers the shapes hanging off it — `props` (each a `PropDef`), `get`, `call`
+and `init` — plus the steps of a `get`/`set` path. The identical mistake one
+level down had the identical silent fate:
+
+```ts
+r.parse({ name: 'fn', call: { args, retruns: { name: 'num' } } });   // was: a fn with NO return type
+r.parse({ name: 'obj', props: { a: { typ: { name: 'num' } } } });    // was: a prop with no type
+```
+
+| Shape | Keys |
+|---|---|
+| `PropDef` | `docs`, `type`, `get`, `default`, `set` |
+| `GetSetDef` | `docs`, `key`, `value`, `get`, `set`, `loop`, `loopDynamic` |
+| `CallDef` | `docs`, `types`, `args`, `returns`, `throws`, `get`, `set` |
+| init | `docs`, `args`, `run` |
+| path step | one of `{prop}` / `{args, generic?, catch?}` / `{key}` |
+
+A **path step must name exactly ONE form.** The fused spelling below used to
+parse as a bare prop read with the arguments dropped, and was then diagnosed as
+`method 'announce' needs arguments` — about the arguments supplied in that very
+step. It is refused now, with the split spelling written out:
+
+```json
+{ "prop": "announce", "args": { "note": … } }
+→ gin.parse: path step names 2 forms ('prop' and 'args') —
+  each is its own step: [{"prop":"announce"}, {"args":{…}}]
+```
+
+A fn's type parameters belong on the TYPE, not on the call (`{name:'fn',
+generic:{T:…}, call:{…}}`), and the refusal for `call.generic` says so — that
+one was live in gin's own rendering fixture, where it "worked" only because the
+unbound `{name:'T'}` in the signature is a universal alias.
+
+Only AUTHORED shapes are checked. Every `Prop.from` / `Call.from` also accepts
+the in-memory instance it produced, and those carry gin's own fields by
+construction — re-scanning them would spend a key scan per path-walk to police
+shapes gin itself built.
+
 ## Intersections (`and`)
 
 `and<A, B, …>` accepts a value iff every part accepts it. Because `parse` takes
@@ -215,6 +256,62 @@ i.e. `b` is assignable to `a`. Convenience wrappers:
   optional `a`-fields may be absent; extra `b`-fields ignored. `opts.exact`
   forces exact field-set match.
 - **function**: bivariant on args, covariant on returns (matches TS default).
+
+## Value schemas (`toValueSchema`)
+
+`type.toValueSchema(opts?)` builds the Zod schema for a **runtime value** of the
+type — the shape an LLM should produce, or the gate an incoming payload is
+checked against. (`toSchema` is the other direction: it schemas the `TypeDef`
+JSON. `toValueSchema` schemas the DATA.) `ValueSchemaOptions`:
+
+| Option | Default | What it does |
+|---|---|---|
+| `includeDocs` | `'none'` | `'type'` describes each type with its `docs`; `'all'` also describes each field / prop. |
+| `scope` | — | Type-name resolution scope, the same `TypeScope` `valid` / `parse` / `compatible` / `props` take. |
+| `unknownKeys` | `'strip'` | `'refuse'` rejects a key the type does not declare. |
+
+**`scope` (0.4.0).** A schema built for a type that NAMES another type is only
+as good as the registry that resolved the name. A signature carrying
+`{name:'Deployment'}` built where that name is unknown resolves to an unbound
+alias, whose schema is `z.any()` — so a gate derived from it accepts everything,
+silently. Pass the scope that knows the name:
+
+```ts
+const session = registry.scope({ Deployment: deploymentType });
+fnType.call()!.args.toValueSchema({ scope: session });   // resolves; nested slots too
+```
+
+It rides the options bag rather than a positional argument because a value
+schema recurses through slots that already thread `opts` verbatim — so every
+nested list element, obj field and map value inherits it.
+
+**`unknownKeys` (0.4.0).** The default `'strip'` drops an undeclared key, which
+is zod's default and gin's own value semantics: `ObjType.parse` copies the
+declared fields and nothing else, `valid` ignores extras, and `obj{a}` is
+`compatible` with `obj{a, zz}`. A value carrying more than the type declares IS
+a value of that type.
+
+That is wrong at one specific kind of boundary, and it is measurable there: when
+the payload was AUTHORED against the declared type — a settings bag, a config
+object, an agent-supplied argument — an undeclared key is a typo, and stripping
+means a mis-spelt OPTIONAL knob disappears with no error at any layer. (A
+required knob is safe; it fails as missing.)
+
+```ts
+cfg.toValueSchema().safeParse({ type: 'graph', charThreshold: 5000, bogus: 1 });
+// → success, data = { type: 'graph', charThreshold: 5000 }     `bogus` silently gone
+
+cfg.toValueSchema({ unknownKeys: 'refuse' }).safeParse({ …, bogus: 1 });
+// → issue: unrecognized_keys, keys: ['bogus'], path: []
+```
+
+So it is the CALLER's choice, per boundary, not gin's — which is the difference
+between this and the wire side, where `registry.parse` refuses an unknown key
+outright with no opt-out. A def is gin's own format and an ignored key there is
+data loss; a value is yours. `'refuse'` reaches every nested object, an
+`Extension`'s local props, and a map's `{key, value}` entry envelope; an
+`interface`, which passes width through by default because a contract is
+satisfied by a wider value, refuses under it too.
 
 ## Extensions — real subtypes
 

@@ -21,7 +21,8 @@ const engine = createEngine(r);
 | `parseValue(json, expectedType?, scope?)` | `{type,value}` envelope or raw → `Value`. |
 | `lookup(name)` | `Type` by name (registered instance → built-in fallback). |
 | `define(cls)` | Register a built-in Type **class** for JSON dispatch. Declare `optionKeys` / `genericKeys` on it to opt into strict parsing. |
-| `register(type)` | Register a named Type **instance** (typically an Extension). |
+| `register(type)` | Register a named Type **instance** (typically an Extension). Resolves to the INSTANCE, whose `toJSON()` inlines the definition — see [type scopes](#type-scopes--register-vs-the-overlay). |
+| `scope(bindings?)` | A `LocalScope` OVERLAY above this registry: names that resolve for one session, and still round-trip as `{name}`. Does not mutate the registry. |
 | `extend(base, local)` | Create a named Extension (real subtype); `base` is a `Type` or name. Declare type parameters with `generic`, and bind them at a use site with `Extension.specialize({ … })` — or by parsing `{name, generic:{…}}`. |
 | `augment(name, { props?, get?, call?, init? })` | Add to an existing type by name. |
 | `augmentation(name)` | Read an augmentation back. |
@@ -56,6 +57,38 @@ documented in the [type system doc](./aeye-gin-types.md#building-types-programma
 > Gotcha: `toCode` returns a **string**; `toGinCode` and `toJSONCode` return a
 > **`Code`** (text + spans). Use the latter two when you need
 > `code.formatProblems(problems)` underlines.
+
+## Type scopes — `register` vs the overlay
+
+Two different things are called "the registry knows this name", and the
+difference decides what gets written back the next time the def is serialized:
+
+| | Where | `parse({name:'X'})` gives | `toJSON()` of that |
+|---|---|---|---|
+| `registry.register(X)` | the registry, for the process | THE INSTANCE | the **full definition, inline** |
+| `registry.scope({ X })` | a `LocalScope` overlay, for one session | an `AliasType` | `{ "name": "X" }` |
+
+```ts
+const session = r.scope({ time: timeType });   // this session only
+session.parse({ name: 'time' }).props();       // resolves — props, methods, all of it
+session.parse({ name: 'time' }).toJSON();      // => { name: 'time' }   still a reference
+r.lookup('time');                              // => undefined — the registry is untouched
+```
+
+Reach for the overlay when a name is true for ONE session / execution / request
+rather than for the process: a type contributed by an installed package, a
+staged type being authored, a caller-supplied vocabulary. Registering those
+globally instead is how a stored `{"name":"time"}` field was rewritten, at an
+unrelated read-modify-write, into the whole inline definition of a package type
+that had merely been registered at boot — wrong props, wrong docs, no error
+anywhere. `register` is right for a type the registry OWNS; it is the wrong tool
+for a name you only want to resolve.
+
+`LocalScope` and the `TypeScope` interface are exported (**0.4.0**). Layer
+another with `new LocalScope(scope, {…})`, add bindings in dependency order with
+`.bind(name, type)`, and pass a scope to anything that resolves names —
+`registry.parse(def, scope)`, `type.valid(raw, scope)`, `type.compatible(other,
+opts, scope)`, `type.toValueSchema({ scope })`.
 
 ## Scopes, globals, and `extras`
 

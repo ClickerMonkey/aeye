@@ -4,6 +4,7 @@ import type { Problems } from './problem';
 import type { z } from 'zod';
 import type { Expr } from './expr';
 import type { Type } from './type';
+import type { TypeScope } from './type-scope';
 import type { Code } from './code';
 
 /**
@@ -48,6 +49,57 @@ export interface ValueSchemaOptions {
    *              with its own `docs`.
    */
   includeDocs?: 'none' | 'type' | 'all';
+  /**
+   * Type-name resolution scope for the schema being built — the same
+   * `TypeScope` that `valid` / `parse` / `compatible` / `props` take as
+   * their trailing argument, and the one thing `toValueSchema` had no way
+   * to accept until 0.4.0.
+   *
+   * It matters wherever a type is named rather than inlined. A signature
+   * carrying `{name:'Deployment'}` built against a registry that does not
+   * hold that name resolves to an unbound `AliasType`, whose value schema is
+   * `z.any()` — so the call-argument gate derived from it accepts every value
+   * silently. Pass the scope that DOES know the name and the alias resolves:
+   *
+   * ```ts
+   * const session = registry.scope({ Deployment: deploymentType });
+   * fnType.call()!.args.toValueSchema({ scope: session });
+   * ```
+   *
+   * It rides the options bag rather than a positional parameter because a
+   * value schema is built by recursion through slots that already thread
+   * `opts` verbatim — so every nested list element, obj field and map value
+   * inherits it, where a positional argument would have to be re-threaded by
+   * each composite and would be silently dropped by any that forgot.
+   */
+  scope?: TypeScope;
+  /**
+   * What an object-shaped schema does with a key the type does not declare.
+   *
+   *  - `'strip'` (default): drop it, which is zod's default and gin's own
+   *    value semantics — `ObjType.parse` copies the declared fields and
+   *    nothing else, `valid` ignores extras, and `obj{a}` is `compatible`
+   *    with `obj{a, zz}` (width subtyping). A value carrying more than the
+   *    type declares IS a value of that type.
+   *  - `'refuse'`: reject it, with zod's `unrecognized_keys` issue naming
+   *    the key and its path.
+   *
+   * `'refuse'` is opt-in — and it is a per-BOUNDARY choice, not a per-type
+   * one, which is why it lives here rather than on the type. At a boundary
+   * where the payload was AUTHORED against the declared type (settings, a
+   * config bag, an agent-supplied argument object) an undeclared key is a
+   * typo, and stripping it means a mis-spelt optional knob vanishes with no
+   * error at any layer — measured on
+   * `{type:'graph', charThreshold:5000, bogus:1}`, which parsed clean with
+   * `bogus` silently gone. At a boundary where a wider value is flowing
+   * through a narrower view, the same key is legitimate width and refusing it
+   * would contradict `compatible`. Only the caller knows which it is.
+   *
+   * Contrast the WIRE side, where there is no such choice: `registry.parse`
+   * refuses an unknown `TypeDef` key outright, with no opt-out, because a def
+   * is gin's own format and an ignored key there is data loss (see `wire.ts`).
+   */
+  unknownKeys?: 'strip' | 'refuse';
   /**
    * Optional pass-through to the full meta-language schema bag. Most
    * `toValueSchema` paths never touch these — they're declared here so

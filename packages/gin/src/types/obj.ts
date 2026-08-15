@@ -318,7 +318,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
       shape[name] = field;
     }
-    return this.describeType(z.object(shape), opts);
+    return this.describeType(this.valueObject(shape, opts), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

@@ -1,4 +1,4 @@
-import type { TypeDef } from './schema';
+import type { CallDef, GetSetDef, PropDef, TypeDef } from './schema';
 import type { TypeClass } from './registry';
 import type { TypeBuilder } from './builder';
 import { nearest } from './aids';
@@ -72,6 +72,40 @@ import type { TupleOptions, TupleType } from './types/tuple';
  *     structural keys are descriptive rather than consumed;
  *   - `generic` on an `extends` def DECLARES the extension's own type
  *     parameters instead of binding the base's, so it has no fixed key set.
+ *
+ * THE NESTED SHAPES, and why they had to follow. A `TypeDef` is not the only
+ * wire shape gin reads — `props` holds `PropDef`s, `get` a `GetSetDef`, `call`
+ * a `CallDef`, `init` an init def, and a `get`/`set` expr holds a `PathDef` of
+ * steps. Until 0.4.0 the refusal stopped at the TypeDef, so the identical
+ * mistake one level down kept its identical silent fate:
+ *
+ *   { name: 'fn', call: { args: {…}, retruns: { name: 'num' } } }   // a fn with NO return type
+ *   { name: 'obj', props: { a: { typ: { name: 'num' } } } }         // was: a prop with no type
+ *
+ * A misspelt `returns` is exactly the `{name:'list', options:{item}}` defect
+ * with a different key: the def parses, the type is plausible, and what the
+ * author declared is gone. Each nested shape is now checked against its own
+ * key list ({@link PROP_DEF_KEYS} and friends) by {@link checkDefKeys}, with
+ * the same `did you mean` correction.
+ *
+ * Only AUTHORED shapes are checked. Every `from(...)` here also accepts the
+ * in-memory instance it produced (`Prop`, `GetSet`, `Call`, `Init`) — those
+ * carry gin's own fields by construction, so re-checking them would spend a
+ * key scan per path-walk to police shapes gin itself built.
+ *
+ * A PATH STEP is checked by {@link checkPathStep}, which additionally refuses a
+ * step naming more than ONE form. `PathStepDef` is a union — `{prop}` |
+ * `{args, generic?, catch?}` | `{key}` — and `PathStep.from` took the first
+ * form it recognized and dropped the rest, so the fused spelling an LLM reaches
+ * for first,
+ *
+ *   { "prop": "announce", "args": { "note": … } }
+ *
+ * parsed as a bare prop read and was then diagnosed as `method 'announce' needs
+ * arguments` — about the arguments the author had supplied in that very step.
+ * Measured on a product acceptance lane, 2026-08-10: 30 of 33 refusals in one
+ * turn were this one mis-spelling, and the model never touched it because the
+ * diagnostic pointed at the one thing that was right.
  */
 
 /**
@@ -101,6 +135,35 @@ export type AssertCovered<T extends true> = T;
 
 /** The list is the runtime mirror of `keyof TypeDef` — keep them in step. */
 type _TypeDefKeysCovered = AssertCovered<CoversKeys<keyof TypeDef, (typeof TYPE_DEF_KEYS)[number]>>;
+
+/** Every key gin reads off a `PropDef` — the shape under `TypeDef.props`. */
+export const PROP_DEF_KEYS = [
+  'docs', 'type', 'get', 'default', 'set',
+] as const satisfies readonly (keyof PropDef)[];
+
+/** Every key gin reads off a `GetSetDef` — the shape under `TypeDef.get`. */
+export const GET_SET_DEF_KEYS = [
+  'docs', 'key', 'value', 'get', 'set', 'loop', 'loopDynamic',
+] as const satisfies readonly (keyof GetSetDef)[];
+
+/** Every key gin reads off a `CallDef` — the shape under `TypeDef.call`. */
+export const CALL_DEF_KEYS = [
+  'docs', 'types', 'args', 'returns', 'throws', 'get', 'set',
+] as const satisfies readonly (keyof CallDef)[];
+
+/** Every key gin reads off an init def — the shape under `TypeDef.init`. */
+export const INIT_DEF_KEYS = [
+  'docs', 'args', 'run',
+] as const satisfies readonly (keyof InitDef)[];
+
+/** The init def has no exported interface of its own — it is declared inline
+ *  on `TypeDef`, and this is the name the coverage proof needs. */
+type InitDef = NonNullable<TypeDef['init']>;
+
+type _PropDefKeysCovered = AssertCovered<CoversKeys<keyof PropDef, (typeof PROP_DEF_KEYS)[number]>>;
+type _GetSetDefKeysCovered = AssertCovered<CoversKeys<keyof GetSetDef, (typeof GET_SET_DEF_KEYS)[number]>>;
+type _CallDefKeysCovered = AssertCovered<CoversKeys<keyof CallDef, (typeof CALL_DEF_KEYS)[number]>>;
+type _InitDefKeysCovered = AssertCovered<CoversKeys<keyof InitDef, (typeof INIT_DEF_KEYS)[number]>>;
 
 /** Which slot of a def a bad key was found in. */
 type Slot = 'top' | 'options' | 'generic';
@@ -159,6 +222,106 @@ export function checkWireKeys(
       );
     }
   }
+}
+
+/**
+ * Reject any key in a NESTED def shape that gin would ignore — the same
+ * refusal {@link checkWireKeys} applies to a `TypeDef`, for the shapes hanging
+ * off it (`PropDef`, `GetSetDef`, `CallDef`, the init def). See the module
+ * comment for why a misspelt `returns` is the same defect as a misspelt
+ * `generic`.
+ *
+ * @param what the shape being read, named as the author would recognize it —
+ *   `"prop 'title'"`, `"call signature"`. Leads the message.
+ * @param bag the authored def. Anything that is not a plain object is left to
+ *   the caller's own "no scope to parse this" errors, which are more specific.
+ * @param valid that shape's key list, e.g. {@link PROP_DEF_KEYS}.
+ * @param hints per-key corrections for a key that is not a typo but a
+ *   MISPLACEMENT — the author reached for a real construct and put it one
+ *   level off. Same job as the `enum` respelling in {@link explain}: name the
+ *   construct, not just the bad key.
+ * @throws Error naming the offending key and the nearest valid one.
+ */
+export function checkDefKeys(
+  what: string,
+  bag: unknown,
+  valid: readonly string[],
+  hints?: Readonly<Record<string, string>>,
+): void {
+  if (!isPlainObject(bag)) return;
+  for (const key of definedKeys(bag)) {
+    if (valid.includes(key)) continue;
+    const hint = hints?.[key];
+    const near = nearest(key, valid);
+    throw new Error(
+      `gin.parse: ${what} has unknown key '${key}'`
+      + (hint ? ` — ${hint}` : near ? ` — did you mean \`${near}\`?` : ` — valid keys: ${valid.join(', ')}`),
+    );
+  }
+}
+
+/**
+ * Misplacements worth naming on a `CallDef`. A fn's type parameters are
+ * declared on the TYPE (`FnType.from` reads `json.generic`), never on the
+ * call — and gin's own rendering demo carried the wrong spelling until 0.4.0,
+ * where it "worked" only because the unbound `{name:'T'}` in the signature
+ * parses to a universal alias that matches anything.
+ */
+export const CALL_DEF_HINTS: Readonly<Record<string, string>> = {
+  generic: "a fn declares its type parameters on the TYPE, not the call:"
+    + ' {"name":"fn","generic":{"T":{"name":"any"}},"call":{"args":…,"returns":…}}',
+};
+
+/**
+ * The three forms of a `PathStepDef`, each keyed by the field that SELECTS it.
+ * Order matches `PathStep.from`'s dispatch, which is also the order they read
+ * in the union.
+ */
+const PATH_STEP_FORMS = [
+  { by: 'prop', keys: ['prop'], example: '{"prop":"name"}' },
+  { by: 'args', keys: ['args', 'generic', 'catch'], example: '{"args":{…}}' },
+  { by: 'key', keys: ['key'], example: '{"key":<expr>}' },
+] as const satisfies readonly { by: string; keys: readonly string[]; example: string }[];
+
+/**
+ * Reject a path step gin would read only part of. Two refusals, both of which
+ * used to be silent truncations (see the module comment):
+ *
+ *   1. a step naming MORE THAN ONE form — `{prop, args}` is a prop read AND a
+ *      call, and gin took the prop and dropped the arguments;
+ *   2. a key outside the form the step selected — `{prop:'x', arg:{…}}`.
+ *
+ * The message spells the fix as a step LIST, because that is the shape the
+ * author has to end up with either way.
+ *
+ * @throws Error naming both forms, with the split spelling written out.
+ */
+export function checkPathStep(step: unknown): void {
+  if (!isPlainObject(step)) return;
+  const present = PATH_STEP_FORMS.filter((f) => step[f.by] !== undefined);
+  if (present.length === 0) {
+    // No form selected at all. `PathStep.from`'s own "unknown step shape" is
+    // true but unactionable, and the usual cause is a near-miss on the
+    // selecting key (`arg` for `args`), so say which key was expected.
+    const found = definedKeys(step);
+    const selectors = PATH_STEP_FORMS.map((f) => f.by);
+    const near = found.map((k) => nearest(k, selectors)).find((n) => n !== undefined);
+    throw new Error(
+      `gin.parse: path step selects no form (keys: ${found.join(', ') || 'none'})`
+      + (near ? ` — did you mean \`${near}\`?` : '')
+      + ` — a step is one of ${PATH_STEP_FORMS.map((f) => f.example).join(', ')}`,
+    );
+  }
+  if (present.length > 1) {
+    const named = present.map((f) => `'${f.by}'`).join(' and ');
+    const spelt = present.map((f) => (
+      f.by === 'prop' ? JSON.stringify({ prop: step.prop }) : f.example
+    )).join(', ');
+    throw new Error(
+      `gin.parse: path step names ${present.length} forms (${named}) — each is its own step: [${spelt}]`,
+    );
+  }
+  checkDefKeys('path step', step, present[0]!.keys);
 }
 
 /** Keys actually carrying a value. An in-memory def routinely holds

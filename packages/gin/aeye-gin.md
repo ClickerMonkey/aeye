@@ -22,9 +22,10 @@ third option:
 
 - **Validate before execution.** A program is parsed and type-checked against the
   registry; broken programs are rejected before they run.
-- **No silent mis-builds.** `parse` refuses a `TypeDef` key it does not read, so a
-  def with a slot wrong cannot become a plausible, wrong type. See
-  [strict parsing](./aeye-gin-types.md#the-typedef-wire-format-and-strict-parsing).
+- **No silent mis-builds.** `parse` refuses a key it does not read — on a
+  `TypeDef`, on the `props` / `get` / `call` / `init` shapes hanging off it, and
+  on a path step — so a def with a slot wrong cannot become a plausible, wrong
+  type. See [strict parsing](./aeye-gin-types.md#the-typedef-wire-format-and-strict-parsing).
 - **Round-trippable JSON.** Programs survive `JSON.stringify` / `JSON.parse`
   losslessly — persist, index, edit, replay.
 - **A real type system.** Generics, interfaces, structural subtyping, extensions,
@@ -104,6 +105,7 @@ Key shapes to internalize:
 | `buildSchemas(registry, overrides?)` | Zod schemas (`.Type`, `.Expr`) describing valid programs for an LLM. |
 | `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. |
 | `Type`, `Prop`, `GetSet`, `Call`, `Init` | Type-system runtime classes. |
+| `TypeScope`, `LocalScope` | Type-NAME resolution. `registry.scope({X})` layers an overlay above the registry: `X` resolves for that session and still serializes as `{name:'X'}`. |
 | `Expr` + `NewExpr` ... `NativeExpr` | Abstract expr base + the 12 concrete classes. |
 | `Code`, `code`, `span`, `plain` | Rendered-source container with span tracking. |
 | `Effects`, `combineEffects`, `hasEffects`, `formatEffects` | Side-effect classification bitset. |

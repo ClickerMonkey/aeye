@@ -260,7 +260,14 @@ export class IfaceType extends Type<any, Record<string, never>> {
       if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
       shape[name] = field;
     }
-    return this.describeType(z.object(shape).passthrough(), opts);
+    // Passthrough by default — an interface is a contract, and a value that
+    // carries MORE than it declares still satisfies it. `unknownKeys:'refuse'`
+    // says the payload was authored against this declaration, where an
+    // undeclared key is a typo rather than legitimate width.
+    return this.describeType(
+      opts?.unknownKeys === 'refuse' ? this.valueObject(shape, opts) : z.object(shape).passthrough(),
+      opts,
+    );
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

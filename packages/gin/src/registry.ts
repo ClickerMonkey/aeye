@@ -50,7 +50,7 @@ import { TupleType } from './types/tuple';
 import { TypType } from './types/typ';
 import { VoidType } from './types/void';
 import type { Scope } from './scope';
-import type { TypeScope } from './type-scope';
+import { LocalScope, type TypeScope } from './type-scope';
 import { Value } from './value';
 import { registerBuiltinNatives } from './natives';
 
@@ -188,10 +188,54 @@ export class Registry implements TypeBuilder, TypeScope {
     return this;
   }
 
-  /** Register a named Type instance (typically an Extension). */
+  /**
+   * Register a named Type instance (typically an Extension).
+   *
+   * A registered name resolves to THE INSTANCE, and that instance's
+   * `toJSON()` emits its full definition — so a def that merely
+   * REFERENCED the name by `{name:'X'}` comes back out of a
+   * read-modify-write with the whole type INLINED where the reference
+   * used to be. That is correct for a type this registry owns and is
+   * the wrong tool for a name a caller only wants to RESOLVE: see
+   * {@link Registry.scope} for the overlay that resolves without
+   * claiming the name or rewriting the reference.
+   */
   register(type: Type): this {
     this.namedTypes.set(type.name, type);
     return this;
+  }
+
+  /**
+   * A scope OVERLAY above this registry — names that resolve here and
+   * nowhere else, without mutating the registry.
+   *
+   * The distinction against {@link Registry.register} is the whole point,
+   * and `parseInner`'s bare-name arm is where it lives: a name bound in an
+   * overlay parses to an `AliasType`, which round-trips as `{name}` and
+   * delegates every value-side op to the target lazily; a name in
+   * `namedTypes` parses to the INSTANCE, whose `toJSON()` inlines the
+   * definition. Resolution WITHOUT inlining is what an overlay is for.
+   *
+   * ```ts
+   * const session = r.scope({ Time: timeType });   // this session only
+   * const sig = session.parse({ name: 'Time' });   // resolves — props, methods, all of it
+   * sig.toJSON();                                  // => { name: 'Time' }   (still a reference)
+   * r.lookup('Time');                              // => undefined — the registry is untouched
+   * ```
+   *
+   * Reach for this when a name is true for ONE session / execution / request
+   * rather than for the process: a type contributed by an installed package, a
+   * staged type being authored, a caller-supplied vocabulary. Registering
+   * those globally instead is how a stored `{name:'time'}` reference was
+   * rewritten, at an unrelated read-modify-write, into the full inline
+   * definition of a package type that had merely been registered at boot —
+   * wrong props, wrong docs, and no error anywhere.
+   *
+   * Layer another overlay with `new LocalScope(scope, {…})`, and add bindings
+   * in dependency order (a later binding may reference an earlier one).
+   */
+  scope(bindings?: Record<string, Type>): LocalScope {
+    return new LocalScope(this, { ...bindings });
   }
 
   /**

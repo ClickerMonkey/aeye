@@ -24,6 +24,11 @@ Steps walk left-to-right. Each step is one of:
 
 The first step is always `{prop: '<scopeVar>'}`. Result is the final step's value.
 
+A step names exactly **one** of those forms — a call is its own step. The fused
+`{prop: 'announce', args: {...}}` spelling is refused (0.4.0); before that gin took the prop and
+dropped the arguments, then reported `method 'announce' needs arguments` about the arguments
+supplied in that very step.
+
 ## `set` — write through a path
 
 ```json

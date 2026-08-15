@@ -51,7 +51,7 @@ export function pathStepSchema(opts: SchemaOptions): z.ZodTypeAny {
       catch: opts.Expr.optional().describe(
         'Optional handler expression evaluated if this call throws. The thrown value is bound under `error` in the handler scope.',
       ),
-    }).describe('CALL step — invoke the previous step. Comes after a method (e.g. `list.push`) or any callable value.'),
+    }).describe('CALL step — invoke the previous step, as its OWN step. Comes after a method (e.g. `list.push`) or any callable value; never fused into the prop step as `{prop, args}`.'),
     z.object({
       key: opts.Expr.describe(
         'Indexed-access key expression. Evaluated at run time and passed to the previous value\'s `[key]` get/set surface.',

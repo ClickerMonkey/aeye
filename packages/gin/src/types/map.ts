@@ -250,10 +250,10 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // LLM-friendly shape: an array of { key, value } objects. Not a
     // positional tuple — LLMs handle object keys more reliably.
-    return this.describeType(z.array(z.object({
+    return this.describeType(z.array(this.valueObject({
       key: this.key.toValueSchema(opts),
       value: this.value.toValueSchema(opts),
-    })), opts);
+    }, opts)), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {

@@ -210,7 +210,8 @@ Steps walk left-to-right. Each step is `{prop: 'name'}` (named
 access), `{args: {...}}` (call the previous step — used after a
 method or any callable), or `{key: <Expr>}` (indexed access). The
 first step is always `{prop: '<scopeVar>'}`. Result is the final
-step's value.
+step's value. A step names exactly ONE of those forms — a call is its
+own step, and the fused `{prop, args}` spelling is an error.
 
 ### `set` — write through a path
 
@@ -334,6 +335,16 @@ gin has TWO levels of parsing — they compose:
    the `generic` parameter a stray TypeDef belongs in, or the `enum` a
    closed set of constants should have been.
 
+   Since 0.4.0 the same refusal covers the shapes NESTED in a def — a
+   `PropDef` (`docs`, `type`, `get`, `default`, `set`), a `GetSetDef`
+   (`docs`, `key`, `value`, `get`, `set`, `loop`, `loopDynamic`), a
+   `CallDef` (`docs`, `types`, `args`, `returns`, `throws`, `get`,
+   `set`), an init (`docs`, `args`, `run`) — and a PATH STEP, which
+   must name exactly one of `{prop}` / `{args, generic?, catch?}` /
+   `{key}`. A misspelt `returns` used to produce a fn with no return
+   type; a fused `{prop, args}` step used to parse as a bare prop read
+   with the arguments dropped.
+
 2. **Runtime data → typed values.** Once you have a `Type`, calling
    `type.parse(jsonData)` validates the data and returns a `Value<T>`
    — the runtime currency. A `Value` is a `{type, raw}` pair where
@@ -344,6 +355,17 @@ Both levels are scope-aware. Generic placeholders (`AliasType`)
 resolve through the scope passed to parse — that's how a `CallStep`'s
 `generic: { R: <type> }` map flows into the called signature without
 rebuilding the type tree.
+
+`registry.scope({ X: type })` builds a `LocalScope` OVERLAY for the
+same mechanism: `X` resolves inside that scope, the registry is not
+mutated, and `parse({name:'X'}).toJSON()` is still `{name:'X'}` — a
+reference stays a reference. Contrast `register(X)`, where the name
+resolves to the instance and the next `toJSON()` writes the whole
+definition INLINE where the reference used to be. Use the overlay for
+a name that is true for one session, execution or request; use
+`register` for a type the registry owns. `toValueSchema({ scope })`
+takes the same scope, so a value gate built from a signature that
+names a type is actually enforced rather than degrading to `z.any()`.
 
 ---
 
@@ -360,7 +382,8 @@ Key methods:
 |---|---|
 | `parse(def)` / `parseExpr(def, scope?)` | TypeDef / ExprDef → runtime |
 | `define(cls)` | Register a built-in Type class for JSON dispatch |
-| `register(type)` | Register a named Type instance (typically an Extension) |
+| `register(type)` | Register a named Type instance (typically an Extension) — resolves to the INSTANCE, whose `toJSON()` inlines the definition |
+| `scope(bindings?)` | An overlay above the registry: names that resolve for one session and still serialize as `{name}`, without mutating the registry |
 | `lookup(name)` | Look up a Type by name (registered → built-in fallback) |
 | `setNative(id, impl)` | Wire a JS function as a gin native |
 | `getNative(id)` | Read it back |

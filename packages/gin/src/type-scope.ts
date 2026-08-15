@@ -15,6 +15,13 @@ import type { TypeDef, ExprDef } from './schema';
  *   `Call.from` to scope `CallDef.types` aliases, by FnType to scope
  *   declared generics, etc.
  *
+ * Both are PUBLIC (0.4.0) — build one with `registry.scope({ … })`. The
+ * overlay is the supported way to make a name resolve for one session /
+ * execution / request WITHOUT registering it: a name bound here parses to an
+ * `AliasType`, which resolves lazily and re-serializes as `{name}`, where a
+ * registered name parses to the instance and re-serializes INLINE. See
+ * `Registry.scope` for the corruption that distinction prevents.
+ *
  * Distinct from:
  *  - `Scope` in `scope.ts` (runtime variable bindings — Value scope).
  *  - `Locals` in `analysis.ts` (`Map<string, Type>` for static
@@ -68,6 +75,10 @@ export interface TypeScope {
  * `parent.lookup` on miss. Construction order matters for sequential
  * builds (later aliases referencing earlier ones); the caller is
  * responsible for adding bindings in order if dependencies exist.
+ *
+ * `registry.scope({ … })` is the usual door in; construct directly to layer
+ * one overlay on another (`new LocalScope(session, { T: … })`), where the
+ * inner binding wins.
  */
 export class LocalScope implements TypeScope {
   readonly parent: TypeScope;

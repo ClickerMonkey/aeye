@@ -21,6 +21,7 @@ import type { CodeOptions } from './node';
 import { Code, code, span, joinCode } from './code';
 import type { Effects } from './effects';
 import { didYouMean, deepSuggest } from './aids';
+import { checkPathStep } from './wire';
 
 /**
  * `true` when accessing a prop whose type is a callable (fn / method)
@@ -163,6 +164,10 @@ export abstract class PathStep {
   abstract complexity(): number;
 
   static from(json: PathStepDef, scope: TypeScope): PathStep {
+    // Refuse a step gin would read only part of — a fused `{prop, args}`, or a
+    // key outside the form the step selected. Both used to truncate silently
+    // and then be mis-diagnosed as the missing half. See `wire.ts`.
+    checkPathStep(json);
     if ('prop' in json) return new PropStep(json.prop);
     const r = scope.registry;
     if ('args' in json) {

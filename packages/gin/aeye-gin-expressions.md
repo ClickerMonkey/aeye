@@ -40,6 +40,13 @@ Steps walk left-to-right; the result is the final step's value. Step grammar:
 
 A method call is two steps: `{ prop: 'add' }` then `{ args: { other: ... } }`.
 
+**A step names exactly one of the three forms.** Fusing them —
+`{ "prop": "announce", "args": {…} }` — is refused since **0.4.0**; before that
+gin took the prop and dropped the arguments, then reported `method 'announce'
+needs arguments` about the arguments three lines above it. A step carrying a key
+outside its form, or none of the three selecting keys, is refused the same way
+with the nearest one named.
+
 ## `set` — write through a path
 
 ```json

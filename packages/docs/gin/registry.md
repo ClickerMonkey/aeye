@@ -8,7 +8,8 @@ The `Registry` is the only class you really need to construct. Every other class
 |---|---|
 | `parse(def)` / `parseExpr(def, scope?)` | TypeDef / ExprDef → runtime |
 | `define(cls)` | Register a built-in Type class for JSON dispatch |
-| `register(type)` | Register a named Type instance (typically an Extension) |
+| `register(type)` | Register a named Type instance (typically an Extension) — resolves to the INSTANCE, whose `toJSON()` inlines the whole definition |
+| `scope(bindings?)` | A `LocalScope` overlay above the registry: names that resolve for one session and still serialize as `{name}`, leaving the registry untouched |
 | `lookup(name)` | Look up a Type by name (registered → built-in fallback) |
 | `setNative(id, impl)` | Wire a JS function as a gin native |
 | `getNative(id)` | Read a native back |

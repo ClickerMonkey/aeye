@@ -1,6 +1,10 @@
 // Schema (JSON shapes)
 export * from './schema';
-export { TYPE_DEF_KEYS, checkWireKeys, type CoversKeys, type AssertCovered } from './wire';
+export {
+  TYPE_DEF_KEYS, PROP_DEF_KEYS, GET_SET_DEF_KEYS, CALL_DEF_KEYS, INIT_DEF_KEYS,
+  checkWireKeys, checkDefKeys, checkPathStep,
+  type CoversKeys, type AssertCovered,
+} from './wire';
 export type { Node, CodeOptions, SchemaOptions } from './node';
 export { buildSchemas } from './schemas';
 
@@ -23,6 +27,7 @@ export {
 } from './code';
 export * from './value';
 export * from './scope';
+export { LocalScope, type TypeScope } from './type-scope';
 export * from './type';
 export * from './extension';
 export * from './builder';

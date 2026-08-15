@@ -14,6 +14,7 @@ import type { JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from './node';
 import { Effects } from './effects';
+import { CALL_DEF_HINTS, CALL_DEF_KEYS, GET_SET_DEF_KEYS, INIT_DEF_KEYS, PROP_DEF_KEYS, checkDefKeys } from './wire';
 
 // ============================================================================
 // RUNTIME SPEC SHAPES
@@ -71,7 +72,10 @@ export class Prop {
    * `scope` is optional for instance/spec inputs whose fields are
    * already parsed; mandatory when any field needs parsing.
    */
-  static from(x: Prop | PropSpec | PropDef, scope?: TypeScope): Prop {
+  static from(x: Prop | PropSpec | PropDef, scope?: TypeScope, name?: string): Prop {
+    if (!(x instanceof Prop)) {
+      checkDefKeys(name ? `prop '${name}'` : 'prop', x, PROP_DEF_KEYS);
+    }
     const rawType = (x as { type: unknown }).type;
     const type = rawType instanceof Type
       ? rawType
@@ -103,7 +107,7 @@ export class Prop {
     scope?: TypeScope,
   ): Record<string, Prop> {
     const out: Record<string, Prop> = {};
-    for (const [name, def] of Object.entries(defs)) out[name] = Prop.from(def, scope);
+    for (const [name, def] of Object.entries(defs)) out[name] = Prop.from(def, scope, name);
     return out;
   }
 
@@ -309,6 +313,7 @@ export class GetSet<K = any, V = any> {
     } | GetSetDef,
     scope?: TypeScope,
   ): GetSet {
+    if (!(x instanceof GetSet)) checkDefKeys('get/set surface', x, GET_SET_DEF_KEYS);
     const rawKey = (x as { key: unknown }).key;
     const rawValue = (x as { value: unknown }).value;
     const key = rawKey instanceof Type ? rawKey
@@ -423,6 +428,7 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
     x: Call | (ConstructorParameters<typeof Call>[0] & { get?: Expr | ExprDef; set?: Expr | ExprDef }) | CallDef,
     scope?: TypeScope,
   ): Call {
+    if (!(x instanceof Call)) checkDefKeys('call signature', x, CALL_DEF_KEYS, CALL_DEF_HINTS);
     // Build the effective scope for nested resolution. When the input
     // carries a `types` alias map (CallDef shape), bind each alias in
     // a LocalScope layered on top of the caller's scope.
@@ -542,6 +548,7 @@ export class Init<TArgs extends object = any> {
     x: Init | { args: Type; run: Expr | ExprDef; docs?: string } | NonNullable<TypeDef['init']>,
     scope?: TypeScope,
   ): Init {
+    if (!(x instanceof Init)) checkDefKeys('init constructor', x, INIT_DEF_KEYS);
     const rawArgs = (x as { args: unknown }).args;
     const args = rawArgs instanceof Type ? rawArgs
       : (() => { if (!scope) throw new Error('Init.from: args is TypeDef but no scope provided'); return scope.parse(rawArgs as TypeDef); })();
@@ -943,7 +950,7 @@ export abstract class Type<T = any, O = any> implements Node {
    * have richer Expr-slot shapes that don't fit the init mould).
    */
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const init = this.init();
+    const init = this.init(opts.scope);
     if (init) {
       return this.describeType(init.args.toValueSchema(opts), opts, 'NewValue_');
     }
@@ -1068,6 +1075,24 @@ export abstract class Type<T = any, O = any> implements Node {
   public elementComplexity(value: unknown): number {
     const exprCost = this.exprValueComplexity(value);
     return exprCost > 0 ? exprCost : 1;
+  }
+
+  /**
+   * Build the `z.object` for a VALUE of an object-shaped type, honouring
+   * `opts.unknownKeys`. Every value-side object schema goes through here so
+   * the choice is made in one place — `z.object` strips, `z.strictObject`
+   * refuses with an `unrecognized_keys` issue naming the key.
+   *
+   * Only the value side: a schema for a `new` expression's slots
+   * (`toNewSchema`) or for the TypeDef wire form (`toSchema` /
+   * `toInstanceSchema`) is not the caller's payload, and the wire form has
+   * its own, non-optional refusal in `wire.ts`.
+   */
+  protected valueObject(
+    shape: Record<string, z.ZodTypeAny>,
+    opts?: ValueSchemaOptions,
+  ): z.ZodObject<z.ZodRawShape> {
+    return opts?.unknownKeys === 'refuse' ? z.strictObject(shape) : z.object(shape);
   }
 
   /**

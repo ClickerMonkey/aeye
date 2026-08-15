@@ -308,6 +308,144 @@ describe('every legitimate wire shape still parses', () => {
   });
 });
 
+describe('the refusal reaches the NESTED def shapes', () => {
+  const r = createRegistry();
+
+  test('a prop key gin would ignore — the mistake that left a prop untyped', () => {
+    const msg = refusal(() => r.parse({ name: 'obj', props: { a: { typ: { name: 'num' } } } } as unknown as TypeDef));
+    // Named by the PROP, not just "somewhere in this type".
+    expect(msg).toBe("gin.parse: prop 'a' has unknown key 'typ' — did you mean `type`?");
+  });
+
+  test('a prop key that is nobody‘s typo lists the shape instead', () => {
+    const msg = refusal(() => r.parse({
+      name: 'obj', props: { a: { type: { name: 'num' }, required: true } },
+    } as unknown as TypeDef));
+    expect(msg).toContain("prop 'a' has unknown key 'required'");
+    expect(msg).toContain('valid keys: docs, type, get, default, set');
+  });
+
+  test("a misspelt `returns` used to produce a fn with NO return type", () => {
+    const msg = refusal(() => r.parse({
+      name: 'fn', call: { args: { name: 'obj', props: {} }, retruns: { name: 'num' } },
+    } as unknown as TypeDef));
+    expect(msg).toBe("gin.parse: call signature has unknown key 'retruns' — did you mean `returns`?");
+  });
+
+  test("a fn's type parameters declared on the CALL — found in gin's own fixtures", () => {
+    // The demo in `code-render-demo.test.ts` carried this spelling until 0.4.0.
+    // `Call.from` ignored it, and the signature type-checked anyway because the
+    // unbound `{name:'T'}` inside it is a universal alias — so the fixture
+    // passed while proving nothing about generics.
+    const msg = refusal(() => r.parse({
+      name: 'fn', call: { generic: { T: { name: 'any' } }, args: { name: 'obj', props: {} } },
+    } as unknown as TypeDef));
+    expect(msg).toContain("call signature has unknown key 'generic'");
+    expect(msg).toContain('a fn declares its type parameters on the TYPE, not the call');
+    // The correction PARSES — a signpost that doesn't is worse than none.
+    expect(() => r.parse({
+      name: 'fn', generic: { T: { name: 'any' } },
+      call: { args: { name: 'obj', props: { x: { type: { name: 'T' } } } }, returns: { name: 'T' } },
+    })).not.toThrow();
+  });
+
+  test('a get/set surface and an init constructor are checked too', () => {
+    expect(refusal(() => r.parse({
+      name: 'X', extends: 'obj', get: { key: { name: 'num' }, valeu: { name: 'num' } },
+    } as unknown as TypeDef))).toContain("get/set surface has unknown key 'valeu'");
+    expect(refusal(() => r.parse({
+      name: 'X', extends: 'obj',
+      init: { args: { name: 'obj', props: {} }, ruh: { kind: 'native', id: 'obj.new' } },
+    } as unknown as TypeDef))).toContain("init constructor has unknown key 'ruh' — did you mean `run`?");
+  });
+
+  test('every legitimate nested shape still parses, every key at once', () => {
+    expect(() => r.parse({
+      name: 'Widget',
+      extends: 'obj',
+      props: {
+        size: {
+          docs: 'how big', type: { name: 'num' },
+          get: { kind: 'native', id: 'num.abs' },
+          set: { kind: 'native', id: 'num.abs' },
+          default: { kind: 'new', type: { name: 'num' }, value: 1 },
+        },
+      },
+      get: {
+        docs: 'indexed', key: { name: 'text' }, value: { name: 'any' },
+        get: { kind: 'native', id: 'object.indexGet' },
+        set: { kind: 'native', id: 'object.indexSet' },
+        loop: { kind: 'native', id: 'object.iterate' },
+        loopDynamic: false,
+      },
+      call: {
+        docs: 'callable', types: { Row: { name: 'num' } },
+        args: { name: 'obj', props: {} }, returns: { name: 'Row' }, throws: { name: 'text' },
+        get: { kind: 'native', id: 'obj.new' },
+        set: { kind: 'native', id: 'obj.new' },
+      },
+      init: { docs: 'ctor', args: { name: 'obj', props: {} }, run: { kind: 'native', id: 'obj.new' } },
+    })).not.toThrow();
+  });
+
+  test('a Prop / Call instance gin built itself is not re-scanned', () => {
+    // Only AUTHORED shapes are checked: `Prop.from` runs on every prop map
+    // build, and re-reading gin's own instances would spend a key scan per
+    // path-walk to police shapes that cannot be wrong.
+    const built = r.obj({ a: { type: r.num() } });
+    expect(() => r.list(built).toJSON()).not.toThrow();
+    expect(() => r.parse(built.toJSON())).not.toThrow();
+  });
+});
+
+describe('a path step names exactly one form', () => {
+  const r = createRegistry();
+
+  test('the fused `{prop, args}` — 30 of 33 refusals in one measured turn', () => {
+    // Parsed as a bare prop read with the arguments DROPPED, and was then
+    // diagnosed as "method 'announce' needs arguments" — about the arguments
+    // supplied in that very step.
+    const msg = refusal(() => r.parseExpr({
+      kind: 'get',
+      path: [
+        { prop: 'project' },
+        { prop: 'announce', args: { note: { kind: 'new', type: { name: 'text' }, value: 'hi' } } },
+      ],
+    }));
+    expect(msg).toContain("path step names 2 forms ('prop' and 'args')");
+    // The fix is spelt out with the author's own prop name in it.
+    expect(msg).toContain('each is its own step: [{"prop":"announce"}, {"args":{…}}]');
+  });
+
+  test('the split spelling — what the message asks for — parses', () => {
+    expect(() => r.parseExpr({
+      kind: 'get',
+      path: [{ prop: 'project' }, { prop: 'announce' }, { args: { note: { kind: 'new', type: { name: 'text' }, value: 'hi' } } }],
+    })).not.toThrow();
+  });
+
+  test('a key outside the selected form', () => {
+    expect(refusal(() => r.parseExpr({ kind: 'get', path: [{ prop: 'a', catch: { kind: 'native', id: 'x' } }] })))
+      .toContain("path step has unknown key 'catch'");
+  });
+
+  test('a step selecting NO form says which key it expected', () => {
+    const msg = refusal(() => r.parseExpr({ kind: 'get', path: [{ arg: {} }] }));
+    expect(msg).toContain('path step selects no form (keys: arg)');
+    expect(msg).toContain('did you mean `args`?');
+  });
+
+  test('every legitimate step shape still parses, and round-trips', () => {
+    const path = [
+      { prop: 'items' },
+      { key: { kind: 'new', type: { name: 'num' }, value: 0 } },
+      { args: {}, generic: { R: { name: 'num' } }, catch: { kind: 'new', type: { name: 'num' }, value: 0 } },
+    ];
+    const expr = r.parseExpr({ kind: 'get', path });
+    expect((expr.toJSON() as { path: unknown }).path).toEqual(path);
+  });
+});
+
 describe('the key list mirrors the schema', () => {
   test('TYPE_DEF_KEYS covers every field a TypeDef can carry', () => {
     // The compile-time proof lives in wire.ts (`AssertCovered`); this is the

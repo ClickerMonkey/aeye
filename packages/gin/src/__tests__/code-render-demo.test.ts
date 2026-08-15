@@ -598,8 +598,13 @@ describe('toGinCode / toJSONCode — visual rendering demo', () => {
             kind: 'lambda',
             type: {
               name: 'fn',
+              // The type parameter is declared on the TYPE — `FnType.from`
+              // reads `json.generic`. This fixture spelt it `call.generic`
+              // until 0.4.0, where `Call.from` ignored it entirely and the
+              // signature type-checked only because an unbound `{name:'T'}`
+              // is a universal alias. `checkDefKeys` refuses it now.
+              generic: { T: { name: 'any' } },
               call: {
-                generic: { T: { name: 'any' } },
                 args: { name: 'obj', props: { x: { type: { name: 'T' } } } },
                 returns: { name: 'T' },
               },

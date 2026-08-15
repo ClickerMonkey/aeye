@@ -181,16 +181,20 @@ export class AliasType extends Type<any, AliasOptions> {
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
+    // `opts.scope` is the call-site layer, consulted before the captured one
+    // exactly as in every other value-side op. Without it a name the
+    // schema-building registry does not hold falls to `z.any()` — a gate that
+    // accepts everything, with no parameter to fix it (see `ValueSchemaOptions.scope`).
     // Lazy so recursive named types (Node → list<Node>) don't blow the stack.
     return this.describeType(z.lazy(() => {
-      const t = this.resolve();
+      const t = this.resolve(opts?.scope);
       return t ? t.toValueSchema(opts) : z.any();
     }), opts);
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     return this.describeType(z.lazy(() => {
-      const t = this.resolve();
+      const t = this.resolve(opts.scope);
       return t ? t.toNewSchema(opts) : z.any();
     }), opts, 'NewValue_');
   }
