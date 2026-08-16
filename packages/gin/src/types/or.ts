@@ -3,6 +3,7 @@ import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, type PropSpec, type Rnd, Type } from '../type';
+import type { EncodeOptions } from '../json-type';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -85,6 +86,19 @@ export class OrType extends Type<any, OrOptions> {
       });
     }
     return match.encode(raw, scope);
+  }
+
+  /** The matching variant does the walk — same variant selection `encode`
+   *  makes, so a composite arm still decomposes. */
+  encodeAs(raw: any, opts: EncodeOptions, scope?: TypeScope): unknown {
+    const match = this.variants.find((v) => v.valid(raw, scope));
+    if (!match) {
+      throw new TypeError({
+        path: [], code: 'or.dump.no-match',
+        message: 'or.dump: value does not satisfy any variant', severity: 'error',
+      });
+    }
+    return match.encodeAs(raw, opts, scope);
   }
 
   create(): any {

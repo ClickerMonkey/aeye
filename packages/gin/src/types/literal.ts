@@ -6,7 +6,7 @@ import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCo
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, RuntimeOf } from '../json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
 export interface LiteralOptions<T = unknown> {
@@ -86,6 +86,12 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
 
   encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
     return this.inner.encode(raw, scope);
+  }
+
+  /** The inner type does the walk — a literal pins WHICH value, never how
+   *  it serializes. */
+  encodeAs(raw: RuntimeOf<T>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    return this.inner.encodeAs(raw, opts, scope);
   }
 
   create(): RuntimeOf<T> {

@@ -2,13 +2,17 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
-import { Effects } from '../effects';
+import {
+  type CompatOptions, GetSet, type NewSlotVisitor, type Prop, type Rnd, Type,
+  ENVELOPE_ENCODE, encodeSlot, optionsCode, slotAccepts,
+} from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, JSONValue } from '../json-type';
+import type { EncodeOptions, JSONOf, JSONValue } from '../json-type';
 
 
 /**
@@ -64,7 +68,13 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     const { minLength, maxLength } = this.options;
     if (minLength !== undefined && raw.length < minLength) return false;
     if (maxLength !== undefined && raw.length > maxLength) return false;
-    return raw.every((x) => x instanceof Value && x.type.valid(x.raw, scope));
+    // Each cell must be valid BY ITS OWN TYPE **and** be a value the
+    // DECLARED element type accepts. Asking only the first question is how a
+    // `num` sat inside a `list<text>` and `valid()` said yes. `slotAccepts`
+    // keeps a genuine subtype (a `Dog` in a `list<Animal>`).
+    return raw.every((x) => x instanceof Value
+      && x.type.valid(x.raw, scope)
+      && slotAccepts(this.item, x.type, scope));
   }
 
   parse(json: unknown, scope?: TypeScope): Value<V[]> {
@@ -85,9 +95,14 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   }
 
   /** Each element becomes a `JSONValue` envelope so nested subtypes
-   *  round-trip through JSON. */
-  encode(raw: Value<V>[], _scope?: TypeScope): JSONValue<V>[] {
-    return raw.map((v) => v.toJSON());
+   *  round-trip through JSON — or its bare logical form under
+   *  `form:'logical'`. One walk, via `encodeAs`. */
+  encode(raw: Value<V>[], scope?: TypeScope): JSONValue<V>[] {
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONValue<V>[];
+  }
+
+  encodeAs(raw: Value<V>[], opts: EncodeOptions, scope?: TypeScope): unknown {
+    return raw.map((v) => encodeSlot(v, opts, scope));
   }
 
   create(): Value<V>[] {
@@ -102,31 +117,21 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return Array.from({ length: n }, () => new Value(this.item, this.item.random(rnd)));
   }
 
-  /** Walk each element slot through the item type's `newEffects` so
-   *  composite `new list<T>{values: [Expr, Expr, ...]}` payloads
-   *  surface every slot's effects. If `value` is itself an ExprDef
-   *  (e.g. a `get` returning a list) defer to base. */
-  newEffects(value: unknown): Effects {
-    const init = this.initEffects();
-    if (Array.isArray(value)) {
-      let acc = init;
-      for (const item of value) acc |= this.item.newEffects(item);
-      return acc;
-    }
-    return init | this.exprValueEffects(value);
+  /** A `new list<V>` payload is an element ARRAY; each position is a slot
+   *  declared `V`. A payload that is not an array is opaque (an Expr
+   *  yielding the whole list, say) and the base judges it. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    if (!Array.isArray(value)) return false;
+    for (let i = 0; i < value.length; i++) visit.slot(this.item, value[i], i);
+    return true;
   }
 
-  /** Each element slot contributes its `elementComplexity` (the
-   *  embedded Expr's cost, or 1 for a raw literal). The list itself
-   *  pays a base `1 + init` for the construction envelope. */
-  newComplexity(value: unknown): number {
-    const init = this.initComplexity();
-    if (Array.isArray(value)) {
-      let acc = 1 + init;
-      for (const item of value) acc += this.item.elementComplexity(item);
-      return acc;
-    }
-    return 1 + init + this.exprValueComplexity(value);
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    if (!Array.isArray(value)) return super.newFill(value, engine, scope);
+    const out: unknown[] = [];
+    // Sequential, in authored order — see `Type.newFill`.
+    for (const item of value) out.push(await this.item.newFill(item, engine, scope));
+    return out;
   }
 
   like(other: Type): Type {

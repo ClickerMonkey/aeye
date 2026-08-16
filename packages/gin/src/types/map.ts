@@ -2,17 +2,29 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
-import { Effects } from '../effects';
+import {
+  type CompatOptions, GetSet, type NewSlotVisitor, type Prop, type Rnd, Type,
+  ENVELOPE_ENCODE, encodeSlot, slotAccepts,
+} from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, JSONValue } from '../json-type';
+import type { EncodeOptions, JSONOf, JSONValue } from '../json-type';
 
 
 /** Whether a `Map` value slot already holds a RUNTIME `[Value<K>, Value<V>]` entry. */
 function isRuntimeEntry(v: unknown): v is [Value, Value] {
   return Array.isArray(v) && v.length === 2 && v[0] instanceof Value && v[1] instanceof Value;
+}
+
+/** The key / value halves of one authored map entry, in either accepted
+ *  spelling (`{key, value}` or the positional `[key, value]`). */
+function entrySlots(entry: unknown): [unknown, unknown] {
+  if (Array.isArray(entry)) return [entry[0], entry[1]];
+  const e = entry as { key?: unknown; value?: unknown } | null | undefined;
+  return [e?.key, e?.value];
 }
 
 /**
@@ -72,6 +84,9 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
       const [kv, vv] = entry;
       if (!(kv instanceof Value) || !(vv instanceof Value)) return false;
       if (!kv.type.valid(kv.raw, scope) || !vv.type.valid(vv.raw, scope)) return false;
+      // ...and each half must be one the DECLARED K / V accepts. See
+      // `slotAccepts` for why asking only "valid by its own type" was the defect.
+      if (!slotAccepts(this.key, kv.type, scope) || !slotAccepts(this.value, vv.type, scope)) return false;
     }
     return true;
   }
@@ -106,55 +121,54 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return new Value(this, m);
   }
 
-  /** Emit as an array of `{ key, value }` envelopes (LLM-friendly — avoids
-   *  positional tuples). Each key/value is itself a `JSONValue` envelope
-   *  so nested subtypes round-trip. */
-  encode(raw: Map<unknown, [Value<K>, Value<V>]>, _scope?: TypeScope): Array<{ key: JSONValue<K>; value: JSONValue<V> }> {
-    return Array.from(raw, ([, [kv, vv]]) => ({ key: kv.toJSON(), value: vv.toJSON() }));
+  /** Emit as an array of `{ key, value }` pairs (LLM-friendly — avoids
+   *  positional tuples). Each half is a `JSONValue` envelope so nested
+   *  subtypes round-trip, or its bare logical form under `form:'logical'`
+   *  — the `[{key, value}]` shape IS the map's logical JSON form, so it
+   *  stays either way. One walk, via `encodeAs`. */
+  encode(raw: Map<unknown, [Value<K>, Value<V>]>, scope?: TypeScope): Array<{ key: JSONValue<K>; value: JSONValue<V> }> {
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as Array<{ key: JSONValue<K>; value: JSONValue<V> }>;
+  }
+
+  encodeAs(raw: Map<unknown, [Value<K>, Value<V>]>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    return Array.from(raw, ([, [kv, vv]]) => ({
+      key: encodeSlot(kv, opts, scope),
+      value: encodeSlot(vv, opts, scope),
+    }));
   }
 
   create(): Map<unknown, [Value<K>, Value<V>]> {
     return new Map();
   }
 
-  /** Each entry is `{key: Expr, value: Expr}` (or `[Expr, Expr]`).
-   *  Walk both slots of every entry through their respective types. */
-  newEffects(value: unknown): Effects {
-    const init = this.initEffects();
-    if (Array.isArray(value)) {
-      let acc = init;
-      for (const entry of value) {
-        const [rawK, rawV] = Array.isArray(entry)
-          ? entry
-          : [(entry as { key?: unknown; value?: unknown }).key,
-             (entry as { key?: unknown; value?: unknown }).value];
-        acc |= this.key.newEffects(rawK);
-        acc |= this.value.newEffects(rawV);
-      }
-      return acc;
+  /** A `new map<K,V>` payload is an ENTRY array — `{key, value}` or
+   *  `[key, value]` per entry — so each entry contributes two slots,
+   *  declared `K` and `V`. The runtime `Map` form (what `create()` returns)
+   *  is not an authored payload and stays opaque. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    if (!Array.isArray(value)) return false;
+    for (let i = 0; i < value.length; i++) {
+      const [rawK, rawV] = entrySlots(value[i]);
+      visit.slot(this.key, rawK, `${i}.key`);
+      visit.slot(this.value, rawV, `${i}.value`);
     }
-    return init | this.exprValueEffects(value);
+    return true;
   }
 
-  /** Each entry's key + value slot contributes their
-   *  `elementComplexity` (embedded Expr's cost, or 1 per raw literal
-   *  slot). The map itself pays `1 + init` for the construction
-   *  envelope. */
-  newComplexity(value: unknown): number {
-    const init = this.initComplexity();
-    if (Array.isArray(value)) {
-      let acc = 1 + init;
-      for (const entry of value) {
-        const [rawK, rawV] = Array.isArray(entry)
-          ? entry
-          : [(entry as { key?: unknown; value?: unknown }).key,
-             (entry as { key?: unknown; value?: unknown }).value];
-        acc += this.key.elementComplexity(rawK);
-        acc += this.value.elementComplexity(rawV);
-      }
-      return acc;
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    if (!Array.isArray(value)) return super.newFill(value, engine, scope);
+    const out: Array<{ key: unknown; value: unknown }> = [];
+    // Sequential, in authored order — see `Type.newFill`. Entries normalize
+    // to the `{key, value}` form, which `parse` accepts alongside the
+    // positional one.
+    for (const entry of value) {
+      const [rawK, rawV] = entrySlots(entry);
+      out.push({
+        key: await this.key.newFill(rawK, engine, scope),
+        value: await this.value.newFill(rawV, engine, scope),
+      });
     }
-    return 1 + init + this.exprValueComplexity(value);
+    return out;
   }
 
   random(rnd: Rnd): Map<unknown, [Value<K>, Value<V>]> {

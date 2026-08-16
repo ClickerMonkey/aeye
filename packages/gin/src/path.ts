@@ -17,6 +17,7 @@ import { joinAuto } from './type';
 import { ObjType } from './types/obj';
 import { IfaceType } from './types/iface';
 import { Extension } from './extension';
+import { AliasType } from './types/alias';
 import type { CodeOptions } from './node';
 import { Code, code, span, joinCode } from './code';
 import type { Effects } from './effects';
@@ -77,6 +78,51 @@ function reportMissingArgs(
       p.at(at, () => p.error('call.missing-arg', `missing required argument '${name}'`));
     }
   }
+}
+
+/**
+ * A prop's declared type as seen THROUGH the receiver that carries it.
+ *
+ * A generic's props are declared against its type PARAMETERS, so on a
+ * specialized instance `QueryResult<Row=obj{id: text}>.props().rows` is still
+ * an `AliasType('Row')`. The binding is not lost — `specialize` layers a
+ * `LocalScope` over the instance's own scope, which is "what makes a bound
+ * `QueryResult<Row=…>` actually behave as the bound type rather than merely
+ * print like one" — and every VALUE operation (`valid` / `parse` / `encode`)
+ * already routes through it. The path walk did not, so
+ *
+ *   res.data.USD   on   HttpResponse<T = obj{USD: num, EUR: num}>
+ *
+ * reported `no prop 'USD' on type 'alias'` while the type printed its binding
+ * correctly one line above. A named generic envelope was unusable for exactly
+ * the reason it exists.
+ *
+ * Only an alias is resolved. `simplify` on anything else is a canonicalizer
+ * (`and<obj, obj>` collapses to an `obj`, a one-variant `or` unwraps) and
+ * running every prop read through it would change what the walk reports about
+ * types that were never in question.
+ */
+function propTypeVia(receiver: Type, prop: Prop): Type {
+  return prop.type instanceof AliasType ? prop.type.simplify(receiver.scope) : prop.type;
+}
+
+/**
+ * The `Value` a composite's raw carries at `name`, when the DECLARED type
+ * could not answer for it.
+ *
+ * The runtime half of the same defect: a composite's raw holds a `Value` per
+ * slot, each with its own concrete type, and the walk consulted only
+ * `current.type`. A value whose declared type is an unresolved placeholder
+ * but whose raw holds typed cells is not an error — it is a value carrying
+ * MORE information than its declaration, and the pair is what gin trades in.
+ * Consulted only after the declared type has failed, so a declaration always
+ * wins where it has an opinion.
+ */
+function carriedSlot(receiver: Value, name: string): Value | undefined {
+  const raw = receiver.raw;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const slot = (raw as Record<string, unknown>)[name];
+  return slot instanceof Value ? slot : undefined;
 }
 
 /**
@@ -459,23 +505,34 @@ export class Path {
         }
         const prop = current.type.prop(step.prop);
         if (!prop) {
+          // The declaration cannot answer — ask the value itself before
+          // giving up. See `carriedSlot`.
+          const carried: Value | undefined = mode.mode === 'get'
+            ? carriedSlot(current, step.prop)
+            : undefined;
+          if (carried) {
+            current = carried;
+            i++;
+            continue;
+          }
           throw new Error(
             `path: no prop '${step.prop}' on type '${current.type.name}'${suggestPathTail(current.type, this.steps, i)}`,
           );
         }
+        const propType = propTypeVia(current.type, prop);
 
         const next = this.steps[i + 1];
         const nextIsCall = next instanceof CallStep;
-        if (nextIsCall && prop.type.call()) {
-          const argsValue = await (next as CallStep).buildArgsValue(prop.type, scope, engine);
+        if (nextIsCall && propType.call()) {
+          const argsValue = await (next as CallStep).buildArgsValue(propType, scope, engine);
 
           if (i + 1 === this.steps.length - 1 && mode.mode === 'set') {
-            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, prop.type);
+            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, propType);
             return okSet();
           }
 
           try {
-            current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, prop.type);
+            current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, propType);
           } catch (sig) {
             if (sig instanceof ThrowSignal && (next as CallStep).catch_) {
               const c = scope.child({ error: sig.error });
@@ -494,13 +551,13 @@ export class Path {
         // not the bare function value. Only triggers in the
         // prop-access branch (current !== null) — standalone fn vars
         // in scope still resolve to their function value.
-        if (!nextIsCall && isAutoCallable(prop.type)) {
-          const argsValue = await new CallStep({}, undefined, undefined).buildArgsValue(prop.type, scope, engine);
+        if (!nextIsCall && isAutoCallable(propType)) {
+          const argsValue = await new CallStep({}, undefined, undefined).buildArgsValue(propType, scope, engine);
           if (isLast && mode.mode === 'set') {
-            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, prop.type);
+            await prop.invokeMethodSet(current, step.prop, argsValue, mode.setValue!, scope, engine, propType);
             return okSet();
           }
-          current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, prop.type);
+          current = await prop.invokeMethod(current, step.prop, argsValue, scope, engine, propType);
           i++;
           continue;
         }
@@ -510,7 +567,7 @@ export class Path {
           return okSet();
         }
 
-        current = await prop.read(current, step.prop, scope, engine);
+        current = await prop.read(current, step.prop, scope, engine, propType);
         i++;
         continue;
       }
@@ -615,11 +672,12 @@ export class Path {
         }
         const propI: Prop | undefined = current.prop(step.prop);
         if (!propI) return engine.registry.any();
+        const propIType = propTypeVia(current, propI);
 
         const next = this.steps[i + 1];
-        if (next instanceof CallStep && propI.type.call()) {
-          const callScope: TypeScope = next.callSiteScope(propI.type);
-          const ret: Type | undefined = propI.type.call(callScope)?.returns;
+        if (next instanceof CallStep && propIType.call()) {
+          const callScope: TypeScope = next.callSiteScope(propIType);
+          const ret: Type | undefined = propIType.call(callScope)?.returns;
           current = ret?.simplify(callScope) ?? ret ?? engine.registry.any();
           i += 2;
           continue;
@@ -628,13 +686,13 @@ export class Path {
         // `isAutoCallable` for the rule). Mirrors the runtime branch
         // in `evaluate` so static type inference matches what the
         // program will actually return.
-        if (!(next instanceof CallStep) && isAutoCallable(propI.type)) {
-          const ret: Type | undefined = propI.type.call()?.returns;
+        if (!(next instanceof CallStep) && isAutoCallable(propIType)) {
+          const ret: Type | undefined = propIType.call()?.returns;
           current = ret ?? engine.registry.any();
           i++;
           continue;
         }
-        current = propI.type;
+        current = propIType;
         i++;
         continue;
       }
@@ -706,16 +764,17 @@ export class Path {
           i++;
           continue;
         }
+        const propVType = propTypeVia(current, propV);
         const next = this.steps[i + 1];
-        if (next instanceof CallStep && propV.type.call()) {
+        if (next instanceof CallStep && propVType.call()) {
           for (const [name, argExpr] of Object.entries(next.args)) {
             p.at(['path', i + 1, 'args', name], () => argExpr.validateWalk(engine, scope, p, ctx));
           }
           if (next.catch_) {
             p.at(['path', i + 1, 'catch'], () => next.catch_!.validateWalk(engine, scope, p, ctx));
           }
-          const callScope: TypeScope = next.callSiteScope(propV.type);
-          const callable: Call | undefined = propV.type.call(callScope);
+          const callScope: TypeScope = next.callSiteScope(propVType);
+          const callable: Call | undefined = propVType.call(callScope);
           reportMissingArgs(callable, next.args, p, ['path', i + 1]);
           if (mode === 'set' && i + 1 === this.steps.length - 1) {
             if (!callable?.set) {
@@ -734,8 +793,8 @@ export class Path {
         // Auto-call zero-required-arg methods on prop access: mirrors
         // `evaluate` and `typeOf` so a program like `args.opt.has`
         // type-checks as bool (the call's return) instead of fn.
-        if (!(next instanceof CallStep) && isAutoCallable(propV.type)) {
-          const ret: Type | undefined = propV.type.call()?.returns;
+        if (!(next instanceof CallStep) && isAutoCallable(propVType)) {
+          const ret: Type | undefined = propVType.call()?.returns;
           current = ret ?? engine.registry.any();
           i++;
           continue;
@@ -755,7 +814,7 @@ export class Path {
           // The validator doesn't have enough information at this
           // step to decide; the runtime surfaces a clear error if
           // the assignment is genuinely impossible.
-          if (!propV.set && propV.get && !propV.type.call()) {
+          if (!propV.set && propV.get && !propVType.call()) {
             p.at(['path', i], () => p.error('set.prop.computed',
               `prop '${step.prop}' is computed (read-only); cannot assign to it`));
           }
@@ -764,15 +823,15 @@ export class Path {
         // `{args:…}` call step silently degrades at runtime — its params bind
         // to nothing. Require the call so the retry loop can catch it. (Set
         // mode may legitimately route a bare method through its `call.set`.)
-        const bareCall: Call | undefined = mode === 'get' ? propV.type.call() : undefined;
-        if (bareCall && !isAutoCallable(propV.type)) {
+        const bareCall: Call | undefined = mode === 'get' ? propVType.call() : undefined;
+        if (bareCall && !isAutoCallable(propVType)) {
           p.at(['path', i], () => p.error('call.uncalled',
             `method '${step.prop}' needs arguments — add an {args:{…}} step to call it`));
           current = bareCall.returns ?? engine.registry.any();
           i++;
           continue;
         }
-        current = propV.type;
+        current = propVType;
         i++;
         continue;
       }

@@ -14,6 +14,49 @@ export interface JSONValue<T = unknown> {
 }
 
 /**
+ * How a `Value` is written to JSON. Both axes default to the shape gin has
+ * always produced, so `toJSON()` / `encode()` with no options are unchanged.
+ *
+ * There used to be exactly two ways to hold a typed value — the live `Value`,
+ * or the full `{type, value}` envelope — and no third, envelope-free,
+ * type-preserving form. Consumers that had to hand a bare logical value
+ * across a boundary reimplemented the walk, which is a copy of gin's own
+ * serialization free to drift from it. And the envelope was expensive for a
+ * reason that had nothing to do with carrying a type: a REGISTERED named
+ * type's `toJSON()` inlines its whole definition, at EVERY element.
+ * Measured on `list<project>` with four scalar fields per row:
+ *
+ *   n=1000   logical 54,671   full envelope 376,894  (6.9x)
+ *            name-only refs ~2x, and `Registry.parseValue` already accepts it
+ *
+ * gin draws exactly this reference-vs-definition distinction on the TYPE side
+ * — `Registry.scope()` binds a name that round-trips as `{name}` where
+ * `register()` binds an instance that round-trips inlined — and these options
+ * apply it to the VALUE envelope.
+ */
+export interface EncodeOptions {
+  /**
+   * - `'envelope'` (default) — every nested slot is a `{type, value}` pair,
+   *   so per-element concrete types survive the round trip.
+   * - `'logical'` — no envelopes anywhere; the bare logical JSON a caller who
+   *   already knows the declared type wants. A `map` still emits
+   *   `[{key, value}]` and a `timestamp` an ISO string, because those are the
+   *   logical JSON forms, not envelopes.
+   */
+  form?: 'envelope' | 'logical';
+  /**
+   * - `'definition'` (default) — a type is written as its full `TypeDef`.
+   * - `'name'` — a type the producing registry resolves to THIS instance is
+   *   written as `{name}`. Round-trips through `Registry.parseValue`
+   *   unchanged, including per-element subtypes. Requires the consumer to
+   *   share the registry: a name it has not registered parses to an UNBOUND
+   *   alias, which is universal — which is why this is opt-in and not the
+   *   default.
+   */
+  typeRefs?: 'definition' | 'name';
+}
+
+/**
  * Runtime shape of `.raw` on `Value<T>`. Composites hold nested `Value`
  * instances so a list/map/tuple/obj can carry per-element concrete types
  * alongside the container's declared element type.

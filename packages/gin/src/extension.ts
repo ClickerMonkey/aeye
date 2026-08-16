@@ -7,14 +7,19 @@ import {
   type CompatOptions,
   GetSet,
   Init,
+  type NewSlotVisitor,
   Prop,
   type PropSpec,
   type Rnd,
   Type,
+  ENVELOPE_ENCODE,
+  slotAccepts,
+  encodeSlot,
+  isRecordPayload,
 } from './type';
 import type { Scope } from './scope';
 import type { Engine } from './engine';
-import type { JSONOf, RuntimeOf } from './json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Expr } from './expr';
@@ -194,26 +199,159 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   // bindings — otherwise `QueryResult<obj{id: text}>` would print a
   // binding it does not honour, which is worse than printing nothing.
 
+  /**
+   * The Extension's own props that are STORED DATA rather than SURFACE.
+   *
+   * A local prop is surface when something else computes it: a `get`
+   * expression derives it from `this`, and a callable type carries its body
+   * in `get` — a method is not part of any value. Everything else is a field
+   * this type ADDS to its base, and a value of the type has to carry it.
+   *
+   * Until 0.4.1 nothing drew that line and every local prop was treated as
+   * surface by `parse`/`valid`/`encode` and as shape by `toValueSchema` — so
+   * three surfaces of one type disagreed:
+   *
+   *   const W = r.extend(r.obj({}), {name:'W', props:{id:{type:r.text()}}});
+   *   W.toValueSchema().safeParse({})   // FAILED: 'id' is required
+   *   W.parse({id:'i'}).raw             // {}        ← the data vanished
+   *   W.valid({})                       // true      ← and the loss was blessed
+   *
+   * The schema told a model to emit `{id}`, `parse` built that emission into
+   * an empty value, and `valid` called the result a legal value of the type.
+   * The line below is what the declaration reads as: `{name:'W',
+   * extends:'obj', props:{id}}` is "a W, which is an obj, PLUS an id".
+   *
+   * Only meaningful when the base's raw is a record — you cannot store a
+   * field on a `text`. Callers pair this with {@link isRecordPayload}.
+   */
+  private storedLocalProps(): Array<[string, Prop]> {
+    const out: Array<[string, Prop]> = [];
+    for (const [name, raw] of Object.entries(this.local.props ?? {})) {
+      const prop = raw instanceof Prop ? raw : Prop.from(raw);
+      if (prop.get || prop.type.call()) continue;
+      out.push([name, prop]);
+    }
+    return out;
+  }
+
   valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
-    return this.base.valid(raw, this.bindScope(scope));
+    const bound = this.bindScope(scope);
+    if (!this.base.valid(raw, bound)) return false;
+    const locals = this.storedLocalProps();
+    // A non-record base has nowhere to keep an added field, so `parse` never
+    // creates the slot — and `valid` must agree, or the very first `parse`
+    // would produce a value the type refuses and the Extension would be
+    // uninhabitable. Every surface bails on the same condition:
+    // `mergeLocalPropsInto` needs a `ZodObject`, `encode` and `withLocalSlots`
+    // need a record.
+    if (locals.length === 0 || !isRecordPayload(raw)) return true;
+    const rec = raw as Record<string, unknown>;
+    for (const [name, prop] of locals) {
+      const slot = rec[name];
+      // Each stored slot holds a `Value` whose own type may be a SUBTYPE of
+      // the declared one — the same covariance `ObjType.valid` allows.
+      if (!(slot instanceof Value)) return prop.type.isOptional();
+      if (!slot.type.valid(slot.raw, bound)) return false;
+      if (!slotAccepts(prop.type, slot.type, bound)) return false;
+    }
+    return true;
   }
 
   parse(json: unknown, scope?: TypeScope): Value<T> {
-    const v = this.base.parse(json, this.bindScope(scope));
-    // Re-wrap so Value.type is this Extension, not the base.
-    return new Value(this, v.raw);
+    const bound = this.bindScope(scope);
+    const v = this.base.parse(json, bound);
+    const locals = this.storedLocalProps();
+    if (locals.length === 0 || !isRecordPayload(v.raw)) {
+      // Re-wrap so Value.type is this Extension, not the base.
+      return new Value(this, v.raw);
+    }
+    const input = isRecordPayload(json) ? (json as Record<string, unknown>) : {};
+    const raw: Record<string, unknown> = { ...(v.raw as Record<string, unknown>) };
+    for (const [name, prop] of locals) {
+      raw[name] = this.registry.parseValue(input[name], prop.type, bound);
+    }
+    return new Value(this, raw as RuntimeOf<T>);
   }
 
   encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
-    return this.base.encode(raw, this.bindScope(scope));
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T>;
+  }
+
+  /** The base's walk, plus this Extension's own STORED props — a field the
+   *  Extension adds has to come back out or the round trip loses it. */
+  encodeAs(raw: RuntimeOf<T>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    const bound = this.bindScope(scope);
+    const encoded = this.base.encodeAs(raw, opts, bound);
+    const locals = this.storedLocalProps();
+    if (locals.length === 0 || !isRecordPayload(encoded) || !isRecordPayload(raw)) return encoded;
+    const rec = raw as Record<string, unknown>;
+    const out: Record<string, unknown> = { ...(encoded as Record<string, unknown>) };
+    for (const [name] of locals) {
+      const slot = rec[name];
+      if (slot instanceof Value) out[name] = encodeSlot(slot, opts, bound);
+    }
+    return out;
   }
 
   create(): RuntimeOf<T> {
-    return this.base.create();
+    return this.withLocalSlots(this.base.create(), (t) => t.create());
   }
 
   random(rnd: Rnd): RuntimeOf<T> {
-    return this.base.random(rnd);
+    return this.withLocalSlots(this.base.random(rnd), (t) => t.random(rnd));
+  }
+
+  /** `create`/`random` must populate the stored local props too, or the
+   *  type refuses the value its own constructor just produced — the
+   *  invariant `create-parse-invariant.test.ts` sweeps for. */
+  private withLocalSlots(baseRaw: RuntimeOf<T>, make: (t: Type) => unknown): RuntimeOf<T> {
+    const locals = this.storedLocalProps();
+    if (locals.length === 0 || !isRecordPayload(baseRaw)) return baseRaw;
+    const out: Record<string, unknown> = { ...(baseRaw as Record<string, unknown>) };
+    for (const [name, prop] of locals) out[name] = new Value(prop.type, make(prop.type));
+    return out as RuntimeOf<T>;
+  }
+
+  /**
+   * A `new <ThisExtension>{value}` payload is the BASE's payload plus this
+   * Extension's own stored props (see {@link storedLocalProps}), so the slot
+   * walk is the base's walk with those slots appended.
+   *
+   * The base first, then the locals, matching `props()`' composition order —
+   * a local prop shadowing a base field re-visits that field's slot with the
+   * LOCAL declaration, which is the one that wins everywhere else.
+   */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    const decomposed = this.base.forEachNewSlot(value, visit);
+    const locals = this.storedLocalProps();
+    if (locals.length === 0 || !isRecordPayload(value)) return decomposed;
+    const input = value as Record<string, unknown>;
+    for (const [name, prop] of locals) {
+      if (name in input) visit.slot(prop.type, input[name], name);
+      else if (prop.default !== undefined) visit.missing?.(prop.default, name);
+    }
+    return true;
+  }
+
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    const filled = await this.base.newFill(value, engine, scope);
+    const locals = this.storedLocalProps();
+    if (locals.length === 0 || !isRecordPayload(filled)) return filled;
+    const input = filled as Record<string, unknown>;
+    let out: Record<string, unknown> | undefined;
+    for (const [name, prop] of locals) {
+      if (name in input) {
+        const next = await prop.type.newFill(input[name], engine, scope);
+        if (next !== input[name]) {
+          out ??= { ...input };
+          out[name] = next;
+        }
+      } else if (prop.default !== undefined) {
+        out ??= { ...input };
+        out[name] = await prop.default.evaluate(engine, scope);
+      }
+    }
+    return out ?? input;
   }
 
   // ─── TYPE RELATIONS ────────────────────────────────────────────────────
@@ -561,18 +699,26 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     return z.object({ name: z.literal(this.name) }).passthrough();
   }
 
+  /**
+   * Add the Extension's own STORED props to an object-shaped base schema.
+   *
+   * Stored only — a slot that is pure SURFACE must not be demanded of the
+   * model that emits a value. A `Resource` is supplied as a bare `{id}`
+   * handle and resolved server-side; when its four methods rode local props
+   * the value schema required `url`, `markdown`, `thumbnail` and
+   * `contentType` on every handle, which no caller can supply and no value
+   * of the type carries. Same line as {@link storedLocalProps}, so what
+   * `parse` fills and what the schema asks for cannot diverge.
+   */
   private mergeLocalPropsInto(
     schema: z.ZodTypeAny,
     opts: ValueSchemaOptions | undefined,
     slotFor: (prop: Prop) => z.ZodTypeAny,
   ): z.ZodTypeAny {
-    const props = this.local.props;
-    if (!props || !(schema instanceof z.ZodObject)) return schema;
+    if (!(schema instanceof z.ZodObject)) return schema;
     const mode = opts?.includeDocs ?? 'none';
     const extra: Record<string, z.ZodTypeAny> = {};
-    for (const [name, raw] of Object.entries(props)) {
-      const p = raw instanceof Prop ? raw : Prop.from(raw);
-      if (!p.type) continue;
+    for (const [name, p] of this.storedLocalProps()) {
       let slot = slotFor(p);
       if (mode === 'all' && p.docs) slot = slot.describe(p.docs);
       extra[name] = p.type.isOptional() ? slot.optional() : slot;

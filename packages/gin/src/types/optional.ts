@@ -2,11 +2,13 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, type NewSlotVisitor, type Prop, type Rnd, Type, ENVELOPE_ENCODE } from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
+import type { EncodeOptions, JSONOf, JSONValue, RuntimeOf } from '../json-type';
 
 
 /**
@@ -56,8 +58,28 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
   }
 
   encode(raw: RuntimeOf<T | undefined>, scope?: TypeScope): JSONOf<T | undefined> {
-    if (raw === undefined) return null as JSONOf<T | undefined>;
-    return this.inner.encode(raw as RuntimeOf<T>, scope) as JSONOf<T | undefined>;
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T | undefined>;
+  }
+
+  /** Absence is `null` in JSON under every option; otherwise the inner
+   *  type's own walk, so a `optional<list<T>>` still decomposes. */
+  encodeAs(raw: RuntimeOf<T | undefined>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    if (raw === undefined) return null;
+    return this.inner.encodeAs(raw as RuntimeOf<T>, opts, scope);
+  }
+
+  /** A `new optional<T>` payload IS a `new T` payload (or nothing), so the
+   *  slot walk is the inner type's. Without this an `optional<list<text>>`
+   *  slot stopped decomposing and every element inside it reached
+   *  `Type.parse` as data. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    if (value === undefined || value === null) return false;
+    return this.inner.forEachNewSlot(value, visit);
+  }
+
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    if (value === undefined || value === null) return value;
+    return this.inner.newFill(value, engine, scope);
   }
 
   create(): RuntimeOf<T | undefined> {

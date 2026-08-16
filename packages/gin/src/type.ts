@@ -10,11 +10,14 @@ import { Problems } from './problem';
 import { walkValidate } from './analysis';
 import { ReturnSignal } from './flow-control';
 import type { Scope } from './scope';
-import type { JSONOf, RuntimeOf } from './json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from './node';
 import { Effects } from './effects';
-import { CALL_DEF_HINTS, CALL_DEF_KEYS, GET_SET_DEF_KEYS, INIT_DEF_KEYS, PROP_DEF_KEYS, checkDefKeys } from './wire';
+import {
+  CALL_DEF_HINTS, CALL_DEF_KEYS, GET_SET_DEF_KEYS, INIT_DEF_KEYS,
+  PROP_DEF_HINTS, PROP_DEF_KEYS, checkDefKeys,
+} from './wire';
 
 // ============================================================================
 // RUNTIME SPEC SHAPES
@@ -39,6 +42,118 @@ export interface PropSpec {
   set?: Expr;
   default?: Expr;
   docs?: string;
+}
+
+/**
+ * What {@link Type.forEachNewSlot} hands back for a `new <T>{value}` payload.
+ * See the block comment above that method for why every consumer of a `new`
+ * payload's shape goes through this one visitor.
+ */
+export interface NewSlotVisitor {
+  /**
+   * A slot the payload actually carries, with the type DECLARED for it —
+   * `at` is the field name / element index / entry key the slot sits at, and
+   * is what a `Problems` path is built from.
+   */
+  slot(type: Type, value: unknown, at: string | number): void;
+  /**
+   * A declared field the payload OMITS whose `default` Expr the runtime will
+   * evaluate to fill it. Only `obj`-shaped payloads have these; a consumer
+   * that does not care about construction-time defaults leaves it out.
+   */
+  missing?(dflt: Expr, at: string | number): void;
+}
+
+/**
+ * THE reconciliation rule: does a slot DECLARED `declared` accept a value
+ * that carries `actual` as its own type?
+ *
+ * Every composite slot has two type opinions in the room — the one the
+ * container declares and the one the `Value` carries — and gin used to keep
+ * exactly one of them, varying by seam. `list<text>.parse([{type:{name:'num'},
+ * value:5}])` kept the ENVELOPE's type and produced a `num` sitting inside a
+ * `list<text>`, which `valid()` then blessed (`ListType.valid` asked each cell
+ * whether it was valid BY ITS OWN LIGHTS) and `validateValue()` reported
+ * nothing about. The only surface that caught it was a generated Zod schema.
+ *
+ * Reconciled here, in one function, so `Registry.parseValue`, every
+ * composite's `valid` and `Extension`'s stored slots cannot answer it
+ * differently. `compatible` reads "this accepts every value of other", so a
+ * genuine SUBTYPE still lands — a `Dog` in a `list<Animal>` is exactly what
+ * the per-slot type is for, and demoting it would trade one loss for another.
+ *
+ * The identity fast path is not just an optimisation: the overwhelmingly
+ * common case is a cell `parse` built with the declared type itself, and a
+ * structural `compatible` over a million-row list is not free.
+ */
+export function slotAccepts(declared: Type, actual: Type, scope?: TypeScope): boolean {
+  if (declared === actual) return true;
+  if (declared.compatible(actual, undefined, scope)) return true;
+  // `compatible` does not descend an Extension on the RIGHT: every class
+  // tests `other instanceof <ThisClass>` first, and an `Extension` over `num`
+  // is not a `NumType` — so `num.compatible(positive)` is FALSE even though
+  // `Extension`'s own stated invariant is "every Extension value is also a
+  // valid base value (covariant)". Nothing here can accept a `positive` into
+  // a `map<num, text>` key slot without walking the chain, and refusing it
+  // would break the subtype preservation this whole mechanism exists to
+  // protect. (Same family as the open ask that `A.compatible(or<A, A>)` is
+  // false: `compatible` matches on the left's class and never opens the
+  // right. The general fix belongs in `compatible` itself and is not made
+  // here — it would move a relation the whole library is written against.)
+  for (let t = extensionBase(actual); t; t = extensionBase(t)) {
+    if (declared.compatible(t, undefined, scope)) return true;
+  }
+  return false;
+}
+
+/** The type an `Extension` sits on, or undefined for anything else. Read
+ *  structurally rather than with `instanceof Extension`, which `type.ts`
+ *  cannot import without a cycle — the same reading `NewExpr` uses. */
+function extensionBase(t: Type): Type | undefined {
+  const base = (t as unknown as { base?: Type }).base;
+  return base instanceof Type && base !== t ? base : undefined;
+}
+
+/**
+ * Serialize ONE slot of a composite. The single place the envelope-vs-logical
+ * and definition-vs-name choices are made, so every container — list
+ * elements, obj fields, map keys and values, tuple positions, an Extension's
+ * stored props — writes a slot identically.
+ */
+export function encodeSlot(v: Value, opts: EncodeOptions, scope?: TypeScope): unknown {
+  const inner = v.type.encodeAs(v.raw, opts, scope);
+  return opts.form === 'logical' ? inner : { type: v.type.toJSONRef(opts), value: inner };
+}
+
+/** The options `encode()` / `toJSON()` have always implied. Named so the
+ *  equivalence between the two paths is stated rather than assumed. */
+export const ENVELOPE_ENCODE: EncodeOptions = { form: 'envelope', typeRefs: 'definition' };
+
+/** A payload shaped like a record — the only shape an Extension can store an
+ *  added field on. `text`, `num`, `list` and friends have nowhere to put one. */
+export function isRecordPayload(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * The Expr threaded directly into a value slot, or `undefined` when the slot
+ * holds plain data.
+ *
+ * An `ExprDef` is `{kind, …}` where `kind` names a registered Expr class — the
+ * same probe `newEffects` / `newComplexity` have always used, hoisted so the
+ * evaluator, the validator and the two analyses cannot disagree about what
+ * counts as an expression. An unparseable node is treated as data: the slot's
+ * own `parse` gives a better message about it than a parse failure here would.
+ */
+export function embeddedExpr(value: unknown, scope: TypeScope): Expr | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const kind = (value as { kind?: unknown }).kind;
+  if (typeof kind !== 'string' || !scope.registry.exprClass(kind)) return undefined;
+  try {
+    return scope.registry.parseExpr(value as ExprDef, scope);
+  } catch {
+    return undefined;
+  }
 }
 
 export class Prop {
@@ -74,7 +189,7 @@ export class Prop {
    */
   static from(x: Prop | PropSpec | PropDef, scope?: TypeScope, name?: string): Prop {
     if (!(x instanceof Prop)) {
-      checkDefKeys(name ? `prop '${name}'` : 'prop', x, PROP_DEF_KEYS);
+      checkDefKeys(name ? `prop '${name}'` : 'prop', x, PROP_DEF_KEYS, PROP_DEF_HINTS, scope?.registry);
     }
     const rawType = (x as { type: unknown }).type;
     const type = rawType instanceof Type
@@ -133,15 +248,22 @@ export class Prop {
   // ─── runtime ops (called by Path.walk) ─────────────────────────────────
 
   /** Read this prop on `self`: evaluate get Expr with {this, super?}, or
-   *  delegate to the parent type's `propGet` fallback. */
-  async read(self: Value, name: string, scope: Scope, engine: Engine): Promise<Value> {
+   *  delegate to the parent type's `propGet` fallback.
+   *
+   *  `propType` is this prop's declared type as the RECEIVER sees it — on a
+   *  specialized generic that is the BOUND type, not the `AliasType` the
+   *  declaration carries (see `propTypeVia` in `path.ts`). It shows only in
+   *  the fallback, where a slot the raw does not hold is wrapped in the
+   *  declared type; wrapping it in an unresolved placeholder is what made the
+   *  next step report `no prop 'USD' on type 'alias'`. */
+  async read(self: Value, name: string, scope: Scope, engine: Engine, propType: Type = this.type): Promise<Value> {
     if (this.get) {
       const bindings: Record<string, Value> = { this: self };
       const sup = self.type.propSuperFor(self, name, 'get', scope, engine);
       if (sup) bindings.super = sup;
       return this.get.evaluate(engine, scope.child(bindings));
     }
-    return self.type.propGet(self, name, this.type);
+    return self.type.propGet(self, name, propType);
   }
 
   /**
@@ -682,6 +804,49 @@ export abstract class Type<T = any, O = any> implements Node {
    */
   abstract encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T>;
 
+  /**
+   * `encode`, parameterized — the ONE recursive serializer, with the two
+   * choices `encode` hard-codes made explicit. See {@link EncodeOptions} for
+   * what the choices are and what each costs.
+   *
+   * Every composite / wrapper overrides this and `encode` delegates here, so
+   * there is exactly one walk: a type cannot serialize one way for the
+   * default form and another way for a logical or name-referenced one.
+   *
+   * A leaf type has no slots and no nested envelopes, so `encode` IS its
+   * `encodeAs` under every option — hence the base implementation.
+   */
+  encodeAs(raw: RuntimeOf<T>, _opts: EncodeOptions, scope?: TypeScope): unknown {
+    return this.encode(raw, scope);
+  }
+
+  /**
+   * How this type is written into a value envelope: its full definition, or
+   * a bare `{name}` reference when the registry resolves that name back to
+   * THIS instance.
+   *
+   * Identity, not name equality — a type that merely shares a name with a
+   * registered one would come back as the registered one, which is a
+   * different type wearing the same label.
+   */
+  toJSONRef(opts?: EncodeOptions): TypeDef {
+    if (opts?.typeRefs !== 'name') return this.toJSON();
+    if (this.registry.lookup(this.name) === this) return { name: this.name };
+    // Anonymous, so its own definition has to be written — but its type
+    // ARGUMENTS are references in their own right. A `list<project>` written
+    // as `{name:'list', generic:{V:{name:'project'}}}` costs 40-odd bytes
+    // where the inlined form costs the whole of `project`, and
+    // `Registry.parseValue` reads both identically. One implementation
+    // covers `list<V>`, `map<K,V>`, `optional<T>` and a specialized
+    // Extension, because `generic` is where every class keeps its arguments.
+    const def = this.toJSON();
+    const names = Object.keys(this.generic);
+    if (names.length === 0) return def;
+    const generic: Record<string, TypeDef> = { ...(def.generic ?? {}) };
+    for (const name of names) generic[name] = this.generic[name]!.toJSONRef(opts);
+    return { ...def, generic };
+  }
+
   /** Default / zero raw value — used by { kind: 'new' } with no args. */
   abstract create(): RuntimeOf<T>;
 
@@ -978,8 +1143,12 @@ export abstract class Type<T = any, O = any> implements Node {
    * validate time (once per write), not per-eval, so this is fine.
    */
   newEffects(value: unknown): Effects {
-    const init = this.initEffects();
-    return init | this.exprValueEffects(value);
+    let acc = this.initEffects();
+    const decomposed = this.forEachNewSlot(value, {
+      slot: (type, slot) => { acc |= type.newEffects(slot); },
+      missing: (dflt) => { acc |= dflt.effects(); },
+    });
+    return decomposed ? acc : acc | this.exprValueEffects(value);
   }
 
   /**
@@ -1025,7 +1194,12 @@ export abstract class Type<T = any, O = any> implements Node {
    * `initEffects` pattern.
    */
   newComplexity(value: unknown): number {
-    return 1 + this.initComplexity() + this.exprValueComplexity(value);
+    let acc = 1 + this.initComplexity();
+    const decomposed = this.forEachNewSlot(value, {
+      slot: (type, slot) => { acc += type.elementComplexity(slot); },
+      missing: (dflt) => { acc += dflt.complexity(); },
+    });
+    return decomposed ? acc : acc + this.exprValueComplexity(value);
   }
 
   /**
@@ -1075,6 +1249,111 @@ export abstract class Type<T = any, O = any> implements Node {
   public elementComplexity(value: unknown): number {
     const exprCost = this.exprValueComplexity(value);
     return exprCost > 0 ? exprCost : 1;
+  }
+
+  // ─── THE `new` PAYLOAD WALK ───────────────────────────────────────────
+  //
+  // A `new <T>{value}` payload is shaped by T and only by T: an obj takes a
+  // field map, a list an element array, a map an entry array, a tuple a
+  // positional array, and everything else takes its own logical form. FOUR
+  // consumers need that shape — `newEffects`, `newComplexity`, the static
+  // `validateNewValue` and the runtime `newFill` — and until 0.4.1 each
+  // walked it separately. They disagreed, and the disagreement was the
+  // defect: the two analyses descended composite element slots while the
+  // EVALUATOR stopped at an obj's own fields, one level. So
+  //
+  //   new list<HttpHeader> [ new HttpHeader{value: <template …>} ]
+  //
+  // passed `validate`, reported STATE/EXTERNAL effects from the element it
+  // was about to ignore, and then threw `text.parse: expected string, got
+  // object` at run time — every static gate green, the run broken. Both
+  // traversals now start at {@link forEachNewSlot}, so a type that
+  // decomposes its payload for one consumer cannot fail to decompose it for
+  // another.
+  //
+  // Two entry points rather than one, and the split is forced, not stylistic:
+  // `forEachNewSlot` is a SYNC READ (its consumers — `Effects`, a number, a
+  // `Problems` bag — are all synchronous), while `newFill` must AWAIT each
+  // embedded Expr and PRODUCE a replacement payload. They share the shape by
+  // construction: every override of one sits beside the override of the
+  // other in the same class.
+
+  /**
+   * Visit each SLOT of a `new <ThisType>{value}` payload with the type
+   * declared FOR that slot. Composite Types (`list`, `map`, `obj`, `tuple`,
+   * and the wrappers that delegate to an inner type) override; every other
+   * Type leaves the payload opaque.
+   *
+   * @returns `true` when this Type decomposed the payload — the caller has
+   *   been handed every slot. `false` when it did not, which means `value`
+   *   is a single opaque payload (a scalar literal, or an Expr threaded
+   *   into the value slot whole) and the caller should judge it as one.
+   *   The distinction is load-bearing: a consumer that guessed would count
+   *   an empty composite as an opaque literal.
+   */
+  forEachNewSlot(_value: unknown, _visit: NewSlotVisitor): boolean {
+    return false;
+  }
+
+  /**
+   * Static half of {@link newFill}: walk the payload's slots and validate
+   * every embedded Expr against the type declared for the slot it sits in.
+   *
+   * `NewExpr.validateWalk` used to return after one "missing value" warning
+   * without looking at `this.value` at all, so an unknown variable inside a
+   * `new` payload, and an Expr whose result the slot's type cannot accept,
+   * were both silent until the run threw. `validate` must refuse what `run`
+   * would throw — that is the whole contract an authoring agent iterates
+   * against.
+   *
+   * Only EXPR slots are judged here. A literal slot is data, and
+   * `Type.parse` is the authority on data; re-deciding that statically would
+   * be a second, drifting copy of every type's own parse rules.
+   */
+  validateNewValue(
+    value: unknown,
+    engine: Engine,
+    locals: Map<string, Type>,
+    p: Problems,
+    ctx: import('./expr').ValidateContext,
+  ): void {
+    const decomposed = this.forEachNewSlot(value, {
+      slot: (type, slot, at) => {
+        p.at([at], () => type.validateNewValue(slot, engine, locals, p, ctx));
+      },
+    });
+    if (decomposed) return;
+    const embedded = embeddedExpr(value, this.scope);
+    if (!embedded) return;
+    const actual = embedded.validateWalk(engine, locals, p, ctx);
+    // The SAME rule the runtime reconciles slots with, so `validate` and
+    // `run` cannot disagree about which values a slot admits — including
+    // that a genuine subtype is admitted. An unresolved alias / `any`
+    // accepts everything and stays quiet, which is right: nothing is known
+    // there to contradict.
+    if (!slotAccepts(this, actual)) {
+      p.error('new.slot.type',
+        `this slot is declared \`${this.toCode()}\` but the expression here produces \`${actual.toCode()}\``);
+    }
+  }
+
+  /**
+   * Runtime half: return the `new <ThisType>{value}` payload with every
+   * embedded Expr replaced by the `Value` it evaluates to, recursively,
+   * driven by this Type's own shape.
+   *
+   * Evaluation is SEQUENTIAL in authored order — a slot's Expr may carry
+   * STATE effects (`{kind:'set'}`) and two slots may write the same
+   * variable, so `Promise.all` would make the payload's meaning depend on
+   * scheduling.
+   *
+   * Slots come back as `Value`s, which `Registry.parseValue` accepts
+   * directly — and, since 0.4.1, checks against the slot's declared type
+   * rather than letting the produced value's own type win.
+   */
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    const embedded = embeddedExpr(value, this.scope);
+    return embedded ? embedded.evaluate(engine, scope) : value;
   }
 
   /**

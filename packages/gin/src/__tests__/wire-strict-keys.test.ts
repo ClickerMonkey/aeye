@@ -325,6 +325,55 @@ describe('the refusal reaches the NESTED def shapes', () => {
     expect(msg).toContain('valid keys: docs, type, get, default, set');
   });
 
+  test('a closed set declared as a key ON A PROP is respelled as the prop\'s TYPE', () => {
+    // The same mistake as `{name:'text', options:{values:[…]}}`, one level
+    // down: the set is the prop's TYPE, not a sibling of it. Measured twice
+    // in a live product database, both times on a status column. Before
+    // 0.4.1 the message only listed the valid keys, which names what is
+    // wrong and not what to write instead.
+    const msg = refusal(() => r.parse({
+      name: 'obj', props: { status: { type: { name: 'text' }, values: ['todo', 'done'] } },
+    } as unknown as TypeDef));
+    expect(msg).toContain("prop 'status' has unknown key 'values'");
+    expect(msg).toContain("a closed set of constants is the prop's TYPE in gin, not a key beside it");
+    // The example is gin's OWN serialization, built through the registry, so
+    // it cannot drift from the enum wire format it is describing.
+    expect(msg).toContain(JSON.stringify({
+      type: r.enum({ todo: 'todo', done: 'done' }, r.text()).toJSON(),
+    }));
+  });
+
+  test("a NUMERIC closed set keeps the author's LABELS in the respelling", () => {
+    // gin built the suggestion from the members' VALUES, so a
+    // `{label → value}` record over numbers came back as `{"1":1,"9":9}` —
+    // the author wrote `Low` and `High`, the correction silently deleted
+    // them, and a model that pasted the suggestion back lost them from the
+    // column's value set. Text sets were byte-perfect (label and value
+    // coincide there), which is why this survived.
+    const msg = refusal(() => r.parse({
+      name: 'num', options: { values: { Low: 1, High: 9 } },
+    } as unknown as TypeDef));
+    expect(msg).toContain('"values":{"Low":1,"High":9}');
+    expect(msg).not.toContain('"1":1');
+  });
+
+  test('...and a bare ARRAY still synthesizes labels from the values', () => {
+    const msg = refusal(() => r.parse({
+      name: 'text', options: { values: ['todo', 'done'] },
+    } as unknown as TypeDef));
+    expect(msg).toContain('"values":{"todo":"todo","done":"done"}');
+  });
+
+  test('a TypeDef payload is NOT respelled as an enum — only primitives are', () => {
+    // `or` / `tuple` / `not` option payloads hold TypeDefs; the enum
+    // correction must leave them alone.
+    const msg = refusal(() => r.parse({
+      name: 'list', options: { item: { name: 'text' } },
+    } as unknown as TypeDef));
+    expect(msg).not.toContain('closed set of constants');
+    expect(msg).toContain('takes its type argument');
+  });
+
   test("a misspelt `returns` used to produce a fn with NO return type", () => {
     const msg = refusal(() => r.parse({
       name: 'fn', call: { args: { name: 'obj', props: {} }, retruns: { name: 'num' } },

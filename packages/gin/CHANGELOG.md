@@ -3,6 +3,255 @@
 Releases before `0.4.0` are recorded in the git log (`chore(release): @aeye/gin <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.4.1
+
+**Five asks from the consuming product, and they turned out to be ONE defect wearing five
+faces.** A `Value` is a `(Type, raw)` pair where every nested slot is itself a `Value` carrying
+its own concrete type. So wherever a value meets a **declaring context** — a container's element
+type, an Extension's local props, a specialized generic's binding, a `new` payload slot — there
+are TWO type opinions present. gin kept exactly one of them and silently discarded the other,
+and **which one it kept varied by seam**:
+
+| Seam | Kept | Discarded | Symptom |
+|---|---|---|---|
+| `Extension.parse` | the Type | the raw | `W.parse({id:'i'}).raw` was `{}` while `toValueSchema()` REQUIRED `id` |
+| the path walk over a specialization | the declared Type | the raw's per-slot Types | `res.data.USD` ⇒ `no prop 'USD' on type 'alias'` |
+| a composite slot | the raw's own Type | the declared element type | a `num` inside a `list<text>`, and `valid()` said true |
+
+The middle and bottom rows are **opposite errors at the same seam class** — one trusts the
+declaration and refuses to look at the value, the other trusts the value and refuses to look at
+the declaration. That is not two bugs that rhyme; it is one missing step, absent in both
+directions. Every claim below was reproduced against `0.4.0` before anything was written, and
+each reproduction is now a test.
+
+Two corrections to the asks as filed are recorded at the end — **do not re-file them.**
+
+### The `new` payload: one shared traversal, used by all four consumers (**P0**)
+
+`NewExpr.evaluate` filled embedded Exprs at an obj's OWN fields, one level, and nowhere else.
+`Type.newEffects` / `newComplexity` already descended composite element slots — so gin's static
+analysis and its evaluator disagreed about what a `new` payload contains. Everything reaching a
+list element, a map key or value, a tuple position or a **nested obj** was handed to `Type.parse`
+as data:
+
+```
+new obj{a:text} <- {a: <get>}                    validate []   run OK      ← the only row that worked
+new obj{a: obj{b:text}} <- {a: {b: <get>}}       validate []   run THREW
+new list<text> <- [ <get> ]                      validate []   run THREW
+new map<text,text> <- [ {key:<get>, value:<get>} ] validate [] run THREW
+new tuple<text,text> <- [ <get>, "lit" ]         validate []   run THREW
+new optional<list<text>> <- [ <get> ]            validate []   run THREW
+```
+
+Every static gate green, the run broken — which is the worst shape a defect can take for an
+agent iterating against `validate`.
+
+**And a PERMISSIVE element type made it worse, not better.** `list<any>` — or anything extending
+`any` — ACCEPTED the raw `{"kind":"get",…}` node as the value. A program reading a credential
+into such a param shipped the expression itself instead of what it evaluates to: a wrong value
+on the wire rather than a failure. The type chosen for convenience turned a loud error into a
+silent one.
+
+Fixed by making the payload walk **one type-driven recursive traversal** —
+`Type.forEachNewSlot(value, visitor)` (sync read) and `Type.newFill(value, engine, scope)` (async
+map) — which `newEffects`, `newComplexity`, `validate` and `evaluate` all run on. A type that
+decomposes its payload for one consumer can no longer fail to decompose it for another. Slots
+evaluate **sequentially in authored order**, because a slot's Expr may carry `STATE` effects.
+
+### `validate` now walks a `new` payload at all (**P0**)
+
+Not "walked it and mis-scoped it" — `NewExpr.validateWalk` returned after one "missing value"
+warning without touching `this.value`. So `validate(new obj{a: <get missing>})` reported
+`hasErrors: false`, and the belief that an unbound name dies to gin's unknown-variable check was
+simply false inside a `new`. Every read an authoring agent writes lives inside some `new`.
+
+Now reported: an unresolvable variable anywhere in the payload (with the problem path pointing at
+the slot), and a new `new.slot.type` error where a slot's Expr produces a type the slot cannot
+accept —
+
+```
+new.slot.type — this slot is declared `text` but the expression here produces `num`
+```
+
+A genuine subtype is accepted; a permissive slot stays quiet, because nothing is known there to
+contradict.
+
+### A slot enforces its DECLARED type (**P0**, and it was silent)
+
+`{kind:'new', type, value}` and a `JSONValue` envelope `{type, value}` are the same JSON shape,
+so an expression written into a value slot was read as a literal of whatever type it named and
+`kind` was ignored. Nothing downstream caught the result:
+
+```ts
+listText.valid(raw)                       // true   ← ListType.valid asked each cell whether it
+                                          //          was valid BY ITS OWN LIGHTS
+engine.validateValue(value)               // []
+listText.toValueSchema().safeParse([5])   // FAILS  ← the only surface that saw it — and a
+                                          //          generated schema is a PROMPT schema,
+                                          //          not a validator
+```
+
+`Registry.parseValue`'s `expectedType` is now **enforced** rather than used as a fallback, and
+every composite's `valid` asks the same question, through one rule: `slotAccepts(declared,
+carried)`. A genuine **subtype still lands** — a `Dog` in a `list<Animal>` is what per-slot types
+are FOR. An expression reaching a bare `parse` is now diagnosed instead of reinterpreted:
+
+```
+registry.parseValue: this node is an EXPRESSION (kind:'new'), not a value envelope — an Expr
+only evaluates inside a program (`Engine.run`/`Engine.evaluate`); a bare `parse` takes data.
+```
+
+**Found on the way in, and fixed narrowly.** `compatible` matches on the LEFT's class and never
+opens the right, so `num.compatible(<Extension over num>)` is `false` — contradicting
+`Extension`'s own stated invariant that every Extension value is a valid base value. gin's own
+`composite-values.test.ts` covers exactly that case (a `positive` in a `map<num, text>` key
+slot), so it surfaced immediately. `slotAccepts` walks the Extension chain; the general fix
+belongs in `compatible` itself and is NOT made here — it would move a relation the whole library
+is written against, and it is the same family as the open `A.compatible(or<A, A>)` ask.
+
+### An Extension's local props are DATA or SURFACE, and gin now knows which
+
+Nothing drew the line, so every local prop was surface to `parse`/`valid`/`encode` and shape to
+`toValueSchema` — three surfaces of one type disagreeing:
+
+```ts
+W.toValueSchema().safeParse({})   // FAILS: path ['id'] expected string, received undefined
+W.parse({id:'i', opt:'o'}).raw    // {}                  ← every field discarded
+W.valid({})                       // true                ← and the loss was blessed
+Object.keys(W.props())            // [... 'id', 'opt']   ← still advertised
+```
+
+A local prop is **surface** when something else computes it — a `get` expression, or a callable
+type (a method carries its body in `get`). Everything else is **stored data** the value carries:
+filled by `parse`, required by `valid`, emitted by `encode`, populated by `create`/`random`, and
+demanded by `toValueSchema`. One predicate, consulted by all six, so they cannot drift apart
+again. The converse case is fixed by the same line: a type whose methods rode local props had a
+value schema demanding every method on every value, which no caller can supply — the reason a
+`Resource` handle had to use `augment` instead.
+
+Only over a record-shaped base; an `Extension` over `text` has nowhere to put a field and does
+not try. The composition the product settled on by measurement — data on the base, methods in
+local props — is unchanged.
+
+### A path read resolves a specialization, and falls back to the value's own types
+
+Everything about `specialize` worked except the one thing it exists for. `props()['data'].type`
+is still `AliasType('T')` on a bound instance; the binding rides a `LocalScope` that
+`valid`/`parse`/`encode` all route through, and the path walk had nowhere to receive it:
+
+```ts
+bound.toCode()                                  // 'HttpResponse<obj{USD: num, EUR: num}>'  ok
+e.typeOf({get: res.data}, {res: bound})         // 'T'   ← unresolved AliasType             BROKEN
+e.validate({get: res.data.USD}, {res: bound})   // ["no prop 'USD' on type 'alias'"]
+```
+
+`Path.walk` / `typeOf` / `validateWalk` now resolve a prop declared as a type PARAMETER through
+the receiver's own bindings. Only an alias is resolved — `simplify` on anything else is a
+canonicalizer, and running every prop read through it would change what the walk reports about
+types that were never in question. An unspecialized generic still reads as its placeholder: the
+walk reads bindings, it does not guess.
+
+**And at run time the walk has a second source.** A composite's raw holds a `Value` per slot,
+each with its own concrete type, and the walk consulted only `dv.type` — answering a question
+about a value without looking at it. When the declared type has no such prop, the walk now
+consults the value's own slot before reporting `no prop`. The declaration always gets first
+refusal.
+
+### Four value wire forms, at three very different costs
+
+There used to be exactly two ways to hold a typed value — the live `Value`, or the full
+envelope — and **no third, envelope-free, type-preserving form**. `Value.encode()` drops only the
+OUTER layer, so a `list<num>` still encoded as `[{type,value}]`, and nothing could be added from
+outside because the composite/leaf split lives on `Type.encode`. Consumers that had to hand a
+bare value across a boundary reimplemented gin's own walk.
+
+And the envelope's cost was never the cost of carrying a type: a registered named type's
+`toJSON()` inlines its **whole definition at every element**. gin already draws the
+reference-vs-definition distinction on the TYPE side (`register` inlines, `scope` references) —
+it just never applied it to the value envelope.
+
+| Call | Nested envelopes | Types | Cost¹ | Recovers a per-element subtype |
+|---|---|---|---|---|
+| `value.encodeLogical()` | none | none | **1.00x** | no — re-parse against the declared type |
+| `value.toJSONLogical()` | none | one, at the top, by name | **1.00x** | no — demoted to the declared type |
+| `value.toJSONRefs()` | every slot | by name | 4.1x | **yes** |
+| `value.toJSON()` *(default, unchanged)* | every slot | full definition | 6.9x | yes |
+
+¹ `list<project>`, 1000 rows, four scalar fields each, against the logical JSON. Pinned in
+`value-wire-forms.test.ts` so the numbers cannot rot. Carrying the type now costs a flat ~70
+bytes rather than a multiple of the payload.
+
+All four read back through `registry.parseValue`. `typeRefs:'name'` needs the consumer to share
+the registry (an unregistered name parses to an unbound alias, which is universal), which is why
+it is opt-in and why `toJSON()`'s default is untouched. Internally there is now ONE recursive
+serializer — `Type.encodeAs(raw, opts, scope?)` — and every composite's `encode` delegates to it,
+so a type cannot serialize one way for the default form and another way for a logical one.
+
+### A closed set declared on a PROP is respelled, and a numeric one keeps its labels
+
+`{type:{name:'text'}, values:['todo','done']}` on a prop is the same mistake as
+`{name:'text', options:{values:[…]}}`, one level down — measured twice in a live product
+database, both times on a status column. The message named the valid keys and stopped; it now
+names the construct, with the author's own members respelled through gin's own `toJSON`:
+
+```
+gin.parse: prop 'status' has unknown key 'values' — a closed set of constants is the prop's
+TYPE in gin, not a key beside it: {"type":{"name":"enum","generic":{"V":{"name":"text"}},…}}
+```
+
+And the respelling **keeps the author's LABELS for a numeric set**. gin built the suggestion from
+the members' VALUES, so `{Low: 1, High: 9}` came back as `{"1":1,"9":9}` — the author wrote
+names, the correction silently deleted them, and a model that pasted it back lost them from the
+column's value set. Text sets were byte-perfect (label and value coincide there), which is why it
+survived. Only the bare-ARRAY spelling still synthesizes labels.
+
+### Two asks CORRECTED — already closed, do not re-file
+
+Both were filed from product-side observation and re-measured here against this source:
+
+- **"the parser silently ignores unknown keys; a mis-keyed generic becomes `list<any>` and passes
+  every claim check"** — closed. `{name:'list', generic:{item:…}}` and
+  `{name:'list', options:{item:…}}` are both refused with an actionable message, and `0.4.0`
+  extended the refusal to the nested def shapes and path steps.
+- **"three printer defects: a dead `indent` option, depth-unaware `joinAuto`, `obj` never
+  wrapping"** — closed. `CodeOptions.indent` is resolved in one place (`indentOf`) and honoured
+  by `toCode`, `toCodeDefinition` and every nested wrap; `joinAuto` indents already-multi-line
+  items so nesting composes; `obj` wraps on width, item length or an already-wrapped child.
+
+### Exports added
+
+`Value.encodeLogical`, `Value.toJSONLogical`, `Value.toJSONRefs`, `Value.toJSON(opts?)`;
+`Type.encodeAs`, `Type.toJSONRef`, `Type.forEachNewSlot`, `Type.newFill`, `Type.validateNewValue`;
+`NewSlotVisitor`, `EncodeOptions`, `slotAccepts`, `encodeSlot`, `embeddedExpr`,
+`isRecordPayload`, `ENVELOPE_ENCODE`; `PROP_DEF_HINTS`, `CALL_DEF_HINTS`, `DefKeyHint`. The
+`json-type` module is re-exported at last — `JSONValue`, `JSONOf`, `RuntimeOf` — so a consumer
+can name the type `Value.toJSON()` returns instead of re-deriving it.
+
+### Compatibility
+
+No wire format changed and no default output moved: `toJSON()` / `encode()` are byte-identical
+(pinned per composite in `value-wire-forms.test.ts`). What changed is that some things gin used
+to ACCEPT are now refused — a value whose carried type the declared slot does not accept, and an
+`ExprDef` handed to a bare `parse`. In every case measured, what breaks is a value that was
+already wrong and silently meant something else. `Extension.valid` now requires an Extension's
+stored local props, which is the point of the fix; a type composing data on the base and methods
+in local props is unaffected.
+
+### Tests
+
+98 files / 1153 tests, up from 93 / 1043. New: `new-payload-walk.test.ts` (the seven payload
+shapes, the permissive-slot swallow, the validate blind spot, sequential ordering),
+`slot-type-reconciliation.test.ts` (the reconciliation, subtype preservation, the Expr-vs-envelope
+diagnosis), `extension-stored-props.test.ts` (data vs surface across all six surfaces),
+`generic-envelope-path.test.ts` (specialization through the walk, and the runtime fallback),
+`value-wire-forms.test.ts` (the four forms, the measured costs, and a per-composite pin that the
+default output is unchanged). `wire-strict-keys.test.ts` grew the prop-`values` respelling and the
+numeric-label case.
+
+`gaps-parallel.test.ts`'s empirical-concurrency tests are wall-clock sensitive and flake under
+load on some machines; they fail identically on the unmodified `0.4.0` tree (measured, 3/3 runs)
+and are unrelated to anything here.
+
 ## 0.4.0
 
 Four items raised by the consuming product against `0.3.13`, each re-measured against this

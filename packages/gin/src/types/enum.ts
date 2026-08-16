@@ -6,7 +6,7 @@ import { type CompatOptions, indentOf, joinAuto, type Prop, type Rnd, Type } fro
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, RuntimeOf } from '../json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
 export interface EnumOptions<V = unknown> {
@@ -72,6 +72,12 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
 
   encode(raw: RuntimeOf<V>, scope?: TypeScope): JSONOf<V> {
     return this.value.encode(raw, scope);
+  }
+
+  /** The member's own type does the walk — an enum constrains WHICH value,
+   *  never how it serializes. */
+  encodeAs(raw: RuntimeOf<V>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    return this.value.encodeAs(raw, opts, scope);
   }
 
   create(): RuntimeOf<V> {

@@ -2,9 +2,14 @@
 export * from './schema';
 export {
   TYPE_DEF_KEYS, PROP_DEF_KEYS, GET_SET_DEF_KEYS, CALL_DEF_KEYS, INIT_DEF_KEYS,
+  CALL_DEF_HINTS, PROP_DEF_HINTS,
   checkWireKeys, checkDefKeys, checkPathStep,
-  type CoversKeys, type AssertCovered,
+  type CoversKeys, type AssertCovered, type DefKeyHint,
 } from './wire';
+// The JSON shapes of a VALUE. `Value.toJSON()` returns a `JSONValue<T>` and
+// takes an `EncodeOptions`, so a consumer that could not name either had to
+// re-derive both — the module was simply never re-exported.
+export type { JSONValue, JSONOf, RuntimeOf, EncodeOptions } from './json-type';
 export type { Node, CodeOptions, SchemaOptions } from './node';
 export { buildSchemas } from './schemas';
 

@@ -2,7 +2,10 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { PropDef, TypeDef } from '../schema';
 import { Value } from '../value';
-import { Call, type CompatOptions, GetSet, type Prop, PropSpec, type Rnd, Type } from '../type';
+import { Call, type CompatOptions, GetSet, type NewSlotVisitor, type Prop, PropSpec, type Rnd, Type } from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
+import type { EncodeOptions } from '../json-type';
 import { ObjType } from './obj';
 import { TypeError } from '../problem';
 import { z } from 'zod';
@@ -137,6 +140,24 @@ export class AndType extends Type<any, AndOptions> {
     // round-trip is lossless. Taking `parts[0]` would drop every field the other
     // object parts contribute (`and<obj{a}, obj{b}>` would encode away `b`).
     return this.effective()?.encode(raw, scope) ?? raw;
+  }
+
+  /** Same reasoning as `encode` — through the type `parse` built the value
+   *  with, so the walk sees the shape the value actually has. */
+  encodeAs(raw: any, opts: EncodeOptions, scope?: TypeScope): unknown {
+    return this.effective()?.encodeAs(raw, opts, scope) ?? raw;
+  }
+
+  /** The intersection's `new` payload is the payload of the same type
+   *  `parse` builds the value with — anything else would decompose against
+   *  a shape the construction does not use. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    return this.effective()?.forEachNewSlot(value, visit) ?? false;
+  }
+
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    const eff = this.effective();
+    return eff ? eff.newFill(value, engine, scope) : super.newFill(value, engine, scope);
   }
 
   /**

@@ -18,7 +18,7 @@ const engine = createEngine(r);
 |---|---|
 | `parse(def, scope?)` | `TypeDef` → `Type`. Refuses any key it would not read — see [strict parsing](./aeye-gin-types.md#the-typedef-wire-format-and-strict-parsing). |
 | `parseExpr(def, scope?)` | `ExprDef` → `Expr` (idempotent on `Expr`; `undefined` passes through). |
-| `parseValue(json, expectedType?, scope?)` | `{type,value}` envelope or raw → `Value`. |
+| `parseValue(json, expectedType?, scope?)` | `{type,value}` envelope, live `Value`, or raw → `Value`. `expectedType` is the type DECLARED for the slot and is **enforced** — see [slot reconciliation](#a-slot-enforces-its-declared-type). |
 | `lookup(name)` | `Type` by name (registered instance → built-in fallback). |
 | `define(cls)` | Register a built-in Type **class** for JSON dispatch. Declare `optionKeys` / `genericKeys` on it to opt into strict parsing. |
 | `register(type)` | Register a named Type **instance** (typically an Extension). Resolves to the INSTANCE, whose `toJSON()` inlines the definition — see [type scopes](#type-scopes--register-vs-the-overlay). |
@@ -89,6 +89,68 @@ another with `new LocalScope(scope, {…})`, add bindings in dependency order wi
 `.bind(name, type)`, and pass a scope to anything that resolves names —
 `registry.parse(def, scope)`, `type.valid(raw, scope)`, `type.compatible(other,
 opts, scope)`, `type.toValueSchema({ scope })`.
+
+## A slot enforces its declared type
+
+A composite holds a `Value` per slot, each carrying its own concrete type — so
+at every slot there are two type opinions: the one the container DECLARES and
+the one the value CARRIES. gin reconciles them, in one rule, wherever they meet
+(`parseValue`, every composite's `valid`, an Extension's stored props, and the
+`new.slot.type` validator).
+
+The rule (`slotAccepts`) is `declared.compatible(carried)` — "does the declared
+type accept every value of the carried one" — so a genuine **subtype still
+lands**, which is the entire point of per-slot types. An `Extension` on the right counts as its
+base: `positive extends num` is accepted into a `num` slot.
+
+```ts
+r.list(r.text()).parse([{ type: { name: 'num' }, value: 5 }]);
+// throws: registry.parseValue: this slot is declared `text` but the value carries `num`
+
+r.list(animal).parse([{ type: { name: 'Dog' }, value: { name: 'rex' } }]);
+// OK — element type is Dog, not Animal
+```
+
+No `expectedType` means no second opinion to reconcile against, and the
+envelope's own type stands.
+
+**Changed in 0.4.1.** Before, the carried type simply won: a `num` sat inside a
+`list<text>`, `valid()` returned `true` (each cell was asked whether it was
+valid BY ITS OWN LIGHTS, never against the declared element type),
+`validateValue()` reported nothing, and the only surface that noticed was a
+generated Zod schema — which is a prompt schema, not a validator.
+
+## Value wire forms — what to serialize, and what it costs
+
+Four forms, from two independent choices (`EncodeOptions`): whether nested slots
+carry a `{type, value}` envelope (`form`), and whether a registered type is
+written as its full definition or as a `{name}` reference (`typeRefs`).
+
+| Call | Nested envelopes | Types | Cost¹ | Recovers a per-element subtype |
+|---|---|---|---|---|
+| `value.encodeLogical()` | none | none | **1.0x** | no — re-parse against the declared type |
+| `value.toJSONLogical()` | none | one, at the top, by name | **~1.0x** | no — demoted to the declared type |
+| `value.toJSONRefs()` | every slot | by name | ~4x | **yes** |
+| `value.toJSON()` *(default, unchanged)* | every slot | full definition | ~7x | yes |
+
+¹ measured on `list<project>`, 1000 rows, four scalar fields each, against the
+logical JSON as the baseline. Pinned in `value-wire-forms.test.ts`.
+
+All four are read back by `registry.parseValue` — the last three directly, and
+`encodeLogical()` by re-parsing against the declared type
+(`type.parse(logical)`). `typeRefs:'name'` requires the consumer to share the
+registry: a name it has not registered parses to an unbound alias, which is
+universal. That is why it is opt-in.
+
+**New in 0.4.1.** `encodeLogical` closes a real gap: there used to be exactly
+two ways to hold a typed value — the live `Value` or the full envelope — and no
+third, envelope-free one. `encode()` drops only the OUTER layer, so a
+`list<num>` still encoded as `[{type,value}]`, and nothing could be added from
+outside because the composite/leaf split lives on `Type.encode`. And the
+envelope's ~7x was never the cost of carrying a type: a registered type's
+`toJSON()` inlines its whole DEFINITION at every element. gin already draws the
+reference-vs-definition distinction on the type side (`register` vs `scope`,
+above); `typeRefs:'name'` applies it to the value envelope.
 
 ## Scopes, globals, and `extras`
 

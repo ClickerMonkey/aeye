@@ -218,6 +218,39 @@ Generics appear in function types (`<R>(args): R`), parameterized types
 (`list<V>`, `map<K,V>`, `optional<T>`), and methods that introduce their own
 parameters (`list.map<R>(fn): list<R>`).
 
+### Specializing a named generic, and reading through one
+
+`extension.specialize({ T: <Type> })` returns the use-site form of a generic —
+`HttpResponse<obj{USD: num, EUR: num}>`. The bindings ride a `LocalScope`
+layered over the instance's own scope, which is what makes a bound instance
+BEHAVE as the bound type rather than merely print like one. **A path read
+resolves through that scope**, so a named envelope is usable for the reason it
+exists:
+
+```ts
+const bound = httpResponse.specialize({ T: rates });
+engine.typeOf({ kind: 'get', path: [{ prop: 'res' }, { prop: 'data' }] },
+              new Map([['res', bound]]));            // obj{USD: num, EUR: num}
+engine.validate({ kind: 'get', path: [{ prop: 'res' }, { prop: 'data' }, { prop: 'USD' }] },
+                new Map([['res', bound]]));          // no problems
+```
+
+An UNSPECIALIZED generic still reads as its placeholder — the walk reads the
+receiver's bindings, it does not guess.
+
+At run time the walk has a second source: a composite's raw holds a `Value` per
+slot, each with its own concrete type. **When the declared type has no such
+prop, the walk consults the value's own slot** before reporting `no prop 'x' on
+type '…'`. A value whose declared type is an unresolved placeholder but whose
+raw holds typed cells is not an error — it is a value carrying more information
+than its declaration. The declaration always gets first refusal.
+
+**Changed in 0.4.1.** Before, the path walk honoured neither. `res.data`
+inferred as `T` (an unresolved `AliasType`), `res.data.USD` as `any`, and
+`validate` refused the whole path with `no prop 'USD' on type 'alias'` — while
+the type printed its binding correctly and `valid` / `parse` / `encode` all
+honoured it.
+
 ## Default values (`create`)
 
 `type.create()` is a type's zero value — what `{ kind: 'new', type }` with no
@@ -334,6 +367,38 @@ Extensions can add props, override `get`/`call`/`init`, narrow options
 (`Email` keeps the tighter pattern), declare their own `generic`, and add a
 `constraint` Expr (a runtime predicate checked by `engine.validateValue(v)` with
 `this` bound to the value). `Email extends text` is a true subtype.
+
+### A local prop is DATA or SURFACE, and gin knows which
+
+A local prop is **surface** when something else computes it — it has a `get`
+expression, or its type is callable (a method carries its body in `get`).
+Everything else is **stored data**: a field this type ADDS to its base, which
+`parse` fills, `valid` requires, `encode` emits, `create` / `random` populate,
+and `toValueSchema` demands.
+
+```ts
+const W = r.extend(r.obj({}), { name: 'W', props: { id: { type: r.text() } } });
+W.parse({ id: 'i' }).encodeLogical();   // { id: 'i' }
+W.valid({});                            // false — `id` is required
+W.toValueSchema().safeParse({});        // fails — and now AGREES with parse
+
+const Res = r.extend(r.obj({ id: { type: r.text() } }), {
+  name: 'Res', props: { url: { type: r.fn({ args: r.obj({}), returns: r.text() }) } },
+});
+Res.toValueSchema().safeParse({ id: 'a' });   // succeeds — a method is not data
+Res.toCodeDefinition();                       // still prints `url(): text`
+```
+
+Only meaningful over a record-shaped base — an `Extension` over `text` has
+nowhere to put an added field and does not try.
+
+**Changed in 0.4.1.** Before, nothing drew the line, so every local prop was
+surface to `parse`/`valid`/`encode` and shape to `toValueSchema`, and three
+surfaces of one type disagreed: the schema told a model to emit `{id}`, `parse`
+built that emission into a value with nothing in it (`.raw` was `{}`), and
+`valid({})` called the result legal. Reading the prop through the engine
+returned `undefined`. Conversely a type whose methods rode local props had a
+value schema demanding every method on every value — which no caller can supply.
 
 ## Augmentations — gap-filling on existing types
 

@@ -1,5 +1,5 @@
-import type { Type } from './type';
-import type { JSONOf, JSONValue, RuntimeOf } from './json-type';
+import { type Type, ENVELOPE_ENCODE } from './type';
+import type { EncodeOptions, JSONOf, JSONValue, RuntimeOf } from './json-type';
 
 /**
  * Value: a typed runtime value — a (Type, raw) pair.
@@ -35,14 +35,74 @@ export class Value<T = any> {
    * Subtype info is preserved at every level, so `Registry.parseValue()`
    * can reconstruct the value with the original per-element types intact.
    * Named `toJSON` so `JSON.stringify(value)` picks it up automatically.
+   *
+   * `opts` selects a cheaper wire form — see {@link EncodeOptions}. Both
+   * axes default to what gin has always emitted, so `toJSON()` is unchanged.
    */
-  toJSON(): JSONValue<T> {
+  toJSON(opts: EncodeOptions = ENVELOPE_ENCODE): JSONValue<T> {
     return {
-      type: this.type.toJSON(),
-      value: this.encode(),
+      type: this.type.toJSONRef(opts),
+      value: this.type.encodeAs(this.raw, opts) as JSONOf<T>,
     };
   }
+
+  /**
+   * The bare LOGICAL JSON form — no `{type, value}` envelope at any depth.
+   *
+   * The third way to hold a value, and until 0.4.1 it did not exist:
+   * `toJSON()` gives the full envelope and `encode()` drops only the OUTER
+   * layer, so a `list<num>` still encoded as `[{type, value}]`. There was no
+   * way to add one from outside either, because the composite/leaf split
+   * lives on `Type.encode` — so consumers that had to hand a bare value
+   * across a boundary (an HTTP response, a jsonb column, a tool result)
+   * reimplemented gin's walk, and two such copies diverged at exactly the
+   * nodes where "logical JSON" and "logical JS" differ.
+   *
+   * Logical JSON, not logical JS: a `map` is `[{key, value}]` and a
+   * `timestamp` an ISO string, because that is what each type's own `encode`
+   * says its JSON form is. The type is NOT carried — a caller who needs it
+   * back re-parses against the declared type (`registry.parseValue(json,
+   * declared)`), which is what a declared signature is for.
+   */
+  encodeLogical(): unknown {
+    return this.type.encodeAs(this.raw, LOGICAL_ENCODE);
+  }
+
+  /**
+   * The envelope with every registry-resolvable type written as `{name}`
+   * instead of its whole definition.
+   *
+   * `Registry.parseValue` already accepts this form and reconstructs
+   * per-element subtypes from it — the producer was the only half inlining.
+   * Requires the consumer to share the registry; see {@link EncodeOptions}.
+   */
+  toJSONRefs(): JSONValue<T> {
+    return this.toJSON({ form: 'envelope', typeRefs: 'name' });
+  }
+
+  /**
+   * The declared type ONCE, over a bare logical value — the cheapest form
+   * that still carries a type, and the one to reach for when a consumer
+   * shares the registry.
+   *
+   * Measured on `list<project>`, four scalar fields per row, against the
+   * logical JSON as the baseline:
+   *
+   *   n=1000   encodeLogical 1.0x  ·  toJSONLogical ~1.0x  ·  toJSONRefs 4.1x
+   *            ·  toJSON 6.9x
+   *
+   * The trade against {@link toJSONRefs} is stated rather than hidden: with
+   * one type at the top, a per-ELEMENT subtype is demoted to the declared
+   * element type on the way back (a `flagship` in a `list<project>` returns
+   * as a `project`). Pay the per-element envelope only when that matters.
+   */
+  toJSONLogical(): JSONValue<T> {
+    return this.toJSON(LOGICAL_ENCODE);
+  }
 }
+
+/** The options {@link Value.encodeLogical} runs under. */
+const LOGICAL_ENCODE: EncodeOptions = { form: 'logical', typeRefs: 'name' };
 
 /**
  * Create a Value from a Type and runtime-shaped raw data.

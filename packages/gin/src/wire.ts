@@ -246,12 +246,14 @@ export function checkDefKeys(
   what: string,
   bag: unknown,
   valid: readonly string[],
-  hints?: Readonly<Record<string, string>>,
+  hints?: Readonly<Record<string, DefKeyHint>>,
+  registry?: TypeBuilder,
 ): void {
   if (!isPlainObject(bag)) return;
   for (const key of definedKeys(bag)) {
     if (valid.includes(key)) continue;
-    const hint = hints?.[key];
+    const rawHint = hints?.[key];
+    const hint = typeof rawHint === 'function' ? rawHint(bag[key], registry) : rawHint;
     const near = nearest(key, valid);
     throw new Error(
       `gin.parse: ${what} has unknown key '${key}'`
@@ -259,6 +261,16 @@ export function checkDefKeys(
     );
   }
 }
+
+/**
+ * A per-key correction for {@link checkDefKeys}. A FUNCTION when the
+ * correction depends on the offending value — the `enum` respelling has to
+ * name the author's own members, and a literal string could only describe
+ * the shape in the abstract.
+ */
+export type DefKeyHint =
+  | string
+  | ((value: unknown, registry?: TypeBuilder) => string | undefined);
 
 /**
  * Misplacements worth naming on a `CallDef`. A fn's type parameters are
@@ -412,21 +424,69 @@ const ENUM_EXAMPLE_MAX_MEMBERS = 12;
  */
 function enumClause(value: unknown, cls: TypeClass | undefined, registry: TypeBuilder): string | undefined {
   if (!cls || cls.NAME === 'enum' || (cls.genericKeys?.length ?? 0) > 0) return undefined;
+  return respellAsEnum(value, registry, 'an `enum` in gin, not an option');
+}
+
+/**
+ * The correction for a closed set declared as a key on a PROP —
+ * `{type:{name:'text'}, values:['todo','done']}`. Same mistake as the
+ * options-slot one, one level down: the set is the prop's TYPE, not a
+ * sibling of it. Measured twice in a live product database, both times on a
+ * status column.
+ */
+export const PROP_DEF_HINTS: Readonly<Record<string, DefKeyHint>> = {
+  values: (value, registry) => (registry
+    ? respellAsEnum(value, registry, "the prop's TYPE in gin, not a key beside it", (def) => `{"type":${def}}`)
+    : "a closed set of constants is the prop's TYPE in gin, not a key beside it: declare `type` as an `enum`"),
+};
+
+/**
+ * Respell a closed set of same-typed primitives as the `enum` it should have
+ * been. The example is built through the registry and serialized by gin's own
+ * `toJSON`, never hand-written — a literal here would be a second copy of the
+ * enum wire format, free to drift from the first.
+ *
+ * A `{label → value}` RECORD keeps the author's LABELS. Only the bare-ARRAY
+ * spelling has to synthesize them from the values, where label and value
+ * coincide anyway. Before 0.4.1 the labels were always synthesized, so a
+ * numeric set `{Low: 1, High: 9}` came back as `{"1":1,"9":9}` — the author
+ * wrote names, the correction silently deleted them, and a model that pasted
+ * the suggestion back lost `Low` and `High` from the column's value set. Text
+ * sets were unaffected, which is why it survived.
+ *
+ * @param wrap renders the finished enum def into the slot it belongs in.
+ */
+function respellAsEnum(
+  value: unknown,
+  registry: TypeBuilder,
+  belongsIn: string,
+  wrap: (def: string) => string = (def) => def,
+): string | undefined {
+  const labelled = !Array.isArray(value) && isPlainObject(value);
   const members = Array.isArray(value) ? value
-    : isPlainObject(value) ? Object.values(value)
+    : labelled ? Object.values(value)
     : undefined;
   if (!members || members.length === 0) return undefined;
   const kind = typeof members[0];
   if (!members.every((m) => typeof m === kind)) return undefined;
-  const inner = kind === 'number' ? registry.num()
-    : kind === 'boolean' ? registry.bool()
-    : kind === 'string' ? registry.text()
-    : undefined;
-  if (!inner) return undefined;
-  const head = 'a closed set of constants is an `enum` in gin, not an option';
+  // Primitives only, so an `or` / `tuple` / `not` option payload — which
+  // holds TypeDefs — is left alone.
+  if (kind !== 'number' && kind !== 'boolean' && kind !== 'string') return undefined;
+  const head = `a closed set of constants is ${belongsIn}`;
   if (members.length > ENUM_EXAMPLE_MAX_MEMBERS) return head;
-  const keyed = Object.fromEntries(members.map((m) => [String(m), m]));
-  return `${head}: ${JSON.stringify(registry.enum(keyed, inner).toJSON())}`;
+  // The `every` above proves every member shares `kind`, which is what makes
+  // each branch's `Record<string, T>` sound; TypeScript cannot carry that
+  // through a `typeof` compared against a variable, so each branch asserts
+  // the member type it just tested for.
+  const keyed = labelled
+    ? (value as Record<string, unknown>)
+    : Object.fromEntries(members.map((m) => [String(m), m]) as Array<[string, unknown]>);
+  const def = kind === 'number' ? registry.enum(keyed as Record<string, number>, registry.num())
+    : kind === 'boolean' ? registry.enum(keyed as Record<string, boolean>, registry.bool())
+    : kind === 'string' ? registry.enum(keyed as Record<string, string>, registry.text())
+    : undefined;
+  if (!def) return undefined;
+  return `${head}: ${wrap(JSON.stringify(def.toJSON()))}`;
 }
 
 function validClause(valid: readonly string[], cls: TypeClass | undefined, slot: Slot): string {

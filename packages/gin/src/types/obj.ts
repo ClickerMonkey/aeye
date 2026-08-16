@@ -2,13 +2,17 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, indentOf, joinAuto, Prop, type PropSpec, type Rnd, Type } from '../type';
+import {
+  type CompatOptions, GetSet, type NewSlotVisitor, Prop, type PropSpec, type Rnd, Type,
+  ENVELOPE_ENCODE, embeddedExpr, encodeSlot, indentOf, joinAuto, slotAccepts,
+} from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, JSONValue, RuntimeOf } from '../json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
-import { Effects } from '../effects';
 
 /**
  * ObjType — structural object with named fields (props). Unlike other
@@ -58,13 +62,16 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<T> {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false;
-    for (const [name] of Object.entries(this.fields)) {
+    for (const [name, prop] of Object.entries(this.fields)) {
       const v = (raw as Record<string, unknown>)[name];
-      // Each field stores a Value; the Value's type may be a subtype of
-      // the declared field type. Validate the stored raw against the
-      // Value's actual type (supports covariance).
+      // Each field stores a Value whose type may be a SUBTYPE of the
+      // declared field type, so the stored raw is validated against the
+      // Value's actual type (covariance) — and, since 0.4.1, that actual
+      // type must itself be one the declared field accepts. Without the
+      // second half a `num` landed in a `text` field and `valid` said yes.
       if (!(v instanceof Value)) return false;
       if (!v.type.valid(v.raw, scope)) return false;
+      if (!slotAccepts(prop.type, v.type, scope)) return false;
     }
     return true;
   }
@@ -84,15 +91,20 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return new Value(this, raw as RuntimeOf<T>);
   }
 
-  /** Each field becomes a `JSONValue` envelope. */
-  encode(raw: RuntimeOf<T>, _scope?: TypeScope): JSONOf<T> {
+  /** Each field becomes a `JSONValue` envelope — or its bare logical form
+   *  under `form:'logical'`. One walk, via `encodeAs`. */
+  encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T>;
+  }
+
+  encodeAs(raw: RuntimeOf<T>, opts: EncodeOptions, scope?: TypeScope): unknown {
     const fields = raw as Record<string, Value>;
-    const out: Record<string, JSONValue> = {};
+    const out: Record<string, unknown> = {};
     for (const [name] of Object.entries(this.fields)) {
       const v = fields[name];
-      if (v) out[name] = v.toJSON();
+      if (v) out[name] = encodeSlot(v, opts, scope);
     }
-    return out as JSONOf<T>;
+    return out;
   }
 
   create(): RuntimeOf<T> {
@@ -111,61 +123,49 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return out as RuntimeOf<T>;
   }
 
-  /** Walk each declared field through its type's `newEffects`. Fields
-   *  not present in `value` contribute their `default` Expr's effects
-   *  (if any) — the runtime fills them via `fillObjDefaults`, so their
-   *  effects realize at construction time. */
-  newEffects(value: unknown): Effects {
-    const init = this.initEffects();
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      // If the whole value is an Expr ref, defer to base.
-      const asExpr = this.exprValueEffects(value);
-      if (asExpr !== Effects.NONE) return init | asExpr;
-      const obj = value as Record<string, unknown>;
-      let acc = init;
-      for (const [name, prop] of Object.entries(this.fields)) {
-        if (name in obj) {
-          acc |= prop.type.newEffects(obj[name]);
-        } else if (prop.default !== undefined) {
-          try {
-            acc |= this.registry.parseExpr(prop.default, this.scope).effects();
-          } catch { /* unparseable default — skip */ }
-        }
-      }
-      return acc;
+  /**
+   * A `new obj` payload is a FIELD MAP: each declared field is a slot with
+   * the field's own declared type, and a declared field the payload omits
+   * contributes the `default` Expr the runtime will fill it with.
+   *
+   * Not decomposed when the payload is itself an Expr threaded into the
+   * value slot whole (`{kind:'get', path:[…]}` where an obj literal would
+   * go). The probe is the `kind` key naming a registered Expr class, which
+   * is ambiguous with an obj that DECLARES a field called `kind` — the
+   * ambiguity is inherent to the wire form (an ExprDef and an obj payload
+   * are both bare JSON objects) and is resolved the same way at every
+   * consumer, which is the most that can be done from here.
+   */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    if (!isFieldMap(value) || embeddedExpr(value, this.scope)) return false;
+    const obj = value as Record<string, unknown>;
+    for (const [name, prop] of Object.entries(this.fields)) {
+      if (name in obj) visit.slot(prop.type, obj[name], name);
+      else if (prop.default !== undefined) visit.missing?.(prop.default, name);
     }
-    return init | this.exprValueEffects(value);
+    return true;
   }
 
-  /** Each declared field's slot contributes its `elementComplexity`
-   *  (embedded Expr's cost, or 1 for a raw literal). Missing fields
-   *  contribute the parsed `default` Expr's complexity. Whole-value
-   *  Expr refs defer to `exprValueComplexity`. */
-  newComplexity(value: unknown): number {
-    const init = this.initComplexity();
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      // Whole-value Expr ref (e.g. `{kind:'get', path:[...]}` used in
-      // place of an inline obj literal). Detect by the `kind` field
-      // matching a registered Expr class — same probe as
-      // `exprValueComplexity` uses internally.
-      const kind = (value as { kind?: unknown }).kind;
-      if (typeof kind === 'string' && this.registry.exprClass(kind)) {
-        return 1 + init + this.exprValueComplexity(value);
-      }
-      const obj = value as Record<string, unknown>;
-      let acc = 1 + init;
-      for (const [name, prop] of Object.entries(this.fields)) {
-        if (name in obj) {
-          acc += prop.type.elementComplexity(obj[name]);
-        } else if (prop.default !== undefined) {
-          try {
-            acc += this.registry.parseExpr(prop.default, this.scope).complexity();
-          } catch { /* unparseable default — skip */ }
-        }
-      }
-      return acc;
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    if (!isFieldMap(value) || embeddedExpr(value, this.scope)) {
+      return super.newFill(value, engine, scope);
     }
-    return 1 + init + this.exprValueComplexity(value);
+    const input = value as Record<string, unknown>;
+    let filled: Record<string, unknown> | undefined;
+    // Sequential, in declaration order — see `Type.newFill`.
+    for (const [name, prop] of Object.entries(this.fields)) {
+      if (name in input) {
+        const next = await prop.type.newFill(input[name], engine, scope);
+        if (next !== input[name]) {
+          filled ??= { ...input };
+          filled[name] = next;
+        }
+      } else if (prop.default !== undefined) {
+        filled ??= { ...input };
+        filled[name] = await prop.default.evaluate(engine, scope);
+      }
+    }
+    return filled ?? input;
   }
 
   like(other: Type): Type {
@@ -355,4 +355,9 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     }
     return new ObjType(this.registry, fields);
   }
+}
+
+/** A `new obj` payload shape — a plain object, not an array and not null. */
+function isFieldMap(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }

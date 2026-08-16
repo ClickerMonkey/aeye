@@ -2,11 +2,13 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { type CompatOptions, type NewSlotVisitor, type Prop, type Rnd, Type, ENVELOPE_ENCODE } from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONOf, RuntimeOf } from '../json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
 /**
@@ -55,8 +57,25 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
   }
 
   encode(raw: RuntimeOf<T | null>, scope?: TypeScope): JSONOf<T | null> {
-    if (raw === null) return null as JSONOf<T | null>;
-    return this.inner.encode(raw as RuntimeOf<T>, scope) as JSONOf<T | null>;
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T | null>;
+  }
+
+  /** Null is null under every option; otherwise the inner type's own walk. */
+  encodeAs(raw: RuntimeOf<T | null>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    if (raw === null) return null;
+    return this.inner.encodeAs(raw as RuntimeOf<T>, opts, scope);
+  }
+
+  /** A `new nullable<T>` payload IS a `new T` payload (or null) — same
+   *  reasoning as `OptionalType`. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    if (value === null || value === undefined) return false;
+    return this.inner.forEachNewSlot(value, visit);
+  }
+
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    if (value === null || value === undefined) return value;
+    return this.inner.newFill(value, engine, scope);
   }
 
   create(): RuntimeOf<T | null> {

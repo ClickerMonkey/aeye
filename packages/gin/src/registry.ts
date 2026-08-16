@@ -1,5 +1,5 @@
 import type { ExprDef, TypeDef } from './schema';
-import { Call, GetSet, Init, Prop, type PropSpec, Type } from './type';
+import { Call, GetSet, Init, Prop, type PropSpec, Type, slotAccepts } from './type';
 import { Extension, type ExtensionLocal } from './extension';
 import {
   type BoolOptions,
@@ -527,18 +527,55 @@ export class Registry implements TypeBuilder, TypeScope {
    * Reconstruct a `Value` from its `JSONValue` envelope. Symmetric inverse
    * of `Value.toJSON()` — decode the TypeDef via `parse`, then ask that
    * Type to parse the dumped value.
+   *
+   * `expectedType` is the type DECLARED for the slot this value is landing
+   * in, and since 0.4.1 it is enforced rather than merely used as a fallback.
+   * Before, a value that arrived carrying its own type envelope was installed
+   * on that type's say-so alone: `list<text>.parse([{type:{name:'num'},
+   * value:5}])` produced a `num` inside a `list<text>`, `valid()` said true,
+   * `validateValue()` said nothing, and only a generated Zod schema — which
+   * is not a validator — ever noticed. See {@link slotAccepts} for the rule; a
+   * genuine subtype still lands, which is the whole point of per-slot types.
    */
   parseValue<T = any>(json: unknown, expectedType?: Type, scope: TypeScope = this): Value<T> {
     if (json instanceof Value) {
-      return json;
+      return this.checkSlot(json, expectedType, scope);
     }
     if (json && typeof json === 'object' && 'type' in json && 'value' in json) {
-      return this.parse(json.type, scope).parse(json.value, scope);
+      // An `ExprDef` and a `JSONValue` are the same JSON shape once the
+      // expression names a `type` and a `value` — `{kind:'new', type, value}`
+      // is EXACTLY a value envelope with one extra key, and `kind` was simply
+      // ignored, so an expression written into a value slot was installed as
+      // a literal of whatever type it named. `parseValue` has no engine and
+      // cannot evaluate one; say so instead of reinterpreting it.
+      const kind = (json as { kind?: unknown }).kind;
+      if (typeof kind === 'string' && this.exprClass(kind)) {
+        throw new TypeError(
+          `registry.parseValue: this node is an EXPRESSION (kind:'${kind}'), not a value envelope`
+          + ` — an Expr only evaluates inside a program (\`Engine.run\`/\`Engine.evaluate\`);`
+          + ` a bare \`parse\` takes data. Drop the \`kind\` to mean the literal`
+          + ` ${JSON.stringify((json as { type?: unknown }).type)} value.`,
+        );
+      }
+      return this.checkSlot(this.parse(json.type, scope).parse(json.value, scope), expectedType, scope);
     }
     if (!expectedType) {
       throw new TypeError(`registry.parseValue: expected Value or JSONValue, got ${typeof json}`);
     }
     return expectedType.parse(json, scope);
+  }
+
+  /**
+   * Reconcile a value that arrived with its OWN type against the type the
+   * slot declares. No declared type means no second opinion to reconcile
+   * against — the caller wanted whatever the envelope said.
+   */
+  private checkSlot<T>(value: Value<T>, expectedType: Type | undefined, scope: TypeScope): Value<T> {
+    if (!expectedType || slotAccepts(expectedType, value.type, scope)) return value;
+    throw new TypeError(
+      `registry.parseValue: this slot is declared \`${expectedType.toCode()}\``
+      + ` but the value carries \`${value.type.toCode()}\``,
+    );
   }
 
   parse(json: unknown, scope: TypeScope = this): Type {

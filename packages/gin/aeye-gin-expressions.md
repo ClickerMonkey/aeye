@@ -22,6 +22,67 @@ inverse is `expr.toJSON()`. See [overview](./aeye-gin.md).
   "value": [ {"kind":"new","type":{"name":"num"},"value":1} ] }
 ```
 
+### An embedded Expr fills any slot, at any depth
+
+The payload is shaped by the type: an `obj` takes a field map, a `list` an
+element array, a `map` an entry array, a `tuple` a positional array. **Any slot
+may hold an `ExprDef` instead of a literal, and it is evaluated at construction
+time** — mixing static and computed parts freely, and recursively:
+
+```json
+{ "kind": "new",
+  "type": { "name": "list", "generic": { "V": { "name": "HttpHeader" } } },
+  "value": [ { "key": "Authorization",
+               "value": { "kind": "template", "template": "Bearer ${key}" } } ] }
+```
+
+Slots evaluate **sequentially, in authored order** — a slot's Expr may carry
+`STATE` effects, so the payload's meaning does not depend on scheduling.
+
+**Changed in 0.4.1.** Before, only an `obj`'s OWN fields were filled, one level.
+An Expr inside a list element, a map key or value, a tuple position or a NESTED
+obj was handed to `Type.parse` as data, and met one of two fates: a strict slot
+type threw at run (`text.parse: expected string, got object`), and a
+**permissive one — `any`, or anything extending it — accepted the raw
+`{"kind":"get",…}` node AS THE VALUE.** A program reading a credential into a
+`list<any>` param shipped the expression instead of what it evaluates to. Both
+are fixed by one shared, type-driven traversal (`Type.forEachNewSlot` /
+`Type.newFill`), which `newEffects`, `newComplexity` and `validate` also run on
+— so the analyses and the evaluator can no longer disagree about what a payload
+contains.
+
+### `validate` walks the payload
+
+`engine.validate` reports an unresolvable variable anywhere inside a `new`
+payload, and an `new.slot.type` error where a slot's Expr produces a type the
+slot's declared type cannot accept:
+
+```
+new.slot.type — this slot is declared `text` but the expression here produces `num`
+```
+
+A genuine subtype is accepted (a `Dog` in a `list<Animal>`), and a permissive
+slot stays quiet — nothing is known there to contradict.
+
+**Changed in 0.4.1.** Before, `validate` did not look inside a `new` at all:
+`new obj{a: <get missing>}` reported nothing and then threw at run. Every read
+an authoring agent writes lives inside some `new`, so this was the difference
+between an actionable refusal and a run-time surprise.
+
+### An expression is not a value envelope
+
+`{"kind":"new", "type":…, "value":…}` and a `JSONValue` envelope
+(`{"type":…, "value":…}`) are the same JSON shape but different things. A
+`Type.parse` outside a program has no engine and cannot evaluate one, so since
+0.4.1 it says so rather than reading the node as a literal of whatever type it
+names:
+
+```
+registry.parseValue: this node is an EXPRESSION (kind:'new'), not a value envelope
+  — an Expr only evaluates inside a program (`Engine.run`/`Engine.evaluate`); a
+  bare `parse` takes data. Drop the `kind` to mean the literal {"name":"num"} value.
+```
+
 ## `get` — read through a path
 
 ```json

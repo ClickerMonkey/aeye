@@ -90,9 +90,14 @@ console.log(result.raw); // 9
 Key shapes to internalize:
 - A `get` path **always starts** with a `{ prop: '<scopeVar>' }` step.
 - A method call is two steps: `{ prop: 'add' }` then `{ args: { ... } }`.
-- A literal is `{ kind: 'new', type: <TypeDef>, value: <raw> }`.
+- A literal is `{ kind: 'new', type: <TypeDef>, value: <raw> }`. **Any slot of a
+  `new` payload may hold an Expr instead**, at any depth — see
+  [`new`](./aeye-gin-expressions.md#new--construct-a-value).
 - `engine.run` returns a `Value` — a `{ type, raw }` pair. Read `.raw` for the JS
-  value, `.toJSON()` for the `{type, value}` wire envelope.
+  value, `.encodeLogical()` for bare logical JSON, `.toJSON()` for the full
+  `{type, value}` wire envelope. There are four wire forms at three very
+  different costs — see [value wire
+  forms](./aeye-gin-registry.md#value-wire-forms--what-to-serialize-and-what-it-costs).
 
 ## Public API at a glance
 
@@ -103,7 +108,7 @@ Key shapes to internalize:
 | `Registry` | Implements `TypeBuilder` (`r.num()`, `r.list(...)`, ...) + parsing + registration. |
 | `Engine` | `run`, `validate`, `typeOf`, `toCode`, `toGinCode`, `toJSONCode`, `validateValue`. |
 | `buildSchemas(registry, overrides?)` | Zod schemas (`.Type`, `.Expr`) describing valid programs for an LLM. |
-| `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. |
+| `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. `encodeLogical` / `toJSONLogical` / `toJSONRefs` / `toJSON` are its four wire forms. |
 | `Type`, `Prop`, `GetSet`, `Call`, `Init` | Type-system runtime classes. |
 | `TypeScope`, `LocalScope` | Type-NAME resolution. `registry.scope({X})` layers an overlay above the registry: `X` resolves for that session and still serializes as `{name:'X'}`. |
 | `Expr` + `NewExpr` ... `NativeExpr` | Abstract expr base + the 12 concrete classes. |

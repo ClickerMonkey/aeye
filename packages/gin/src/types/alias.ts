@@ -6,11 +6,15 @@ import {
   type CompatOptions,
   type GetSet,
   type Init,
+  type NewSlotVisitor,
   type Prop,
   type PropSpec,
   type Rnd,
   Type,
 } from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
+import type { EncodeOptions } from '../json-type';
 import type { TypeScope } from '../type-scope';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -104,6 +108,13 @@ export class AliasType extends Type<any, AliasOptions> {
     return t ? t.encode(raw, scope) : raw;
   }
 
+  /** The resolved target does the walk. Unresolved, the alias knows nothing
+   *  about the shape and hands the raw back — as `encode` already does. */
+  encodeAs(raw: any, opts: EncodeOptions, scope?: TypeScope): unknown {
+    const t = this.resolve(scope);
+    return t ? t.encodeAs(raw, opts, scope) : raw;
+  }
+
   create(): any {
     const t = this.resolve();
     return t ? t.create() : null;
@@ -163,6 +174,18 @@ export class AliasType extends Type<any, AliasOptions> {
 
   follow(step: PathStepDef, scope?: TypeScope): Type | undefined {
     return this.resolve(scope)?.follow(step, scope);
+  }
+
+  /** A `new` payload against a bound alias is a payload of the TARGET, so
+   *  the slot walk is the target's. Unresolved, the alias knows nothing
+   *  about the payload's shape and leaves it opaque. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    return this.resolve()?.forEachNewSlot(value, visit) ?? false;
+  }
+
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    const t = this.resolve();
+    return t ? t.newFill(value, engine, scope) : super.newFill(value, engine, scope);
   }
 
   /** Bare-name JSON shape. Unconditional — `{name: this.options.name}`,

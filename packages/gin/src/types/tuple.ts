@@ -2,12 +2,16 @@ import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { PathStepDef, TypeDef } from '../schema';
 import { Value } from '../value';
-import { type CompatOptions, GetSet, type Prop, type Rnd, Type } from '../type';
-import { Effects } from '../effects';
+import {
+  type CompatOptions, GetSet, type NewSlotVisitor, type Prop, type Rnd, Type,
+  ENVELOPE_ENCODE, encodeSlot, slotAccepts,
+} from '../type';
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { JSONValue } from '../json-type';
+import type { EncodeOptions, JSONValue } from '../json-type';
 
 
 export interface TupleOptions {
@@ -58,7 +62,11 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
   valid(raw: unknown, scope?: TypeScope): raw is [Value, ...Value[]] {
     if (!Array.isArray(raw)) return false;
     if (raw.length !== this.elements.length) return false;
-    return raw.every((v) => v instanceof Value && v.type.valid(v.raw, scope));
+    // Valid by the cell's own type AND accepted by the type declared for
+    // that POSITION — see `slotAccepts`.
+    return raw.every((v, i) => v instanceof Value
+      && v.type.valid(v.raw, scope)
+      && slotAccepts(this.elements[i]!, v.type, scope));
   }
 
   parse(json: unknown, scope?: TypeScope): Value<[any, ...any[]]> {
@@ -73,39 +81,41 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return new Value(this, raw);
   }
 
-  /** Each positional value becomes a `JSONValue` envelope. */
-  encode(raw: [Value, ...Value[]], _scope?: TypeScope): [JSONValue, ...JSONValue[]] {
-    return raw.map((v) => v.toJSON()) as [JSONValue, ...JSONValue[]];
+  /** Each positional value becomes a `JSONValue` envelope — or its bare
+   *  logical form under `form:'logical'`. One walk, via `encodeAs`. */
+  encode(raw: [Value, ...Value[]], scope?: TypeScope): [JSONValue, ...JSONValue[]] {
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as [JSONValue, ...JSONValue[]];
+  }
+
+  encodeAs(raw: [Value, ...Value[]], opts: EncodeOptions, scope?: TypeScope): unknown {
+    return raw.map((v) => encodeSlot(v, opts, scope));
   }
 
   create(): [Value, ...Value[]] {
     return this.elements.map((e) => new Value(e, e.create())) as [Value, ...Value[]];
   }
 
-  newEffects(value: unknown): Effects {
-    const init = this.initEffects();
-    if (Array.isArray(value)) {
-      let acc = init;
-      for (let i = 0; i < this.elements.length; i++) {
-        if (i < value.length) acc |= this.elements[i]!.newEffects(value[i]);
-      }
-      return acc;
+  /** A `new tuple` payload is POSITIONAL: slot `i` is declared
+   *  `elements[i]`. Positions the payload does not reach are not slots —
+   *  `parse` refuses the wrong arity with its own message. */
+  forEachNewSlot(value: unknown, visit: NewSlotVisitor): boolean {
+    if (!Array.isArray(value)) return false;
+    for (let i = 0; i < this.elements.length && i < value.length; i++) {
+      visit.slot(this.elements[i]!, value[i], i);
     }
-    return init | this.exprValueEffects(value);
+    return true;
   }
 
-  /** Each positional slot contributes its `elementComplexity` — the
-   *  embedded Expr's cost or 1 for a raw literal. */
-  newComplexity(value: unknown): number {
-    const init = this.initComplexity();
-    if (Array.isArray(value)) {
-      let acc = 1 + init;
-      for (let i = 0; i < this.elements.length; i++) {
-        if (i < value.length) acc += this.elements[i]!.elementComplexity(value[i]);
-      }
-      return acc;
+  async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
+    if (!Array.isArray(value)) return super.newFill(value, engine, scope);
+    const out: unknown[] = [];
+    // Sequential, in authored order — see `Type.newFill`. Extra positions
+    // pass through untouched so `parse` can report the arity.
+    for (let i = 0; i < value.length; i++) {
+      const declared = this.elements[i];
+      out.push(declared ? await declared.newFill(value[i], engine, scope) : value[i]);
     }
-    return 1 + init + this.exprValueComplexity(value);
+    return out;
   }
 
   random(rnd: Rnd): [Value, ...Value[]] {

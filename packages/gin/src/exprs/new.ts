@@ -126,7 +126,21 @@ export class NewExpr extends Expr {
         return new Value(type, (result as Value).raw);
       }
 
-      const value = await fillObjDefaults(type, this.value, engine, scope);
+      // ONE type-driven recursive walk fills every embedded Expr, at any
+      // depth and in any composite slot — see `Type.newFill`. Before 0.4.1
+      // only an obj's OWN fields were filled, one level, so an Expr inside a
+      // list element / map value / tuple position / nested obj reached
+      // `Type.parse` as DATA. Against a strict element type that threw
+      // (`text.parse: expected string, got object`); against a permissive one
+      // it was worse — `list<any>` installed the raw `{kind:'get',…}` node AS
+      // the value, so a program that meant to read a credential shipped the
+      // expression instead of what it evaluates to.
+      const value = await type.newFill(this.value, engine, scope);
+      // The whole payload may itself have been an Expr (`new T <get>`), in
+      // which case `newFill` hands back a Value rather than a payload.
+      // `parseValue` reconciles it with the declared type instead of letting
+      // whatever it produced win.
+      if (value instanceof Value) return engine.registry.parseValue(value, type);
       const v = type.parse(value);
       return v.type === type ? v : new Value(type, v.raw);
     }
@@ -138,7 +152,7 @@ export class NewExpr extends Expr {
     return this.type;
   }
 
-  validateWalk(_engine: Engine, _scope: Locals, p: Problems, _ctx: ValidateContext): Type {
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
     // Warn when the value is missing on a structural type with required
     // fields — the runtime fills with `type.create()` defaults (zero
     // for num, "" for text, null for optional, etc.), which is almost
@@ -150,6 +164,16 @@ export class NewExpr extends Expr {
     if (this.value === undefined && hasRequiredFields(this.type)) {
       p.warn('new.value.missing',
         `\`new ${this.type.name}\` has no \`value\` — every field will fall to its type default (0 / "" / null). Provide a \`value\` matching the type's shape.`);
+    }
+    // Walk the payload. Until 0.4.1 this method returned right here, so
+    // `validate` never looked INSIDE a `new` at all: an unresolvable
+    // variable in `new obj{a: <get missing>}` produced no problem, and
+    // neither did an Expr whose result the slot's type cannot accept. Every
+    // read an authoring agent writes lives inside some `new`, so "validate
+    // never looks" and "validate blesses what run throws" were the same
+    // silence from the model's side.
+    if (this.value !== undefined) {
+      p.at(['value'], () => this.type.validateNewValue(this.value, engine, scope, p, ctx));
     }
     return this.type;
   }
@@ -300,61 +324,6 @@ function renderNewValueLeaf(v: unknown, registry: Registry | undefined, type: Ty
   // Recurse with whatever element / field type the parent supplied;
   // composite leaves at the deepest level fall back to `<inferred>`.
   return renderNewValue(v, registry, type, options);
-}
-
-/**
- * For an Obj type (including Extensions over Obj via `.base` delegation),
- * evaluate each field's `default` Expr for any missing input key. Leaves
- * other types untouched.
- */
-/**
- * Two passes against the raw value of `new obj {...}`:
- *   1. For any field whose input is an ExprDef (has a registered `kind`),
- *      evaluate it at runtime and inject the resulting Value.
- *   2. For any field that's still missing, invoke the prop's `default` Expr.
- *
- * This lets `new` mix static literals with dynamic sub-expressions:
- *   { kind: 'new', type: obj, value: { name: 'Alice', count: { kind: 'get', … } } }
- */
-async function fillObjDefaults(
-  type: Type,
-  raw: unknown,
-  engine: Engine,
-  scope: Scope,
-): Promise<unknown> {
-  const obj = asObjType(type);
-  if (!obj) return raw;
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  const input = raw as Record<string, unknown>;
-  let filled: Record<string, unknown> | undefined;
-
-  for (const [name, prop] of Object.entries(obj.fields)) {
-    const inputValue = input[name];
-
-    // Dynamic field: value is an Expr JSON that should be evaluated now.
-    if (looksLikeExpr(inputValue, engine)) {
-      const dv = await engine.evaluate(inputValue as ExprDef, scope);
-      filled ??= { ...input };
-      filled[name] = dv;
-      continue;
-    }
-
-    // Missing field with a declared default.
-    if (inputValue === undefined && prop.default !== undefined) {
-      const dv = await engine.evaluate(prop.default as ExprDef, scope);
-      filled ??= { ...input };
-      filled[name] = dv;
-    }
-  }
-
-  return filled ?? input;
-}
-
-function looksLikeExpr(v: unknown, engine: Engine): boolean {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
-  const kind = (v as { kind?: unknown }).kind;
-  if (typeof kind !== 'string') return false;
-  return !!engine.registry.exprClass(kind);
 }
 
 function asObjType(type: Type): ObjType | undefined {
