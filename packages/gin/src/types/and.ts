@@ -142,6 +142,12 @@ export class AndType extends Type<any, AndOptions> {
     return this.effective()?.encode(raw, scope) ?? raw;
   }
 
+  /** Through the type `parse` builds the value with — same choice `encode`
+   *  makes, so what the slot accepts and what it serializes agree. */
+  parsesExprValue(scope?: TypeScope): boolean {
+    return this.effective()?.parsesExprValue(scope) ?? false;
+  }
+
   /** Same reasoning as `encode` — through the type `parse` built the value
    *  with, so the walk sees the shape the value actually has. */
   encodeAs(raw: any, opts: EncodeOptions, scope?: TypeScope): unknown {

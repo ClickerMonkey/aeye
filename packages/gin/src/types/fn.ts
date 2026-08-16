@@ -81,6 +81,13 @@ export class FnType extends Type<any, Record<string, never>> {
     this._call = call instanceof Call ? call : new Call(call);
   }
 
+  /** An ExprDef IS a fn's value — see the three surfaces below that say so
+   *  (`valid`, `parse`, `toNewSchema`). This is what stops a composite slot
+   *  declared `fn` from reading its own body as a smuggled expression. */
+  parsesExprValue(_scope?: TypeScope): boolean {
+    return true;
+  }
+
   valid(raw: unknown, _scope?: TypeScope): boolean {
     if (typeof raw === 'function') return true;
     if (typeof raw === 'string') return true;
@@ -106,12 +113,35 @@ export class FnType extends Type<any, Record<string, never>> {
     return raw;
   }
 
+  /**
+   * A zero fn: a body that constructs the declared return type's own zero
+   * value. `{kind:'new', type: <returns>}` with no `value` — which is exactly
+   * how `NewExpr` spells "the default of this type".
+   *
+   * It used to be `null`, and `valid(null)` is false — so `fn` was the one
+   * type whose own constructor produced a value its own predicate rejected.
+   * That is the `map.create()` shape the create/parse sweep exists to catch,
+   * and it propagated: `obj{m: fn}.valid(obj.create())` was false, and
+   * `list<fn>.parse([fn.create()])` threw a *length constraint* error about a
+   * one-element list with no bounds declared anywhere.
+   *
+   * A witness IS derivable here — the return type is right there in the
+   * declaration — so `fn` moves out of the sweep's `noDerivableWitness`
+   * bucket. Deliberately valueless rather than `{value: returns.create()}`:
+   * it needs no recursion into another `create()`, so a fn returning a fn
+   * (or a recursive named type) cannot spiral.
+   *
+   * Not a callable: a fn's value is a JS function, a string native ref, or an
+   * ExprDef, and only the last is derivable from a declaration. `parse` still
+   * accepts all three.
+   */
   create(): any {
-    return null;
+    const returns = this._call.returns ?? this.registry.void();
+    return { kind: 'new', type: returns.toJSON() };
   }
 
   random(_rnd: Rnd): any {
-    return null;
+    return this.create();
   }
 
   like(other: Type): Type {

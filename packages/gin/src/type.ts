@@ -129,10 +129,21 @@ export function encodeSlot(v: Value, opts: EncodeOptions, scope?: TypeScope): un
  *  equivalence between the two paths is stated rather than assumed. */
 export const ENVELOPE_ENCODE: EncodeOptions = { form: 'envelope', typeRefs: 'definition' };
 
-/** A payload shaped like a record — the only shape an Extension can store an
- *  added field on. `text`, `num`, `list` and friends have nowhere to put one. */
+/**
+ * A payload shaped like a record — the only shape an Extension can store an
+ * added field on. `text`, `num`, `list` and friends have nowhere to put one.
+ *
+ * A `Value` is explicitly NOT one, and the exclusion is load-bearing rather
+ * than tidy. A `Value` passes every structural test for "a plain object", so
+ * `Extension.newFill` spread one into a fresh object the moment a stored local
+ * prop had a `default` — destroying the `(type, raw)` pair a nested `new` had
+ * just finished building and surfacing three frames later as
+ * `text.parse: expected string, got undefined`, blamed on a field that was
+ * never missing. A `Value` is a BUILT value, never a payload awaiting
+ * construction; nothing here may treat one as a bag of keys.
+ */
 export function isRecordPayload(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
+  return !!value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Value);
 }
 
 /**
@@ -805,6 +816,29 @@ export abstract class Type<T = any, O = any> implements Node {
   abstract encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T>;
 
   /**
+   * Does this type's own VALUE form INCLUDE an Expr node (`{kind, …}`)?
+   *
+   * Almost nothing does — for almost every type an `ExprDef` sitting in a
+   * value slot is an expression written where data goes, which is what
+   * `Registry.parseValue` refuses. **`fn` is the exception, and it is not an
+   * edge case: an ExprDef IS a fn's value.** `FnType.parse` and
+   * `FnType.valid` both accept a `{kind, …}` node, and `FnType.toNewSchema`
+   * describes exactly that to a model — `z.union([z.string(), z.object({kind:
+   * z.string()}).passthrough()])`. A fn-declared slot holding a `lambda` is
+   * the ordinary case, not a mistake.
+   *
+   * Declared on the Type rather than tested by class, so the rule travels
+   * with a type that means it: an `Extension` over `fn`, an `optional<fn>`,
+   * an `or<fn, text>` all answer for themselves. `any` deliberately answers
+   * FALSE — it accepts every value but does not DECLARE that an ExprDef is
+   * one of its values, and the refusal exists precisely to catch an
+   * expression written into an `any` slot.
+   */
+  parsesExprValue(_scope?: TypeScope): boolean {
+    return false;
+  }
+
+  /**
    * `encode`, parameterized — the ONE recursive serializer, with the two
    * choices `encode` hard-codes made explicit. See {@link EncodeOptions} for
    * what the choices are and what each costs.
@@ -1326,6 +1360,15 @@ export abstract class Type<T = any, O = any> implements Node {
     const embedded = embeddedExpr(value, this.scope);
     if (!embedded) return;
     const actual = embedded.validateWalk(engine, locals, p, ctx);
+    // `any` as a RESULT means inference gave up, not that the value is wrong —
+    // `typeOf` returns it for every unknown. Reporting a type error on top of
+    // it double-charges one mistake and the second message is misleading: an
+    // unresolvable variable already reported as `var.unknown` also produced
+    // "this slot is declared `text` but the expression here produces `any`",
+    // pointing the author at the slot instead of at the name they got wrong.
+    // (Distinct from `any` as the declared SLOT type, which is a real "accepts
+    // everything" and is handled by `slotAccepts` below.)
+    if (actual.name === 'any') return;
     // The SAME rule the runtime reconciles slots with, so `validate` and
     // `run` cannot disagree about which values a slot admits — including
     // that a genuine subtype is admitted. An unresolved alias / `any`

@@ -56,6 +56,11 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
     return new Value(this, v.raw as RuntimeOf<T | null>);
   }
 
+  /** `nullable<fn>` holds a fn — same reasoning as `OptionalType`. */
+  parsesExprValue(scope?: TypeScope): boolean {
+    return this.inner.parsesExprValue(scope);
+  }
+
   encode(raw: RuntimeOf<T | null>, scope?: TypeScope): JSONOf<T | null> {
     return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T | null>;
   }

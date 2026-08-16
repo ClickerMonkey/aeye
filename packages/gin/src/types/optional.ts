@@ -57,6 +57,11 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return new Value(this, v.raw as RuntimeOf<T | undefined>);
   }
 
+  /** `optional<fn>` holds a fn, so its value form is the inner one's. */
+  parsesExprValue(scope?: TypeScope): boolean {
+    return this.inner.parsesExprValue(scope);
+  }
+
   encode(raw: RuntimeOf<T | undefined>, scope?: TypeScope): JSONOf<T | undefined> {
     return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T | undefined>;
   }

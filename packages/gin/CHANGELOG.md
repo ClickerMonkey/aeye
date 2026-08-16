@@ -3,6 +3,163 @@
 Releases before `0.4.0` are recorded in the git log (`chore(release): @aeye/gin <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.4.2
+
+Four defects found by the first real consumers of `0.4.1`, plus one diagnostic
+regression found while fixing them. **Three of the four are `0.4.1`'s own** — the
+cost of tightening a seam is that the tightening has to be right, and two places
+it was not. `0.4.1`'s headline fixes are confirmed working in a real consumer:
+`Resource.parse(handle).raw` now carries its props, and the specialized-generic
+path walk resolves (`typeOf(res.data.USD)` is `num`, `validate` is clean).
+
+### The DECLARED type is asked before the node's SHAPE (**the important one**)
+
+`parseValue` tested for the value-envelope shape `'type' in json && 'value' in
+json` and refused a node carrying an expr `kind` — **before** consulting
+`expectedType`. So the same value got a different verdict depending on how deep
+it sat:
+
+```ts
+fn.parse({kind:'new', type:{name:'bool'}, value:false})   // OK
+obj{probe: fn}.parse({probe: <that same node>})           // THREW
+list<fn>.parse([<the new node>])                          // THREW
+obj{probe: fn}.parse({probe: {kind:'get', path:[…]}})     // OK
+```
+
+`new` is the only expr kind carrying BOTH a `type` and a `value` key, which is
+why it alone tripped the envelope branch and `get` in the identical slot did
+not. But **a `fn` value IS an ExprDef** — `FnType.parse` and `FnType.valid`
+accept a `{kind, …}` node, and `FnType.toNewSchema` describes exactly that to a
+model — so a fn-declared slot holding its own body was refused as smuggling.
+
+**0.4.1 did not create this and did not merely expose it; it changed one wrong
+answer for another.** Measured on the 0.4.0 tree at the same call:
+
+```
+0.4.0  obj{probe:fn}.parse({probe:<new bool false>})
+  slot type : bool          ← the LAMBDA replaced by the LITERAL its body constructs
+  slot raw  : false
+```
+
+That is the corruption class the slot-type reconciliation was written to kill,
+and it was live in a shipping product. The refusal was a strict improvement; it
+was still the wrong answer for a slot whose declared type says an ExprDef is its
+value.
+
+Fixed by making the dispatch order explicit and written out in the body rather
+than left to fall out of an `if` chain — **(1)** an already-built `Value`,
+**(2)** the DECLARED type when it claims Expr values, **(3)** a `{type, value}`
+envelope, **(4)** plain data. New `Type.parsesExprValue()` declares the claim on
+the type instead of testing for a class, so it travels with an `Extension` over
+`fn`, an `optional<fn>`, an `or<fn, text>`. `any` answers **false**
+deliberately: it accepts every value but does not DECLARE that an ExprDef is one
+of them. The refusal now also names the slot that refused (`This slot is
+declared \`text\`.`).
+
+A value that parses standalone and throws one level in is always a
+dispatch-order bug, so the test asserts all four measurements together — the
+asymmetry is the thing that must not come back.
+
+### A `Value` is not a payload (**0.4.1 regression**)
+
+`isRecordPayload` did not exclude `Value`, and a `Value` passes every structural
+test for "a plain object". So when a nested `{kind:'new', …}` slot was
+evaluated, `newFill` handed back the finished `Value` — and `Extension.newFill`,
+adding a defaulted stored local prop, **spread it into a fresh object**,
+destroying the `(type, raw)` pair. It surfaced three frames later as
+
+```
+text.parse: expected string, got undefined
+```
+
+blaming a field that was never missing. It needed all three conditions at once —
+a NESTED `new`, an Extension with a STORED local prop, and a `default` on it —
+which is why it looked like "defaults are broken" from outside: the `default` is
+what made the loop write anything at all, and without one the `Value` came back
+untouched by luck. This is the `params: [new HttpParam{…}]` form the authoring
+guides teach.
+
+`isRecordPayload` now excludes `Value` — the truthful definition, since a
+`Value` is a BUILT value and never a payload awaiting construction — which fixes
+every site at once. `ObjType`'s own field-map probe routes through the same
+predicate.
+
+### `fn.create()` produced a value `fn.valid()` rejects
+
+```ts
+r.fn({args: r.obj({x: {type: r.num()}})}).create()   // null
+                                        .valid(null) // false
+```
+
+The one type whose own constructor produced a value its own predicate refused —
+the `map.create()` shape the create/parse sweep exists to catch. It propagated:
+`obj{m: fn}.valid(obj.create())` was `false`, and `list<fn>.parse([fn.create()])`
+threw **`list.parse: length constraints violated`** for a one-element list with
+no bounds declared anywhere.
+
+`fn` sat in the sweep's `noDerivableWitness` bucket on the reasoning that "a fn
+value is a JS function / string ref / Expr; there is nothing to synthesize". Two
+of those three are indeed underivable — **the third is not, and the declaration
+names it.** `fn.create()` is now `{kind:'new', type: <returns>}`, a body that
+constructs the declared return type's own zero value: `valid`, runnable, and
+deliberately valueless so a fn returning a fn cannot spiral into recursive
+`create()` calls. A fn with no declared return gets a `void` body. `fn` moved to
+`inhabitable` in the sweep, along with an obj holding a fn field and a
+`list<fn>`.
+
+`FnType.parse` is unchanged and still returns `Value(this, null)` for an input
+it cannot read (`parse(42)`). That half of the open `parse`/`valid` asymmetry is
+a separate ask and is not closed here.
+
+### One mistake now reports ONE problem (**0.4.1 regression**)
+
+`typeOf` returns `any` for everything it cannot infer, and `validateNewValue`
+compared that against the slot's declared type — so an unresolvable variable
+produced `var.unknown` **and** "this slot is declared `text` but the expression
+here produces `any`", the second pointing at the slot instead of at the name the
+author got wrong. `any` as a RESULT means "not known", never "known to be
+wrong", and is now suppressed. `any` as the declared SLOT type is unrelated and
+still accepts everything.
+
+### Two findings reported, not fixed
+
+Both measured, both with the root cause named, so neither has to be
+re-discovered:
+
+- **`registry.parse(ext.toJSON())` does not round-trip an Extension**, and a
+  slot declared with the result refuses the original with the baffling
+  *"declared `HttpParam` but the value carries `HttpParam`"*. Root cause is the
+  `extends` fold in `Registry.parseInner`, which re-attributes an Extension's
+  LOCAL props to the base — turning SURFACE into SHAPE, so a method comes back
+  as a required field and `back.valid(back.parse(row).raw)` is `false`.
+  **0.4.1 removed the fold's original justification** (it existed because
+  `Extension.parse` never consulted the local; it does now), and the comment at
+  the site said so and was stale — corrected. **Not removed, and the blocker is
+  specific:** `Extension.compatible` compares BASES only, so moving props to the
+  local gives every Extension over `obj` the same empty base and
+  `HttpParam.compatible(HttpHeader)` becomes `true`. Compatibility is what every
+  declared-return and claim check rests on. Teach `compatible` about stored
+  local props first; doing it in the other order silently widens everything.
+
+- **"`validateWalk` does not walk a slot whose declared type is a named
+  Extension"** — **could not be reproduced**, across eight shapes including the
+  exact `new HttpRequest{headers: [new HttpHeader{…}]}` form, a named type
+  extending a NAMED base, a named type carrying a method in local props, a list
+  element with and without an inner `new`, and a name bound in a `registry.scope`
+  OVERLAY rather than registered. All eight report. One row in the original
+  table is explained: a `template` whose placeholder is unresolvable reports
+  `template.placeholder.unresolved` rather than `var.unknown` — a different,
+  more specific code, not silence. A reproduction against `0.4.2` is welcome.
+
+### Tests
+
+99 files / 1199 tests, up from 98 / 1154. New `fn-slot-expr-value.test.ts` (25
+tests; **19 of them fail against 0.4.1**, verified by running the file against
+the stashed tree — the six that pass are the deliberate "must not change"
+assertions). `new-payload-walk.test.ts` grew the `default`-through-a-nested-`new`
+matrix and the single-problem assertions; `fn.test.ts` grew the `create()`
+witness and every failure it propagated into.
+
 ## 0.4.1
 
 **Five asks from the consuming product, and they turned out to be ONE defect wearing five

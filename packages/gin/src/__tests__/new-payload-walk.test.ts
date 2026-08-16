@@ -196,6 +196,32 @@ describe('validate WALKS the payload — it used to not look at all', () => {
     } as ExprDef, { n: r.num().parse(5) })).rejects.toThrow();
   });
 
+  test('an unknown variable is reported ONCE, not also as a bogus type error', () => {
+    // `typeOf` returns `any` for everything it cannot infer, so an
+    // unresolvable name produced BOTH `var.unknown` and "this slot is
+    // declared `text` but the expression here produces `any`" — two problems
+    // for one mistake, the second pointing at the slot instead of at the name
+    // the author got wrong. `any` as a RESULT means "not known", never
+    // "known to be wrong".
+    const probs = e.validate({
+      kind: 'new',
+      type: { name: 'obj', props: { a: { type: { name: 'text' } } } },
+      value: { a: { kind: 'get', path: [{ prop: 'nope' }] } },
+    } as ExprDef, new Map());
+    expect(probs.list.filter((p) => p.code === 'var.unknown')).toHaveLength(1);
+    expect(probs.list.some((p) => p.code === 'new.slot.type')).toBe(false);
+  });
+
+  test('...and a KNOWN wrong type is still reported', () => {
+    // The suppression is for `any` only — it must not swallow a real mismatch.
+    const probs = e.validate({
+      kind: 'new',
+      type: { name: 'obj', props: { a: { type: { name: 'text' } } } },
+      value: { a: { kind: 'get', path: [{ prop: 'n' }] } },
+    } as ExprDef, new Map([['n', r.num()]]));
+    expect(probs.list.some((p) => p.code === 'new.slot.type')).toBe(true);
+  });
+
   test('a permissive slot stays quiet — nothing is known there to contradict', () => {
     const probs = e.validate({
       kind: 'new',
@@ -218,6 +244,78 @@ describe('validate WALKS the payload — it used to not look at all', () => {
       value: [{ kind: 'get', path: [{ prop: 'd' }] }],
     } as ExprDef, new Map([['d', dog]]));
     expect(probs.list.some((p) => p.code === 'new.slot.type')).toBe(false);
+  });
+});
+
+describe('a `default` on an Extension prop survives a NESTED `new` (0.4.2)', () => {
+  /**
+   * A `Value` is not a payload, and treating one as a bag of keys corrupted
+   * it. When a nested `{kind:'new', …}` slot was evaluated, `newFill` handed
+   * back the finished `Value` — and `Extension.newFill`, seeing something
+   * object-shaped, spread it into a fresh object to add a defaulted stored
+   * local prop. That destroyed the `(type, raw)` pair, and the failure
+   * surfaced three frames later as `text.parse: expected string, got
+   * undefined`, blaming a field that was never missing.
+   *
+   * It needed all three conditions at once — a NESTED `new`, an Extension
+   * with a STORED local prop, and a `default` on it — which is why the shape
+   * looked like "defaults are broken" from outside. The `default` is what
+   * made the loop write anything at all; without one the `Value` came back
+   * untouched by luck.
+   */
+  const build = (where: 'base' | 'local') => {
+    const r = createRegistry();
+    const e = new Engine(r);
+    const dflt = r.parseExpr({ kind: 'new', type: { name: 'text' }, value: 'query' });
+    const P = where === 'base'
+      ? r.extend(r.obj({ name: { type: r.text() }, mode: { type: r.text(), default: dflt } }), { name: 'HttpParam' })
+      : r.extend(r.obj({ name: { type: r.text() } }), { name: 'HttpParam', props: { mode: { type: r.text(), default: dflt } } });
+    r.register(P);
+    return { r, e };
+  };
+
+  for (const where of ['base', 'local'] as const) {
+    test(`default on the ${where}: a nested \`new\` inside a list fills it`, async () => {
+      const { e } = build(where);
+      const v = await e.run({
+        kind: 'new',
+        type: { name: 'list', generic: { V: { name: 'HttpParam' } } },
+        value: [{ kind: 'new', type: { name: 'HttpParam' }, value: { name: 'x' } }],
+      } as ExprDef);
+      expect(v.encodeLogical()).toEqual([{ name: 'x', mode: 'query' }]);
+    });
+
+    test(`default on the ${where}: nested inside an obj field`, async () => {
+      const { e } = build(where);
+      const v = await e.run({
+        kind: 'new',
+        type: { name: 'obj', props: { p: { type: { name: 'HttpParam' } } } },
+        value: { p: { kind: 'new', type: { name: 'HttpParam' }, value: { name: 'x' } } },
+      } as ExprDef);
+      expect(v.encodeLogical()).toEqual({ p: { name: 'x', mode: 'query' } });
+    });
+
+    test(`default on the ${where}: at the top level, and with no inner \`new\``, async () => {
+      const { e } = build(where);
+      const top = await e.run({ kind: 'new', type: { name: 'HttpParam' }, value: { name: 'x' } } as ExprDef);
+      expect(top.encodeLogical()).toEqual({ name: 'x', mode: 'query' });
+      const bare = await e.run({
+        kind: 'new',
+        type: { name: 'list', generic: { V: { name: 'HttpParam' } } },
+        value: [{ name: 'x' }],
+      } as ExprDef);
+      expect(bare.encodeLogical()).toEqual([{ name: 'x', mode: 'query' }]);
+    });
+  }
+
+  test('a supplied value still wins over the default', async () => {
+    const { e } = build('local');
+    const v = await e.run({
+      kind: 'new',
+      type: { name: 'list', generic: { V: { name: 'HttpParam' } } },
+      value: [{ kind: 'new', type: { name: 'HttpParam' }, value: { name: 'x', mode: 'header' } }],
+    } as ExprDef);
+    expect(v.encodeLogical()).toEqual([{ name: 'x', mode: 'header' }]);
   });
 });
 

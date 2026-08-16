@@ -88,6 +88,12 @@ export class OrType extends Type<any, OrOptions> {
     return match.encode(raw, scope);
   }
 
+  /** `or<fn, text>` can hold a fn, so an ExprDef is one of its value forms.
+   *  ANY variant is enough — the union's values are the union of theirs. */
+  parsesExprValue(scope?: TypeScope): boolean {
+    return this.variants.some((v) => v.parsesExprValue(scope));
+  }
+
   /** The matching variant does the walk — same variant selection `encode`
    *  makes, so a composite arm still decomposes. */
   encodeAs(raw: any, opts: EncodeOptions, scope?: TypeScope): unknown {

@@ -273,6 +273,11 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     return new Value(this, raw as RuntimeOf<T>);
   }
 
+  /** An Extension over `fn` is still a fn — its value form is the base's. */
+  parsesExprValue(scope?: TypeScope): boolean {
+    return this.base.parsesExprValue(this.bindScope(scope));
+  }
+
   encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
     return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T>;
   }

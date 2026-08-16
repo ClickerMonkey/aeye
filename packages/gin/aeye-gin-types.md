@@ -263,13 +263,21 @@ constructor never produces a value its own parser refuses. So
 `text{minLength:2}.create()` is two characters, `list{minLength:2}.create()`
 has two items, and `and<num, num{min=3}>.create()` is `3`.
 
+`fn` is included (**0.4.2**): `fn.create()` is the ExprDef
+`{kind:'new', type: <returns>}` — a body constructing the declared return
+type's own zero value, which is both `valid` and runnable. It used to be
+`null`, which `fn.valid` rejects, making `fn` the one type whose constructor
+produced a value its own predicate refused; that propagated to
+`obj{m: fn}.valid(obj.create())` and made `list<fn>.parse([fn.create()])` throw
+a *length constraint* error about a one-element list with no bounds declared.
+
 Two limits, both deliberate:
 
 - **Uninhabitable types** — `not<any>`, `and<num, text>` — have no value to
   create, so `parse` refusing their `create()` is the correct answer.
-- **No derivable witness** — a `pattern` regex has no general inverse, and a
-  `fn` value is a JS function / Expr. `create()` returns a placeholder of the
-  right JS type there; supply a real value yourself.
+- **No derivable witness** — a `pattern` regex has no general inverse.
+  `create()` returns a placeholder of the right JS type there; supply a real
+  value yourself.
 
 `parse` accepts a type's own runtime form as well as its authored JSON form, so
 `create()` / `random()` output can be fed straight back in (a `map` takes both a

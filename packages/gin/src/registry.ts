@@ -536,33 +536,70 @@ export class Registry implements TypeBuilder, TypeScope {
    * `validateValue()` said nothing, and only a generated Zod schema — which
    * is not a validator — ever noticed. See {@link slotAccepts} for the rule; a
    * genuine subtype still lands, which is the whole point of per-slot types.
+   *
+   * **THE DISPATCH ORDER IS THE CONTRACT, and it is written out in the body
+   * below rather than left to fall out of the `if` chain.** Reading a node's
+   * SHAPE before asking the DECLARED type what it wants is what produced the
+   * defect 0.4.2 fixes: a `fn`-declared slot holding its own `{kind:'new',
+   * type, value}` body was refused as a smuggled expression one level inside
+   * a composite, while the identical node parsed fine standalone. A value
+   * that parses on its own and throws one level in is always a dispatch-order
+   * bug; keeping the order explicit is what stops the next one.
    */
   parseValue<T = any>(json: unknown, expectedType?: Type, scope: TypeScope = this): Value<T> {
+    // 1. An already-built `Value` — nothing to interpret, only to reconcile.
     if (json instanceof Value) {
       return this.checkSlot(json, expectedType, scope);
     }
+
+    // 2. THE DECLARED TYPE, FIRST. A few types declare that an Expr node IS
+    //    one of their values — `fn` above all, whose value is an ExprDef by
+    //    definition (`FnType.parse`/`valid`/`toNewSchema` all say so). For
+    //    those the node is DATA, and no shape test may overrule the
+    //    declaration. Narrow on purpose: it fires only when the slot's type
+    //    claims the form AND the node actually carries a registered expr
+    //    `kind`, so a real `{type, value}` envelope landing in a `fn` slot
+    //    still round-trips through step 3.
+    if (expectedType?.parsesExprValue(scope) && this.exprShaped(json)) {
+      return expectedType.parse(json, scope);
+    }
+
+    // 3. A value ENVELOPE — `{type, value}`.
     if (json && typeof json === 'object' && 'type' in json && 'value' in json) {
       // An `ExprDef` and a `JSONValue` are the same JSON shape once the
       // expression names a `type` and a `value` — `{kind:'new', type, value}`
       // is EXACTLY a value envelope with one extra key, and `kind` was simply
       // ignored, so an expression written into a value slot was installed as
       // a literal of whatever type it named. `parseValue` has no engine and
-      // cannot evaluate one; say so instead of reinterpreting it.
+      // cannot evaluate one; say so instead of reinterpreting it. Step 2 has
+      // already let through every slot whose type genuinely takes an Expr.
       const kind = (json as { kind?: unknown }).kind;
       if (typeof kind === 'string' && this.exprClass(kind)) {
         throw new TypeError(
           `registry.parseValue: this node is an EXPRESSION (kind:'${kind}'), not a value envelope`
           + ` — an Expr only evaluates inside a program (\`Engine.run\`/\`Engine.evaluate\`);`
           + ` a bare \`parse\` takes data. Drop the \`kind\` to mean the literal`
-          + ` ${JSON.stringify((json as { type?: unknown }).type)} value.`,
+          + ` ${JSON.stringify((json as { type?: unknown }).type)} value.`
+          + (expectedType ? ` (This slot is declared \`${expectedType.toCode()}\`.)` : ''),
         );
       }
       return this.checkSlot(this.parse(json.type, scope).parse(json.value, scope), expectedType, scope);
     }
+
+    // 4. Plain logical data, judged by the declared type.
     if (!expectedType) {
       throw new TypeError(`registry.parseValue: expected Value or JSONValue, got ${typeof json}`);
     }
     return expectedType.parse(json, scope);
+  }
+
+  /** A node carrying a `kind` that names a registered Expr class. The same
+   *  probe step 3's refusal uses, so the two cannot drift apart — step 2 must
+   *  let through exactly what step 3 would otherwise reject. */
+  private exprShaped(json: unknown): boolean {
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
+    const kind = (json as { kind?: unknown }).kind;
+    return typeof kind === 'string' && !!this.exprClass(kind);
   }
 
   /**
@@ -661,11 +698,34 @@ export class Registry implements TypeBuilder, TypeScope {
       }
       // If `extends` names a BUILT-IN class that natively consumes some of the
       // custom fields present here (obj → props; interface → props/get/call),
-      // those fields are STRUCTURAL and must be folded INTO a base built from
-      // that class — an Extension's `parse` delegates to its base and never
-      // consults the local, so props stranded in the local silently vanish
-      // (an `extends: 'obj'` type would parse every value to `{}`). Leftover,
-      // non-structural fields stay in the Extension local.
+      // those fields are STRUCTURAL and are folded INTO a base built from that
+      // class. Leftover, non-structural fields stay in the Extension local.
+      //
+      // THE ORIGINAL REASON FOR THIS FOLD IS GONE, and the fold is now the
+      // cause of a known defect — read both before touching it. It was "an
+      // Extension's `parse` delegates to its base and never consults the
+      // local, so props stranded in the local silently vanish (an
+      // `extends:'obj'` type would parse every value to `{}`)". Since 0.4.1
+      // `Extension.parse` DOES consult the local: a stored local prop is
+      // filled, required by `valid`, emitted by `encode` and demanded by
+      // `toValueSchema` (see `Extension.storedLocalProps`). So data would no
+      // longer vanish.
+      //
+      // What the fold costs is the open round-trip defect: it re-attributes an
+      // Extension's LOCAL props to the base, turning SURFACE into SHAPE. A
+      // method declared local comes back as a required field, so
+      // `registry.parse(ext.toJSON())` yields a type STRICTER than the one it
+      // serialized — `back.valid(back.parse(row).raw)` is false, and a slot
+      // declared with the round-tripped type refuses the original with the
+      // baffling "declared `X` but the value carries `X`".
+      //
+      // Not removed here, and the blocker is specific: `Extension.compatible`
+      // compares BASES only. Move the props to the local and every Extension
+      // over `obj` gets the same empty base, so `HttpParam.compatible(
+      // HttpHeader)` becomes TRUE — a vacuous relation, and compatibility is
+      // what every declared-return and claim check in the ecosystem rests on.
+      // Closing this properly means teaching `compatible` about stored local
+      // props FIRST; doing it in the other order silently widens everything.
       //
       // GENERIC extensions are excluded: their props reference type-parameter
       // placeholders (`{ name: 'T' }` AliasTypes) that must stay in the local

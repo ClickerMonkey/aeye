@@ -77,6 +77,18 @@ const inhabitable: ReadonlyArray<readonly [string, Type]> = [
   ['interface', r.iface({ props: { a: { type: r.text() } } })],
   ['alias', r.alias('num')],
   ['typ', r.typ(r.any())],
+  // `fn` was in `noDerivableWitness` until 0.4.2, and it did not belong there:
+  // a witness IS derivable from the declaration. `fn.create()` is now the
+  // ExprDef `{kind:'new', type: <returns>}` — a body that constructs the
+  // declared return type's own zero value — where it used to be `null`, which
+  // `fn.valid` rejects. That made `fn` the one type whose own constructor
+  // produced a value its own predicate refused, and it propagated:
+  // `obj{m:fn}.valid(obj.create())` was false, and `list<fn>.parse([create()])`
+  // threw a LENGTH-constraint error about a one-element list with no bounds.
+  ['fn', r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() })],
+  ['fn (no declared return)', r.fn({ args: r.obj({}) })],
+  ['obj holding a fn field', r.obj({ m: { type: r.fn({ args: r.obj({}), returns: r.text() }) } })],
+  ['list<fn>', r.list(r.fn({ args: r.obj({}), returns: r.num() }))],
 ];
 
 /**
@@ -95,13 +107,15 @@ const uninhabitable: ReadonlyArray<readonly [string, Type]> = [
  * Inhabitable, but with NO witness `create` can derive from the declaration —
  * so `create()` returns a placeholder the type itself may refuse, and that is
  * as far as the invariant reaches. Named rather than quietly omitted:
- *  - `text{pattern}` — a regex has no general inverse;
- *  - `fn` — a fn value is a JS function / string ref / Expr; there is nothing
- *    to synthesize, so `create()` is `null` (which `valid` rejects).
+ *  - `text{pattern}` — a regex has no general inverse.
+ *
+ * `fn` used to sit here on the reasoning that "a fn value is a JS function /
+ * string ref / Expr; there is nothing to synthesize". Two of those three are
+ * indeed underivable — but the THIRD is not, and the declaration names it: the
+ * return type. `fn` moved to `inhabitable` in 0.4.2.
  */
 const noDerivableWitness: ReadonlyArray<readonly [string, Type]> = [
   ['text{pattern}', r.text({ pattern: '^[a-z]+$' })],
-  ['fn', r.fn({ args: r.obj({ x: { type: r.num() } }), returns: r.num() })],
 ];
 
 describe('T.parse(T.create()) — the builtin sweep', () => {

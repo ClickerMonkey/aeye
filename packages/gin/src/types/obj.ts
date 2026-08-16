@@ -4,7 +4,7 @@ import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
 import {
   type CompatOptions, GetSet, type NewSlotVisitor, Prop, type PropSpec, type Rnd, Type,
-  ENVELOPE_ENCODE, embeddedExpr, encodeSlot, indentOf, joinAuto, slotAccepts,
+  ENVELOPE_ENCODE, embeddedExpr, encodeSlot, indentOf, isRecordPayload, joinAuto, slotAccepts,
 } from '../type';
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
@@ -357,7 +357,9 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   }
 }
 
-/** A `new obj` payload shape — a plain object, not an array and not null. */
+/** A `new obj` payload shape. `isRecordPayload` is the canonical predicate —
+ *  in particular it excludes a `Value`, which is a BUILT value and never a
+ *  payload awaiting construction. */
 function isFieldMap(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
+  return isRecordPayload(value);
 }

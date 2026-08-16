@@ -83,6 +83,14 @@ registry.parseValue: this node is an EXPRESSION (kind:'new'), not a value envelo
   bare `parse` takes data. Drop the `kind` to mean the literal {"name":"num"} value.
 ```
 
+**Unless the slot's declared type takes one.** A `fn` value IS an ExprDef, so a
+`fn`-declared slot holding a `{kind:'lambda'}` or `{kind:'new'}` node is
+ordinary data and parses as itself. The declared type is consulted BEFORE the
+shape — see [the dispatch
+order](./aeye-gin-registry.md#the-declared-type-is-asked-first), which is also
+where 0.4.2's fix for the same node parsing differently at different nesting
+depths is recorded.
+
 ## `get` — read through a path
 
 ```json

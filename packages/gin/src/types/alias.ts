@@ -108,6 +108,13 @@ export class AliasType extends Type<any, AliasOptions> {
     return t ? t.encode(raw, scope) : raw;
   }
 
+  /** The resolved target's value form. An UNRESOLVED alias answers false:
+   *  it knows nothing about the value form, and claiming an ExprDef is data
+   *  would silently readmit the smuggling the refusal exists to stop. */
+  parsesExprValue(scope?: TypeScope): boolean {
+    return this.resolve(scope)?.parsesExprValue(scope) ?? false;
+  }
+
   /** The resolved target does the walk. Unresolved, the alias knows nothing
    *  about the shape and hands the raw back — as `encode` already does. */
   encodeAs(raw: any, opts: EncodeOptions, scope?: TypeScope): unknown {

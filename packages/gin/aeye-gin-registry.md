@@ -114,6 +114,40 @@ r.list(animal).parse([{ type: { name: 'Dog' }, value: { name: 'rex' } }]);
 No `expectedType` means no second opinion to reconcile against, and the
 envelope's own type stands.
 
+### The declared type is asked FIRST
+
+`parseValue` resolves a node in a fixed order, and the order is the contract:
+
+1. an already-built `Value` — nothing to interpret, only to reconcile;
+2. **the DECLARED type**, when it says an Expr node is one of its values;
+3. a `{type, value}` envelope;
+4. plain logical data, judged by the declared type.
+
+Step 2 exists because a few types genuinely take an `ExprDef` as their value —
+`fn` above all, whose value IS an ExprDef (`FnType.parse`, `FnType.valid` and
+`FnType.toNewSchema` all say so). A `fn`-declared slot holding a `lambda` is
+the ordinary case, not a smuggled expression. `Type.parsesExprValue()` declares
+it, so the rule travels with an `Extension` over `fn`, an `optional<fn>`, an
+`or<fn, text>`. `any` answers **false** on purpose: it accepts every value but
+does not declare that an ExprDef is one of them.
+
+**Fixed in 0.4.2.** Reading the node's SHAPE before asking the declared type
+made the same value parse differently depending on how deep it sat:
+
+```ts
+fn.parse({kind:'new', type:{name:'bool'}, value:false})   // OK
+obj{probe: fn}.parse({probe: <that same node>})           // THREW  ← 0.4.1
+list<fn>.parse([<the new node>])                          // THREW  ← 0.4.1
+obj{probe: fn}.parse({probe: {kind:'get', path:[…]}})     // OK — `get` has no
+                                                          //   `type`/`value` keys
+```
+
+`new` is the only expr kind carrying both a `type` and a `value` key, which is
+why it alone tripped the envelope branch. **A value that parses standalone and
+throws one level in is always a dispatch-order bug** — under 0.4.0 the same
+call did not throw at all, it silently returned `{probe: Value(bool, false)}`,
+replacing the lambda with the literal its body constructs.
+
 **Changed in 0.4.1.** Before, the carried type simply won: a `num` sat inside a
 `list<text>`, `valid()` returned `true` (each cell was asked whether it was
 valid BY ITS OWN LIGHTS, never against the declared element type),
