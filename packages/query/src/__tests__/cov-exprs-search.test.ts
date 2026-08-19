@@ -51,7 +51,7 @@ const itemTypeDef: TypeDef = {
     // Plain (non-search/non-semantic) text ⇒ `field-not-semantic` + non-text-less.
     { name: 'plain', type: { kind: 'text' } },
     // Case-sensitive searchable text ⇒ drives the `sensitive` branches.
-    { name: 'code', type: { kind: 'text', search: true, sensitive: true } },
+    { name: 'code', type: { kind: 'text', search: true, casing: 'exact' } },
   ],
   count: 100,
   bytes: 64,

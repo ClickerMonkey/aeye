@@ -28,6 +28,7 @@ import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Dialect } from '../sql/dialect';
 import { type SqlContext, SqlText } from '../sql/emit';
+import { effectiveCasing, foldsAtRuntime, foldsInSql, type TextCasing } from '../text-casing';
 
 const LIKE_OPS = new Set<ComparisonOp>(['like', 'notLike', 'ilike']);
 
@@ -68,29 +69,27 @@ function exempt(e: Expr): boolean {
 }
 
 /**
- * Whether a comparison between the two resolved operands is a CASE-INSENSITIVE
- * text comparison: BOTH operands resolve to text and neither side is a
- * `sensitive` text field. Drives the SQL `LOWER(...)` wrapping and mirrors the
- * runtime fold (`Value.compareToCase`, which folds whenever both raw values are
- * strings and no `sensitive` metadata is present). Non-text comparisons are
- * never case-folded.
+ * The {@link TextCasing} governing a comparison between the two RESOLVED
+ * operands, or `undefined` when the comparison is not textual (a mixed
+ * text-vs-number comparison, which validation forbids anyway, never folds).
  *
- * The package's product default for text is case-INSENSITIVE, so a plain text
- * comparison — including two string LITERALS (`'abc' = 'ABC'`) or a
- * metadata-less computed / subquery text column vs a literal — folds case in
- * BOTH the runtime and SQL. Only a `sensitive:true` text field forces a
- * case-sensitive match. A mixed text-vs-number comparison (which validation
- * forbids anyway) never folds.
+ * The SQL-side twin of the resolution in {@link ComparisonExpr.evaluateBool}:
+ * both take the casings the two operands DECLARE and consult the engine default
+ * only when NEITHER declares one. Keeping the roads on one rule is what makes
+ * `'abc' = 'ABC'` mean the same thing whether the query ran in memory or in the
+ * database — the invariant `runtime-sql-agreement.test.ts` pins.
+ *
+ * A bare param, a literal, and a metadata-less computed / subquery text column
+ * declare nothing, so a plain `text` column compared to a literal is governed by
+ * the COLUMN when it declares a casing and by the deployment's default
+ * otherwise. Two literals (`'abc' = 'ABC'`) are governed by the default alone.
  */
-function isTextInsensitive(lrt: ResolvedType, rrt: ResolvedType): boolean {
+function comparisonCasing(lrt: ResolvedType, rrt: ResolvedType, engine: QueryEngine): TextCasing | undefined {
   const textual = categoryOf(lrt) === 'text' && categoryOf(rrt) === 'text';
-  if (!textual) return false;
-  // A `sensitive` text FIELD on either side forces case-sensitive matching;
-  // bare params / literals / computed text carry no sensitivity (default off).
+  if (!textual) return undefined;
   const lField = lrt.kind === 'field' ? lrt.field.fieldType : undefined;
   const rField = rrt.kind === 'field' ? rrt.field.fieldType : undefined;
-  const sensitive = (lField?.textCaseSensitive() ?? false) || (rField?.textCaseSensitive() ?? false);
-  return !sensitive;
+  return effectiveCasing(lField?.textCasing(), rField?.textCasing(), engine.textCasing);
 }
 
 /** Wrap a fragment in `LOWER(...)` for case-insensitive textual SQL. */
@@ -284,7 +283,7 @@ export class ComparisonExpr extends BoolExpr {
     return ref ? { ref, arity: 1 } : undefined;
   }
 
-  /** Evaluate under 3VL: a NULL operand yields UNKNOWN; text compares case-insensitively unless a `sensitive` field is involved. */
+  /** Evaluate under 3VL: a NULL operand yields UNKNOWN; text folds case unless the governing {@link TextCasing} is `'exact'`. */
   async evaluateBool(
     ctx: RuntimeContext,
     row: SourceRow,
@@ -309,9 +308,12 @@ export class ComparisonExpr extends BoolExpr {
     const r = await this.right.evaluate(ctx, row, group);
     // SQL three-valued logic: a comparison with a NULL operand is UNKNOWN.
     if (l.isNull() || r.isNull()) return undefined;
-    // Text comparison is case-insensitive unless a `sensitive` text field is
-    // involved (carried as Value type metadata; default insensitive).
-    const sensitive = l.caseSensitive() || r.caseSensitive();
+    // The runtime twin of `comparisonCasing`: the casings the two operands
+    // DECLARE (carried as Value type metadata — a literal / param / untyped cell
+    // declares none), else the engine default. `'collated'` folds here even
+    // though it emits no `LOWER` in SQL: it asserts the STORE folds, and the
+    // runtime's job is to give the answer the store would.
+    const sensitive = !foldsAtRuntime(effectiveCasing(l.textCasing(), r.textCasing(), ctx.engine.textCasing));
     if (LIKE_OPS.has(this.op)) return this.evalLike(l, r, sensitive);
     const cmp = l.compareToCase(r, sensitive);
     switch (this.op) {
@@ -334,8 +336,9 @@ export class ComparisonExpr extends BoolExpr {
 
   /**
    * LIKE / notLike / ilike via SQL wildcard → regex translation. `ilike` is
-   * always case-insensitive; `like` / `notLike` are case-insensitive UNLESS a
-   * `sensitive` text field governs the match (`sensitive === true`).
+   * always case-insensitive (the op says so, and no casing is consulted);
+   * `like` / `notLike` fold unless the governing {@link TextCasing} resolved to
+   * `'exact'` (`sensitive === true` here).
    */
   private evalLike(left: Value, right: Value, sensitive: boolean): boolean {
     const pattern = right
@@ -349,7 +352,7 @@ export class ComparisonExpr extends BoolExpr {
     return this.op === 'notLike' ? !matched : matched;
   }
 
-  /** Emit as a SqlText fragment (ILIKE delegates to the dialect; case-insensitive text wraps both operands in `LOWER(...)`). */
+  /** Emit as a SqlText fragment (ILIKE delegates to the dialect; a `'fold'`-cased text comparison wraps both operands in `LOWER(...)`). */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     // A belongs-to relation operand lowers to ANDed per-key-column comparisons.
     if (this.op === '=' || this.op === '<>') {
@@ -367,13 +370,17 @@ export class ComparisonExpr extends BoolExpr {
     let right = this.right.toSQL(dialect, ctx);
     // ILIKE is dialect-specific (native on Postgres, lowered on ANSI).
     if (this.op === 'ilike') return dialect.ilike(left, right);
-    // Case-insensitive text comparison lowers both operands; sensitive text
-    // and non-text comparisons emit plain operators.
-    const insensitive = isTextInsensitive(
+    // Only the `'fold'` casing lowers both operands. `'collated'` leaves the
+    // fold to the column's own collation and `'exact'` does not fold at all —
+    // both emit a bare, SARGABLE comparison, which is the whole reason the
+    // policy exists (a `LOWER(col)` predicate can use no ordinary index, and
+    // over a physical `uuid` column PostgreSQL has no such function to call).
+    const casing = comparisonCasing(
       this.left.resolve(ctx.engine, ctx.scope),
       this.right.resolve(ctx.engine, ctx.scope),
+      ctx.engine,
     );
-    if (insensitive) {
+    if (casing !== undefined && foldsInSql(casing)) {
       left = lower(left);
       right = lower(right);
     }

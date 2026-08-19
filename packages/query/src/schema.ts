@@ -20,6 +20,8 @@
  *    semantically nullable in storage we say so explicitly.
  */
 
+import type { TextCasing } from './text-casing';
+
 // ============================================================================
 // JSON PRIMITIVES
 // ============================================================================
@@ -101,10 +103,12 @@ export interface TextFieldTypeDef {
   /** Eligible for full-text search. */
   search?: boolean;
   /**
-   * When true, textual matching / comparison on this field is CASE-SENSITIVE.
-   * Default false ⇒ case-insensitive (text operators lower-case both operands).
+   * How textual matching / comparison on this field treats letter case, and —
+   * when it is insensitive — WHO folds. Omitted ⇒ the engine's `textCasing`
+   * default (`'fold'` unless the deployment says otherwise). See
+   * {@link TextCasing}.
    */
-  sensitive?: boolean;
+  casing?: TextCasing;
   /**
    * The closed set of values this column may hold — see `NumberOptions.values`
    * for why membership is a query fact. Composes with `pattern`: a regex

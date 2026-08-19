@@ -15,6 +15,7 @@ import type { z } from 'zod';
 import type { FieldTypeDef, FieldTypeKind, FieldValueDef, JsonValue } from './schema';
 import type { CodeOptions, Node, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Registry } from './registry';
+import type { TextCasing } from './text-casing';
 import { eqSelectivityOf, isClosedSetMember, type ClosedSetViolation } from './field-types/_values';
 import { sameJson } from './field-types/_meet';
 
@@ -241,13 +242,19 @@ export abstract class FieldType implements Node {
   }
 
   /**
-   * Whether TEXTUAL matching / comparison on a value of this type is
-   * CASE-SENSITIVE. Default false (case-insensitive); only `text` fields
-   * flagged `sensitive` override this to `true`. Non-text types never do
-   * case-folding, so the value is moot for them.
+   * The {@link TextCasing} this type DECLARES for textual matching /
+   * comparison, or `undefined` when it declares none — in which case the
+   * engine's `textCasing` default applies (see `text-casing.ts`).
+   *
+   * `undefined` is a distinct answer from any of the three casings, and the
+   * distinction is what keeps a declaration authoritative: a type that says
+   * nothing INHERITS the deployment's default, and can never out-vote a field
+   * that did say something. Only `text` declares one; every other kind
+   * case-folds nothing, so the question is moot for it — a comparison with a
+   * non-text operand never consults a casing at all.
    */
-  textCaseSensitive(): boolean {
-    return false;
+  textCasing(): TextCasing | undefined {
+    return undefined;
   }
 
   // ─── Value validation / schema ────────────────────────────────────────

@@ -4,7 +4,8 @@
  * throw), `toSchema`, `forEachChild`, `validateWalk` (every Problem code plus
  * param element observation and the item-absent / type-element branches),
  * `evaluateBool` (every op, null array, case-sensitive vs case-insensitive
- * element match, NULL needle, NULL array element), `toSQL` (every op across the
+ * element match under a declared casing and under the engine default, NULL needle,
+ * NULL array element), `toSQL` (every op across the
  * postgres + base dialects, including the base containment degrade/throw),
  * `cost`, `toJSON`, `clone`, and `toCode` (no-value / single / list forms).
  */
@@ -13,6 +14,7 @@ import { cctx, fixture, typeScope, runtimeFixture, ref, lit, param } from './_ut
 import { ArrayOpExpr } from '../exprs/array-op';
 import { ParamExpr } from '../exprs/param';
 import { RuntimeContext } from '../runtime/context';
+import { QueryEngine } from '../engine';
 import type { ArrayOp, ExprDef, SelectDef, QueryDef } from '../schema';
 
 const fx = fixture();
@@ -180,14 +182,14 @@ describe('ArrayOpExpr.evaluateBool', () => {
   });
 
   it('matches case-insensitively when the item type folds case (text default)', async () => {
-    // `tags` item is plain text (sensitive: false) ⇒ 'BETA' matches 'beta'.
+    // `tags` item is plain text (casing: 'fold') ⇒ 'BETA' matches 'beta'.
     expect(await names(arrayOp('contains', ref('user', 'tags'), lit('BETA')))).toEqual(['Ada', 'Bob']);
   });
 
-  it('treats a NULL target array per op (no array metadata ⇒ case-sensitive path)', async () => {
+  it('treats a NULL target array per op (no array metadata ⇒ the engine default)', async () => {
     const rt = runtimeFixture();
-    // A param target carries no field type, so `elementCaseSensitive` returns
-    // true; a NULL param value yields a null array for every op.
+    // A param target carries no field type, so `elementCaseSensitive` falls to
+    // the engine default; a NULL param value yields a null array for every op.
     const ctx = new RuntimeContext(rt.engine, { params: { a: null } });
     const nul = new ParamExpr('a');
     const needle = fx.engine.parse(lit('x'));
@@ -198,7 +200,12 @@ describe('ArrayOpExpr.evaluateBool', () => {
     expect(await new ArrayOpExpr('containsAll', nul, [needle]).evaluateBool(ctx, null)).toBe(false);
   });
 
-  it('matches case-sensitively (and skips NULL elements / NULL needle) for an untyped array', async () => {
+  it('an UNTYPED array follows the ENGINE default, not a hardcoded exact match', async () => {
+    // The rule is one sentence everywhere: the element type's DECLARED casing,
+    // else the engine's. It used to be "declared, else exact" here and
+    // "declared, else fold" for a scalar comparison, so `tags contains 'BETA'`
+    // and `tag = 'BETA'` answered differently over one deployment for no reason
+    // a caller could see.
     const rt = runtimeFixture();
     const ctx = new RuntimeContext(rt.engine, { params: { a: ['admin', null, 'beta'] } });
     const arr = new ParamExpr('a');
@@ -206,8 +213,16 @@ describe('ArrayOpExpr.evaluateBool', () => {
       new ArrayOpExpr('contains', arr, [fx.engine.parse(v)]).evaluateBool(ctx, null);
 
     expect(await has(lit('admin'))).toBe(true); // exact match, skips the NULL element
-    expect(await has(lit('ADMIN'))).toBe(false); // case-sensitive (no type metadata)
+    expect(await has(lit('ADMIN'))).toBe(true); // folds, because the default engine folds
     expect(await has(lit(null))).toBe(false); // a NULL needle never matches
+
+    // ... and the same untyped array under an `'exact'` engine does NOT fold.
+    const exactEngine = new QueryEngine(rt.registry, { textCasing: 'exact' });
+    const exactCtx = new RuntimeContext(exactEngine, { params: { a: ['admin', null, 'beta'] } });
+    const hasExact = (v: ExprDef): Promise<boolean> =>
+      new ArrayOpExpr('contains', arr, [fx.engine.parse(v)]).evaluateBool(exactCtx, null);
+    expect(await hasExact(lit('admin'))).toBe(true);
+    expect(await hasExact(lit('ADMIN'))).toBe(false);
 
     // Non-empty / empty arrays under the no-metadata path.
     const full = new ParamExpr('a');

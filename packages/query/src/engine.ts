@@ -51,6 +51,7 @@ import { SqlContext } from './sql/emit';
 import { JoinCtePlanner } from './sql/planner';
 import type { SemanticTextToVector, SemanticEmbeddings } from './vector-text';
 import { embeddingResolver, toVectorText } from './vector-text';
+import { DEFAULT_TEXT_CASING, type TextCasing } from './text-casing';
 
 /**
  * Pluggable text-embedding provider. Semantic similarity exprs (Phase 4) use
@@ -62,10 +63,27 @@ export interface Embedder {
   embed(text: string): Promise<number[]>;
 }
 
-/** Options for constructing a {@link QueryEngine} (embedder, executors, backings). */
+/** Options for constructing a {@link QueryEngine} (embedder, executors, backings, text casing). */
 export interface QueryEngineOptions {
   /** Optional embedder for semantic features. */
   embedder?: Embedder;
+  /**
+   * The DEFAULT {@link TextCasing} for text columns that declare none — the
+   * deployment-wide answer to "does `'Ada' = 'ada'` hold, and who folds?".
+   * Defaults to {@link DEFAULT_TEXT_CASING} (`'fold'`, this package's behaviour
+   * in every release before the option existed).
+   *
+   * Set it once, here, rather than on every declaration; a field that declares
+   * its own `casing` still wins, because collation is genuinely a per-COLUMN
+   * fact and this default only ever speaks for the columns that said nothing.
+   *
+   * A deployment whose text columns are mostly identifiers, codes, uuids or
+   * enums wants `'exact'`: folding them is semantically pointless, it makes
+   * every predicate over them non-sargable, and on PostgreSQL a `LOWER()` over
+   * a physical `uuid` column does not merely deoptimise — the function does not
+   * exist for that type and the statement errors.
+   */
+  textCasing?: TextCasing;
   /** Per-Type data + validation providers, keyed by Type name. */
   executors?: Record<string, TypeExecutor>;
   /**
@@ -146,6 +164,14 @@ export class QueryEngine {
   /** Optional embedding provider (semantic features, Phase 4). */
   readonly embedder?: Embedder;
   /**
+   * The default {@link TextCasing} for text columns that declare none. Read by
+   * BOTH emission roads — `ComparisonExpr` / `ArrayOpExpr` / `text-search` /
+   * `text-score` reach it through `SqlContext.engine` and
+   * `RuntimeContext.engine` — which is why the policy lives on the engine and
+   * not on a `Dialect` (an argument to `toSQL`, invisible to the runtime).
+   */
+  readonly textCasing: TextCasing;
+  /**
    * The NEUTRAL cost context over this engine — no execution-time `filters` /
    * `sort` / `params`.
    *
@@ -173,6 +199,7 @@ export class QueryEngine {
   constructor(registry: Registry, options: QueryEngineOptions = {}) {
     this.registry = registry;
     this.embedder = options.embedder;
+    this.textCasing = options.textCasing ?? DEFAULT_TEXT_CASING;
     if (options.executors) {
       for (const name of Object.keys(options.executors)) {
         this.executors.set(name, options.executors[name]!);

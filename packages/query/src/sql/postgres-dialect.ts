@@ -35,7 +35,7 @@ export class PostgresDialect extends BaseDialect {
 
   /**
    * Full-text search via the text-search operators (inherently case-folded).
-   * A `sensitive` field falls back to an exact-case substring `LIKE`.
+   * An `'exact'`-cased field falls back to an exact-case substring `LIKE`.
    */
   override textSearch(col: SqlText, query: string, sensitive: boolean = false): SqlText {
     if (sensitive) {
@@ -136,7 +136,7 @@ export class PostgresDialect extends BaseDialect {
 
   /**
    * `ts_rank(to_tsvector(col), plainto_tsquery(query))` — a numeric relevance.
-   * A `sensitive` field has no case-folded ranking, so it degrades to a numeric
+   * An `'exact'`-cased field has no case-folded ranking, so it degrades to a numeric
    * match over the exact-case substring `LIKE` (mirrors `textSearch`).
    */
   override textRank(col: SqlText, query: string, sensitive: boolean = false): SqlText {

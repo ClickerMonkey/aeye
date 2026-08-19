@@ -28,7 +28,7 @@ export class BaseDialect extends Dialect {
 
   /**
    * ANSI fallback: substring match via `LIKE`. Case-insensitive by default
-   * (both sides wrapped in `LOWER`); plain `LIKE` when the field is `sensitive`.
+   * (both sides wrapped in `LOWER`); plain `LIKE` when the field's casing is `'exact'`.
    */
   textSearch(col: SqlText, query: string, sensitive: boolean = false): SqlText {
     if (sensitive) {

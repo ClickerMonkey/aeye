@@ -15,7 +15,7 @@ describe('field-types: from → toJSON round-trip', () => {
     { kind: 'number' },
     { kind: 'number', min: 0, max: 100, whole: true },
     { kind: 'text' },
-    { kind: 'text', minLength: 1, maxLength: 64, pattern: '^[a-z]+$', semantic: true, search: true, sensitive: true },
+    { kind: 'text', minLength: 1, maxLength: 64, pattern: '^[a-z]+$', semantic: true, search: true, casing: 'exact' },
     { kind: 'money' },
     { kind: 'money', number: { min: 0, whole: false }, currency: 'USD' },
     { kind: 'bool' },

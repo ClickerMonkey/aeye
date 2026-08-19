@@ -36,7 +36,7 @@ const gadgetDef: TypeDef = {
     { name: 'plainNum', type: { kind: 'number' } },
     { name: 'usd', type: { kind: 'money', currency: 'USD' } },
     { name: 'bareMoney', type: { kind: 'money' } },
-    { name: 'richText', type: { kind: 'text', search: true, semantic: true, sensitive: true } },
+    { name: 'richText', type: { kind: 'text', search: true, semantic: true, casing: 'exact' } },
     { name: 'plainText', type: { kind: 'text' }, nullable: true },
     { name: 'flag', type: { kind: 'bool' }, label: 'On?', description: 'Whether enabled.' },
     { name: 'ownerId', type: { kind: 'relation', to: 'gadget', count: 1 } },

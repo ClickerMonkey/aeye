@@ -42,6 +42,7 @@ import {
   boundTypeOf,
   searchColumn,
   searchSensitive,
+  fieldCaseSensitive,
   searchBackingOf,
   haystackText,
   tokenMatch,
@@ -170,8 +171,8 @@ export class TextSearchExpr extends BoolExpr {
 
   /**
    * Basic token match: the searched text matches when it contains every
-   * whitespace-separated token of the query. CASE-INSENSITIVE unless the
-   * searched field is `sensitive`. When a `SearchBacking` is in effect its `run`
+   * whitespace-separated token of the query. case-FOLDED unless the
+   * searched field's effective {@link TextCasing} is `'exact'`. When a `SearchBacking` is in effect its `run`
    * override decides the boolean, or its hidden `vectorField`'s stored text is
    * token-matched; otherwise today's whole-record / field text is matched. The
    * dialect tsvector / ranking forms are a SQL-emission concern.
@@ -184,7 +185,7 @@ export class TextSearchExpr extends BoolExpr {
     const rec = row[this.source] ?? ctx.correlation?.[this.source];
     if (!rec) return false;
     const type = boundTypeOf(ctx, this.source);
-    const sensitive = this.field !== undefined ? type?.field(this.field)?.fieldType.textCaseSensitive() ?? false : false;
+    const sensitive = fieldCaseSensitive(this.field !== undefined ? type?.field(this.field)?.fieldType : undefined, ctx.engine.textCasing);
     const query = queryRunText(ctx, this.query);
     const backing = type ? ctx.engine.searchBacking(type.name, this.field) : undefined;
     if (backing) {

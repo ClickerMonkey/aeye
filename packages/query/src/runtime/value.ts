@@ -11,6 +11,7 @@
 import type { JsonValue, ScalarValue } from '../schema';
 import type { Field } from '../field';
 import type { FieldType } from '../field-type';
+import type { TextCasing } from '../text-casing';
 
 /** The runtime category a value falls into, inferred from its JS shape. */
 export type ValueCategory = 'null' | 'number' | 'string' | 'boolean' | 'object';
@@ -104,13 +105,19 @@ export class Value {
   }
 
   /**
-   * Whether textual matching against this value is CASE-SENSITIVE. Driven by
-   * the originating field type's `textCaseSensitive()` (a `sensitive` text
-   * field), defaulting to `false` (case-insensitive) when no type metadata is
-   * available — so a raw comparison that cannot see the field type folds case.
+   * The {@link TextCasing} this value's originating field type DECLARES, or
+   * `undefined` — either because no type metadata reached this cell (a literal,
+   * a param, a computed column) or because the type declares no casing.
+   *
+   * Deliberately NOT resolved to a boolean here. A `Value` cannot see the
+   * engine, and the fallback is the ENGINE's default; folding it in with a
+   * `?? false` was how the old accessor made "declares nothing" and "declares
+   * case-insensitive" indistinguishable — which is precisely what a per-field
+   * declaration has to out-rank. The comparison site resolves the two operands'
+   * declarations against `ctx.engine.textCasing` together (`effectiveCasing`).
    */
-  caseSensitive(): boolean {
-    return this.type ? this.type.textCaseSensitive() : false;
+  textCasing(): TextCasing | undefined {
+    return this.type?.textCasing();
   }
 
   /**

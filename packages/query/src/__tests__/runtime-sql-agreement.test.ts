@@ -6,7 +6,7 @@
  *    exactly as the emitted SQL would under a real database's 3VL.
  *  - P0-4: text comparisons case-fold by default (the package's insensitive text
  *    default) in BOTH the runtime and SQL, even for two string literals; a
- *    `sensitive:true` field stays case-sensitive in both.
+ *    an `exact`-cased field stays case-sensitive in both.
  *  - P0-5: a relation JOIN crossing a belongs-to relation resolves the joined
  *    value at runtime, matching the LEFT JOIN `toSQL` synthesizes.
  *
@@ -97,7 +97,7 @@ const docDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true } },
     { name: 'title', type: { kind: 'text' } }, // case-insensitive (default)
-    { name: 'code', type: { kind: 'text', sensitive: true } }, // case-sensitive
+    { name: 'code', type: { kind: 'text', casing: 'exact' } }, // case-sensitive
   ],
   indexes: [{ exprs: [{ expr: ref('doc', 'id'), count: 1 }] }],
   count: 100,
@@ -132,7 +132,7 @@ describe('runtime ↔ SQL agreement — P0-4 text case-sensitivity', () => {
     expect(docEngine().toSQL(def, 'base').sql).toContain('LOWER(?) = LOWER(?)');
   });
 
-  it('a `sensitive:true` field stays case-sensitive in BOTH run and SQL', async () => {
+  it('an `exact`-cased field stays case-sensitive in BOTH run and SQL', async () => {
     const def = whereDocs(cmp('=', ref('doc', 'code'), lit('ABC')));
     // Only the row whose `code` is exactly 'ABC' matches (id=1).
     expect((await docEngine().run(def)).rows).toEqual([{ id: 1 }]);

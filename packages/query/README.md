@@ -58,8 +58,22 @@ is rejected — a relation compares by identity, not order.
 
 Indexes are **composite**: an ordered list of parts, each with a prefix
 distinct-row `count` (non-increasing); the index is unique iff its last part's
-`count === 1`. Text matching is **case-insensitive by default** — set a text
-field's `sensitive: true` for case-sensitive matching. A Type may also be
+`count === 1`. Text matching is governed by a text field's `casing`, else the engine's
+`textCasing` default (`'fold'` unless you set it):
+
+| `casing`     | means                                          | SQL for `a = b`       | in-memory runtime |
+|--------------|------------------------------------------------|-----------------------|-------------------|
+| `'fold'`     | case-INSENSITIVE, folded by the query           | `LOWER(a) = LOWER(b)` | folds             |
+| `'collated'` | case-INSENSITIVE, folded by the COLUMN's collation | `a = b`            | folds             |
+| `'exact'`    | case-SENSITIVE                                  | `a = b`               | compares as-is    |
+
+`LOWER(col)` is not sargable, so `'fold'` costs every predicate over the column
+its index — and on Postgres a column modelled as `text` may physically be a
+`uuid`, where `LOWER()` does not exist at all. So set `textCasing: 'exact'` on
+the engine for a schema of identifiers / codes / enums (`'collated'` when the
+columns really do carry a case-insensitive collation, e.g. `citext`), and let
+the individual columns that DO want folding say `casing: 'fold'` — a field's own
+declaration always wins over the engine default. A Type may also be
 flagged `semantic` / `search` to make it eligible for embedding similarity /
 full-text search even when no individual field is flagged.
 
@@ -99,6 +113,7 @@ registry.registerType(order);
 
 const engine = new QueryEngine(registry, {
   executors: { user: arrayExecutor(userRows) }, // wire data for in-memory runs
+  textCasing: 'exact',                          // default case policy for text columns that declare none
 });
 ```
 
@@ -837,9 +852,8 @@ constant `0`. See `examples/12-search-backing.ts`.
 An `array` field is queried with the `array-op` predicate expression: `contains`
 (a single element is present), `containsAny` / `containsAll` (overlap / superset
 against an element list), and `isEmpty` / `notEmpty`. Element count is a
-`comparison` over the builtin `arrayLength(field)` scalar function. (When the
-element type is a non-`sensitive` text type, element matching is
-case-insensitive, like text.)
+`comparison` over the builtin `arrayLength(field)` scalar function. (Element matching follows the ELEMENT type's `casing`, else the engine's
+`textCasing` default — the same rule a scalar text comparison uses.)
 
 ```ts
 // containment — a single element is present:

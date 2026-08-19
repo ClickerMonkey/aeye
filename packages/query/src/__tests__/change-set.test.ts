@@ -226,7 +226,7 @@ const docDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true } },
     { name: 'title', type: { kind: 'text' } }, // case-insensitive (default)
-    { name: 'code', type: { kind: 'text', sensitive: true } }, // case-sensitive
+    { name: 'code', type: { kind: 'text', casing: 'exact' } }, // case-sensitive
   ],
   indexes: [{ exprs: [{ expr: { kind: 'field-ref', source: 'doc', field: 'id' }, count: 1 }] }],
   count: 100,

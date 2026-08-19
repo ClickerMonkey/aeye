@@ -72,13 +72,18 @@ describe('Value coercions', () => {
     expect(Value.of(1).compareToCase(Value.of(2), false)).toBe(-1);
   });
 
-  it('caseSensitive reflects the originating field type, default false', () => {
+  it('textCasing reports the originating field type DECLARATION, undefined when there is none', () => {
     const fx = runtimeFixture();
-    const sensitive = fx.registry.parseFieldType({ kind: 'text', sensitive: true });
-    const insensitive = fx.registry.parseFieldType({ kind: 'text' });
-    expect(Value.of('x', undefined, sensitive).caseSensitive()).toBe(true);
-    expect(Value.of('x', undefined, insensitive).caseSensitive()).toBe(false);
-    expect(Value.of('x').caseSensitive()).toBe(false);
+    const exact = fx.registry.parseFieldType({ kind: 'text', casing: 'exact' });
+    const collated = fx.registry.parseFieldType({ kind: 'text', casing: 'collated' });
+    const undeclared = fx.registry.parseFieldType({ kind: 'text' });
+    expect(Value.of('x', undefined, exact).textCasing()).toBe('exact');
+    expect(Value.of('x', undefined, collated).textCasing()).toBe('collated');
+    // An undeclared field type and a metadata-less value are BOTH `undefined`:
+    // neither may out-vote the other operand's declaration, and both fall to
+    // the engine default at the comparison site.
+    expect(Value.of('x', undefined, undeclared).textCasing()).toBeUndefined();
+    expect(Value.of('x').textCasing()).toBeUndefined();
   });
 
   it('equals is SQL-equality (null never equal); identical treats nulls equal', () => {

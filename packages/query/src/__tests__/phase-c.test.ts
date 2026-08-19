@@ -113,8 +113,8 @@ describe('phase C — field-ref metadata under an aliased source', () => {
     name: 'widget',
     fields: [
       { name: 'id', type: { kind: 'number', whole: true } },
-      // `sensitive: true` ⇒ text comparison is CASE-SENSITIVE.
-      { name: 'code', type: { kind: 'text', sensitive: true } },
+      // `casing: 'exact'` ⇒ text comparison is CASE-SENSITIVE.
+      { name: 'code', type: { kind: 'text', casing: 'exact' } },
     ],
     count: 10,
     bytes: 32,

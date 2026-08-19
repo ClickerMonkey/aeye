@@ -131,7 +131,7 @@ describe('cov relation resolveKey', () => {
 });
 
 /** A minimal concrete FieldType that overrides NOTHING optional — exercises the
- *  abstract base defaults (`comparableWith`, `validValue`, `textCaseSensitive`). */
+ *  abstract base defaults (`comparableWith`, `validValue`, `textCasing`). */
 class PlainFieldType extends FieldType {
   readonly kind = 'number' as const;
   toJSON(): FieldTypeDef {
@@ -155,13 +155,16 @@ class PlainFieldType extends FieldType {
 }
 
 describe('cov FieldType base defaults', () => {
-  it('base comparableWith / validValue / textCaseSensitive / toCode', () => {
+  it('base comparableWith / validValue / textCasing / toCode', () => {
     const ft = new PlainFieldType();
     expect(ft.comparableWith(new NumberFieldType())).toBe(true);
     expect(ft.comparableWith(new TextFieldType())).toBe(false);
     expect(ft.validValue(5)).toBe(true);
     expect(ft.validValue('x')).toBe(false);
-    expect(ft.textCaseSensitive()).toBe(false);
+    // A non-text type DECLARES no casing — distinct from declaring an
+    // insensitive one, so it inherits the engine default rather than out-voting
+    // a field that did declare.
+    expect(ft.textCasing()).toBeUndefined();
     expect(ft.toCode()).toBe('number');
   });
 });

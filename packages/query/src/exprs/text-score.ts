@@ -47,6 +47,7 @@ import {
   boundTypeOf,
   searchColumn,
   searchSensitive,
+  fieldCaseSensitive,
   searchBackingOf,
   haystackText,
   relevanceScore,
@@ -168,8 +169,8 @@ export class TextScoreExpr extends Expr {
 
   /**
    * A deterministic in-memory relevance in [0, 1]: the FRACTION of the query's
-   * tokens present in the searched text (case-insensitive unless the field is
-   * `sensitive`). When a `SearchBacking` is in effect its `run` override decides
+   * tokens present in the searched text (case-folded unless the field's
+   * effective {@link TextCasing} is `'exact'`). When a `SearchBacking` is in effect its `run` override decides
    * a boolean (⇒ 1/0), or its hidden `vectorField`'s stored text is scored;
    * otherwise the whole-record / field text is scored.
    */
@@ -178,7 +179,7 @@ export class TextScoreExpr extends Expr {
     const rec = row[this.source] ?? ctx.correlation?.[this.source];
     if (!rec) return Value.of(0);
     const type = boundTypeOf(ctx, this.source);
-    const sensitive = this.field !== undefined ? type?.field(this.field)?.fieldType.textCaseSensitive() ?? false : false;
+    const sensitive = fieldCaseSensitive(this.field !== undefined ? type?.field(this.field)?.fieldType : undefined, ctx.engine.textCasing);
     const query = queryRunText(ctx, this.query);
     const backing = type ? ctx.engine.searchBacking(type.name, this.field) : undefined;
     if (backing) {

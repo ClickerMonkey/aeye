@@ -122,6 +122,14 @@ export abstract class Dialect implements DialectEntry {
    * `<tsv> @@ plainto_tsquery(<language>, <query>)` (default `language`
    * `'english'`); the base dialect has no tsvector type and DEGRADES to a
    * case-insensitive substring `LIKE` (ignoring `language`).
+   *
+   * NO `sensitive` / casing parameter, deliberately. A stored tsvector has
+   * ALREADY been folded and stemmed, so an `'exact'` casing is not
+   * expressible over one at any price, and `@@` ignores case unconditionally.
+   * The base dialect's `LOWER(...)` degrade therefore matches what Postgres
+   * does for the same query — honouring a casing here would make the two
+   * dialects disagree about one predicate, which is worse than not offering
+   * the knob. Narrow the search to a plain text FIELD when case must matter.
    */
   abstract tsvectorSearch(tsv: SqlText, query: SqlText, language?: string): SqlText;
 

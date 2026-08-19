@@ -11,7 +11,7 @@
  * THE ALGEBRA IS THE POINT. `ParamSet` folds an arbitrary number of
  * observations in walk order, so unless the operation is COMMUTATIVE,
  * ASSOCIATIVE and IDEMPOTENT the answer depends on where in the JSON tree each
- * use happened to sit. Every helper here is one of exactly three shapes, each
+ * use happened to sit. Every helper here is one of exactly four shapes, each
  * chosen because it has those three properties:
  *
  *  - {@link meetExact} — a FLAT lattice for a single-valued attribute
@@ -22,7 +22,9 @@
  *  - {@link meetLower} / {@link meetUpper} — max / min over a bound, i.e. the
  *    tighter of the two. Absent is unbounded (TOP).
  *  - {@link meetFlag} — OR over a boolean, i.e. the more constrained of the two
- *    (`whole: true` narrows; so, for matching, does `sensitive: true`).
+ *    (`whole: true` narrows).
+ *  - {@link meetRanked} — max over a RANKED enum, the same idea as `meetFlag`
+ *    with more than two members (`text.casing`: `exact` ≻ `fold` ≻ `collated`).
  *
  * A conflict is reported as `{ ok: false }` rather than `undefined`, because
  * `undefined` already means "unconstrained" for every one of these attributes
@@ -80,14 +82,33 @@ export function emptyRange(lower: number | undefined, upper: number | undefined)
 
 /**
  * Meet of a boolean CONSTRAINT flag: OR, i.e. the more constrained of the two.
- * `whole: true` genuinely narrows the values admitted; `sensitive: true`
- * narrows which values MATCH; `semantic` / `search` narrow nothing but are
- * merged the same way so the operation stays a single, provable rule. Absent is
- * `false` — the unconstrained end — so OR has an identity and never conflicts.
+ * `whole: true` genuinely narrows the values admitted; `semantic` / `search`
+ * narrow nothing but are merged the same way so the operation stays a single,
+ * provable rule. Absent is `false` — the unconstrained end — so OR has an
+ * identity and never conflicts.
  */
 export function meetFlag(a: boolean | undefined, b: boolean | undefined): boolean | undefined {
   if (a === undefined && b === undefined) return undefined;
   return a === true || b === true;
+}
+
+/**
+ * Meet of a RANKED enum attribute: the higher-ranked (more constrained) member
+ * wins, absent is TOP. The generalisation of {@link meetFlag} from two members
+ * to N — `text.casing` is the first attribute whose constraint is a graded
+ * choice rather than a flag, and the rank function is the ONE place its
+ * precedence is declared (`casingRank`), shared with the comparison that has to
+ * reconcile the same two casings.
+ *
+ * `Math.max` over a total order is commutative, associative and idempotent, so
+ * this keeps `ParamSet`'s fold independent of the order the walk visits uses in
+ * — the property this whole module exists to preserve. It can never conflict,
+ * for the same reason OR cannot: a maximum always exists.
+ */
+export function meetRanked<T>(a: T | undefined, b: T | undefined, rank: (v: T) => number): T | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return rank(b) > rank(a) ? b : a;
 }
 
 /** Structural equality of two JSON-ish values, by canonical serialization (key order included). */

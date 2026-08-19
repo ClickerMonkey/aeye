@@ -7,8 +7,9 @@ commits); this file starts here and is the place to look from now on.
 
 Two asks about the same thing from two directions: **a declared type should decide which values
 are allowed**, and until now it only did so on the way OUT (schemas, descriptions, cost) rather
-than on the way IN. Additive in API — no exported name changed meaning and no signature lost a
-parameter — but there are **two behaviour changes to read before adopting**, of different kinds:
+than on the way IN — plus a third, from the owner, about the one thing a declared type decided
+TOO much: text case. There are **three behaviour changes to read before adopting**, of different
+kinds, and **one renamed option**:
 
 - **A query that was accepted before can now report a problem.** `write.value` for a literal
   outside a column's closed set (at any depth — an `array<text one of a|b>` is checked
@@ -32,6 +33,22 @@ parameter — but there are **two behaviour changes to read before adopting**, o
   the alternative was worse (the new param meet compiles it, so leaving it unchecked threw a raw
   `SyntaxError` out of `validateQuery`); for the sets, see "the GREATEST lower bound" below —
   tolerating them meant `param.conflict` blaming a QUERY for a defect in the TYPE.
+- **A TEXT FIELD'S `sensitive` OPTION IS GONE, replaced by `casing`** — and a def still carrying
+  `sensitive` is REFUSED (`field-type.retired-option`), never ignored. "Text casing" below says
+  why the option had to grow past a boolean; the refusal is the half to read here. The parse
+  DROPS keys it does not destructure, so a def carried over from `0.6.5` would have registered
+  clean and silently reverted an exactly-compared column to case-FOLDED matching — putting a
+  `LOWER()` back on an identifier column (which throws outright over a physical `uuid`) and
+  LOOSENING every row-security predicate that compares one. `FieldType.textCaseSensitive()` is
+  likewise `FieldType.textCasing()` now, and `Value.caseSensitive()` is `Value.textCasing()`;
+  both return the DECLARED `TextCasing` or `undefined`, because "declares nothing" is a distinct
+  answer from "declares case-insensitive". No other exported name changed meaning and no
+  signature lost a parameter.
+- **An UNTYPED array's element containment now follows the engine default** rather than always
+  comparing exactly. `array-op` resolved a missing element type to case-SENSITIVE while a scalar
+  comparison resolved a missing operand type to case-INSENSITIVE, so `tags contains 'BETA'` and
+  `tag = 'BETA'` answered differently over one deployment for no reason a caller could see. Under
+  the shipped default that means an untyped `contains` folds where it did not.
 
 ### A20 — a WRITE ignored the column's closed value set (**P1, silently wrong data**)
 
@@ -245,6 +262,112 @@ this param a text?" uniformly — including `array-op`, whose requirement is its
 ITEM type. The sites that report no column (`unary`, a function argument, a `limit` / `offset`
 bound) are the ones whose requirement is genuinely structural rather than a column's, which is
 what `ParamUse.field`'s doc says.
+
+### Text casing — `LOWER()` on every text predicate was a default nobody could turn off (**P1, index-defeating and sometimes fatal**)
+
+> *"I don't like that auto-lower by default. I think on the engine you specify that behavior (or
+> somewhere) because a table could be done with a collation where equality checks are always case
+> insensitive and no lower is necessary."*
+
+A plain `{kind:'text'}` column emitted `LOWER("t"."id") = LOWER($1)`. The per-field lever existed
+(`sensitive: true`) but the DEFAULT was wrong for a whole class of deployments, and the cost is
+not a slow query — it is two harder failures:
+
+- **`LOWER(col)` is not sargable.** No ordinary B-tree on the column can be probed, so every
+  predicate over it degrades to a scan. The consuming product declares `id: { kind: 'text' }` (*"a
+  uuid — rendered in the query meta-model as text"*) at ~40 sites; every id lookup in that catalog
+  was structurally unable to use its index.
+- **`LOWER()` is a TEXT function, and this package knows a column's LOGICAL type, never its
+  physical one.** On Postgres those same columns are physically `uuid`, and `LOWER(uuid)` is
+  `function lower(uuid) does not exist`. Measured in that product: EVERY row-security-scoped
+  (non-admin) query failed outright, because the owner / one-hop predicates compare a uuid column
+  to the caller's id. A forgiving default produced SQL that could not run at all.
+
+**Two facts were hiding inside one boolean**, which is why the fix is not a flag:
+
+1. **What the comparison MEANS** — does `'Ada' = 'ada'` hold? A semantic, so it must hold
+   identically in the in-memory runtime AND the emitted SQL.
+2. **WHO folds, in SQL** — this package (wrapping both operands in `LOWER(...)`), or the COLUMN's
+   own collation. A `citext`, a `deterministic = false` collation, or a SQL Server `*_CI_*` server
+   default already compares case-insensitively, so `LOWER()` there is pure cost with no semantic
+   gain — exactly the owner's case, and a boolean cannot say it.
+
+So a text field's `sensitive?: boolean` becomes **`casing?: TextCasing`**, one of three states,
+each with a distinct pair of behaviours (no two are the same behaviour):
+
+| `casing`     | means                                              | SQL for `a = b`       | in-memory runtime |
+|--------------|----------------------------------------------------|-----------------------|-------------------|
+| `'fold'`     | case-INSENSITIVE, folded by the query               | `LOWER(a) = LOWER(b)` | folds             |
+| `'collated'` | case-INSENSITIVE, folded by the COLUMN's collation  | `a = b`               | folds             |
+| `'exact'`    | case-SENSITIVE                                      | `a = b`               | compares as-is    |
+
+`'collated'` is the state that makes the ruling expressible truthfully: it keeps the MEANING
+insensitive — so the runtime still folds and a query means one thing wherever it runs — while
+emitting a bare, index-usable comparison. It is a CLAIM ABOUT THE STORE that this package cannot
+verify, and declaring it over a case-sensitive column is the one way to make the two roads
+disagree; that is the trade for expressing the fact at all, and it is why it is not a default.
+
+**WHERE THE CONTROL LIVES, and why it is not the Dialect.** The engine gains
+`QueryEngineOptions.textCasing` — the deployment-wide default for columns that declare none — and
+a field's own `casing` beats it. The dialect was the other candidate (collation behaviour IS
+dialect-specific, and one dialect instance can serve tables of mixed collation), and it does not
+work: a `Dialect` is an ARGUMENT to `toSQL` and is absent from the runtime entirely, so a
+dialect-level default could govern only half of a semantic that has to hold in both halves —
+which is the invariant `runtime-sql-agreement.test.ts` exists to pin. The engine is the only layer
+both roads can see (`SqlContext.engine`, `RuntimeContext.engine`). Collation is genuinely a
+per-COLUMN fact, so the per-field declaration is the precise place to state it; the engine default
+exists so a deployment whose columns are uniform says it once instead of forty times.
+
+**A declaration is authoritative, and the resolution ORDER is the whole of it.** The casings the
+two operands DECLARE are reconciled between themselves (strictest wins: `exact` ≻ `fold` ≻
+`collated`, preserving the old rule that a case-sensitive field on either side forced an exact
+match), and the engine default is consulted ONLY when NEITHER side declares one. That ordering is
+load-bearing rather than tidy: a literal, a param and a computed column all declare nothing, so
+folding the default in per-operand would let an engine default of `'exact'` arrive through the
+LITERAL in `slug = 'x'` and out-rank a column that explicitly declared `'fold'` — silently making
+a column case-sensitive that says in its own definition that it is not. Both directions are
+tested.
+
+**THE DEFAULT DOES NOT FLIP.** `DEFAULT_TEXT_CASING` is `'fold'` — this package's behaviour in
+every release before the option existed. Every other behaviour change in this release is LOUD by
+construction (it reports a problem, or it throws); flipping this one would be the opposite: an
+existing deployment's `where email = 'Ada@example.com'` would quietly stop matching stored
+`ada@example.com`, with no problem, no type error and no thrown call, and nothing in this package
+able to detect it. The forgiving default also exists for a reason that has not gone away — this is
+a language MODELS author against, and a model writing `status = 'Active'` against stored `active`
+is the case it was chosen for. What was missing was never a better guess but the ability to SAY
+so: **a schema of identifiers, codes, uuids and enums should set `textCasing: 'exact'` (or
+`'collated'`) on the engine, in one line, and let the columns that genuinely want folding declare
+`casing: 'fold'`.**
+
+**Every road that folds now asks the same question**, and the roads that never folded are pinned
+as still not folding — a control honoured by some sites and not others reads as fixed when it is
+not. Folding, and now cased: scalar comparison (`= <> < <= > >=`) in SQL and at runtime,
+`like` / `notLike` in both, `array-op` element containment, and `text-search` / `text-score` in
+both (search collapses the three casings to a boolean, correctly: a folded search runs through
+`to_tsvector` / `plainto_tsquery`, which folds as part of what it does and ranks through a GIN
+index, so there is no `LOWER(col)` predicate for `'collated'` to spare — only `'exact'` changes
+the emission, degrading to an exact-case `LIKE`). Deliberately NOT cased, each for its own reason:
+`ilike` (case-insensitive by definition — the base dialect's `LOWER` there is the OP's semantics,
+not a policy); `Dialect.tsvectorSearch` (a stored tsvector has already been folded and stemmed, so
+`'exact'` is not expressible over one at any price, and honouring it would make the base dialect
+disagree with Postgres about one predicate); and `in` / `between` / `order by` / `distinct` /
+relation-identity comparison (including a JOIN's key `ON`) / the text scalar functions
+(`startsWith`, `indexOf`, `replace`, `arrayContains` — which map onto the database's own
+exact-matching builtins, `lower(...)` being the explicit way to fold inside one), **none of which
+have ever case-folded on either road**. That last group is a real
+inconsistency in the language — `in.ts`'s own comment defines `x IN (a, b)` as `x = a OR x = b`,
+and for text it is not — but it is left alone here: making them fold would mean MORE
+index-defeating SQL and a semantic change for every consumer, and making `=` stop folding is the
+default flip this section just declined. It is named so the next reader does not mistake silence
+for coverage.
+
+**New public surface:** `TextCasing`, `TEXT_CASINGS`, `DEFAULT_TEXT_CASING`, `casingRank`,
+`strictestCasing`, `effectiveCasing`, `foldsInSql`, `foldsAtRuntime`, and
+`QueryEngine.textCasing`. `meetRanked` joins `field-types/_meet.ts` as its fourth lattice
+primitive — max over a ranked enum, i.e. `meetFlag` with more than two members — so a param typed
+from an `'exact'` column and a `'fold'` one infers `'exact'` by the SAME rank function the
+comparison uses, and the two answers cannot drift.
 
 ### Also
 

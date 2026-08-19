@@ -43,6 +43,18 @@ export {
   type FormatProblemsOptions,
 } from './code';
 
+// Text casing — the case-comparison policy a text field or the engine declares
+export {
+  TEXT_CASINGS,
+  DEFAULT_TEXT_CASING,
+  type TextCasing,
+  casingRank,
+  strictestCasing,
+  effectiveCasing,
+  foldsInSql,
+  foldsAtRuntime,
+} from './text-casing';
+
 // Field types
 export { FieldType, type FieldTypeClass, type ScalarKind } from './field-type';
 export * from './field-types/index';

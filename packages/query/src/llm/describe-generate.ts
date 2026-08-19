@@ -5,7 +5,7 @@
  * A developer-supplied `label` / `description` ALWAYS wins; these fill the gap
  * so every Type / Field surfaces a human- / LLM-facing doc even when the dev
  * authored none. Values are derived from what the meta-model already knows — a
- * Field from its `FieldType` (kind, bounds, `sensitive` / `semantic` / `search`
+ * Field from its `FieldType` (kind, bounds, `casing` / `semantic` / `search`
  * flags, array item / bounds, a relation's `to` + DIRECTION + `count`, nullability) and a
  * Type from its name plus a field / relation / index summary.
  *
@@ -70,7 +70,12 @@ function fieldTypeSentence(ft: FieldType): string {
       const flags: string[] = [];
       if (def.search) flags.push('full-text searchable');
       if (def.semantic) flags.push('semantic-search eligible');
-      if (def.sensitive) flags.push('case-sensitive');
+      // The DECLARED casing only. A field that declares none inherits the
+      // engine's default, which this road cannot see (it is handed a
+      // `FieldType`, not an engine). The model needs to know whether case
+      // MATTERS, not which side performs the fold, so `collated` and `fold`
+      // describe the same behaviour to it.
+      if (def.casing !== undefined) flags.push(def.casing === 'exact' ? 'case-sensitive' : 'case-insensitive');
       return flags.length > 0 ? `Text (${flags.join(', ')})` : 'Text';
     }
     case 'bool':

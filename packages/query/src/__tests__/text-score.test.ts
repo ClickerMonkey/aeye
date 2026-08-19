@@ -43,7 +43,7 @@ const plainDef: TypeDef = {
   fields: [
     { name: 'id', type: { kind: 'number', whole: true } },
     { name: 'title', type: { kind: 'text', search: true } },
-    { name: 'code', type: { kind: 'text', search: true, sensitive: true } },
+    { name: 'code', type: { kind: 'text', search: true, casing: 'exact' } },
     { name: 'note', type: { kind: 'text' } },
     { name: 'qty', type: { kind: 'number' } },
   ],

@@ -53,13 +53,13 @@ const whereSql = (where: ExprDef, dialect: string): string => fx.engine.toSQL(wh
 // irrelevant to the specific problem codes / param inferences asserted below.)
 const ordersPath: ExprDef = { kind: 'tabular-function-call', function: 'gen', args: {} };
 
-// ─── A local registry with a `sensitive:true` text field (for case-folding) ──
+// ─── A local registry with a `casing:'exact'` text field (for case-folding) ──
 const docDef: TypeDef = {
   name: 'doc',
   fields: [
     { name: 'id', type: { kind: 'number', whole: true } },
     { name: 'title', type: { kind: 'text' } },
-    { name: 'code', type: { kind: 'text', sensitive: true } },
+    { name: 'code', type: { kind: 'text', casing: 'exact' } },
   ],
   indexes: [{ exprs: [{ expr: ref('doc', 'id'), count: 1 }] }],
   count: 100,

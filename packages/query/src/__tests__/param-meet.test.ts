@@ -70,7 +70,7 @@ const TYPES: Readonly<Record<string, FieldType>> = {
   textMin12: new TextFieldType({ minLength: 12 }),
   textPatA: new TextFieldType({ pattern: '^a' }),
   textPatB: new TextFieldType({ pattern: '^b' }),
-  textSensitive: new TextFieldType({ sensitive: true }),
+  textSensitive: new TextFieldType({ casing: 'exact' }),
   enumAB: new TextFieldType({ values: [{ value: 'a' }, { value: 'bb' }] }),
   enumBC: new TextFieldType({ values: [{ value: 'bb', label: 'Double B' }, { value: 'c' }] }),
   enumC: new TextFieldType({ values: [{ value: 'c' }] }),

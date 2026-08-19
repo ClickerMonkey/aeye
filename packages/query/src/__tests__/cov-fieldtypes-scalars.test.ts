@@ -86,8 +86,8 @@ describe('cov number field type', () => {
 
 describe('cov text field type', () => {
   it('from valid + kind mismatch throw', () => {
-    const ft = TextFieldType.from({ kind: 'text', minLength: 1, maxLength: 9, pattern: '^a', semantic: true, search: true, sensitive: true });
-    expect(ft.options).toEqual({ minLength: 1, maxLength: 9, pattern: '^a', semantic: true, search: true, sensitive: true });
+    const ft = TextFieldType.from({ kind: 'text', minLength: 1, maxLength: 9, pattern: '^a', semantic: true, search: true, casing: 'exact' });
+    expect(ft.options).toEqual({ minLength: 1, maxLength: 9, pattern: '^a', semantic: true, search: true, casing: 'exact' });
     expect(() => TextFieldType.from({ kind: 'bool' })).toThrow(/expected kind 'text'/);
   });
 
@@ -96,9 +96,13 @@ describe('cov text field type', () => {
     expect(TextFieldType.toSchema().safeParse({ kind: 'number' }).success).toBe(false);
   });
 
-  it('textCaseSensitive reflects sensitive flag', () => {
-    expect(new TextFieldType({ sensitive: true }).textCaseSensitive()).toBe(true);
-    expect(new TextFieldType({}).textCaseSensitive()).toBe(false);
+  it('textCasing reports the DECLARED casing, and undefined when none is declared', () => {
+    expect(new TextFieldType({ casing: 'exact' }).textCasing()).toBe('exact');
+    expect(new TextFieldType({ casing: 'collated' }).textCasing()).toBe('collated');
+    expect(new TextFieldType({ casing: 'fold' }).textCasing()).toBe('fold');
+    // Undeclared is NOT `'fold'`: it means "inherit the engine default", which
+    // is what lets a deployment set `'exact'` without every field opting in.
+    expect(new TextFieldType({}).textCasing()).toBeUndefined();
   });
 
   it('resolve / avgBytes bounded + unbounded', () => {
@@ -123,8 +127,8 @@ describe('cov text field type', () => {
 
   it('toJSON / clone empty + full', () => {
     expect(new TextFieldType().toJSON()).toEqual({ kind: 'text' });
-    const full = new TextFieldType({ minLength: 1, maxLength: 2, pattern: 'x', semantic: false, search: false, sensitive: false });
-    expect(full.toJSON()).toEqual({ kind: 'text', minLength: 1, maxLength: 2, pattern: 'x', semantic: false, search: false, sensitive: false });
+    const full = new TextFieldType({ minLength: 1, maxLength: 2, pattern: 'x', semantic: false, search: false, casing: 'fold' });
+    expect(full.toJSON()).toEqual({ kind: 'text', minLength: 1, maxLength: 2, pattern: 'x', semantic: false, search: false, casing: 'fold' });
     expect(full.clone().toJSON()).toEqual(full.toJSON());
   });
 });

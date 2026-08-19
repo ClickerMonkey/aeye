@@ -8,10 +8,11 @@ import {
   meetFieldValues,
   narrowFieldValues,
 } from './_values';
-import { meetExact, meetFlag, meetLower, meetUpper, emptyRange } from './_meet';
+import { meetExact, meetFlag, meetLower, meetRanked, meetUpper, emptyRange } from './_meet';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import { casingRank, TEXT_CASINGS, type TextCasing } from '../text-casing';
 
 /** Options bag for a text field type (instance-side). */
 export interface TextOptions {
@@ -33,8 +34,16 @@ export interface TextOptions {
   semantic?: boolean;
   /** Eligible for full-text search. */
   search?: boolean;
-  /** When true, text matching is case-sensitive (default: case-insensitive). */
-  sensitive?: boolean;
+  /**
+   * How textual matching on this field treats letter case — and, when it is
+   * insensitive, WHO folds (see {@link TextCasing}). Absent ⇒ the engine's
+   * `textCasing` default; present, it is authoritative over that default.
+   *
+   * `'collated'` is a claim about the PHYSICAL column (a `citext`, a
+   * non-deterministic collation, a case-insensitive server default) that this
+   * package cannot verify — declare it only where the store really does fold.
+   */
+  casing?: TextCasing;
   /** The closed set of values this column may hold (see `NumberOptions.values`). */
   values?: FieldValueDef[];
 }
@@ -69,6 +78,38 @@ function checkPattern(pattern: string): void {
 }
 
 /**
+ * Refuse the retired `sensitive` flag LOUDLY, rather than letting it be dropped
+ * as an unrecognised key.
+ *
+ * `sensitive: true` was the only way to say "compare this column exactly", and
+ * the parse ignores keys it does not destructure — so a def carried over from
+ * `0.6.5` would parse clean and silently revert the column to case-FOLDED
+ * matching. That failure is invisible and expensive in both directions: an
+ * identifier column starts emitting `LOWER(...)` again (index-defeating, and a
+ * hard `function lower(uuid) does not exist` on a physical uuid), and a
+ * row-security predicate that compares an owner id becomes case-insensitive,
+ * i.e. LOOSER than it was declared to be.
+ *
+ * So it is refused where the declaration is read, naming its replacement. This
+ * is the same road, and the same class of refusal, as `field-type.bad-pattern`
+ * and `field-type.bad-values`.
+ */
+function checkLegacySensitive(json: TextFieldTypeDef): void {
+  if (!('sensitive' in json)) return;
+  // The `in` check itself narrows `json` to carry an `unknown`-typed
+  // `sensitive`, so reading the retired key needs no cast.
+  const was: unknown = json.sensitive;
+  throw new QueryTypeError({
+    path: ['sensitive'], code: 'field-type.retired-option', severity: 'error',
+    message:
+      `Text field option 'sensitive' was replaced by 'casing' (one of ${TEXT_CASINGS.join('|')}). ` +
+      `Write ${was === false ? "casing: 'fold'" : "casing: 'exact'"} instead — a 'sensitive' key is ` +
+      `refused rather than ignored, because ignoring it would silently case-FOLD a column that was ` +
+      `declared to compare exactly.`,
+  });
+}
+
+/**
  * A value-side Zod schema for a text bag's SCALAR CONSTRAINTS alone — length +
  * pattern, ignoring any closed set. Split out from `toValueSchema` (which
  * short-circuits on the closed set) because a MEET has to ask the two questions
@@ -93,7 +134,7 @@ function compact(o: TextOptions): TextOptions {
   if (o.pattern !== undefined) out.pattern = o.pattern;
   if (o.semantic !== undefined) out.semantic = o.semantic;
   if (o.search !== undefined) out.search = o.search;
-  if (o.sensitive !== undefined) out.sensitive = o.sensitive;
+  if (o.casing !== undefined) out.casing = o.casing;
   const values = compactFieldValues(o.values);
   if (values) out.values = values;
   return out;
@@ -101,14 +142,24 @@ function compact(o: TextOptions): TextOptions {
 
 /**
  * TextFieldType — a string field with optional length / pattern constraints,
- * semantic-search / full-text flags, and a `sensitive` case-sensitivity flag.
+ * semantic-search / full-text flags, and a `casing` policy.
  *
- * CASE-SENSITIVITY RULE (important): textual matching and comparison on a text
- * field are CASE-INSENSITIVE BY DEFAULT — every text operator (equality,
- * ordering comparisons, `contains` / `startsWith` / `endsWith` / `like` /
- * `ilike`, and full-text `search`) lower-cases both operands. Set
- * `sensitive: true` to make matching CASE-SENSITIVE (operands compared as-is;
- * SQL emits plain operators with no `LOWER(...)` wrapping).
+ * CASING RULE (important). The casing in effect for this field is its own
+ * `casing` when it declares one, and otherwise the engine's `textCasing`
+ * default — which ships as `'fold'`, i.e. textual matching is CASE-INSENSITIVE
+ * unless a field or the deployment says otherwise. What that governs, exactly:
+ * the scalar comparison operators (`= <> < <= > >=`), `like` / `notLike`,
+ * `array-op` element containment, and whether a full-text `search` / `score`
+ * degrades to an exact-case `LIKE`. `ilike` is case-insensitive by definition
+ * and consults no casing.
+ *
+ * What it does NOT govern, because those roads have never case-folded on either
+ * side (runtime or SQL): `in`, `between`, `order` / `distinct` / `group by`,
+ * relation identity comparison, and the text scalar FUNCTIONS (`startsWith`,
+ * `indexOf`, `replace`, `arrayContains`, which compare as-is and map onto the
+ * database's own exact-matching builtins). Their behaviour is unchanged and is
+ * the same in both roads; it is simply not part of what this option turns off.
+ * `lower(...)` / `upper(...)` remain the explicit way to fold inside a function.
  */
 export class TextFieldType extends FieldType {
   /** Discriminant kind tag (`'text'`) shared by all instances. */
@@ -123,16 +174,17 @@ export class TextFieldType extends FieldType {
     super();
   }
 
-  /** Text matching is case-sensitive only when this field is `sensitive`. */
-  override textCaseSensitive(): boolean {
-    return this.options.sensitive === true;
+  /** This field's DECLARED casing, or `undefined` to inherit the engine's default. */
+  override textCasing(): TextCasing | undefined {
+    return this.options.casing;
   }
 
   /**
    * Reconstruct from a JSON def. Throws a `QueryTypeError` on a kind mismatch,
-   * on an uncompilable `pattern`, and on a closed set holding a member this
-   * type's own length / pattern constraints reject — all three are defects in
-   * the DECLARATION, and this is the road every in-package parse takes.
+   * on an uncompilable `pattern`, on a closed set holding a member this type's
+   * own length / pattern constraints reject, and on the retired `sensitive`
+   * key — all four are defects in the DECLARATION, and this is the road every
+   * in-package parse takes.
    */
   static from(json: FieldTypeDef): TextFieldType {
     if (json.kind !== 'text') {
@@ -141,12 +193,13 @@ export class TextFieldType extends FieldType {
         message: `TextFieldType.from: expected kind 'text', got '${json.kind}'`,
       });
     }
-    const { minLength, maxLength, pattern, semantic, search, sensitive, values } = json;
+    checkLegacySensitive(json);
+    const { minLength, maxLength, pattern, semantic, search, casing, values } = json;
     // Order matters: `textConstraintSchema` COMPILES the pattern, so an
     // uncompilable one has to be refused as itself before the set is checked
     // against it — otherwise the member check throws a raw `SyntaxError`.
     if (pattern !== undefined) checkPattern(pattern);
-    const options = compact({ minLength, maxLength, pattern, semantic, search, sensitive, values });
+    const options = compact({ minLength, maxLength, pattern, semantic, search, casing, values });
     // Checked on the COMPACTED set, so a member repeated in the declaration is
     // named once rather than once per occurrence.
     checkFieldValues('text', ['values'], options.values, textConstraintSchema(options));
@@ -162,7 +215,13 @@ export class TextFieldType extends FieldType {
       pattern: z.string().optional().describe('Format regex (UUID, slug, …); not accept-anything.'),
       semantic: z.boolean().optional().describe('Eligible for embedding-based semantic similarity.'),
       search: z.boolean().optional().describe('Eligible for full-text search.'),
-      sensitive: z.boolean().optional().describe('When true, text matching is CASE-SENSITIVE (default: case-insensitive).'),
+      casing: z.enum(TEXT_CASINGS).optional().describe(
+        "How text matching treats letter case. 'fold' (the usual default) = case-INSENSITIVE, folded by the query " +
+        "(SQL wraps both sides in LOWER(...)); 'exact' = case-SENSITIVE — use it for identifiers, codes and uuids, " +
+        "where folding is wrong and defeats the index; 'collated' = case-INSENSITIVE because the COLUMN's own " +
+        'collation folds (citext / a non-deterministic collation), so no LOWER(...) is emitted. Omit to inherit the ' +
+        "engine's default.",
+      ),
       // A `text` member is a STRING — the owning kind decides the member type
       // (see `fieldValuesSchema`), so this schema cannot offer a numeric one.
       values: fieldValuesSchema(z.string()),
@@ -182,7 +241,10 @@ export class TextFieldType extends FieldType {
   /**
    * Meet with another `text`: bounds tighten, a `pattern` must AGREE (there is
    * no regex that is the intersection of two others, so two different formats
-   * are a genuine conflict), flags OR, and the closed sets intersect. The merged
+   * are a genuine conflict), flags OR, the CASING takes the stricter of the two
+   * (`casingRank` — the same precedence a comparison between two differently
+   * cased columns uses, so a param's inferred type and the comparison it was
+   * inferred from can never disagree), and the closed sets intersect. The merged
    * SET is then narrowed by the merged CONSTRAINTS — the two can arrive from
    * different uses, and a closed set is the value schema, so a member that
    * cannot satisfy the merged length/pattern would otherwise be accepted.
@@ -204,7 +266,7 @@ export class TextFieldType extends FieldType {
       pattern: pattern.value,
       semantic: meetFlag(a.semantic, b.semantic),
       search: meetFlag(a.search, b.search),
-      sensitive: meetFlag(a.sensitive, b.sensitive),
+      casing: meetRanked(a.casing, b.casing, casingRank),
       values: values.value,
     });
     if (merged.values) {

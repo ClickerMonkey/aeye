@@ -28,6 +28,7 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { categoryOf, childExprSchema } from './_shared';
+import { effectiveCasing, foldsAtRuntime, type TextCasing } from '../text-casing';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -213,15 +214,19 @@ export class ArrayOpExpr extends BoolExpr {
   // ─── Evaluation ────────────────────────────────────────────────────────────
 
   /**
-   * Whether textual element comparison is case-sensitive, derived from the
-   * target Value's type metadata when present: a non-`sensitive` text item
-   * folds case; everything else (unknown item, non-text item) compares
-   * exactly (non-text values are never case-folded anyway).
+   * Whether textual element comparison is case-sensitive: the ELEMENT type's
+   * declared {@link TextCasing} when the target Value carries one, else the
+   * engine's default — the same resolution `ComparisonExpr` applies to a
+   * scalar, so `tags contains 'BETA'` and `tag = 'BETA'` cannot answer
+   * differently for one deployment.
+   *
+   * A non-text element folds nothing regardless, because `compareToCase` only
+   * folds when BOTH raw values are strings.
    */
-  private elementCaseSensitive(target: Value): boolean {
+  private elementCaseSensitive(target: Value, engineDefault: TextCasing): boolean {
     const t = target.type;
-    if (t instanceof ArrayFieldType && t.item) return t.item.textCaseSensitive();
-    return true;
+    const declared = t instanceof ArrayFieldType ? t.item?.textCasing() : undefined;
+    return !foldsAtRuntime(effectiveCasing(declared, undefined, engineDefault));
   }
 
   /** Evaluate the predicate: containment / overlap / emptiness over the target array. */
@@ -232,7 +237,7 @@ export class ArrayOpExpr extends BoolExpr {
   ): Promise<boolean> {
     const tv = await this.target.evaluate(ctx, row, group);
     const arr: readonly JsonValue[] | null = Array.isArray(tv.raw) ? tv.raw : null;
-    const sensitive = this.elementCaseSensitive(tv);
+    const sensitive = this.elementCaseSensitive(tv, ctx.engine.textCasing);
 
     switch (this.op) {
       case 'isEmpty':
@@ -323,7 +328,7 @@ export class ArrayOpExpr extends BoolExpr {
 }
 
 /** Whether `needle` is a member of `arr` (NULLs never match; text folds case
- *  unless `sensitive`). */
+ *  unless the effective casing is `'exact'`). */
 function arrayHas(arr: readonly JsonValue[], needle: Value, sensitive: boolean): boolean {
   if (needle.isNull()) return false;
   for (const el of arr) {
