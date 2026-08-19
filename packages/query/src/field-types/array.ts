@@ -86,6 +86,15 @@ export class ArrayFieldType extends FieldType {
   }
 
   /**
+   * The declared ELEMENT type, or `undefined` for a heterogeneous array — the
+   * one accessor every consumer that recurses into an array reads, so none of
+   * them narrows to this class to reach `item` (see `FieldType.itemType`).
+   */
+  override itemType(): FieldType | undefined {
+    return this.item;
+  }
+
+  /**
    * Arrays compare only with other arrays. When BOTH sides declare an element
    * type, the element types must themselves be comparable; an unknown element
    * type on either side is treated as compatible (no constraint to enforce).

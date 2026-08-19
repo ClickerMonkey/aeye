@@ -15,7 +15,6 @@ import {
   NumberFieldType,
   TextFieldType,
   TimestampFieldType,
-  ArrayFieldType,
 } from '../field-types/index';
 
 /** The PostgreSQL dialect: numbered placeholders, `ILIKE`, tsvector search, pgvector similarity, richer types. */
@@ -114,16 +113,15 @@ export class PostgresDialect extends BaseDialect {
    * `Dialect.builtinJsonValue` for the emit this closed.
    */
   protected override builtinJsonValue(value: JsonValue, fieldType?: FieldType, site?: ValueSite): SqlText {
-    const array = fieldType instanceof ArrayFieldType ? fieldType : undefined;
-    const item = array?.item;
-    if (array !== undefined && item !== undefined && Array.isArray(value)) {
+    const item = fieldType?.itemType();
+    if (fieldType !== undefined && item !== undefined && Array.isArray(value)) {
       const elements = value.map((v) =>
         v !== null && typeof v === 'object' ? this.jsonValue(v, item, site) : SqlText.param(v),
       );
       return SqlText.concat([
         SqlText.raw('ARRAY['),
         SqlText.join(elements, ', '),
-        SqlText.raw(`]::${this.sqlTypeFor(array)}`),
+        SqlText.raw(`]::${this.sqlTypeFor(fieldType)}`),
       ]);
     }
     return SqlText.concat([
@@ -200,12 +198,14 @@ export class PostgresDialect extends BaseDialect {
         return 'text';
       case 'json':
         return 'jsonb';
-      case 'array':
+      case 'array': {
         // Native typed array (`text[]`, `integer[]`, …) when the element type
-        // is known; `jsonb` for a heterogeneous / unknown-element array.
-        return fieldType instanceof ArrayFieldType && fieldType.item
-          ? `${this.sqlTypeFor(fieldType.item)}[]`
-          : 'jsonb';
+        // is known; `jsonb` for a heterogeneous / unknown-element array. The
+        // element is asked for as a declared capability (`itemType()`), so the
+        // dialect never narrows to the class that happens to carry it.
+        const item = fieldType.itemType();
+        return item ? `${this.sqlTypeFor(item)}[]` : 'jsonb';
+      }
       /* v8 ignore next 2 -- defensive: `kind` exhaustively covers ScalarKind */
       default:
         return assertNever(kind);

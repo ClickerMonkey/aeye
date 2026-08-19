@@ -11,7 +11,7 @@ import type { Registry } from './registry';
 import { Field } from './field';
 import { Index } from './index-spec';
 import { QueryTypeError } from './problem';
-import { RelationFieldType, TextFieldType, fieldTypeDefSchema } from './field-types/index';
+import { fieldTypeDefSchema } from './field-types/index';
 
 /** Constructor spec for a {@link Type} — name, metadata, fields, indexes, and cost estimates. */
 export interface TypeSpec {
@@ -133,14 +133,23 @@ export class Type implements Node {
     return this.fields.find((f) => f.name === name);
   }
 
-  /** Fields whose type is a relation to another Type. */
+  /**
+   * Fields whose type is a relation to another Type.
+   *
+   * Through `resolve()` rather than `instanceof`, here and in
+   * {@link textFields}: it is the same answer `categoryOf` gives every
+   * comparison in the package (one spelling of "is a relation", not two), it
+   * needs no concrete-class import, and it survives two builds of this package
+   * coexisting in one process — where `instanceof` is FALSE across the copies
+   * (measured; see the note in `index.ts`).
+   */
   relationFields(): Field[] {
-    return this.fields.filter((f) => f.fieldType instanceof RelationFieldType);
+    return this.fields.filter((f) => f.fieldType.resolve() === 'relation');
   }
 
   /** Fields whose type is `text` (the candidates a narrowed text-search targets). */
   textFields(): Field[] {
-    return this.fields.filter((f) => f.fieldType instanceof TextFieldType);
+    return this.fields.filter((f) => f.fieldType.resolve() === 'text');
   }
 
   /**
@@ -237,10 +246,17 @@ export class Type implements Node {
   /**
    * Whether ONE field is declared semantic-eligible: a text field flagged
    * `semantic` (or `search`, whose index is the same kind of derived artifact).
+   *
+   * The fact lives on the FIELD TYPE ({@link FieldType.isSemantic}), which is
+   * what makes this method — and `exprs/semantic.ts`, which used to carry a
+   * hand-copied duplicate of the predicate — one reader of one definition. A
+   * registered REFINEMENT inherits it rather than re-declaring it: `search` /
+   * `semantic` are `text`'s own options, so
+   * `registerFieldType({ base:'text', options:{ semantic:true } })` makes every
+   * column that names the type semantic with no new declaration surface.
    */
   isFieldSemantic(field: Field): boolean {
-    const ft = field.fieldType;
-    return ft instanceof TextFieldType && (ft.options.semantic === true || ft.options.search === true);
+    return field.fieldType.isSemantic();
   }
 
   /**
@@ -258,10 +274,9 @@ export class Type implements Node {
     return this.semantic || this.semanticFields().length > 0;
   }
 
-  /** Whether ONE field is declared full-text searchable. */
+  /** Whether ONE field is declared full-text searchable (see {@link FieldType.isSearchable}). */
   isFieldSearchable(field: Field): boolean {
-    const ft = field.fieldType;
-    return ft instanceof TextFieldType && ft.options.search === true;
+    return field.fieldType.isSearchable();
   }
 
   /**

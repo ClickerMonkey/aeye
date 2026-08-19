@@ -9,7 +9,6 @@ import type { FieldType } from './field-type';
 import type { FieldBacking } from './backing';
 import type { CodeOptions, Node } from './node';
 import type { Registry } from './registry';
-import { ArrayFieldType, RelationFieldType, TextFieldType } from './field-types/index';
 
 /** Constructor spec for a {@link Field} — its name, presentation metadata, field type, and flags. */
 export interface FieldSpec {
@@ -141,20 +140,35 @@ export class Field implements Node {
    * field, `text-search`/`text-score` a text field, `semantic` a semantic-eligible
    * field (a semantic/search text field, or a relation). Every other kind is
    * type-agnostic (any field allows it).
+   *
+   * ASKED OF THE TYPE, never by `instanceof`. The two CATEGORY gates go through
+   * `resolve()` — the same answer `categoryOf` gives every comparison in the
+   * package, so there is one spelling of "is text" rather than two, and it
+   * survives two builds of this package existing in one process (`index.ts`
+   * records that measurement). The SEMANTIC gate goes through the type's own
+   * `isSemantic()`, which is where the `search`/`semantic` options are read now
+   * — this used to reach into `TextFieldType.options` from outside the class,
+   * as did three other sites, one of them a hand-copied duplicate.
+   *
+   * A `relation` is admitted here and is NOT `isSemantic()`, deliberately: this
+   * asks whether a `semantic` expr may TARGET the field, while `isSemantic()`
+   * asks whether the field's own values are embedded. Merging them made every
+   * Type owning a foreign key report itself semantic-eligible (see
+   * `Type.semanticFields`).
    */
   private fieldTypeAllowsExpr(kind: ExprKind): boolean {
     const ft = this.fieldType;
     switch (kind) {
       case 'array-op':
-        return ft instanceof ArrayFieldType;
+        // The CONTAINER test, not `itemType() !== undefined`: an array that
+        // declares no element type is still an array, and still takes an
+        // `array-op`.
+        return ft.resolve() === 'array';
       case 'text-search':
       case 'text-score':
-        return ft instanceof TextFieldType;
+        return ft.resolve() === 'text';
       case 'semantic':
-        return (
-          ft instanceof RelationFieldType ||
-          (ft instanceof TextFieldType && (ft.options.semantic === true || ft.options.search === true))
-        );
+        return ft.resolve() === 'relation' || ft.isSemantic();
       default:
         return true;
     }

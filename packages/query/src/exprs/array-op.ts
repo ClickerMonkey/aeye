@@ -33,7 +33,6 @@ import { effectiveCasing, foldsAtRuntime, type TextCasing } from '../text-casing
 import { withAid } from '../aids';
 import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
-import { ArrayFieldType } from '../field-types/index';
 import { ParamExpr } from './param';
 import { Value } from '../runtime/value';
 import type { JsonValue } from '../schema';
@@ -171,8 +170,12 @@ export class ArrayOpExpr extends BoolExpr {
     const here = p.here;
     const t = p.at('target', () => this.target.validateWalk(engine, scope, p, operandCtx(this.target, 'array-op', ctx)));
     const tft = asFieldType(t);
-    const targetArray = tft instanceof ArrayFieldType ? tft : undefined;
-    if (!targetArray) {
+    // The CONTAINER test through `resolve()` — the same answer `categoryOf` one
+    // line down gives, rather than a second spelling of it via `instanceof` —
+    // and the ELEMENT through the type's own `itemType()`. An array declaring no
+    // item is still an array and still takes an op, so the two questions stay
+    // separate.
+    if (tft?.resolve() !== 'array') {
       p.at('target', () =>
         p.error(
           'array-op.not-array',
@@ -180,7 +183,7 @@ export class ArrayOpExpr extends BoolExpr {
         ),
       );
     }
-    const item = targetArray?.item;
+    const item = tft?.itemType();
 
     // Arity.
     const arityMsg = ArrayOpExpr.arityMessage(this.op, this.values.length);
@@ -249,8 +252,9 @@ export class ArrayOpExpr extends BoolExpr {
    * folds when BOTH raw values are strings.
    */
   private elementCaseSensitive(target: Value, engineDefault: TextCasing): boolean {
-    const t = target.type;
-    const declared = t instanceof ArrayFieldType ? t.item?.textCasing() : undefined;
+    // `itemType()` answers `undefined` for every non-container, so a scalar
+    // target reads as "declares nothing" exactly as the class narrowing did.
+    const declared = target.type?.itemType()?.textCasing();
     return !foldsAtRuntime(effectiveCasing(declared, undefined, engineDefault));
   }
 

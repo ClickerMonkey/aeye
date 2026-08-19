@@ -332,6 +332,78 @@ export abstract class FieldType implements Node {
     return values !== undefined && values.every((v) => TOKEN_PATTERN.test(String(v.value)));
   }
 
+  // ─── Declared capabilities ────────────────────────────────────────────────
+  //
+  // WHAT BELONGS HERE, AND WHAT DOES NOT. These answer "what can be DONE with a
+  // value of this type" for the expression kinds whose eligibility is a property
+  // of the type rather than of the query — and they are asked of the TYPE, so a
+  // caller never narrows to a concrete class to find out. They were four
+  // `instanceof TextFieldType` reads of `options.search` / `options.semantic`
+  // from OUTSIDE that class, one of them a hand-copied duplicate carrying a
+  // comment that said so (`exprs/semantic.ts`'s `fieldIsSemantic`).
+  //
+  // THE KIND QUESTIONS ARE NOT HERE, deliberately. "Is this text / an array / a
+  // relation" is already answered by {@link resolve} — the single spelling
+  // `categoryOf` uses for every comparison in the package — so a second
+  // `isTextual()` beside it would be two sources for one fact. `ScalarKind` is
+  // also closed permanently by design, so a kind gate cannot be made
+  // future-proof by moving it; what it CAN be is copy-safe, which asking
+  // `resolve()` rather than `instanceof` already achieves (two builds of this
+  // package produce two copies of every class — see the note in `index.ts`).
+  //
+  // A REFINEMENT INHERITS THESE; it does not re-declare them. Both are BUILTIN
+  // options (`TextOptions.search` / `.semantic`), and a refinement's `options`
+  // narrow the base's own vocabulary through the ordinary meet — so
+  // `registerFieldType({ base:'text', options:{ search:true, semantic:true } })`
+  // already makes every column that names it searchable and embeddable, and the
+  // flags OR through `meetWith` so a use site may add one the declaration left
+  // off. A `searchable` key on the DECLARATION would be a second source for the
+  // same fact, meeting through a different lattice (`meetExact`, where two
+  // values conflict) than the option it duplicates (`meetFlag`, where they OR) —
+  // so a site declaring `search: false` beside a refinement declaring
+  // `searchable: true` would have no single answer.
+
+  /**
+   * Whether a value of this type participates in FULL-TEXT search — the fact
+   * `Type.isFieldSearchable` / `Type.isSearchable` and the `text-search` schema
+   * gating ask.
+   *
+   * `false` by default: full-text indexing is a declared artifact, and a type
+   * that has not said it produces one does not. Only `text` overrides it today.
+   * An `array<text search:true>` therefore answers `false` — the ELEMENT is
+   * indexed, the array is not, which is the behaviour that shipped; the seam is
+   * what makes changing that a one-line decision rather than a survey.
+   */
+  isSearchable(): boolean {
+    return false;
+  }
+
+  /**
+   * Whether a value of this type is embedded for SEMANTIC scoring — the fact
+   * `Type.isFieldSemantic` / `Type.semanticFields` and the `semantic` expr ask.
+   *
+   * `search` implies it: a full-text index is the same kind of derived artifact,
+   * and a deployment that maintains one maintains the embedding beside it. A
+   * RELATION is not semantic here even though a `semantic` expr may TARGET one
+   * (`Field.allowsExpr`) — the two are different questions, and conflating them
+   * made every Type with a foreign key report itself semantic-eligible.
+   */
+  isSemantic(): boolean {
+    return false;
+  }
+
+  /**
+   * The ELEMENT type of a CONTAINER, or `undefined` for a scalar — and for a
+   * container that declares no element type, which is a real state (`{kind:
+   * 'array'}` with no `item` is a heterogeneous array, emitted as `jsonb`).
+   *
+   * So it is an ACCESSOR, not the container test: `resolve() === 'array'` is
+   * what gates `array-op`, and an item-less array must still be allowed one.
+   */
+  itemType(): FieldType | undefined {
+    return undefined;
+  }
+
   /**
    * The CLOSED SET of values THIS type admits, or `undefined` when it declares
    * none (the unconstrained default). Total on the value-category union so

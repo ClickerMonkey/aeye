@@ -1080,10 +1080,22 @@ to folding on BOTH roads together, where the shorter spelling would have left SQ
 runtime folded. **The LIKE family is excluded**, and that exclusion is what keeps the fix from
 re-introducing the defect one operator over: `compareValues` is an ORDER, `like` / `notLike` are a
 text PATTERN match (`evalLike`, never `compareToCase`), so they keep folding per `casing` on both
-roads. `checkFieldType` warns (`conformance.comparator-without-casing`) when a `text` refinement
-declares a comparator and no `options.casing`, because the comparison arms then follow the comparator
-while the LIKE family, `text-search`, `text-score` and array containment follow the engine default —
-one column, two case policies, and the declaration stating neither.
+roads. `checkFieldType` warns (`conformance.comparator-without-casing`) whenever a `text` refinement
+declares a comparator and its effective casing is anything other than `'exact'` — no `casing` at all,
+or a declared `'fold'` / `'collated'` — because the comparison arms then follow the comparator while
+the LIKE family, `text-search`, `text-score` and array containment follow the casing: one column, two
+case policies. **`'collated'` is a DIVERGENCE, not a second answer**, and the warning says so rather
+than offering it: it claims the STORE folds, so the emitted statement is a bare `=` either way (this
+package never wraps `LOWER()` for `'collated'`) and the folding store matches — while
+`Value.compareToCase` stops folding the moment a comparator is in effect. Measured on the same
+`Tag` shape as above, `tag = 'v1.2.3'` against a stored `V1.2.3`:
+
+```
+collated, NO comparator     run=[{"id":1}]  sql= "rel"."tag" = $1
+collated, WITH comparator   run=[]          sql= "rel"."tag" = $1
+```
+
+If the split is deliberate, drop the COMPARATOR rather than the casing.
 
 **`DISTINCT`, `GROUP BY`, an aggregate's `DISTINCT` and the set operations key on the RAW value, and
 a comparator does not reach them.** Stated rather than fixed, at the shared root
@@ -1121,11 +1133,15 @@ which was used.
 **`DifferentialRow`'s values are `unknown`, not `JsonValue`.** A driver decides what a column
 deserialises to and the defaults are not this package's JSON model — `pg` hands back a `Date` for
 `timestamptz`, a STRING for `numeric` and `bigint`, a `Buffer` for `bytea`. Typed as `JsonValue` the
-documented one-liner compiled only because `pg` types its rows as `any`, and the comparison would
-then read a `Date`'s ISO rendering against `engine.run`'s plain string and file a DRIVER ARTIFACT as
-a divergence of the type. The remedy is one line at the caller's end (`pg.types.setTypeParser`, or a
-text projection) rather than a normalisation this package could guess, and the disagreement message
-now names it as a thing to check.
+documented one-liner compiled only because `pg` types its rows as `any`, and a DRIVER ARTIFACT filed
+as a divergence of the type is the most expensive false positive a harness can produce. **Which
+artifacts actually reach the comparison is measured, and the obvious example is not one of them**:
+both sides render through `JSON.stringify`, and `JSON.stringify(new Date(iso))` is byte-identical to
+`JSON.stringify(iso)`, so a `timestamptz` `Date` AGREES with `engine.run`'s ISO string on every probe.
+The two that fire are `numeric` (`"1.5"` against `1.5`) and `bytea` (`{"type":"Buffer",…}` against a
+string). The remedy is one line at the caller's end (`pg.types.setTypeParser(1700, Number)`, or a text
+projection) rather than a normalisation this package could guess, and the disagreement message names
+those two as the things to check.
 
 **`equalValues` is still not shipped, and the reason is the SQL half rather than tidiness**: a btree
 operator class requires its `=` and `<` to be consistent, so one comparator is the faithful model of
@@ -1174,6 +1190,108 @@ which was the point.
 renders the OUTPUT in column style and explains why three lines below. Corrected — a doc comment
 that contradicts the code one screen down is the cheapest possible defect and the most expensive
 kind to trust.
+
+**Step 5 — a capability is DECLARED ON THE FIELD TYPE, not read off its class.** `FieldType` gains
+`isSearchable()` / `isSemantic()` / `itemType()`. The first two default to `false` and are overridden
+by `text` alone (from its `search` / `semantic` options, `search` implying semantic-eligibility); the
+third defaults to `undefined` and is overridden by `array`. **Behaviour is unchanged** — the suite is
+the evidence — and what changes is who answers: `Type.isFieldSearchable` / `isFieldSemantic`,
+`Field.allowsExpr`'s `semantic` gate and `exprs/semantic.ts` were four `instanceof TextFieldType`
+reads of `options.search` / `options.semantic` from OUTSIDE that class, the last of them a hand-copied
+duplicate carrying a comment that said so. They are now one definition with four readers. `itemType()`
+does the same for the five sites that narrowed to `ArrayFieldType` to reach `item` (the `array-op`
+validate + its element casing, both conformance recursions, the Postgres array type and its native
+element binding).
+
+**A REFINEMENT INHERITS THEM; there is no new declaration surface, and that is the design call.**
+`search` / `semantic` are `text`'s OWN options, and a refinement's `options` narrow the base's through
+the ordinary meet — so `registerFieldType({ base:'text', options:{ search:true, semantic:true } })`
+already makes every column that names the type searchable and embeddable, and the flags OR through
+`meetFlag`, so a use site may ADD one the declaration left off and cannot take one it set away. A
+`searchable` key on the DECLARATION would be a second source for one fact, meeting through
+`meetExact` (where two values CONFLICT) rather than `meetFlag` (where they OR) — a site writing
+`search: false` beside a refinement writing `searchable: true` would then have no single answer. The
+inheritance is now pinned by a test rather than left incidental.
+
+**The KIND questions stay `resolve()`, and are NOT capabilities.** "Is this text / an array / a
+relation" is what `categoryOf` already asks of every comparison in the package, so an `isTextual()`
+beside it would be the same duplication one layer down; `ScalarKind` is closed permanently by design,
+so no kind gate can be made future-proof by moving it either. What the kind gates THIS TOUCHED did
+gain is copy-safety: `relationFields()`, `textFields()`, the three `Field.allowsExpr` arms and the
+`array-op` target check no longer use `instanceof`, which is `false` across two builds of this
+package in one process (the measurement recorded in `index.ts`). `field.ts`, `type.ts`,
+`exprs/semantic.ts` and `exprs/array-op.ts` drop their concrete field-type imports entirely. **That
+is the scope of the claim, and the package is NOT copy-safe package-wide**: eleven
+`instanceof RelationFieldType` narrowings remain, in `exprs/field-ref.ts` (five),
+`exprs/_relation-compare.ts`, `queries/join.ts` (two), `queries/_cost.ts`, `queries/_write.ts` and
+`registry.ts`. Each is the same hazard and none is a capability the `FieldType` base declares yet —
+a follow-up, since it needs the relation questions those sites ask (`to`, `isBelongsTo()`, the
+inverse pair) declared on the base before the narrowings can go.
+
+**Two sites deliberately keep their class narrowing, because they are not capability gates.**
+`llm/describe.ts`'s `fieldTypeBase` renders `search` and `semantic` as SEPARATE tags
+(`text(search,semantic)`), so it needs the two DECLARED flags and not the derived capability — the
+question there is what the declaration SAYS, not what the type can do. `Dialect.builtinSqlTypeFor`
+likewise narrows per arm to read an option (`whole`, `maxLength`, `timezone`) after dispatching on
+`resolve()`; only its `array` arm was a capability read, and that one now asks `itemType()`.
+
+**Carried from step 4's review and from the review OF that fix — most of them one class: a CLAIM
+this release's own prose made that the code did not honour.**
+
+- **`conformance.comparator-without-casing` recommended `'collated'` — the one casing that cannot
+  agree with a comparator.** It is the divergence measured above, reached by following the warning
+  that exists to prevent it. The message now offers `'exact'` alone and names `'collated'` as the
+  thing to move off. Its opening clause was wrong in the same string: the gate is
+  `textCasing() !== 'exact'`, so a declaration that DID write `casing: 'fold'` or `'collated'` read
+  a message about "no `options.casing`" — it now states the casing it is looking at.
+- **`differentialCheck` reported `ok: true` having proved nothing** when `columns.other` named a
+  field of a DIFFERENT kind. The arm loop passes `whenRefused: 'note'`, so all nine refusals were
+  silent `unprobeable` entries and no problem was filed — while the branch one over already refuses
+  to let a MISSING `other` pass quietly, on the rule that "a check that quietly skipped most of what
+  it was asked to do would be worse than one that did not run". `!type.field(other)` catches a name
+  that does not exist, not one that exists with the wrong type. Every enumerated arm refused is now
+  **`conformance.differential-no-arms`** (a `warning`, naming both fields' types), gated on at least
+  one arm having been enumerated so a `compare` declaring them all away does not trip it, **and on
+  the two columns' type tags actually DIFFERING**. The mismatch is the signal; the count is not, and
+  "a `json` Geometry refuses 3 of 9 while a wrong `other` refuses 9 of 9" is a coincidence of the
+  DEFAULT `compare` rather than the invariant. Two conformant same-type pairings sit on the wrong
+  side of a count-only gate, both driven now: a `json` refinement declaring
+  `compare: {equality:false, ordering:false, textMatch:true}` enumerates exactly the three arms its
+  KIND refuses (3 of 3 — `checkFieldType` reports nothing about that declaration), and a has-many
+  `relation` pair refuses all nine with no declaration at all. Either would have been told that
+  `'shape' is json as Geometry` and `'next' is json as Geometry` differ — the identical-tags defect
+  `typeTag` was added to prevent, reached by another road — and would have made `ok` false for a
+  correct declaration on its first run, which `DifferentialReport.ok` refuses in terms. A same-type
+  pairing now reports those refusals through `unprobeable` alone, which is what
+  `whenRefused: 'note'` files them to.
+- **The `Date`-vs-ISO-string example was the wrong example**, in three places. `canonical()` renders
+  both sides through `JSON.stringify` and `JSON.stringify(new Date(iso))` is byte-identical to
+  `JSON.stringify(iso)`, so a real driver `Date` AGREES on every probe. The `unknown` widening itself
+  is unchanged and right — `numeric`→string and `bytea`→`Buffer` are real and do fire — and those two
+  are what the sites name now.
+- **The operator value-probe's `comparison: 'multiset'` is pinned by a test.** Flipping it to
+  `'sequence'` left all 2334 tests green; the FUNCTION probe one loop below was pinned and the
+  operator one was not.
+- **The test that replaced the `Date` example asserted more than its body could fail for.** Its
+  title named `numeric` and `bytea` as the artifacts that fire, and drove all three renderings
+  against one TIMESTAMP column — where `'1.5'` and a `Buffer` disagree only by being different
+  strings from an ISO stamp, exactly as `'nonsense'` would. Measured: coercing the driver `Buffer`
+  to a utf-8 string inside `probeValues` — a real change to how a `bytea` artifact is read — flipped
+  the true `bytea` case to `agreed: true` and left the whole file green. Each artifact now drives
+  the column it arrives on (`numeric` → a `number` column holding `1.5`, `bytea` → a `text` column
+  holding `ab`) and each carries the control that proves the rendering is the only difference (the
+  same value in this package's JSON model agrees). The same mutation now fails.
+- **`Field.allowsExpr`'s `array-op` arm is pinned.** The comment states the rule the loudest — "the
+  CONTAINER test, not `itemType() !== undefined`" — and making exactly that mistake left the whole
+  suite green (measured: 2345 passing, zero failing), while the same mutation at the sibling gate in
+  `exprs/array-op.ts` fails one test. The eligibility test asserted only that a bare `array`'s
+  `itemType()` is `undefined`; it now asserts the gate itself, over a bare array field, a typed one
+  and a non-array, and the mutation fails it.
+- **A warning said "measured" for the half that was inferred.** `comparator-without-casing`'s
+  `'collated'` clause read "measured, `engine.run` returned nothing for the row the database
+  returned" — there is no database in this suite. The RUN side is measured; the store side follows
+  from what `'collated'` DECLARES about the column's collation, which is how the changelog and the
+  doc already put it. The message now says so.
 
 ### Also
 

@@ -751,17 +751,46 @@ function checkComparator(
   // `text-search`, `text-score` and array-element containment are not comparator
   // roads at all — they fold per `casing`, which is the ENGINE default unless the
   // declaration narrows it. So one column answers two different case policies
-  // depending on the operator, and the declaration says neither.
-  if (refinement.base === 'text' && refinement.declared.textCasing() !== 'exact') {
+  // depending on the operator.
+  //
+  // THE GATE IS `!== 'exact'`, SO IT ALSO FIRES ON A DECLARED `'fold'` OR
+  // `'collated'`, and the message says which of the two it is looking at. Its
+  // first version opened with "and no `options.casing`" and offered `'collated'`
+  // as the second answer — both wrong, and the second actively so. MEASURED, on
+  // a `text as Tag` holding `V1.2.3` against the predicate `tag = 'v1.2.3'`:
+  //
+  //     collated, NO comparator     run=[{"id":1}]  sql= "rel"."tag" = $1
+  //     collated, WITH comparator   run=[]          sql= "rel"."tag" = $1
+  //
+  // `foldsInSql('collated')` is false, so the statement is identical either way
+  // and a folding store matches the row; `foldsAtRuntime('collated')` is true,
+  // but `compareToCase` skips the fold the moment a comparator is in effect. The
+  // comparator therefore cancels the RUNTIME half of `'collated'` and nothing
+  // cancels the STORE half — the exact run-vs-SQL divergence this whole
+  // mechanism exists to close. `'exact'` is the only casing that can agree with
+  // a comparator.
+  const casing = refinement.declared.textCasing();
+  if (refinement.base === 'text' && casing !== 'exact') {
     bad(
       'conformance.comparator-without-casing',
-      `\`${refinement.name}\` is a \`text\` refinement with a \`compareValues\` and no ` +
-        '`options.casing`. Its comparator governs `= <> < <= > >=` — and only those: the LIKE family, ' +
-        '`text-search`, `text-score` and array-element containment fold per `casing`, which is the ' +
-        "ENGINE's default (`'fold'` as shipped) while your comparator is whatever you wrote. One column " +
-        'then answers two case policies depending on the operator. Declare `options: { casing: ' +
-        "'exact' }` if your comparator is case-sensitive (the usual case — it makes the whole column one " +
-        "policy), or `'collated'` if the STORE folds; leave it only if the split is deliberate.",
+      `\`${refinement.name}\` is a \`text\` refinement with a \`compareValues\` and ` +
+        `${casing === undefined ? 'no `options.casing`' : `\`options.casing: '${casing}'\``}. Its ` +
+        'comparator governs `= <> < <= > >=` — and only those: the LIKE family, `text-search`, ' +
+        '`text-score` and array-element containment fold per `casing`, which is the ' +
+        `${casing === undefined ? "ENGINE's default (`'fold'` as shipped)" : `declared \`'${casing}'\``} ` +
+        'while your comparator is whatever you wrote. One column then answers two case policies ' +
+        "depending on the operator. Declare `options: { casing: 'exact' }`: it is the ONLY casing that " +
+        'agrees with a comparator, and it makes the whole column one policy — the one your comparator ' +
+        `already implements.${
+          casing === 'collated'
+            ? " `'collated'` is the one to move OFF, not a second answer: it claims the STORE folds, and" +
+              ' a comparator stops the runtime folding (`Value.compareToCase` skips its fold when one is' +
+              ' in effect) while the emitted SQL stays a bare `=` that the folding store still matches —' +
+              ' measured, `engine.run` returned nothing, against a row the store this casing DECLARES to' +
+              ' fold returns.'
+            : ''
+        } If the split is deliberate, drop the COMPARATOR rather than the casing — a type that wants ` +
+        "this package's folding declares `casing` and no comparator.",
       'warning',
     );
   }
@@ -1022,7 +1051,12 @@ function checkOperandCastsAreWritable(operator: QueryOperator, dialects: readonl
  */
 function castTargetsOf(ft: FieldType | undefined): FieldType[] {
   if (!ft) return [];
-  return ft instanceof ArrayFieldType && ft.item ? [ft, ...castTargetsOf(ft.item)] : [ft];
+  // Recursion through the type's own `itemType()` rather than a narrowing to
+  // `ArrayFieldType`: this module is also the one that ships as
+  // `@aeye/query/conformance`, and two copies of a class make `instanceof` false
+  // across them (the measurement in `index.ts`).
+  const item = ft.itemType();
+  return item ? [ft, ...castTargetsOf(item)] : [ft];
 }
 
 /**
@@ -1131,7 +1165,8 @@ function opArmEntries(): [ComparisonOp, keyof FieldTypeCompareDecl][] {
 function refinementsOf(ft: FieldType | undefined): FieldTypeRefinement[] {
   if (!ft) return [];
   const own = ft.refinement ? [ft.refinement] : [];
-  return ft instanceof ArrayFieldType && ft.item ? [...own, ...refinementsOf(ft.item)] : own;
+  const item = ft.itemType();
+  return item ? [...own, ...refinementsOf(item)] : own;
 }
 
 /** One shipped `examples` entry, parsed and matched against the declaration. */
@@ -1317,6 +1352,18 @@ function safeJson(value: unknown): string {
   }
 }
 
+/**
+ * `text`, or `text as IpAddress` — a field type named the way a report has to
+ * name it when it is asking whether TWO of them are the same.
+ *
+ * `toCode()` alone renders the BASE, so two columns of different registered
+ * types over one base both read `text` and the reader is told to compare two
+ * identical strings. The `as` is the whole distinction there.
+ */
+function typeTag(ft: FieldType): string {
+  return ft.as === undefined ? ft.toCode() : `${ft.toCode()} as ${ft.as}`;
+}
+
 /** A thrown `QueryTypeError` as its own `Problem`; anything else as a conformance one. */
 function asProblem(err: unknown, path: (string | number)[], code: string): Problem {
   if (err instanceof QueryTypeError) return err.problem;
@@ -1338,17 +1385,26 @@ export { REFINABLE_BASES, SCALAR_KINDS };
  * DESERIALISES to, and the defaults are not this package's JSON model: `pg`
  * hands back a `Date` for `timestamptz`, a STRING for `numeric` and `bigint`
  * (precision it will not silently lose), and a `Buffer` for `bytea`. Typed as
- * `JsonValue` this compiled only because `pg` types its rows as `any` — and the
- * comparison would then read a `Date`'s ISO rendering against `engine.run`'s
- * plain string and file a DRIVER ARTIFACT as a divergence of the type, which is
- * the most expensive kind of false positive a harness can produce.
+ * `JsonValue` this compiled only because `pg` types its rows as `any` — and a
+ * DRIVER ARTIFACT filed as a divergence of the type is the most expensive kind
+ * of false positive a harness can produce.
+ *
+ * WHICH ARTIFACTS ACTUALLY REACH THE COMPARISON, measured, because the obvious
+ * example is not one of them. {@link canonical} renders both sides through
+ * `JSON.stringify`, and `JSON.stringify(new Date(iso))` is byte-identical to
+ * `JSON.stringify(iso)` — so a `timestamptz` `Date` beside `engine.run`'s ISO
+ * string AGREES (`order asc` / `distinct` / `group by` all `agreed=true` with a
+ * real `Date` on the driver side). The two that DO fire are the ones whose
+ * rendering differs: a `numeric` arrives as `"1.5"` against a run-side `1.5`,
+ * and a `bytea` as `{"type":"Buffer","data":[…]}` against a string. Both
+ * disagree on every probe.
  *
  * So the remedy is the caller's and it is one line at their end, not a
  * normalisation this package could guess: register the type parsers that match
- * your model (`pg.types.setTypeParser(1114, (v) => v)` for a timestamp, `1700`
- * for numeric), or project a text form in the column you point `columns.field`
- * at. A first run against a `timestamptz` column will say so loudly, which is
- * the point of leaving it visible rather than coercing.
+ * your model (`pg.types.setTypeParser(1700, Number)` for a numeric), or project
+ * a text form in the column you point `columns.field` at. A first run against a
+ * `numeric` column will say so loudly, which is the point of leaving it visible
+ * rather than coercing.
  */
 export type DifferentialRow = Readonly<Record<string, unknown>>;
 
@@ -1382,7 +1438,9 @@ export interface DifferentialColumns {
    *
    * Optional, and its absence is REPORTED rather than silently narrowing the run:
    * a check that quietly skipped most of what it was asked to do would be worse
-   * than one that did not run.
+   * than one that did not run. THE SAME FIELD TYPE is not decoration either: one
+   * of a different kind makes every arm illegal, which used to read as `ok: true`
+   * with nothing compared and is now `conformance.differential-no-arms`.
    */
   readonly other?: string;
 }
@@ -1633,7 +1691,8 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
         "answers: reconcile the type's SQL half (`sql` / `cast`) with its in-memory half " +
         "(`registerFieldTypeImpl`'s `compareValues`) — whichever of the two is not what you meant. If " +
         'the two look the same, check what your driver deserialises this column to (see ' +
-        '`DifferentialRow`): a `Date` and its ISO string are not the same value here.',
+        '`DifferentialRow`): a `numeric` arrives as the string "1.5" and a `bytea` as a `Buffer`, ' +
+        'neither of which renders as what `engine.run` produced.',
     });
   };
 
@@ -1668,7 +1727,8 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
     });
     return verdict(problems.length === 0);
   }
-  if (!type.field(other)) {
+  const otherField = type.field(other);
+  if (!otherField) {
     problems.push({
       path,
       code: 'conformance.differential-unknown-column',
@@ -1683,8 +1743,13 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
   // meaningless for their type, so skipping it is silent — they said so. Every
   // other refusal is validation's, and lands in `unprobeable` (see `probe`).
   const compare = field.fieldType.refinement?.compare;
+  let armsEnumerated = 0;
+  const armsRefused: string[] = [];
+  const armCodes = new Set<string>();
   for (const [op, arm] of opArmEntries()) {
     if (compare && !compare[arm]) continue;
+    armsEnumerated += 1;
+    const before = unprobeable.length;
     await probe(
       `${columns.field} ${op} ${other}`,
       predicateProbe(columns.type, columns.field, {
@@ -1696,6 +1761,63 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
       'multiset',
       'note',
     );
+    for (const skip of unprobeable.slice(before)) {
+      armsRefused.push(op);
+      for (const code of skip.codes) armCodes.add(code);
+    }
+  }
+  // EVERY arm refused, over two columns of DIFFERENT field types, is not the
+  // same finding as some arms refused, and the difference is what makes it worth
+  // its own check. An arm the package refuses is silent by design
+  // (`whenRefused: 'note'`) so a correct declaration's first run is clean — a
+  // `json` Geometry refuses the three LIKE arms and probes the other six. But an
+  // `other` of a DIFFERENT type refuses all nine, and the report then read
+  // `ok: true · problems: []` having compared nothing: the `!type.field(other)`
+  // guard above catches a name that does not exist, not one that exists with the
+  // wrong type. That is the same failure the missing-`other` branch already
+  // refuses to allow — "a check that quietly skipped most of what it was asked to
+  // do would be worse than one that did not run" — reached by a road that named a
+  // column.
+  //
+  // THE SIGNAL IS THE TYPE MISMATCH, NOT THE COUNT, and reading the count alone
+  // was wrong twice over. "3 of 9 refused vs 9 of 9" is a coincidence of the
+  // DEFAULT `compare` (which enumerates every arm): a conformant `json`
+  // refinement declaring `compare: {equality:false, ordering:false,
+  // textMatch:true}` enumerates exactly the three arms its KIND refuses (3 of 3),
+  // and a HAS-MANY `relation` pair refuses all nine with no declaration at all
+  // (a belongs-to refuses seven of the nine and probes `=` / `<>`). Both are
+  // the SAME field type on both columns, so the message would have told the
+  // reader that `'shape' is json as Geometry` and `'next' is json as Geometry`
+  // differ — the defect {@link typeTag} exists to prevent, reached by another
+  // road — and `ok` would be false for a correct declaration on its first run,
+  // which {@link DifferentialReport.ok} refuses in terms.
+  //
+  // So the gate is the two TAGS, compared as the message renders them: all arms
+  // refused is evidence of a mismatched `columns.other` only when there IS a
+  // mismatch to name. When the two columns are the same type, every refusal is
+  // one the KIND refuses, there is nothing here to compare, and the record of
+  // that is `unprobeable` — the channel `whenRefused: 'note'` files it to on
+  // purpose, and the only one that can carry it without failing the run.
+  //
+  // Gated on `armsEnumerated > 0` as well, so a type declaring every arm away
+  // (`compare: {equality:false, ordering:false, textMatch:false}`) does not trip
+  // it: nothing was enumerated, so nothing was refused, and the consumer said so.
+  const fieldTag = typeTag(field.fieldType);
+  const otherTag = typeTag(otherField.fieldType);
+  if (armsEnumerated > 0 && armsRefused.length === armsEnumerated && fieldTag !== otherTag) {
+    problems.push({
+      path,
+      code: 'conformance.differential-no-arms',
+      severity: 'warning',
+      message:
+        `Every one of the ${armsEnumerated} comparison arm(s) this harness enumerated was refused by ` +
+        `this package's own validation (${[...armCodes].join(', ')}), so NO arm was probed and this ` +
+        `report says nothing about how '${columns.field}' compares — and the two columns are not the ` +
+        `same field type: '${columns.field}' is ${fieldTag} and '${other}' is ${otherTag}. ` +
+        '`columns.other` must be a SECOND FIELD OF THE SAME TYPE; one of another type makes every arm ' +
+        'illegal, which is what this is. (A correct pairing refuses only the arms the KIND cannot take ' +
+        '— a `json` type refuses the three LIKE arms — and those are reported in `unprobeable` alone.)',
+    });
   }
 
   for (const name of opts.operators ?? []) {

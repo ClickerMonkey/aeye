@@ -27,6 +27,7 @@ import { runtimeFixture, lit, ref, cmp, userTypeDef, orderTypeDef } from './_uti
 import type { FieldTypeRefinementDef, ValueComparator } from '../refinement';
 import type { ExprDef, JsonValue, SelectDef, TypeDef } from '../schema';
 import type { SourceRecord } from '../runtime/row';
+import type { TextCasing } from '../text-casing';
 
 /** A SELECT of `user.id` (ordered) under the given WHERE predicate. */
 function whereUsers(...where: ExprDef[]): SelectDef {
@@ -414,7 +415,7 @@ describe('runtime ↔ SQL agreement — a declared comparator suppresses the fol
   const byTagExactly: ValueComparator = (a, b) => String(a).localeCompare(String(b));
 
   /** An engine over one `rel` type whose `tag` is a `Tag`, with or without the comparator. */
-  function tagEngine(withComparator: boolean, casing?: 'exact'): QueryEngine {
+  function tagEngine(withComparator: boolean, casing?: TextCasing): QueryEngine {
     const registry = createRegistry();
     registry.registerFieldType({
       name: 'Tag',
@@ -484,6 +485,25 @@ describe('runtime ↔ SQL agreement — a declared comparator suppresses the fol
     const engine = tagEngine(true, 'exact');
     expect((await engine.run(whereTag('like'))).rows).toEqual([]);
     expect(engine.toSQL(whereTag('like'), 'postgres').sql).not.toContain('LOWER(');
+  });
+
+  it('`collated` beside a comparator is a DIVERGENCE — which is why the warning must not offer it', async () => {
+    // The carry-forward. `foldsInSql('collated')` is false, so the statement is a
+    // bare `=` whether or not a comparator is in effect and a folding STORE — the
+    // thing `'collated'` asserts — matches the row either way.
+    // `foldsAtRuntime('collated')` is true, but `compareToCase` skips its fold the
+    // moment a comparator is in effect. So the comparator cancels the RUNTIME half
+    // of the claim and nothing cancels the STORE half.
+    const withComparator = tagEngine(true, 'collated');
+    const without = tagEngine(false, 'collated');
+    const sql = (e: QueryEngine): string => e.toSQL(whereTag('='), 'postgres').sql;
+    // IDENTICAL SQL — so the database answers the same thing for both…
+    expect(sql(withComparator)).toContain('"rel"."tag" = $1');
+    expect(sql(withComparator)).toBe(sql(without));
+    // …and the runtime does not. Without the comparator it folds (matching what a
+    // collated store would do); with it, the row disappears.
+    expect((await without.run(whereTag('='))).rows).toEqual([{ id: 1 }]);
+    expect((await withComparator.run(whereTag('='))).rows).toEqual([]);
   });
 
   it('two DIFFERENT comparators fall back to the fold on both roads, not just one', async () => {

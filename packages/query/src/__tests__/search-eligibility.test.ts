@@ -18,6 +18,7 @@ import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import type { TypeDef } from '../schema';
 import type { TypeBacking } from '../backing';
+import type { FieldType } from '../field-type';
 
 const articleDef: TypeDef = {
   name: 'article',
@@ -114,6 +115,99 @@ describe('A6 — search eligibility vs. a searchable document', () => {
     };
     expect(engine.validateQuery(narrowed).list.map((p) => p.code)).toEqual([]);
     expect(engine.toSQL(narrowed, 'postgres').sql).toContain('to_tsvector("article"."title")');
+  });
+
+  it('the CAPABILITY is answered by the field TYPE, not by its class', () => {
+    // Step 5: `isSearchable` / `isSemantic` / `itemType` are declared on
+    // `FieldType`, so `Type.isFieldSearchable`, `Field.allowsExpr` and
+    // `exprs/semantic.ts` read ONE definition instead of three `instanceof
+    // TextFieldType` reads of `options.search` from outside that class.
+    const type = engineOf().type('article')!;
+    const ft = (name: string): FieldType => type.field(name)!.fieldType;
+    expect(ft('title').isSearchable()).toBe(true);
+    expect(ft('body').isSemantic()).toBe(true);
+    expect(ft('slug').isSearchable()).toBe(false);
+    // The default is the conservative answer for every type that has not
+    // declared the capability — including a RELATION, which a `semantic` expr
+    // may still TARGET (the two are different questions; see `Field.allowsExpr`).
+    expect(ft('id').isSearchable()).toBe(false);
+    expect(ft('id').isSemantic()).toBe(false);
+    expect(ft('author').isSemantic()).toBe(false);
+    expect(type.field('author')!.allowsExpr('semantic')).toBe(true);
+    // `itemType()` is the ELEMENT accessor, and it is NOT the container test:
+    // an array with no declared item is still an array and still takes an
+    // `array-op`.
+    const registry = createRegistry();
+    const typed = registry.parseFieldType({ kind: 'array', item: { kind: 'text' } });
+    const bare = registry.parseFieldType({ kind: 'array' });
+    expect(typed.itemType()?.kind).toBe('text');
+    expect(bare.itemType()).toBeUndefined();
+    expect(ft('slug').itemType()).toBeUndefined();
+    // …and the gate that reads it is `Field.allowsExpr`, which is the fact the
+    // comment above only DESCRIBED: writing its `array-op` arm as
+    // `itemType() !== undefined` left the whole suite green, while the sibling
+    // check in `exprs/array-op.ts` was pinned. A bare array still takes one.
+    const bag = registry.parseType({
+      name: 'bag',
+      fields: [
+        { name: 'typed', type: { kind: 'array', item: { kind: 'text' } } },
+        { name: 'bare', type: { kind: 'array' } },
+        { name: 'name', type: { kind: 'text' } },
+      ],
+      count: 10,
+      bytes: 32,
+    });
+    expect(bag.field('bare')!.allowsExpr('array-op')).toBe(true);
+    expect(bag.field('typed')!.allowsExpr('array-op')).toBe(true);
+    // The container test both ways: a non-array field never takes one.
+    expect(bag.field('name')!.allowsExpr('array-op')).toBe(false);
+  });
+
+  it('a REFINEMENT inherits the capability through its `options` — no second declaration surface', () => {
+    // The design question step 5 asks: can a registered type declare itself
+    // searchable? It already can, and through the ONE vocabulary that owns the
+    // fact — `search` / `semantic` are `text`'s own options, and a refinement's
+    // `options` narrow the base's through the ordinary meet. A `searchable` key
+    // on the DECLARATION would be a second source for one fact, meeting through
+    // a different lattice (`meetExact`, where two values conflict) than the
+    // option it duplicates (`meetFlag`, where they OR).
+    const registry = createRegistry();
+    registry.registerFieldType({
+      name: 'Prose',
+      base: 'text',
+      instructions: 'Free prose, indexed for search and embedded for semantic scoring.',
+      options: { search: true, semantic: true },
+    });
+    registry.registerFieldType({
+      name: 'Slug',
+      base: 'text',
+      instructions: 'A URL slug — never searched.',
+      options: { casing: 'exact' },
+    });
+    const type = registry.parseType({
+      name: 'doc',
+      count: 100,
+      fields: [
+        { name: 'body', type: { kind: 'text', as: 'Prose' } },
+        { name: 'slug', type: { kind: 'text', as: 'Slug' } },
+        // A SITE adding the flag to a refinement that declares neither.
+        { name: 'note', type: { kind: 'text', as: 'Slug', search: true } },
+      ],
+    });
+    registry.registerType(type);
+    registry.finalize();
+    expect(type.isFieldSearchable(type.field('body')!)).toBe(true);
+    expect(type.isFieldSemantic(type.field('body')!)).toBe(true);
+    expect(type.field('body')!.allowsExpr('semantic')).toBe(true);
+    expect(type.isFieldSearchable(type.field('slug')!)).toBe(false);
+    expect(type.field('slug')!.allowsExpr('semantic')).toBe(false);
+    // The declaration is a FLOOR: a site may ADD the flag, and (the flags OR
+    // through `meetFlag`) cannot take one the declaration set away again.
+    expect(type.isFieldSearchable(type.field('note')!)).toBe(true);
+    const noOptOut = registry.parseFieldType({ kind: 'text', as: 'Prose', search: false });
+    expect(noOptOut.isSearchable()).toBe(true);
+    expect(type.isSearchable()).toBe(true);
+    expect(type.semanticFields().map((f) => f.name)).toEqual(['body', 'note']);
   });
 
   it('narrowing is ORDER-INDEPENDENT: the unflagged first text field is never picked', () => {

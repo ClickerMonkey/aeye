@@ -24,7 +24,7 @@ import { createRegistry, type Registry } from '../registry';
 import { arrayExecutor } from '../runtime/executor';
 import { Value } from '../runtime/value';
 import type { FieldTypeRefinementDef, ValueComparator } from '../refinement';
-import type { JsonValue, SelectDef } from '../schema';
+import type { FieldTypeDef, JsonValue, SelectDef } from '../schema';
 
 // ─── The worked declaration: an IPv4 address stored as `inet` ────────────────
 //
@@ -517,8 +517,203 @@ describe('`differentialCheck` — the run-vs-SQL question nothing static can ans
       columns: { type: 'host', field: 'addr', other: 'other' },
       operators: ['<->'],
     });
-    expect(report.probes.map((p) => p.label)).toContain('<->');
+    const probe = report.probes.find((p) => p.label === '<->');
+    expect(probe).toBeDefined();
+    // An OPERATOR is a `valueProbe` exactly as a function is, so it compares the
+    // MULTISET: it projects an expression and orders by the driving FIELD, where
+    // two rows with equal driving values may come back in either order. The
+    // function probe one loop below was pinned and this one was not — flipping it
+    // to `'sequence'` left all 2334 tests green.
+    expect(probe?.comparison).toBe('multiset');
     expect(db.statements.at(-1)).toContain('("host"."addr" <-> "host"."other")');
+  });
+
+  it('reports EVERY arm refused, instead of `ok: true` having compared nothing', async () => {
+    // `columns.other` of a DIFFERENT kind makes all nine arms illegal, and the arm
+    // loop notes a refusal silently (`whenRefused: 'note'`) so a correct `json`
+    // declaration's first run is clean. The `!type.field(other)` guard catches a
+    // name that does not EXIST, not one that exists with the wrong type — so this
+    // read `ok: true · problems: [] · unprobeable: 9`.
+    const registry = ipRegistry();
+    registry.registerType(
+      registry.parseType({
+        name: 'host',
+        fields: [
+          { name: 'addr', type: { kind: 'text', as: 'IpAddress' } },
+          { name: 'port', type: { kind: 'number', whole: true } },
+        ],
+        count: 100,
+        bytes: 48,
+      }),
+    );
+    registry.finalize();
+    const report = await differentialCheck({
+      engine: new QueryEngine(registry, { executors: { host: arrayExecutor([{ addr: '10.0.0.1', port: 80 }]) } }),
+      dialect: 'postgres',
+      execute: scriptedDb([], { 'ORDER BY': ['10.0.0.1'], 'DISTINCT': ['10.0.0.1'], 'GROUP BY': ['10.0.0.1'] }).execute,
+      columns: { type: 'host', field: 'addr', other: 'port' },
+    });
+    expect(report.unprobeable).toHaveLength(9);
+    const problem = report.problems.find((p) => p.code === 'conformance.differential-no-arms');
+    expect(problem?.severity).toBe('warning');
+    expect(problem?.message).toContain('Every one of the 9 comparison arm(s)');
+    expect(problem?.message).toContain('comparison.type');
+    // It names BOTH types, because that is the fact the caller has to act on —
+    // and it names the REFINEMENT, since two registered types over one base both
+    // render as their base and the reader would be told to compare two identical
+    // strings.
+    expect(problem?.message).toContain("'addr' is text as IpAddress");
+    expect(problem?.message).toContain("'port' is number");
+    expect(report.ok).toBe(false);
+  });
+
+  it('does NOT fire when only SOME arms are refused — that is a correct declaration', async () => {
+    // The distinguishing fact, driven: a `json` type refuses the three LIKE arms
+    // (`comparison.like`) and probes the other six, which is the shape a right
+    // pairing has. Only ALL of them refused is the finding.
+    const registry = createRegistry().registerFieldType({
+      name: 'Geometry',
+      base: 'json',
+      instructions: 'A geometry, carried as GeoJSON.',
+    });
+    registry.registerType(
+      registry.parseType({
+        name: 'parcel',
+        fields: [
+          { name: 'shape', type: { kind: 'json', as: 'Geometry' } },
+          { name: 'next', type: { kind: 'json', as: 'Geometry' } },
+        ],
+        count: 100,
+        bytes: 96,
+      }),
+    );
+    registry.finalize();
+    const rows = [{ shape: { v: 1 }, next: { v: 1 } }];
+    const report = await differentialCheck({
+      engine: new QueryEngine(registry, { executors: { parcel: arrayExecutor(rows) } }),
+      dialect: 'postgres',
+      execute: scriptedDb([], { '"parcel"': [{ v: 1 }] }).execute,
+      columns: { type: 'parcel', field: 'shape', other: 'next' },
+    });
+    expect(report.unprobeable.map((s) => s.label)).toEqual([
+      'shape like next', 'shape notLike next', 'shape ilike next',
+    ]);
+    expect(report.problems.map((p) => p.code)).not.toContain('conformance.differential-no-arms');
+  });
+
+  it('does NOT fire for a type that declares every arm away — nothing was enumerated', async () => {
+    // `compare: {equality:false, ordering:false, textMatch:false}` skips each arm
+    // BEFORE it is probed, so zero arms are enumerated and zero refused. Reporting
+    // there would blame a consumer for the declaration they wrote on purpose.
+    const registry = createRegistry().registerFieldType({
+      ...IP_ADDRESS,
+      compare: { equality: false, ordering: false, textMatch: false },
+    });
+    registry.registerFieldTypeImpl('IpAddress', { compareValues: byAddress });
+    registry.registerType(
+      registry.parseType({
+        name: 'host',
+        fields: [
+          { name: 'addr', type: { kind: 'text', as: 'IpAddress' } },
+          { name: 'other', type: { kind: 'text', as: 'IpAddress' } },
+        ],
+        count: 100,
+        bytes: 48,
+      }),
+    );
+    registry.finalize();
+    const report = await differentialCheck({
+      engine: new QueryEngine(registry, { executors: { host: arrayExecutor(HOSTS) } }),
+      dialect: 'postgres',
+      execute: scriptedDb([], { '"host"': BY_ADDRESS }).execute,
+      columns: { type: 'host', field: 'addr', other: 'other' },
+    });
+    expect(report.unprobeable).toEqual([]);
+    expect(report.problems.map((p) => p.code)).not.toContain('conformance.differential-no-arms');
+  });
+
+  it('does NOT fire when a SAME-TYPE pairing enumerates only arms the KIND refuses', async () => {
+    // "3 of 9 refused vs 9 of 9" is a coincidence of the DEFAULT `compare`, not
+    // the invariant. This declaration is conformant — `checkFieldType` says so
+    // below — and it enumerates exactly the three arms `json` cannot take, so a
+    // count-only gate read 3-of-3 and warned. Both halves of that are wrong: the
+    // message would have said `'shape' is json as Geometry` differs from `'next'
+    // is json as Geometry` (two identical strings, the defect `typeTag` exists to
+    // prevent), and `ok` would be false for a correct declaration on its first
+    // run, which `DifferentialReport.ok` refuses in terms.
+    const declaration: FieldTypeRefinementDef = {
+      name: 'Geometry',
+      base: 'json',
+      instructions: 'A geometry, carried as GeoJSON.',
+      compare: { equality: false, ordering: false, textMatch: true },
+    };
+    const registry = createRegistry().registerFieldType(declaration);
+    registry.registerType(
+      registry.parseType({
+        name: 'parcel',
+        fields: [
+          { name: 'shape', type: { kind: 'json', as: 'Geometry' } },
+          { name: 'next', type: { kind: 'json', as: 'Geometry' } },
+        ],
+        count: 100,
+        bytes: 96,
+      }),
+    );
+    registry.finalize();
+    // The premise, driven rather than asserted: nothing about this declaration is
+    // a finding, so nothing the harness says about it may be one either.
+    expect(checkFieldType(declaration).problems).toEqual([]);
+    const report = await differentialCheck({
+      engine: new QueryEngine(registry, { executors: { parcel: arrayExecutor([{ shape: { v: 1 }, next: { v: 1 } }]) } }),
+      dialect: 'postgres',
+      execute: scriptedDb([], { '"parcel"': [{ v: 1 }] }).execute,
+      columns: { type: 'parcel', field: 'shape', other: 'next' },
+    });
+    // Three enumerated, three refused — and every one of them recorded in the
+    // channel that carries a refusal without failing the run.
+    expect(report.unprobeable.map((s) => s.label)).toEqual([
+      'shape like next', 'shape notLike next', 'shape ilike next',
+    ]);
+    expect(report.problems).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it('does NOT fire for a same-type RELATION pairing, which refuses all nine with no declaration', async () => {
+    // The other end of the same class, and the 9-of-9 the check read as a
+    // mismatch: no `compare` at all, so every arm is enumerated, and a HAS-MANY
+    // relation refuses all nine on its own (`comparison.relation-set` /
+    // `relation-order` / `ref.relation-has-many`) — with ONE type on both
+    // columns. Measured: a belongs-to (`count: 1`) refuses seven of the nine and
+    // probes `=` / `<>`, which is why the count can never be the signal.
+    const registry = createRegistry();
+    registry.registerType(
+      registry.parseType({
+        name: 'edge',
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'a', type: { kind: 'relation', to: 'edge', count: 3 } },
+          { name: 'b', type: { kind: 'relation', to: 'edge', count: 3 } },
+        ],
+        count: 100,
+        bytes: 32,
+      }),
+    );
+    registry.finalize();
+    const report = await differentialCheck({
+      engine: new QueryEngine(registry, { executors: { edge: arrayExecutor([{ id: 1, a: 1, b: 2 }]) } }),
+      dialect: 'postgres',
+      execute: scriptedDb([], { '"edge"': [1] }).execute,
+      columns: { type: 'edge', field: 'a', other: 'b' },
+    });
+    expect(report.unprobeable.map((s) => s.label)).toEqual([
+      'order asc', 'order desc', 'distinct', 'group by',
+      'a = b', 'a <> b', 'a < b', 'a <= b', 'a > b', 'a >= b',
+      'a like b', 'a notLike b', 'a ilike b',
+    ]);
+    // What it reports is the four probes the CALLER asked for and nothing else:
+    // the arms are this harness's own enumeration, so their refusal is a blind
+    // spot to record, never a finding to file.
+    expect([...new Set(report.problems.map((p) => p.code))]).toEqual(['conformance.differential-unprobeable']);
   });
 });
 
@@ -615,6 +810,42 @@ describe('`checkFieldType` warns about what a correct comparator can still break
     expect(warning?.severity).toBe('warning');
     expect(warning?.message).toContain('LIKE family');
     expect(warning?.message).toContain("casing: 'exact'");
+    expect(warning?.message).toContain('no `options.casing`');
+  });
+
+  it('fires for a DECLARED `fold` / `collated` too — the gate is `!== exact`, and the message says which', () => {
+    // The clause has to match the gate. Its first version opened with "and no
+    // `options.casing`" while firing for every casing but `'exact'`, so a
+    // declarer who HAD written one read a message about a declaration they did
+    // not make.
+    for (const casing of ['fold', 'collated'] as const) {
+      const warning = checkFieldType(
+        { name: 'Tag', base: 'text', instructions: 'A tag.', options: { casing } },
+        { compareValues: (a, b) => String(a).localeCompare(String(b)), samples: ['V1'] },
+      ).problems.find((p) => p.code === 'conformance.comparator-without-casing');
+      expect(warning?.message).toContain(`\`options.casing: '${casing}'\``);
+      expect(warning?.message).not.toContain('no `options.casing`');
+    }
+  });
+
+  it('never offers `collated` as an answer — it is the one casing a comparator cannot agree with', () => {
+    // The reason is driven in `runtime-sql-agreement.test.ts` ("`collated` beside
+    // a comparator is a DIVERGENCE"): identical SQL, and the runtime stops
+    // folding. A declarer who took the advice got exactly the defect the warning
+    // exists to prevent, so the string is pinned here as well as the behaviour.
+    const message = (casing?: 'fold' | 'collated'): string =>
+      checkFieldType(
+        { name: 'Tag', base: 'text', instructions: 'A tag.', ...(casing ? { options: { casing } } : {}) },
+        { compareValues: (a, b) => String(a).localeCompare(String(b)), samples: ['V1'] },
+      ).problems.find((p) => p.code === 'conformance.comparator-without-casing')!.message;
+    // The only casing it names as an ANSWER is `exact`, whichever state it found.
+    for (const casing of [undefined, 'fold'] as const) {
+      expect(message(casing)).not.toContain('collated');
+      expect(message(casing)).toContain('ONLY casing that agrees');
+    }
+    // …and when the declaration IS `collated`, it says move off it.
+    expect(message('collated')).toContain('the one to move OFF');
+    expect(message('collated')).toContain('engine.run` returned nothing');
   });
 
   it('is SILENT once the declaration narrows `casing` to `exact`', () => {
@@ -860,10 +1091,10 @@ describe('`differentialCheck` probes the roads a comparator is NOT wired into', 
   });
 
   it('reads a driver value that is not JSON as itself, so an artifact shows as one', async () => {
-    // `pg` hands back a `Date` for `timestamptz` and a string for `numeric`. The
-    // row type says `unknown` rather than pretending otherwise, and the
-    // comparison renders both sides the same way — so the report shows the driver
-    // artifact instead of silently agreeing or silently blaming the type.
+    // `pg` hands back a `Date` for `timestamptz`, a string for `numeric` and a
+    // `Buffer` for `bytea`. The row type says `unknown` rather than pretending
+    // otherwise, and the value reaches the report AS ITSELF — so a reader sees
+    // the driver artifact instead of a coerced value that blames the type.
     const when = new Date('2026-01-01T00:00:00.000Z');
     const execute: DifferentialExecute = async () => [{ probe: when }];
     const report = await differentialCheck({
@@ -874,5 +1105,50 @@ describe('`differentialCheck` probes the roads a comparator is NOT wired into', 
     });
     expect(report.probes[0]!.sqlValues).toEqual([when]);
     expect(report.problems.some((p) => p.message.includes('what your driver deserialises'))).toBe(true);
+  });
+
+  it('a `Date` AGREES with its ISO string, and `numeric` / `bytea` are the artifacts that fire', async () => {
+    // The carry-forward: three places claimed a `Date` beside an ISO string reads
+    // as a divergence. It does not — `canonical()` renders both sides through
+    // `JSON.stringify`, and `JSON.stringify(new Date(iso))` IS `JSON.stringify(iso)`.
+    // Driven here so the example in the docs can never drift back.
+    //
+    // EACH ARTIFACT OVER THE COLUMN IT ARRIVES ON, which is what makes the two
+    // negative cases falsifiable. Driving `'1.5'` and a `Buffer` against the
+    // TIMESTAMP column disagreed only because they are different strings from an
+    // ISO stamp — the same verdict `'nonsense'` earns — so coercing `probeValues`'
+    // `Buffer` to a utf-8 string (a real change to how a `bytea` artifact is read)
+    // flipped the true `bytea` case to `agreed=true` with the whole file green.
+    // A `number` column holding `1.5` and a `text` column holding `ab` are the
+    // pairings where the rendering IS the only difference, and each carries the
+    // control that proves it: the same value in the driver's own JSON model
+    // agrees.
+    const iso = '2026-01-01T00:00:00.000Z';
+    const agreedFor = async (type: FieldTypeDef, stored: JsonValue, driver: unknown): Promise<boolean> => {
+      const registry = createRegistry();
+      registry.registerType(registry.parseType({ name: 'ev', fields: [{ name: 'v', type }], count: 10, bytes: 8 }));
+      registry.finalize();
+      const report = await differentialCheck({
+        engine: new QueryEngine(registry, { executors: { ev: arrayExecutor([{ v: stored }]) } }),
+        dialect: 'postgres',
+        execute: async () => [{ probe: driver }],
+        columns: { type: 'ev', field: 'v' },
+      });
+      expect(report.probes).toHaveLength(4);
+      return report.probes.every((p) => p.agreed);
+    };
+    // `timestamptz` → a `Date`: the one the prose named, and it agrees on every
+    // probe. The control says the column can disagree at all.
+    expect(await agreedFor({ kind: 'timestamp' }, iso, new Date(iso))).toBe(true);
+    expect(await agreedFor({ kind: 'timestamp' }, iso, 'nonsense')).toBe(false);
+    // `numeric` → a STRING, over the number column a `numeric` is: `"1.5"` beside
+    // a run-side `1.5` is a disagreement, and `1.5` beside `1.5` is not.
+    expect(await agreedFor({ kind: 'number' }, 1.5, '1.5')).toBe(false);
+    expect(await agreedFor({ kind: 'number' }, 1.5, 1.5)).toBe(true);
+    // `bytea` → a `Buffer`, over a text column holding what that buffer carries:
+    // `{"type":"Buffer","data":[…]}` beside `"ab"` disagrees, and the same bytes
+    // as the string the run produced agree.
+    expect(await agreedFor({ kind: 'text' }, 'ab', Buffer.from('ab'))).toBe(false);
+    expect(await agreedFor({ kind: 'text' }, 'ab', 'ab')).toBe(true);
   });
 });

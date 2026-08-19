@@ -241,6 +241,26 @@ export class TextFieldType extends FieldType {
   }
 
   /**
+   * Full-text search eligibility — the declared `search` flag, and the ONE
+   * reader of it (see `FieldType.isSearchable`). A REFINEMENT declaring
+   * `options: { search: true }` arrives here through the ordinary options meet,
+   * so it needs no separate declaration surface.
+   */
+  override isSearchable(): boolean {
+    return this.options.search === true;
+  }
+
+  /**
+   * Semantic (embedding) eligibility — `semantic`, OR `search`, whose index is
+   * the same kind of derived artifact. The two flags stay separately DECLARED
+   * (and separately rendered in the model-facing tag, `text(search,semantic)`);
+   * this is the derived capability every gate asks about.
+   */
+  override isSemantic(): boolean {
+    return this.options.semantic === true || this.options.search === true;
+  }
+
+  /**
    * Meet with another `text`: bounds tighten, a `pattern` must AGREE (there is
    * no regex that is the intersection of two others, so two different formats
    * are a genuine conflict), flags OR, the CASING takes the stricter of the two

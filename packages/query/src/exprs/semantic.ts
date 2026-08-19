@@ -34,7 +34,6 @@ import { obj, lit, str, isRecord, expected, INVALID, type Shape } from '../shape
 import { numberResult } from './_shared';
 import { checkFieldExpr } from '../write-model';
 import { ParamExpr } from './param';
-import { TextFieldType } from '../field-types/index';
 import type { Field } from '../field';
 import type { Type } from '../type';
 import type { Embedder } from '../engine';
@@ -104,13 +103,19 @@ function semanticText(rec: SourceRecord): string {
   return parts.join(' ');
 }
 
-/** Whether a field is semantic-eligible (a semantic/search text field). */
+/**
+ * Whether a field is semantic-eligible (a semantic/search text field).
+ *
+ * It reads the FIELD TYPE's own {@link FieldType.isSemantic} — the same one
+ * definition `Type.isFieldSemantic` reads. It used to be a hand-copied
+ * `instanceof TextFieldType` predicate carrying a comment that said so ("kept
+ * local so this module does not need a Type instance"): true of the shape it
+ * had, and the reason it was a copy at all. With the fact on the type, a
+ * one-line delegation needs no Type either.
+ */
 function fieldIsSemantic(field: Field): boolean {
-  const ft = field.fieldType;
-  return ft instanceof TextFieldType && (ft.options.semantic === true || ft.options.search === true);
+  return field.fieldType.isSemantic();
 }
-/* The same predicate as `Type.isFieldSemantic`; kept local so this module does
- * not need a Type instance to answer it for a field it already holds. */
 
 /**
  * Resolve a pairing query to its bound source's Type against `scope`: a
