@@ -600,7 +600,7 @@ registry.registerFieldType({
     srid:    { type: { kind: 'number', whole: true }, default: 4326 },
   },
   sql:  { postgres: 'geometry({subtype},{srid})' },
-  cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype},{srid})' },
+  cast: { postgres: 'ST_GeomFromGeoJSON({value})' },   // position-INDEPENDENT: no option slots
   compare: { equality: true, ordering: false, textMatch: false },
   comparableWith: ['Geography'],
 });
