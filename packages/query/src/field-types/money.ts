@@ -6,6 +6,7 @@ import { QueryTypeError } from '../problem';
 import { meetExact } from './_meet';
 import {
   NumberFieldType,
+  checkNumberValues,
   compactNumberOptions,
   meetNumberOptions,
   numberOptionsSchema,
@@ -46,7 +47,12 @@ export class MoneyFieldType extends FieldType {
     super();
   }
 
-  /** Reconstruct from a JSON def (throws on a kind mismatch). */
+  /**
+   * Reconstruct from a JSON def. Throws a `QueryTypeError` on a kind mismatch,
+   * and on an AMOUNT whose closed set holds a member its own bounds reject —
+   * reported at `number.values`, which is where a money def actually declares
+   * one.
+   */
   static from(json: FieldTypeDef): MoneyFieldType {
     if (json.kind !== 'money') {
       throw new QueryTypeError({
@@ -54,7 +60,9 @@ export class MoneyFieldType extends FieldType {
         message: `MoneyFieldType.from: expected kind 'money', got '${json.kind}'`,
       });
     }
-    return new MoneyFieldType(compact({ number: json.number, currency: json.currency }));
+    const options = compact({ number: json.number, currency: json.currency });
+    if (options.number) checkNumberValues('money', ['number', 'values'], options.number);
+    return new MoneyFieldType(options);
   }
 
   /** The Zod schema for this field type's JSON def. */

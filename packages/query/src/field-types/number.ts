@@ -1,6 +1,13 @@
 import { z } from 'zod';
-import type { FieldTypeDef, FieldValueDef, NumberFieldTypeDef, NumberOptions } from '../schema';
-import { fieldValuesSchema, closedSetValueSchema, compactFieldValues, meetFieldValues, narrowFieldValues } from './_values';
+import type { FieldTypeDef, FieldTypeKind, FieldValueDef, NumberFieldTypeDef, NumberOptions } from '../schema';
+import {
+  fieldValuesSchema,
+  checkFieldValues,
+  closedSetValueSchema,
+  compactFieldValues,
+  meetFieldValues,
+  narrowFieldValues,
+} from './_values';
 import { meetFlag, meetLower, meetUpper, emptyRange } from './_meet';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
@@ -18,7 +25,9 @@ export function numberOptionsSchema(): z.ZodTypeAny {
     whole: z.boolean().optional().describe('True only when genuinely integral (counts, ids).'),
     minPlaces: z.number().int().optional().describe('Decimal-place floor; omit unless required.'),
     maxPlaces: z.number().int().optional().describe('Decimal-place ceiling; omit unless required.'),
-    values: fieldValuesSchema(),
+    // A numeric member is a NUMBER — the owning kind decides the member type
+    // (see `fieldValuesSchema`), and `money` inherits that through this bag.
+    values: fieldValuesSchema(z.number()),
   });
 }
 
@@ -46,6 +55,17 @@ export function numberConstraintSchema(o: NumberOptions): z.ZodTypeAny {
   if (o.min !== undefined) s = s.min(o.min);
   if (o.max !== undefined) s = s.max(o.max);
   return s;
+}
+
+/**
+ * Refuse a `NumberOptions` bag whose closed set holds a member its own bounds /
+ * integrality reject, at DECLARATION time (see {@link checkFieldValues}).
+ * Shared with `money`, whose set lives in exactly this bag — the indirection is
+ * what once hid its `eqSelectivity` from the cost model, so the check reaches it
+ * through the same door rather than through a second one.
+ */
+export function checkNumberValues(kind: FieldTypeKind, path: readonly string[], o: NumberOptions): void {
+  checkFieldValues(kind, path, o.values, numberConstraintSchema(o));
 }
 
 /** Build a value-side Zod number schema honoring a NumberOptions bag. */
@@ -104,7 +124,12 @@ export class NumberFieldType extends FieldType {
     super();
   }
 
-  /** Reconstruct from a JSON def (throws on a kind mismatch). */
+  /**
+   * Reconstruct from a JSON def. Throws a `QueryTypeError` on a kind mismatch,
+   * and on a closed set holding a member this type's own bounds / integrality
+   * reject — including a TEXT member, which is how a mixed-scalar set that
+   * bypassed the def schema is caught on the parse road.
+   */
   static from(json: FieldTypeDef): NumberFieldType {
     if (json.kind !== 'number') {
       throw new QueryTypeError({
@@ -113,7 +138,9 @@ export class NumberFieldType extends FieldType {
       });
     }
     const { min, max, whole, minPlaces, maxPlaces, values } = json;
-    return new NumberFieldType(compactNumberOptions({ min, max, whole, minPlaces, maxPlaces, values }));
+    const options = compactNumberOptions({ min, max, whole, minPlaces, maxPlaces, values });
+    checkNumberValues('number', ['values'], options);
+    return new NumberFieldType(options);
   }
 
   /** The Zod schema for this field type's JSON def. */
@@ -125,7 +152,7 @@ export class NumberFieldType extends FieldType {
       whole: z.boolean().optional().describe('True only when genuinely integral (counts, ids).'),
       minPlaces: z.number().int().optional().describe('Decimal-place floor; omit unless required.'),
       maxPlaces: z.number().int().optional().describe('Decimal-place ceiling; omit unless required.'),
-      values: fieldValuesSchema(),
+      values: fieldValuesSchema(z.number()),
     }).meta({ aid: 'FieldType_number' }).describe('Numeric field type.');
   }
 

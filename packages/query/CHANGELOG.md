@@ -14,12 +14,24 @@ parameter — but there are **two behaviour changes to read before adopting**, o
   outside a column's closed set (at any depth — an `array<text one of a|b>` is checked
   element-wise), and `param.conflict` for a param whose uses have no common type. Both are about
   a value that could not have been stored or bound correctly.
-- **A TYPE DEFINITION that registered before can now THROW.** A `text` field whose `pattern` is
-  not a compilable regex is refused by `parseFieldType` / `parseType` with a `QueryTypeError`
-  (`field-type.bad-pattern`). It used to register and sit inert. If you register defs from
-  storage or from user input, that call can now throw where it previously could not — catch it,
-  or validate patterns upstream. (The alternative was worse: the new param meet compiles such a
-  pattern, so leaving it unchecked threw a raw `SyntaxError` out of `validateQuery` instead.)
+- **A TYPE DEFINITION that registered before can now THROW**, in three cases, all of them a
+  declaration that contradicts itself. `parseFieldType` / `parseType` raise a `QueryTypeError`
+  for:
+  - a `text` field whose `pattern` is not a compilable regex (`field-type.bad-pattern`);
+  - a closed `values` set with a member the field's OWN constraints reject
+    (`field-type.bad-values`) — `text{values:['zz'], pattern:'^a'}`,
+    `text{values:['ab'], minLength:5}`, `number{values:[1.5], whole:true}`, or a member outside a
+    declared bound. EVERY member must satisfy, so a set that keeps only some of its members is
+    refused too;
+  - a member of the WRONG SCALAR for its kind (`number{values:[{value:'a'}]}` — same
+    `field-type.bad-values`, and the generated def schema no longer offers the shape at all).
+
+  All three used to register and sit inert. **If you register defs from storage or from user
+  input, that call can now throw where it previously could not** — catch it, or validate
+  upstream. The public CONSTRUCTORS are unchanged and still validate none of it. For the pattern
+  the alternative was worse (the new param meet compiles it, so leaving it unchecked threw a raw
+  `SyntaxError` out of `validateQuery`); for the sets, see "the GREATEST lower bound" below —
+  tolerating them meant `param.conflict` blaming a QUERY for a defect in the TYPE.
 
 ### A20 — a WRITE ignored the column's closed value set (**P1, silently wrong data**)
 
@@ -100,6 +112,49 @@ item); the public CONSTRUCTOR does not validate, so a hand-built
 `new TextFieldType({ pattern: '([' })` can still carry one — noted on `TextOptions.pattern`, and
 the same caveat every other hand-supplied option already has.
 
+**A CLOSED SET'S MEMBER TYPE NOW COMES FROM THE OWNING KIND.** `fieldValuesSchema` was shared by
+`text` and `number` and declared its member as `z.union([z.string(), z.number()])` for both, so
+the `number` field-type schema offered a member slot accepting text. Measured on `0.6.5`:
+
+```
+parseFieldType({kind:'number', values:[{value:'a'},{value:2}]})  ->  ACCEPTED
+  .validValue('a')   -> true      // a NUMBER column accepting the string 'a'
+  .eqSelectivity()   -> 0.5
+```
+
+For a package whose contract is that its generated schemas only ever offer VALID values, the
+offer was the defect; the def that took it was doing as it was told. The slot is now
+parameterised — `z.string()` for `text`, `z.number()` for `number` and (through its inner
+`NumberOptions` bag) for `money` — and the parameter is REQUIRED, so a new kind that grows a
+closed set has to say which scalar its members are rather than inherit "either" by omission.
+The def SCHEMA is not on the `from` path, so the same fact is enforced there by
+`field-type.bad-values` below.
+
+**A CLOSED SET MUST BE SATISFIABLE BY ITS OWN CONSTRAINTS**, checked where the declaration is
+read (`field-type.bad-values`). `text{values:['zz'], pattern:'^a'}` and
+`number{values:[1.5], whole:true}` registered happily before, and were OBSERVABLY inconsistent
+once registered: a closed set IS the value schema, so `validValue('zz')` answered `true` on the
+way in while the meet — which narrows a merged set by the merged constraints — dropped `zz` on
+the way out. Satisfiability is decidable here, patterns included: the set is FINITE and declared,
+so every per-member predicate is settled by EVALUATION, and the check reuses the one evaluator
+the package already had (`narrowFieldValues` against the kind's constraint schema) rather than
+growing a second answer to "does this member satisfy these constraints". EVERY member must
+satisfy, not merely one — a set that keeps some members is as broken as one that keeps none, and
+requiring all of them is what makes the meet a greatest lower bound. The message names WHICH
+member and WHAT excluded it, in the rejecting schema's own words, because the author's fix is to
+change one or the other:
+
+```
+A 'text' field declares 1 closed-set member its own constraints reject:
+"zz" (Invalid string: must match pattern /^a/). A closed set IS the value schema,
+so such a member could never be stored — remove it, or relax the constraint that
+excludes it.
+```
+
+A `money` set is reported at `number.values`, which is where a money def declares one — the same
+indirection that once hid its `eqSelectivity` from the cost model, reached through the same door
+rather than a second one.
+
 ### A21 — a param's type was the FIRST use, not the merged one, and supplied values were never checked (**P1**)
 
 `ParamSet.resolved` seeded with the first observation and kept it, admitting any later one that
@@ -122,45 +177,41 @@ enum{b}`, `text{minLength:5} ⊓ text{maxLength:10}` carries both, `number ⊓ m
 a fold over uses in walk order is only order-independent if the operation is commutative,
 associative and idempotent — so every primitive it is built from (`field-types/_meet.ts`) is one
 of three provable shapes, and all three laws are property-tested over every pair and triple of a
-42-type set — 74,088 triples, covering set+bound and set+pattern in BOTH arrangements (one the
-constraint admits, one it excludes), mixed-scalar and duplicated sets, decimal places,
+40-type set — 64,000 triples, covering set+bound and set+pattern, duplicated sets, decimal places,
 money-with-a-set, nested arrays, arrays of enums, and relations carrying inverse metadata — along
 with the soundness law that makes it usable as a validator: **the meet accepts nothing that both
-operands do not.**
+operands do not.** (The set was 42 in this release's first pass, three of them self-inconsistent
+declarations; those are no longer buildable from a def, so they moved to the hand-built test that
+now guards the constructor road on its own.)
 
 **An EMPTY meet is a CONFLICT**, not a satisfiable-by-nothing type. An empty `values` array is
 not representable — `compactFieldValues` drops it, precisely so `1/n` cannot divide by zero — so
 a "closed set of nothing" would round-trip into an UNCONSTRAINED type, the exact opposite of what
 was computed. The same rule covers disjoint bounds and two different patterns.
 
-**It is a lower bound, not the GREATEST lower bound — the one law it deliberately does not
-satisfy.** Because a closed set IS the value schema, the meet narrows a merged set by the merged
-scalar constraints; so for a SELF-INCONSISTENT type — `text{values:['ab'], minLength:5}`, whose
-own bound rejects its own member — even `x ⊓ text` narrows or conflicts rather than returning `x`.
-The narrowing is not optional: keeping `1` from `text{values:[1,'b']} ⊓ text` would ADMIT a value
-plain `text` refuses, breaking soundness, which is the law a validator actually depends on. So:
-soundness unconditionally, top-identity wherever the declaration does not contradict itself. The
-cost to know is that a param compared against such a column AND any plain column of the same kind
-now reports `param.conflict`, blaming the query for a defect in the TYPE. `x ⊓ ⊤ = x` is in the
-property loop with those types as a NAMED expected-failure set, asserted in both directions, so
-neither the law nor its exception can rot unnoticed.
+**It is the GREATEST lower bound for every type built from a DEF — and only a lower bound for one
+built by hand.** That distinction is the whole of the remaining caveat, and it is worth reading
+precisely rather than rounding to "the meet is a GLB now".
 
-**A follow-up that would remove the exception entirely — the owner's call, not built here.** Every
-member of that set exists only because a self-inconsistent DECLARATION is representable, and two
-narrowings would make it unrepresentable rather than tolerated:
+Because a closed set IS the value schema, the meet narrows a merged set by the merged scalar
+constraints; so for a SELF-INCONSISTENT type — `text{values:['ab'], minLength:5}`, whose own bound
+rejects its own member — even `x ⊓ text` narrows or conflicts rather than returning `x`. The
+narrowing is not optional: keeping `1` from `text{values:[1,'b']} ⊓ text` would ADMIT a value plain
+`text` refuses, breaking soundness, which is the law a validator actually depends on. So the
+DECLARATION is what had to go, and the two narrowings above (per-kind member typing, plus
+`field-type.bad-values`) are exactly that: such a set is now refused where declarations are read.
 
-- `fieldValuesSchema` is shared by `text` and `number`, so
-  `parseFieldType({kind:'number', values:[{value:'a'}]})` is accepted today and `validValue('a')`
-  is `true` — a number column admitting text. Per-kind member typing removes that shape.
-- a self-consistency check at parse time (does any declared member satisfy the declared
-  constraints?) is decidable here, contrary to what the first pass of this work claimed: over a
-  FINITE declared set every per-value predicate is settled by evaluation, and this package already
-  does exactly that (`narrowFieldValues(values, v => textConstraintSchema(o).safeParse(v).success)`),
-  patterns included.
+Over everything a def can express, `x ⊓ ⊤ = x` therefore holds **unconditionally** — the property
+loop's named expected-failure set is EMPTY and the law is asserted with no carve-out — and the
+"`param.conflict` blames the query for a defect in the TYPE" hazard is deleted rather than
+documented. The loop first proves its own premise, asserting that `parseFieldType` can build every
+type in the set, so the law cannot become true by quietly curating the table.
 
-Together they would make the meet a genuine GREATEST lower bound for every registry-built type and
-delete the "blames the query for a defect in the TYPE" hazard instead of documenting it — at the
-cost of narrowing what a def may express, which is why it is a decision rather than a fix.
+**The public CONSTRUCTORS still do not validate**, the same caveat `TextOptions.pattern` carries
+for an uncompilable regex. `new TextFieldType({ values: [{ value: 'ab' }], minLength: 5 })` remains
+buildable, `validValue('ab')` remains `true` for it, and `x ⊓ ⊤` still narrows or conflicts — for
+THAT type the meet is a lower bound only. Both roads are tested: the hand-built one on its own,
+and the def road by the refusal. Soundness is unconditional on both.
 
 **New public surface**, alongside the unchanged `ParamDef` / `query.params()`:
 

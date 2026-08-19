@@ -372,12 +372,19 @@ Everything composes around that one call:
   answer never depends on where in the JSON each use sits. Where the uses have no
   meet the param is in **conflict** (`param.conflict`) and `params()` omits it.
 
-  It is a lower bound, not the *greatest* lower bound. A closed set IS the value
-  schema, so a meet narrows a merged set by the merged scalar constraints — and
-  for a self-inconsistent type (`text{values:['ab'], minLength:5}`, whose own
-  bound rejects its own member) even `x ⊓ text` narrows or conflicts rather than
-  returning `x`. Soundness is kept unconditionally, because it is the law a
-  validator actually depends on.
+  It is the *greatest* lower bound for every type built from a **def** —
+  `x ⊓ ⊤ = x` holds for anything `parseType` / `parseFieldType` can produce. A
+  closed set IS the value schema, so a meet narrows a merged set by the merged
+  scalar constraints, and for a self-inconsistent type
+  (`text{values:['ab'], minLength:5}`, whose own bound rejects its own member)
+  even `x ⊓ text` narrows or conflicts. Since `0.6.6` that declaration is
+  **refused at parse time** (`field-type.bad-values`) rather than tolerated, so
+  the exception is gone from the def road. The public **constructors** do not
+  validate — `new TextFieldType({ values: [{ value: 'ab' }], minLength: 5 })` is
+  still buildable, and for one of those the meet is a lower bound only, exactly
+  as an uncompilable `pattern` is still constructible by hand. Soundness is kept
+  unconditionally on both roads, because it is the law a validator actually
+  depends on.
 
   `engine.parameters(query)` → `ParamInfo[]` is the detailed view: per param,
   every `use` (`{ at, type, category, field? }` — path, required type, category

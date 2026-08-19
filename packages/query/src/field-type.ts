@@ -175,25 +175,35 @@ export abstract class FieldType implements Node {
    * to visit the uses in. It is also SOUND: the meet accepts nothing that both
    * operands do not. All four are property-tested (`param-meet.test.ts`).
    *
-   * IT IS A LOWER BOUND, NOT THE *GREATEST* LOWER BOUND — the one law it
-   * deliberately does not satisfy, and only for a SELF-INCONSISTENT type. A
-   * closed set IS the value schema (`toValueSchema` short-circuits on it), so a
-   * meet narrows a merged set by the merged scalar constraints; when a type's
-   * OWN set and constraints already disagree, meeting it with the unconstrained
-   * type of the same kind therefore narrows or conflicts:
+   * IT IS THE *GREATEST* LOWER BOUND FOR EVERY TYPE BUILT THROUGH `from` — AND
+   * ONLY A LOWER BOUND FOR ONE BUILT BY HAND. The distinction is the whole of
+   * the caveat, so it is worth stating exactly.
    *
-   *     x = text{values:['ab'], minLength:5}     x.validValue('ab') === true
-   *     x ⊓ text  ⇒  undefined                   (not x)
+   * A closed set IS the value schema (`toValueSchema` short-circuits on it), so
+   * a meet narrows a merged set by the merged scalar constraints. For a
+   * SELF-INCONSISTENT type — one whose own set and own constraints disagree —
+   * that narrowing bites even against the unconstrained type of its own kind:
+   *
+   *     x = new TextFieldType({ values:['ab'], minLength:5 })
+   *     x.validValue('ab')  ⇒  true        (the set short-circuits the bound)
+   *     x ⊓ text            ⇒  undefined   (not x)
    *
    * The narrowing itself is not optional — keeping `1` from
    * `text{values:[1,'b']} ⊓ text` would ADMIT a value plain `text` refuses, i.e.
    * break soundness, which is the law a validator actually depends on. So the
-   * trade is: soundness always, top-identity except where the declaration
-   * contradicts itself. The practical cost is that a param compared against such
-   * a column and any plain column of the same kind reports `param.conflict`,
-   * blaming the query for a defect in the TYPE. `param-meet.test.ts` enumerates
-   * the exception as a named expected-failure set rather than leaving the law
-   * untested.
+   * declaration is what had to go: since `0.6.6` such a set is REFUSED where
+   * declarations are read (`field-type.bad-values` from `from` / `parseType`,
+   * plus a per-kind member schema that no longer offers a `number` field a text
+   * member). Over everything a DEF can express, `x ⊓ ⊤ = x` therefore holds
+   * unconditionally, and `param.conflict` can no longer blame a query for a
+   * defect in the type.
+   *
+   * The public CONSTRUCTORS still do not validate — the same caveat
+   * `TextOptions.pattern` carries for an uncompilable regex — so
+   * `new TextFieldType({ values:['ab'], minLength:5 })` remains buildable and
+   * remains a lower bound only. `param-meet.test.ts` asserts the law over a type
+   * set it first proves `parseFieldType` can build, and exercises the hand-built
+   * road separately, so neither half can rot into the other.
    */
   meet(other: FieldType): FieldType | undefined {
     // Identical types short-circuit, which is what makes the meet EXACTLY

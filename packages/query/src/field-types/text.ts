@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import type { FieldTypeDef, TextFieldTypeDef, FieldValueDef } from '../schema';
-import { fieldValuesSchema, closedSetValueSchema, compactFieldValues, meetFieldValues, narrowFieldValues } from './_values';
+import {
+  fieldValuesSchema,
+  checkFieldValues,
+  closedSetValueSchema,
+  compactFieldValues,
+  meetFieldValues,
+  narrowFieldValues,
+} from './_values';
 import { meetExact, meetFlag, meetLower, meetUpper, emptyRange } from './_meet';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
@@ -121,7 +128,12 @@ export class TextFieldType extends FieldType {
     return this.options.sensitive === true;
   }
 
-  /** Reconstruct from a JSON def (throws on a kind mismatch, or on an uncompilable `pattern`). */
+  /**
+   * Reconstruct from a JSON def. Throws a `QueryTypeError` on a kind mismatch,
+   * on an uncompilable `pattern`, and on a closed set holding a member this
+   * type's own length / pattern constraints reject — all three are defects in
+   * the DECLARATION, and this is the road every in-package parse takes.
+   */
   static from(json: FieldTypeDef): TextFieldType {
     if (json.kind !== 'text') {
       throw new QueryTypeError({
@@ -130,8 +142,15 @@ export class TextFieldType extends FieldType {
       });
     }
     const { minLength, maxLength, pattern, semantic, search, sensitive, values } = json;
+    // Order matters: `textConstraintSchema` COMPILES the pattern, so an
+    // uncompilable one has to be refused as itself before the set is checked
+    // against it — otherwise the member check throws a raw `SyntaxError`.
     if (pattern !== undefined) checkPattern(pattern);
-    return new TextFieldType(compact({ minLength, maxLength, pattern, semantic, search, sensitive, values }));
+    const options = compact({ minLength, maxLength, pattern, semantic, search, sensitive, values });
+    // Checked on the COMPACTED set, so a member repeated in the declaration is
+    // named once rather than once per occurrence.
+    checkFieldValues('text', ['values'], options.values, textConstraintSchema(options));
+    return new TextFieldType(options);
   }
 
   /** The Zod schema for this field type's JSON def. */
@@ -144,7 +163,9 @@ export class TextFieldType extends FieldType {
       semantic: z.boolean().optional().describe('Eligible for embedding-based semantic similarity.'),
       search: z.boolean().optional().describe('Eligible for full-text search.'),
       sensitive: z.boolean().optional().describe('When true, text matching is CASE-SENSITIVE (default: case-insensitive).'),
-      values: fieldValuesSchema(),
+      // A `text` member is a STRING — the owning kind decides the member type
+      // (see `fieldValuesSchema`), so this schema cannot offer a numeric one.
+      values: fieldValuesSchema(z.string()),
     }).meta({ aid: 'FieldType_text' }).describe('String field type.');
   }
 

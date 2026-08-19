@@ -52,6 +52,16 @@ import type { ExprDef, FieldTypeKind, FieldValueDef, JsonValue, SelectDef, TypeD
  * one of each cross-kind family (`number`/`money`, `date`/`timestamp`), plus the
  * composites (`array` with and without an element type, `relation` to two
  * different targets).
+ *
+ * EVERY ENTRY IS A SHAPE `parseFieldType` CAN BUILD — asserted below, not
+ * assumed, because that is the domain the top-identity law is stated over.
+ * The three SELF-INCONSISTENT entries this table used to carry
+ * (`text{values:['ab'], minLength:5}`, `text{values:['zz'], pattern:'^a'}`, and
+ * a mixed-scalar `text{values:[1,'a']}`) are no longer declarable through
+ * `from` — the first two are refused by `field-type.bad-values` and the third
+ * by that plus the per-kind member schema. They are still constructible BY HAND,
+ * which is a different road with a different guarantee; that road is exercised
+ * on its own below rather than inside the algebra loops.
  */
 const TYPES: Readonly<Record<string, FieldType>> = {
   text: new TextFieldType(),
@@ -67,15 +77,11 @@ const TYPES: Readonly<Record<string, FieldType>> = {
   // A DUPLICATED member: representable, and the shape that made the
   // intersection's multiplicity depend on which operand was on the left.
   enumDup: new TextFieldType({ values: [{ value: 'a' }, { value: 'a' }, { value: 'bb' }] }),
-  // A MIXED-scalar set, and a set carrying a constraint ON THE SAME SIDE —
-  // both, plus the SELF-INCONSISTENT pair whose set no member of it satisfies.
-  enumMixed: new TextFieldType({ values: [{ value: 1 }, { value: 'a' }] }),
-  // Set + pattern in BOTH arrangements — one the pattern ADMITS, one it
-  // EXCLUDES — because only the excluded arrangement exercises the narrowing,
-  // and carrying the consistent one alone covers the easy half of the shape.
+  // A set carrying a constraint ON THE SAME SIDE. Only the arrangement the
+  // constraint ADMITS is declarable now, so the EXCLUDED arrangement moved to
+  // the hand-built caveat test — where its refusal at `from` is the fact.
   enumPatA: new TextFieldType({ pattern: '^a', values: [{ value: 'a' }, { value: 'ab' }] }),
-  enumPatExcluded: new TextFieldType({ pattern: '^a', values: [{ value: 'zz' }] }),
-  enumTooShort: new TextFieldType({ minLength: 5, values: [{ value: 'ab' }] }),
+  enumMinOk: new TextFieldType({ minLength: 5, values: [{ value: 'abcde' }] }),
   number: new NumberFieldType(),
   numWhole: new NumberFieldType({ whole: true }),
   num2to8: new NumberFieldType({ min: 2, max: 8 }),
@@ -184,33 +190,63 @@ describe('the meet is a genuine meet (property, over every pair and triple)', ()
     expect(mismatched).toEqual([]);
   });
 
-  it('is a LOWER bound but not the GREATEST one — `x ⊓ ⊤ = x` except where a type contradicts itself', () => {
-    // The law this operation deliberately does NOT satisfy, enumerated instead
-    // of left untested. A closed set IS the value schema, so a meet narrows a
-    // merged set by the merged constraints; when a type's OWN set and
-    // constraints already disagree, meeting it with the unconstrained type of
-    // its kind narrows or conflicts:
-    //
-    //     enumTooShort = text{values:['ab'], minLength:5}
-    //     enumTooShort.validValue('ab') === true      (the set short-circuits)
-    //     enumTooShort ⊓ text          === undefined  (not enumTooShort)
-    //
-    // The narrowing is not optional — keeping `1` from `enumMixed ⊓ text` would
-    // ADMIT a value plain text refuses, breaking the soundness law a validator
-    // actually depends on. So: soundness always, top-identity everywhere the
-    // declaration is self-consistent. Asserting BOTH directions means neither
-    // the law nor its exception can rot silently.
-    const EXPECTED_TO_NARROW = new Set(['enumTooShort', 'enumMixed', 'enumPatExcluded']);
+  it('every type in the set is one `parseFieldType` can BUILD — the domain the next law is stated over', () => {
+    // The top-identity law below is UNCONDITIONAL, and it is only entitled to be
+    // so because no entry here is self-inconsistent. Asserting that structurally
+    // — the def road refuses such a declaration outright — is what stops the
+    // law from being "true because the table was quietly curated": adding a
+    // hand-built `text{values:['ab'], minLength:5}` fails HERE, at the premise,
+    // rather than silently reintroducing an exception to the law.
+    const registry = createRegistry();
+    for (const x of NAMES) {
+      const json = at(x).toJSON();
+      expect(registry.parseFieldType(json).toJSON()).toEqual(json);
+    }
+  });
+
+  it('is the GREATEST lower bound for a registry-built type — `x ⊓ ⊤ = x`, unconditionally', () => {
+    // Through 0.6.6's first pass this law had a NAMED expected-failure set: a
+    // closed set IS the value schema, so a meet narrows a merged set by the
+    // merged constraints, and a type whose OWN set and constraints disagreed
+    // (`text{values:['ab'], minLength:5}`) narrowed or conflicted against the
+    // unconstrained type of its own kind. The narrowing was never the defect —
+    // keeping `1` from `text{values:[1,'b']} ⊓ text` would ADMIT a value plain
+    // text refuses, breaking the soundness law a validator depends on — the
+    // DECLARATION was, and it is now refused where declarations are read
+    // (`field-type.bad-values`, plus a per-kind member schema). So the exception
+    // set is empty and the law is asserted with no carve-out: over every shape
+    // a def can express, the meet is the greatest lower bound, and
+    // `param.conflict` can no longer blame a query for a defect in the type.
     const offenders: string[] = [];
     for (const x of NAMES) {
       const top = TOP_BY_KIND[at(x).kind];
       // `relation` has no top: `to` is identity rather than a constraint, and
       // the meet drops the inverse metadata by design (see `relation.ts`).
       if (!top) continue;
-      const held = meetKey(at(x), top) === JSON.stringify(at(x).toJSON());
-      if (held === EXPECTED_TO_NARROW.has(x)) offenders.push(`${x}: ${held ? 'held unexpectedly' : 'narrowed'}`);
+      if (meetKey(at(x), top) !== JSON.stringify(at(x).toJSON())) offenders.push(`${x}: narrowed`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('…and still only a LOWER bound for a HAND-BUILT type, which is why the law names its domain', () => {
+    // The public CONSTRUCTORS do not validate — the same caveat `TextOptions.pattern`
+    // already carries — so a self-inconsistent type remains constructible by
+    // hand, and for one of those `x ⊓ ⊤` still narrows or conflicts. That is not
+    // a gap in the meet: soundness comes first, and these are exactly the
+    // declarations `from` now refuses. Kept as a test so the distinction between
+    // the two roads stays measured rather than asserted only in prose.
+    const tooShort = new TextFieldType({ minLength: 5, values: [{ value: 'ab' }] });
+    const patExcluded = new TextFieldType({ pattern: '^a', values: [{ value: 'zz' }] });
+    const mixed = new TextFieldType({ values: [{ value: 1 }, { value: 'a' }] });
+    expect(tooShort.validValue('ab')).toBe(true); // the set short-circuits the bound
+    expect(tooShort.meet(new TextFieldType())).toBeUndefined();
+    expect(patExcluded.meet(new TextFieldType())).toBeUndefined();
+    expect(mixed.meet(new TextFieldType())?.toJSON()).toEqual({ kind: 'text', values: [{ value: 'a' }] });
+    // …and each of the three is refused on the def road, which is what makes the
+    // unconditional law above true for everything `parseType` can produce.
+    for (const hand of [tooShort, patExcluded, mixed]) {
+      expect(() => TextFieldType.from(hand.toJSON())).toThrow(/closed-set member/);
+    }
   });
 
   it('is at least as strict as comparableWith — a meet implies comparability', () => {
@@ -363,10 +399,16 @@ describe('the details of merging two closed sets', () => {
   });
 
   it('orders a MIXED-scalar set totally — `1` and `"1"` render alike and must not confuse the sort', () => {
-    // A closed set may legally hold both (`closedSetValueSchema` builds a union
-    // of literals for exactly that reason), so the canonical comparator has to
-    // be TOTAL. Exercised on the primitive, because a `text` type's meet then
-    // narrows a numeric member away — see the next test.
+    // A closed set can hold both (`closedSetValueSchema` builds a union of
+    // literals for exactly that reason), so the canonical comparator has to be
+    // TOTAL. This is the ONLY guard on that totality — no entry in `TYPES` holds
+    // both `1` and `'1'`, and none can any more: a mixed-scalar set is no longer
+    // declarable through `from` (the member schema is per kind, and a numeric
+    // member of a `text` set is refused by `field-type.bad-values`). The shape
+    // is still reachable through the public CONSTRUCTORS, which is why the test
+    // stays and why it is written against the primitive rather than a def.
+    // Exercised on the primitive also because a `text` type's meet then narrows
+    // a numeric member away — see the next test.
     const left: FieldValueDef[] = [{ value: 1 }, { value: '1' }, { value: 'b' }];
     const right: FieldValueDef[] = [{ value: 'b' }, { value: '1' }, { value: 1 }];
     // Numbers sort ahead of text, which is what breaks the `1` / `'1'` tie —
@@ -399,6 +441,8 @@ describe('the details of merging two closed sets', () => {
     // declaration that `toValueSchema` accepts (a closed set short-circuits the
     // string check). Merging it with plain `text` — which admits no number at
     // all — has to drop it, or the meet would admit a value one operand refuses.
+    // Built BY HAND deliberately: `from` refuses this declaration now, and the
+    // narrowing is what a hand-built one still relies on for soundness.
     const odd = new TextFieldType({ values: [{ value: 1 }, { value: 'b' }] });
     expect(odd.meet(new TextFieldType())?.values()).toEqual([{ value: 'b' }]);
     // …and it stays exactly itself when met with itself.

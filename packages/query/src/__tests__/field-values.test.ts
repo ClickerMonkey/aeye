@@ -14,11 +14,12 @@
 import { describe, it, expect } from 'vitest';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
-import { TextFieldType, NumberFieldType } from '../field-types/index';
+import { TextFieldType, NumberFieldType, MoneyFieldType } from '../field-types/index';
+import { QueryTypeError } from '../problem';
 import { EQ_SELECTIVITY } from '../cost';
 import { describeTypes } from '../llm/index';
 import { cctx } from './_utils';
-import type { TypeDef, SelectDef } from '../schema';
+import type { TypeDef, SelectDef, FieldTypeDef } from '../schema';
 
 const applicationDef: TypeDef = {
   name: 'application',
@@ -192,5 +193,162 @@ describe('A5 — closed value sets', () => {
     // Membership is the stricter fact, so it is what the value schema enforces.
     expect(both.validValue('a')).toBe(true);
     expect(both.validValue('zzz')).toBe(false);
+  });
+});
+
+/**
+ * A member of a closed set is a value of the OWNING KIND's scalar — the def
+ * schema offers nothing else.
+ *
+ * The `values` slot is shared by `text` and `number`, and it used to declare its
+ * member as `z.union([z.string(), z.number()])` for both. Measured on `0.6.5`:
+ *
+ *     parseFieldType({kind:'number', values:[{value:'a'},{value:2}]})  ->  ACCEPTED
+ *       .validValue('a')  -> true    (a NUMBER column accepting the string 'a')
+ *       .eqSelectivity()  -> 0.5
+ *
+ * For a package whose contract is that its generated schemas only ever offer
+ * valid values, a `number` field-type schema offering a text member slot is the
+ * defect — the def that took the offer was doing as it was told.
+ */
+describe('a closed set’s member type comes from the owning kind', () => {
+  const parse = (s: { safeParse(v: unknown): { success: boolean } }, def: unknown): boolean => s.safeParse(def).success;
+
+  it('the `text` def schema offers a STRING member, the `number` one a NUMBER', () => {
+    expect(parse(TextFieldType.toSchema(), { kind: 'text', values: [{ value: 'a' }] })).toBe(true);
+    expect(parse(TextFieldType.toSchema(), { kind: 'text', values: [{ value: 1 }] })).toBe(false);
+    expect(parse(NumberFieldType.toSchema(), { kind: 'number', values: [{ value: 1 }] })).toBe(true);
+    expect(parse(NumberFieldType.toSchema(), { kind: 'number', values: [{ value: 'a' }] })).toBe(false);
+  });
+
+  it('`money` inherits it through the inner NumberOptions bag — the indirection that hid its selectivity', () => {
+    // `money`'s set lives one level down, which is exactly why it was missed
+    // when `eqSelectivity` was asked per class. Reached through the same bag
+    // here, so it cannot drift from `number`'s answer.
+    expect(parse(MoneyFieldType.toSchema(), { kind: 'money', number: { values: [{ value: 10 }] } })).toBe(true);
+    expect(parse(MoneyFieldType.toSchema(), { kind: 'money', number: { values: [{ value: 'ten' }] } })).toBe(false);
+  });
+});
+
+/**
+ * A closed set every member of which the type's OWN constraints reject is a
+ * defect in the DECLARATION, and is refused where declarations are read.
+ *
+ * Satisfiability is decidable here, patterns included: the set is FINITE and
+ * declared, so every per-member predicate is settled by EVALUATION — which this
+ * package already did, in the meet (`narrowFieldValues` against the kind's
+ * constraint schema). The check reuses that exact pair, so a def accepted at
+ * parse time can never be narrowed by the meet afterwards.
+ *
+ * Sibling of `field-type.bad-pattern` in every respect: same road (`from`), same
+ * `QueryTypeError`, same reason (nothing a query does can make the declaration
+ * valid), and the same caveat — the public CONSTRUCTORS do not validate.
+ */
+describe('a closed set must be satisfiable by its own constraints', () => {
+  const registry = createRegistry();
+
+  /** The `QueryTypeError` `parseFieldType` threw for `def`, or a failure if it did not throw. */
+  const refusal = (def: FieldTypeDef): QueryTypeError => {
+    try {
+      registry.parseFieldType(def);
+      expect.unreachable('parseFieldType should have refused the declaration');
+    } catch (err) {
+      expect(err).toBeInstanceOf(QueryTypeError);
+      return err as QueryTypeError;
+    }
+  };
+
+  it('refuses a member a `pattern` excludes, naming the member AND what excluded it', () => {
+    const err = refusal({ kind: 'text', pattern: '^a', values: [{ value: 'zz' }] });
+    expect(err.problem.code).toBe('field-type.bad-values');
+    expect(err.problem.path).toEqual(['values']);
+    // The author's fix is to change ONE of the two, so the message has to name
+    // both halves — and the reason comes from the same schema that rejected it.
+    expect(err.problem.message).toContain('"zz"');
+    expect(err.problem.message).toContain('must match pattern /^a/');
+    expect(err.problem.message).toContain('1 closed-set member');
+  });
+
+  it('refuses a member a LENGTH bound excludes', () => {
+    const err = refusal({ kind: 'text', minLength: 5, values: [{ value: 'ab' }] });
+    expect(err.problem.message).toContain('to have >=5 characters');
+  });
+
+  it('refuses a NUMERIC member of a text set — the mixed-scalar shape, caught on the parse road too', () => {
+    // The per-kind member schema removes this from what a def SCHEMA offers; the
+    // schema is not on the `from` path, so the same fact is enforced here.
+    const err = refusal({ kind: 'text', values: [{ value: 1 }, { value: 'a' }] });
+    expect(err.problem.message).toContain('expected string, received number');
+  });
+
+  it('refuses a text member of a NUMBER set, and a fractional one under `whole`', () => {
+    expect(refusal({ kind: 'number', values: [{ value: 'a' }] }).problem.message).toContain(
+      'expected number, received string',
+    );
+    const err = refusal({ kind: 'number', whole: true, values: [{ value: 1 }, { value: 1.5 }] });
+    expect(err.problem.message).toContain('1.5');
+    expect(err.problem.message).toContain('expected int, received number');
+    // The SURVIVING member is not the point — one rejected member is enough.
+    expect(err.problem.message).toContain('1 closed-set member');
+  });
+
+  it('refuses a member outside declared BOUNDS, and reports a `money` set at `number.values`', () => {
+    expect(refusal({ kind: 'number', min: 0, values: [{ value: -1 }] }).problem.message).toContain('to be >=0');
+    const err = refusal({ kind: 'money', currency: 'USD', number: { min: 0, values: [{ value: 0 }, { value: -5 }] } });
+    expect(err.problem.code).toBe('field-type.bad-values');
+    // Where a money def actually declares one — a path a fix can be applied to.
+    expect(err.problem.path).toEqual(['number', 'values']);
+    expect(err.problem.message).toContain("A 'money' field");
+  });
+
+  it('refuses a PARTIALLY inconsistent set too — every member must satisfy, not merely one', () => {
+    // `a` survives and `zz` does not, and that is still a broken declaration:
+    // `validValue('zz')` answers true on the way in (a closed set IS the value
+    // schema) while the meet drops `zz` on the way out. Requiring ALL members is
+    // what makes `x ⊓ ⊤ = x` hold for every type a def can express.
+    const err = refusal({ kind: 'text', pattern: '^a', values: [{ value: 'a' }, { value: 'zz' }] });
+    expect(err.problem.message).toContain('1 closed-set member');
+    expect(err.problem.message).toContain('"zz"');
+    expect(err.problem.message).not.toContain('"a"');
+  });
+
+  it('names several offenders at once, and elides past the description budget', () => {
+    const err = refusal({ kind: 'number', min: 0, values: Array.from({ length: 15 }, (_, i) => ({ value: -1 - i })) });
+    expect(err.problem.message).toContain('15 closed-set members');
+    // The same budget the model-facing description spends on a long set: a
+    // longer list of offenders is not a more actionable message.
+    expect(err.problem.message).toContain('…+3 more');
+  });
+
+  it('is refused at parseType and inside an ARRAY item, so no query path reaches the declaration', () => {
+    const r = createRegistry();
+    const bad: FieldTypeDef = { kind: 'text', pattern: '^a', values: [{ value: 'zz' }] };
+    const typeWith = (type: FieldTypeDef): TypeDef => ({
+      name: 'doc',
+      fields: [{ name: 'id', type: { kind: 'number', whole: true } }, { name: 'code', type }],
+      count: 1,
+      bytes: 8,
+    });
+    expect(() => r.parseType(typeWith(bad))).toThrow(/closed-set member/);
+    expect(() => r.parseType(typeWith({ kind: 'array', item: bad }))).toThrow(/closed-set member/);
+  });
+
+  it('still accepts every set its constraints DO admit', () => {
+    expect(registry.parseFieldType({ kind: 'text', pattern: '^a', values: [{ value: 'a' }, { value: 'ab' }] }).validValue('ab')).toBe(true);
+    expect(registry.parseFieldType({ kind: 'number', whole: true, min: 1, values: [{ value: 1 }, { value: 9 }] }).eqSelectivity()).toBeCloseTo(1 / 2);
+    expect(registry.parseFieldType({ kind: 'money', number: { values: [{ value: 0 }, { value: 10 }] } }).values()).toHaveLength(2);
+    // A set with NO constraints beside it is unconstrained by definition, and a
+    // type with constraints and no set is untouched.
+    expect(registry.parseFieldType({ kind: 'text', values: [{ value: 'anything' }] }).validValue('anything')).toBe(true);
+    expect(registry.parseFieldType({ kind: 'text', minLength: 5 }).validValue('abcde')).toBe(true);
+  });
+
+  it('does NOT validate the public constructor — the same caveat every hand-supplied option carries', () => {
+    // Stated as a test rather than only in prose: `FieldType.meet` is the
+    // GREATEST lower bound for a registry-built type, and only a lower bound for
+    // a hand-built one, and this is the road that keeps the second half true.
+    const hand = new TextFieldType({ pattern: '^a', values: [{ value: 'zz' }] });
+    expect(hand.validValue('zz')).toBe(true);
+    expect(() => TextFieldType.from(hand.toJSON())).toThrow(/closed-set member/);
   });
 });

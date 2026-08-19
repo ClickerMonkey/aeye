@@ -12,15 +12,33 @@
  * one closed set has one home (see `FieldValueDef`).
  */
 import { z } from 'zod';
-import type { FieldValueDef, JsonValue } from '../schema';
+import type { FieldTypeKind, FieldValueDef, JsonValue } from '../schema';
+import { QueryTypeError } from '../problem';
 import { met, MEET_CONFLICT, type MeetResult } from './_meet';
 
-/** The Zod schema for the shared `values` slot on `text` / `number` defs. */
-export function fieldValuesSchema(): z.ZodTypeAny {
+/**
+ * The Zod schema for the shared `values` slot on `text` / `number` defs, over
+ * the MEMBER schema of the owning kind — `z.string()` for `text`, `z.number()`
+ * for `number` (and for `money`, whose set lives in its inner `NumberOptions`).
+ *
+ * THE MEMBER TYPE IS A PARAMETER BECAUSE THE OWNING KIND DECIDES IT. This slot
+ * used to declare `z.union([z.string(), z.number()])` for both kinds, so the
+ * model-facing schema for a `number` field offered a member slot accepting text
+ * — measured on `0.6.5`: `{kind:'number', values:[{value:'a'},{value:2}]}` was
+ * accepted, `validValue('a')` was `true` (a closed set IS the value schema, so
+ * it short-circuits the numeric check), and `eqSelectivity()` was `0.5`. For a
+ * package whose contract is that a generated schema only offers VALID values,
+ * offering a mixed-scalar set is the defect, not the def that took the offer.
+ *
+ * A REQUIRED parameter rather than a defaulted one: a new kind that grows a
+ * closed set has to say which scalar its members are, and cannot inherit
+ * "either" by omission.
+ */
+export function fieldValuesSchema(member: z.ZodTypeAny): z.ZodTypeAny {
   return z
     .array(
       z.object({
-        value: z.union([z.string(), z.number()]).describe('The stored value — one member of the closed set.'),
+        value: member.describe('The stored value — one member of the closed set.'),
         label: z.string().optional().describe('Human-facing name for this member (defaults to the value).'),
       }),
     )
@@ -204,6 +222,79 @@ export function narrowFieldValues(
   admits: (value: string | number) => boolean,
 ): FieldValueDef[] {
   return values.filter((v) => admits(v.value));
+}
+
+/**
+ * Reject a closed set whose OWN scalar constraints exclude one of its members,
+ * at DECLARATION time — `text{values:['zz'], pattern:'^a'}`,
+ * `number{values:[1.5], whole:true}`, `text{values:['ab'], minLength:5}`.
+ *
+ * It is a defect in the DEFINITION, so it is refused where the definition is
+ * read, exactly like an uncompilable `pattern` (`field-type.bad-pattern`): no
+ * query can make such a member storable, and until now nothing said so. The
+ * declaration was not merely odd, it was OBSERVABLY inconsistent — a closed set
+ * IS the value schema, so `validValue('zz')` answered `true` while the meet,
+ * which narrows a merged set by the merged constraints, dropped `zz` or
+ * conflicted outright. That is what made `x ⊓ ⊤ = x` fail and made
+ * `param.conflict` blame a QUERY for a defect in the TYPE.
+ *
+ * SATISFIABILITY IS DECIDABLE HERE, patterns included, and that is the whole
+ * reason this is a check rather than a caveat: the set is FINITE and declared,
+ * so every per-member predicate is settled by EVALUATION. There is exactly one
+ * evaluator — {@link narrowFieldValues} against the kind's own constraint
+ * schema, which is the same pair the meet narrows with — so a def accepted here
+ * can never be narrowed there.
+ *
+ * EVERY member must satisfy, not merely one. A set that keeps some members is
+ * as inconsistent as one that keeps none: `text{values:['a','zz'], pattern:'^a'}`
+ * still accepts `zz` on the way in and still loses it to the meet. Requiring
+ * all of them is what makes the meet the GREATEST lower bound for every type
+ * built through `from` (the public CONSTRUCTORS do not validate — see
+ * `FieldType.meet`).
+ *
+ * The message names WHICH member and WHAT excluded it, because the author's fix
+ * is to change one or the other, and the reason comes from the same schema that
+ * rejected it (zod says "must match pattern /^a/", "expected int, received
+ * number") rather than from a second re-derivation of the constraint bag.
+ */
+export function checkFieldValues(
+  /** The declaring kind, named in the message — derived from `FieldTypeDef`, never a free string. */
+  kind: FieldTypeKind,
+  /** Where the set sits inside the def: `['values']`, or `['number','values']` for `money`. */
+  path: readonly string[],
+  values: readonly FieldValueDef[] | undefined,
+  constraints: z.ZodTypeAny,
+): void {
+  if (!values || values.length === 0) return;
+  const kept = new Set(narrowFieldValues(values, (v) => constraints.safeParse(v).success));
+  const excluded = values.filter((v) => !kept.has(v));
+  if (excluded.length === 0) return;
+  // Elided on the same budget as the model-facing description: a long set makes
+  // a long message no more actionable, and the first offenders are enough to
+  // identify the disagreement.
+  const shown = excluded
+    .slice(0, MAX_DESCRIBED_VALUES)
+    .map((v) => `${JSON.stringify(v.value)} (${rejectionReason(constraints, v.value)})`);
+  const more = excluded.length - shown.length;
+  throw new QueryTypeError({
+    path: [...path],
+    code: 'field-type.bad-values',
+    severity: 'error',
+    message:
+      `A '${kind}' field declares ${excluded.length} closed-set ` +
+      `${excluded.length === 1 ? 'member its own constraints reject' : 'members its own constraints reject'}: ` +
+      `${shown.join(', ')}${more > 0 ? `, …+${more} more` : ''}. ` +
+      'A closed set IS the value schema, so such a member could never be stored — ' +
+      'remove it, or relax the constraint that excludes it.',
+  });
+}
+
+/** Why `constraints` rejected `value`, in the schema's own words (joined when it has several complaints). */
+function rejectionReason(constraints: z.ZodTypeAny, value: string | number): string {
+  const result = constraints.safeParse(value);
+  /* v8 ignore next -- unreachable: only called for a member `narrowFieldValues` has already rejected */
+  if (result.success) return 'rejected';
+  return result.error.issues.map((i) => i.message).join('; ');
 }
 
 /**
