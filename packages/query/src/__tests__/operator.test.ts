@@ -27,7 +27,7 @@ import { QueryEngine } from '../engine';
 import { QueryTypeError, Problems } from '../problem';
 import { checkOperator, checkLatticeLaws, topsByKind } from '../conformance';
 import { OperatorExpr } from '../exprs/operator';
-import { describeOperators, describeEngine } from '../llm/describe';
+import { describeOperators, describeEngine, describeTypes } from '../llm/describe';
 import { buildSchemas } from '../llm/schemas';
 import { exprKindApplicable, selectFunctions } from '../schema-build';
 import { Value } from '../runtime/value';
@@ -352,6 +352,41 @@ describe('registerOperator — the emit template', () => {
     expect(problem.message).toContain('the query would supply an expression the SQL never mentions');
   });
 
+  it('refuses a `{` that opens no slot — the residue the scanner cannot see', () => {
+    // `TEMPLATE_SLOT` only matches a CLOSED `{…}`, so an unclosed or nested
+    // brace never reaches the unknown-slot resolver and would sail through as
+    // literal text into emitted SQL — exactly what that refusal exists to
+    // prevent, reached by the one road it cannot see.
+    const unclosed = refusal(() => baseRegistry().registerOperator(withEmit({ postgres: '({left} && {right} {oops)' })));
+    expect(unclosed.message).toContain('that opens no slot');
+    expect(unclosed.message).toContain('(declared: left, right)');
+    // A NESTED brace is the same failure: `{q` survives as literal text.
+    expect(
+      refusal(() => baseRegistry().registerOperator(withEmit({ postgres: '({left} && {right}{q{left}})' }))).message,
+    ).toContain('that opens no slot');
+    // …and it suggests a real operand when the stray brace looks like a typo.
+    expect(
+      refusal(() => baseRegistry().registerOperator(withEmit({ postgres: '({left} && {right} {rigt)' }))).message,
+    ).toContain('did you mean `right`?');
+  });
+
+  it('accepts a legally-wrapped template containing an ASTRAL character', () => {
+    // The paren walk indexes by UTF-16 code unit, because it compares against
+    // `trimmed.length`, which is also UTF-16. Walking code POINTS instead made
+    // the two disagree the moment a template held a surrogate pair, and the
+    // closing `)` tripped the closed-early return — refusing a correctly wrapped
+    // template with a message about parentheses, which is the wrong thing to
+    // point a declarer at.
+    // A BMP accented character always passed; the astral one is the regression.
+    for (const template of ['({left} && {right} é)', '({left} && {right} 𝕏)']) {
+      expect(() => baseRegistry().registerOperator(withEmit({ postgres: template }))).not.toThrow();
+    }
+    // The genuinely-unwrapped case is still refused, astral or not.
+    expect(
+      refusal(() => baseRegistry().registerOperator(withEmit({ postgres: '({left}) 𝕏 ({right})' }))).message,
+    ).toContain('must be wrapped in its own balanced parentheses');
+  });
+
   it('builds the "you need an emit" example from the declaration\'s OWN operand names', () => {
     // A UNARY operator, so the example cannot be a hardcoded `left`/`right`.
     const unary: OperatorDef = {
@@ -552,29 +587,85 @@ describe('the `operator` expr — SQL', () => {
       'postgres',
       { params: { here: { type: 'Point', coordinates: [0, 0] }, box: { type: 'Polygon', coordinates: [] } } },
     );
-    // A PRE-EXISTING LIMIT, pinned here because this is where it shows: a bound
-    // PARAM carrying a document emits the BASE cast (`CAST($1 AS jsonb)`), not
-    // the refinement's declared `cast`. `ParamExpr.toSQL` calls
-    // `dialect.jsonValue(raw)` with no field type, and it has none to pass:
-    // `engine.toSQL` builds a fresh scope and runs no inference walk, so a
-    // param's inferred type does not exist at emit time. It is not specific to
-    // operators — the same param under `ST_Contains(a, b)` emits the same cast —
-    // and the fix (threading a declared / inferred type into every param
-    // binding) changes the emitted SQL of every existing `json` param. The
-    // COLUMN side is unaffected and already carries its declared type.
+    // THE FLAGSHIP QUERY, AND IT HAS TO EXECUTE. A document operand — here a
+    // bound PARAM — binds through the DECLARED operand type's own `cast`
+    // template, not through the dialect's default json cast. Emitted the other
+    // way (`CAST($1 AS jsonb)`) Postgres refuses the statement outright:
+    // `operator does not exist: geometry && jsonb`, because the column is
+    // DDL'd `geometry(Polygon,4326)`.
+    //
+    // The cast target is `Point` — the OPERAND's declared type takes `Geometry`'s
+    // defaults, because `&&` accepts any geometry and the declaration wrote no
+    // `with`. That is the honest reading: an operand is a comparability
+    // constraint, not a restatement of the column's option set.
     expect(sql.sql).toBe(
       'SELECT "parcel"."name" AS "name", ' +
-        '("parcel"."shape" <-> CAST($1 AS jsonb)) AS "distance" ' +
+        '("parcel"."shape" <-> ST_GeomFromGeoJSON($1)::geometry(Point,4326)) AS "distance" ' +
         'FROM "parcel" AS "parcel" ' +
-        'WHERE ("parcel"."shape" && CAST($2 AS jsonb)) ' +
+        'WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($2)::geometry(Point,4326)) ' +
         'LIMIT 10',
     );
   });
 
-  it('emits the refinement cast for a LITERAL operand, which does carry its column type', () => {
-    // The other half of the limit above: a `write` cell knows its column, so the
-    // declared `cast` template does fire there — the mechanism works, and it is
-    // the PARAM road that cannot reach a type at emit.
+  it('emits the declared cast for a LITERAL operand too, not only for a bound param', () => {
+    // Both roads a document can arrive by. `LiteralExpr.toSQL` carries the same
+    // shape-only default `ParamExpr.toSQL` does, so a literal operand emitted
+    // `CAST($1 AS jsonb)` as well — which is why the routing is shared rather
+    // than special-cased on params.
+    const sql = geoEngine().toSQL(
+      parcelSelect({
+        where: [
+          {
+            kind: 'operator',
+            op: '&&',
+            args: {
+              left: { kind: 'field-ref', source: 'parcel', field: 'shape' },
+              right: { kind: 'literal', value: { type: 'Polygon', coordinates: [] } },
+            },
+          },
+        ],
+      }),
+      'postgres',
+    );
+    expect(sql.sql).toContain('("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))');
+  });
+
+  it('leaves a NON-document operand exactly as it was', () => {
+    // The routing predicate is the A12 one: a value routes when it is an OBJECT
+    // or when the target is a `json` one. A `number` operand with a scalar param
+    // must still bind plainly — casting it would be the mirror-image defect.
+    const registry = baseRegistry().registerOperator({
+      name: '<<',
+      operands: [{ name: 'left', type: { kind: 'number' } }, { name: 'right', type: 'any' }],
+      output: { kind: 'bool' },
+      instructions: 'A scalar stand-in, for the non-document road.',
+      emit: { postgres: '({left} << {right})' },
+    });
+    registry.registerType(registry.parseType(parcelTypeDef));
+    const sql = new QueryEngine(registry).toSQL(
+      parcelSelect({
+        where: [
+          {
+            kind: 'operator',
+            op: '<<',
+            args: {
+              left: { kind: 'field-ref', source: 'parcel', field: 'id' },
+              right: { kind: 'param', name: 'n' },
+            },
+          },
+        ],
+      }),
+      'postgres',
+      { params: { n: 3 } },
+    );
+    expect(sql.sql).toContain('("parcel"."id" << $1)');
+    expect(sql.params).toEqual([3]);
+  });
+
+  it('still emits the COLUMN own cast on a write cell — the routing is shared, not replaced', () => {
+    // `writeCellSql` now delegates to the same helper, so the A12 behaviour it
+    // has had since 0.6.2 must be unchanged: the column's type, including its
+    // own `with` options (`Polygon`, not the refinement's `Point` default).
     const sql = geoEngine().toSQL(
       {
         kind: 'update',
@@ -699,12 +790,31 @@ describe('the `operator` expr — the in-memory road', () => {
     expect(result.rows.map((r) => r['name'])).toEqual(['north']);
   });
 
-  it('answers NULL when no implementation is registered (a SQL-road operator)', async () => {
-    const result = await runtimeEngine(false).run(parcelSelect({ where: [SHAPE_OVERLAPS_BOX] }), {
-      params: { box: { type: 'Polygon', coordinates: [1] } },
-    });
-    // A NULL predicate is UNKNOWN, so no row survives — and nothing throws.
-    expect(result.rows).toEqual([]);
+  it('names both remedies in the no-run refusal, and the SQL road still works', async () => {
+    // A SQL-road-only operator is a legitimate shape — it just cannot be
+    // EVALUATED — so the refusal points at both: register a run, or emit.
+    const engine = runtimeEngine(false);
+    const query = parcelSelect({ where: [SHAPE_OVERLAPS_BOX] });
+    const message = await engine
+      .run(query, { params: { box: { type: 'Polygon', coordinates: [1] } } })
+      .then(() => '', (err: unknown) => (err instanceof Error ? err.message : String(err)));
+    expect(message).toContain("registerOperatorRun('&&'");
+    expect(message).toContain('engine.toSQL');
+    expect(engine.toSQL(query, 'postgres', { params: { box: {} } }).sql).toContain('&&');
+  });
+
+  it('REFUSES when no implementation is registered, rather than returning zero rows', async () => {
+    // The one place this package's "a missing run answers NULL" rule does not
+    // apply, and the reason is measurable: an operator is usually a PREDICATE,
+    // so NULL is UNKNOWN for every row and the query returns an EMPTY RESULT SET
+    // that looks exactly like one that ran. That is the very failure
+    // `OperatorExpr.toSQL` refuses an unsupported dialect for, and it would be
+    // incoherent to refuse it on one road and produce it on the other.
+    await expect(
+      runtimeEngine(false).run(parcelSelect({ where: [SHAPE_OVERLAPS_BOX] }), {
+        params: { box: { type: 'Polygon', coordinates: [1] } },
+      }),
+    ).rejects.toThrow(/operator\.no-run/);
   });
 });
 
@@ -746,15 +856,38 @@ describe('what a model is told about a registered operator', () => {
   it('renders an `operators:` block with signatures, refinement names and examples', () => {
     const text = describeOperators(geoEngine());
     expect(text).toContain('operators:');
-    // The operand tag is the FULL one the field description uses — the declared
-    // options AND the refused comparison arms — because "which of these two
-    // `json`s does `&&` take, and what may I not do with it" is exactly the
-    // question a model has while choosing.
-    const geometry = 'json(as Geometry,subtype=Point,srid=4326,no =,no <,no LIKE)';
+    // The operand tag names the registered TYPE and nothing else. It used to
+    // render the refinement's DEFAULTS (`subtype=Point,srid=4326`) plus the
+    // refused arms — but an operand's declared type is a COMPARABILITY
+    // constraint, so beside a column reading `subtype=Polygon` a model had every
+    // reason to conclude `shape` was not a legal `left`.
+    const geometry = 'json(as Geometry)';
     expect(text).toContain(`- &&(left: ${geometry}, right: ${geometry}) → bool — Bounding-box overlap`);
     expect(text).toContain(`- <->(left: ${geometry}, right: ${geometry}) → number`);
+    expect(text).not.toContain('subtype=Point');
+    expect(text).not.toContain('no <');
+    // …while the COLUMN still renders its own effective options and refusals,
+    // which are facts about it. Both readings live in one catalog.
+    expect(describeTypes(geoEngine())).toContain(
+      'shape: json(as Geometry,subtype=Polygon,srid=4326,no =,no <,no LIKE)',
+    );
     // The declared example is rendered verbatim under the signature.
     expect(text).toContain('"op":"&&"');
+  });
+
+  it('DOES render an option the operand declaration itself wrote', () => {
+    // The rule is "only what the declaration wrote", not "never any options": an
+    // operand that pins an SRID is making a real constraint, and a model has to
+    // see it to know which columns fit.
+    const registry = baseRegistry().registerOperator({
+      ...OVERLAPS,
+      operands: [
+        { name: 'left', type: { kind: 'json', as: 'Geometry', with: { srid: 3857 } } },
+        { name: 'right', type: { kind: 'json', as: 'Geometry' } },
+      ],
+    });
+    const text = describeOperators(new QueryEngine(registry));
+    expect(text).toContain('- &&(left: json(as Geometry,srid=3857), right: json(as Geometry)) → bool');
   });
 
   it('says so plainly when a registry has none, and OMITS the block from `describeEngine`', () => {
@@ -811,8 +944,9 @@ describe('capability gating', () => {
     noGeometry.registerType(noGeometry.parseType(noteTypeDef));
     expect(exprKindApplicable('operator', noGeometry.typeList(), selectFunctions(noGeometry, 'all'), noGeometry))
       .toBe(false);
-    // No registry supplied at all ⇒ no operator branch (the safe answer).
-    expect(exprKindApplicable('operator', geo.typeList(), selected)).toBe(false);
+    // The registry is REQUIRED, so there is no "forgot it" call silently
+    // answering "no operators" — indistinguishable from a deployment with none.
+    expect(exprKindApplicable('semantic', geo.typeList(), selected, geo)).toBe(false);
   });
 
   it('enum-locks `op` to the registered names, and strictens the operands at `typed` depth', () => {
@@ -886,6 +1020,50 @@ describe('checkOperator', () => {
     expect(check([JSON.stringify({ kind: 'operator', op: '&&', args: {} })])[0]).toContain(
       'supplies operands (none) but `&&` declares left, right',
     );
+  });
+});
+
+describe('an operator that reconstructs a refused arm', () => {
+  it('is ALLOWED, and `checkOperator` warns that the catalog then contradicts itself', () => {
+    // `Geometry` declares `equality: false`, so the builtin `=` over `shape` is
+    // refused — and an operator NAMED `=` over the same type validates clean.
+    // That is the author's prerogative (an operator declares its own meaning),
+    // but the model sees `no =` in the type block and a `=` in the operators
+    // block of ONE catalog with nothing saying which wins.
+    const equals: OperatorDef = {
+      name: '=',
+      operands: [
+        { name: 'left', type: { kind: 'json', as: 'Geometry' } },
+        { name: 'right', type: { kind: 'json', as: 'Geometry' } },
+      ],
+      output: { kind: 'bool' },
+      instructions: 'Exact byte equality of two geometries.',
+      emit: { postgres: '({left} = {right})' },
+    };
+    const registry = baseRegistry().registerOperator(equals);
+    registry.registerType(registry.parseType(parcelTypeDef));
+    const engine = new QueryEngine(registry);
+    const shape: ExprDef = { kind: 'field-ref', source: 'parcel', field: 'shape' };
+    // The operator road is clean…
+    expect(
+      problemsOf(engine, parcelSelect({ where: [{ kind: 'operator', op: '=', args: { left: shape, right: shape } }] })),
+    ).toEqual([]);
+    // …while the builtin `=` over the same column is still refused.
+    expect(
+      problemsOf(engine, parcelSelect({ where: [{ kind: 'comparison', op: '=', left: shape, right: shape }] }))[0],
+    ).toContain('comparison.type');
+
+    const report = checkOperator(equals, { registry: baseRegistry() });
+    const shadow = report.problems.filter((p) => p.code === 'conformance.shadows-refused-arm');
+    expect(shadow).toHaveLength(2); // one per operand
+    expect(shadow[0]?.severity).toBe('warning');
+    expect(shadow[0]?.message).toContain('say in `=`');
+    // A non-comparison name over the same type says nothing.
+    expect(
+      checkOperator(OVERLAPS, { registry: baseRegistry() }).problems.filter(
+        (p) => p.code === 'conformance.shadows-refused-arm',
+      ),
+    ).toEqual([]);
   });
 });
 

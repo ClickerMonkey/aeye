@@ -1042,12 +1042,23 @@ registry.registerOperatorRun('&&', (args) => Value.of(bboxOverlaps(args.left, ar
 // { kind: 'operator', op: '&&', args: { left: <expr>, right: <expr> } }
 ```
 
+```sql
+WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))
+```
+
+The operand's **declared type reaches emission**, so a document operand binds
+through that type's own `cast` rather than the dialect's default json cast —
+without it Postgres refuses the statement (`operator does not exist: geometry &&
+jsonb`).
+
 `registry.operatorList()` enumerates them; `describeOperators(engine)` renders
 the promptable block (and `describeEngine` includes it when any is registered).
 A dialect with no `emit` entry is **refused** at emit
-(`operator.unsupported-dialect`), never degraded to a neutral fragment. Full
-rules — the name charset, the five template checks, and what `OperatorDef`
-deliberately does not carry — are in `aeye-query.md`.
+(`operator.unsupported-dialect`), never degraded to a neutral fragment; so is a
+missing `run` on the in-memory road (`operator.no-run`), because an operator is
+usually a predicate and NULL there means zero rows. Full rules — the name
+charset, the template checks, and what `OperatorDef` deliberately does not carry
+— are in `aeye-query.md`.
 
 ### Function reference
 

@@ -14,6 +14,7 @@
  * Everything is typed against `Value` and `NamedArgs`; no `any` / casts.
  */
 import type { QueryEngine } from '../engine';
+import { QueryTypeError } from '../problem';
 import type { RuntimeContext } from './context';
 import { Value } from './value';
 
@@ -108,15 +109,30 @@ export async function runScalarFunction(
 }
 
 /**
- * Run a registered OPERATOR over its named operands (NULL if no implementation
- * is registered).
+ * Run a registered OPERATOR over its named operands — REFUSING when no
+ * implementation is registered.
  *
- * Same discipline as `runScalarFunction`, and the same honest limit: an operator
- * whose `emit` is declared but whose `run` is not is a SQL-ROAD operator, and
- * asking `engine.run` for it yields NULL rather than throwing. That is the
- * documented behaviour of every missing run in this package, and the position a
- * registered type is in today anyway — `Value.compareTo` has no per-type hook,
- * so a custom type's in-memory ordering is stringified regardless.
+ * THIS IS THE ONE PLACE THIS PACKAGE'S "a missing run answers NULL" rule DOES
+ * NOT APPLY, and the asymmetry is deliberate rather than an oversight of the
+ * function precedent it otherwise copies. The parity argument fails on two
+ * measured points:
+ *
+ *  - **`emit` is REQUIRED and `run` is OPTIONAL**, so an operator is far more
+ *    likely to lack a run than a function is. A registered function without a
+ *    run is a declaration nobody finished; an operator without one is the
+ *    NORMAL, documented shape of a SQL-road operator.
+ *  - **an operator is usually a PREDICATE.** A scalar function answering NULL in
+ *    a projection puts a visible NULL in the output; a `bool` operator answering
+ *    NULL in a `WHERE` is UNKNOWN for every row, so the query returns ZERO ROWS
+ *    and looks like it ran. That is precisely the failure `OperatorExpr.toSQL`
+ *    refuses an unsupported dialect for — "a wrong answer that looks exactly
+ *    like a right one" — and it would be incoherent to refuse it on the SQL road
+ *    and produce it on the in-memory one.
+ *
+ * So the in-memory road refuses with the same `Problems`-grade message the emit
+ * road uses. A deployment that genuinely wants a SQL-road-only operator gets an
+ * error naming the operator the moment something tries to evaluate it, which is
+ * the only honest answer: there is no value this package can compute for it.
  */
 export async function runOperator(
   engine: QueryEngine,
@@ -125,7 +141,20 @@ export async function runOperator(
   ctx: RuntimeContext,
 ): Promise<Value> {
   const impl = engine.operatorRun(name);
-  return impl ? impl(args, ctx) : Value.null();
+  if (!impl) {
+    throw new QueryTypeError({
+      path: [],
+      code: 'operator.no-run',
+      severity: 'error',
+      message:
+        `Operator '${name}' has no in-memory implementation, so \`engine.run\` cannot evaluate it. ` +
+        `Register one with \`registerOperatorRun('${name}', (args, ctx) => …)\`, or run this query ` +
+        'through `engine.toSQL` — where its declared `emit` is what executes. It is REFUSED rather ' +
+        'than answered with NULL because an operator is usually a PREDICATE: a NULL predicate is ' +
+        'UNKNOWN for every row, so the query would return ZERO ROWS and look exactly like one that ran.',
+    });
+  }
+  return impl(args, ctx);
 }
 
 /** Run a registered TABULAR function over its named args (empty rows if absent). */

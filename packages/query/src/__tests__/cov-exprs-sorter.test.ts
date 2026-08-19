@@ -367,7 +367,7 @@ describe('sorter: LLM schema position gating', () => {
   });
 
   it('exprKindApplicable gates `sorter` out of the general union', () => {
-    expect(exprKindApplicable('sorter', fx.registry.typeList(), selectFunctions(fx.registry))).toBe(false);
+    expect(exprKindApplicable('sorter', fx.registry.typeList(), selectFunctions(fx.registry), fx.registry)).toBe(false);
   });
 
   it('describeEngine renders the worked sorter example', () => {

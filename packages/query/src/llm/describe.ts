@@ -124,9 +124,29 @@ function fieldTypeTag(field: Field): string {
   return typeTag(field.fieldType);
 }
 
+/**
+ * WHOSE type is being rendered, which decides what a refinement's tail says.
+ *
+ *  - `'column'` — a real column. Its EFFECTIVE option values are facts about it
+ *    (`subtype=Polygon,srid=4326`), and the arms its type refuses are facts a
+ *    model needs before writing a predicate over it.
+ *  - `'operand'` — a DECLARED operand of a registered operator. Its type is a
+ *    COMPARABILITY constraint, not an option constraint: `{kind:'json',
+ *    as:'Geometry'}` accepts any geometry column. Rendering the refinement's
+ *    DEFAULTS there said the opposite — `left: json(as Geometry,subtype=Point…)`
+ *    beside a column reading `subtype=Polygon` gives a model every reason to
+ *    conclude the column is not a legal operand. So an operand shows only what
+ *    its own declaration WROTE, and drops the refused-arm tail entirely: those
+ *    arms belong to the column's grammar, the `types:` block already carries
+ *    them per column, and repeating them per operand is the bulk of a large
+ *    operator vocabulary's prompt cost (60 repetitions of one tail over ten
+ *    two-operand operators).
+ */
+type TagStyle = 'column' | 'operand';
+
 /** A field type's full tag: its base plus its own closed set. */
-function typeTag(ft: FieldType): string {
-  return fieldTypeBase(ft) + describeValues(ft.values());
+function typeTag(ft: FieldType, style: TagStyle = 'column'): string {
+  return fieldTypeBase(ft, style) + describeValues(ft.values());
 }
 
 /** A `(a,b)` qualifier list, or `''` when there is nothing to qualify. */
@@ -142,13 +162,19 @@ function quals(parts: readonly string[]): string {
  * An option with no value at all — declared with no `default` and unset on this
  * column — is omitted rather than rendered as empty: there is nothing true to
  * say about it.
+ *
+ * An OPERAND (see {@link TagStyle}) reads only the values its own declaration
+ * WROTE, never the refinement's defaults: a defaulted option on a column is a
+ * fact about that column, while on an operand it is a constraint the declaration
+ * never made.
  */
-function refinementOptionQuals(ft: FieldType): string[] {
+function refinementOptionQuals(ft: FieldType, style: TagStyle): string[] {
   const refinement = ft.refinement;
   if (!refinement) return [];
+  const written = ft.refinementOptions;
   const parts: string[] = [];
   for (const key of refinement.ownOptions.keys()) {
-    const value = ft.refinementOption(key);
+    const value = style === 'operand' ? written?.[key] : ft.refinementOption(key);
     if (value !== undefined) parts.push(`${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`);
   }
   return parts;
@@ -206,13 +232,16 @@ function refinementCompareQuals(ft: FieldType): string[] {
  * — see {@link refinementCompareQuals} for why a refusal a model can only
  * discover by tripping over it is the expensive kind.
  */
-function fieldTypeBase(ft: FieldType): string {
+function fieldTypeBase(ft: FieldType, style: TagStyle): string {
   const parts: string[] = [];
-  if (ft.as !== undefined) parts.push(`as ${ft.as}`, ...refinementOptionQuals(ft), ...refinementCompareQuals(ft));
+  if (ft.as !== undefined) {
+    parts.push(`as ${ft.as}`, ...refinementOptionQuals(ft, style));
+    if (style === 'column') parts.push(...refinementCompareQuals(ft));
+  }
   if (ft instanceof ArrayFieldType) {
     // The element type is where an array's constraints actually live — without
     // it the model cannot author an element at all, let alone a member of a set.
-    return `array${quals(parts)}${ft.item ? `<${typeTag(ft.item)}>` : ''}`;
+    return `array${quals(parts)}${ft.item ? `<${typeTag(ft.item, style)}>` : ''}`;
   }
   if (ft instanceof RelationFieldType) {
     // A `relation` is not refinable (`REFINABLE_BASES`), so `parts` is empty
@@ -440,12 +469,19 @@ export function describeOperators(
   return ['operators:', ...lines].join('\n');
 }
 
-/** `&& (left: json(as Geometry), right: json(as Geometry)) → bool` — one operator's signature. */
+/**
+ * `&&(left: json(as Geometry), right: json(as Geometry)) → bool` — one
+ * operator's signature.
+ *
+ * Rendered in the OPERAND style (see {@link TagStyle}): an operand's declared
+ * type says WHAT MAY BE PASSED, so rendering the refinement's defaults there
+ * would describe a constraint the declaration never made.
+ */
 function operatorSignature(operator: QueryOperator): string {
   const operands = operator.operands
-    .map((o) => `${o.name}: ${o.fieldType ? typeTag(o.fieldType) : 'any'}`)
+    .map((o) => `${o.name}: ${o.fieldType ? typeTag(o.fieldType, 'operand') : 'any'}`)
     .join(', ');
-  return `${operator.name}(${operands}) → ${typeTag(operator.output)}`;
+  return `${operator.name}(${operands}) → ${typeTag(operator.output, 'operand')}`;
 }
 
 /**

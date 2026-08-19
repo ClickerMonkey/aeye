@@ -779,7 +779,7 @@ registry.registerOperator({
 });
 registry.registerOperatorRun('&&', (args, ctx) => Value.of(bboxOverlaps(args.left, args.right)));
 // { kind:'operator', op:'&&', args:{ left: <expr>, right: <expr> } }
-//   →  WHERE ("parcel"."shape" && $1)
+//   →  WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))
 ```
 
 **ONE new expr kind, not N registered Expr classes.** `ExprKind` gains exactly one member, once,
@@ -818,7 +818,13 @@ fragment composes correctly inside ANY surrounding expression, so no declaration
 about binding (a function-shaped emission is written `(ST_Intersects({left}, {right}))`, with the
 redundant pair, because one rule with no exception beats the character it costs); (4) no comment
 sequence and no `;`, both of which silently swallow the rest of the emitted query; (5) balanced
-parens and an EVEN number of `'` quotes.
+parens and an EVEN number of `'` quotes. Check (1) additionally sweeps for a **`{` residue**, since
+the scanner only matches a CLOSED `{…}`: `({left} && {right} {oops)` and the nested `(x{q{a}})`
+both registered clean and emitted a literal brace into the SQL, which is the very thing the
+unknown-slot refusal exists to prevent, reached by the one road it could not see. And the
+parenthesis walk indexes by UTF-16 CODE UNIT rather than code point, because it compares against
+`String.length`: `'({left} && {right} 𝕏)'` is legally wrapped and was refused, with a message about
+parentheses that pointed a declarer at the wrong thing.
 
 **The name charset is SQL operator punctuation and nothing an identifier could be** —
 `^[+\-*/<>=~!@#%^&|`?]{1,63}$`, which is what PostgreSQL's own `CREATE OPERATOR` allows (63 is
@@ -826,9 +832,12 @@ parens and an EVEN number of `'` quotes.
 never name two callables and a model reading the catalog never has to wonder whether `overlaps`
 is the operator or the function; a WORD operator is spelled as a function, or as the literal text
 of an emit template under a punctuation name. **The comment openers are refused separately**,
-because they are made of that same punctuation: `&&--` matches the charset exactly, and emitted
-it comments out the rest of the query including whatever wrapped it — the same rule, and the same
-reason, PostgreSQL applies.
+because they are made of that same punctuation: `&&--` matches the charset exactly. In a TEMPLATE
+that comments out the rest of the emitted query including whatever wrapped it. In a NAME it is
+DEFENCE IN DEPTH rather than a live hole — the name never reaches emitted SQL, since
+`OperatorExpr.toSQL` emits template parts and operand fragments only — but the declarer writing
+the template pastes the name into it, and a rule that holds in one place and not the other is the
+kind nobody remembers. PostgreSQL applies the same rule for the same reason.
 
 **Operators and a type's declared `compare` are DISJOINT, deliberately.** `compare` says which
 arms of the closed nine-member comparison grammar apply to a type; an operator is not one of the
@@ -836,6 +845,24 @@ nine — it declares its own operands and its own meaning. A type declaring `equ
 therefore exactly the type an operator is FOR: `Geometry` refuses `=` because comparing two
 geometries for equality is meaningless, and `&&` is what a caller reaches for instead. Gating
 operators on `compare` would delete the mechanism that makes an honest declaration usable.
+
+**A missing `run` REFUSES (`operator.no-run`), which is the one place this package's "a missing
+run answers NULL" rule does not apply.** The parity with `registerFunctionRun` does not hold, and
+the asymmetry in the declaration itself is why: `emit` is REQUIRED and `run` is OPTIONAL, so an
+operator is far more likely to lack one than a function is — and an operator is usually a
+PREDICATE, where NULL is UNKNOWN for every row, so the query returns ZERO ROWS and looks exactly
+like one that ran. That is precisely the failure an unsupported dialect is refused for, and
+producing it on the in-memory road while refusing it on the SQL road would be incoherent. A
+SQL-road-only operator stays a legitimate shape; it simply cannot be EVALUATED, and says so.
+
+**An operator can RECONSTRUCT a refused arm**, and that is intended rather than a hole: an operator
+NAMED `=` over a type declaring `equality: false` validates clean while the builtin `=` over the
+same column is refused, because your `=` means what you say it means. What the first cut did not do
+was DISCLOSE it — `describeTypes` prints `no =` on the column while `describeOperators` offers a
+`=` over it in the same catalog, with nothing saying which wins. `checkOperator` now warns
+(`conformance.shadows-refused-arm`) when an operator's name spells a builtin comparison token over
+an operand refusing that arm, pointing the declarer at the one channel that reaches a model: its
+own `instructions`.
 
 **Compiled EAGERLY at registration, unlike a `FunctionDef`** (which the engine parses lazily on
 first call), because an emit template is only ever wrong at its declaration and a failure at a
@@ -845,9 +872,14 @@ does NOT freeze the refinement vocabulary: the operand types parse through the r
 unflagged road for exactly that reason, so `registerFieldType` still works afterwards.
 
 **What the model is told.** `describeOperators(engine)` renders an `operators:` block — each
-signature with its operand tags (the FULL ones: the registered name, the declared options and the
-refused comparison arms), its result type, its `instructions` and its examples — and
-`describeEngine` folds it in whenever any operator is registered, omitting it entirely otherwise.
+signature, its result type, its `instructions` and its examples — and `describeEngine` folds it in
+whenever any operator is registered, omitting it entirely otherwise. **An operand tag names the
+registered TYPE and only the options the DECLARATION wrote** (`left: json(as Geometry)`), never the
+refinement's defaults and never the refused-arm tail: an operand's type is a COMPARABILITY
+constraint, so rendering `subtype=Point` there beside a column reading `subtype=Polygon` gave a
+model every reason to conclude the column was not a legal operand. The refused arms belong to the
+COLUMN's grammar and the `types:` block already carries them per column — repeating them per
+operand is also the bulk of a large vocabulary's prompt cost.
 In the generated schema `op` is a `z.enum` of the registered names with that glossary inline (at
 `functions:'names'`), each operator gets a STRICT operand object at `functions:'typed'`, and the
 `operator` KIND is capability-gated out unless some registered operator has an operand type an
@@ -865,28 +897,46 @@ PREFIX reduction is computed from — crediting a bounding-box overlap would cla
 does not apply; declare `selectivity`, which the same model reads and says the true thing), and
 `changes` (`QueryReferences` enumerates FUNCTIONS and there is no operator channel, so a declared
 value would be silently ignored — adding one changes a public result shape and belongs with the
-in-memory work).
+in-memory work). **The `changes` refusal will age**, and it is worth saying so rather than only
+"nothing would read it": `changeInterval` systematically OVER-estimates freshness for any query
+whose only volatile input sits behind an operator, and the fix is the missing channel.
 
 **`checkOperator(decl, { registry })`** joins `checkFieldType` on `@aeye/query/conformance` and
-asks the three questions registration cannot: that every declared `emit` dialect is actually
-REGISTERED (`emit` is keyed by an arbitrary string — it has to be, since a dialect may be
-registered later — so a typo'd `postgress` registers cleanly and is then refused at emit
-EVERYWHERE); that every shipped `examples` string parses and is a use of THIS operator; and that
-its operand names match the declaration (the structural parser accepts any `args` record, and an
-example has no query around it to validate). It also re-runs the lattice laws over the operand /
+asks the questions registration cannot: that every declared `emit` dialect is actually REGISTERED;
+that every shipped `examples` string parses and is a use of THIS operator; that its operand names
+match the declaration (the structural parser accepts any `args` record, and an example has no query
+around it to validate); and the shadowed-arm warning above. **The dialect key is the one thing
+eager compilation deliberately does not judge**, and the two rationales reconcile rather than
+conflict: everything an operator can be judged on ALONE is refused at its declaration, while an
+`emit` key can only be judged against a FINISHED registry — a dialect may be registered after an
+operator (`defineDialect` is public and order-free), so refusing an unknown key at registration
+would order-couple the two for no reason, exactly as freezing the refinement vocabulary would. The
+cost is real and stated: `{ postgress: … }` registers cleanly, describes itself normally, and is
+refused at emit on every dialect that exists. It also re-runs the lattice laws over the operand /
 output types, which must be UNCHANGED — `param-meet.test.ts` now registers two operators over its
 type set and asserts a byte-identical verdict against an operator-free twin, because an operator
 is a leaf and must perturb nothing.
 
-**A KNOWN LIMIT the worked example makes visible, and it is not new.** A bound PARAM carrying a
-document emits the BASE cast (`CAST($1 AS jsonb)`), not a refinement's declared `cast`:
-`ParamExpr.toSQL` binds through `dialect.jsonValue(raw)` with no field type, and `engine.toSQL`
-builds a fresh scope and runs no inference walk, so a param's inferred type does not exist at emit
-time. It is not specific to operators — the same param under `ST_Contains(a, b)` emits the same
-cast — and it is pinned by a test so the doc cannot rot. The COLUMN and a written LITERAL are
-unaffected and do carry their declared type (`ST_GeomFromGeoJSON($1)::geometry(Polygon,4326)`).
-Fixing it means threading a declared / inferred type into every param binding, which changes the
-emitted SQL of every existing `json` param in every consumer — a release of its own.
+**AN OPERAND'S DECLARED TYPE REACHES EMISSION, which is what makes the flagship predicate legal
+SQL.** A document operand — a `literal`, or a param bound to one — binds through that type's own
+`cast` template rather than through the dialect's default json cast. Without it, `shape && :box`
+emitted `("parcel"."shape" && CAST($1 AS jsonb))` and Postgres refused the statement outright:
+`operator does not exist: geometry && jsonb`, because the column is DDL'd `geometry(Polygon,4326)`.
+The column side was always right (its own declared type reaches `sqlTypeFor`); the VALUE side had
+no type to reach with.
+
+**No inference is involved**, which is why it belongs here rather than in the wider param-typing
+change: an operand's type is DECLARED, so it is known at emit whether or not a validation walk ran.
+`Dialect.jsonValue(value, fieldType?)` has always taken the type — until now exactly ONE road
+supplied it (`writeCellSql`), and that routing decision now lives in `exprs/_bound-value.ts` with
+two callers, a write cell and an operator operand, rather than being copied.
+
+**The same defect remains for a FUNCTION argument, and for a bare `literal` / `param` anywhere
+else**, and that half genuinely is a release of its own: a `FunctionDef` param type would fix it
+identically, but retro-fitting it moves the emitted SQL of every existing `json` argument in every
+consumer, where `operator` is a brand-new kind with none. `aeye-query.md` states the boundary —
+there is no workaround for a function argument, since a function cannot declare its own SQL, so
+reach for an `operator` when the cast matters.
 
 ### Also
 

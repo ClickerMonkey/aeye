@@ -57,7 +57,7 @@ import { QueryTypeError, type Problems } from './problem';
 import type { Registry } from './registry';
 import type { ResolvedType } from './resolved-type';
 import type { FieldTypeDef } from './schema';
-import { scanTemplate, templateSlotNames, type Template } from './sql-template';
+import { isSlot, scanTemplate, templateSlotNames, type Template } from './sql-template';
 
 /**
  * Allowed charset for a registered operator NAME — the SQL operator punctuation,
@@ -291,12 +291,34 @@ export class QueryOperator {
     readonly declaredBy: string | undefined,
     /** The declaration verbatim, for {@link toJSON} — a declaration round-trips as itself. */
     private readonly def: OperatorDef,
-  ) {}
+  ) {
+    // Built in the BODY, not as a field initializer: under `useDefineForClassFields`
+    // (which `target: es2024` implies) a field initializer runs BEFORE the
+    // parameter properties are assigned, so an initializer reading `this.operands`
+    // would see `undefined`.
+    this.operandsByName = new Map(operands.map((o) => [o.name, o]));
+  }
 
   /** The dialect names this operator declares SQL for, in declaration order. */
   dialects(): string[] {
     return [...this.emits.keys()];
   }
+
+  /**
+   * The declared operand named `name`, or `undefined`.
+   *
+   * Read at EMIT as well as at validate: an operand's declared type is what lets
+   * a document operand bind through its type's own `cast` template rather than
+   * through the dialect's default json cast (see `OperatorExpr.toSQL`). A map
+   * rather than a scan because an emit walks every slot of every operator
+   * occurrence in a statement.
+   */
+  operand(name: string): DeclaredArg | undefined {
+    return this.operandsByName.get(name);
+  }
+
+  /** {@link operands} keyed by name, built once in the constructor (see {@link operand}). */
+  private readonly operandsByName: ReadonlyMap<string, DeclaredArg>;
 
   /**
    * Validate a call's named operands — the same three checks a function call is
@@ -616,6 +638,25 @@ function compileEmit(
           `\`${name}\`.${didYouMean(slot, operandNames)} (declared: ${operandNames.join(', ')}).`,
       );
     });
+    // A RESIDUE check, because the scanner only sees a CLOSED `{…}`: an unclosed
+    // or nested brace never reaches the resolver above and would sail through as
+    // literal text, straight into emitted SQL — `({left} && {right} {oops)`
+    // registered clean and emitted `… && $1 {oops)`, and `(x{q{a}})` emitted a
+    // literal `{q`. That is exactly what the unknown-slot refusal exists to
+    // prevent, reached by the one road it cannot see. A brace in emitted SQL is
+    // never something a declarer meant, so the whole character is refused rather
+    // than an escape being invented for it.
+    for (const part of parts) {
+      if (isSlot(part) || !part.text.includes('{')) continue;
+      const attempted = unclosedSlotName(part.text);
+      refuse(
+        name,
+        path,
+        `Emit template ${JSON.stringify(template)} carries a \`{\` that opens no slot — a slot is a ` +
+          `CLOSED \`{operandName}\`, so this one would be spliced into the emitted SQL verbatim.` +
+          `${didYouMean(attempted, operandNames)} (declared: ${operandNames.join(', ')}).`,
+      );
+    }
     const placed = templateSlotNames(parts);
     const missing = operandNames.filter((operand) => !placed.has(operand));
     if (missing.length > 0) {
@@ -651,6 +692,17 @@ function refuseCommentSequence(
   }
 }
 
+/**
+ * The identifier a stray `{` looks like it was reaching for — the run of
+ * name characters after the first unclosed brace — so the refusal can suggest a
+ * real operand instead of only naming the character. `''` when there is nothing
+ * name-shaped after it, which `didYouMean` answers for with no suggestion.
+ */
+function unclosedSlotName(text: string): string {
+  /* v8 ignore next -- the caller only asks about text containing `{`, and group 1 always participates, so both fallbacks are type narrowings rather than cases */
+  return /\{([A-Za-z0-9_]*)/.exec(text)?.[1] ?? '';
+}
+
 /** How many times `needle` occurs in `text`. */
 function count(text: string, needle: string): number {
   return text.split(needle).length - 1;
@@ -667,6 +719,15 @@ function count(text: string, needle: string): number {
  * the failure it would miss is a declarer writing `'('` inside a literal, which
  * makes the check STRICTER, never looser.
  *
+ * INDEXED BY UTF-16 CODE UNIT, deliberately, because the position is compared
+ * against `trimmed.length` — which is also UTF-16. Iterating `[...trimmed]`
+ * instead yields CODE-POINT indices, and the two disagree the moment a template
+ * contains an astral character: `'({left} && {right} 𝕏)'` put the final `)` at
+ * code-point index 20 against a length of 22, so the "closed early" return fired
+ * and a legally-wrapped template was refused — with a message about parentheses,
+ * which is the wrong thing to point a declarer at. A surrogate half is never `(`
+ * or `)`, so a code-unit walk cannot mis-read one.
+ *
  * There is deliberately NO `depth < 0` guard: the leading `(` puts the walk at
  * depth 1, and the "closed early" return below fires the first time it comes
  * back to 0, so depth can never reach -1. A guard for it would be a branch no
@@ -677,7 +738,8 @@ function parenthesized(template: string): boolean {
   const trimmed = template.trim();
   if (!trimmed.startsWith('(') || !trimmed.endsWith(')')) return false;
   let depth = 0;
-  for (const [index, char] of [...trimmed].entries()) {
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
     if (char === '(') depth += 1;
     else if (char === ')') depth -= 1;
     // Back to depth 0 before the end ⇒ the opening paren closed early, so the

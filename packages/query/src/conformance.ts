@@ -49,12 +49,14 @@ import {
   TimestampFieldType,
 } from './field-types/index';
 import { OperatorExpr } from './exprs/operator';
-import type { OperatorDef } from './operator';
+import type { OperatorDef, QueryOperator } from './operator';
 import type { Problem } from './problem';
 import { Problems, QueryTypeError } from './problem';
 import { createRegistry, type Registry } from './registry';
 import {
+  COMPARE_ARM_OPERATORS,
   REFINABLE_BASES,
+  type FieldTypeCompareDecl,
   type FieldTypeImpl,
   type FieldTypeRefinement,
   type FieldTypeRefinementDef,
@@ -720,6 +722,7 @@ export function checkOperator(
   for (const [index, example] of (decl.examples ?? []).entries()) {
     problems.push(...checkOperatorExample(decl.name, index, example, operandNames, registry));
   }
+  problems.push(...checkOperatorShadowsRefusal(operator));
 
   // The operand / output types, plus every unrefined top, so the laws run over a
   // set in which the operator's own types actually participate.
@@ -748,6 +751,47 @@ export function checkOperator(
     });
   }
   return { ok: problems.length === 0, problems, lattice };
+}
+
+/**
+ * WARN when an operator's NAME spells a builtin comparison token over an operand
+ * whose registered type REFUSES that arm.
+ *
+ * It is not an error, and deliberately not refused: an operator declares its own
+ * meaning, and `=` over a geometry could legitimately be a declarer's
+ * exactly-equal-bytes predicate that the builtin `=` (whose semantics this
+ * package does not own for that type) has no business claiming. Declaring it is
+ * the author's prerogative.
+ *
+ * What is NOT the author's prerogative is leaving a model to resolve the
+ * contradiction unaided. `describeTypes` prints `no =` on the column while
+ * `describeOperators` offers a `=` over it IN THE SAME CATALOG, and nothing in
+ * either block says which wins. So the declarer is told, once, at the place they
+ * can act on it — the `instructions` are the only channel that reaches the model,
+ * and this is the check that says to use them.
+ */
+function checkOperatorShadowsRefusal(operator: QueryOperator): Problem[] {
+  const problems: Problem[] = [];
+  for (const [arm, token] of Object.entries(COMPARE_ARM_OPERATORS) as [keyof FieldTypeCompareDecl, string][]) {
+    if (operator.name !== token) continue;
+    for (const operand of operator.operands) {
+      const refinement = operand.fieldType?.refinement;
+      if (!refinement || refinement.compare[arm]) continue;
+      problems.push({
+        path: ['checkOperator', operator.name, 'operands', operand.name],
+        code: 'conformance.shadows-refused-arm',
+        severity: 'warning',
+        message:
+          `\`${operator.name}\` is spelled like the builtin \`${token}\`, and its operand ` +
+          `\`${operand.name}\` is a \`${refinement.name}\`, which declares \`compare.${arm}: false\`. ` +
+          'Both facts reach the model in ONE catalog — the type block prints the refusal, the operators ' +
+          'block offers the operator — and nothing there says which wins. This is allowed (an operator ' +
+          `declares its own meaning), but say in \`${operator.name}\`'s \`instructions\` how it differs ` +
+          `from the \`${token}\` the type refuses, or the model has to guess.`,
+      });
+    }
+  }
+  return problems;
 }
 
 /** One shipped `examples` entry, parsed and matched against the declaration. */

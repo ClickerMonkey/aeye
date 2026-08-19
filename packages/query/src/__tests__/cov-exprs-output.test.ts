@@ -268,7 +268,7 @@ describe('output-ref: LLM schema position gating', () => {
   });
 
   it('exprKindApplicable gates `output` out of the general union', () => {
-    expect(exprKindApplicable('output', fx.registry.typeList(), selectFunctions(fx.registry))).toBe(false);
+    expect(exprKindApplicable('output', fx.registry.typeList(), selectFunctions(fx.registry), fx.registry)).toBe(false);
   });
 });
 

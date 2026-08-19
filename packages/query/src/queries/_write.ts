@@ -35,6 +35,7 @@ import type { Field } from '../field';
 import type { Type } from '../type';
 import type { ExprDef, JsonValue, WriteValueDef } from '../schema';
 import { LiteralExpr, ParamExpr } from '../exprs/index';
+import { typedValueSql } from '../exprs/_bound-value';
 import { RelationFieldType } from '../field-types/index';
 import { describeValues } from '../field-types/_values';
 import { asFieldType } from '../resolved-type';
@@ -236,6 +237,13 @@ export function validateWriteValue(
  * An `array` column is deliberately NOT included: a scalar is not a value of an
  * array column at all (there is no correct cast to emit — `CAST('x' AS text[])`
  * is a syntax error), so it stays a value problem, not an emission one.
+ *
+ * THE ROUTING ITSELF now lives in `exprs/_bound-value.ts`, because a write cell
+ * is no longer the only position that knows the type its value is destined for:
+ * a registered OPERATOR's operand declares one too. This function is the
+ * column-shaped caller of that shared decision — it was the only caller for four
+ * releases, and a second copy of the A12 predicate is exactly how the two would
+ * drift.
  */
 export function writeCellSql(
   expr: Expr,
@@ -243,27 +251,5 @@ export function writeCellSql(
   dialect: Dialect,
   ctx: SqlContext,
 ): SqlText {
-  const value = writeCellValue(expr, ctx);
-  if (value !== undefined && value !== null && (typeof value === 'object' || isJsonColumn(field))) {
-    return dialect.jsonValue(value, field?.fieldType);
-  }
-  return expr.toSQL(dialect, ctx);
-}
-
-/** Whether this write cell's target column is a `json` one (the A12 routing key). */
-function isJsonColumn(field: Field | undefined): boolean {
-  return field?.fieldType.resolve() === 'json';
-}
-
-/**
- * The JSON VALUE this write cell carries at emit time — a literal's own value,
- * or the value bound to a param — or `undefined` when the cell is an expression
- * to emit normally (a ref, a function call, an unbound param).
- */
-function writeCellValue(expr: Expr, ctx: SqlContext): JsonValue | undefined {
-  if (expr instanceof LiteralExpr) return expr.value;
-  if (expr instanceof ParamExpr && Object.prototype.hasOwnProperty.call(ctx.params, expr.name)) {
-    return ctx.params[expr.name];
-  }
-  return undefined;
+  return typedValueSql(expr, field?.fieldType, dialect, ctx);
 }

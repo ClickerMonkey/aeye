@@ -50,6 +50,7 @@ import type { Cost, CostContext } from '../cost';
 import { addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
 import { isSlot } from '../sql-template';
+import { typedValueSql } from './_bound-value';
 import { type SqlContext, SqlText } from '../sql/emit';
 
 /** A registered operator applied to its named operands. */
@@ -300,7 +301,23 @@ export class OperatorExpr extends Expr {
             'emission places. Validate the query before emitting it.',
         });
       }
-      parts.push(operand.toSQL(dialect, ctx));
+      // The DECLARED operand type reaches emission here, and that is what makes
+      // the flagship predicate legal SQL. A document operand — a `literal`, or a
+      // param bound to one — otherwise binds through the dialect's DEFAULT json
+      // cast, so `shape && :box` emitted `("parcel"."shape" && CAST($1 AS
+      // jsonb))` and Postgres refused the statement outright: `operator does not
+      // exist: geometry && jsonb`. The column side was always right (its own
+      // declared type reaches `sqlTypeFor`); the VALUE side had no type to reach
+      // with, on every road but a write cell.
+      //
+      // NO INFERENCE IS NEEDED for this, which is why it belongs here rather
+      // than in the wider param-typing change: an operand's type is DECLARED, so
+      // it is known at emit without a validation walk having run. The same
+      // problem for a FUNCTION argument is genuinely that wider change — a
+      // `FunctionDef` param type would fix it identically, but retro-fitting it
+      // moves the emitted SQL of every existing `json` argument in every
+      // consumer, where `operator` is a brand-new kind with none.
+      parts.push(typedValueSql(operand, operator.operand(part.slot)?.fieldType, dialect, ctx));
     }
     return SqlText.concat(parts);
   }

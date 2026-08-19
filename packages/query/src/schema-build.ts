@@ -781,12 +781,17 @@ export function exprKindApplicable(
   types: readonly Type[],
   selected: SelectedFunctions,
   /**
-   * The registry, for the gates that consult a REGISTERED vocabulary rather
-   * than the Types. Optional so the existing three-argument call keeps
-   * compiling; a caller that omits it gets no `operator` branch, which is the
-   * safe answer — every caller inside this package has the registry in hand.
+   * The registry, for the gates that consult a REGISTERED vocabulary rather than
+   * the Types.
+   *
+   * REQUIRED, not optional. An optional one silently answers "no operators" for
+   * a caller that forgot it — a gate that fails CLOSED for the wrong reason,
+   * which is indistinguishable from a deployment that has none. Both callers in
+   * this package already hold the registry, and any caller outside it does too
+   * (there is no way to reach an expr class list without one), so the argument
+   * costs nothing and removes the silent answer.
    */
-  registry?: Registry,
+  registry: Registry,
 ): boolean {
   switch (kind) {
     case 'operator':
@@ -795,7 +800,7 @@ export function exprKindApplicable(
       // for one tenant carries a dead `operator` branch — with its whole
       // enum-locked glossary — in every schema generated for a tenant with no
       // geometry column.
-      return (registry?.operatorList() ?? []).some((op) => operatorReachable(op, types));
+      return registry.operatorList().some((op) => operatorReachable(op, types));
     case 'semantic':
       return types.some((t) => t.isSemantic());
     case 'text-search':
