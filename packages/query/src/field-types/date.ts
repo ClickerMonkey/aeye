@@ -3,6 +3,7 @@ import type { DateFieldTypeDef, FieldTypeDef, TimezonePolicy } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import { meetExact } from './_meet';
 import { timezoneSchema } from './timestamp';
 
 /** ISO calendar-date pattern (YYYY-MM-DD, optionally with more). */
@@ -47,6 +48,20 @@ export class DateFieldType extends FieldType {
   /** Resolve to the `date` scalar comparison category. */
   resolve(): ScalarKind {
     return 'date';
+  }
+
+  /**
+   * Meet with another `date` (timezone policies must AGREE — a naive and a
+   * tz-aware value are not the same instant) or with `timestamp`, which is the
+   * more specific side of the temporal family and answers for both: an ISO
+   * timestamp satisfies this type's date schema, but not the reverse.
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (other instanceof DateFieldType) {
+      const timezone = meetExact(this.timezone, other.timezone);
+      return timezone.ok ? new DateFieldType(timezone.value) : undefined;
+    }
+    return other.resolve() === 'timestamp' ? other.meet(this) : undefined;
   }
 
   /** Estimated average stored byte size. */

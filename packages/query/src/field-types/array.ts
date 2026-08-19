@@ -1,9 +1,11 @@
 import { z } from 'zod';
-import type { ArrayFieldTypeDef, FieldTypeDef } from '../schema';
+import type { ArrayFieldTypeDef, FieldTypeDef, JsonValue } from '../schema';
+import type { ClosedSetViolation } from './_values';
 import type { ValueSchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import { emptyRange, meetLower, meetUpper } from './_meet';
 import { jsonValueSchema } from './json';
 import { fieldTypeDefSchema } from './index';
 
@@ -88,6 +90,42 @@ export class ArrayFieldType extends FieldType {
     if (!(other instanceof ArrayFieldType)) return false;
     if (this.item && other.item) return this.item.comparableWith(other.item);
     return true;
+  }
+
+  /**
+   * The first closed-set violation among the ELEMENTS. An array declares no set
+   * of its own (see `FieldType.values`), but its item type may — and writing
+   * `['bogus']` into an `array<text one of a|b>` is exactly as wrong as writing
+   * `'bogus'` into the scalar column. It was silently ACCEPTED, while this very
+   * type's `toValueSchema()` rejected the same array. Recurses, so an
+   * `array<array<text one of …>>` reports the whole index path.
+   *
+   * A non-array `raw` is not this check's business: writing a scalar to an array
+   * column is a CATEGORY error, refused earlier as `write.type`.
+   */
+  override closedSetViolation(raw: JsonValue): ClosedSetViolation | undefined {
+    if (!this.item || !Array.isArray(raw)) return undefined;
+    for (let i = 0; i < raw.length; i++) {
+      const inner = this.item.closedSetViolation(raw[i]!);
+      if (inner) return { at: [i, ...inner.at], value: inner.value, values: inner.values };
+    }
+    return undefined;
+  }
+
+  /**
+   * Meet with another `array`: element counts tighten and the ELEMENT types meet
+   * recursively. An unknown element type on either side is TOP (no constraint),
+   * so it adopts the other's — the same asymmetry `comparableWith` already
+   * applies, made constructive.
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (!(other instanceof ArrayFieldType)) return undefined;
+    const minItems = meetLower(this.minItems, other.minItems);
+    const maxItems = meetUpper(this.maxItems, other.maxItems);
+    if (emptyRange(minItems, maxItems)) return undefined;
+    if (!this.item || !other.item) return new ArrayFieldType((this.item ?? other.item)?.clone(), minItems, maxItems);
+    const item = this.item.meet(other.item);
+    return item === undefined ? undefined : new ArrayFieldType(item, minItems, maxItems);
   }
 
   /** Estimated average stored byte size (midpoint count × per-element bytes). */

@@ -233,7 +233,7 @@ export class InsertQuery extends Query {
       p.at('rows', () => {
         this.rows!.forEach((row, i) => {
           for (const [column, expr] of row) {
-            p.at([i, column], () => validateWriteValue(engine, valueScope, p, valueCtx, type.field(column), expr));
+            p.at([i, column], () => validateWriteValue(engine, valueScope, p, valueCtx, type.field(column), expr, type));
           }
         });
       });
@@ -278,7 +278,7 @@ export class InsertQuery extends Query {
           if (type && !type.field(u.field)) {
             p.at(u.field, () => p.error('insert.unknown-field', `Type '${this.into}' has no field '${u.field}'.${didYouMean(u.field, type.fields.map((f) => f.name))}`));
           }
-          p.at(u.field, () => validateWriteValue(engine, conflictScope, p, assignCtx, type.field(u.field), u.expr));
+          p.at(u.field, () => validateWriteValue(engine, conflictScope, p, assignCtx, type.field(u.field), u.expr, type));
         });
       });
     }

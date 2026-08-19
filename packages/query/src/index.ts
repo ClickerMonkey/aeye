@@ -94,7 +94,7 @@ export * from './builder';
 
 // Scope / params / functions (Phase 2)
 export { QueryScope } from './scope';
-export { ParamSet } from './param';
+export { ParamSet, type ParamInfo, type ParamUse, type ParamConflict } from './param';
 export { QueryFunction, mergeOfAggregateCall } from './function';
 
 // Type backing (Phase H1) — dev-side computed fields + RLS/FLS

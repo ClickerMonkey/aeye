@@ -134,6 +134,37 @@ describe('A5 — closed value sets', () => {
     expect(text).toContain('notes: text');
   });
 
+  it('shows a MONEY column’s set too — a model must be told what a write will be refused for', () => {
+    // `fieldTypeTag` used to dispatch per class and read `ft.options.values`, so
+    // `money` — whose set lives in its inner `NumberOptions` bag — rendered as a
+    // bare `money(USD)`. Once writes enforce membership (`write.value`) that
+    // becomes a requirement the model is STRUCTURALLY never told about: it
+    // authors `SET fee = 7`, is refused with a members list it had no way to
+    // know, and can only guess and retry. The set is now appended from the total
+    // `FieldType.values()`, so every kind that declares one renders it.
+    const registry = createRegistry();
+    registry.registerType(
+      registry.parseType({
+        name: 'invoice',
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'fee', type: { kind: 'money', currency: 'USD', number: { values: [{ value: 0 }, { value: 10 }] } } },
+        ],
+        count: 10,
+        bytes: 16,
+      }),
+    );
+    registry.finalize();
+    const engine = new QueryEngine(registry);
+    expect(describeTypes(engine, [engine.type('invoice')!])).toContain('fee: money(USD) one of 0|10');
+    // The SAME declaration drives selectivity and the write check — which is the
+    // point of asking one accessor rather than three per-class ones.
+    expect(engine.type('invoice')!.field('fee')!.fieldType.eqSelectivity()).toBeCloseTo(1 / 2);
+    expect(
+      engine.validateQuery({ kind: 'update', type: 'invoice', set: { fee: 7 } }).list.map((p) => p.code),
+    ).toEqual(['write.value']);
+  });
+
   it('elides a long set rather than spending the whole prompt budget on it', () => {
     const many = new TextFieldType({ values: Array.from({ length: 20 }, (_, i) => ({ value: `v${i}` })) });
     const registry = createRegistry();

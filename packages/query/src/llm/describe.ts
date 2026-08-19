@@ -26,7 +26,8 @@ import type { Registry } from '../registry';
 import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
-import { RelationFieldType, TextFieldType, MoneyFieldType, NumberFieldType } from '../field-types/index';
+import type { FieldType } from '../field-type';
+import { ArrayFieldType, RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
 import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
 import { describeValues } from '../field-types/_values';
 import { defaultConditionWithout } from '../default-conditions';
@@ -103,9 +104,36 @@ function toRegistry(engineOrRegistry: QueryEngine | Registry): Registry {
   return 'registry' in engineOrRegistry ? engineOrRegistry.registry : engineOrRegistry;
 }
 
-/** A short type tag for one field, e.g. `money(USD)` or `relation→order×12`. */
+/**
+ * A short type tag for one field, e.g. `money(USD) one of 0|10`,
+ * `relation→order×12`, or `array<text one of a|b>`.
+ *
+ * The closed value set is appended UNIFORMLY from the total
+ * `FieldType.values()`, not inside the per-class branches, and a CONTAINER
+ * renders its element type recursively. Asking each class separately, one level
+ * deep, is exactly what left `money` — whose set lives in its inner
+ * `NumberOptions` bag — rendering as a bare `money(USD)`, and an array of an
+ * enum rendering as a bare `array`. Both are the same failure: the write check
+ * refuses (`write.value`) against a set the model was never shown, leaving
+ * guess-and-retry as its only recovery. Enforcing membership and RENDERING it
+ * are one feature. The branches below decide the BASE tag only.
+ */
 function fieldTypeTag(field: Field): string {
-  const ft = field.fieldType;
+  return typeTag(field.fieldType);
+}
+
+/** A field type's full tag: its base plus its own closed set. */
+function typeTag(ft: FieldType): string {
+  return fieldTypeBase(ft) + describeValues(ft.values());
+}
+
+/** The kind-specific part of a type tag, without its own closed value set. */
+function fieldTypeBase(ft: FieldType): string {
+  if (ft instanceof ArrayFieldType) {
+    // The element type is where an array's constraints actually live — without
+    // it the model cannot author an element at all, let alone a member of a set.
+    return ft.item ? `array<${typeTag(ft.item)}>` : 'array';
+  }
   if (ft instanceof RelationFieldType) {
     return `relation→${ft.to}×${ft.count}`;
   }
@@ -116,11 +144,7 @@ function fieldTypeTag(field: Field): string {
     const flags: string[] = [];
     if (ft.options.search) flags.push('search');
     if (ft.options.semantic) flags.push('semantic');
-    const base = flags.length ? `text(${flags.join(',')})` : 'text';
-    return base + describeValues(ft.options.values);
-  }
-  if (ft instanceof NumberFieldType) {
-    return 'number' + describeValues(ft.options.values);
+    return flags.length ? `text(${flags.join(',')})` : 'text';
   }
   return ft.kind;
 }

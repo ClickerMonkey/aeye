@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createRegistry, Registry } from '../registry';
+import { QueryTypeError } from '../problem';
 import type { FieldTypeDef } from '../schema';
 import {
   BUILTIN_FIELD_TYPES,
@@ -128,5 +129,58 @@ describe('field-types: avgBytes / resolve', () => {
     const rB = new RelationFieldType('B', 1);
     expect(rA.comparableWith(new RelationFieldType('A', 5))).toBe(true);
     expect(rA.comparableWith(rB)).toBe(false);
+  });
+});
+
+/**
+ * An uncompilable `pattern` is a defect in the DECLARATION, so it is refused
+ * where the declaration is read — not at whichever use happens to compile it
+ * first.
+ *
+ * It used to be accepted and INERT: `toValueSchema()` compiles the regex only
+ * when no closed set is declared, so a column declaring BOTH carried `'(['` with
+ * nothing ever noticing. The param MEET then compiles it (it narrows a merged
+ * set by the merged constraints), which turned a def `parseType` had accepted
+ * into a raw `SyntaxError` thrown out of `validateQuery` / `params()` — from a
+ * package whose entire contract is that diagnostics come back as `Problems`.
+ * Two param uses on such a column was the whole reproduction.
+ */
+describe('field-types: a text `pattern` must be a compilable regex', () => {
+  const bad: FieldTypeDef = { kind: 'text', pattern: '([', values: [{ value: 'a' }] };
+
+  it('is refused when the field type is parsed, as a coded QueryTypeError', () => {
+    try {
+      registry.parseFieldType(bad);
+      expect.unreachable('parseFieldType should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(QueryTypeError);
+      if (err instanceof QueryTypeError) {
+        expect(err.problem.code).toBe('field-type.bad-pattern');
+        expect(err.problem.path).toEqual(['pattern']);
+        expect(err.problem.message).toContain('not a valid regular expression');
+      }
+    }
+  });
+
+  it('is refused at parseType, so no query path can reach the uncompilable regex', () => {
+    const r = createRegistry();
+    expect(() =>
+      r.parseType({
+        name: 'doc',
+        fields: [{ name: 'id', type: { kind: 'number', whole: true } }, { name: 'code', type: bad }],
+        count: 1,
+        bytes: 8,
+      }),
+    ).toThrow(/not a valid regular expression/);
+  });
+
+  it('still accepts every VALID pattern, closed set or not', () => {
+    expect(registry.parseFieldType({ kind: 'text', pattern: '^[a-z]+$' }).toJSON()).toEqual({
+      kind: 'text',
+      pattern: '^[a-z]+$',
+    });
+    expect(
+      registry.parseFieldType({ kind: 'text', pattern: '^a', values: [{ value: 'ab' }] }).validValue('ab'),
+    ).toBe(true);
   });
 });

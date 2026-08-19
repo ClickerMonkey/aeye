@@ -3,6 +3,214 @@
 Releases before `0.6.0` are recorded in the git log (`chore(release): @aeye/query <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.6.6
+
+Two asks about the same thing from two directions: **a declared type should decide which values
+are allowed**, and until now it only did so on the way OUT (schemas, descriptions, cost) rather
+than on the way IN. Additive in API — no exported name changed meaning and no signature lost a
+parameter — but there are **two behaviour changes to read before adopting**, of different kinds:
+
+- **A query that was accepted before can now report a problem.** `write.value` for a literal
+  outside a column's closed set (at any depth — an `array<text one of a|b>` is checked
+  element-wise), and `param.conflict` for a param whose uses have no common type. Both are about
+  a value that could not have been stored or bound correctly.
+- **A TYPE DEFINITION that registered before can now THROW.** A `text` field whose `pattern` is
+  not a compilable regex is refused by `parseFieldType` / `parseType` with a `QueryTypeError`
+  (`field-type.bad-pattern`). It used to register and sit inert. If you register defs from
+  storage or from user input, that call can now throw where it previously could not — catch it,
+  or validate patterns upstream. (The alternative was worse: the new param meet compiles such a
+  pattern, so leaving it unchecked threw a raw `SyntaxError` out of `validateQuery` instead.)
+
+### A20 — a WRITE ignored the column's closed value set (**P1, silently wrong data**)
+
+`validateWriteValue` checked the written value's CATEGORY and never its MEMBERSHIP. Measured on
+`0.6.5`, over a `status` declaring `todo|in progress|done|blocked`:
+
+```
+UPDATE task SET status = LITERAL "bogus"   ->  ACCEPTED
+INSERT task (status)   = LITERAL "bogus"   ->  ACCEPTED
+UPDATE task SET status = LITERAL 42        ->  REFUSED  write.type
+```
+
+So the write model already read the column's declared type and refused a value that did not fit
+it — and `values` is part of that same declaration. Membership had NO enforcement anywhere:
+`toValueSchema()` knew the members, the model-facing description listed them, cost estimation
+divided by them, and a write could still store anything. The check itself already existed
+(`closedSetValueSchema`), one notch away from the call site.
+
+**Fixed** with a sibling in `field-types/_values.ts` (`isClosedSetMember`) and a new problem code
+**`write.value`**, whose message NAMES the members — they are the fix, and the library already
+renders a closed set to models in that exact form:
+
+```
+Cannot write "bogus" to field 'status' — it declares a closed set of values,
+one of todo|in progress (In progress)|done|blocked.
+```
+
+It is a separate code from `write.type` because the remedy differs: a category says *change the
+type of this value*, membership says *use one of these*. One cell still reports one problem — a
+wrong category short-circuits membership.
+
+Scoped to exactly what can be decided statically: a `LiteralExpr` carrying a scalar, on a column
+whose type declares `values`. The exemptions each keep their own reason — a `param` (no value at
+validate time; it is checked by A21's `checkParams` instead), a null literal (matching Postgres,
+where NULL passes a CHECK by three-valued logic), a RELATION column (you write the target's
+identity), and every NON-literal expr (a function call, a field ref, a `case` — statically
+uncheckable, the same class as a param). **READS are deliberately untouched**: `where status =
+'bogus'` stays legal, because querying for a value that should not exist is how you find the rows
+a bad migration wrote.
+
+Reaching `values` generically needed a **total `FieldType.values()`**, which replaces the
+per-class `eqSelectivity` overrides. That closed two live bugs of the same shape, both caused by
+asking each CLASS separately instead of asking the TYPE:
+
+- a **`money` column with a declared value set was costed at the fixed `EQ_SELECTIVITY` guess**
+  (measured: 500 estimated rows where `1/n` gives 330), because its set lives in the inner
+  `NumberOptions` bag and neither override looked there;
+- the **model was never shown a `money` column's set at all** — `describe.ts`'s `fieldTypeTag`
+  dispatched on `instanceof` and read `ft.options.values`, so `fee` rendered as a bare
+  `money(USD)`. Paired with the new write check that is worse than either half alone: the model
+  authors `SET fee = 7`, is refused with a members list it was structurally never told, and
+  guess-and-retry is its only recovery. Enforcing membership and RENDERING it are one feature;
+  the set is now appended uniformly from `values()` and the per-kind branches decide the base tag
+  only.
+
+**A declared value set is now DEDUPED**, in `compactFieldValues` — which already owns what a
+legal closed set is, so every consumer inherits one answer. A duplicate was representable and
+nothing rejected it, and it made the meet's INTERSECTION take its multiplicity from whichever
+operand it iterates: `a ⊓ b` was not `b ⊓ a`. The same query then got a different `params()`, a
+different `eqSelectivity` (`1/3` vs `1/2` — a different COST estimate), `one of done|todo|todo` in
+the description, and a repeated option in any UI built from `ParamDef.type.values`.
+
+**Know that this is a REWRITE, not only a read-side normalisation.**
+`registry.parseType(defWithDuplicate).toJSON()` hands back the DEDUPED def, so a consumer that
+persists `toJSON()` over the stored definition — a type-editing flow does exactly that — silently
+rewrites the author's declaration. That is the right normalisation (a set with a repeated member
+was never a set, and the duplicate had observable consequences), but it is a write, so it is
+stated rather than left to be discovered.
+
+**A text `pattern` must now be a compilable regex, checked at parse time**
+(`field-type.bad-pattern`). An uncompilable one used to be accepted and completely inert —
+`toValueSchema()` short-circuits on a closed set and never compiles it — until the new meet
+compiled it while narrowing, which threw a raw `SyntaxError` out of `validateQuery` / `params()`
+for a def `parseType` had accepted. That is exactly the contract this package does not break, and
+the defect is in the DECLARATION, so it is refused where the declaration is read. It is checked in
+`TextFieldType.from`, which is the road every in-package parse takes (including a nested array
+item); the public CONSTRUCTOR does not validate, so a hand-built
+`new TextFieldType({ pattern: '([' })` can still carry one — noted on `TextOptions.pattern`, and
+the same caveat every other hand-supplied option already has.
+
+### A21 — a param's type was the FIRST use, not the merged one, and supplied values were never checked (**P1**)
+
+`ParamSet.resolved` seeded with the first observation and kept it, admitting any later one that
+was `comparableWith` it. Two consequences:
+
+- **order-dependent.** A param compared against an `enum` in one place and plain `text` in
+  another resolved to whichever the walk reached first — a property of where the clauses sat in
+  the JSON, not of what the query means. The answer is the ENUM.
+- **never narrowed.** `text{minLength:5}` beside `text{maxLength:10}` reported one bound and
+  dropped the other, so nothing downstream could know the real requirement.
+
+And a bound VALUE was never checked against any of it: `run(q, { params })` bound whatever it was
+given.
+
+**`FieldType.meet(other)`** is the fix — the constructive form of `comparableWith`, total on the
+value-category union in the same way, and strictly stronger (two `text` types with disjoint
+closed sets are comparable and have no meet). `enum ⊓ text = enum`, `enum{a,b} ⊓ enum{b,c} =
+enum{b}`, `text{minLength:5} ⊓ text{maxLength:10}` carries both, `number ⊓ money = money`,
+`date ⊓ timestamp = timestamp`, array element types meet recursively. Its ALGEBRA is the point —
+a fold over uses in walk order is only order-independent if the operation is commutative,
+associative and idempotent — so every primitive it is built from (`field-types/_meet.ts`) is one
+of three provable shapes, and all three laws are property-tested over every pair and triple of a
+42-type set — 74,088 triples, covering set+bound and set+pattern in BOTH arrangements (one the
+constraint admits, one it excludes), mixed-scalar and duplicated sets, decimal places,
+money-with-a-set, nested arrays, arrays of enums, and relations carrying inverse metadata — along
+with the soundness law that makes it usable as a validator: **the meet accepts nothing that both
+operands do not.**
+
+**An EMPTY meet is a CONFLICT**, not a satisfiable-by-nothing type. An empty `values` array is
+not representable — `compactFieldValues` drops it, precisely so `1/n` cannot divide by zero — so
+a "closed set of nothing" would round-trip into an UNCONSTRAINED type, the exact opposite of what
+was computed. The same rule covers disjoint bounds and two different patterns.
+
+**It is a lower bound, not the GREATEST lower bound — the one law it deliberately does not
+satisfy.** Because a closed set IS the value schema, the meet narrows a merged set by the merged
+scalar constraints; so for a SELF-INCONSISTENT type — `text{values:['ab'], minLength:5}`, whose
+own bound rejects its own member — even `x ⊓ text` narrows or conflicts rather than returning `x`.
+The narrowing is not optional: keeping `1` from `text{values:[1,'b']} ⊓ text` would ADMIT a value
+plain `text` refuses, breaking soundness, which is the law a validator actually depends on. So:
+soundness unconditionally, top-identity wherever the declaration does not contradict itself. The
+cost to know is that a param compared against such a column AND any plain column of the same kind
+now reports `param.conflict`, blaming the query for a defect in the TYPE. `x ⊓ ⊤ = x` is in the
+property loop with those types as a NAMED expected-failure set, asserted in both directions, so
+neither the law nor its exception can rot unnoticed.
+
+**A follow-up that would remove the exception entirely — the owner's call, not built here.** Every
+member of that set exists only because a self-inconsistent DECLARATION is representable, and two
+narrowings would make it unrepresentable rather than tolerated:
+
+- `fieldValuesSchema` is shared by `text` and `number`, so
+  `parseFieldType({kind:'number', values:[{value:'a'}]})` is accepted today and `validValue('a')`
+  is `true` — a number column admitting text. Per-kind member typing removes that shape.
+- a self-consistency check at parse time (does any declared member satisfy the declared
+  constraints?) is decidable here, contrary to what the first pass of this work claimed: over a
+  FINITE declared set every per-value predicate is settled by evaluation, and this package already
+  does exactly that (`narrowFieldValues(values, v => textConstraintSchema(o).safeParse(v).success)`),
+  patterns included.
+
+Together they would make the meet a genuine GREATEST lower bound for every registry-built type and
+delete the "blames the query for a defect in the TYPE" hazard instead of documenting it — at the
+cost of narrowing what a def may express, which is why it is a decision rather than a fix.
+
+**New public surface**, alongside the unchanged `ParamDef` / `query.params()`:
+
+- **`engine.parameters(query)` → `ParamInfo[]`** — per param: its `references`, every `use`
+  (`{ at, type, category, field? }` — the JSON path, the full FieldType that use requires, the
+  `ScalarKind` summary, and the COLUMN the requirement came from), the merged `type` /
+  `category`, and the `conflict` when there is none. The same grade of detail a query's RESULT
+  fields carry, plus the origin, so a caller can explain WHY a param got its type. Untyped and
+  conflicting params appear here in full; `params()` still omits them, because a `ParamDef`
+  without a type would be a lie about a param nothing can bind.
+- **`engine.checkParams(query, params)` → `Problems`** — supplied values checked against the
+  merged type BEFORE execution. `param.value` (error) is a value the merged type refuses,
+  including one that each use in ISOLATION would have admitted — the case nothing could catch
+  before. `param.missing` (warning) is a typed param with no value, which binds SQL NULL and is
+  what `autoPaginate` relies on. `param.unknown` (warning) is a value supplied under a name the
+  query has no param for, i.e. a typo. `null` always passes (a param is potentially-null by
+  construction), and so does a RELATION-typed param — what you bind to one is the target's
+  IDENTITY, a `{ pk }` OBJECT for a composite key, which `RelationFieldType.toValueSchema()`
+  (a bare string) does not describe; that is the same exemption `write.type` already makes for a
+  relation column, and closing it properly needs the target's primary key. Reported as Problems,
+  never thrown, and it also rides on
+  `validateQuery(query, _, _, { params })`. `run` / `toSQL` are unchanged and do NOT validate —
+  a hot path that could only throw is the wrong place to learn this.
+
+`param.conflict` now says WHICH kind of conflict it is — two different value categories, versus
+one category whose constraints cannot hold together — and renders each side WITH its value set,
+which is the distinction a reader cannot make from the paths alone.
+
+Every `observe` site that has a COLUMN in hand now passes it, so `ParamUse.field` answers "why is
+this param a text?" uniformly — including `array-op`, whose requirement is its target column's
+ITEM type. The sites that report no column (`unary`, a function argument, a `limit` / `offset`
+bound) are the ones whose requirement is genuinely structural rather than a column's, which is
+what `ParamUse.field`'s doc says.
+
+### Also
+
+- **`syntheticType`'s per-row byte estimate** dropped a defensive `estimate?.bytes ?? 0`.
+  `Cost.bytes` is required, so the fallback could only ever have hidden a `Cost` that was not
+  one; `estimate` is re-tested instead, which narrows properly.
+- **`semanticTexts` on an engine with no registered dialect** is now covered by a test rather
+  than only by inspection.
+- **Two known limits, stated rather than discovered.** `write.value` names the members through
+  `describeValues`, which ELIDES past `MAX_DESCRIBED_VALUES` (12) — so a larger set yields a
+  refusal whose remedy is partial. That is deliberate: it is the same rendering the model was
+  shown the column with, so the error can never list a member the description did not. And
+  `FieldType.meet`'s JSON short-circuit assumes "same kind + same JSON ⇒ interchangeable", which
+  holds for every builtin EXCEPT `relation`, whose `inverseVia` is never serialized — harmless as
+  used (a param's relation type is never traversed as a join) but noted at the site for anyone
+  reaching for `meet` outside param inference.
+
 ## 0.6.5
 
 Two asks raised by the consuming product's widget layer on `0.6.4`, both re-derived against

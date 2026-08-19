@@ -362,6 +362,30 @@ Everything composes around that one call:
   `exists` subquery or an `insert … select` source. An under-reported bound is
   not a cosmetic gap — the SQL still emits `LIMIT ?` and a caller that binds the
   declared signature leaves it NULL, which Postgres reads as *no limit*.
+
+  A param's type is the **meet** of every use — the most specific type
+  compatible with all of them, folded through `FieldType.meet`. Compared against
+  an `enum` in one place and plain `text` in another it is the **enum**;
+  `text{minLength:5}` beside `text{maxLength:10}` carries **both** bounds;
+  `number` beside `money` is `money`. The meet is commutative, associative,
+  idempotent and **sound** (it accepts nothing that both operands do not), so the
+  answer never depends on where in the JSON each use sits. Where the uses have no
+  meet the param is in **conflict** (`param.conflict`) and `params()` omits it.
+
+  It is a lower bound, not the *greatest* lower bound. A closed set IS the value
+  schema, so a meet narrows a merged set by the merged scalar constraints — and
+  for a self-inconsistent type (`text{values:['ab'], minLength:5}`, whose own
+  bound rejects its own member) even `x ⊓ text` narrows or conflicts rather than
+  returning `x`. Soundness is kept unconditionally, because it is the law a
+  validator actually depends on.
+
+  `engine.parameters(query)` → `ParamInfo[]` is the detailed view: per param,
+  every `use` (`{ at, type, category, field? }` — path, required type, category
+  summary, and the column the requirement came from), the merged `type`, and the
+  `conflict` when there is none. `engine.checkParams(query, params)` →
+  `Problems` checks SUPPLIED values against that merged type before execution
+  (`param.value` / `param.missing` / `param.unknown`); `null` always passes, and
+  the same check rides on `validateQuery(query, _, _, { params })`.
 - **Filters.** `options.filters` is a `Record<source, ExprDef | Expr | null>` —
   a single **boolean Expr** per source (or `null` / absent for none). The
   `filters` EXPR in the query is only a placeholder (`{ source, fields? }`); the

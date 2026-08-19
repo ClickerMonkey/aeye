@@ -207,7 +207,7 @@ export class UpdateQuery extends Query {
         // Validated against its COLUMN: that is what types a `param` cell (the
         // reason `SET x = :p` used to report `param.untyped`) and what catches a
         // value of the wrong category before it reaches SQL.
-        p.at([i, 'value'], () => validateWriteValue(engine, inner, p, ctx, field, s.expr));
+        p.at([i, 'value'], () => validateWriteValue(engine, inner, p, ctx, field, s.expr, type));
       });
     });
     p.at('where', () => this.where.forEach((w, i) => p.at(i, () => {

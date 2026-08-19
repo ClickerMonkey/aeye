@@ -15,6 +15,7 @@ import type { JsonValue, ParamDef, ParamExprDef, QueryDef, QueryKind } from '../
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
+import type { ParamInfo } from '../param';
 import type { ResolvedType, TypeResolved, FieldResolved } from '../resolved-type';
 import { asFieldType, relationOf } from '../resolved-type';
 import type { ScalarKind } from '../field-type';
@@ -260,13 +261,40 @@ export abstract class Query {
    * (see {@link observeRowBounds}), so a bound at ANY nesting depth lands here.
    */
   params(engine: QueryEngine, scope?: QueryScope): ParamDef[] {
+    return this.walkParams(engine, scope).params.toJSON();
+  }
+
+  /**
+   * The FULL introspection of this query's bind parameters: for each, every
+   * place it is used, what each use requires of it, the type MERGED from those
+   * uses (the meet — the most specific type compatible with all of them), and
+   * the conflict when they have none.
+   *
+   * The rich counterpart to {@link params}, which reports only `{ name, type }`
+   * for the params that HAVE a type. This reports every param the query
+   * mentions, including the untyped and the conflicting ones, with enough detail
+   * to explain the answer: a UI can label an input from `type` and say why from
+   * `uses`, and a caller can check a supplied value against exactly the type the
+   * query requires (see `QueryEngine.checkParams`).
+   */
+  paramInfo(engine: QueryEngine, scope?: QueryScope): ParamInfo[] {
+    return this.walkParams(engine, scope).params.all();
+  }
+
+  /**
+   * Run the resolution / validation walk purely for its side effect of
+   * populating the scope's shared `ParamSet`, discarding the problems. Shared by
+   * {@link params} / {@link paramInfo} / `QueryEngine.checkParams`, so all three
+   * see exactly the same observations.
+   */
+  walkParams(engine: QueryEngine, scope?: QueryScope): QueryScope {
     // Materialize inverse relations first (idempotent) so a relation key's
     // field type resolves, exactly as the engine's own entry points do.
     engine.registry.finalize();
     const s = scope ?? engine.globalScope();
     const p = new Problems();
     this.validateWalk(engine, s, p, ROOT_VALIDATE_CONTEXT);
-    return s.params.toJSON();
+    return s;
   }
 
   /**
@@ -626,11 +654,13 @@ export function syntheticType(name: string, fields: readonly QueryField[], estim
     const nullable = c.type.kind !== 'type' ? c.type.nullable : relationOf(c.type)?.belongsTo === true;
     return new Field({ name: c.name, fieldType: ft, nullable });
   });
-  const count = Math.max(0, estimate?.rows ?? 0);
+  const count = estimate ? Math.max(0, estimate.rows) : 0;
   // `Type.bytes` is PER ROW while an estimate's `bytes` is the total, so divide.
   // With no rows there is no per-row width to recover — and none is read either,
-  // since every byte estimate multiplies by the (zero) count.
-  const bytes = count > 0 ? (estimate?.bytes ?? 0) / count : 0;
+  // since every byte estimate multiplies by the (zero) count. `estimate` is
+  // re-tested rather than defaulted (`estimate?.bytes ?? 0`) because `Cost.bytes`
+  // is REQUIRED: a fallback there could only ever hide a `Cost` that was not one.
+  const bytes = estimate && count > 0 ? estimate.bytes / count : 0;
   return new Type({ name, fields: built, indexes: [], count, bytes });
 }
 

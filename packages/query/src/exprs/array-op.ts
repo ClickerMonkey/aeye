@@ -188,7 +188,12 @@ export class ArrayOpExpr extends BoolExpr {
     this.values.forEach((el, i) => {
       const rt = p.at(['value', i], () => el.validateWalk(engine, scope, p, ctx));
       if (el instanceof ParamExpr) {
-        if (item) scope.params.observe(el.name, item, [...here, 'value', i]);
+        // `t` is the ARRAY column, and the param's requirement is derived from
+        // it (its ITEM type), so the use is attributed to it — every other
+        // `observe` site with a column in hand does the same, and a `ParamUse`
+        // that could not say where its type came from only for array ops would
+        // be an inconsistency in the reported surface, not a smaller answer.
+        if (item) scope.params.observe(el.name, item, [...here, 'value', i], t);
         return;
       }
       const eft = asFieldType(rt);

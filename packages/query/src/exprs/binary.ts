@@ -171,11 +171,11 @@ export class BinaryExpr extends Expr {
     // Infer params numeric against the other operand's type when known.
     if (this.left instanceof ParamExpr) {
       const ft = asFieldType(r);
-      if (ft) scope.params.observe(this.left.name, ft, [...here, 'left']);
+      if (ft) scope.params.observe(this.left.name, ft, [...here, 'left'], r);
     }
     if (this.right instanceof ParamExpr) {
       const ft = asFieldType(l);
-      if (ft) scope.params.observe(this.right.name, ft, [...here, 'right']);
+      if (ft) scope.params.observe(this.right.name, ft, [...here, 'right'], l);
     }
 
     return this.resolve(engine, scope);

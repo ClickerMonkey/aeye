@@ -202,7 +202,7 @@ export class InExpr extends BoolExpr {
           }
           // A param element takes the value's type.
           if (el instanceof ParamExpr && vft) {
-            scope.params.observe(el.name, vft, [...here, 'in', i]);
+            scope.params.observe(el.name, vft, [...here, 'in', i], v);
           }
         });
       });
@@ -240,12 +240,13 @@ export class InExpr extends BoolExpr {
 
     // A param VALUE takes the list/subquery element type when uniform.
     if (this.value instanceof ParamExpr) {
-      const elFt = this.list?.length
-        ? asFieldType(this.list[0]!.resolve(engine, scope))
+      const element = this.list?.length
+        ? this.list[0]!.resolve(engine, scope)
         : this.subquery
-          ? asFieldType(inferSubqueryOutput(engine, scope, this.subquery))
+          ? inferSubqueryOutput(engine, scope, this.subquery)
           : undefined;
-      if (elFt) scope.params.observe(this.value.name, elFt, [...here, 'value']);
+      const elFt = element && asFieldType(element);
+      if (elFt) scope.params.observe(this.value.name, elFt, [...here, 'value'], element);
     }
 
     return this.resolve(engine, scope);

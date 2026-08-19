@@ -32,9 +32,11 @@ import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { Registry } from '../registry';
 import type { Field } from '../field';
+import type { Type } from '../type';
 import type { ExprDef, JsonValue, WriteValueDef } from '../schema';
 import { LiteralExpr, ParamExpr } from '../exprs/index';
 import { RelationFieldType } from '../field-types/index';
+import { describeValues } from '../field-types/_values';
 import { asFieldType } from '../resolved-type';
 import { isRecord, isJsonValue, JSON_MAX_DEPTH } from '../shape';
 import { QueryTypeError } from '../problem';
@@ -105,7 +107,7 @@ export function parseWriteRecord(
 /**
  * Validate ONE write cell against the COLUMN it is assigned to.
  *
- * Three things the column — and only the column — can settle:
+ * Four things the column — and only the column — can settle:
  *  1. the value expr is WALKED (an INSERT's VALUES exprs were previously never
  *     walked at all, so a bad ref or an unbound source inside one was silently
  *     accepted and only surfaced at emit / run time);
@@ -114,11 +116,33 @@ export function parseWriteRecord(
  *     which is why an UPDATE `SET x = :p` reported `param.untyped`;
  *  3. the value's category must be assignable to the column's (`write.type`) —
  *     the check that turns "a document into a text column" from silently-wrong
- *     SQL into a stated problem.
+ *     SQL into a stated problem;
+ *  4. a literal written to a column declaring a CLOSED VALUE SET must be one of
+ *     the members — at EVERY depth, so an `array<text one of a|b>` checks each
+ *     element (`write.value`). Membership is the same check as (3), one
+ *     notch narrower — the column's declared type already decides which values
+ *     are legal, and `values` is part of that declaration — but it is its own
+ *     problem CODE because the remedy differs: a category says "change the type
+ *     of this value", membership says "use one of these", so the message names
+ *     the members. It names them through `describeValues`, which ELIDES past
+ *     `MAX_DESCRIBED_VALUES` — so a set larger than that yields a refusal whose
+ *     remedy is partial. That is deliberate: it is the SAME rendering the model
+ *     was shown the column with, so the error can never list a member the schema
+ *     description did not, and a set of that size is one the prompt budget
+ *     cannot carry either way.
  *
- * A param and a null literal are exempt from (3): a param has no category of its
- * own (it takes the column's, per (2)), and NULL is assignable to any column
- * whose own nullability admits it.
+ * A param and a null literal are exempt from (3) and (4): a param has no
+ * category or value of its own at validate time (it takes the column's, per (2),
+ * and its VALUE is checked against that when it is supplied — see
+ * `QueryEngine.checkParams`), and NULL is assignable to any column whose own
+ * nullability admits it — matching Postgres, where a NULL passes a CHECK
+ * constraint by three-valued logic. (4) additionally exempts every NON-LITERAL
+ * expr — a function call, a field ref, a `case` — for the same reason a param is
+ * exempt: there is no value to test until the statement runs.
+ *
+ * The READ side is deliberately untouched: `where status = 'bogus'` stays legal,
+ * because asking for a value that should not exist is how you find the rows a
+ * bad migration wrote.
  */
 export function validateWriteValue(
   engine: QueryEngine,
@@ -127,11 +151,22 @@ export function validateWriteValue(
   ctx: ValidateContext,
   field: Field | undefined,
   expr: Expr,
+  /** The Type the column belongs to — every write site knows it, and a param USE is attributed to it. */
+  owner: Type,
 ): void {
   const resolved = expr.validateWalk(engine, scope, p, ctx);
   if (!field) return; // an unknown column is reported by the caller
   if (expr instanceof ParamExpr) {
-    scope.params.observe(expr.name, field.fieldType, p.here);
+    // `owner` is passed so the recorded USE can name the column the param's
+    // type came from (`ParamUse.field`) — for a write cell that is the whole
+    // answer to "why is this param a `date`?".
+    scope.params.observe(expr.name, field.fieldType, p.here, {
+      kind: 'field',
+      field,
+      type: owner,
+      source: owner.name,
+      nullable: field.nullable,
+    });
     return;
   }
   if (expr instanceof LiteralExpr && expr.isNullLiteral()) return;
@@ -149,6 +184,22 @@ export function validateWriteValue(
     p.error(
       'write.type',
       `Cannot write a ${valueType.resolve()} value to field '${field.name}' (${field.fieldType.resolve()}).`,
+    );
+    return; // one cell, one problem: membership is moot once the category is wrong.
+  }
+  // Only a LITERAL carries a value to test. Everything else here — a function
+  // call, a field ref, a `case` — is statically uncheckable, the same class as
+  // the param exempted above.
+  if (!(expr instanceof LiteralExpr)) return;
+  const violation = field.fieldType.closedSetViolation(expr.value);
+  if (violation) {
+    // `closedSetViolation` walks CONTAINERS, so the offender may be an element
+    // rather than the written value itself; the path says which, and the message
+    // is rendered here because this is the only place that knows the column.
+    const where = violation.at.length > 0 ? `element ${violation.at.join('.')} of field` : 'field';
+    p.error(
+      'write.value',
+      `Cannot write ${JSON.stringify(violation.value)} to ${where} '${field.name}' — it declares a closed set of values,${describeValues(violation.values)}.`,
     );
   }
 }

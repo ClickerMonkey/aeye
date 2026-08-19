@@ -229,10 +229,10 @@ export class ComparisonExpr extends BoolExpr {
     const lvt = valueFieldType(l);
     const rvt = valueFieldType(r);
     if (this.left instanceof ParamExpr && rvt) {
-      scope.params.observe(this.left.name, rvt, [...here, 'left']);
+      scope.params.observe(this.left.name, rvt, [...here, 'left'], r);
     }
     if (this.right instanceof ParamExpr && lvt) {
-      scope.params.observe(this.right.name, lvt, [...here, 'right']);
+      scope.params.observe(this.right.name, lvt, [...here, 'right'], l);
     }
 
     return this.resolve(engine, scope);

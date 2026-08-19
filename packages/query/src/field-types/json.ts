@@ -3,6 +3,7 @@ import type { FieldTypeDef, JsonFieldTypeDef, JsonValue } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import { meetExact, sameJson } from './_meet';
 
 /** A recursive Zod schema matching any JSON value. */
 export function jsonValueSchema(): z.ZodType<JsonValue> {
@@ -64,6 +65,18 @@ export class JsonFieldType extends FieldType {
   /** JSON only compares meaningfully with other JSON. */
   override comparableWith(other: FieldType): boolean {
     return other.resolve() === 'json';
+  }
+
+  /**
+   * Meet with another `json`. The optional `schema` is a single-valued
+   * constraint this package stores verbatim and cannot intersect, so two
+   * DIFFERENT schemas conflict rather than silently picking one; an absent
+   * schema constrains nothing and adopts the other's.
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (!(other instanceof JsonFieldType)) return undefined;
+    const schema = meetExact(this.schema, other.schema, sameJson);
+    return schema.ok ? new JsonFieldType(schema.value) : undefined;
   }
 
   /** Estimated average stored byte size. */

@@ -33,6 +33,7 @@ import type { ValidateContext } from './expr';
 import type { Affected, Cost, CostConstraints, CostContext } from './cost';
 import { reportCostProblems, foldChanges, NEVER_CHANGES } from './cost';
 import type { Query, QueryReferences, QueryResult, QueryResultArray } from './queries/query';
+import type { ParamInfo } from './param';
 import { toArrayRows } from './queries/query';
 import type { TypeExecutor } from './runtime/executor';
 import type { FunctionRun } from './runtime/functions';
@@ -371,7 +372,10 @@ export class QueryEngine {
    * Validate a query: structural walk + accumulated param diagnostics + each
    * referenced Type's executor `validate` hook. When `constraints` are
    * supplied, the estimated `cost` is checked too and `cost.rows-exceeded` /
-   * `cost.bytes-exceeded` problems are appended (opt-in).
+   * `cost.bytes-exceeded` problems are appended (opt-in). When `options.params`
+   * are supplied, the VALUES are checked against the type each param's uses
+   * require, appending `param.value` / `param.missing` / `param.unknown` (also
+   * opt-in — see {@link checkParams}).
    */
   validateQuery(
     query: Query | QueryDef,
@@ -384,11 +388,54 @@ export class QueryEngine {
     const p = new Problems();
     q.validateWalk(this, s, p, ROOT_VALIDATE_CONTEXT);
     s.params.problems(p);
+    if (options?.params) s.params.checkValues(p, options.params);
     for (const name of q.referencedTypes()) {
       const ex = this.executor(name);
       ex?.validate?.(q, p);
     }
     if (constraints) reportCostProblems(q.cost(this.costContext(options), s), constraints, p);
+    return p;
+  }
+
+  /**
+   * The full introspection of a query's bind PARAMETERS: for each, every place
+   * it is used, what each use requires of it, the type MERGED from those uses,
+   * and the conflict when they have none. The rich counterpart to
+   * `Query.params()` (which reports the minimal `{ name, type }` a caller
+   * binds with) — read this to EXPLAIN a param rather than to bind one.
+   *
+   * A param's type is the MEET of its uses, i.e. the most specific type
+   * compatible with all of them: compared against an `enum` in one place and
+   * plain `text` in another it is the ENUM, and it is that answer regardless of
+   * which use the walk reached first.
+   */
+  parameters(query: Query | QueryDef, scope?: QueryScope): ParamInfo[] {
+    return this.toQuery(query).paramInfo(this, scope);
+  }
+
+  /**
+   * Check SUPPLIED param values against what the query's uses of each param
+   * require — the PRE-EXECUTION gate for a binding, and the only place a bound
+   * value is compared with the type it is bound into. Returns the value
+   * problems and nothing else (a standalone entry point, mirroring
+   * {@link checkCost}); the param TYPE problems — `param.untyped` /
+   * `param.conflict` — come from {@link validateQuery}.
+   *
+   * `param.value` (error) is a value that does not satisfy the merged type;
+   * `param.missing` (warning) is a typed param with no value, which binds SQL
+   * NULL; `param.unknown` (warning) is a value supplied under a name the query
+   * has no param for. Reported as Problems rather than thrown, so a bad binding
+   * reads like every other diagnostic — and so `run` / `toSQL` stay unchanged:
+   * they do NOT validate, because a hot path that can only throw is not the
+   * place to discover this.
+   */
+  checkParams(
+    query: Query | QueryDef,
+    params: Readonly<Record<string, JsonValue | undefined>>,
+    scope?: QueryScope,
+  ): Problems {
+    const p = new Problems();
+    this.toQuery(query).walkParams(this, scope).params.checkValues(p, params);
     return p;
   }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import type { FieldTypeDef, NumberFieldTypeDef, NumberOptions } from '../schema';
-import { fieldValuesSchema, closedSetValueSchema, compactFieldValues, eqSelectivityOf } from './_values';
+import type { FieldTypeDef, FieldValueDef, NumberFieldTypeDef, NumberOptions } from '../schema';
+import { fieldValuesSchema, closedSetValueSchema, compactFieldValues, meetFieldValues, narrowFieldValues } from './_values';
+import { meetFlag, meetLower, meetUpper, emptyRange } from './_meet';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
@@ -34,16 +35,56 @@ export function compactNumberOptions(o: NumberOptions): NumberOptions {
   return out;
 }
 
-/** Build a value-side Zod number schema honoring a NumberOptions bag. */
-export function numberValueSchema(o: NumberOptions): z.ZodTypeAny {
-  // A closed set IS the value schema — the bounds it composes with are already
-  // satisfied (or violated) by the declared members themselves.
-  const closed = closedSetValueSchema(o.values);
-  if (closed) return closed;
+/**
+ * A value-side Zod schema for a numeric bag's SCALAR CONSTRAINTS alone — bounds
+ * + integrality, ignoring any closed set. Split out from
+ * {@link numberValueSchema} (which short-circuits on the closed set) so a MEET
+ * can narrow a merged set by the merged constraints; see `_values.ts`.
+ */
+export function numberConstraintSchema(o: NumberOptions): z.ZodTypeAny {
   let s = o.whole ? z.number().int() : z.number();
   if (o.min !== undefined) s = s.min(o.min);
   if (o.max !== undefined) s = s.max(o.max);
   return s;
+}
+
+/** Build a value-side Zod number schema honoring a NumberOptions bag. */
+export function numberValueSchema(o: NumberOptions): z.ZodTypeAny {
+  // A closed set IS the value schema — the bounds it composes with are already
+  // satisfied (or violated) by the declared members themselves.
+  return closedSetValueSchema(o.values) ?? numberConstraintSchema(o);
+}
+
+/**
+ * The MEET of two `NumberOptions` bags — bounds tighten, `whole` ORs, decimal
+ * places tighten, and the closed sets intersect (then narrow by the merged
+ * constraints). `undefined` when no numeric value satisfies both. Shared by
+ * `number` and by `money`, whose constraint is exactly this bag.
+ */
+export function meetNumberOptions(a: NumberOptions, b: NumberOptions): NumberOptions | undefined {
+  const min = meetLower(a.min, b.min);
+  const max = meetUpper(a.max, b.max);
+  if (emptyRange(min, max)) return undefined;
+  const minPlaces = meetLower(a.minPlaces, b.minPlaces);
+  const maxPlaces = meetUpper(a.maxPlaces, b.maxPlaces);
+  if (emptyRange(minPlaces, maxPlaces)) return undefined;
+  const values = meetFieldValues(a.values, b.values);
+  if (!values.ok) return undefined;
+  const merged = compactNumberOptions({
+    min,
+    max,
+    whole: meetFlag(a.whole, b.whole),
+    minPlaces,
+    maxPlaces,
+    values: values.value,
+  });
+  if (merged.values) {
+    const constraints = numberConstraintSchema(merged);
+    const kept = narrowFieldValues(merged.values, (v) => constraints.safeParse(v).success);
+    if (kept.length === 0) return undefined;
+    merged.values = kept;
+  }
+  return merged;
 }
 
 /**
@@ -93,9 +134,24 @@ export class NumberFieldType extends FieldType {
     return 'number';
   }
 
-  /** A declared closed set of `n` members makes `= x` a `1/n` predicate. */
-  override eqSelectivity(): number | undefined {
-    return eqSelectivityOf(this.options.values);
+  /** The closed set this number may hold, when one is declared (drives `eqSelectivity`, membership, the meet). */
+  override values(): readonly FieldValueDef[] | undefined {
+    return this.options.values;
+  }
+
+  /**
+   * Meet with another `number` (bounds / integrality / closed set reconciled by
+   * {@link meetNumberOptions}), or with `money` — which is the more specific of
+   * the pair `comparableWith` calls mutually numeric, so it answers for both.
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (other instanceof NumberFieldType) {
+      const merged = meetNumberOptions(this.options, other.options);
+      return merged === undefined ? undefined : new NumberFieldType(merged);
+    }
+    // `money` carries a currency this type cannot express, so it is the narrower
+    // side of the numeric family and owns the merge (see `MoneyFieldType.meetWith`).
+    return other.resolve() === 'money' ? other.meet(this) : undefined;
   }
 
   /** Estimated average stored byte size. */

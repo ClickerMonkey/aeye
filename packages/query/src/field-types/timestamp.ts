@@ -3,6 +3,7 @@ import type { FieldTypeDef, TimestampFieldTypeDef, TimezonePolicy } from '../sch
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import { meetExact } from './_meet';
 
 /** ISO datetime pattern — date with a `T` time component. */
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
@@ -54,6 +55,26 @@ export class TimestampFieldType extends FieldType {
   /** Resolve to the `timestamp` scalar comparison category. */
   resolve(): ScalarKind {
     return 'timestamp';
+  }
+
+  /**
+   * Meet with another `timestamp`, or with `date` — this type is the more
+   * specific of the temporal family (a value of it satisfies a `date`'s ISO
+   * prefix, not the reverse), so it IS the meet of the pair, and
+   * `DateFieldType.meetWith` delegates here. Timezone policies must AGREE either
+   * way: a naive and a tz-aware value are not the same instant, so there is no
+   * third policy that is both.
+   *
+   * The other side's policy is read off its JSON def rather than through an
+   * `instanceof DateFieldType`, which would close an import cycle (`date.ts`
+   * already imports {@link timezoneSchema} from here). The def is a
+   * discriminated union, so the narrowing is a compile-time fact, not a cast.
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    const json = other.toJSON();
+    if (json.kind !== 'timestamp' && json.kind !== 'date') return undefined;
+    const timezone = meetExact(this.timezone, json.timezone);
+    return timezone.ok ? new TimestampFieldType(timezone.value) : undefined;
   }
 
   /** Estimated average stored byte size. */

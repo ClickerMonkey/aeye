@@ -111,7 +111,7 @@ export class BetweenExpr extends BoolExpr {
     const check = (operand: Expr, rt: ResolvedType, key: 'lower' | 'upper'): void => {
       const ft = asFieldType(rt);
       if (operand instanceof ParamExpr) {
-        if (vft) scope.params.observe(operand.name, vft, [...here, key]);
+        if (vft) scope.params.observe(operand.name, vft, [...here, key], v);
         return;
       }
       // A RELATION field-ref is not a scalar value — reject a relation vs the
@@ -135,8 +135,11 @@ export class BetweenExpr extends BoolExpr {
 
     // A param value takes a bound's type.
     if (this.value instanceof ParamExpr) {
-      const bft: FieldType | undefined = asFieldType(lo) ?? asFieldType(hi);
-      if (bft) scope.params.observe(this.value.name, bft, [...here, 'value']);
+      // Whichever bound supplied the type is also what the use is ATTRIBUTED to,
+      // so `ParamUse.field` names the column the requirement actually came from.
+      const bound = asFieldType(lo) !== undefined ? lo : hi;
+      const bft: FieldType | undefined = asFieldType(bound);
+      if (bft) scope.params.observe(this.value.name, bft, [...here, 'value'], bound);
     }
 
     return this.resolve(engine, scope);

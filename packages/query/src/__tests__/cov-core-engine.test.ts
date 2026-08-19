@@ -4,7 +4,7 @@
  * Expr-instance vs ExprDef coercion in resolveExpr / validateExpr.
  */
 import { describe, it, expect } from 'vitest';
-import { createRegistry } from '../registry';
+import { createRegistry, Registry } from '../registry';
 import { QueryEngine } from '../engine';
 import { arrayExecutor } from '../runtime/executor';
 import { runtimeFixture, userTypeDef, orderTypeDef, ref } from './_utils';
@@ -42,6 +42,16 @@ describe('QueryEngine wiring', () => {
     const engine = new QueryEngine(registry);
     const def: SelectDef = { kind: 'select', fields: [{ expr: ref('user', 'id'), as: 'id' }], from: { kind: 'type', type: 'user' } };
     expect(() => engine.toSQL(def, 'nope')).toThrow(/unknown dialect/);
+  });
+
+  it('semanticTexts throws when the engine has NO dialect at all', () => {
+    // Its collecting pass renders through any registered dialect, so an engine
+    // over a bare `Registry` has nothing to walk with. The query is parsed by a
+    // normal engine first — the dialect is demanded before anything is parsed.
+    const { registry } = baseEngine();
+    const def: SelectDef = { kind: 'select', fields: [{ expr: ref('user', 'id'), as: 'id' }], from: { kind: 'type', type: 'user' } };
+    const parsed = new QueryEngine(registry).parseQuery(def);
+    expect(() => new QueryEngine(new Registry()).semanticTexts(parsed)).toThrow(/no dialect registered/);
   });
 
   it('validateQuery invokes a Type executor validate hook', () => {

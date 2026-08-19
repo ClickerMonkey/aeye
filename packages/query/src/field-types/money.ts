@@ -1,10 +1,13 @@
 import { z } from 'zod';
-import type { FieldTypeDef, MoneyFieldTypeDef, NumberOptions } from '../schema';
+import type { FieldTypeDef, FieldValueDef, MoneyFieldTypeDef, NumberOptions } from '../schema';
 import type { ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { QueryTypeError } from '../problem';
+import { meetExact } from './_meet';
 import {
+  NumberFieldType,
   compactNumberOptions,
+  meetNumberOptions,
   numberOptionsSchema,
   numberValueSchema,
 } from './number';
@@ -66,6 +69,35 @@ export class MoneyFieldType extends FieldType {
   /** Resolve to the `money` scalar comparison category. */
   resolve(): ScalarKind {
     return 'money';
+  }
+
+  /**
+   * The closed set the AMOUNT may hold, read through the inner numeric bag. It
+   * is the same declaration a `number` column makes, so it drives the same
+   * `eqSelectivity` / membership / meet behaviour — before this accessor existed
+   * a `money` column with a declared value set costed `= x` at the fixed guess,
+   * because the two classes that carried a set each answered for themselves.
+   */
+  override values(): readonly FieldValueDef[] | undefined {
+    return this.options.number?.values;
+  }
+
+  /**
+   * Meet with `money` (currencies must AGREE — there is no amount that is both
+   * USD and EUR) or with `number`, which constrains only the amount. `money` is
+   * the more specific side of the numeric family, so it answers for both
+   * directions (see `NumberFieldType.meetWith`).
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (other instanceof MoneyFieldType) {
+      const currency = meetExact(this.options.currency, other.options.currency);
+      if (!currency.ok) return undefined;
+      const number = meetNumberOptions(this.options.number ?? {}, other.options.number ?? {});
+      return number === undefined ? undefined : new MoneyFieldType(compact({ number, currency: currency.value }));
+    }
+    if (!(other instanceof NumberFieldType)) return undefined;
+    const number = meetNumberOptions(this.options.number ?? {}, other.options);
+    return number === undefined ? undefined : new MoneyFieldType(compact({ number, currency: this.options.currency }));
   }
 
   /** Estimated average stored byte size. */

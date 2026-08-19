@@ -263,6 +263,22 @@ export class RelationFieldType extends FieldType {
     return other instanceof RelationFieldType && other.to === this.to;
   }
 
+  /**
+   * Meet with another relation to the SAME target. What flows through a relation
+   * value is the target's IDENTITY, and the two sides agree on it as soon as
+   * they agree on `to`; the rest of the shape is not a value constraint —
+   * `count` is an ESTIMATE (a materialized inverse derives it from a row ratio),
+   * so the meet takes the tighter of the two, and `inverseRelation` /
+   * `inverseVia` describe the SCHEMA EDGE rather than the value, so they are
+   * dropped rather than reconciled — a merged relation is a type for a bound
+   * VALUE, never an edge anything traverses. Two identical relations never reach
+   * here (`meet` short-circuits), so nothing is lost by dropping them.
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (!(other instanceof RelationFieldType) || other.to !== this.to) return undefined;
+    return new RelationFieldType(this.to, Math.min(this.count, other.count));
+  }
+
   /** Estimated average stored byte size (a short id string). */
   avgBytes(): number {
     // Foreign-key identifier — roughly a short id string.
