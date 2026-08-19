@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import type { ArrayFieldTypeDef, FieldTypeDef, JsonValue } from '../schema';
 import type { ClosedSetViolation } from './_values';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 import { emptyRange, meetLower, meetUpper } from './_meet';
 import { jsonValueSchema } from './json';
@@ -63,13 +64,16 @@ export class ArrayFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     // The element type references the WHOLE field-type union recursively, so
     // wrap it in `z.lazy` (like `json`'s recursive value schema) to break the
     // build-time cycle `array → fieldTypeDefSchema → array`.
-    const item = z.lazy(() => fieldTypeDefSchema());
+    // `opts` rides along so a nested ELEMENT declares the same `as` vocabulary
+    // the top level does — an `array<uuid>` is exactly as authorable as a `uuid`.
+    const item = z.lazy(() => fieldTypeDefSchema(opts));
     return z.object({
       kind: z.literal('array'),
+      ...refinementKeySchema('array', opts),
       minItems: z.number().int().optional().describe('Minimum element count (e.g. non-empty → 1).'),
       maxItems: z.number().int().optional().describe('Maximum element count; omit when unbounded.'),
       item: item.optional().describe('Element field type; omit for heterogeneous / unknown elements.'),
@@ -129,7 +133,7 @@ export class ArrayFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size (midpoint count × per-element bytes). */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     // Estimate ~midpoint element count × per-element bytes. When unbounded,
     // assume a small constant; when the element type is unknown, a flat
     // per-element estimate.
@@ -148,7 +152,7 @@ export class ArrayFieldType extends FieldType {
   }
 
   /** Zod schema validating an array value, honoring element type and bounds. */
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Each element is validated against the element type when known, else
     // against the permissive JSON-value schema (NO `z.any()`).
     let s = z.array(this.item ? this.item.toValueSchema(opts) : jsonValueSchema());
@@ -158,7 +162,12 @@ export class ArrayFieldType extends FieldType {
   }
 
   /** Serialize to its JSON def (recursing into the element type). */
-  toJSON(): ArrayFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): ArrayFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): ArrayFieldTypeDef {
     const def: ArrayFieldTypeDef = { kind: ArrayFieldType.NAME };
     if (this.minItems !== undefined) def.minItems = this.minItems;
     if (this.maxItems !== undefined) def.maxItems = this.maxItems;
@@ -167,7 +176,12 @@ export class ArrayFieldType extends FieldType {
   }
 
   /** A deep copy (cloning the element type). */
-  clone(): ArrayFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): ArrayFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): ArrayFieldType {
     return new ArrayFieldType(this.item?.clone(), this.minItems, this.maxItems);
   }
 

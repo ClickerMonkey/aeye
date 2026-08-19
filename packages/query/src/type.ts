@@ -311,7 +311,9 @@ export class Type implements Node {
       name: z.string(),
       label: z.string().optional(),
       description: z.string().optional(),
-      type: fieldTypeDefSchema(),
+      // `opts` carries the registry, so a field's type offers the `as`
+      // refinement vocabulary THIS registry actually has (see `refinement.ts`).
+      type: fieldTypeDefSchema(opts),
       bytes: z.number().optional().describe('Estimated average stored bytes for this field (overrides the field type default).'),
       changes: z.number().optional().describe('Ms between changes to this field (overrides the Type; 0 = always, -1 = never).'),
       nullable: z.boolean().optional(),

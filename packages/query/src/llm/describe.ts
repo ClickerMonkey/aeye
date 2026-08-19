@@ -127,26 +127,42 @@ function typeTag(ft: FieldType): string {
   return fieldTypeBase(ft) + describeValues(ft.values());
 }
 
-/** The kind-specific part of a type tag, without its own closed value set. */
+/** A `(a,b)` qualifier list, or `''` when there is nothing to qualify. */
+function quals(parts: readonly string[]): string {
+  return parts.length ? `(${parts.join(',')})` : '';
+}
+
+/**
+ * The kind-specific part of a type tag, without its own closed value set.
+ *
+ * A registered REFINEMENT is the FIRST qualifier on every kind — `text(uuid)`,
+ * `text(uuid,search)`, `json(geometry)` — because it is the most specific true
+ * thing about the column and the one a model should read before the base's own
+ * flags. It renders VERBATIM: a model reads this surface and a sibling type
+ * system's in one session, and a spelling difference between them reads as two
+ * different types.
+ */
 function fieldTypeBase(ft: FieldType): string {
+  const parts: string[] = [];
+  if (ft.as !== undefined) parts.push(ft.as);
   if (ft instanceof ArrayFieldType) {
     // The element type is where an array's constraints actually live — without
     // it the model cannot author an element at all, let alone a member of a set.
-    return ft.item ? `array<${typeTag(ft.item)}>` : 'array';
+    return `array${quals(parts)}${ft.item ? `<${typeTag(ft.item)}>` : ''}`;
   }
   if (ft instanceof RelationFieldType) {
-    return `relation→${ft.to}×${ft.count}`;
+    return `relation${quals(parts)}→${ft.to}×${ft.count}`;
   }
   if (ft instanceof MoneyFieldType) {
-    return ft.options.currency ? `money(${ft.options.currency})` : 'money';
+    if (ft.options.currency) parts.push(ft.options.currency);
+    return `money${quals(parts)}`;
   }
   if (ft instanceof TextFieldType) {
-    const flags: string[] = [];
-    if (ft.options.search) flags.push('search');
-    if (ft.options.semantic) flags.push('semantic');
-    return flags.length ? `text(${flags.join(',')})` : 'text';
+    if (ft.options.search) parts.push('search');
+    if (ft.options.semantic) parts.push('semantic');
+    return `text${quals(parts)}`;
   }
-  return ft.kind;
+  return `${ft.kind}${quals(parts)}`;
 }
 
 /** A terse `write:` clause for a Type's restricted write permissions, or `''`. */

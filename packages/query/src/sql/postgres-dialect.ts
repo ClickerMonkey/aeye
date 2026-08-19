@@ -109,7 +109,7 @@ export class PostgresDialect extends BaseDialect {
    * `sqlTypeFor` already stores as `jsonb`), or a bare document with no declared
    * target — casts the JSON text to `jsonb`.
    */
-  override jsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+  protected override builtinJsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
     const array = fieldType instanceof ArrayFieldType ? fieldType : undefined;
     const item = array?.item;
     if (array !== undefined && item !== undefined && Array.isArray(value)) {
@@ -173,7 +173,7 @@ export class PostgresDialect extends BaseDialect {
   }
 
   /** Postgres field types (text / jsonb / timestamptz / numeric). */
-  override sqlTypeFor(fieldType: FieldType): string {
+  protected override builtinSqlTypeFor(fieldType: FieldType): string {
     const kind = fieldType.resolve();
     switch (kind) {
       case 'number':

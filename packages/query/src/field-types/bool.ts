@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { BoolFieldTypeDef, FieldTypeDef } from '../schema';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 
 /** BoolFieldType — a boolean field. Carries no options. */
@@ -23,8 +24,8 @@ export class BoolFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
-    return z.object({ kind: z.literal('bool') })
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    return z.object({ kind: z.literal('bool'), ...refinementKeySchema('bool', opts) })
       .meta({ aid: 'FieldType_bool' })
       .describe('Boolean field type.');
   }
@@ -35,7 +36,7 @@ export class BoolFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size. */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     return 1;
   }
 
@@ -45,17 +46,27 @@ export class BoolFieldType extends FieldType {
   }
 
   /** Zod schema validating a boolean value. */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.boolean();
   }
 
   /** Serialize to its JSON def. */
-  toJSON(): BoolFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): BoolFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): BoolFieldTypeDef {
     return { kind: BoolFieldType.NAME };
   }
 
   /** A copy of this field type. */
-  clone(): BoolFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): BoolFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): BoolFieldType {
     return new BoolFieldType();
   }
 }

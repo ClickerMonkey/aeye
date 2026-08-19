@@ -131,22 +131,23 @@ describe('cov relation resolveKey', () => {
 });
 
 /** A minimal concrete FieldType that overrides NOTHING optional — exercises the
- *  abstract base defaults (`comparableWith`, `validValue`, `textCasing`). */
+ *  abstract base defaults (`comparableWith`, `validValue`, `textCasing`) plus
+ *  the four `builtin*` hooks the base wraps to apply a refinement. */
 class PlainFieldType extends FieldType {
   readonly kind = 'number' as const;
-  toJSON(): FieldTypeDef {
+  protected builtinJSON(): FieldTypeDef {
     return { kind: 'number' };
   }
-  clone(): PlainFieldType {
+  protected builtinClone(): PlainFieldType {
     return new PlainFieldType();
   }
   resolve(): ScalarKind {
     return 'number';
   }
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.number();
   }
-  avgBytes(): number {
+  protected builtinAvgBytes(): number {
     return 8;
   }
   toSQLType(): string {
@@ -166,6 +167,14 @@ describe('cov FieldType base defaults', () => {
     // a field that did declare.
     expect(ft.textCasing()).toBeUndefined();
     expect(ft.toCode()).toBe('number');
+    // …and it carries no REFINEMENT, so `toJSON` / `avgBytes` / `toValueSchema`
+    // are byte-for-byte the builtin half. A type that declares nothing about
+    // `as` is unaffected by the mechanism existing.
+    expect(ft.as).toBeUndefined();
+    expect(ft.refinement).toBeUndefined();
+    expect(ft.toJSON()).toEqual({ kind: 'number' });
+    expect(ft.clone().toJSON()).toEqual({ kind: 'number' });
+    expect(ft.avgBytes()).toBe(8);
   });
 });
 

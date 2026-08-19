@@ -85,7 +85,7 @@ export class BaseDialect extends Dialect {
    * (integer vs decimal, bounded varchar). No casts: each branch narrows via
    * `instanceof`.
    */
-  sqlTypeFor(fieldType: FieldType): string {
+  protected override builtinSqlTypeFor(fieldType: FieldType): string {
     const kind = fieldType.resolve();
     switch (kind) {
       case 'number':

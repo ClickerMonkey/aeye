@@ -15,9 +15,10 @@
  * Dispatch is always a map lookup + delegation to the class's static
  * `from` — never a central switch on `kind`.
  */
-import type { ExprDef, FieldTypeDef, FunctionDef, QueryDef, TypeDef } from './schema';
-import type { Problems } from './problem';
+import type { ExprDef, FieldTypeDef, FieldTypeKind, FunctionDef, QueryDef, TypeDef } from './schema';
+import { QueryTypeError, type Problems } from './problem';
 import type { FieldType, FieldTypeClass } from './field-type';
+import { FieldTypeRefinement, type FieldTypeRefinementDef } from './refinement';
 import { Expr, type ExprClass } from './expr';
 import { INVALID, isRecord, type Shape } from './shape';
 import { aidInfo, describeInput, didYouMean } from './aids';
@@ -126,6 +127,65 @@ export class Registry {
     return Array.from(this.fieldTypeClasses.values());
   }
 
+  /**
+   * Every registered field-type KIND, in registration order — the builtin
+   * vocabulary a `FieldTypeDef.kind` may name in THIS registry.
+   *
+   * Exported because "which kinds exist" was previously only answerable by
+   * reaching for the `BUILTIN_FIELD_TYPES` array, i.e. by asking the package
+   * rather than the registry — which is wrong the moment a deployment builds a
+   * registry that is not `createRegistry()`.
+   */
+  fieldTypeKinds(): FieldTypeKind[] {
+    return this.fieldTypeClassList().map((cls) => cls.NAME);
+  }
+
+  // ─── Field-type REFINEMENT registration (`as`) ───────────────────────────
+
+  /** Registered refinements by name (see `refinement.ts`). */
+  private readonly fieldTypeRefinements = new Map<string, FieldTypeRefinement>();
+
+  /**
+   * Register a field-type REFINEMENT — a name over a builtin base, carrying its
+   * narrowed options, its model-facing `instructions`, its per-dialect SQL type
+   * and cast, and an optional stricter value gate.
+   *
+   * Every check the declaration is held to runs HERE and throws a
+   * `QueryTypeError` (`field-type.bad-refinement`) — see
+   * `FieldTypeRefinement.compile`. A refinement that registered half-broken
+   * would be wrong on every column that ever named it, so nothing is warned and
+   * deferred.
+   *
+   * ORDERING MATTERS: a stored `{kind:'text', as:'uuid'}` parses against the
+   * registry it is handed, so every refinement a catalog names must be
+   * registered BEFORE `parseType` runs over it (an unknown name is refused,
+   * loudly, rather than silently degrading to the bare base).
+   */
+  registerFieldType(def: FieldTypeRefinementDef): this {
+    const refinement = FieldTypeRefinement.compile(def, this);
+    this.fieldTypeRefinements.set(refinement.name, refinement);
+    return this;
+  }
+
+  /** Look up a registered field-type refinement by name, or `undefined`. */
+  fieldTypeRefinement(name: string): FieldTypeRefinement | undefined {
+    return this.fieldTypeRefinements.get(name);
+  }
+
+  /** Enumerate every registered field-type refinement (for docs / describe). */
+  fieldTypeRefinementList(): FieldTypeRefinement[] {
+    return Array.from(this.fieldTypeRefinements.values());
+  }
+
+  /**
+   * The registered refinement NAMES — the closed vocabulary a `FieldTypeDef.as`
+   * may name. This is what the generated def schema renders as a `z.enum`, and
+   * therefore what stops a model inventing `{kind:'text', as:'uuid4'}`.
+   */
+  fieldTypeRefinementNames(): string[] {
+    return Array.from(this.fieldTypeRefinements.keys());
+  }
+
   /** Registry-level default average bytes per field-type kind (a `Field` with no explicit `bytes` falls back here). */
   private readonly defaultFieldTypeBytes = new Map<string, number>();
 
@@ -145,7 +205,18 @@ export class Registry {
     return this.defaultFieldTypeBytes.get(kind);
   }
 
-  /** Parse a `FieldTypeDef` into a `FieldType` instance by dispatching on kind. */
+  /**
+   * Parse a `FieldTypeDef` into a `FieldType` instance by dispatching on kind,
+   * then applying any `as` REFINEMENT it names.
+   *
+   * A refinement is applied by MEETING the declaration's options with the site's
+   * own, so a use site may narrow it further and a site that contradicts it is
+   * refused (`field-type.refinement-conflict`) — see `FieldTypeRefinement.refine`.
+   * An `as` naming nothing registered is likewise refused rather than dropped:
+   * silently degrading to the bare base would take a `uuid` column's
+   * `casing: 'exact'` with it and put an index-defeating `LOWER()` back on every
+   * predicate over it.
+   */
   parseFieldType(json: FieldTypeDef): FieldType {
     const cls = this.fieldTypeClasses.get(json.kind);
     if (!cls) {
@@ -153,7 +224,21 @@ export class Registry {
     }
     // Pass `this` so composite field types (e.g. `array`) can reconstruct
     // their nested `FieldTypeDef` children; scalar types ignore the argument.
-    return cls.from(json, this);
+    const built = cls.from(json, this);
+    if (json.as === undefined) return built;
+    const refinement = this.fieldTypeRefinements.get(json.as);
+    if (!refinement) {
+      const names = this.fieldTypeRefinementNames();
+      throw new QueryTypeError({
+        path: ['as'],
+        code: 'field-type.unknown-refinement',
+        severity: 'error',
+        message:
+          `Unknown field-type refinement '${json.as}'.${didYouMean(json.as, names)} ` +
+          `(registered: ${names.length > 0 ? names.join(', ') : 'none'}).`,
+      });
+    }
+    return refinement.refine(built);
   }
 
   // ─── Named Type registration / dispatch ──────────────────────────────────

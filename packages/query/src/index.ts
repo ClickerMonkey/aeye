@@ -56,8 +56,18 @@ export {
 } from './text-casing';
 
 // Field types
-export { FieldType, type FieldTypeClass, type ScalarKind } from './field-type';
+export { FieldType, type FieldTypeClass, type ScalarKind, SCALAR_KINDS } from './field-type';
 export * from './field-types/index';
+
+// Field-type refinements — a registered name over a builtin base (`as`)
+export {
+  FieldTypeRefinement,
+  type FieldTypeRefinementDef,
+  type FieldTypeRefinementDefFor,
+  type FieldTypeOptionsOf,
+  REFINEMENT_NAME_PATTERN,
+  refinementKeySchema,
+} from './refinement';
 
 // Meta-model
 export { Field, type FieldSpec } from './field';

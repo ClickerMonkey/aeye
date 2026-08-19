@@ -63,8 +63,41 @@ import type { ExprDef, FieldTypeKind, FieldValueDef, JsonValue, SelectDef, TypeD
  * which is a different road with a different guarantee; that road is exercised
  * on its own below rather than inside the algebra loops.
  */
+/**
+ * A registry carrying three REFINEMENTS, so the set below can hold refined
+ * shapes and the four laws cover `as` as well as the option bags.
+ *
+ * `as` merges through the existing flat `meetExact` — a registered name meets
+ * only itself, an unrefined base is TOP — so there is deliberately NO new
+ * lattice law to state. The entries are arranged to prove that rather than
+ * assume it: two refinements over the SAME base (which must conflict with each
+ * other and each subsume their base), one over a base with NO options at all
+ * (`bool`, whose `meetWith` default is "no meet" and which therefore only obeys
+ * `x ⊓ ⊤ = x` because the short-circuit compares BUILTIN defs), and a refined
+ * shape a use site has narrowed further.
+ */
+const REFINED = createRegistry()
+  .registerFieldType({
+    name: 'uuid', base: 'text',
+    instructions: 'A UUID (RFC 4122).',
+    options: { minLength: 36, maxLength: 36, casing: 'exact' },
+  })
+  .registerFieldType({
+    name: 'Slug', base: 'text',
+    instructions: 'A lower-case URL slug.',
+    options: { maxLength: 80, pattern: '^[a-z0-9-]+$' },
+  })
+  .registerFieldType({
+    name: 'Flag', base: 'bool',
+    instructions: 'A feature flag.',
+  });
+
 const TYPES: Readonly<Record<string, FieldType>> = {
   text: new TextFieldType(),
+  uuid: REFINED.parseFieldType({ kind: 'text', as: 'uuid' }),
+  uuidNarrowed: REFINED.parseFieldType({ kind: 'text', as: 'uuid', pattern: '^f' }),
+  slug: REFINED.parseFieldType({ kind: 'text', as: 'Slug' }),
+  flag: REFINED.parseFieldType({ kind: 'bool', as: 'Flag' }),
   textMin5: new TextFieldType({ minLength: 5 }),
   textMax10: new TextFieldType({ maxLength: 10 }),
   textMin12: new TextFieldType({ minLength: 12 }),
@@ -197,10 +230,12 @@ describe('the meet is a genuine meet (property, over every pair and triple)', ()
     // law from being "true because the table was quietly curated": adding a
     // hand-built `text{values:['ab'], minLength:5}` fails HERE, at the premise,
     // rather than silently reintroducing an exception to the law.
-    const registry = createRegistry();
+    // `REFINED` rather than a bare registry, because four of the entries name a
+    // refinement — and an unregistered `as` is REFUSED at parse, so this also
+    // asserts that a refined shape survives the def road byte for byte.
     for (const x of NAMES) {
       const json = at(x).toJSON();
-      expect(registry.parseFieldType(json).toJSON()).toEqual(json);
+      expect(REFINED.parseFieldType(json).toJSON()).toEqual(json);
     }
   });
 
@@ -285,6 +320,40 @@ describe('the meet is a genuine meet (property, over every pair and triple)', ()
       }
     }
     expect(unsound).toEqual([]);
+  });
+});
+
+describe('a REFINEMENT meets through the flat lattice, and adds no law', () => {
+  it('uuid ⊓ text = uuid — an unrefined base is TOP, exactly as an absent option is', () => {
+    expect(meetJson(TYPES['uuid']!, TYPES['text']!)).toEqual(TYPES['uuid']!.toJSON());
+    expect(meetJson(TYPES['text']!, TYPES['uuid']!)).toEqual(TYPES['uuid']!.toJSON());
+  });
+
+  it('a registered name meets ONLY itself — two refinements of one base conflict', () => {
+    // There is no third registered type that is both, which is the same answer
+    // `meetExact` gives two different `pattern`s. The alternative — dropping to
+    // the bare base — would silently hand back a type that is neither.
+    expect(meetJson(TYPES['uuid']!, TYPES['slug']!)).toBeNull();
+    expect(meetJson(TYPES['slug']!, TYPES['uuid']!)).toBeNull();
+  });
+
+  it('holds for a base with NO options of its own', () => {
+    // `bool.meetWith` is the inherited "no meet" default. It is never reached,
+    // because `meet` short-circuits on the two BUILTIN defs being identical —
+    // which is the whole reason that short-circuit does not compare `as`.
+    expect(meetJson(TYPES['flag']!, TYPES['bool']!)).toEqual({ kind: 'bool', as: 'Flag' });
+    expect(meetJson(TYPES['bool']!, TYPES['flag']!)).toEqual({ kind: 'bool', as: 'Flag' });
+  });
+
+  it('a site that narrowed the refinement keeps BOTH — its own constraint and the declaration\'s', () => {
+    expect(meetJson(TYPES['uuidNarrowed']!, TYPES['uuid']!)).toEqual({
+      kind: 'text', minLength: 36, maxLength: 36, pattern: '^f', casing: 'exact', as: 'uuid',
+    });
+  });
+
+  it('the meet conflicts when the OPTIONS cannot coexist, refinement or not', () => {
+    // `uuid` is exactly 36 characters; `textMax10` is at most 10.
+    expect(meetJson(TYPES['uuid']!, TYPES['textMax10']!)).toBeNull();
   });
 });
 

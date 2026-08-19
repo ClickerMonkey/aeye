@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { FieldTypeDef, JsonFieldTypeDef, JsonValue } from '../schema';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 import { meetExact, sameJson } from './_meet';
 
@@ -50,9 +51,10 @@ export class JsonFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('json'),
+      ...refinementKeySchema('json', opts),
       schema: jsonValueSchema().optional().describe('Optional JSON-Schema-shaped constraint.'),
     }).meta({ aid: 'FieldType_json' }).describe('JSON-document field type.');
   }
@@ -80,7 +82,7 @@ export class JsonFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size. */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     return 128;
   }
 
@@ -90,19 +92,29 @@ export class JsonFieldType extends FieldType {
   }
 
   /** Zod schema validating any JSON value. */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return jsonValueSchema();
   }
 
   /** Serialize to its JSON def (omitting `schema` when unset). */
-  toJSON(): JsonFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): JsonFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): JsonFieldTypeDef {
     return this.schema === undefined
       ? { kind: JsonFieldType.NAME }
       : { kind: JsonFieldType.NAME, schema: this.schema };
   }
 
   /** A deep copy, structurally cloning the optional `schema` data. */
-  clone(): JsonFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): JsonFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): JsonFieldType {
     // JSON schema is plain data; deep-clone via structured round-trip.
     const cloned: JsonValue | undefined =
       this.schema === undefined ? undefined : JSON.parse(JSON.stringify(this.schema));

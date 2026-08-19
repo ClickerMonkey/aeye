@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { FieldTypeDef, TimestampFieldTypeDef, TimezonePolicy } from '../schema';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 import { meetExact } from './_meet';
 
@@ -45,9 +46,10 @@ export class TimestampFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('timestamp'),
+      ...refinementKeySchema('timestamp', opts),
       timezone: timezoneSchema().optional(),
     }).meta({ aid: 'FieldType_timestamp' }).describe('Timestamp (date + time) field type.');
   }
@@ -78,7 +80,7 @@ export class TimestampFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size. */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     return 8;
   }
 
@@ -88,19 +90,29 @@ export class TimestampFieldType extends FieldType {
   }
 
   /** Zod schema validating an ISO timestamp (`YYYY-MM-DD HH:MM`) value. */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.string().regex(ISO_TIMESTAMP, 'expected ISO timestamp (YYYY-MM-DD HH:MM)');
   }
 
   /** Serialize to its JSON def (omitting `timezone` when unset). */
-  toJSON(): TimestampFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): TimestampFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): TimestampFieldTypeDef {
     return this.timezone === undefined
       ? { kind: TimestampFieldType.NAME }
       : { kind: TimestampFieldType.NAME, timezone: this.timezone };
   }
 
   /** A copy of this field type. */
-  clone(): TimestampFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): TimestampFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): TimestampFieldType {
     return new TimestampFieldType(this.timezone);
   }
 }

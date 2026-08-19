@@ -11,13 +11,31 @@
  * kinds. Dispatch from JSON happens in the `Registry` via a `kind → class`
  * map — never a central switch in this file.
  */
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { FieldTypeDef, FieldTypeKind, FieldValueDef, JsonValue } from './schema';
 import type { CodeOptions, Node, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Registry } from './registry';
+import type { FieldTypeRefinement } from './refinement';
 import type { TextCasing } from './text-casing';
 import { eqSelectivityOf, isClosedSetMember, type ClosedSetViolation } from './field-types/_values';
-import { sameJson } from './field-types/_meet';
+import { meetExact, sameJson } from './field-types/_meet';
+
+/**
+ * The underlying primitive categories, as an array — the source of both the
+ * {@link ScalarKind} union and the runtime membership check a refinement's
+ * `base` is held to.
+ */
+export const SCALAR_KINDS = [
+  'number',
+  'text',
+  'bool',
+  'date',
+  'timestamp',
+  'json',
+  'money',
+  'relation',
+  'array',
+] as const;
 
 /**
  * The underlying primitive category a field type resolves to. This is the
@@ -25,16 +43,21 @@ import { sameJson } from './field-types/_meet';
  * (e.g. both `number` and `money` are numeric, but `money` is its own
  * kind). Used by `comparableWith`, cost estimation, and SQL emission.
  */
-export type ScalarKind =
-  | 'number'
-  | 'text'
-  | 'bool'
-  | 'date'
-  | 'timestamp'
-  | 'json'
-  | 'money'
-  | 'relation'
-  | 'array';
+export type ScalarKind = (typeof SCALAR_KINDS)[number];
+
+/**
+ * `ScalarKind` and `FieldTypeKind` must name exactly the same members, and this
+ * is the only thing holding them together.
+ *
+ * A REFINEMENT's `base` is both its value bucket (`resolve()`) and the wire
+ * `kind` it renders under (`{ kind: 'text', as: 'uuid' }`), so a member in one
+ * vocabulary and not the other is a base that cannot be spelled. Divergence
+ * stops compiling HERE rather than at the first declaration that trips over it.
+ */
+type Assert<T extends true> = T;
+type _ScalarKindIsAFieldTypeKind = Assert<
+  ScalarKind extends FieldTypeKind ? (FieldTypeKind extends ScalarKind ? true : false) : false
+>;
 
 /** Categories considered mutually numeric for comparison purposes. */
 const NUMERIC_KINDS: ReadonlySet<ScalarKind> = new Set<ScalarKind>(['number', 'money']);
@@ -70,13 +93,90 @@ export abstract class FieldType implements Node {
   /** The `kind` discriminant (matches the subclass's `static NAME`). */
   abstract readonly kind: FieldTypeKind;
 
+  // ─── Refinement (`as`) ────────────────────────────────────────────────
+  //
+  // A REGISTERED refinement narrows a builtin under a name (`{kind:'text',
+  // as:'uuid'}`) — see `refinement.ts`. It rides on the BUILTIN instance rather
+  // than on a class of its own, which is what keeps every `instanceof
+  // TextFieldType` check and every `def.kind === 'text'` narrowing correct for a
+  // refined column. The four members below are the only places the builtin's own
+  // answer is overridable, and each is a template method: the base decides,
+  // the subclass supplies the BUILTIN half.
+
+  /** The refinement this instance carries; set only through {@link withRefinement}. */
+  private declaredRefinement: FieldTypeRefinement | undefined;
+
+  /** The registered refinement narrowing this type, or `undefined` for a plain builtin. */
+  get refinement(): FieldTypeRefinement | undefined {
+    return this.declaredRefinement;
+  }
+
+  /**
+   * The registered refinement's NAME — the `as` on the wire — or `undefined`.
+   * It renders VERBATIM wherever a model sees it.
+   */
+  get as(): string | undefined {
+    return this.declaredRefinement?.name;
+  }
+
+  /**
+   * A COPY of this type tagged with `refinement` (or `this`, when the tag is
+   * already that one).
+   *
+   * The CHECKED road is `Registry.parseFieldType` / `FieldTypeRefinement.refine`,
+   * which meets the site's options against the declaration's before tagging.
+   * This is the unchecked constructor half — same caveat as `new
+   * TextFieldType({...})`, which does not validate either.
+   */
+  withRefinement(refinement: FieldTypeRefinement | undefined): FieldType {
+    if (refinement === this.declaredRefinement) return this;
+    const copy = this.builtinClone();
+    copy.declaredRefinement = refinement;
+    return copy;
+  }
+
   // ─── JSON round-trip ──────────────────────────────────────────────────
 
-  /** Serialize to the matching `*FieldTypeDef` JSON branch. */
-  abstract toJSON(): FieldTypeDef;
+  /**
+   * Serialize to the matching `*FieldTypeDef` JSON branch, plus the `as` of any
+   * refinement it carries. Appended LAST and only when present, so an unrefined
+   * type serializes byte-for-byte as it always did — which matters because
+   * `meet` compares two types by their serialized form.
+   */
+  toJSON(): FieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
 
-  /** Deep-copy this field type. */
-  abstract clone(): FieldType;
+  /** The BUILTIN's own JSON def, without any refinement key. */
+  protected abstract builtinJSON(): FieldTypeDef;
+
+  /**
+   * `own` with this type's `as` appended, or `own` unchanged. Generic in the
+   * BRANCH, so a concrete class can re-declare `toJSON()` with its own
+   * `*FieldTypeDef` return type and route through here without losing it.
+   *
+   * The base's `toJSON()` above is what makes those re-declarations a pure TYPE
+   * refinement rather than a rule a new class can forget: a class that declares
+   * no `toJSON()` of its own still serializes its refinement.
+   */
+  protected withRefinementKey<T extends FieldTypeDef>(own: T): T {
+    const as = this.as;
+    return as === undefined ? own : { ...own, as };
+  }
+
+  /** Deep-copy this field type, refinement included. */
+  clone(): FieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  /** Deep-copy the BUILTIN half — the options bag and nothing else. */
+  protected abstract builtinClone(): FieldType;
+
+  /** `copy` carrying THIS type's refinement — the shared half of {@link clone}. */
+  protected sameRefinement<T extends FieldType>(copy: T): T {
+    copy.declaredRefinement = this.declaredRefinement;
+    return copy;
+  }
 
   // ─── Category / comparability ─────────────────────────────────────────
 
@@ -211,16 +311,44 @@ export abstract class FieldType implements Node {
     // idempotent: no option is re-derived, no member list is re-ordered, and a
     // (self-contradictory) type is never quietly narrowed against itself.
     //
-    // The premise — "same kind + same JSON ⇒ interchangeable" — holds for every
-    // type whose JSON captures its identity, which is every builtin EXCEPT
-    // `relation`: `inverseVia` is deliberately never serialized, so two
-    // JSON-identical relations can differ in it and `a ⊓ b` / `b ⊓ a` can return
-    // different OBJECTS. Harmless as used (a param's relation type is never
-    // traversed as a join, and `toJSON` erases the difference anyway), but worth
-    // knowing before reaching for `meet` outside param inference.
+    // The premise below — "same kind + same builtin JSON ⇒ interchangeable" —
+    // holds for every type whose JSON captures its identity, which is every
+    // builtin EXCEPT `relation`: `inverseVia` is deliberately never serialized,
+    // so two JSON-identical relations can differ in it and `a ⊓ b` / `b ⊓ a` can
+    // return different OBJECTS. Harmless as used (a param's relation type is
+    // never traversed as a join, and `toJSON` erases the difference anyway), but
+    // worth knowing before reaching for `meet` outside param inference.
     if (this === other) return this;
-    if (this.kind === other.kind && sameJson(this.toJSON(), other.toJSON())) return this;
-    return this.meetWith(other);
+    // The REFINEMENT meets through the flat `meetExact` lattice, INDEPENDENTLY
+    // of the options bag: a registered name meets only itself, and an unrefined
+    // base is TOP, so a refinement meets its own base to the refinement. That is
+    // the whole of the `as` algebra — the composition of two independent meets
+    // is a meet, so commutativity, associativity, idempotence and soundness all
+    // carry over from `meetWith` with no new law to prove.
+    const as = meetExact(this.as, other.as);
+    if (!as.ok) return undefined;
+    // The short-circuit compares the BUILTIN halves, not the full defs, for the
+    // same reason the two halves meet separately: `meetWith`'s documented
+    // default is "no meet", and it is only correct for an option-less kind
+    // BECAUSE two such types were always JSON-identical and never reached it.
+    // A refinement breaks that premise — `bool{as:'Flag'}` and plain `bool` are
+    // not JSON-identical — so comparing full defs would send an option-less kind
+    // into a default that answers `undefined`, and `x ⊓ ⊤ = x` would fail for
+    // every refinement over `bool`, `date` or `json`.
+    const met = this.kind === other.kind && sameJson(this.builtinJSON(), other.builtinJSON())
+      ? this
+      : this.meetWith(other);
+    if (met === undefined) return undefined;
+    return met.withRefinement(as.value === undefined ? undefined : this.refinementNamed(other, as.value));
+  }
+
+  /**
+   * The compiled refinement named `name`, from whichever of the two operands
+   * carries it. Two registries can compile the same NAME differently, so the
+   * instance is taken from the side the meet chose rather than assumed shared.
+   */
+  private refinementNamed(other: FieldType, name: string): FieldTypeRefinement | undefined {
+    return this.as === name ? this.declaredRefinement : other.declaredRefinement;
   }
 
   /**
@@ -263,8 +391,21 @@ export abstract class FieldType implements Node {
    * Zod schema for a raw JS VALUE of this field type, honoring options
    * (e.g. number min/max/int, text length/pattern). Distinct from the
    * static `toSchema`, which schemas the JSON *definition*.
+   *
+   * A refinement's declared `value` is applied as a CONJUNCTION, never as a
+   * replacement. It is a stricter gate on the BASE, but a use site may narrow
+   * further (`{kind:'text', as:'uuid', pattern:'^a'}`), and answering with the
+   * declaration's schema alone would ADMIT a value the field's own options
+   * refuse — i.e. break the soundness law the meet is property-tested against.
    */
-  abstract toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny;
+  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
+    const builtin = this.builtinValueSchema(opts);
+    const declared = this.declaredRefinement?.value;
+    return declared === undefined ? builtin : z.intersection(builtin, declared);
+  }
+
+  /** The BUILTIN's own value schema, before any refinement narrows it. */
+  protected abstract builtinValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny;
 
   /**
    * Whether `raw` is a valid value of this type. Default: delegate to
@@ -276,8 +417,17 @@ export abstract class FieldType implements Node {
 
   // ─── Cost / storage ───────────────────────────────────────────────────
 
-  /** Estimated average bytes a value of this type occupies. */
-  abstract avgBytes(): number;
+  /**
+   * Estimated average bytes a value of this type occupies — a refinement's
+   * declared estimate when it has one (a `uuid` stores 16 bytes, not the 32 an
+   * unbounded `text` is guessed at), else the builtin's.
+   */
+  avgBytes(): number {
+    return this.declaredRefinement?.avgBytes ?? this.builtinAvgBytes();
+  }
+
+  /** The BUILTIN's own byte estimate, before any refinement corrects it. */
+  protected abstract builtinAvgBytes(): number;
 
   // ─── SQL ──────────────────────────────────────────────────────────────
 

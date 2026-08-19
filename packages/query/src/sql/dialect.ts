@@ -24,6 +24,26 @@ import type { DialectEntry } from '../registry';
  * projects a relation — shifting the positions of the real ones. Quotes are
  * doubled defensively even though these names come from the meta-model.
  */
+/**
+ * A refinement's declared cast, with the bound `value` spliced back into its
+ * `{value}` slot(s). `segments` are the literal parts around those slots,
+ * already split and validated at registration — so nothing here interpolates a
+ * value into raw SQL, and a template with no slot at all was refused there.
+ *
+ * A template naming `{value}` more than once binds the value once PER SLOT
+ * (`SqlText.param` is a segment, and reusing the fragment emits the segment
+ * again). That is the correct reading of a template that needs the value twice,
+ * and it keeps every placeholder numbered in document order.
+ */
+function renderCast(segments: readonly string[], value: SqlText): SqlText {
+  const parts: SqlText[] = [];
+  segments.forEach((segment, i) => {
+    if (i > 0) parts.push(value);
+    if (segment !== '') parts.push(SqlText.raw(segment));
+  });
+  return SqlText.concat(parts);
+}
+
 export function jsonObjectArgs(entries: readonly { key: string; value: SqlText }[]): SqlText[] {
   const args: SqlText[] = [];
   for (const e of entries) {
@@ -225,7 +245,20 @@ export abstract class Dialect implements DialectEntry {
     ]);
   }
 
-  abstract sqlTypeFor(fieldType: FieldType): string;
+  /**
+   * The SQL type for `fieldType` in this dialect — a REFINEMENT's declared `sql`
+   * for this dialect when it has one, else the builtin's own mapping.
+   *
+   * A refinement with no entry for this dialect falls through to the base kind's
+   * answer, which is a real answer for a value of the base type — a fallback,
+   * not a degrade. That is why this never throws for an unmapped dialect.
+   */
+  sqlTypeFor(fieldType: FieldType): string {
+    return fieldType.refinement?.sqlType(this.name) ?? this.builtinSqlTypeFor(fieldType);
+  }
+
+  /** The BUILTIN per-kind SQL type mapping, before any refinement overrides it. */
+  protected abstract builtinSqlTypeFor(fieldType: FieldType): string;
 
   /**
    * Bind a whole JSON DOCUMENT (an object / array) as ONE parameter, cast to the
@@ -245,6 +278,19 @@ export abstract class Dialect implements DialectEntry {
    * `text[]`) must override — an array literal there is not JSON text.
    */
   jsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+    const cast = fieldType?.refinement?.cast(this.name);
+    if (cast) return renderCast(cast, SqlText.param(JSON.stringify(value)));
+    return this.builtinJsonValue(value, fieldType);
+  }
+
+  /**
+   * Bind a JSON document the way this dialect does it, before any refinement's
+   * declared `cast` template replaces the wrapper. A dialect overrides THIS
+   * (Postgres does, for native array columns); {@link jsonValue} stays final so
+   * a `cast` declaration is honoured on every dialect rather than on the ones
+   * that happened not to override.
+   */
+  protected builtinJsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
     const target = fieldType ? this.sqlTypeFor(fieldType) : this.jsonSqlType();
     return SqlText.concat([
       SqlText.raw('CAST('),

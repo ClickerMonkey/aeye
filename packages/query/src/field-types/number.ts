@@ -9,8 +9,9 @@ import {
   narrowFieldValues,
 } from './_values';
 import { meetFlag, meetLower, meetUpper, emptyRange } from './_meet';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 
 /**
@@ -144,9 +145,10 @@ export class NumberFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('number'),
+      ...refinementKeySchema('number', opts),
       min: z.number().optional().describe('Real lower bound only (e.g. age → 0). Do not add 0 reflexively.'),
       max: z.number().optional().describe('Real upper bound only (e.g. percentage → 100).'),
       whole: z.boolean().optional().describe('True only when genuinely integral (counts, ids).'),
@@ -182,7 +184,7 @@ export class NumberFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size. */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     return 8;
   }
 
@@ -192,17 +194,27 @@ export class NumberFieldType extends FieldType {
   }
 
   /** Zod schema validating a number value, honoring the options. */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return numberValueSchema(this.options);
   }
 
   /** Serialize to its JSON def (flattening the compacted options). */
-  toJSON(): NumberFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): NumberFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): NumberFieldTypeDef {
     return { kind: NumberFieldType.NAME, ...compactNumberOptions(this.options) };
   }
 
   /** A copy of this field type (deep-cloning the options bag's value set). */
-  clone(): NumberFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): NumberFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): NumberFieldType {
     return new NumberFieldType({ ...this.options, values: this.options.values?.map((v) => ({ ...v })) });
   }
 }

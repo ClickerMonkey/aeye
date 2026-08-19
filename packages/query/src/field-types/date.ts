@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { DateFieldTypeDef, FieldTypeDef, TimezonePolicy } from '../schema';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 import { meetExact } from './_meet';
 import { timezoneSchema } from './timestamp';
@@ -38,9 +39,10 @@ export class DateFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('date'),
+      ...refinementKeySchema('date', opts),
       timezone: timezoneSchema().optional(),
     }).meta({ aid: 'FieldType_date' }).describe('Calendar-date field type.');
   }
@@ -65,7 +67,7 @@ export class DateFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size. */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     return 4;
   }
 
@@ -75,19 +77,29 @@ export class DateFieldType extends FieldType {
   }
 
   /** Zod schema validating an ISO date (`YYYY-MM-DD`) value. */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.string().regex(ISO_DATE, 'expected ISO date (YYYY-MM-DD)');
   }
 
   /** Serialize to its JSON def (omitting `timezone` when unset). */
-  toJSON(): DateFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): DateFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): DateFieldTypeDef {
     return this.timezone === undefined
       ? { kind: DateFieldType.NAME }
       : { kind: DateFieldType.NAME, timezone: this.timezone };
   }
 
   /** A copy of this field type. */
-  clone(): DateFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): DateFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): DateFieldType {
     return new DateFieldType(this.timezone);
   }
 }

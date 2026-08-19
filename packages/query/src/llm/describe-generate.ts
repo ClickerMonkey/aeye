@@ -60,6 +60,12 @@ function boundSuffix(lo: number | undefined, hi: number | undefined, unit: strin
  * with punctuation — the caller appends it.
  */
 function fieldTypeSentence(ft: FieldType): string {
+  // A REFINEMENT's own `instructions` are what its declarer wrote FOR a model to
+  // read; a generated sentence describes the BASE and would say strictly less
+  // ("Text" for a uuid). Required at registration, so this is never empty — and
+  // trimmed of a trailing stop because the caller appends one.
+  const instructions = ft.refinement?.instructions;
+  if (instructions !== undefined) return instructions.trim().replace(/\.+$/, '');
   const def: FieldTypeDef = ft.toJSON();
   switch (def.kind) {
     case 'number':
@@ -103,9 +109,22 @@ function fieldTypeSentence(ft: FieldType): string {
       const item = def.item ? ` of ${def.item.kind}` : '';
       return `A list${item}${boundSuffix(def.minItems, def.maxItems, ' items')}`;
     }
-    /* v8 ignore next 2 -- unreachable: `def.kind` exhaustively covers the nine field-type kinds */
-    default:
-      return assertNeverFieldType(def);
+    default: {
+      // COMPILE-time exhaustiveness, without a RUNTIME throw.
+      //
+      // `def.kind` is `never` here for as long as the nine branches above cover
+      // the union, so a TENTH builtin kind stops compiling at this line — which
+      // is the guarantee the old `assertNeverFieldType` was there for. But the
+      // union is not the only thing that reaches this switch: a registry can
+      // carry a field-type class the package does not ship, and its def's `kind`
+      // is then outside the union at runtime. Throwing made that a live crash on
+      // an ordinary road — `describeType()` generates a description for every
+      // field that has none — so the fallback is the type's own `toCode()`,
+      // which is exactly the "say what you can" answer this module exists for.
+      const exhaustive: never = def;
+      void exhaustive;
+      return ft.toCode();
+    }
   }
 }
 
@@ -165,9 +184,3 @@ export function typeMeta(type: Type): Meta {
   };
 }
 
-/* v8 ignore start -- compile-time exhaustiveness guard; never invoked at runtime */
-/** Compile-time exhaustiveness guard over the `FieldTypeDef` union. */
-function assertNeverFieldType(value: never): never {
-  throw new Error(`describe-generate: unhandled field-type ${JSON.stringify(value)}`);
-}
-/* v8 ignore stop */

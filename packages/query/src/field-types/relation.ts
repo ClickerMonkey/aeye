@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import type { FieldTypeDef, RelationFieldTypeDef } from '../schema';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { Type } from '../type';
 import type { QueryEngine } from '../engine';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 import {
   relationKeyColumns,
@@ -103,9 +104,10 @@ export class RelationFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('relation'),
+      ...refinementKeySchema('relation', opts),
       to: z.string().describe('Name of the target Type this relation points to.'),
       count: z.number().describe('Expected related-row cardinality; 1 = belongs-to, >1 = has-many.'),
       inverseRelation: z
@@ -280,7 +282,7 @@ export class RelationFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size (a short id string). */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     // Foreign-key identifier — roughly a short id string.
     return 16;
   }
@@ -292,13 +294,18 @@ export class RelationFieldType extends FieldType {
   }
 
   /** Zod schema validating a relation value (the related row's identifier). */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     // The value of a relation field is the related row's identifier.
     return z.string();
   }
 
   /** Serialize to its JSON def (`inverseVia` is internal, never emitted). */
-  toJSON(): RelationFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): RelationFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): RelationFieldTypeDef {
     // `inverseVia` is internal materialization state, never serialized.
     const def: RelationFieldTypeDef = { kind: RelationFieldType.NAME, to: this.to, count: this.count };
     if (this.inverseRelation !== undefined) def.inverseRelation = this.inverseRelation;
@@ -306,7 +313,12 @@ export class RelationFieldType extends FieldType {
   }
 
   /** A copy of this relation (preserving internal `inverseVia`). */
-  clone(): RelationFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): RelationFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): RelationFieldType {
     return new RelationFieldType(this.to, this.count, this.inverseRelation, this.inverseVia);
   }
 }

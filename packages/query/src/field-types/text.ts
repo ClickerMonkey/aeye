@@ -9,8 +9,9 @@ import {
   narrowFieldValues,
 } from './_values';
 import { meetExact, meetFlag, meetLower, meetRanked, meetUpper, emptyRange } from './_meet';
-import type { ValueSchemaOptions } from '../node';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
 import { QueryTypeError } from '../problem';
 import { casingRank, TEXT_CASINGS, type TextCasing } from '../text-casing';
 
@@ -207,9 +208,10 @@ export class TextFieldType extends FieldType {
   }
 
   /** The Zod schema for this field type's JSON def. */
-  static toSchema(): z.ZodTypeAny {
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
     return z.object({
       kind: z.literal('text'),
+      ...refinementKeySchema('text', opts),
       minLength: z.number().int().optional().describe('Real lower bound (e.g. non-empty → 1).'),
       maxLength: z.number().int().optional().describe('Real upper bound (field width / API limit).'),
       pattern: z.string().optional().describe('Format regex (UUID, slug, …); not accept-anything.'),
@@ -279,7 +281,7 @@ export class TextFieldType extends FieldType {
   }
 
   /** Estimated average stored byte size (half the max length, else 32). */
-  avgBytes(): number {
+  protected override builtinAvgBytes(): number {
     // Half the max length is a reasonable average; default to 32 when
     // unbounded. (One byte per char is a deliberate ASCII-ish estimate.)
     if (this.options.maxLength !== undefined) {
@@ -294,7 +296,7 @@ export class TextFieldType extends FieldType {
   }
 
   /** Zod schema validating a string, honoring the closed value set else length / pattern options. */
-  toValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     // A closed set IS the value schema — length / pattern only ever described
     // the same members less precisely. (A MERGED type keeps that true: its meet
     // narrows the set by the constraints rather than leaving both to be read.)
@@ -302,12 +304,22 @@ export class TextFieldType extends FieldType {
   }
 
   /** Serialize to its JSON def (flattening the compacted options). */
-  toJSON(): TextFieldTypeDef {
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): TextFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): TextFieldTypeDef {
     return { kind: TextFieldType.NAME, ...compact(this.options) };
   }
 
   /** A copy of this field type (deep-cloning the options bag's value set). */
-  clone(): TextFieldType {
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): TextFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): TextFieldType {
     return new TextFieldType({ ...this.options, values: this.options.values?.map((v) => ({ ...v })) });
   }
 }

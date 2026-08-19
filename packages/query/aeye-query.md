@@ -34,6 +34,7 @@ A `Type` is a named collection of `Field`s plus index + cardinality estimates (`
 - **Identity** — a Type may declare `identity?: string | string[]`, the field (or ordered fields) that IDENTIFY a row. When present it is THE answer for `identityField()` / `primaryKey()` and index ORDER stops mattering. Without it, identity is INFERRED as "the first single-part unique index, else the field named `id`" — so a Type declaring both `id` and a unique `email`, with the email index listed first, silently identifies by `email`, and every relation into it joins a stored id against an email address. Declaring a name the Type does not have is an ERROR, not a silent fall-back to the inferred rule.
 - **Indexes** are composite (ordered parts, each with a non-increasing prefix distinct-row `count`); unique iff the last part's `count === 1`. They drive cost estimation. An index part is a TYPE-level fact, so it is written against the Type NAME; a query binding that Type under an ALIAS (`{kind:'aliased'}`, either side of a self-join) has its probes NORMALIZED back to the type name before matching (`renameSource` / `aliasedDigest` / `Index.prefixReduction(used, alias?)`), and matching is SOURCE-SCOPED so a join alias equal to another Type's name cannot match the scanned Type's parts.
 - **Arrays** are ordered collections with optional `minItems`/`maxItems` and an optional `item` element field type (omit `item` for heterogeneous); they nest (`array<array<number>>`).
+- **Refinements** — any branch may carry `as: <registered name>`, naming a refinement of that builtin (`{ kind: 'text', as: 'uuid' }`). It is the ONE extension point on a field type: the nine kinds never grow. See "A registered REFINEMENT names a builtin" under the function library.
 
 `createRegistry()` bootstraps the Type/expr/function catalog; `registry.parseType(def)` + `registerType` add Types. `inferType(name, rows)` derives a `TypeDef` (field types + nullability, array detection) straight from sampled JSON rows.
 
@@ -194,12 +195,37 @@ WHERE ST_Contains("parcel"."shape", CAST($1 AS jsonb))
 ORDER BY ST_Distance("parcel"."shape", CAST($2 AS jsonb)) ASC LIMIT 10
 ```
 
-That is valid PostGIS, and `:here` is typed `json` by the declared parameter — a param used ONLY as a function argument still reports its type through `engine.parameters` / `checkParams`. Four things a registered function CANNOT do, so you know what you are trading away:
+That is valid PostGIS, and `:here` is typed `json` by the declared parameter — a param used ONLY as a function argument still reports its type through `engine.parameters` / `checkParams`. Four things a registered function CANNOT do, so you know what you are trading away — the first and third are what a REFINEMENT (below) adds:
 
-1. **The cast target is the BASE type's** — `CAST($1 AS jsonb)`, not `::geometry(Point,4326)`. Bind a value your function accepts (`ST_GeomFromGeoJSON` around the argument, or a text/WKB parameter), or subclass the dialect.
-2. **No infix operators.** `&&` / `<->` have no call form; only `name(a, b)` is emittable from a declaration.
-3. **The domain's NAME and meaning do not reach the model beyond `instructions`** — the field still describes itself as `shape: json — A JSON document`.
+1. **The cast target is the BASE type's** — `CAST($1 AS jsonb)`, not `::geometry(Point,4326)`. Declare a refinement's `sql` / `cast`, bind a value your function accepts (`ST_GeomFromGeoJSON` around the argument, or a text/WKB parameter), or subclass the dialect.
+2. **No infix operators.** `&&` / `<->` have no call form; only `name(a, b)` is emittable from a declaration. Still true with a refinement.
+3. **The domain's NAME and meaning do not reach the model beyond `instructions`** — the field still describes itself as `shape: json — A JSON document`. A refinement makes it `shape: json(Geometry) — <your instructions>`.
 4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable; refusing it needs a type that declares no ordering, not a function.
+
+### A registered REFINEMENT names a builtin: `{ kind: <base>, as: <name> }`
+
+`registry.registerFieldType(decl)` registers a NAME over one of the nine builtins, carrying the narrowing every use of it stands on. The wire form stays a builtin — `{ kind: 'text', as: 'uuid' }` — so `ScalarKind` never opens, `instanceof TextFieldType` and `def.kind === 'text'` stay correct for a refined column, and every exhaustiveness guard over those unions stays unreachable. The declaration is pure DATA bar one optional zod schema, so it persists, rides the wire, and reaches the model — the same split `FunctionDef` has to `registerFunction`.
+
+```ts
+registry.registerFieldType({
+  name: 'uuid',                       // ^[A-Za-z][A-Za-z0-9_]*$ — capitals allowed
+  base: 'text',                       // one of the nine ScalarKinds
+  instructions: 'A UUID (RFC 4122) — lower-case, hyphenated, 36 characters.',  // REQUIRED
+  options: { minLength: 36, maxLength: 36, casing: 'exact' },  // the BASE's own vocabulary
+  value: z.uuid(),                    // a stricter value gate (code-side; never persisted)
+  sql: { postgres: 'uuid' },          // per-dialect CAST TARGET; `{slot}` = a declared option
+  avgBytes: 16,                       // the base's estimate is wrong for this
+});
+// then, on any Type:   { name: 'id', type: { kind: 'text', as: 'uuid' } }
+```
+
+- **NARROWING, NEVER WIDENING.** The declared `options` are the FLOOR: a use site's own options are MET with them, so a site may narrow further, a site that tries to loosen is ABSORBED (the meet is a lower bound of both), and a site that contradicts is REFUSED (`field-type.refinement-conflict`). An unregistered `as` is refused too (`field-type.unknown-refinement`, with a `didYouMean`) — never silently degraded to the bare base, which would take the narrowing with it. `as` merges through the SAME flat `meetExact` every single-valued option uses: a registered name meets only itself, an unrefined base is TOP (`uuid ⊓ text = uuid`), and two refinements of one base conflict. **There is no new lattice law** — commutativity, associativity, idempotence, soundness and `x ⊓ ⊤ = x` are property-tested over refined shapes alongside the builtins, with no carve-out.
+- **The measured win.** A catalog declaring `id: { kind: 'text' }` at ~40 sites emits `LOWER("t"."id") = LOWER($1)` on every id predicate — not sargable, and a hard `function lower(uuid) does not exist` over a physical uuid column. One `uuid` refinement declaring `casing: 'exact'` turns all forty into a bare `=`, from one declaration site, through the ordinary meet rather than a new rule.
+- **What the model sees.** The type tag becomes `id: text(uuid)` — the refinement FIRST, then the base's own flags (`text(uuid,search)`) — the generated description is the declaration's `instructions`, and the generated def schema renders `as` as a **`z.enum` of the names registered over that base**, so a model cannot invent `as: 'uuid4'`. The name renders VERBATIM: never lower-cased, never pluralised, never decorated, because a model reads this surface and a sibling type system's in one session and a spelling difference between them reads as two types. `fieldTypeDefSchema(opts)` / `Type.toSchema(opts)` need `opts.registry` for that; without one, no `as` is offered at all.
+- **SQL.** `Dialect.sqlTypeFor` answers the refinement's `sql` for that dialect; a dialect with no entry falls back to the base kind's own mapping — a FALLBACK, not a degrade, because the base's answer is a real answer for a value of the base type. `cast` (which must place `{value}`) replaces the wrapper a bound DOCUMENT is cast with (`ST_GeomFromGeoJSON($1)::geometry`), and is likewise optional per dialect. Both are validated at REGISTRATION: a `{slot}` must name a declared option whose value is a bare identifier/number token — they are raw-interpolated, so the values spliced into them are the injection surface — and a resolved `sql` must look like a SQL type name.
+- **Registration is all-or-nothing**, because a refinement that registered half-broken would be wrong on every column that ever named it. `base ∈ ScalarKind`; the name matches the pattern, is not a builtin `kind`, and is not already registered (the second declarer is REFUSED, naming the incumbent's `declaredBy`); `options` parse as a def of the base kind, with that road's own message; `avgBytes > 0`; and `instructions` is non-empty and REQUIRED — deliberately stricter than `FunctionDef.instructions`, because an undocumented registered type renders as a bare tag beside documented siblings and a model choosing among them guesses, which costs a validate-fail retry carrying the whole schema. Every failure is a `QueryTypeError` (`field-type.bad-refinement`). **Register before `parseType` runs over stored defs.**
+- **What a refinement is NOT, yet.** Custom OPTION declarations (`srid`, `subtype`), declared comparability (`compare` / `comparableWith`), custom operators, and an in-memory `compareValues` hook are not here — everything a refinement narrows today is drawn from the base's own vocabulary. A refinement is a SQL-road feature, exactly as `semantic` and `text-search` already are.
+- **Enumerating what a registry knows.** `registry.fieldTypeKinds()` lists the registered builtin kinds; `fieldTypeRefinement(name)` / `fieldTypeRefinementList()` / `fieldTypeRefinementNames()` list the refinements.
 
 ## Schema depth & capability gating
 

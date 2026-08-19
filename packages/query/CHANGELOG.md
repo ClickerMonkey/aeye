@@ -9,10 +9,12 @@ Two asks about the same thing from two directions: **a declared type should deci
 are allowed**, and until now it only did so on the way OUT (schemas, descriptions, cost) rather
 than on the way IN — plus a third, from the owner, about the one thing a declared type decided
 TOO much: text case. Plus the step-0 fixes for the registered-type work (A22 and the "Also"
-list below), whose common thread is the same one: **what a DECLARATION says should be what the
-engine does with it** — a declared parameter type should type the param handed to it, and a
-declared emitted name should be held to the guarantee its doc claims. There are **five behaviour
-changes to read before adopting**, of different kinds, and **one renamed option**:
+list below) and its **step 1** — a registered REFINEMENT naming a builtin, `{ kind: 'text', as:
+'uuid' }` — whose common thread is the same one: **what a DECLARATION says should be what the
+engine does with it.** A declared parameter type should type the param handed to it, a declared
+emitted name should be held to the guarantee its doc claims, and a named type declared once
+should narrow every column that names it. There are **five behaviour changes to read before
+adopting**, of different kinds, and **one renamed option**:
 
 - **A query that was REFUSED before can now pass, and a param can now report a type it did
   not.** A bare bind param as a function argument (`abs(:p)`, `sum(:p)`) is typed by the
@@ -417,6 +419,98 @@ which is additive for binding. A param whose uses genuinely conflict still repor
 in one order only. A parameter declared `'any'` states no type to observe, so a param used only
 there is still `param.untyped`.
 
+### A registered REFINEMENT names a builtin — `{ kind: <base>, as: <name> }` (**additive**)
+
+The declared-type story from the other end. `registerFunction` lets a deployment add a VERB —
+this adds a NOUN, with the same split: the declaration is pure DATA (bar one optional zod
+schema), so it persists, rides the wire and reaches a model, and the library compiles it into a
+builtin instance. A declarer never writes a `FieldType` subclass, never writes `meetWith`, and
+therefore cannot break the lattice laws.
+
+```ts
+registry.registerFieldType({
+  name: 'uuid', base: 'text',
+  instructions: 'A UUID (RFC 4122) — lower-case, hyphenated, 36 characters.',
+  options: { minLength: 36, maxLength: 36, casing: 'exact' },
+  value: z.uuid(), sql: { postgres: 'uuid' }, avgBytes: 16,
+});
+// then, on any Type:  { name: 'id', type: { kind: 'text', as: 'uuid' } }
+```
+
+**The spelling is the whole reason it is affordable.** The wire `kind` stays one of the nine
+builtins, so `ScalarKind` and `FieldTypeDef` never open, every `def.kind === 'text'` narrowing and
+every `instanceof TextFieldType` check stays correct for a refined column, and the exhaustiveness
+guards over those unions stay unreachable. Nothing about an existing def changes: a type declaring
+no `as` serializes, meets, costs and describes byte-for-byte as before.
+
+**The measured win, which is why this shipped now rather than with the rest of the design.** A
+consumer catalog declares `id: { kind: 'text' }` at ~40 sites; every id predicate emitted
+`LOWER("t"."id") = LOWER($1)` — not sargable, and a hard `function lower(uuid) does not exist`
+over a physical uuid column. One `uuid` refinement declaring `casing: 'exact'` turns all forty into
+a bare `=`, from one declaration site. The alternative was repeating `casing: 'exact'` forty times.
+The emitted SQL is asserted by a test, control included, so it cannot rot.
+
+**Narrowing, never widening — and NO new lattice law.** A refinement's `options` are the FLOOR
+every use stands on: a use site's own options are MET with them, so a site may narrow further
+(`{as:'uuid', pattern:'^f'}`), a site that tries to loosen is ABSORBED (the meet is a lower bound
+of both), and a site that contradicts is REFUSED (`field-type.refinement-conflict`). `as` itself
+merges through the SAME flat `meetExact` that `pattern` / `currency` / `timezone` already use — a
+registered name meets only itself, an unrefined base is TOP, so `uuid ⊓ text = uuid` and two
+refinements of one base conflict. `param-meet.test.ts` now carries refined shapes in the set the
+four laws plus `x ⊓ ⊤ = x` are proved over, and **the set still passes with no carve-out**.
+
+One internal consequence worth naming, because it is the only place the mechanism touched the
+existing algebra: `meet`'s identity short-circuit now compares the two BUILTIN defs rather than
+the two full defs. `meetWith`'s documented default is "no meet", correct for an option-less kind
+only BECAUSE two such types were always JSON-identical and never reached it — a refinement breaks
+that premise, and comparing full defs would have made `bool{as:'Flag'} ⊓ bool` answer `undefined`.
+
+**What the model sees.** `id: text(uuid)` in the type tag (the refinement FIRST, then the base's
+own flags — `text(uuid,search)`), the declaration's `instructions` as the generated description,
+and — the part that makes the vocabulary real rather than advisory — `as` rendered as a **`z.enum`
+of the names registered over that base** in the generated def schema, so a model cannot invent
+`as: 'uuid4'`. `fieldTypeDefSchema` and `Type.toSchema` are therefore REGISTRY-DRIVEN now: pass
+`opts.registry` (`Type.toSchema({ registry })`) or no `as` is offered at all. The name renders
+VERBATIM — never lower-cased, never decorated — because a model reads this surface and a sibling
+type system's in one session, and a spelling difference between them reads as two types. For the
+same reason the name pattern is `^[A-Za-z][A-Za-z0-9_]*$`: capitals are ALLOWED, matching the
+shipped `FUNCTION_NAME_PATTERN` that lets `ST_Contains` register, and measured to be necessary — a
+sibling library refuses a lower-case package type name, so a lower-case-only rule here would leave
+a shared name unspellable in one library or the other.
+
+**Registration is all-or-nothing**, because a refinement that registered half-broken would be
+wrong on every column that ever named it. `base ∈ ScalarKind`; the name matches the pattern, is
+not a builtin `kind`, and is not already registered (the second declarer is refused, naming the
+incumbent's `declaredBy`); `options` parse as a def of the base kind, with that road's own
+message; `avgBytes > 0`; and `instructions` is non-empty and **REQUIRED** — deliberately stricter
+than `FunctionDef.instructions`, and the reason is measured: an undocumented registered item
+renders as a bare tag beside documented siblings, and a model choosing among them guesses, which
+costs a validate-fail retry carrying the whole schema. Every failure is a `QueryTypeError`
+(`field-type.bad-refinement`). Register BEFORE `parseType` runs over stored defs — an `as` naming
+nothing registered is refused (`field-type.unknown-refinement`, with a `didYouMean`) rather than
+degraded to the bare base, because degrading silently would take the narrowing with it.
+
+**SQL.** `Dialect.sqlTypeFor` answers the refinement's `sql` for that dialect; a dialect with no
+entry falls back to the base kind's own mapping — a FALLBACK, not a degrade, because the base's
+answer is a real answer for a value of the base type. `cast` (which must place `{value}`) replaces
+the wrapper a bound DOCUMENT is cast with. Both are validated at registration: a `{slot}` must name
+a declared option whose value is a bare identifier/number token — the templates are
+raw-interpolated, so the values spliced into them are the injection surface, not the template body
+— and a resolved `sql` must look like a SQL type name.
+
+**Not here, deliberately:** custom OPTION declarations (`srid`, `subtype`), declared comparability
+(`compare` / `comparableWith`), custom operators, and an in-memory `compareValues` hook.
+Everything a refinement narrows today is drawn from the base's own vocabulary, which is why
+`options` is typed straight off `FieldTypeDef` and validated by machinery that already exists.
+
+**One internal contract changed, for anyone who SUBCLASSES `FieldType`** — nobody has to, and a
+declaration is now the recommended road. The four members a refinement can override are template
+methods: implement `builtinJSON` / `builtinClone` / `builtinValueSchema` / `builtinAvgBytes`
+(protected) instead of `toJSON` / `clone` / `toValueSchema` / `avgBytes`. The base owns the public
+four and applies the refinement around them, so a class that implements only the hooks is correct
+by construction. **Every public signature is unchanged** — the builtins re-declare `toJSON()` /
+`clone()` with their own branch return type and route through the base's combinators.
+
 ### Also
 
 - **A function's EMITTED name (`sql`) is now identifier-guarded like its `name`.** The four
@@ -456,10 +550,22 @@ there is still `param.untyped`.
   `describeValues`, which ELIDES past `MAX_DESCRIBED_VALUES` (12) — so a larger set yields a
   refusal whose remedy is partial. That is deliberate: it is the same rendering the model was
   shown the column with, so the error can never list a member the description did not. And
-  `FieldType.meet`'s JSON short-circuit assumes "same kind + same JSON ⇒ interchangeable", which
-  holds for every builtin EXCEPT `relation`, whose `inverseVia` is never serialized — harmless as
-  used (a param's relation type is never traversed as a join) but noted at the site for anyone
-  reaching for `meet` outside param inference.
+  `FieldType.meet`'s identity short-circuit assumes "same kind + same BUILTIN def ⇒
+  interchangeable", which holds for every builtin EXCEPT `relation`, whose `inverseVia` is never
+  serialized — harmless as used (a param's relation type is never traversed as a join) but noted
+  at the site for anyone reaching for `meet` outside param inference.
+- **`describe-generate`'s field-type exhaustiveness guard no longer THROWS.** It was
+  `assertNever`, and the kind union is closed at COMPILE time while the registry's `kind → class`
+  map is open at RUNTIME (`defineFieldType` is public) — so a registry carrying a class the
+  package does not ship crashed `describeType()` / `fieldMeta()`, i.e. crashed generating the
+  default description of any field that has none. It now falls back to the field type's own
+  `toCode()`, while the compile-time exhaustiveness over the nine builtins is preserved by a
+  `never` binding in the same branch: a TENTH builtin kind still fails to compile there.
+- **`registry.fieldTypeKinds()`** enumerates the field-type kinds a registry actually holds.
+  "Which kinds exist" was previously only answerable by reaching for the package's static
+  `BUILTIN_FIELD_TYPES`, i.e. by asking the PACKAGE rather than the registry — wrong the moment a
+  deployment builds a registry that is not `createRegistry()`. `SCALAR_KINDS` is exported for the
+  same reason, and `ScalarKind` is now DERIVED from it rather than restated beside it.
 
 ## 0.6.5
 

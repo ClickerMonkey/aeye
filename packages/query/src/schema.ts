@@ -61,6 +61,29 @@ export interface FieldValueDef {
 }
 
 /**
+ * The REFINEMENT key every field-type branch carries — the registered name that
+ * narrows this builtin (`{ kind: 'text', as: 'uuid' }`).
+ *
+ * Declared ONCE and extended by all nine branches, so `as` cannot end up meaning
+ * two different things on two of them, and adding it to a tenth branch is not
+ * something anyone has to remember.
+ *
+ * The refinement's own declaration (its narrowed options, its `instructions`,
+ * its per-dialect SQL type, its stricter value gate) lives in the REGISTRY, not
+ * here — see `refinement.ts`. That is what keeps `kind` one of the nine builtins
+ * on the wire, and therefore keeps `ScalarKind`, `FieldTypeDef` and every
+ * exhaustiveness guard over them closed.
+ */
+export interface FieldTypeRefinementKey {
+  /**
+   * The name of a REGISTERED field-type refinement of this `kind`. Unknown
+   * names are refused at parse (`field-type.unknown-refinement`), and a use site
+   * may narrow the refinement's declared options further but never widen them.
+   */
+  as?: string;
+}
+
+/**
  * Numeric option bag, shared by the `number` field type and by `money`'s
  * inner numeric configuration.
  *  - `whole`     — integral values only.
@@ -87,12 +110,12 @@ export interface NumberOptions {
 }
 
 /** The `number` field type — a numeric value with the shared `NumberOptions`. */
-export interface NumberFieldTypeDef extends NumberOptions {
+export interface NumberFieldTypeDef extends NumberOptions, FieldTypeRefinementKey {
   kind: 'number';
 }
 
 /** The `text` field type — a string with optional length / pattern / search config. */
-export interface TextFieldTypeDef {
+export interface TextFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'text';
   minLength?: number;
   maxLength?: number;
@@ -119,7 +142,7 @@ export interface TextFieldTypeDef {
 }
 
 /** The `money` field type — a monetary amount plus optional currency. */
-export interface MoneyFieldTypeDef {
+export interface MoneyFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'money';
   /** Numeric configuration of the underlying amount. */
   number?: NumberOptions;
@@ -128,12 +151,12 @@ export interface MoneyFieldTypeDef {
 }
 
 /** The `bool` field type — a boolean value. */
-export interface BoolFieldTypeDef {
+export interface BoolFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'bool';
 }
 
 /** The `relation` field type — a typed link to another Type (see `to` / `count`). */
-export interface RelationFieldTypeDef {
+export interface RelationFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'relation';
   /** Name of the target Type this relation points to. */
   to: string;
@@ -166,19 +189,19 @@ export interface RelationFieldTypeDef {
 export type TimezonePolicy = string | boolean;
 
 /** The `date` field type — a calendar date with an optional timezone policy. */
-export interface DateFieldTypeDef {
+export interface DateFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'date';
   timezone?: TimezonePolicy;
 }
 
 /** The `timestamp` field type — a date+time with an optional timezone policy. */
-export interface TimestampFieldTypeDef {
+export interface TimestampFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'timestamp';
   timezone?: TimezonePolicy;
 }
 
 /** The `json` field type — an arbitrary JSON value with an optional schema constraint. */
-export interface JsonFieldTypeDef {
+export interface JsonFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'json';
   /** Optional JSON-Schema-shaped constraint for the stored value. */
   schema?: JsonValue;
@@ -191,7 +214,7 @@ export interface JsonFieldTypeDef {
  *    elements (any JSON value is accepted). Because `item` is itself a
  *    `FieldTypeDef`, arrays nest (e.g. `array<array<number>>`).
  */
-export interface ArrayFieldTypeDef {
+export interface ArrayFieldTypeDef extends FieldTypeRefinementKey {
   kind: 'array';
   minItems?: number;
   maxItems?: number;
