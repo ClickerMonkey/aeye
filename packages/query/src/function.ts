@@ -37,12 +37,30 @@ import type { Cost } from './cost';
 import { ZERO_COST, NEVER_CHANGES } from './cost';
 import { didYouMean } from './aids';
 
-/** A parsed declared parameter: a concrete FieldType, or the `'any'` marker. */
-interface ResolvedParam {
-  name: string;
-  /** `undefined` ⇒ the param accepts any field type (`type: 'any'`). */
-  fieldType: FieldType | undefined;
-  optional: boolean;
+/**
+ * ONE DECLARED, NAMED ARGUMENT — the half a FUNCTION parameter and an OPERATOR
+ * operand share, and the type that DEFINES their common key set.
+ *
+ * Both are "a name plus the type a supplied expression is judged against", and
+ * both are read by exactly the same two pieces of machinery: `observeNamedParams`
+ * (which types a bare bind param FROM the declaration) and
+ * {@link validateNamedCall} (which judges every other argument against it). Those
+ * two took a `QueryFunction`, which is why an operator could not have reused
+ * them; they take this instead, so an operand is not a second, drifting spelling
+ * of the same fact.
+ */
+export interface DeclaredArg {
+  /** The declared name — the key a call writes in its `args` object. */
+  readonly name: string;
+  /** The declared type, or `undefined` when it accepts any (`type: 'any'`). */
+  readonly fieldType: FieldType | undefined;
+  /** Whether a call may omit it. Absent ⇒ required (an operator's operands always are). */
+  readonly optional?: boolean;
+}
+
+/** A parsed declared parameter: a {@link DeclaredArg} whose optionality is always resolved. */
+export interface ResolvedParam extends DeclaredArg {
+  readonly optional: boolean;
 }
 
 /**
@@ -368,49 +386,107 @@ export class QueryFunction {
     p: Problems,
     paramArgs: ReadonlySet<string> = EMPTY_PARAM_ARGS,
   ): void {
-    // Required params present?
-    for (const param of this.params) {
-      if (param.optional) continue;
-      if (!namedArgs.has(param.name)) {
-        p.error(
-          'function.missing-arg',
-          `Function '${this.name}' is missing required argument '${param.name}'.`,
-        );
-      }
-    }
+    validateNamedCall(FUNCTION_CALL_WORDS, this.name, this.params, namedArgs, p, paramArgs);
+  }
+}
 
-    const byName = new Map(this.params.map((param) => [param.name, param]));
-    for (const [name, argType] of namedArgs) {
-      const param = byName.get(name);
-      if (!param) {
-        p.at(['args', name], () => {
-          p.error(
-            'function.unknown-arg',
-            `Function '${this.name}' has no parameter named '${name}'.${didYouMean(name, this.params.map((param) => param.name))}`,
-          );
-        });
-        continue;
-      }
-      if (!param.fieldType) continue; // 'any' accepts everything
-      if (paramArgs.has(name)) continue; // a bare bind param is TYPED BY this call
-      const argFt = asFieldType(argType);
-      if (!argFt) {
-        p.at(['args', name], () => {
-          p.error(
-            'function.arg-type',
-            `Argument '${name}' of '${this.name}' must be a ${param.fieldType!.resolve()} value (a type cannot be passed here).`,
-          );
-        });
-        continue;
-      }
-      if (!param.fieldType.comparableWith(argFt)) {
-        p.at(['args', name], () => {
-          p.error(
-            'function.arg-type',
-            `Argument '${name}' of '${this.name}' expects ${param.fieldType!.resolve()}, got ${argFt.resolve()}.`,
-          );
-        });
-      }
+/**
+ * How one callable's call-shaped diagnostics READ. A `Record`-free bag rather
+ * than three string arguments, because the four words only mean anything
+ * together and a caller supplying them in the wrong order would produce a
+ * grammatical message about the wrong thing.
+ */
+export interface CallVocabulary {
+  /** The callable, capitalized as a sentence subject: `Function` / `Operator`. */
+  readonly noun: string;
+  /** What a CALL supplies, capitalized: `Argument` / `Operand`. */
+  readonly supplied: string;
+  /** What a DECLARATION declares: `parameter` / `operand`. */
+  readonly declared: string;
+  /** The problem-code prefix: `function` / `operator`. */
+  readonly code: string;
+}
+
+/** The words a FUNCTION call's diagnostics use. */
+const FUNCTION_CALL_WORDS: CallVocabulary = {
+  noun: 'Function',
+  supplied: 'Argument',
+  declared: 'parameter',
+  code: 'function',
+};
+
+/**
+ * Validate a call's NAMED arguments against its DECLARED ones — the three checks
+ * a function call and an operator both need, in one place:
+ *  - every REQUIRED declaration must be supplied  → `<code>.missing-arg`;
+ *  - every supplied arg must name a real one      → `<code>.unknown-arg`;
+ *  - each supplied arg must be type-compatible    → `<code>.arg-type`
+ *    (an `undefined` declared type accepts anything), at path `['args', name]`.
+ *
+ * `paramArgs` names the arguments that are a BARE bind param (`{kind:'param'}`),
+ * which the caller has already observed against the declared type
+ * (`observeNamedParams`). They are exempt from the type check for the reason
+ * `ComparisonExpr` exempts a param operand: a param has no type of its own —
+ * this call site is where it GETS one — so there is nothing here to be wrong. A
+ * param whose uses across the query have no common type is reported once, by
+ * `ParamSet`, as `param.conflict`.
+ *
+ * SHARED rather than copied onto the operator, because the three checks are the
+ * whole of what "a named-argument call" means and a second copy would drift in
+ * exactly the way the A22 fix showed one had already: three of the four
+ * call-shaped exprs never observed their params at all, and the fourth did.
+ */
+export function validateNamedCall(
+  words: CallVocabulary,
+  name: string,
+  declared: readonly DeclaredArg[],
+  namedArgs: ReadonlyMap<string, ResolvedType>,
+  p: Problems,
+  paramArgs: ReadonlySet<string> = EMPTY_PARAM_ARGS,
+): void {
+  const suppliedLower = words.supplied.toLowerCase();
+  for (const param of declared) {
+    if (param.optional) continue;
+    if (!namedArgs.has(param.name)) {
+      p.error(
+        `${words.code}.missing-arg`,
+        `${words.noun} '${name}' is missing required ${suppliedLower} '${param.name}'.`,
+      );
+    }
+  }
+
+  const byName = new Map(declared.map((param) => [param.name, param]));
+  for (const [argName, argType] of namedArgs) {
+    const param = byName.get(argName);
+    if (!param) {
+      p.at(['args', argName], () => {
+        p.error(
+          `${words.code}.unknown-arg`,
+          `${words.noun} '${name}' has no ${words.declared} named '${argName}'.${didYouMean(argName, declared.map((d) => d.name))}`,
+        );
+      });
+      continue;
+    }
+    const declaredType = param.fieldType;
+    if (!declaredType) continue; // 'any' accepts everything
+    if (paramArgs.has(argName)) continue; // a bare bind param is TYPED BY this call
+    const argFt = asFieldType(argType);
+    if (!argFt) {
+      p.at(['args', argName], () => {
+        p.error(
+          `${words.code}.arg-type`,
+          `${words.supplied} '${argName}' of '${name}' must be a ${declaredType.resolve()} value (a type cannot be passed here).`,
+        );
+      });
+      continue;
+    }
+    if (!declaredType.comparableWith(argFt)) {
+      p.at(['args', argName], () => {
+        p.error(
+          `${words.code}.arg-type`,
+          `${words.supplied} '${argName}' of '${name}' expects ${declaredType.resolve()}, got ${argFt.resolve()}.`,
+        );
+      });
     }
   }
 }

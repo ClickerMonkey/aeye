@@ -286,6 +286,9 @@ function expandOutputDef(def: ExprDef, outputs: ReadonlyMap<string, ExprDef>): E
     case 'aggregate':
     case 'function-call':
     case 'tabular-function-call':
+    // A registered OPERATOR is a named-argument call like the three above, so an
+    // `output` reference inside one of its operands expands identically.
+    case 'operator':
       return { ...def, args: expandArgs(def.args, outputs) };
     case 'window':
       return {
@@ -431,7 +434,10 @@ function unaggregateDef(def: ExprDef, engine: QueryEngine): ExprDef | null {
       return els ? { ...def, branches, else: els } : null;
     }
     case 'function-call':
-    case 'tabular-function-call': {
+    case 'tabular-function-call':
+    // A registered OPERATOR un-aggregates exactly as a scalar call does: it is
+    // never itself an aggregate, so it survives iff every operand does.
+    case 'operator': {
       const args = unaggregateArgs(def.args, engine);
       return args ? { ...def, args } : null;
     }

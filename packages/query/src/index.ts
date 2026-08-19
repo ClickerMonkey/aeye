@@ -77,6 +77,21 @@ export {
   refinementKeySchema,
 } from './refinement';
 
+// Registered operators — a name whose SQL a DECLARATION supplies, per dialect
+// (`&&`, `<->`, `@>`). The declaration is pure JSON, like `FunctionDef`; the
+// `run` half is registered separately.
+export {
+  QueryOperator,
+  type OperatorDef,
+  type OperatorOperandDef,
+  OPERATOR_NAME_PATTERN,
+} from './operator';
+
+// The `{slot}` template scanner the refinement `sql`/`cast` and operator `emit`
+// declarations share — exported so a dialect author can walk a compiled template
+// without re-deriving what a slot is.
+export { isSlot, scanTemplate, templateSlotNames, type Template, type TemplatePart } from './sql-template';
+
 // Conformance — the property tests the BUILTINS are held to, for a consumer's
 // own declaration. Also reachable as `@aeye/query/conformance`, which is the
 // name to prefer: it says what the surface is for, and it is where the docs
@@ -111,10 +126,13 @@ export {
 export {
   DEFAULT_SAMPLES,
   checkFieldType,
+  checkOperator,
   checkLatticeLaws,
   topsByKind,
   type FieldTypeCheckImpl,
   type FieldTypeConformanceReport,
+  type OperatorCheckOptions,
+  type OperatorConformanceReport,
   type LatticeLaw,
   type LatticeLawOptions,
   type LatticeLawReport,
@@ -189,7 +207,14 @@ export * from './builder';
 // Scope / params / functions (Phase 2)
 export { QueryScope } from './scope';
 export { ParamSet, type ParamInfo, type ParamUse, type ParamConflict } from './param';
-export { QueryFunction, mergeOfAggregateCall } from './function';
+export {
+  QueryFunction,
+  mergeOfAggregateCall,
+  validateNamedCall,
+  type CallVocabulary,
+  type DeclaredArg,
+  type ResolvedParam,
+} from './function';
 
 // Type backing (Phase H1) — dev-side computed fields + RLS/FLS
 // Named hidden joins + LATERAL / CROSS APPLY (Phase H2)
@@ -333,7 +358,9 @@ export {
   type AggregateRun,
   type WindowRun,
   type MaybePromise,
+  type OperatorRun,
   WINDOW_ORDER_ARG,
+  runOperator,
   runScalarFunction,
   runTabularFunction,
   runAggregateFunction,

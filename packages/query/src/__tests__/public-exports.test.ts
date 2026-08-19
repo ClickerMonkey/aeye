@@ -37,9 +37,16 @@ import type {
   RelationResolved,
   SqlParamValue,
   DrillValue,
+  OperatorDef,
+  OperatorOperandDef,
+  Template,
+  TemplatePart,
+  DeclaredArg,
+  ResolvedParam,
+  CallVocabulary,
 } from '../index';
 import { IndexPart, Index, renameSource, aliasedDigest, relationKeyColumns, relationOf, valueFieldType } from '../index';
-import { checkFieldType, checkLatticeLaws } from '../conformance';
+import { checkFieldType, checkOperator, checkLatticeLaws } from '../conformance';
 import { TextFieldType } from '../field-types/index';
 
 describe('A3 — the public barrel', () => {
@@ -87,7 +94,7 @@ describe('A3 — the public barrel', () => {
     // violation for a correct type. See the note on the re-export in `index.ts`,
     // and `scripts/check-dist.mjs`, which exercises the built artifact this test
     // cannot see.)
-    for (const name of ['checkFieldType', 'checkLatticeLaws', 'topsByKind'] as const) {
+    for (const name of ['checkFieldType', 'checkOperator', 'checkLatticeLaws', 'topsByKind'] as const) {
       expect(typeof pkg[name]).toBe('function');
     }
     expect(Array.isArray(pkg.DEFAULT_SAMPLES)).toBe(true);
@@ -96,6 +103,35 @@ describe('A3 — the public barrel', () => {
     // `TextFieldType`, every `instanceof` across the two would answer `false`,
     // and the harness would report spurious failures for correct types.
     expect(pkg.checkFieldType).toBe(checkFieldType);
+    expect(pkg.checkOperator).toBe(checkOperator);
     expect(pkg.checkLatticeLaws).toBe(checkLatticeLaws);
+  });
+
+  it('exports the OPERATOR surface — the declaration, the compiled form, and the template scanner', () => {
+    // A declaration is what a consumer PERSISTS, so its type has to be nameable
+    // without spelling it structurally; the compiled class is what
+    // `registry.operator(name)` hands back; and the scanner is what a dialect
+    // author needs to walk a compiled `emit` without re-deriving what a slot is.
+    const decl: OperatorDef = {
+      name: '&&',
+      operands: [{ name: 'left', type: 'any' }, { name: 'right', type: 'any' } satisfies OperatorOperandDef],
+      output: { kind: 'bool' },
+      instructions: 'Bounding-box overlap.',
+      emit: { postgres: '({left} && {right})' },
+    };
+    const template: Template = pkg.scanTemplate(decl.emit['postgres']!, (slot) => ({ slot }));
+    const part: TemplatePart = template[0]!;
+    expect(pkg.isSlot(part)).toBe(false);
+    expect([...pkg.templateSlotNames(template)]).toEqual(['left', 'right']);
+    expect(typeof pkg.QueryOperator).toBe('function');
+    expect(pkg.OPERATOR_NAME_PATTERN.test(decl.name)).toBe(true);
+    // The shared named-call vocabulary both a function and an operator validate
+    // through — exported so a consumer can see what `ResolvedParam` /
+    // `DeclaredArg` actually are rather than restating them.
+    const declared: DeclaredArg = { name: 'left', fieldType: undefined };
+    const param: ResolvedParam = { ...declared, optional: false };
+    const words: CallVocabulary = { noun: 'Operator', supplied: 'Operand', declared: 'operand', code: 'operator' };
+    expect([declared, param, words].every((v) => v !== undefined)).toBe(true);
+    expect(typeof pkg.validateNamedCall).toBe('function');
   });
 });

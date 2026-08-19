@@ -23,6 +23,7 @@ import { withAid, withSharedId } from './aids';
 import type { Registry } from './registry';
 import type { Type } from './type';
 import type { Field } from './field';
+import type { QueryOperator } from './operator';
 import type { FieldBacking } from './backing';
 import type { RefDepth, FnDepth, WriteDepth, SelectedFunctions } from './node';
 import type { FunctionDef, FunctionShape, ExprKind } from './schema';
@@ -779,8 +780,22 @@ export function exprKindApplicable(
   kind: string,
   types: readonly Type[],
   selected: SelectedFunctions,
+  /**
+   * The registry, for the gates that consult a REGISTERED vocabulary rather
+   * than the Types. Optional so the existing three-argument call keeps
+   * compiling; a caller that omits it gets no `operator` branch, which is the
+   * safe answer — every caller inside this package has the registry in hand.
+   */
+  registry?: Registry,
 ): boolean {
   switch (kind) {
+    case 'operator':
+      // Gone entirely when NO registered operator could be applied to anything
+      // in scope. Without this, a deployment that registers a PostGIS vocabulary
+      // for one tenant carries a dead `operator` branch — with its whole
+      // enum-locked glossary — in every schema generated for a tenant with no
+      // geometry column.
+      return (registry?.operatorList() ?? []).some((op) => operatorReachable(op, types));
     case 'semantic':
       return types.some((t) => t.isSemantic());
     case 'text-search':
@@ -819,6 +834,31 @@ export function exprKindApplicable(
     default:
       return true;
   }
+}
+
+/**
+ * Whether ANY operand of `operator` could be supplied from a field of the Types
+ * in scope — the reachability the `operator` gate is decided on.
+ *
+ * ANY operand rather than EVERY, deliberately. `&&` takes two geometries and the
+ * normal predicate is `shape && :box` — one column, one bind PARAM — so
+ * requiring every operand to have a column behind it would gate out the exact
+ * shape the operator exists for. One reachable operand is the honest reading of
+ * "this vocabulary is relevant here".
+ *
+ * The question asked of each pair is `comparableWith`, because that is the
+ * question `validateCall` will ask when the query arrives: gating on something
+ * STRICTER would hide an operator a model could legitimately have used, and
+ * gating on something looser would offer one every call of which is refused. An
+ * `'any'` operand (which declares nothing) is reachable from any field at all,
+ * which is what declaring `'any'` means.
+ */
+function operatorReachable(operator: QueryOperator, types: readonly Type[]): boolean {
+  return operator.operands.some((operand) =>
+    types.some((t) =>
+      t.fields.some((f) => operand.fieldType === undefined || operand.fieldType.comparableWith(f.fieldType)),
+    ),
+  );
 }
 
 // ─── Exhaustiveness guards ─────────────────────────────────────────────────────

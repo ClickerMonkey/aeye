@@ -14,7 +14,7 @@ import { fixture, typeScope, runtimeFixture, lit, ref } from './_utils';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
 import { buildQueryTool, QueryToolError } from '../llm/tool';
 import type { Context } from '@aeye/core';
-import type { Problems } from '../problem';
+import { Problems } from '../problem';
 import type { ExprDef, InsertDef, UpdateDef, DeleteDef, SelectDef, TypeDef, FunctionDef } from '../schema';
 
 /** The message of the first problem with `code` (or '' when none). */
@@ -114,6 +114,24 @@ describe('unknown-source → nearest bound source name', () => {
     expect(msg(fx.engine.validateExpr({ kind: 'semantic', source: 'uu', query: 'x' }, scope), 'semantic.unknown-source')).toContain('did you mean `u`');
     expect(msg(fx.engine.validateExpr({ kind: 'text-search', source: 'uu', query: 'x' }, scope), 'text-search.unknown-source')).toContain('did you mean `u`');
     expect(msg(fx.engine.validateExpr({ kind: 'text-score', source: 'uu', query: 'x' }, scope), 'text-score.unknown-source')).toContain('did you mean `u`');
+  });
+
+  it('REPORTS rather than THROWS when the unknown name is missing entirely', () => {
+    // A pre-existing crash, fixed in `aids.ts`. Composing an unknown-NAME
+    // diagnostic reads the bad name's `length` for the edit budget, and on the
+    // unchecked `validateQuery` / `validateExpr` road that name can be absent
+    // altogether — a raw `TypeError: Cannot read properties of undefined
+    // (reading 'length')` came out of the suggester instead of a Problem, on the
+    // one road whose entire contract is that a defect is REPORTED. The
+    // structural parser refuses the same def first (asserted below), which is
+    // why it was reachable only here.
+    const noSource = { kind: 'text-search', query: 'x' } as unknown as ExprDef;
+    expect(msg(fx.engine.validateExpr(noSource, scope), 'text-search.unknown-source')).toBe(
+      "Unknown source 'undefined' for text search.",
+    );
+    const problems = new Problems();
+    expect(fx.registry.parseCheckedExpr(noSource, problems)).toBeUndefined();
+    expect(problems.hasErrors).toBe(true);
   });
 });
 

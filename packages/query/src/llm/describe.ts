@@ -27,6 +27,7 @@ import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import type { FieldType } from '../field-type';
+import type { QueryOperator } from '../operator';
 import { refusedOperators } from '../refinement';
 import { ArrayFieldType, RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
 import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
@@ -402,6 +403,52 @@ export function describeFunctions(
 }
 
 /**
+ * The REGISTERED OPERATOR catalog — one
+ * `&& (left: json, right: json) → bool — instructions` line each, plus their
+ * worked examples.
+ *
+ * `describeFunctions` with a different iterator, and it exists for the same
+ * measured reason: an operator a model is not TOLD about is an operator it
+ * cannot use, and a `json` column carrying a PostGIS geometry describes itself
+ * as "a JSON document" no matter how good its operators are. The operand types
+ * render as their resolved CATEGORY plus the registered NAME the column will
+ * carry, because "which of these two `json`s does `&&` take" is exactly the
+ * question a refinement was introduced to answer.
+ *
+ * Not capability-gated by Type, unlike the expression catalog: an operator's
+ * relevance is decided by the SCHEMA gate (`exprKindApplicable`) that removes
+ * the `operator` kind wholesale, and a listing that dropped individual operators
+ * while the kind stayed available would offer a model a construct with no
+ * vocabulary to write in it.
+ */
+export function describeOperators(
+  engine: QueryEngine | Registry,
+  maxExamples: number = DEFAULT_MAX_EXAMPLES,
+  overrides: DescribeOverrides = {},
+): string {
+  const registry = toRegistry(engine);
+  const operators = registry.operatorList();
+  if (operators.length === 0) return 'operators: (none registered)';
+  const lines: string[] = [];
+  for (const operator of operators) {
+    // Operators are keyed by NAME, as functions are: a caller override REPLACES
+    // the shipped docs.
+    const instructions = overrideInstructions(operator.name, operator.instructions, overrides);
+    lines.push(`  - ${operatorSignature(operator)}${instructions ? ` — ${instructions}` : ''}`);
+    lines.push(...exampleLines(overrideExamples(operator.name, operator.examples, overrides), maxExamples, '    '));
+  }
+  return ['operators:', ...lines].join('\n');
+}
+
+/** `&& (left: json(as Geometry), right: json(as Geometry)) → bool` — one operator's signature. */
+function operatorSignature(operator: QueryOperator): string {
+  const operands = operator.operands
+    .map((o) => `${o.name}: ${o.fieldType ? typeTag(o.fieldType) : 'any'}`)
+    .join(', ');
+  return `${operator.name}(${operands}) → ${typeTag(operator.output)}`;
+}
+
+/**
  * The CAPABILITY-GATED expression catalog: one `kind — INSTRUCTIONS` line per
  * expr kind actually USABLE for the current engine's Types / functions. It
  * iterates `registry.exprClassList()` and filters by the SAME gate the schema
@@ -422,7 +469,7 @@ export function describeExprs(
   const selected = selectFunctions(registry, functions);
   const lines: string[] = [];
   for (const c of registry.exprClassList()) {
-    if (!exprKindApplicable(c.KIND, scope, selected)) continue;
+    if (!exprKindApplicable(c.KIND, scope, selected, registry)) continue;
     // Expr nodes are keyed by KIND: a caller override REPLACES the shipped docs.
     lines.push(`  - ${c.KIND} — ${overrideInstructions(c.KIND, c.INSTRUCTIONS, overrides)}`);
     lines.push(...exampleLines(overrideExamples(c.KIND, c.EXAMPLES, overrides), maxExamples, '    '));
@@ -512,11 +559,19 @@ export function describeEngine(
   // One flat override namespace threads to every render path (functions by name,
   // expr / query nodes by kind); shipped INSTRUCTIONS / EXAMPLES remain the fallback.
   const overrides: DescribeOverrides = { instructions, examples };
-  return [
+  const sections = [
     describeTypes(engine, types),
     describeExprs(engine, types, functions, maxExamples, overrides),
     describeFunctions(engine, functions, maxExamples, overrides),
-    describeQueryExamples(engine, maxExamples, overrides),
-    describeDialects(engine),
-  ].join('\n\n');
+  ];
+  // The operators block is OMITTED entirely when a registry has none, unlike
+  // `functions:` / `dialects:` which say "(none)". Those two are always
+  // meaningful — a registry with no dialect is worth remarking on — whereas an
+  // operator vocabulary is an opt-in a deployment either has or does not, and
+  // announcing its absence spends prompt on a feature the reader cannot use.
+  if (toRegistry(engine).operatorList().length > 0) {
+    sections.push(describeOperators(engine, maxExamples, overrides));
+  }
+  sections.push(describeQueryExamples(engine, maxExamples, overrides), describeDialects(engine));
+  return sections.join('\n\n');
 }

@@ -9,12 +9,15 @@ Two asks about the same thing from two directions: **a declared type should deci
 are allowed**, and until now it only did so on the way OUT (schemas, descriptions, cost) rather
 than on the way IN — plus a third, from the owner, about the one thing a declared type decided
 TOO much: text case. Plus the step-0 fixes for the registered-type work (A22 and the "Also"
-list below) and its **step 1** — a registered REFINEMENT naming a builtin, `{ kind: 'text', as:
-'uuid' }` — whose common thread is the same one: **what a DECLARATION says should be what the
-engine does with it.** A declared parameter type should type the param handed to it, a declared
-emitted name should be held to the guarantee its doc claims, and a named type declared once
-should narrow every column that names it. There are **five behaviour changes to read before
-adopting**, of different kinds, and **one renamed option**:
+list below) and its **steps 1–3** — a registered REFINEMENT naming a builtin (`{ kind: 'text',
+as: 'uuid' }`), the OPTIONS / grammar / comparability that refinement declares, and a registered
+OPERATOR (`&&`, `<->`) whose SQL a declaration supplies per dialect — whose common thread is the
+same one: **what a DECLARATION says should be what the engine does with it.** A declared
+parameter type should type the param handed to it, a declared emitted name should be held to the
+guarantee its doc claims, a named type declared once should narrow every column that names it,
+and an operator a deployment declares should emit its own SQL rather than being unspellable.
+There are **five behaviour changes to read before adopting**, of different kinds, and **one
+renamed option**:
 
 - **A query that was REFUSED before can now pass, and a param can now report a type it did
   not.** A bare bind param as a function argument (`abs(:p)`, `sum(:p)`) is typed by the
@@ -755,8 +758,154 @@ let a builtin that narrows the rule silently shut a declared edge out. `ArrayFie
 `tokenSafeValues()` (concrete, with a `values`-derived default), `refinedSqlType(dialect)` /
 `refinedCast(dialect)`, `refinementOptions` and `refinementOption(key)`.
 
+### A registered OPERATOR: `&&` / `<->` — SQL a DECLARATION supplies, per dialect (**additive**)
+
+Step 3, and the one gap step 1 and step 2 both left open in writing: *"No infix operators. `&&` /
+`<->` have no call form; only `name(a, b)` is emittable from a declaration."* `registerFunction`
+covers everything shaped `name(a, b)` — a PostGIS-shaped domain already emitted valid SQL through
+it, which is why this is step 3 and not step 1. What a function declaration cannot express is the
+other half of a real SQL domain: an INFIX operator has no call form in ANY dialect, and
+`FunctionDef.sql` is a NAME, never a template, so per-dialect emission was a `Dialect` subclass.
+
+```ts
+registry.registerOperator({
+  name: '&&',                                      // SQL operator punctuation ONLY
+  operands: [{ name: 'left',  type: { kind: 'json', as: 'Geometry' } },
+             { name: 'right', type: { kind: 'json', as: 'Geometry' } }],
+  output: { kind: 'bool' },                        // CONCRETE — never 'inferred'
+  instructions: 'Bounding-box overlap between two geometries. A pre-filter for ST_Contains.',
+  emit: { postgres: '({left} && {right})' },       // per `Dialect.name`; PARENTHESIZED
+  selectivity: 0.1,
+});
+registry.registerOperatorRun('&&', (args, ctx) => Value.of(bboxOverlaps(args.left, args.right)));
+// { kind:'operator', op:'&&', args:{ left: <expr>, right: <expr> } }
+//   →  WHERE ("parcel"."shape" && $1)
+```
+
+**ONE new expr kind, not N registered Expr classes.** `ExprKind` gains exactly one member, once,
+at this package's own hand; the operator VOCABULARY is what a third party opens — precisely the
+relationship `function-call` has to `registerFunction`. The alternative, `defineExpr`, is parse
+DISPATCH for a whole `ExprDef.kind` (registering one re-points every program's parse in that
+registry) and asks a declarer to implement ten members for `a && b`, where a function author
+writes one JSON object. `OperatorExpr` reuses the whole of `exprs/_function-args.ts`, and the
+three call checks (`missing-arg` / `unknown-arg` / `arg-type`) are now ONE shared
+`validateNamedCall` rather than a second copy — A22 is the standing evidence that a second copy
+drifts: three of the four call-shaped exprs never observed their params and the fourth did.
+
+**A bare bind param as an OPERAND is typed by the declaration**, exactly as A22 made a function
+argument be — `shape && :box` types `:box` from `&&`'s declared operand rather than judging it
+against the `text` placeholder, order-independently. The param's type is the OPERAND's, not the
+column's, which is right: `&&` accepts any geometry, and narrowing it to whichever column it sat
+beside would refuse a second use against a different SRID.
+
+**A dialect with no `emit` entry is REFUSED at emit** (`operator.unsupported-dialect`, naming the
+dialects that ARE declared), and that asymmetry with `BaseDialect.emitBuiltinCall` is the point.
+The base dialect degrades silently for BUILTINS (`dateAdd` → the input date unchanged,
+`arrayContains` → `(1 = 0)`) because that is portable-SQL policy for a function whose semantics
+this package owns, documents and tests. A third party cannot document a degrade this package
+never sees, and `&&` degrading to `(1 = 0)` returns ZERO ROWS for a query the caller believed ran
+— a wrong answer that looks exactly like a right one.
+
+**The emit template is checked at the DECLARATION, five ways, and the risk profile is NOT step
+2's.** A template's slots are filled with already-emitted `SqlText` fragments, never with author
+VALUES, so there is no value-injection surface to close — what is guarded is the template BODY,
+and it is a name-and-shape gate rather than a sandbox: (1) every `{slot}` names a declared operand
+(with a `didYouMean`); (2) every declared operand APPEARS — a dropped one is an argument the query
+supplied, validation type-checked, and emission discarded, the same defect a `cast` that never
+names `{value}` has; (3) the template is **wrapped in its own balanced parentheses**, which is
+what makes a `precedence` declaration unnecessary rather than merely unread — a parenthesized
+fragment composes correctly inside ANY surrounding expression, so no declaration can be wrong
+about binding (a function-shaped emission is written `(ST_Intersects({left}, {right}))`, with the
+redundant pair, because one rule with no exception beats the character it costs); (4) no comment
+sequence and no `;`, both of which silently swallow the rest of the emitted query; (5) balanced
+parens and an EVEN number of `'` quotes.
+
+**The name charset is SQL operator punctuation and nothing an identifier could be** —
+`^[+\-*/<>=~!@#%^&|`?]{1,63}$`, which is what PostgreSQL's own `CREATE OPERATOR` allows (63 is
+`NAMEDATALEN - 1`). It is deliberately DISJOINT from `FUNCTION_NAME_PATTERN`, so one spelling can
+never name two callables and a model reading the catalog never has to wonder whether `overlaps`
+is the operator or the function; a WORD operator is spelled as a function, or as the literal text
+of an emit template under a punctuation name. **The comment openers are refused separately**,
+because they are made of that same punctuation: `&&--` matches the charset exactly, and emitted
+it comments out the rest of the query including whatever wrapped it — the same rule, and the same
+reason, PostgreSQL applies.
+
+**Operators and a type's declared `compare` are DISJOINT, deliberately.** `compare` says which
+arms of the closed nine-member comparison grammar apply to a type; an operator is not one of the
+nine — it declares its own operands and its own meaning. A type declaring `equality: false` is
+therefore exactly the type an operator is FOR: `Geometry` refuses `=` because comparing two
+geometries for equality is meaningless, and `&&` is what a caller reaches for instead. Gating
+operators on `compare` would delete the mechanism that makes an honest declaration usable.
+
+**Compiled EAGERLY at registration, unlike a `FunctionDef`** (which the engine parses lazily on
+first call), because an emit template is only ever wrong at its declaration and a failure at a
+call site has no declaration to attribute it to. That costs one ordering rule — a refinement an
+operand names must be registered first, reported with the message that road already has — and it
+does NOT freeze the refinement vocabulary: the operand types parse through the registry's
+unflagged road for exactly that reason, so `registerFieldType` still works afterwards.
+
+**What the model is told.** `describeOperators(engine)` renders an `operators:` block — each
+signature with its operand tags (the FULL ones: the registered name, the declared options and the
+refused comparison arms), its result type, its `instructions` and its examples — and
+`describeEngine` folds it in whenever any operator is registered, omitting it entirely otherwise.
+In the generated schema `op` is a `z.enum` of the registered names with that glossary inline (at
+`functions:'names'`), each operator gets a STRICT operand object at `functions:'typed'`, and the
+`operator` KIND is capability-gated out unless some registered operator has an operand type an
+in-scope field could supply — so a geometry-free deployment carries no dead branch.
+`exprKindApplicable` gains an optional 4th argument (the registry) for that gate; the existing
+3-argument call keeps compiling and gets no operator branch, which is the safe answer.
+
+**Three members §6 of the design specified that this release deliberately does NOT ship**, each
+refused at registration with the reason rather than as a bare "unknown key": `precedence` (nothing
+reads it — emission is always parenthesized and `toCode()` renders the wire shape `&&(left: …,
+right: …)`, because an infix rendering needs the declared operand ORDER and `toCode` has no
+registry to look it up in, so it would silently swap a non-commutative operator's operands),
+`indexed` (the cost model's `IndexProbe` means "bound to N POINT values", which is what an index
+PREFIX reduction is computed from — crediting a bounding-box overlap would claim a reduction that
+does not apply; declare `selectivity`, which the same model reads and says the true thing), and
+`changes` (`QueryReferences` enumerates FUNCTIONS and there is no operator channel, so a declared
+value would be silently ignored — adding one changes a public result shape and belongs with the
+in-memory work).
+
+**`checkOperator(decl, { registry })`** joins `checkFieldType` on `@aeye/query/conformance` and
+asks the three questions registration cannot: that every declared `emit` dialect is actually
+REGISTERED (`emit` is keyed by an arbitrary string — it has to be, since a dialect may be
+registered later — so a typo'd `postgress` registers cleanly and is then refused at emit
+EVERYWHERE); that every shipped `examples` string parses and is a use of THIS operator; and that
+its operand names match the declaration (the structural parser accepts any `args` record, and an
+example has no query around it to validate). It also re-runs the lattice laws over the operand /
+output types, which must be UNCHANGED — `param-meet.test.ts` now registers two operators over its
+type set and asserts a byte-identical verdict against an operator-free twin, because an operator
+is a leaf and must perturb nothing.
+
+**A KNOWN LIMIT the worked example makes visible, and it is not new.** A bound PARAM carrying a
+document emits the BASE cast (`CAST($1 AS jsonb)`), not a refinement's declared `cast`:
+`ParamExpr.toSQL` binds through `dialect.jsonValue(raw)` with no field type, and `engine.toSQL`
+builds a fresh scope and runs no inference walk, so a param's inferred type does not exist at emit
+time. It is not specific to operators — the same param under `ST_Contains(a, b)` emits the same
+cast — and it is pinned by a test so the doc cannot rot. The COLUMN and a written LITERAL are
+unaffected and do carry their declared type (`ST_GeomFromGeoJSON($1)::geometry(Polygon,4326)`).
+Fixing it means threading a declared / inferred type into every param binding, which changes the
+emitted SQL of every existing `json` param in every consumer — a release of its own.
+
 ### Also
 
+- **`didYouMean` no longer THROWS while composing a diagnostic.** It read the bad name's `length`
+  for its edit budget, and the value it is handed is by definition an unchecked one — so a def
+  missing the name entirely (`{kind:'text-search', query:'x'}` with no `source`) produced a raw
+  `TypeError: Cannot read properties of undefined (reading 'length')` out of `aids.ts` instead of
+  a Problem, turning a reportable defect into an uncaught crash on the one road whose whole
+  contract is that a defect is REPORTED. Reachable only via the unchecked `validateQuery` /
+  `validateExpr` (the defensive `parseCheckedQuery` refuses the shape first), and fixed in the
+  suggester rather than at the one call site that tripped it, because every unknown-NAME
+  diagnostic in the package reads the same kind of value.
+- **One `{slot}` TEMPLATE SCANNER, shared** (`src/sql-template.ts`: `scanTemplate` / `isSlot` /
+  `templateSlotNames`, all exported). A refinement's `sql` / `cast` slots name its OPTIONS and an
+  operator's `emit` slots name its OPERANDS — two different vocabularies filled with two different
+  things, but scanned identically, and a scanner that differed by one character between them would
+  let a spelling pass one declaration road and be read as literal text on the other. The caller
+  still owns every decision that is not scanning: what a slot may name, what the resolved text must
+  look like, and what a missing one means.
 - **A function's EMITTED name (`sql`) is now identifier-guarded like its `name`.** The four
   call-shaped exprs emit `${fn.sql ?? fn.name}(` by raw interpolation, and `registerFunction`
   checked only `name` — so the identifier guarantee its doc comment states ("the generated SQL can

@@ -26,7 +26,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { checkLatticeLaws } from '../conformance';
-import { createRegistry } from '../registry';
+import { createRegistry, type Registry } from '../registry';
 import { QueryEngine } from '../engine';
 import { FieldType } from '../field-type';
 import {
@@ -86,8 +86,14 @@ import type { ExprDef, FieldTypeKind, FieldValueDef, JsonValue, SelectDef, TypeD
  *    `Instant`);
  *  - one over a base carrying a closed `values` set (`Status`);
  *  - and a refined shape a use site has narrowed further (`uuidNarrowed`).
+ *
+ * A FACTORY rather than a constant, so the last `it` in this file can build the
+ * identical set on a registry carrying NO operators and compare the two
+ * verdicts. That comparison is the whole assertion about operators here: they
+ * must perturb nothing.
  */
-const REFINED = createRegistry()
+function refinedRegistry(): Registry {
+  return createRegistry()
   .registerFieldType({
     name: 'uuid', base: 'text',
     instructions: 'A UUID (RFC 4122).',
@@ -170,6 +176,52 @@ const REFINED = createRegistry()
     instructions: 'A bounded list of tags.',
     options: { maxItems: 8, item: { kind: 'text' } },
   });
+}
+
+/**
+ * `registry` plus two OPERATORS over three of its types.
+ *
+ * An operator changes NOTHING about how a type meets — it is a leaf that
+ * declares operand types and emits SQL — so every law below must give the SAME
+ * answer with them registered as without, which the last `it` in this file
+ * asserts against an operator-free twin.
+ *
+ * They are registered over THIS set rather than one of their own because it is
+ * the widest in the package, and `registerOperator` PARSES its operand and
+ * output types through the registry — exactly the sort of thing that could
+ * freeze the refinement vocabulary or hand back a differently-compiled instance
+ * of one. The `refinement-instance` law is what would notice if it did, and it
+ * only runs over the types in the table below.
+ */
+function withOperators(registry: Registry): Registry {
+  return registry
+  .registerOperator({
+    name: '&&',
+    operands: [
+      { name: 'left', type: { kind: 'json', as: 'Geometry' } },
+      { name: 'right', type: { kind: 'json', as: 'Geometry' } },
+    ],
+    output: { kind: 'bool' },
+    instructions: 'Bounding-box overlap between two geometries.',
+    emit: { postgres: '({left} && {right})' },
+  })
+  .registerOperator({
+    // Deliberately mixed: one REFINED operand, one `'any'`, and a BUILTIN
+    // output — an operator that named only its own type could not exercise a
+    // meet the set did not already have.
+    name: '<->',
+    operands: [
+      { name: 'left', type: { kind: 'json', as: 'Geometry' } },
+      { name: 'right', type: 'any' },
+    ],
+    output: { kind: 'number' },
+    instructions: 'Distance between two geometries, in the SRID unit.',
+    emit: { postgres: '({left} <-> {right})' },
+  });
+}
+
+/** The refinement registry every type below is built on, operators included. */
+const REFINED = withOperators(refinedRegistry());
 
 const TYPES: Readonly<Record<string, FieldType>> = {
   text: new TextFieldType(),
@@ -541,6 +593,60 @@ describe('a declared `compare` gates the GRAMMAR, never the lattice', () => {
     expect(REFINED.fieldTypeRefinement('uuid')!.compare).toEqual({
       equality: true, ordering: true, textMatch: true,
     });
+  });
+});
+
+describe('a registered OPERATOR perturbs nothing about the lattice', () => {
+  /**
+   * The types the two operators NAME, plus their whole neighbourhood — the
+   * geometry family, the two builtin buckets the operands and outputs land in,
+   * and the non-transitive comparability triangle beside them.
+   *
+   * A SUBSET rather than `NAMES`, and the reason is arithmetic rather than
+   * laziness: the laws are cubic, so a second sweep over all ~60 entries doubles
+   * the most expensive thing in this file to re-prove a property that cannot
+   * reach past the types an operator mentions. The full set is already swept
+   * WITH the operators registered (`LAWS`, above) — that is the "over a set
+   * including operator-bearing types" half; this is the differential half.
+   */
+  const NEIGHBOURHOOD = [
+    'geom', 'geomPoint', 'geomPoly', 'geomPoly3857', 'geomSrid', 'arrGeom', 'geography',
+    'json', 'jsonSchema', 'bool', 'flag', 'number', 'scalar', 'feet', 'meters',
+  ];
+
+  it('gives a byte-identical verdict over the operator neighbourhood with and without them', () => {
+    // An operator parses its declared types THROUGH the registry, so a
+    // registration that froze the vocabulary, cached a second compilation of
+    // `Geometry`, or perturbed a comparability edge would move one of the ten
+    // laws — and would move it for exactly these types.
+    const bare = refinedRegistry();
+    const rebuilt: Record<string, FieldType> = {};
+    const withOps: Record<string, FieldType> = {};
+    for (const name of NEIGHBOURHOOD) {
+      rebuilt[name] = bare.parseFieldType(at(name).toJSON());
+      withOps[name] = at(name);
+    }
+    const without = checkLatticeLaws(rebuilt, { registry: bare, samples: SAMPLES });
+    const with_ = checkLatticeLaws(withOps, { registry: REFINED, samples: SAMPLES });
+    expect(without.failed).toEqual([]);
+    expect(with_.laws.map((l) => [l.law, l.violations])).toEqual(
+      without.laws.map((l) => [l.law, l.violations]),
+    );
+  });
+
+  it('leaves the refinements themselves untouched, including a one-way comparability edge', () => {
+    // `registerOperator` reads `Geometry` out of the registry to type an
+    // operand. If it had compiled its own, this would report a different
+    // instance — and every `Geometry` column in a query would then meet the
+    // operand type to `undefined`.
+    expect(REFINED.operator('&&')!.operands[0]!.fieldType!.refinement).toBe(
+      REFINED.fieldTypeRefinement('Geometry'),
+    );
+    // …and the comparability relation the registry symmetrized is the same one,
+    // note for note — an operator declares operand TYPES, never an edge.
+    expect(REFINED.fieldTypeComparabilityNotes()).toEqual(
+      refinedRegistry().fieldTypeComparabilityNotes(),
+    );
   });
 });
 

@@ -15,7 +15,7 @@ import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import type { Expr, ValidateContext } from '../expr';
-import type { QueryFunction } from '../function';
+import type { DeclaredArg, QueryFunction } from '../function';
 import { ParamExpr } from './param';
 import { LiteralExpr } from './literal';
 import { withAid } from '../aids';
@@ -202,6 +202,10 @@ export function orderedArgSql(
  * advertises, so the declared parameter type must reach the param before
  * anything judges it.
  *
+ * Takes the DECLARED arguments rather than the callable, because a registered
+ * OPERATOR declares the same thing under a different noun and this is the
+ * machinery that types a param from it — see {@link DeclaredArg}.
+ *
  * Returns the argument NAMES whose expr is a bare bind param, for
  * {@link QueryFunction.validateCall} to exempt from its arg-type check — the
  * same exemption `ComparisonExpr` applies to a param operand. A param arg can
@@ -212,13 +216,13 @@ export function orderedArgSql(
  */
 export function observeNamedParams(
   args: ReadonlyMap<string, Expr>,
-  fn: QueryFunction,
+  declared: readonly DeclaredArg[],
   engine: QueryEngine,
   scope: QueryScope,
   here: ReadonlyArray<string | number>,
   argTypes: Map<string, ResolvedType>,
 ): ReadonlySet<string> {
-  const byName = new Map(fn.params.map((param) => [param.name, param]));
+  const byName = new Map(declared.map((param) => [param.name, param]));
   const paramArgs = new Set<string>();
   for (const [name, e] of args) {
     if (!(e instanceof ParamExpr)) continue;

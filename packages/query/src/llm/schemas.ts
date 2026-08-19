@@ -318,7 +318,7 @@ function buildExprUnion(
 ): z.ZodTypeAny {
   const applicable = registry
     .exprClassList()
-    .filter((c) => exprKindApplicable(c.KIND, types, selected));
+    .filter((c) => exprKindApplicable(c.KIND, types, selected, registry));
   return withAid(orFold(applicable.map((c) => c.toSchema(inner))), 'Expr', {
     kinds: applicable.map((c) => c.KIND),
   });

@@ -106,6 +106,8 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   FieldName: { label: 'a field name' },
   FunctionName: { label: 'a registered function name' },
   FunctionArgs: { label: 'named arguments, an object of { argName: <expr> }' },
+  OperatorName: { label: 'a registered operator name' },
+  OperatorArgs: { label: 'named operands, an object of { operandName: <expr> }' },
   OutputName: { label: 'a SELECT output field name' },
   Limit: { label: 'a number or a param' },
   Not: { label: 'a boolean `not` flag' },
@@ -164,6 +166,7 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
   'Expr_text-search': { label: 'a full-text search predicate' },
   'Expr_text-score': { label: 'a full-text relevance score' },
   'Expr_function-call': { label: 'a scalar function call' },
+  Expr_operator: { label: 'a registered operator applied to named operands' },
   'Expr_tabular-function-call': { label: 'a tabular function call' },
   Expr_aggregate: { label: 'an aggregate call' },
   Expr_window: { label: 'a window function call' },
@@ -290,12 +293,27 @@ export function nearest(
  *
  *   p.error('ref.unknown-field',
  *     `Type '${t.name}' has no field '${bad}'.${didYouMean(bad, t.fields.map(f => f.name))}`);
+ *
+ * TOTAL FOR A NON-STRING `input`, even though the signature says `string`, and
+ * that guard is load-bearing rather than defensive noise. This composes a
+ * DIAGNOSTIC, and every caller is on the road whose whole contract is that a
+ * defect is REPORTED rather than raised — but the value it is handed is by
+ * definition an unchecked one (that is what "unknown name" means). Measured:
+ * `validateQuery` over `{kind:'text-search', query:'x'}` with no `source` reached
+ * `exprs/text-search.ts`'s unknown-source diagnostic, which read `input.length`
+ * for the edit budget and threw a raw `TypeError` out of this module — turning a
+ * reportable problem into an uncaught crash. The DEFENSIVE parser
+ * (`parseCheckedQuery`) refuses that def first, so the crash was reachable only
+ * on the unchecked `validateQuery` road; the fix belongs here rather than at the
+ * one call site that happened to trip it, because every other unknown-NAME
+ * diagnostic in the package reads the same kind of value.
  */
 export function didYouMean(
   input: string,
   candidates: readonly string[],
   opts: { max?: number } = {},
 ): string {
+  if (typeof input !== 'string') return '';
   const max = Math.max(1, opts.max ?? 1);
   const matches = rankNear(input, candidates, suggestionBudget(input.length)).slice(0, max);
   if (matches.length === 0) return '';

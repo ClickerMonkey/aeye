@@ -235,7 +235,7 @@ export class AggregateExpr extends Expr {
     } else {
       // A param argument is TYPED BY the declared parameter (`sum(:p)` makes
       // `:p` a number), so observe before validating — see `observeNamedParams`.
-      const paramArgs = observeNamedParams(this.args, fn, engine, scope, here, argTypes);
+      const paramArgs = observeNamedParams(this.args, fn.params, engine, scope, here, argTypes);
       fn.validateCall(argTypes, p, paramArgs);
     }
 

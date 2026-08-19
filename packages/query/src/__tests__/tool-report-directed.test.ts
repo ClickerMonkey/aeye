@@ -84,12 +84,14 @@ describe('directed schema-failure messages', () => {
     );
     // The owned parser is NOT capability-gated (structure only), so it offers
     // every REGISTERED expr kind — including the ones the wire schema gates out
-    // per capability (output / tabular-function-call / excluded).
+    // per capability (output / tabular-function-call / excluded), and `operator`,
+    // whose registered VOCABULARY is empty here — the structural parser knows the
+    // kind exists, and `validateWalk` is where "no such operator" is decided.
     expect(messageAt(err, ['where', 1])).toBe(
       'unknown expression kind `comparise` — did you mean `comparison`? (available: ' +
         'literal, output, sorter, field-ref, param, binary, unary, comparison, logical, in, ' +
         'between, is-null, exists, array-op, case, aggregate, window, function-call, ' +
-        'tabular-function-call, semantic, text-search, text-score, filters, subquery, excluded)',
+        'tabular-function-call, operator, semantic, text-search, text-score, filters, subquery, excluded)',
     );
     expect(messageAt(err, ['limit'])).toBe('expected a number or a param, got a string');
 

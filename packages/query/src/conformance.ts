@@ -48,8 +48,10 @@ import {
   TextFieldType,
   TimestampFieldType,
 } from './field-types/index';
+import { OperatorExpr } from './exprs/operator';
+import type { OperatorDef } from './operator';
 import type { Problem } from './problem';
-import { QueryTypeError } from './problem';
+import { Problems, QueryTypeError } from './problem';
 import { createRegistry, type Registry } from './registry';
 import {
   REFINABLE_BASES,
@@ -620,6 +622,182 @@ export function checkFieldType(
 
   problems.push(...checkValueGate(decl, registry, impl, samples));
   return { ok: problems.length === 0, problems, lattice };
+}
+
+// ─── One OPERATOR declaration, checked end to end ────────────────────────────
+
+/** What {@link checkOperator} needs beyond the declaration. */
+export interface OperatorCheckOptions {
+  /**
+   * The registry to register into. Supply one already carrying the field-type
+   * REFINEMENTS the operands name — an operand typed `{kind:'json',
+   * as:'Geometry'}` cannot compile on a registry with no `Geometry`, and
+   * "register your types first" is a fact about the declaration rather than a
+   * failure of it. Defaults to a bare {@link createRegistry}.
+   */
+  readonly registry?: Registry;
+}
+
+/** The verdict of {@link checkOperator}. */
+export interface OperatorConformanceReport {
+  /** True when nothing was found — what a consumer's test asserts. */
+  readonly ok: boolean;
+  /** Everything found, as `Problem`s: `error` blocks, `warning` is worth reading. */
+  readonly problems: readonly Problem[];
+  /**
+   * The lattice verdict over the operand / output types, or `undefined` when the
+   * declaration did not register at all. It should be identical to the verdict
+   * WITHOUT the operator — see {@link checkOperator}.
+   */
+  readonly lattice: LatticeLawReport | undefined;
+}
+
+/**
+ * Check ONE operator declaration — the counterpart of {@link checkFieldType},
+ * and deliberately a different set of questions, because an operator is a
+ * different kind of thing.
+ *
+ * A refinement is a LATTICE PARTICIPANT: it changes what every meet over its
+ * base answers, so its check is a property over a set of types. An operator is a
+ * LEAF: it declares operand types and emits SQL, and it changes nothing about
+ * how any type behaves. So the laws it is held to are the ones only a set can
+ * see FAIL — and the interesting assertion is that they still HOLD, i.e. that
+ * registering an operator has not perturbed the lattice over the very types it
+ * names. (`registerOperator` parses those types through the registry, which is
+ * exactly the sort of thing that could freeze a vocabulary or share a compiled
+ * refinement instance wrongly; the law set is what would notice.)
+ *
+ * Plus the three things a REGISTRATION cannot check, each with a real failure
+ * behind it:
+ *
+ *  1. **Every declared dialect is REGISTERED here.** `emit: { postgress: … }` is
+ *     a legal declaration — `emit` is keyed by an arbitrary string, and it has
+ *     to be, since a dialect may be registered after the operator. So a typo
+ *     produces an operator that registers cleanly, describes itself normally,
+ *     and is REFUSED at emit on every dialect that exists. Reported as an error,
+ *     because there is no reading of it that is intended.
+ *  2. **Every `examples` string parses, and is an example OF THIS OPERATOR.** An
+ *     example is raw JSON round-tripped verbatim into a prompt, so a malformed
+ *     one teaches a model malformed syntax — the most expensive kind of wrong,
+ *     since the model will reproduce it and then fail validation.
+ *  3. **Every example's `args` name the DECLARED operands.** The structural
+ *     parser accepts any record of exprs (the operand check is validation's job,
+ *     and an example has no query around it to validate), so this is the only
+ *     place a shipped example's operand names are compared with the declaration.
+ */
+export function checkOperator(
+  decl: OperatorDef,
+  opts?: OperatorCheckOptions,
+): OperatorConformanceReport {
+  const problems: Problem[] = [];
+  const registry = opts?.registry ?? createRegistry();
+  try {
+    registry.registerOperator(decl);
+  } catch (err) {
+    problems.push(asProblem(err, ['registerOperator'], 'conformance.registration'));
+    return { ok: false, problems, lattice: undefined };
+  }
+  const operator = registry.operator(decl.name);
+  /* v8 ignore next -- registration just succeeded, so the operator is there */
+  if (!operator) return { ok: false, problems, lattice: undefined };
+
+  const dialects = registry.dialectList().map((d) => d.NAME);
+  for (const declared of operator.dialects()) {
+    if (dialects.includes(declared)) continue;
+    problems.push({
+      path: ['checkOperator', decl.name, 'emit', declared],
+      code: 'conformance.unknown-dialect',
+      severity: 'error',
+      message:
+        `\`emit\` declares SQL for dialect \`${declared}\`, which is not registered on this registry ` +
+        `(registered: ${dialects.length > 0 ? dialects.join(', ') : 'none'}). A dialect key is an ` +
+        'arbitrary string — it has to be, since a dialect may be registered after an operator — so a ' +
+        `typo here produces an operator that registers cleanly and is REFUSED at emit everywhere.`,
+    });
+  }
+
+  const operandNames = operator.operands.map((o) => o.name);
+  for (const [index, example] of (decl.examples ?? []).entries()) {
+    problems.push(...checkOperatorExample(decl.name, index, example, operandNames, registry));
+  }
+
+  // The operand / output types, plus every unrefined top, so the laws run over a
+  // set in which the operator's own types actually participate.
+  const types: Record<string, FieldType> = {};
+  for (const operand of operator.operands) {
+    if (operand.fieldType) types[`${decl.name}.${operand.name}`] = operand.fieldType;
+  }
+  types[`${decl.name}.output`] = operator.output;
+  const tops = topsByKind();
+  for (const base of REFINABLE_BASES) {
+    const top = tops[base];
+    if (top) types[`⊤${base}`] = top;
+  }
+  const lattice = checkLatticeLaws(types, { registry });
+  for (const failure of lattice.failed) {
+    problems.push({
+      path: ['checkOperator', decl.name, failure.law],
+      code: `conformance.${failure.law}`,
+      severity: 'error',
+      message:
+        `The meet is not ${failure.law} over the types \`${decl.name}\` names. An operator changes nothing ` +
+        'about how a type meets, so this failure belongs to one of those TYPES rather than to the ' +
+        `operator — run \`checkFieldType\` on it. It states: ${failure.states}. ` +
+        `${failure.violations.length} counterexample(s): ${failure.violations.slice(0, 5).join('; ')}` +
+        `${failure.violations.length > 5 ? ' …' : ''}`,
+    });
+  }
+  return { ok: problems.length === 0, problems, lattice };
+}
+
+/** One shipped `examples` entry, parsed and matched against the declaration. */
+function checkOperatorExample(
+  name: string,
+  index: number,
+  example: string,
+  operandNames: readonly string[],
+  registry: Registry,
+): Problem[] {
+  const path = ['checkOperator', name, 'examples', index];
+  const bad = (code: string, message: string): Problem[] => [{ path, code, severity: 'error', message }];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(example);
+  } catch (err) {
+    return bad(
+      'conformance.bad-example',
+      `Example ${index} is not valid JSON (${err instanceof Error ? err.message : String(err)}). Examples ` +
+        'are round-tripped VERBATIM into a prompt, so a malformed one teaches a model malformed syntax.',
+    );
+  }
+  const problems = new Problems();
+  const expr = registry.parseCheckedExpr(parsed, problems);
+  if (!expr || problems.hasErrors) {
+    return bad(
+      'conformance.bad-example',
+      `Example ${index} does not parse as an expression: ` +
+        `${problems.list.map((p) => `${p.code}: ${p.message}`).join('; ')}`,
+    );
+  }
+  if (!(expr instanceof OperatorExpr) || expr.op !== name) {
+    return bad(
+      'conformance.bad-example',
+      `Example ${index} is not a use of \`${name}\` — an operator's examples are what a model copies, so ` +
+        'one that demonstrates something else is worse than none.',
+    );
+  }
+  const supplied = [...expr.args.keys()].sort();
+  const declared = [...operandNames].sort();
+  if (JSON.stringify(supplied) !== JSON.stringify(declared)) {
+    return bad(
+      'conformance.bad-example',
+      `Example ${index} supplies operands ${supplied.join(', ') || '(none)'} but \`${name}\` declares ` +
+        `${declared.join(', ')}. The structural parser accepts any \`args\` record — the operand names are ` +
+        'checked by validation, which an example has no query around it to reach — so this is the only ' +
+        'place a shipped example can be held to the declaration.',
+    );
+  }
+  return [];
 }
 
 /**

@@ -31,6 +31,7 @@ export {
   describeType,
   describeTypes,
   describeFunctions,
+  describeOperators,
   describeExprs,
   describeQueryExamples,
   describeDialects,

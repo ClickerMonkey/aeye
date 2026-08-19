@@ -136,7 +136,7 @@ export class TabularFunctionCallExpr extends Expr {
       // A param argument is TYPED BY the declared parameter (`rangeRows(count:
       // :n)` makes `:n` a number), so observe before validating — see
       // `observeNamedParams`.
-      const paramArgs = observeNamedParams(this.args, fn, engine, scope, here, argTypes);
+      const paramArgs = observeNamedParams(this.args, fn.params, engine, scope, here, argTypes);
       fn.validateCall(argTypes, p, paramArgs);
     }
     return this.resolve(engine, scope);

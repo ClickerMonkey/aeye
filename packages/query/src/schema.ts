@@ -645,6 +645,29 @@ export interface FunctionCallExprDef {
 }
 
 /**
+ * A REGISTERED OPERATOR applied to its operands — `{ kind:'operator', op:'&&',
+ * args:{ left, right } }`.
+ *
+ * FUNCTION-SHAPED ON THE WIRE, exactly like every other operator in this
+ * language: `comparison` is `{op, left, right}`, not an infix string. Infix
+ * exists only in EMITTED SQL, where the operator's declaration supplies a
+ * per-dialect template. `args` are keyed by the declared OPERAND name for the
+ * same reason a function call's are keyed by parameter name — a positional list
+ * is the shape a model most reliably gets wrong.
+ *
+ * `op` names an operator registered with `registry.registerOperator`; the KIND
+ * is closed (this package owns it) while the VOCABULARY is open, which is
+ * precisely the relationship `function-call` has to `registerFunction`.
+ */
+export interface OperatorExprDef {
+  kind: 'operator';
+  /** A registered operator name (`&&`, `<->`, `@>`). */
+  op: string;
+  /** Operands keyed by declared operand name. */
+  args: Record<string, ExprDef>;
+}
+
+/**
  * A type-valued function call (produces rows; usable as a source). `args` are
  * keyed by declared parameter name.
  */
@@ -806,6 +829,7 @@ export type ExprDef =
   | WindowExprDef
   | FunctionCallExprDef
   | TabularFunctionCallExprDef
+  | OperatorExprDef
   | SemanticExprDef
   | TextSearchExprDef
   | TextScoreExprDef

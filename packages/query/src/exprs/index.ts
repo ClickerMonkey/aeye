@@ -25,6 +25,7 @@ import { AggregateExpr } from './aggregate';
 import { WindowExpr } from './window';
 import { FunctionCallExpr } from './function-call';
 import { TabularFunctionCallExpr } from './tabular-function-call';
+import { OperatorExpr } from './operator';
 import { SemanticExpr } from './semantic';
 import { TextSearchExpr } from './text-search';
 import { TextScoreExpr } from './text-score';
@@ -52,6 +53,7 @@ export {
   WindowExpr,
   FunctionCallExpr,
   TabularFunctionCallExpr,
+  OperatorExpr,
   SemanticExpr,
   TextSearchExpr,
   TextScoreExpr,
@@ -81,6 +83,7 @@ export const BUILTIN_EXPRS: readonly ExprClass[] = [
   WindowExpr,
   FunctionCallExpr,
   TabularFunctionCallExpr,
+  OperatorExpr,
   SemanticExpr,
   TextSearchExpr,
   TextScoreExpr,

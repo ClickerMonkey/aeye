@@ -25,7 +25,8 @@ import { INVALID, isRecord, type Shape } from './shape';
 import { aidInfo, describeInput, didYouMean } from './aids';
 import type { Query, QueryClass } from './queries/query';
 import { QuerySource } from './queries/source';
-import type { FunctionRun } from './runtime/functions';
+import { QueryOperator, type OperatorDef } from './operator';
+import type { FunctionRun, OperatorRun } from './runtime/functions';
 import type { Dialect } from './sql/dialect';
 import type { TypeBacking, DefaultCondition } from './backing';
 import { Type } from './type';
@@ -612,6 +613,86 @@ export class Registry {
   /** Look up a function's runtime implementation, if any. */
   functionRun(name: string): FunctionRun | undefined {
     return this.functionRuns.get(name);
+  }
+
+  // ─── Operator registration (`&&`, `<->`, `@>`) ────────────────────────────
+
+  /** Registered operators by name, COMPILED (see `operator.ts`). */
+  private readonly operators = new Map<string, QueryOperator>();
+  /** Runtime implementations of registered operators. */
+  private readonly operatorRuns = new Map<string, OperatorRun>();
+
+  /**
+   * Register an OPERATOR — a name whose SQL a declaration supplies, per dialect
+   * (`{ postgres: '({left} && {right})' }`).
+   *
+   * Every check the declaration is held to runs HERE and throws a
+   * `QueryTypeError` (`operator.bad-declaration`) — see `QueryOperator.compile`.
+   * COMPILED EAGERLY, unlike a `FunctionDef`, which the engine parses lazily on
+   * first call: a defect in an emit template has no meaning at a call site, and
+   * a failure there has no declaration to attribute it to.
+   *
+   * ORDERING: an operand naming a field-type refinement (`{kind:'json',
+   * as:'Geometry'}`) needs that refinement registered FIRST, and says so with
+   * `field-type.unknown-refinement`. Registering an operator does NOT freeze the
+   * refinement vocabulary, so the reverse order stays open — the operand types
+   * parse through the unflagged road for exactly that reason.
+   */
+  registerOperator(def: OperatorDef): this {
+    const operator = QueryOperator.compile(def, this, (json) => this.parseFieldTypeUnflagged(json));
+    this.operators.set(operator.name, operator);
+    return this;
+  }
+
+  /** Look up a registered operator by name, or `undefined`. */
+  operator(name: string): QueryOperator | undefined {
+    return this.operators.get(name);
+  }
+
+  /** Enumerate every registered operator (for docs / describe / schema generation). */
+  operatorList(): QueryOperator[] {
+    return Array.from(this.operators.values());
+  }
+
+  /**
+   * The registered operator NAMES — the closed vocabulary an `OperatorExprDef.op`
+   * may name in THIS registry. What the generated schema renders as a `z.enum`,
+   * and therefore what stops a model inventing an operator that does not exist.
+   */
+  operatorNames(): string[] {
+    return Array.from(this.operators.keys());
+  }
+
+  /**
+   * Register an operator's IN-MEMORY implementation — the counterpart of
+   * `registerFunctionRun`, and the code half of a declaration that is otherwise
+   * pure JSON.
+   *
+   * The DECLARATION must already be registered. A run for an unknown operator is
+   * refused rather than stored against a name nothing dispatches, because the
+   * failure is otherwise perfectly silent: `engine.run` would answer NULL for
+   * every row and the SQL road would keep working, so the typo would surface as
+   * a data defect rather than as an error.
+   */
+  registerOperatorRun(name: string, run: OperatorRun): this {
+    if (!this.operators.has(name)) {
+      const names = this.operatorNames();
+      throw new QueryTypeError({
+        path: ['registerOperatorRun', name],
+        code: 'operator.unknown',
+        severity: 'error',
+        message:
+          `No operator '${name}' is registered.${didYouMean(name, names)} ` +
+          `(registered: ${names.length > 0 ? names.join(', ') : 'none'}). Register the DECLARATION first.`,
+      });
+    }
+    this.operatorRuns.set(name, run);
+    return this;
+  }
+
+  /** Look up an operator's runtime implementation, if any. */
+  operatorRun(name: string): OperatorRun | undefined {
+    return this.operatorRuns.get(name);
   }
 
   // ─── Expr / Query / Dialect registration (later phases) ───────────────────

@@ -59,6 +59,19 @@ export type WindowRun = (
   ctx: RuntimeContext,
 ) => MaybePromise<Value>;
 
+/**
+ * A registered OPERATOR's implementation: its named operands in, a single
+ * `Value` out — structurally a {@link ScalarRun}, and deliberately a NAME of its
+ * own rather than a reuse of that alias.
+ *
+ * There is no shape TAG here, because an operator has exactly one shape. That is
+ * also why `registerOperatorRun` takes the closure directly while
+ * `registerFunctionRun` takes a `{ shape, run }` pair: the tag exists on the
+ * function side to stop an aggregate def being given a scalar run, and an
+ * operator has no second shape to be confused with.
+ */
+export type OperatorRun = (args: NamedArgs, ctx: RuntimeContext) => MaybePromise<Value>;
+
 /** The reserved named-arg key carrying a window row's ORDER-BY key. */
 export const WINDOW_ORDER_ARG = '$order';
 
@@ -92,6 +105,27 @@ export async function runScalarFunction(
   const impl = engine.functionRun(name);
   if (impl && impl.shape === 'scalar') return impl.run(args, ctx);
   return Value.null();
+}
+
+/**
+ * Run a registered OPERATOR over its named operands (NULL if no implementation
+ * is registered).
+ *
+ * Same discipline as `runScalarFunction`, and the same honest limit: an operator
+ * whose `emit` is declared but whose `run` is not is a SQL-ROAD operator, and
+ * asking `engine.run` for it yields NULL rather than throwing. That is the
+ * documented behaviour of every missing run in this package, and the position a
+ * registered type is in today anyway — `Value.compareTo` has no per-type hook,
+ * so a custom type's in-memory ordering is stringified regardless.
+ */
+export async function runOperator(
+  engine: QueryEngine,
+  name: string,
+  args: NamedArgs,
+  ctx: RuntimeContext,
+): Promise<Value> {
+  const impl = engine.operatorRun(name);
+  return impl ? impl(args, ctx) : Value.null();
 }
 
 /** Run a registered TABULAR function over its named args (empty rows if absent). */

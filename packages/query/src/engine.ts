@@ -36,11 +36,12 @@ import type { Query, QueryReferences, QueryResult, QueryResultArray } from './qu
 import type { ParamInfo } from './param';
 import { toArrayRows } from './queries/query';
 import type { TypeExecutor } from './runtime/executor';
-import type { FunctionRun } from './runtime/functions';
+import type { FunctionRun, OperatorRun } from './runtime/functions';
 import { Expr, ROOT_VALIDATE_CONTEXT } from './expr';
 import { QueryScope } from './scope';
 import { Problems } from './problem';
 import { QueryFunction } from './function';
+import type { QueryOperator } from './operator';
 import { RuntimeContext, type RuntimeOptions } from './runtime/context';
 import type { SourceRow } from './runtime/row';
 import type { Value } from './runtime/value';
@@ -350,6 +351,22 @@ export class QueryEngine {
     const fn = QueryFunction.from(def, this.registry);
     this.functionCache.set(name, fn);
     return fn;
+  }
+
+  /**
+   * Look up a registered OPERATOR by name, or `undefined`.
+   *
+   * No cache, unlike {@link lookupFunction}: an operator is COMPILED at
+   * registration (an emit template is only ever wrong at its declaration), so
+   * the registry already holds the parsed instance and this is a map read.
+   */
+  lookupOperator(name: string): QueryOperator | undefined {
+    return this.registry.operator(name);
+  }
+
+  /** An operator's runtime implementation, if registered on the registry. */
+  operatorRun(name: string): OperatorRun | undefined {
+    return this.registry.operatorRun(name);
   }
 
   // ─── Scope ──────────────────────────────────────────────────────────────

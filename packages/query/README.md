@@ -1019,6 +1019,36 @@ registry.functionList();            // every FunctionDef (default lib + your own
 describeFunctions(engine);          // a promptable, by-shape listing for an LLM
 ```
 
+### Operators — `&&`, `<->`, `@>`
+
+A function declaration cannot express an INFIX operator: `a && b` has no call
+form in any dialect, and `FunctionDef.sql` is a NAME, never a template.
+`registerOperator` is the other half — a declaration whose SQL is a per-dialect
+template, applied through the `operator` expr kind:
+
+```ts
+registry.registerOperator({
+  name: '&&',                                     // SQL operator punctuation only
+  operands: [{ name: 'left', type: { kind: 'json', as: 'Geometry' } },
+             { name: 'right', type: { kind: 'json', as: 'Geometry' } }],
+  output: { kind: 'bool' },                       // concrete, never 'inferred'
+  instructions: 'Bounding-box overlap between two geometries. Cheap; a pre-filter for ST_Contains.',
+  emit: { postgres: '({left} && {right})' },      // PARENTHESIZED; per Dialect.name
+  selectivity: 0.1,
+});
+registry.registerOperatorRun('&&', (args) => Value.of(bboxOverlaps(args.left, args.right)));
+
+// reference it by name with NAMED operands:
+// { kind: 'operator', op: '&&', args: { left: <expr>, right: <expr> } }
+```
+
+`registry.operatorList()` enumerates them; `describeOperators(engine)` renders
+the promptable block (and `describeEngine` includes it when any is registered).
+A dialect with no `emit` entry is **refused** at emit
+(`operator.unsupported-dialect`), never degraded to a neutral fragment. Full
+rules — the name charset, the five template checks, and what `OperatorDef`
+deliberately does not carry — are in `aeye-query.md`.
+
 ### Function reference
 
 All builtin names are **camelCase** (no underscores). Where the emitted SQL
@@ -1214,6 +1244,7 @@ unusable construct. A kind appears only when it is applicable:
 | joins | some Type has a relation field |
 | `tabular-function-call` | ≥1 selected `tabular` function |
 | `aggregate` / `window` / `function-call` | ≥1 selected function of that shape |
+| `operator` | ≥1 registered operator whose operand type some in-scope field could supply |
 | `filters` | some Type has filterable fields |
 
 The always-usable core (literal / param / binary / unary / comparison / logical

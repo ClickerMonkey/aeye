@@ -59,6 +59,7 @@ import type { SchemaOptions } from './node';
 import { QueryTypeError } from './problem';
 import type { Registry } from './registry';
 import type { FieldTypeDef, JsonValue } from './schema';
+import { isSlot, scanTemplate, templateSlotNames, type Template, type TemplatePart } from './sql-template';
 
 /**
  * Allowed charset for a registered refinement NAME.
@@ -86,9 +87,6 @@ export const REFINEMENT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
  * cast cannot resolve at registration because it is per-row data.
  */
 const CAST_VALUE_SLOT = 'value';
-
-/** Every `{slot}` occurrence in a template. */
-const TEMPLATE_SLOT = /\{([^{}]*)\}/g;
 
 /**
  * What an option value may look like when it is INTERPOLATED into a SQL
@@ -549,25 +547,6 @@ function templateSlots(options: object): Map<string, string> {
 }
 
 /**
- * One piece of a compiled template: literal SQL the declarer wrote, or a slot
- * still to be filled per column.
- *
- * A LIST rather than a string with placeholders left in it, because the two
- * unresolved slot kinds — an own option and a cast's `{value}` — are filled by
- * different machinery at different times, and re-scanning for `{…}` at emit
- * would let a resolved value that happened to contain braces be read as a slot.
- */
-type TemplatePart = { readonly text: string } | { readonly slot: string };
-
-/** A compiled template — literal parts and the slots still to be filled. */
-type Template = readonly TemplatePart[];
-
-/** Whether `part` is an unresolved slot (the discriminator, in one place). */
-function isSlot(part: TemplatePart): part is { readonly slot: string } {
-  return 'slot' in part;
-}
-
-/**
  * An option this refinement declares FOR ITSELF, compiled: its declared type as
  * a `FieldType` (so a site's value is checked by the machinery that already
  * checks every other value) beside the declaration it came from.
@@ -600,39 +579,27 @@ function compileTemplate(
   deferred: ReadonlySet<string>,
   keep?: string,
 ): Template {
-  const parts: TemplatePart[] = [];
-  let at = 0;
-  TEMPLATE_SLOT.lastIndex = 0;
-  for (let m = TEMPLATE_SLOT.exec(template); m !== null; m = TEMPLATE_SLOT.exec(template)) {
-    const slot = m[1] ?? '';
-    if (m.index > at) parts.push({ text: template.slice(at, m.index) });
-    at = m.index + m[0].length;
+  return scanTemplate(template, (slot): TemplatePart => {
     const constant = constants.get(slot);
-    if (constant !== undefined) parts.push({ text: constant });
-    else if (slot === keep || deferred.has(slot)) parts.push({ slot });
-    else {
-      const candidates = [...constants.keys(), ...deferred, ...(keep === undefined ? [] : [keep])];
-      refuse(
-        name,
-        path,
-        `SQL template ${JSON.stringify(template)} names \`{${slot}}\`, which is not an interpolable ` +
-          `declared option of \`${name}\`.${didYouMean(slot, candidates)} ` +
-          `(interpolable: ${candidates.length > 0 ? candidates.map((c) => `\`{${c}}\``).join(', ') : 'none'}). ` +
-          'A slot must name an option whose value is a bare identifier or number token — the templates ' +
-          'are raw-interpolated into emitted SQL, so anything else is refused rather than quoted.',
-      );
-    }
-  }
-  if (at < template.length) parts.push({ text: template.slice(at) });
-  return parts;
+    if (constant !== undefined) return { text: constant };
+    if (slot === keep || deferred.has(slot)) return { slot };
+    const candidates = [...constants.keys(), ...deferred, ...(keep === undefined ? [] : [keep])];
+    refuse(
+      name,
+      path,
+      `SQL template ${JSON.stringify(template)} names \`{${slot}}\`, which is not an interpolable ` +
+        `declared option of \`${name}\`.${didYouMean(slot, candidates)} ` +
+        `(interpolable: ${candidates.length > 0 ? candidates.map((c) => `\`{${c}}\``).join(', ') : 'none'}). ` +
+        'A slot must name an option whose value is a bare identifier or number token — the templates ' +
+        'are raw-interpolated into emitted SQL, so anything else is refused rather than quoted.',
+    );
+  });
 }
 
 /** Every own-option slot `template` still carries (`{value}` excluded). */
 function deferredSlots(template: Template): Set<string> {
-  const slots = new Set<string>();
-  for (const part of template) {
-    if (isSlot(part) && part.slot !== CAST_VALUE_SLOT) slots.add(part.slot);
-  }
+  const slots = templateSlotNames(template);
+  slots.delete(CAST_VALUE_SLOT);
   return slots;
 }
 
