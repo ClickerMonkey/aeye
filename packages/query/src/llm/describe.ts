@@ -135,22 +135,31 @@ function quals(parts: readonly string[]): string {
 /**
  * The kind-specific part of a type tag, without its own closed value set.
  *
- * A registered REFINEMENT is the FIRST qualifier on every kind — `text(uuid)`,
- * `text(uuid,search)`, `json(geometry)` — because it is the most specific true
- * thing about the column and the one a model should read before the base's own
- * flags. It renders VERBATIM: a model reads this surface and a sibling type
- * system's in one session, and a spelling difference between them reads as two
- * different types.
+ * A registered REFINEMENT is the FIRST qualifier on every kind —
+ * `text(as uuid)`, `text(as uuid,search)`, `json(as Geometry)` — because it is
+ * the most specific true thing about the column and the one a model should read
+ * before the base's own flags. The NAME renders VERBATIM: a model reads this
+ * surface and a sibling type system's in one session, and a spelling difference
+ * between them reads as two different types.
+ *
+ * The `as ` prefix is not decoration. A bare first qualifier is AMBIGUOUS on any
+ * kind that already has a non-flag one — `money(Usd,USD)` gives a model no way
+ * to tell which token is the refinement and which the currency — and the prefix
+ * doubles as the answer, because it names the very key the model has to write to
+ * ask for one (`{kind:'money', as:'Usd'}`).
  */
 function fieldTypeBase(ft: FieldType): string {
   const parts: string[] = [];
-  if (ft.as !== undefined) parts.push(ft.as);
+  if (ft.as !== undefined) parts.push(`as ${ft.as}`);
   if (ft instanceof ArrayFieldType) {
     // The element type is where an array's constraints actually live — without
     // it the model cannot author an element at all, let alone a member of a set.
     return `array${quals(parts)}${ft.item ? `<${typeTag(ft.item)}>` : ''}`;
   }
   if (ft instanceof RelationFieldType) {
+    // A `relation` is not refinable (`REFINABLE_BASES`), so `parts` is empty
+    // here for any type this package built — the qualifier is kept for
+    // uniformity rather than to render something.
     return `relation${quals(parts)}→${ft.to}×${ft.count}`;
   }
   if (ft instanceof MoneyFieldType) {

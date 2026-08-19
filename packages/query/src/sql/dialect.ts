@@ -24,6 +24,15 @@ import type { DialectEntry } from '../registry';
  * projects a relation — shifting the positions of the real ones. Quotes are
  * doubled defensively even though these names come from the meta-model.
  */
+export function jsonObjectArgs(entries: readonly { key: string; value: SqlText }[]): SqlText[] {
+  const args: SqlText[] = [];
+  for (const e of entries) {
+    args.push(SqlText.raw(`'${e.key.replace(/'/g, "''")}'`));
+    args.push(e.value);
+  }
+  return args;
+}
+
 /**
  * A refinement's declared cast, with the bound `value` spliced back into its
  * `{value}` slot(s). `segments` are the literal parts around those slots,
@@ -42,15 +51,6 @@ function renderCast(segments: readonly string[], value: SqlText): SqlText {
     if (segment !== '') parts.push(SqlText.raw(segment));
   });
   return SqlText.concat(parts);
-}
-
-export function jsonObjectArgs(entries: readonly { key: string; value: SqlText }[]): SqlText[] {
-  const args: SqlText[] = [];
-  for (const e of entries) {
-    args.push(SqlText.raw(`'${e.key.replace(/'/g, "''")}'`));
-    args.push(e.value);
-  }
-  return args;
 }
 
 export abstract class Dialect implements DialectEntry {

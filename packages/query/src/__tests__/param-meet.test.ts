@@ -64,17 +64,28 @@ import type { ExprDef, FieldTypeKind, FieldValueDef, JsonValue, SelectDef, TypeD
  * on its own below rather than inside the algebra loops.
  */
 /**
- * A registry carrying three REFINEMENTS, so the set below can hold refined
- * shapes and the four laws cover `as` as well as the option bags.
+ * A registry carrying a REFINEMENT over every refinable base, so the set below
+ * can hold refined shapes and the four laws cover `as` as well as the options.
  *
  * `as` merges through the existing flat `meetExact` — a registered name meets
  * only itself, an unrefined base is TOP — so there is deliberately NO new
- * lattice law to state. The entries are arranged to prove that rather than
- * assume it: two refinements over the SAME base (which must conflict with each
- * other and each subsume their base), one over a base with NO options at all
- * (`bool`, whose `meetWith` default is "no meet" and which therefore only obeys
- * `x ⊓ ⊤ = x` because the short-circuit compares BUILTIN defs), and a refined
- * shape a use site has narrowed further.
+ * lattice law to state. THE ARRANGEMENT IS THE PART THAT MATTERS, and it is
+ * chosen from a measured miss: an earlier pass of this set refined `text` and
+ * `bool` only, and therefore could not see that a CROSS-KIND meet
+ * (`number`↔`money`, `date`↔`timestamp` — the two families that have one) was
+ * stapling the tag onto the OTHER kind's instance and producing a def the
+ * registry itself throws on. The same "the sample excluded the counterexample"
+ * shape as the closed-set meet earlier in this release. So:
+ *
+ *  - two refinements over ONE base (`uuid` / `Slug`), which must conflict with
+ *    each other and each subsume their base;
+ *  - one over a base with NO options at all (`Flag` over `bool`, whose
+ *    `meetWith` default is "no meet", so it obeys `x ⊓ ⊤ = x` only because the
+ *    short-circuit compares BUILTIN defs);
+ *  - one over EACH side of both cross-kind families (`Score`, `Usd`, `Day`,
+ *    `Instant`);
+ *  - one over a base carrying a closed `values` set (`Status`);
+ *  - and a refined shape a use site has narrowed further (`uuidNarrowed`).
  */
 const REFINED = createRegistry()
   .registerFieldType({
@@ -88,8 +99,31 @@ const REFINED = createRegistry()
     options: { maxLength: 80, pattern: '^[a-z0-9-]+$' },
   })
   .registerFieldType({
-    name: 'Flag', base: 'bool',
-    instructions: 'A feature flag.',
+    name: 'Status', base: 'text',
+    instructions: 'An application status.',
+    options: { values: [{ value: 'a' }, { value: 'bb' }] },
+  })
+  .registerFieldType({ name: 'Flag', base: 'bool', instructions: 'A feature flag.' })
+  .registerFieldType({
+    name: 'Score', base: 'number',
+    instructions: 'A 0–100 whole score.',
+    options: { min: 0, max: 100, whole: true },
+  })
+  .registerFieldType({
+    name: 'Usd', base: 'money',
+    instructions: 'An amount in US dollars.',
+    options: { currency: 'USD' },
+  })
+  .registerFieldType({ name: 'Day', base: 'date', instructions: 'A calendar day.' })
+  .registerFieldType({
+    name: 'Instant', base: 'timestamp',
+    instructions: 'A UTC instant.',
+    options: { timezone: true },
+  })
+  .registerFieldType({
+    name: 'Tags', base: 'array',
+    instructions: 'A bounded list of tags.',
+    options: { maxItems: 8, item: { kind: 'text' } },
   });
 
 const TYPES: Readonly<Record<string, FieldType>> = {
@@ -97,7 +131,15 @@ const TYPES: Readonly<Record<string, FieldType>> = {
   uuid: REFINED.parseFieldType({ kind: 'text', as: 'uuid' }),
   uuidNarrowed: REFINED.parseFieldType({ kind: 'text', as: 'uuid', pattern: '^f' }),
   slug: REFINED.parseFieldType({ kind: 'text', as: 'Slug' }),
+  statusEnum: REFINED.parseFieldType({ kind: 'text', as: 'Status' }),
   flag: REFINED.parseFieldType({ kind: 'bool', as: 'Flag' }),
+  score: REFINED.parseFieldType({ kind: 'number', as: 'Score' }),
+  usd: REFINED.parseFieldType({ kind: 'money', as: 'Usd' }),
+  day: REFINED.parseFieldType({ kind: 'date', as: 'Day' }),
+  instant: REFINED.parseFieldType({ kind: 'timestamp', as: 'Instant' }),
+  tags: REFINED.parseFieldType({ kind: 'array', as: 'Tags' }),
+  // A refined ELEMENT inside an unrefined container.
+  arrUuid: REFINED.parseFieldType({ kind: 'array', item: { kind: 'text', as: 'uuid' } }),
   textMin5: new TextFieldType({ minLength: 5 }),
   textMax10: new TextFieldType({ maxLength: 10 }),
   textMin12: new TextFieldType({ minLength: 12 }),

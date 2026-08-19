@@ -147,17 +147,6 @@ export interface FieldTypeRefinementDefFor<B extends ScalarKind> {
    */
   readonly options?: FieldTypeOptionsOf<B>;
   /**
-   * A STRICTER value gate than the base's own (`z.uuid()` for a `uuid`). It is
-   * applied in CONJUNCTION with the field's own schema, never as a replacement —
-   * see `FieldType.toValueSchema`.
-   *
-   * The one part of a declaration that is code rather than data, so it does not
-   * persist and does not reach a model. `FieldTypeDef` has no record branch, so
-   * this is also the declared home of a STRUCTURAL value contract for a
-   * refinement whose raw value is an object.
-   */
-  readonly value?: z.ZodTypeAny;
-  /**
    * Per-dialect SQL TYPE — the CAST target for a value of this type, keyed by
    * `Dialect.name`. `{slot}` names a declared option and is resolved at
    * REGISTRATION (the options are constants). A dialect with no entry falls back
@@ -165,13 +154,21 @@ export interface FieldTypeRefinementDefFor<B extends ScalarKind> {
    */
   readonly sql?: Readonly<Record<string, string>>;
   /**
-   * Per-dialect CAST of a bound value INTO this type, keyed by `Dialect.name`.
-   * `{value}` is the bound parameter slot and must appear at least once; every
-   * other `{slot}` names a declared option and resolves at registration.
+   * Per-dialect CAST of a bound DOCUMENT into this type, keyed by
+   * `Dialect.name`. `{value}` is the bound parameter slot and must appear at
+   * least once; every other `{slot}` names a declared option and resolves at
+   * registration.
    *
-   * A dialect with no entry falls back to the BASE's cast — a fallback, not a
-   * degrade, because the base's answer is a real answer for a value of the base
-   * type.
+   * ONLY DECLARABLE ON A BASE WHOSE VALUES ROUTE THROUGH `Dialect.jsonValue`
+   * (see {@link CAST_CAPABLE_BASES}) — a scalar predicate binds its value
+   * directly and there is no seam for a template to reach, so a `cast` on a
+   * `text` base would validate at registration and then be silently inert on
+   * every predicate over the column. It is refused instead. What a scalar base
+   * declares is `sql`, the cast TARGET.
+   *
+   * A cast-capable base with no entry for a dialect falls back to the BASE's
+   * cast — a fallback, not a degrade, because the base's answer is a real answer
+   * for a value of the base type.
    */
   readonly cast?: Readonly<Record<string, string>>;
   /** Estimated average stored bytes, when the base's own estimate is wrong (a `uuid` is 16, not 32). */
@@ -186,9 +183,42 @@ export interface FieldTypeRefinementDefFor<B extends ScalarKind> {
 /**
  * A field-type refinement declaration. A discriminated union over `base`, so
  * `{ base: 'text' }` type-checks its `options` against the `text` branch and
- * nothing else.
+ * nothing else — and `relation` is not a member at all, so an unrefinable base
+ * is a COMPILE error rather than only a registration one (the runtime check
+ * stays, for a caller with no types).
  */
-export type FieldTypeRefinementDef = { [B in ScalarKind]: FieldTypeRefinementDefFor<B> }[ScalarKind];
+export type FieldTypeRefinementDef = { [B in RefinableBase]: FieldTypeRefinementDefFor<B> }[RefinableBase];
+
+/**
+ * The CODE half of a refinement — `registry.registerFieldTypeImpl(name, impl)`,
+ * the exact counterpart of `registerFunctionRun` beside `registerFunction`.
+ *
+ * IT IS SPLIT FROM THE DECLARATION FOR A MEASURED REASON, not for symmetry. A
+ * `FieldTypeRefinementDef` is what a consumer PERSISTS and replays at boot, and
+ * a zod schema does not vanish under `JSON.stringify` — it stringifies into a
+ * plausible husk that survives the round-trip, passes every registration check,
+ * and then throws a raw `TypeError` out of zod's internals at the first
+ * `validValue()`: no `QueryTypeError`, no code, no path, and the strictest gate
+ * on that column silently dead. Keeping a schema on the declaration would make
+ * that the DEFAULT outcome of doing the obvious thing with it. With the split,
+ * a declaration is pure JSON and round-trips honestly, and the half that cannot
+ * survive a round-trip is the half nobody tries to store.
+ *
+ * Later members (`compareValues`, `equalValues` for the in-memory runtime) land
+ * here too; today there is one.
+ */
+export interface FieldTypeImpl {
+  /**
+   * A STRICTER value gate than the base's own (`z.uuid()` for a `uuid`), applied
+   * in CONJUNCTION with the field's own schema — never as a replacement, since a
+   * use site may narrow further and answering with this alone would admit values
+   * the field's own options refuse (see `FieldType.toValueSchema`).
+   *
+   * `FieldTypeDef` has no record branch, so this is also the declared home of a
+   * STRUCTURAL value contract for a refinement whose raw value is an object.
+   */
+  readonly value?: z.ZodTypeAny;
+}
 
 /**
  * The OPTION-FREE def of each builtin kind — the target the declared `options`
@@ -203,12 +233,11 @@ export type FieldTypeRefinementDef = { [B in ScalarKind]: FieldTypeRefinementDef
  * branch, because it will not see through the `Omit` that `FieldTypeOptionsOf`
  * is built from. Same object at runtime, and no cast.
  *
- * `relation` is the one kind with no option-free form (`to` is an identity, not
- * a constraint), so its entry is a placeholder that a declaration MUST overwrite
- * — enforced in `compile`, which refuses a `relation` refinement declaring no
- * options rather than letting the empty `to` register.
+ * `relation` is absent because a `relation` BASE is refused outright
+ * ({@link REFINABLE_BASES}) — it is also the one kind with no option-free form,
+ * which is the same fact seen from the other side.
  */
-const BARE_DEF_OF: Readonly<Record<ScalarKind, () => FieldTypeDef>> = {
+const BARE_DEF_OF: Readonly<Record<RefinableBase, () => FieldTypeDef>> = {
   number: () => ({ kind: 'number' }),
   text: () => ({ kind: 'text' }),
   money: () => ({ kind: 'money' }),
@@ -217,8 +246,37 @@ const BARE_DEF_OF: Readonly<Record<ScalarKind, () => FieldTypeDef>> = {
   timestamp: () => ({ kind: 'timestamp' }),
   json: () => ({ kind: 'json' }),
   array: () => ({ kind: 'array' }),
-  relation: () => ({ kind: 'relation', to: '', count: 1 }),
 };
+
+/**
+ * The bases a refinement may narrow: every `ScalarKind` EXCEPT `relation`.
+ *
+ * A relation carries an IDENTITY (`to`) and a cardinality ESTIMATE (`count`),
+ * neither of which is a constraint a name can narrow — the same fact
+ * `param-meet.test.ts` already records by giving `relation` no TOP ("its `to` is
+ * an identity, not a constraint, so there is no relation that constrains
+ * nothing"). Measured consequence of allowing it: a site had to restate `to` and
+ * `count` verbatim, which is the exact duplication this feature removes, and a
+ * declaration that named only `count` registered cleanly and then refused every
+ * column that used it, blaming the column. Refused at the declaration instead.
+ */
+export const REFINABLE_BASES = SCALAR_KINDS.filter((kind) => kind !== 'relation');
+
+/** A base a refinement may narrow (see {@link REFINABLE_BASES}). */
+export type RefinableBase = Exclude<ScalarKind, 'relation'>;
+
+/**
+ * The bases whose VALUES are bound through `Dialect.jsonValue` — the ONE seam a
+ * declared `cast` template can reach.
+ *
+ * `writeCellSql` routes a cell there when the value is an object or the column
+ * is `json`; every other road (a scalar comparison, a literal, a bound param)
+ * emits the value directly. So a `cast` on a `text` base validates at
+ * registration and can then never fire — measured on the documented `uuid`
+ * example, whose predicate stayed `WHERE "thing"."id" = $1`. It is refused
+ * rather than accepted-and-inert.
+ */
+const CAST_CAPABLE_BASES: ReadonlySet<ScalarKind> = new Set<ScalarKind>(['json', 'array']);
 
 /** Throw a declaration-defect `QueryTypeError` for refinement `name`. */
 function refuse(name: string, path: (string | number)[], message: string): never {
@@ -299,8 +357,6 @@ export class FieldTypeRefinement {
      * site's type is a pure options meet.
      */
     readonly declared: FieldType,
-    /** The declaration's stricter value gate, or `undefined`. */
-    readonly value: z.ZodTypeAny | undefined,
     /** The declared average stored bytes, or `undefined` to keep the base's estimate. */
     readonly avgBytes: number | undefined,
     /** Fully-resolved SQL type per dialect name. */
@@ -310,6 +366,31 @@ export class FieldTypeRefinement {
     /** Who declared it, when they said. */
     readonly declaredBy: string | undefined,
   ) {}
+
+  /** The CODE half, when one has been registered (see {@link FieldTypeImpl}). */
+  private impl: FieldTypeImpl | undefined;
+
+  /**
+   * The stricter value gate this refinement's IMPL supplies, or `undefined`.
+   * Read by `FieldType.toValueSchema`, which conjoins it with the field's own.
+   */
+  get value(): z.ZodTypeAny | undefined {
+    return this.impl?.value;
+  }
+
+  /**
+   * Attach the code half. Called only by `Registry.registerFieldTypeImpl`, which
+   * owns the checks (that the impl is registered once, that a supplied `value`
+   * is really a zod schema, and that the catalog has not been parsed yet).
+   */
+  attachImpl(impl: FieldTypeImpl): void {
+    this.impl = impl;
+  }
+
+  /** Whether a code half has already been attached (the registry's once-only check). */
+  get hasImpl(): boolean {
+    return this.impl !== undefined;
+  }
 
   /**
    * Validate and compile a declaration. Every check is cheap because the
@@ -346,11 +427,27 @@ export class FieldTypeRefinement {
           'which package registered last.',
       );
     }
-    if (!SCALAR_KINDS.includes(def.base)) {
+    // Read as a plain string: `def.base` is typed `RefinableBase`, so `relation`
+    // is already a compile error — this is the runtime half, for an untyped
+    // caller, and it earns its own message because it is the one base a declarer
+    // has a reason to try.
+    const base: string = def.base;
+    if (base === 'relation') {
       refuse(
         name,
         ['base'],
-        `\`base\` must be one of ${SCALAR_KINDS.join(' | ')}, got ${JSON.stringify(def.base)}. ` +
+        'A `relation` cannot be refined. Its `to` is an IDENTITY and its `count` a cardinality ESTIMATE, ' +
+          'neither of which is a constraint a name can narrow — so a use site would have to restate both ' +
+          'verbatim (the duplication a refinement exists to remove) and a declaration naming only one of ' +
+          `them would refuse every column that used it. Refine what the relation POINTS AT instead. ` +
+          `Refinable bases: ${REFINABLE_BASES.join(' | ')}.`,
+      );
+    }
+    if (!REFINABLE_BASES.includes(def.base)) {
+      refuse(
+        name,
+        ['base'],
+        `\`base\` must be one of ${REFINABLE_BASES.join(' | ')}, got ${JSON.stringify(def.base)}. ` +
           'A refinement reuses a builtin bucket — that is what keeps every SQL, cost and comparability ' +
           'path total.',
       );
@@ -366,15 +463,6 @@ export class FieldTypeRefinement {
     }
     if (def.avgBytes !== undefined && (!Number.isFinite(def.avgBytes) || def.avgBytes <= 0)) {
       refuse(name, ['avgBytes'], `\`avgBytes\` must be a finite number greater than 0, got ${JSON.stringify(def.avgBytes)}.`);
-    }
-
-    if (def.base === 'relation' && def.options === undefined) {
-      refuse(
-        name,
-        ['options'],
-        'A `relation` refinement must declare `options` naming its `to` Type and `count` — a relation ' +
-          'carries an identity rather than a constraint, so there is no option-free form of one.',
-      );
     }
 
     // The options are parsed by the SAME road a builtin def takes, so a bad
@@ -408,7 +496,19 @@ export class FieldTypeRefinement {
     }
 
     const casts = new Map<string, readonly string[]>();
-    for (const [dialect, template] of Object.entries(def.cast ?? {})) {
+    const declaredCasts = Object.entries(def.cast ?? {});
+    if (declaredCasts.length > 0 && !CAST_CAPABLE_BASES.has(def.base)) {
+      refuse(
+        name,
+        ['cast'],
+        `A \`${def.base}\` refinement cannot declare a \`cast\`. Only a value bound through ` +
+          `\`Dialect.jsonValue\` reaches a cast template (bases: ${[...CAST_CAPABLE_BASES].join(' | ')}); ` +
+          `a \`${def.base}\` predicate binds its value directly, so the template would be accepted here ` +
+          'and then silently inert on every predicate over the column. Declare `sql` — the cast TARGET — ' +
+          'instead.',
+      );
+    }
+    for (const [dialect, template] of declaredCasts) {
       const resolved = resolveTemplate(name, ['cast', dialect], template, slots, CAST_VALUE_SLOT);
       const segments = resolved.split(`{${CAST_VALUE_SLOT}}`);
       if (segments.length < 2) {
@@ -428,7 +528,6 @@ export class FieldTypeRefinement {
       def.base,
       def.instructions,
       declared,
-      def.value,
       def.avgBytes,
       sqlTypes,
       casts,
@@ -490,7 +589,8 @@ export class FieldTypeRefinement {
 
 /**
  * The `as` KEY of one builtin branch's generated def schema — a `z.enum` of the
- * refinements registered over THAT base, or nothing at all when there are none.
+ * refinements registered over THAT base, or a key that REFUSES any value when
+ * none are.
  *
  * This is what makes the vocabulary REAL rather than advisory. The def schema is
  * what a model authors a Type against, and it was built from the static
@@ -505,13 +605,29 @@ export class FieldTypeRefinement {
  * system's in one session, and a spelling difference between them reads as two
  * different types.
  *
+ * THE EMPTY CASE IS A REFUSAL, NOT AN OMISSION, and the difference is the whole
+ * point of the key. Omitting it let zod STRIP an `as` a model wrote on a base
+ * with no registrations — and the normal pipeline is `Tool.parse` →
+ * `engine.parseType(result)`, so `parseType` never sees the raw def and the loud
+ * `field-type.unknown-refinement` never fires. The identical mistake was caught
+ * on `text` and silently discarded on `json`. `z.never()` refuses any value while
+ * `.optional()` keeps the key absent-able, and it is representable in JSON Schema
+ * (`{"not":{}}`) where `z.undefined()` is not.
+ *
  * Returns a spreadable fragment rather than a schema so a branch declares the
  * key exactly where it declares the rest of its wire shape.
  */
-export function refinementKeySchema(base: ScalarKind, opts?: SchemaOptions): { as?: z.ZodTypeAny } {
+export function refinementKeySchema(base: ScalarKind, opts?: SchemaOptions): { as: z.ZodTypeAny } {
   const registered = (opts?.registry?.fieldTypeRefinementList() ?? []).filter((r) => r.base === base);
   const [first, ...rest] = registered.map((r) => r.name);
-  if (first === undefined) return {};
+  if (first === undefined) {
+    return {
+      as: z
+        .never()
+        .optional()
+        .describe(`No registered type refines a ${base} here — omit \`as\`.`),
+    };
+  }
   const glossary = registered.map((r) => `${r.name} — ${r.instructions}`).join(' ');
   return {
     as: z

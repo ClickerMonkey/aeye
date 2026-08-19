@@ -422,20 +422,30 @@ there is still `param.untyped`.
 ### A registered REFINEMENT names a builtin — `{ kind: <base>, as: <name> }` (**additive**)
 
 The declared-type story from the other end. `registerFunction` lets a deployment add a VERB —
-this adds a NOUN, with the same split: the declaration is pure DATA (bar one optional zod
-schema), so it persists, rides the wire and reaches a model, and the library compiles it into a
-builtin instance. A declarer never writes a `FieldType` subclass, never writes `meetWith`, and
-therefore cannot break the lattice laws.
+this adds a NOUN, with the same split: the DECLARATION is pure JSON, so it persists, rides the
+wire and reaches a model; the CODE half is a separate call; and the library compiles the
+declaration into a builtin instance. A declarer never writes a `FieldType` subclass, never writes
+`meetWith`, and therefore cannot break the lattice laws.
 
 ```ts
 registry.registerFieldType({
   name: 'uuid', base: 'text',
   instructions: 'A UUID (RFC 4122) — lower-case, hyphenated, 36 characters.',
   options: { minLength: 36, maxLength: 36, casing: 'exact' },
-  value: z.uuid(), sql: { postgres: 'uuid' }, avgBytes: 16,
+  sql: { postgres: 'uuid' }, avgBytes: 16,
 });
+registry.registerFieldTypeImpl('uuid', { value: z.uuid() });   // the CODE half
 // then, on any Type:  { name: 'id', type: { kind: 'text', as: 'uuid' } }
 ```
+
+**THE SPLIT IS NOT COSMETIC — it is why the value gate is NOT on the declaration.** A declaration
+is what a consumer persists and replays at boot, and a zod schema does not FAIL a JSON round-trip:
+it survives as a plausible HUSK that passes every registration check and then throws a raw
+`TypeError` out of zod's own internals at the first `validValue()` — no `QueryTypeError`, no code,
+no path, and the strictest gate on that column silently dead. (A `value` that was never a schema
+at all was accepted just as quietly.) Behind `registerFieldTypeImpl`, the half that cannot survive
+a round-trip is the half nobody tries to store, and that road refuses a non-schema `value`, an
+unknown name, and a second impl for one name.
 
 **The spelling is the whole reason it is affordable.** The wire `kind` stays one of the nine
 builtins, so `ScalarKind` and `FieldTypeDef` never open, every `def.kind === 'text'` narrowing and
@@ -456,45 +466,83 @@ every use stands on: a use site's own options are MET with them, so a site may n
 of both), and a site that contradicts is REFUSED (`field-type.refinement-conflict`). `as` itself
 merges through the SAME flat `meetExact` that `pattern` / `currency` / `timezone` already use — a
 registered name meets only itself, an unrefined base is TOP, so `uuid ⊓ text = uuid` and two
-refinements of one base conflict. `param-meet.test.ts` now carries refined shapes in the set the
-four laws plus `x ⊓ ⊤ = x` are proved over, and **the set still passes with no carve-out**.
+refinements of one base conflict. `param-meet.test.ts` now carries a refined shape for every
+refinable base — including BOTH sides of both cross-kind families, one over a base with a closed
+`values` set, and a refined array element — in the set the four laws plus `x ⊓ ⊤ = x` are proved
+over, and **the set passes with no carve-out**.
 
-One internal consequence worth naming, because it is the only place the mechanism touched the
-existing algebra: `meet`'s identity short-circuit now compares the two BUILTIN defs rather than
-the two full defs. `meetWith`'s documented default is "no meet", correct for an option-less kind
-only BECAUSE two such types were always JSON-identical and never reached it — a refinement breaks
-that premise, and comparing full defs would have made `bool{as:'Flag'} ⊓ bool` answer `undefined`.
+Three consequences worth naming, because they are the only places the mechanism touched the
+existing algebra:
 
-**What the model sees.** `id: text(uuid)` in the type tag (the refinement FIRST, then the base's
-own flags — `text(uuid,search)`), the declaration's `instructions` as the generated description,
-and — the part that makes the vocabulary real rather than advisory — `as` rendered as a **`z.enum`
-of the names registered over that base** in the generated def schema, so a model cannot invent
-`as: 'uuid4'`. `fieldTypeDefSchema` and `Type.toSchema` are therefore REGISTRY-DRIVEN now: pass
-`opts.registry` (`Type.toSchema({ registry })`) or no `as` is offered at all. The name renders
-VERBATIM — never lower-cased, never decorated — because a model reads this surface and a sibling
-type system's in one session, and a spelling difference between them reads as two types. For the
-same reason the name pattern is `^[A-Za-z][A-Za-z0-9_]*$`: capitals are ALLOWED, matching the
-shipped `FUNCTION_NAME_PATTERN` that lets `ST_Contains` register, and measured to be necessary — a
-sibling library refuses a lower-case package type name, so a lower-case-only rule here would leave
-a shared name unspellable in one library or the other.
+- `meet`'s identity short-circuit compares the two BUILTIN defs rather than the two full defs.
+  `meetWith`'s documented default is "no meet", correct for an option-less kind only BECAUSE two
+  such types were always JSON-identical and never reached it — a refinement breaks that premise,
+  and comparing full defs would have made `bool{as:'Flag'} ⊓ bool` answer `undefined`.
+- **A meet that leaves the refinement's BASE KIND drops to no meet.** `number`↔`money` and
+  `date`↔`timestamp` answer with whichever side is more specific, so `money{as:'Usd'} ⊓ number` is
+  still a money and keeps its name while `number{as:'Score'} ⊓ money` is a MONEY and cannot carry
+  one. Checked on the RESULT, not the operands: refusing whenever the operands' kinds differ is
+  NOT ASSOCIATIVE, because `money ⊓ number` is a money, so the two groupings of
+  `Usd ⊓ money ⊓ number` disagree. Dropping the tag instead would be unsound — it drops the
+  refinement's stricter value gate.
+- **The meet operates on the compiled INSTANCES, not the names.** Names are per-registry, so two
+  registries can both say `as: 'uuid'` and mean different things; taking the left operand's
+  instance made `a ⊓ b` and `b ⊓ a` JSON-identical (invisible to a def-comparing property test)
+  while admitting different VALUES and answering different `sqlType` / `avgBytes`. Same name,
+  different compilation, is now a conflict.
+
+**What the model sees.** `id: text(as uuid)` in the type tag (the refinement FIRST, then the
+base's own flags — `text(as uuid,search)`), the declaration's `instructions` as the generated
+description, and — the part that makes the vocabulary real rather than advisory — `as` rendered as
+a **`z.enum` of the names registered over that base** in the generated def schema, so a model
+cannot invent `as: 'uuid4'`. The `as ` prefix is there because a bare first qualifier is ambiguous
+on any kind with a non-flag one of its own (`money(Usd,USD)` gives a model no way to tell which
+token is which), and it doubles as the key the model has to write. `fieldTypeDefSchema` and
+`Type.toSchema` are therefore REGISTRY-DRIVEN now: pass `opts.registry`
+(`Type.toSchema({ registry })`), and a base with NO registrations **refuses** an `as` rather than
+stripping it — stripping was silent in the one pipeline that matters, since `Tool.parse` →
+`engine.parseType(result)` never hands `parseType` the raw def. The NAME renders VERBATIM — never
+lower-cased, never decorated — because a model reads this surface and a sibling type system's in
+one session, and a spelling difference between them reads as two types. For the same reason the
+name pattern is `^[A-Za-z][A-Za-z0-9_]*$`: capitals are ALLOWED, matching the shipped
+`FUNCTION_NAME_PATTERN` that lets `ST_Contains` register, and measured to be necessary — a sibling
+library refuses a lower-case package type name, so a lower-case-only rule here would leave a
+shared name unspellable in one library or the other.
 
 **Registration is all-or-nothing**, because a refinement that registered half-broken would be
-wrong on every column that ever named it. `base ∈ ScalarKind`; the name matches the pattern, is
-not a builtin `kind`, and is not already registered (the second declarer is refused, naming the
-incumbent's `declaredBy`); `options` parse as a def of the base kind, with that road's own
-message; `avgBytes > 0`; and `instructions` is non-empty and **REQUIRED** — deliberately stricter
-than `FunctionDef.instructions`, and the reason is measured: an undocumented registered item
-renders as a bare tag beside documented siblings, and a model choosing among them guesses, which
-costs a validate-fail retry carrying the whole schema. Every failure is a `QueryTypeError`
-(`field-type.bad-refinement`). Register BEFORE `parseType` runs over stored defs — an `as` naming
-nothing registered is refused (`field-type.unknown-refinement`, with a `didYouMean`) rather than
-degraded to the bare base, because degrading silently would take the narrowing with it.
+wrong on every column that ever named it. `base` is a `ScalarKind` other than **`relation`**,
+which is refused outright: its `to` is an IDENTITY and its `count` a cardinality ESTIMATE, neither
+of which is a constraint a name can narrow, so a use site had to restate both verbatim (the
+duplication a refinement exists to remove) and a declaration naming only one of them registered
+cleanly and then refused every column that used it, blaming the column. Beyond that: the name
+matches the pattern, is not a builtin `kind`, and is not already registered (the second declarer
+is refused, naming the incumbent's `declaredBy`); `options` parse as a def of the base kind, with
+that road's own message; `avgBytes > 0`; and `instructions` is non-empty and **REQUIRED** —
+deliberately stricter than `FunctionDef.instructions`, and the reason is measured: an undocumented
+registered item renders as a bare tag beside documented siblings, and a model choosing among them
+guesses, which costs a validate-fail retry carrying the whole schema. Every failure is a
+`QueryTypeError` (`field-type.bad-refinement`), and an `as` naming nothing registered is refused
+(`field-type.unknown-refinement`, with a `didYouMean`) rather than degraded to the bare base,
+because degrading silently would take the narrowing with it.
+
+**Ordering is ENFORCED, not advised.** `registerFieldType` / `registerFieldTypeImpl` throw
+`field-type.late-refinement` once a Type has been parsed or registered on that registry. A stored
+`as` resolves against the registry as it stood AT PARSE TIME, so a runtime-installed system
+registering `uuid` after the catalog crawl would leave every already-parsed column carrying the
+un-narrowed base — the `LOWER()` this feature exists to remove — while the type tag still read
+`text` and nothing raised. That is the one failure in this design that would otherwise be silent,
+which is why it is a refusal rather than a sentence in the docs.
 
 **SQL.** `Dialect.sqlTypeFor` answers the refinement's `sql` for that dialect; a dialect with no
 entry falls back to the base kind's own mapping — a FALLBACK, not a degrade, because the base's
 answer is a real answer for a value of the base type. `cast` (which must place `{value}`) replaces
-the wrapper a bound DOCUMENT is cast with. Both are validated at registration: a `{slot}` must name
-a declared option whose value is a bare identifier/number token — the templates are
+the wrapper a bound DOCUMENT is cast with — and is **declarable only on a `json` or `array` base**,
+because `Dialect.jsonValue` is the only road that reaches a cast template while a scalar predicate
+binds its value directly. Measured on the documented `uuid` example: a `cast` there validated at
+registration and the predicate stayed `WHERE "thing"."id" = $1`, i.e. accepted and inert on every
+scalar predicate over the column. It is refused now, naming `sql` (the cast TARGET) as what a
+scalar base declares instead. Both templates are validated at registration: a `{slot}` must name a
+declared option whose value is a bare identifier/number token — the templates are
 raw-interpolated, so the values spliced into them are the injection surface, not the template body
 — and a resolved `sql` must look like a SQL type name.
 
@@ -510,6 +558,19 @@ methods: implement `builtinJSON` / `builtinClone` / `builtinValueSchema` / `buil
 four and applies the refinement around them, so a class that implements only the hooks is correct
 by construction. **Every public signature is unchanged** — the builtins re-declare `toJSON()` /
 `clone()` with their own branch return type and route through the base's combinators.
+
+**And one for anyone who SUBCLASSES `Dialect`**, which is the documented road for per-dialect
+emission, so read this one even if the paragraph above does not apply:
+
+- `sqlTypeFor` went abstract → CONCRETE (it consults the refinement's `sql`, then delegates), with
+  `protected abstract builtinSqlTypeFor` as the new override point. This is a **loud** break: an
+  external `extends Dialect` stops compiling until it renames, which is the good kind.
+- `jsonValue` is now a FINAL wrapper (it consults the refinement's `cast`, then delegates) and
+  `protected builtinJsonValue` is the override point. This one would be **silent** — an external
+  dialect overriding `jsonValue`, which `PostgresDialect` itself modelled, keeps compiling and
+  quietly disables every refinement `cast` on that dialect. The saving grace is the row above:
+  the same class must be touched anyway for `builtinSqlTypeFor`, so the rename is caught at the
+  same moment. Rename both.
 
 ### Also
 

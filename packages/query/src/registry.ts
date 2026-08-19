@@ -18,7 +18,8 @@
 import type { ExprDef, FieldTypeDef, FieldTypeKind, FunctionDef, QueryDef, TypeDef } from './schema';
 import { QueryTypeError, type Problems } from './problem';
 import type { FieldType, FieldTypeClass } from './field-type';
-import { FieldTypeRefinement, type FieldTypeRefinementDef } from './refinement';
+import { FieldTypeRefinement, type FieldTypeImpl, type FieldTypeRefinementDef } from './refinement';
+import { z } from 'zod';
 import { Expr, type ExprClass } from './expr';
 import { INVALID, isRecord, type Shape } from './shape';
 import { aidInfo, describeInput, didYouMean } from './aids';
@@ -162,9 +163,95 @@ export class Registry {
    * loudly, rather than silently degrading to the bare base).
    */
   registerFieldType(def: FieldTypeRefinementDef): this {
+    this.refuseLateRegistration('registerFieldType', def.name);
     const refinement = FieldTypeRefinement.compile(def, this);
     this.fieldTypeRefinements.set(refinement.name, refinement);
     return this;
+  }
+
+  /**
+   * Register the CODE half of a refinement — today a stricter value gate, later
+   * the in-memory comparison hooks. The counterpart of `registerFunctionRun`
+   * beside `registerFunction`, and split from the declaration for the reason
+   * {@link FieldTypeImpl} gives: a declaration is PERSISTED, and a zod schema
+   * survives `JSON.stringify` as a husk that registers clean and then throws out
+   * of zod's own internals at first use.
+   *
+   * The impl attaches to the compiled refinement, which every column naming it
+   * SHARES — so it has to be registered before those columns are parsed, exactly
+   * as the declaration does.
+   */
+  registerFieldTypeImpl(name: string, impl: FieldTypeImpl): this {
+    this.refuseLateRegistration('registerFieldTypeImpl', name);
+    const refinement = this.fieldTypeRefinements.get(name);
+    if (!refinement) {
+      const names = this.fieldTypeRefinementNames();
+      throw new QueryTypeError({
+        path: ['registerFieldTypeImpl', name],
+        code: 'field-type.unknown-refinement',
+        severity: 'error',
+        message:
+          `No field-type refinement '${name}' is registered.${didYouMean(name, names)} ` +
+          `(registered: ${names.length > 0 ? names.join(', ') : 'none'}). Register the DECLARATION first.`,
+      });
+    }
+    if (refinement.hasImpl) {
+      throw new QueryTypeError({
+        path: ['registerFieldTypeImpl', name],
+        code: 'field-type.bad-refinement',
+        severity: 'error',
+        message:
+          `\`${name}\` already has an implementation. A second one is refused for the same reason a second ` +
+          'DECLARATION is: every column naming it shares one compiled refinement, so the last registration ' +
+          'would silently decide what all of them validate against.',
+      });
+    }
+    if (impl.value !== undefined && !(impl.value instanceof z.ZodType)) {
+      throw new QueryTypeError({
+        path: ['registerFieldTypeImpl', name, 'value'],
+        code: 'field-type.bad-refinement',
+        severity: 'error',
+        message:
+          `\`value\` must be a zod schema, got ${typeof impl.value}. It is checked because the failure is ` +
+          "otherwise unattributable: anything else is accepted here and then throws a raw `TypeError` out " +
+          'of zod at the first `validValue()`, with no code and no path.',
+      });
+    }
+    refinement.attachImpl(impl);
+    return this;
+  }
+
+  /**
+   * Set once this registry has been used to build a Type. Registration of a
+   * refinement (or its impl) is refused past that point — see
+   * {@link refuseLateRegistration}.
+   */
+  private catalogBuilt = false;
+
+  /**
+   * Refuse a refinement registration once the catalog has been built.
+   *
+   * A stored `{kind:'text', as:'uuid'}` resolves against whatever the registry
+   * knew AT PARSE TIME, and the resolved column is what every later predicate
+   * uses. So a system that registers `uuid` after the catalog crawl leaves every
+   * already-parsed column carrying the un-narrowed base — the `LOWER()` this
+   * feature exists to remove — while the type tag still reads `text` and no
+   * error is raised anywhere. That is the one failure in this design that is
+   * SILENT, which is why ordering is enforced rather than documented.
+   */
+  private refuseLateRegistration(verb: string, name: string): void {
+    if (!this.catalogBuilt) return;
+    throw new QueryTypeError({
+      path: [verb, name],
+      code: 'field-type.late-refinement',
+      severity: 'error',
+      message:
+        `\`${verb}('${name}')\` was called after a Type had already been parsed or registered on this ` +
+        'registry. A stored `as` resolves against the registry as it stood AT PARSE TIME, so every column ' +
+        'parsed before this call would keep the UN-narrowed base — silently, since it still describes ' +
+        'itself as the base kind. Register every refinement (and its impl) before the first `parseType` / ' +
+        '`registerType`, or build a fresh registry.',
+    });
   }
 
   /** Look up a registered field-type refinement by name, or `undefined`. */
@@ -252,6 +339,10 @@ export class Registry {
    */
   registerType(type: Type, backing?: TypeBacking): this {
     if (backing?.defaultConditions) validateDefaultConditions(type, backing.defaultConditions);
+    // The catalog now exists, so the refinement vocabulary is frozen — see
+    // `refuseLateRegistration`. Both roads are marked because a Type can arrive
+    // either parsed from a def or built by hand.
+    this.catalogBuilt = true;
     this.namedTypes.set(type.name, type);
     if (backing) this.backings.set(type.name, backing);
     this.finalizeDirty = true;
@@ -321,8 +412,15 @@ export class Registry {
     return Array.from(this.namedTypes.values());
   }
 
-  /** Parse a `TypeDef` into a `Type` instance (does NOT auto-register). */
+  /**
+   * Parse a `TypeDef` into a `Type` instance (does NOT auto-register).
+   *
+   * This FREEZES the refinement vocabulary: the field types it builds resolved
+   * their `as` against the registry as it stands now, so a refinement
+   * registered afterwards could not reach them (see `refuseLateRegistration`).
+   */
   parseType(json: TypeDef): Type {
+    this.catalogBuilt = true;
     return Type.from(json, this);
   }
 

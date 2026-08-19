@@ -325,7 +325,14 @@ export abstract class FieldType implements Node {
     // the whole of the `as` algebra — the composition of two independent meets
     // is a meet, so commutativity, associativity, idempotence and soundness all
     // carry over from `meetWith` with no new law to prove.
-    const as = meetExact(this.as, other.as);
+    //
+    // The operands are the compiled INSTANCES, not the names. Two registries can
+    // compile one name differently, and taking the left operand's instance made
+    // `a ⊓ b` and `b ⊓ a` — JSON-identical, so a property test comparing defs is
+    // blind to it — admit different VALUES and answer different `sqlType` /
+    // `avgBytes`. Same name, different compilation, is a genuine conflict: there
+    // is no third refinement that is both.
+    const as = meetExact(this.declaredRefinement, other.declaredRefinement);
     if (!as.ok) return undefined;
     // The short-circuit compares the BUILTIN halves, not the full defs, for the
     // same reason the two halves meet separately: `meetWith`'s documented
@@ -339,16 +346,28 @@ export abstract class FieldType implements Node {
       ? this
       : this.meetWith(other);
     if (met === undefined) return undefined;
-    return met.withRefinement(as.value === undefined ? undefined : this.refinementNamed(other, as.value));
-  }
-
-  /**
-   * The compiled refinement named `name`, from whichever of the two operands
-   * carries it. Two registries can compile the same NAME differently, so the
-   * instance is taken from the side the meet chose rather than assumed shared.
-   */
-  private refinementNamed(other: FieldType, name: string): FieldTypeRefinement | undefined {
-    return this.as === name ? this.declaredRefinement : other.declaredRefinement;
+    // A refinement refines exactly ONE base kind, and `FieldTypeRefinement.refine`
+    // refuses any other pairing — so the tag survives only if the MET type is
+    // still that kind. The two cross-kind families (`number`/`money`,
+    // `date`/`timestamp`) answer with whichever side is the more specific, so a
+    // meet can legitimately change kind underneath a tag: `money{as:'Usd'} ⊓
+    // number` is still a money and keeps it, while `number{as:'Score'} ⊓ money`
+    // is a MONEY and cannot. Stapling the tag on regardless produced
+    // `{kind:'money', …, as:'Score'}` — a def this very registry throws on —
+    // which reached callers through `params()`.
+    //
+    // Checked on the RESULT rather than on the two operands' kinds, and that
+    // distinction is load-bearing: refusing whenever the operands' kinds differ
+    // is NOT ASSOCIATIVE, because `money ⊓ number` is a money, so
+    // `usd ⊓ (money ⊓ number)` would succeed where `(usd ⊓ money) ⊓ number`
+    // failed. Asking about the result asks the only question that is stable
+    // however the fold is grouped.
+    //
+    // Dropping the tag instead of refusing would be unsound: it drops the
+    // refinement's stricter value gate, so the meet would admit values the
+    // refined operand refuses.
+    if (as.value !== undefined && met.kind !== as.value.base) return undefined;
+    return met.withRefinement(as.value);
   }
 
   /**

@@ -65,6 +65,9 @@ export {
   type FieldTypeRefinementDef,
   type FieldTypeRefinementDefFor,
   type FieldTypeOptionsOf,
+  type FieldTypeImpl,
+  type RefinableBase,
+  REFINABLE_BASES,
   REFINEMENT_NAME_PATTERN,
   refinementKeySchema,
 } from './refinement';

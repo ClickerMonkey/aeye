@@ -33,18 +33,22 @@ import { TextFieldType, fieldTypeDefSchema } from '../field-types/index';
 import { Type } from '../type';
 import { describeType } from '../llm/describe';
 import { fieldMeta } from '../llm/describe-generate';
-import type { FieldTypeRefinementDef } from '../refinement';
+import { REFINABLE_BASES, type FieldTypeRefinementDef } from '../refinement';
 import type { ExprDef, FieldTypeDef, FieldTypeKind, SelectDef, TypeDef } from '../schema';
 
 // ─── Fixture ─────────────────────────────────────────────────────────────────
 
-/** The worked example, verbatim from the design plan. */
+/**
+ * The worked example. The DECLARATION is pure JSON; the stricter zod gate is the
+ * CODE half and arrives through `registerFieldTypeImpl` — because a declaration
+ * is what a consumer persists, and a zod schema does not fail a JSON round-trip,
+ * it survives it as a husk (see "a declaration is safe to persist" below).
+ */
 const uuidDecl: FieldTypeRefinementDef = {
   name: 'uuid',
   base: 'text',
   instructions: 'A UUID (RFC 4122) — lower-case, hyphenated, 36 characters.',
   options: { minLength: 36, maxLength: 36, casing: 'exact' },
-  value: z.uuid(),
   sql: { postgres: 'uuid' },
   avgBytes: 16,
 };
@@ -78,11 +82,12 @@ const thingTypeDef: TypeDef = {
   count: 1000,
 };
 
-/** A registry with both refinements registered, before any Type is parsed. */
+/** A registry with both refinements + the uuid impl, before any Type is parsed. */
 function refinedRegistry(): Registry {
   const registry = createRegistry();
   registry.registerFieldType(uuidDecl);
   registry.registerFieldType(geoDecl);
+  registry.registerFieldTypeImpl('uuid', { value: z.uuid() });
   return registry;
 }
 
@@ -303,9 +308,9 @@ describe('what the model is told', () => {
     const { registry } = fixture();
     const described = describeType(registry.type('thing')!);
     expect(described).toContain(
-      '- id: text(uuid) — Id: A UUID (RFC 4122) — lower-case, hyphenated, 36 characters.',
+      '- id: text(as uuid) — Id: A UUID (RFC 4122) — lower-case, hyphenated, 36 characters.',
     );
-    expect(described).toContain('- shape: json(Geometry) (nullable) — Shape: A PostGIS geometry');
+    expect(described).toContain('- shape: json(as Geometry) (nullable) — Shape: A PostGIS geometry');
     // The control: an unrefined text column reads exactly as before.
     expect(described).toContain('- plainId: text — Plain: Text.');
   });
@@ -315,17 +320,31 @@ describe('what the model is told', () => {
     // `Geometry` is capitalised deliberately (see D1 / `REFINEMENT_NAME_PATTERN`):
     // a sibling type system refuses a lower-case package type name, so the two
     // surfaces a model reads in one session must be free to agree on ONE word.
-    expect(describeType(registry.type('thing')!)).toContain('json(Geometry)');
+    expect(describeType(registry.type('thing')!)).toContain('json(as Geometry)');
   });
 
-  it('puts the refinement FIRST when the base has flags of its own', () => {
+  it('puts the refinement FIRST, and prefixes it `as ` so it cannot be read as a flag', () => {
     const registry = refinedRegistry();
     const doc = registry.parseType({
       name: 'doc',
       fields: [{ name: 'ref', type: { kind: 'text', as: 'uuid', search: true } }],
       count: 1,
     });
-    expect(describeType(doc)).toContain('- ref: text(uuid,search)');
+    expect(describeType(doc)).toContain('- ref: text(as uuid,search)');
+  });
+
+  it('disambiguates the refinement from a kind\'s OWN non-flag qualifier', () => {
+    // `money(Usd,USD)` gives a model no way to tell which token is the
+    // refinement and which the currency; `money(as Usd,USD)` does, and the
+    // prefix is also the key the model has to write.
+    const registry = createRegistry();
+    registry.registerFieldType({ name: 'Usd', base: 'money', instructions: 'US dollars.' });
+    const acct = registry.parseType({
+      name: 'acct',
+      fields: [{ name: 'fee', type: { kind: 'money', as: 'Usd', currency: 'USD' } }],
+      count: 1,
+    });
+    expect(describeType(acct)).toContain('- fee: money(as Usd,USD)');
   });
 
   it('offers `as` as an ENUM of the names registered over THAT base', () => {
@@ -337,23 +356,35 @@ describe('what the model is told', () => {
     expect(schema.safeParse({ kind: 'text', as: 'uuid4' }).success).toBe(false);
   });
 
-  it('does not OFFER a refinement of another base on a branch — and the parse refuses it outright', () => {
-    // A branch that offers no `as` strips one written anyway, which is this
-    // package's behaviour for every unknown key rather than anything new here.
-    // The refusal that matters is the parse's, which is loud.
+  it('REFUSES an `as` on a base with no registrations, rather than stripping it', () => {
+    // Stripping was silent in the one pipeline that matters: `Tool.parse` →
+    // `engine.parseType(result)` hands `parseType` the STRIPPED def, so the loud
+    // `field-type.unknown-refinement` never fires. The identical mistake was
+    // caught on `text` (an enum) and discarded on `number` (no key at all).
     const registry = refinedRegistry();
-    const parsed = fieldTypeDefSchema({ registry }).safeParse({ kind: 'number', as: 'uuid' });
-    expect(parsed.success && parsed.data).toEqual({ kind: 'number' });
+    expect(fieldTypeDefSchema({ registry }).safeParse({ kind: 'number', as: 'uuid' }).success).toBe(false);
+    // …and the parse road is loud about WHY, for anyone who reaches it directly.
     expect(refusalCode(() => registry.parseFieldType({ kind: 'number', as: 'uuid' })))
       .toBe('field-type.refinement-base');
   });
 
-  it('offers NO `as` at all when a registry has no refinements', () => {
-    const bare = fieldTypeDefSchema({ registry: createRegistry() });
-    expect(bare.safeParse({ kind: 'text', as: 'uuid' }).success).toBe(true);
-    expect(bare.safeParse({ kind: 'text', as: 'uuid' }).data).toEqual({ kind: 'text' });
-    // …and with no registry at all it falls back to the builtins, same answer.
-    expect(fieldTypeDefSchema().safeParse({ kind: 'text', as: 'uuid' }).data).toEqual({ kind: 'text' });
+  it('refuses an `as` on a registry with no refinements at all, and still accepts a bare def', () => {
+    for (const schema of [fieldTypeDefSchema({ registry: createRegistry() }), fieldTypeDefSchema()]) {
+      expect(schema.safeParse({ kind: 'text', as: 'uuid' }).success).toBe(false);
+      expect(schema.safeParse({ kind: 'text' }).data).toEqual({ kind: 'text' });
+      expect(schema.safeParse({ kind: 'text', minLength: 2 }).data).toEqual({ kind: 'text', minLength: 2 });
+    }
+  });
+
+  it('the refusing `as` key is still representable as JSON Schema', () => {
+    // `z.never()` renders as `{"not":{}}`; `z.undefined()` is UNREPRESENTABLE and
+    // throws, which would break every tool schema built off a field type. Asked
+    // of one branch rather than the whole union, which is recursive through
+    // `array.item` and blows the stack for reasons that predate this key.
+    const empty = z.toJSONSchema(TextFieldType.toSchema({ registry: createRegistry() }));
+    expect(JSON.stringify(empty)).toContain('"not"');
+    const populated = z.toJSONSchema(TextFieldType.toSchema({ registry: refinedRegistry() }));
+    expect(JSON.stringify(populated)).toContain('"uuid"');
   });
 
   it('a Type\'s own generated schema carries the vocabulary — that is where a model authors one', () => {
@@ -364,10 +395,13 @@ describe('what the model is told', () => {
       fields: [{ name: 'id', type: { kind: 'text', as: 'uuid' } }],
     };
     expect(typeSchema.safeParse(withRefinement).data).toEqual(withRefinement);
-    // Without the registry the `as` is not part of the vocabulary, so it is not
-    // carried — which is exactly why `Type.toSchema` threads `opts` down.
-    expect(Type.toSchema().safeParse(withRefinement).data)
-      .toMatchObject({ fields: [{ type: { kind: 'text' } }] });
+    // Without the registry the `as` is not part of the vocabulary, so the def is
+    // REFUSED rather than quietly stripped down to a bare `text` — which is
+    // exactly why `Type.toSchema` threads `opts` down.
+    expect(Type.toSchema().safeParse(withRefinement).success).toBe(false);
+    expect(Type.toSchema().safeParse({
+      name: 'thing', count: 1, fields: [{ name: 'id', type: { kind: 'text' } }],
+    }).success).toBe(true);
   });
 
   it('a field with an authored description keeps it — a refinement never overrides the dev', () => {
@@ -443,9 +477,40 @@ describe('registration refuses a declaration that would be wrong on every column
     expect(message).toContain('field-type.bad-pattern');
   });
 
-  it('refuses a `relation` refinement with no options — a relation has no option-free form', () => {
-    expect(refusal(() => register({ name: 'Owner', base: 'relation', instructions: 'x.' })))
-      .toContain('must declare `options`');
+  it('refuses a `relation` BASE outright — nothing about a relation is narrowable', () => {
+    // Its `to` is an identity and its `count` an estimate. Allowing it made a
+    // site restate both verbatim (the duplication a refinement removes), and a
+    // declaration naming only `count` registered cleanly and then refused every
+    // column that used it, blaming the column.
+    //
+    // `relation` is not a member of `FieldTypeRefinementDef`, so each of these
+    // is already a COMPILE error — the escape is what lets the RUNTIME half be
+    // tested, which is the half an untyped caller reaches.
+    for (const options of [undefined, { to: 'user', count: 1 }, { count: 1 }] as const) {
+      const decl = { name: 'Owner', base: 'relation', instructions: 'x.', options };
+      expect(refusal(() => register(decl as unknown as FieldTypeRefinementDef)))
+        .toContain('A `relation` cannot be refined');
+    }
+    expect(REFINABLE_BASES).not.toContain('relation');
+    expect([...REFINABLE_BASES].sort()).toEqual(SCALAR_KINDS.filter((k) => k !== 'relation').sort());
+  });
+
+  it('refuses a `cast` on a base whose values never reach a cast template', () => {
+    // Measured on the doc's own uuid example: `cast: {postgres:'CAST({value} AS
+    // uuid)'}` validated at registration and the predicate stayed
+    // `WHERE "thing"."id" = $1`. Accepted-and-inert is the worst answer, so it
+    // is refused with the alternative named.
+    for (const base of ['text', 'number', 'bool', 'date', 'timestamp', 'money'] as const) {
+      expect(refusal(() => register({
+        name: 'Casty', base, instructions: 'x.',
+        cast: { postgres: 'CAST({value} AS whatever)' },
+      }))).toContain('cannot declare a `cast`');
+    }
+    // …and it is accepted on the two bases that DO route through `jsonValue`.
+    expect(() => register({ name: 'J', base: 'json', instructions: 'x.', cast: { postgres: '{value}::jsonb' } }))
+      .not.toThrow();
+    expect(() => register({ name: 'A', base: 'array', instructions: 'x.', cast: { postgres: '{value}::text[]' } }))
+      .not.toThrow();
   });
 
   it('refuses a SQL template naming a slot that is not an interpolable option, with a suggestion', () => {
@@ -507,6 +572,176 @@ describe('registration refuses a declaration that would be wrong on every column
     // `base` — but this is a runtime registration surface, so it is checked.
     const notAKind = { ...uuidDecl, base: 'geography' } as unknown as FieldTypeRefinementDef;
     expect(refusal(() => register(notAKind))).toContain('`base` must be one of');
+  });
+
+  it('refuses registering a refinement — or its impl — once the catalog has been built', () => {
+    // The one SILENT failure in this design: a stored `as` resolves against the
+    // registry as it stood AT PARSE TIME, so a system registering `uuid` after
+    // the catalog crawl leaves every already-parsed column carrying the
+    // un-narrowed base — with the LOWER() back, and the tag still reading `text`.
+    for (const build of [
+      (r: Registry): void => void r.parseType(thingTypeDef),
+      (r: Registry): void => void r.registerType(r.parseType({ name: 'x', fields: [], count: 1 })),
+    ]) {
+      const registry = refinedRegistry();
+      build(registry);
+      expect(refusal(() => register({ name: 'Late', base: 'text', instructions: 'x.' }, registry)))
+        .toContain('after a Type had already been parsed or registered');
+      expect(refusal(() => registry.registerFieldTypeImpl('uuid', { value: z.string() })))
+        .toContain('after a Type had already been parsed or registered');
+      expect(refusalCode(() => register({ name: 'Late', base: 'text', instructions: 'x.' }, registry)))
+        .toBe('field-type.late-refinement');
+    }
+  });
+});
+
+// ─── The code half, and why it is not on the declaration ─────────────────────
+
+describe('a declaration is safe to PERSIST; the value gate is the code half', () => {
+  it('a declaration round-trips through JSON and registers to the same thing', () => {
+    const revived: FieldTypeRefinementDef = JSON.parse(JSON.stringify(uuidDecl)) as FieldTypeRefinementDef;
+    expect(revived).toEqual(uuidDecl);
+    const registry = createRegistry();
+    registry.registerFieldType(revived);
+    expect(registry.parseFieldType({ kind: 'text', as: 'uuid' }).toJSON())
+      .toEqual(refinedRegistry().parseFieldType({ kind: 'text', as: 'uuid' }).toJSON());
+  });
+
+  it('a zod schema does NOT survive that round-trip — which is why it is not on the declaration', () => {
+    // The measured failure this split exists to prevent: `JSON.stringify` turns
+    // a zod schema into a plausible HUSK rather than dropping it, so a
+    // declaration carrying one would register clean and then throw a raw
+    // TypeError out of zod's internals at the first validValue() — no
+    // QueryTypeError, no code, no path, and the strictest gate silently dead.
+    const husk: unknown = JSON.parse(JSON.stringify({ value: z.uuid() }));
+    expect(husk).not.toEqual({});
+    expect(husk instanceof z.ZodType).toBe(false);
+    // The impl road refuses it instead, at registration, with a code and a path.
+    const registry = createRegistry();
+    registry.registerFieldType(uuidDecl);
+    const message = refusal(() =>
+      registry.registerFieldTypeImpl('uuid', { value: husk } as unknown as { value: z.ZodTypeAny }));
+    expect(message).toContain('`value` must be a zod schema');
+  });
+
+  it('refuses an impl for an unregistered name, and a SECOND impl for a registered one', () => {
+    const registry = createRegistry();
+    registry.registerFieldType(uuidDecl);
+    expect(refusal(() => registry.registerFieldTypeImpl('uuidd', { value: z.uuid() })))
+      .toContain('did you mean `uuid`?');
+    registry.registerFieldTypeImpl('uuid', { value: z.uuid() });
+    expect(refusal(() => registry.registerFieldTypeImpl('uuid', { value: z.string() })))
+      .toContain('already has an implementation');
+  });
+
+  it('an impl-less refinement still narrows — the gate is the STRICTER half, not the only one', () => {
+    const registry = createRegistry();
+    registry.registerFieldType(uuidDecl);
+    const ft = registry.parseFieldType({ kind: 'text', as: 'uuid' });
+    expect(ft.textCasing()).toBe('exact');
+    expect(ft.validValue(A_UUID)).toBe(true);
+    // …and without the impl the base's own bounds are all that apply.
+    expect(ft.validValue('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaZZ')).toBe(true);
+    expect(ft.validValue('too short')).toBe(false);
+  });
+});
+
+// ─── The meet's two order-dependence traps ───────────────────────────────────
+
+describe('the meet never produces a type the registry itself would refuse', () => {
+  /** A registry refining BOTH members of each cross-kind comparable family. */
+  function crossKind(): Registry {
+    return createRegistry()
+      .registerFieldType({
+        name: 'Score', base: 'number', instructions: 'A 0–100 score.',
+        options: { min: 0, max: 100 }, avgBytes: 2,
+      })
+      .registerFieldType({ name: 'Usd', base: 'money', instructions: 'US dollars.' })
+      .registerFieldType({ name: 'Day', base: 'date', instructions: 'A calendar day.' })
+      .registerFieldType({ name: 'Instant', base: 'timestamp', instructions: 'A UTC instant.' });
+  }
+
+  it('drops to NO MEET when the met kind leaves the refinement\'s base, rather than stapling the tag on', () => {
+    // `number`↔`money` and `date`↔`timestamp` are the only families that meet
+    // across kinds, and `meetWith` answers with whichever side is MORE SPECIFIC.
+    // So `Score` (a number) met with a money is a MONEY, which cannot carry it —
+    // tagging it anyway produced `{kind:'money', …, as:'Score'}`, a def this very
+    // registry throws on, and it reached callers through `params()`.
+    const registry = crossKind();
+    const meetJson = (x: FieldTypeDef, y: FieldTypeDef): unknown =>
+      registry.parseFieldType(x).meet(registry.parseFieldType(y))?.toJSON() ?? null;
+
+    // The tag does NOT survive: the meet is the other kind.
+    expect(meetJson({ kind: 'number', as: 'Score' }, { kind: 'money' })).toBeNull();
+    expect(meetJson({ kind: 'money' }, { kind: 'number', as: 'Score' })).toBeNull();
+    expect(meetJson({ kind: 'date', as: 'Day' }, { kind: 'timestamp' })).toBeNull();
+    expect(meetJson({ kind: 'timestamp' }, { kind: 'date', as: 'Day' })).toBeNull();
+
+    // …and it DOES survive when the meet stays in its base kind, which is the
+    // half a blanket "operand kinds differ ⇒ refuse" rule would have got wrong.
+    expect(meetJson({ kind: 'money', as: 'Usd' }, { kind: 'number' }))
+      .toEqual({ kind: 'money', as: 'Usd' });
+    expect(meetJson({ kind: 'timestamp', as: 'Instant' }, { kind: 'date' }))
+      .toEqual({ kind: 'timestamp', as: 'Instant' });
+
+    // The control: the same families still meet when neither side is refined.
+    expect(meetJson({ kind: 'number' }, { kind: 'money' })).not.toBeNull();
+    expect(meetJson({ kind: 'date' }, { kind: 'timestamp' })).not.toBeNull();
+  });
+
+  it('…and that is checked on the RESULT, because checking the OPERANDS is not associative', () => {
+    // The counterexample that decided it: `money ⊓ number` is a money, so a rule
+    // refusing whenever the two operands' kinds differ would refuse
+    // `(Usd ⊓ money) ⊓ number` and accept `Usd ⊓ (money ⊓ number)`. Asking about
+    // the met KIND asks the only question that is stable however a fold groups.
+    const registry = crossKind();
+    const ft = (def: FieldTypeDef): FieldType => registry.parseFieldType(def);
+    const usd = ft({ kind: 'money', as: 'Usd' });
+    const money = ft({ kind: 'money' });
+    const number = ft({ kind: 'number' });
+    const left = usd.meet(money)?.meet(number);
+    const right = usd.meet(money.meet(number)!);
+    expect(left?.toJSON()).toEqual(right?.toJSON());
+    expect(left?.toJSON()).toEqual({ kind: 'money', as: 'Usd' });
+  });
+
+  it('every meet it DOES produce re-parses on the registry that produced it', () => {
+    // The property the bug broke, stated directly: a `ParamDef.type` handed back
+    // by `params()` must be a def the same registry accepts.
+    const registry = crossKind();
+    const all = [
+      { kind: 'number', as: 'Score' }, { kind: 'number' }, { kind: 'money' },
+      { kind: 'money', currency: 'USD' }, { kind: 'date', as: 'Day' }, { kind: 'date' },
+      { kind: 'timestamp' }, { kind: 'timestamp', timezone: true },
+    ] satisfies FieldTypeDef[];
+    for (const x of all) {
+      for (const y of all) {
+        const met = registry.parseFieldType(x).meet(registry.parseFieldType(y));
+        if (!met) continue;
+        const json = met.toJSON();
+        expect(() => registry.parseFieldType(json)).not.toThrow();
+        expect(registry.parseFieldType(json).toJSON()).toEqual(json);
+      }
+    }
+  });
+
+  it('REFUSES two DIFFERENT compilations of one name — the left operand no longer wins', () => {
+    // Two registries can compile one name differently. Taking the left side's
+    // instance made `a ⊓ b` and `b ⊓ a` JSON-identical (so a def-comparing
+    // property test is blind) while ADMITTING different values and answering
+    // different sqlType / avgBytes.
+    const strict = createRegistry().registerFieldType(uuidDecl);
+    strict.registerFieldTypeImpl('uuid', { value: z.uuid() });
+    const loose = createRegistry().registerFieldType({
+      name: 'uuid', base: 'text', instructions: 'Anything, really.', avgBytes: 99,
+    });
+    const a = strict.parseFieldType({ kind: 'text', as: 'uuid' });
+    const b = loose.parseFieldType({ kind: 'text', as: 'uuid' });
+    expect(a.meet(b)).toBeUndefined();
+    expect(b.meet(a)).toBeUndefined();
+    // …while the SAME compilation still meets itself, in either direction.
+    const a2 = strict.parseFieldType({ kind: 'text', as: 'uuid' });
+    expect(a.meet(a2)?.toJSON()).toEqual(a.toJSON());
   });
 });
 
