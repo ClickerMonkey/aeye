@@ -15,7 +15,7 @@ import type { FieldType } from '../field-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { RANGE_SELECTIVITY } from '../cost';
-import { childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
+import { childExprSchema, declaredArmRefusal, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -108,6 +108,17 @@ export class BetweenExpr extends BoolExpr {
     const hi = p.at('upper', () => this.upper.validateWalk(engine, scope, p, operandCtx(this.upper, 'between', ctx, 'compare')));
 
     const vft = asFieldType(v);
+
+    // BETWEEN IS `>=` AND `<=`, so a type declaring no ORDERING refuses it for
+    // exactly the reason it refuses `<`. Asked of all three operands and raised
+    // once for the WHOLE predicate, because the refusal is about the operator
+    // rather than about either bound. Without it, a model refused at
+    // `shape < :p` restated it as `shape BETWEEN :p AND :q` and got
+    // `WHERE "parcel"."shape" BETWEEN $1 AND $2` — the exact SQL the refusal
+    // exists to prevent, from a one-token rewrite. Measured.
+    const armRefusal = declaredArmRefusal('ordering', "'BETWEEN'", [vft, asFieldType(lo), asFieldType(hi)]);
+    if (armRefusal) p.error('between.type', armRefusal);
+
     const check = (operand: Expr, rt: ResolvedType, key: 'lower' | 'upper'): void => {
       const ft = asFieldType(rt);
       if (operand instanceof ParamExpr) {

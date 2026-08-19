@@ -14,10 +14,11 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
+import type { FieldType } from '../field-type';
 import { asFieldType, relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { categoryOf, childExprSchema, childQuerySchema, emitSubquerySQL, relationValueProblem, RELATION_VS_VALUE } from './_shared';
+import { categoryOf, childExprSchema, childQuerySchema, declaredArmRefusal, emitSubquerySQL, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { withAid } from '../aids';
 import { obj, lit, bool, exprRef, list, queryDefRef, isRecord, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
@@ -183,11 +184,25 @@ export class InExpr extends BoolExpr {
     const v = p.at('value', () => this.value.validateWalk(engine, scope, p, operandCtx(this.value, 'in', ctx, 'compare')));
     const vft = asFieldType(v);
 
+    // IN IS A DISJUNCTION OF `=`, so a type declaring no EQUALITY refuses it for
+    // exactly the reason it refuses `=`. Asked of the VALUE here and of each
+    // resolved element / subquery output below, and raised once per offending
+    // operand rather than once per list entry, because the refusal is about the
+    // operator. Same one-token-rewrite hole `BETWEEN` had: a type that refuses
+    // `=` would otherwise answer `payload IN (:a, :b)` happily.
+    // Every operand's declared type is consulted, not only the value's: a
+    // declared comparability edge lets the two sides be different registered
+    // types, so the one refusing equality may be on either side. Collected and
+    // raised ONCE — the refusal is about the operator, and N identical messages
+    // for an N-element list is noise a model has to read past.
+    const operandTypes: (FieldType | undefined)[] = [vft];
+
     if (this.list) {
       p.at('in', () => {
         this.list!.forEach((el, i) => {
           const rt = p.at(i, () => el.validateWalk(engine, scope, p, operandCtx(el, 'in', ctx, 'compare')));
           const eft = asFieldType(rt);
+          operandTypes.push(eft);
           const skip = el instanceof ParamExpr || this.value instanceof ParamExpr;
           const relProblem = skip ? undefined : relationValueProblem(v, rt);
           if (relProblem) {
@@ -223,6 +238,7 @@ export class InExpr extends BoolExpr {
       // AND learn its output type for the value-comparability check.
       const out = p.at('in', () => validateSubqueryOutput(engine, scope, p, ctx, this.subquery!));
       const oft = asFieldType(out);
+      operandTypes.push(oft);
       if (!(this.value instanceof ParamExpr)) {
         const relProblem = relationValueProblem(v, out);
         if (relProblem) {
@@ -237,6 +253,14 @@ export class InExpr extends BoolExpr {
         }
       }
     }
+
+    // IN IS A DISJUNCTION OF `=`. A type declaring no EQUALITY refuses it for
+    // exactly the reason it refuses `=` — and this is the same one-token-rewrite
+    // hole `BETWEEN` had for `ordering`: without it, a type that refuses
+    // `payload = :p` answered `payload IN (:a, :b)` happily, emitting the SQL
+    // the refusal exists to prevent. Measured.
+    const armRefusal = declaredArmRefusal('equality', "'IN'", operandTypes);
+    if (armRefusal) p.error('in.type', armRefusal);
 
     // A param VALUE takes the list/subquery element type when uniform.
     if (this.value instanceof ParamExpr) {

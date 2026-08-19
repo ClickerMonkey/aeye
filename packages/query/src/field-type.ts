@@ -60,13 +60,22 @@ type _ScalarKindIsAFieldTypeKind = Assert<
 >;
 
 /**
- * A bare SQL token — what {@link FieldType.tokenSafeValues} holds a closed set's
- * members to. Deliberately the same charset `refinement.ts` splices into a
- * template (`TEMPLATE_VALUE_PATTERN`); it is restated here rather than imported
- * because `refinement.ts` already imports this module, and one of the two has to
- * own it. The pair is pinned by a test.
+ * A bare SQL token — the charset a declared option's value must match to be
+ * spliced into a `sql` / `cast` template, which is the WHOLE injection surface
+ * of that mechanism.
+ *
+ * ONE definition, exported and imported by `refinement.ts` (as
+ * `TEMPLATE_VALUE_PATTERN`) rather than restated there. It was restated, on the
+ * argument that importing would make a cycle — which is false in both
+ * directions: `refinement.ts` already takes a RUNTIME-value import from this
+ * module (`SCALAR_KINDS`), and this module imports `FieldTypeRefinement`
+ * type-only. The drift it invited was not theoretical: the two halves guard the
+ * SAME fact from opposite ends — registration proves every member of a closed
+ * set is a token, parse proves each written value is — so a charset that
+ * differed by one character would let `a.b` pass the declaration and then refuse
+ * every column that wrote it, blaming the column.
  */
-const TOKEN_PATTERN = /^[A-Za-z0-9_]+$/;
+export const TOKEN_PATTERN = /^[A-Za-z0-9_]+$/;
 
 /** Categories considered mutually numeric for comparison purposes. */
 const NUMERIC_KINDS: ReadonlySet<ScalarKind> = new Set<ScalarKind>(['number', 'money']);

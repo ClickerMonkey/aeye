@@ -178,11 +178,21 @@ export class NumberFieldType extends FieldType {
    * template mechanism does not rest on this check alone: `String(-4)` is `-4`
    * and `String(1e21)` is `1e+21`, neither of which is one. Those are refused
    * PER VALUE where the column is parsed (`FieldTypeRefinement.refine`), so the
-   * pair is total; declaring `min: 0` and a `max` moves that refusal onto the
-   * type, where the message is better, and is worth doing for a real option.
+   * pair is total; declaring a closed `values` set (or `min: 0` and a `max`)
+   * moves that refusal onto the TYPE, where the message is better.
+   *
+   * A DECLARED CLOSED SET WINS OUTRIGHT, and `whole` is only the fallback for a
+   * type that declares none. Written as `||` first, which let `whole: true`
+   * short-circuit past a set the base was about to inspect — so
+   * `{whole: true, values: [{value: -1}, {value: 5}]}` registered cleanly and
+   * then refused every column writing `-1`, a DECLARED, LEGAL member of the
+   * type's own set. That is the exact failure a `relation` base is refused for
+   * ("registered cleanly and then refused every column that used it, blaming the
+   * column"), and the information to refuse it at the declaration was already in
+   * hand.
    */
   override tokenSafeValues(): boolean {
-    return super.tokenSafeValues() || this.options.whole === true;
+    return this.values() !== undefined ? super.tokenSafeValues() : this.options.whole === true;
   }
 
   /**

@@ -200,7 +200,7 @@ That is valid PostGIS, and `:here` is typed `json` by the declared parameter —
 1. **The cast target is the BASE type's** — `CAST($1 AS jsonb)`, not `::geometry(Point,4326)`. A refinement's `sql` / `cast` fixes this, and its `ownOptions` make the target PER COLUMN (`geometry(Polygon,4326)` on one, `geometry(Point,3857)` on the next).
 2. **No infix operators.** `&&` / `<->` have no call form; only `name(a, b)` is emittable from a declaration. Still true with a refinement.
 3. **The domain's NAME and meaning do not reach the model beyond `instructions`** — the field still describes itself as `shape: json — A JSON document`. A refinement makes it `shape: json(as Geometry,subtype=Polygon,srid=4326) — <your instructions>`.
-4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable. A refinement declaring `compare: { ordering: false }` refuses it, with the type's own instructions naming the alternative.
+4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable. A refinement declaring `compare: { ordering: false }` refuses it — in `comparison`, `between` and `in` — with the type's own instructions naming the alternative. (It does NOT yet gate `ORDER BY`; see `compare` below.)
 
 ### A registered REFINEMENT names a builtin: `{ kind: <base>, as: <name> }`
 
@@ -264,13 +264,15 @@ registry.registerFieldType({
 - **A column's bag is checked where the def is read.** An option the type does not declare is REFUSED (`field-type.unknown-option`, with a `didYouMean`), a value its declared type refuses is REFUSED (`field-type.bad-option`, naming the members), and a `with` with no `as` is refused too. The generated def schema offers `with` as a **strict** object keyed by every option registered over that base, each rendered as its own declared type's value schema, so a model cannot invent a member — and a base where no refinement declares options refuses a `with` rather than stripping it.
 - **What the model sees.** `shape: json(as Geometry,subtype=Polygon,srid=4326)` — EFFECTIVE values, so a defaulted column reads with the defaults rather than blank. The SRID a column is stored under is a fact about it either way, and a model shown nothing has no way to know which one it is writing against.
 
-### `compare` — which arms of the builtin grammar apply
+### `compare` — which arms of the builtin PREDICATE grammar apply
 
 ```ts
 compare: { equality: true, ordering: false, textMatch: false }   // every arm defaults to `true`
 ```
 
-`ComparisonOp` is a CLOSED nine-member union (`= <> < <= > >= like notLike ilike`) and it stays closed: a type does not ADD an operator, it says which of the nine mean anything for it. `ordering: false` refuses `< <= > >=`; `textMatch: false` refuses the LIKE family (already gated by the operand's category being text, so it narrows a `text` refinement and is moot for the other eight bases); `equality: false` refuses `=` / `<>`.
+**IT GATES PREDICATES, NOT SORTS.** Read that first, because "which arms of the grammar apply" does not say it: `compare` is enforced on `comparison`, `between` and `in`, and **`ORDER BY shape` is accepted today**, as are `min` / `max` and window ordering over an unordered type. That is a real gap and a deliberate one — a sort over an unordered type is *deterministic nonsense* (a stable answer nobody asked for), where an unordered PREDICATE is worse (its truth is a storage-format detail) — and closing it has to keep `ORDER BY ST_Distance(shape, :here)` working, so the gate belongs on a bare column reference in a sort position rather than on the sort position. That is not designed yet.
+
+`ComparisonOp` is a CLOSED nine-member union (`= <> < <= > >= like notLike ilike`) and it stays closed: a type does not ADD an operator, it says which of the nine mean anything for it. `ordering: false` refuses `< <= > >=` **and `BETWEEN`**, which is `>=` and `<=`; `textMatch: false` refuses the LIKE family (already gated by the operand's category being text, so it narrows a `text` refinement and is moot for the other eight bases); `equality: false` refuses `=` / `<>` **and `IN`**, which is a disjunction of `=`. All three predicates share ONE gate, keyed by ARM rather than by operator — keyed by operator it was reachable only from `comparison`, and a model refused at `shape < :p` got the SQL it was refused by writing `shape BETWEEN :p AND :q` instead.
 
 ```
 where[0]  comparison.type
@@ -308,7 +310,7 @@ A declarer cannot break the lattice by writing CODE — the library compiles the
 - `checkLatticeLaws(types, { registry?, samples?, tops? })` is the runner itself, over any type set you hand it: **commutative, idempotent, associative, top-identity, meet-implies-comparable, sound**, plus **refinement-base** (a surviving `as` is on its own base kind), **refinement-instance** (it came from an OPERAND, not from a name), **round-trip** (every type and every meet re-parses to itself on the registry that produced it) and **total** (nothing throws — a defect is reported, never raised). `param-meet.test.ts` runs this same function over the widest type set in the package, so the export is exercised against a correct implementation on every run of this package's suite.
 - With an `impl.value`, two cross-library checks: the gate must AGREE with the declared base bucket (a value only the gate accepts can never reach a column, and the disagreement means the bucket and the contract describe different types) and must not be VACUOUS (`z.any()` is what an unresolved schema degrades to, and it degrades silently). **Pass `samples`** — the default corpus spans JSON shapes and cannot guess what a well-formed value of your type looks like.
 - It cannot tell whether the emitted SQL MEANS what you intended, or whether an in-memory answer agrees with the database's. Those need a live connection and belong in your integration suite.
-- The subpath and `@aeye/query` resolve to the SAME bundle. Prefer the subpath — it names what the surface is for — but know it is one artifact: a second build entry code-splits this package into chunks its own circular re-exports cannot survive (measured: the BUILT `createRegistry()` threw while the suite, which runs from `src`, stayed green), and a second self-contained bundle would carry its own `TextFieldType` and fail every `instanceof` across the two.
+- The subpath and `@aeye/query` resolve to the SAME bundle. Prefer the subpath — it names what the surface is for — but know it is one artifact. A second SELF-CONTAINED bundle is disqualifying and measured: each entry gets its own copy of every class, so `instanceof ArrayFieldType` is false across them, a consumer's `array` type met against the harness's own `array` top answers `undefined`, and the harness reports a spurious `top-identity` violation for a correct type. The code-splitting alternative builds and runs, but puts this package's circular re-exports across a chunk boundary — rollup warns "will likely lead to broken execution order" — for no gain, since there is one module either way.
 
 ## Schema depth & capability gating
 

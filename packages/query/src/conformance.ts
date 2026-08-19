@@ -29,12 +29,12 @@
  * ```
  *
  * `@aeye/query/conformance` and `@aeye/query` resolve to the SAME bundle — the
- * subpath is a curated name, not a second artifact. The reason is measured and
- * it is recorded on the re-export in `index.ts`: a second tsup entry splits the
- * shared half into a chunk that this package's circular re-exports cannot
- * survive, and the shipped `createRegistry()` then throws. Import from the
- * subpath anyway: it says what the surface is for, and it is what the docs and
- * the CHANGELOG name.
+ * subpath is a curated name, not a second artifact, and the reason is recorded
+ * on the re-export in `index.ts`: a second self-contained bundle carries its own
+ * classes, so `instanceof` is false across the two and this harness reports
+ * spurious failures for correct types (measured). Import from the subpath
+ * anyway: it says what the surface is for, and it is what the docs and the
+ * CHANGELOG name.
  */
 import { z } from 'zod';
 import { FieldType, SCALAR_KINDS } from './field-type';
@@ -180,21 +180,46 @@ export function checkLatticeLaws(
     laws.push({ law: name, states, violations });
   };
 
-  // 0 — TOTAL. A `meet` that THROWS is a defect, not a crash for the caller to
-  // catch: the whole point of a harness is that it is handed a type that may be
-  // wrong and answers with a report. Measured here rather than assumed — a
-  // hand-built `text{pattern:'(['}` throws a raw `SyntaxError` out of zod when
-  // its value schema is built, and an earlier pass of this module let that
-  // escape and take the run with it.
+  // 0 — TOTAL. A harness is handed types that may be WRONG; one that propagates
+  // their failure never reports the defect it was called to find. So EVERY call
+  // into consumer-supplied code goes through `attempt` — and "consumer-supplied"
+  // is wider than it first looks, which is the lesson of the two rounds this
+  // check took to get right:
+  //
+  //  - `meetWith`, `clone`, `toJSON`, `comparableWith` on a hand-written
+  //    `FieldType` subclass (`defineFieldType` is public, and this module's own
+  //    tests treat such a subclass as in-scope input);
+  //  - schema CONSTRUCTION — a hand-built `text{pattern:'(['}` throws a raw
+  //    `SyntaxError` out of zod's internals;
+  //  - schema USE, which the first pass missed. A structural `value` gate is the
+  //    documented shape for a refinement whose raw value is an object, and the
+  //    obvious one — `z.string().refine(s => JSON.parse(s).type === 'Point')` —
+  //    throws on `'a'`, which is the FIRST member of `DEFAULT_SAMPLES`. So the
+  //    first thing a geometry declarer did crashed the harness;
+  //  - even RENDERING a value: `JSON.stringify` throws on a cyclic sample.
+  //
+  // Violations are DEDUPED BY MESSAGE, keeping the first site that produced it.
+  // One broken method throws once per PAIR, and the labels differ (`t0 ∧ t1`,
+  // `t0 ∧ t2`, …) while the message is the same and is the informative half — so
+  // deduping on the whole line would have collapsed nothing and a 50-type set
+  // would report the same failure 2,500 times. The first label is kept because a
+  // reader wants one place to start looking, not all of them.
+  const threwSeen = new Set<string>();
   const threw: string[] = [];
   const attempt = <T>(what: string, fn: () => T): T | undefined => {
     try {
       return fn();
     } catch (err) {
-      threw.push(`${what}: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error ? err.message : String(err);
+      if (!threwSeen.has(message)) {
+        threwSeen.add(message);
+        threw.push(`${what}: ${message}`);
+      }
       return undefined;
     }
   };
+  /** `value` as JSON for a message — total, because a cyclic sample throws. */
+  const render = (value: unknown): string => attempt('JSON.stringify(sample)', () => JSON.stringify(value)) ?? '<unrenderable>';
 
   // Every pairwise meet, computed ONCE — associativity would otherwise recompute
   // each of them |names| times.
@@ -203,7 +228,12 @@ export function checkLatticeLaws(
     for (const y of names) pairs.set(`${x}|${y}`, attempt(`${x} ∧ ${y}`, () => at(x).meet(at(y))));
   }
   const pair = (x: string, y: string): FieldType | undefined => pairs.get(`${x}|${y}`);
-  const key = (ft: FieldType | undefined): string => JSON.stringify(ft?.toJSON() ?? null);
+  // A type's canonical form for comparison — guarded, because `toJSON` is one of
+  // the members a subclass supplies and a throwing one would otherwise escape
+  // from every law at once. A type that cannot serialize compares as `null`,
+  // which fails the laws it participates in AND is reported under `total`.
+  const key = (ft: FieldType | undefined): string =>
+    ft === undefined ? 'null' : JSON.stringify(attempt('FieldType.toJSON()', () => ft.toJSON()) ?? null);
   const metKey = (a: FieldType | undefined, b: FieldType | undefined): string =>
     key(a && b ? attempt(`${key(a)} ∧ ${key(b)}`, () => a.meet(b)) : undefined);
 
@@ -225,7 +255,7 @@ export function checkLatticeLaws(
   for (const x of names) {
     const self = key(at(x));
     if (key(pair(x, x)) !== self) notIdempotent.push(`${x} ∧ ${x}: ${key(pair(x, x))} vs ${self}`);
-    const copy = key(at(x).meet(at(x).clone()));
+    const copy = key(attempt(`clone(${x})`, () => at(x).meet(at(x).clone())));
     if (copy !== self) notIdempotent.push(`${x} ∧ clone(${x}): ${copy} vs ${self}`);
   }
   law('idempotent', 'a ⊓ a is a, and a ⊓ clone(a) is a', notIdempotent);
@@ -249,7 +279,7 @@ export function checkLatticeLaws(
   for (const x of names) {
     const top = tops[at(x).kind];
     if (!top) continue;
-    const met = key(at(x).meet(top));
+    const met = key(attempt(`${x} ∧ ⊤`, () => at(x).meet(top)));
     if (met !== key(at(x))) narrowed.push(`${x} ∧ ⊤: ${met} vs ${key(at(x))}`);
   }
   law('top-identity', 'x ⊓ ⊤ is x — the meet is the GREATEST lower bound', narrowed);
@@ -260,7 +290,7 @@ export function checkLatticeLaws(
   const incomparable: string[] = [];
   for (const x of names) {
     for (const y of names) {
-      if (pair(x, y) !== undefined && !at(x).comparableWith(at(y))) {
+      if (pair(x, y) !== undefined && attempt(`${x}.comparableWith(${y})`, () => at(x).comparableWith(at(y))) === false) {
         incomparable.push(`${x} ∧ ${y} has a meet but the two are not comparableWith`);
       }
     }
@@ -277,8 +307,15 @@ export function checkLatticeLaws(
   // broken type costs its own report line rather than the whole run.
   const schemas = new Map<FieldType, z.ZodTypeAny | undefined>();
   const admits = (ft: FieldType, v: JsonValue): boolean => {
-    if (!schemas.has(ft)) schemas.set(ft, attempt(`${key(ft)}.toValueSchema()`, () => ft.toValueSchema()));
-    return schemas.get(ft)?.safeParse(v).success ?? false;
+    if (!schemas.has(ft)) schemas.set(ft, attempt('FieldType.toValueSchema()', () => ft.toValueSchema()));
+    const schema = schemas.get(ft);
+    if (!schema) return false;
+    // `safeParse` is guarded too, and THAT is the half the first pass missed: a
+    // `.refine()` body is arbitrary consumer code, so a gate that parses its
+    // input throws on a sample that is not of its type. Treated as "refuses",
+    // which is the conservative answer — a value the gate could not judge is not
+    // evidence of unsoundness.
+    return attempt('ZodType.safeParse(sample)', () => schema.safeParse(v).success) ?? false;
   };
   const unsound: string[] = [];
   for (const x of names) {
@@ -287,7 +324,7 @@ export function checkLatticeLaws(
       if (!m) continue;
       for (const v of samples) {
         if (admits(m, v) && !(admits(at(x), v) && admits(at(y), v))) {
-          unsound.push(`${x} ∧ ${y} admits ${JSON.stringify(v)}`);
+          unsound.push(`${x} ∧ ${y} admits ${render(v)}`);
         }
       }
     }
@@ -323,14 +360,19 @@ export function checkLatticeLaws(
   if (registry) {
     const broken: string[] = [];
     const roundTrip = (label: string, ft: FieldType): void => {
-      const json = ft.toJSON();
+      // `toJSON()` sits INSIDE the guard, not outside it: it is a member a
+      // subclass supplies, so a throwing one would escape this law entirely —
+      // the exact shape of the bug the `total` law exists to prevent, one line
+      // above where it was fixed.
+      const json = attempt('FieldType.toJSON()', () => ft.toJSON());
+      if (json === undefined) return;
       try {
         const reparsed = registry.parseFieldType(json).toJSON();
         if (JSON.stringify(reparsed) !== JSON.stringify(json)) {
-          broken.push(`${label}: ${JSON.stringify(json)} re-parsed to ${JSON.stringify(reparsed)}`);
+          broken.push(`${label}: ${render(json)} re-parsed to ${render(reparsed)}`);
         }
       } catch (err) {
-        broken.push(`${label}: ${JSON.stringify(json)} does not re-parse — ${err instanceof Error ? err.message : String(err)}`);
+        broken.push(`${label}: ${render(json)} does not re-parse — ${err instanceof Error ? err.message : String(err)}`);
       }
     };
     for (const x of names) roundTrip(x, at(x));
@@ -486,7 +528,19 @@ export function checkFieldType(
     problems.push(asProblem(err, ['peer'], 'conformance.registration'));
   }
 
-  const samples = [...DEFAULT_SAMPLES, ...(impl?.samples ?? [])];
+  // `impl.samples` is consumer data reaching a SPREAD, so a non-array throws a
+  // bare `TypeError` before any check runs. Reported as a problem instead, and
+  // the run continues on the default corpus.
+  const supplied = impl?.samples;
+  if (supplied !== undefined && !Array.isArray(supplied)) {
+    problems.push({
+      path: ['checkFieldType', decl.name, 'samples'],
+      code: 'conformance.bad-samples',
+      severity: 'error',
+      message: `\`samples\` must be an array of values of your type, got ${typeof supplied}.`,
+    });
+  }
+  const samples: readonly JsonValue[] = [...DEFAULT_SAMPLES, ...(Array.isArray(supplied) ? supplied : [])];
   const types: Record<string, FieldType> = {};
   const build = (label: string, def: FieldTypeDef): void => {
     try {
@@ -557,15 +611,45 @@ function checkValueGate(
   if (!gate) return [];
   const problems: Problem[] = [];
   const bare = registry.parseFieldType(defOf(decl.base));
-  const admitted = samples.filter((v) => gate.safeParse(v).success);
-  const outside = admitted.filter((v) => !bare.validValue(v));
+  // EVERY call here is consumer code. `gate.safeParse` runs a `.refine()` body,
+  // and the documented shape for a struct-valued refinement —
+  // `z.string().refine(s => JSON.parse(s).type === 'Point')` — throws on `'a'`,
+  // the first member of `DEFAULT_SAMPLES`. So the first thing a geometry
+  // declarer did crashed the harness. A sample the gate could not judge is
+  // counted as REFUSED, which is conservative in both directions: it cannot
+  // manufacture a base-disagreement, and it cannot hide a vacuous gate.
+  const failures: string[] = [];
+  const guarded = (what: string, fn: () => boolean): boolean => {
+    try {
+      return fn();
+    } catch (err) {
+      const line = `${what}: ${err instanceof Error ? err.message : String(err)}`;
+      if (!failures.includes(line)) failures.push(line);
+      return false;
+    }
+  };
+  const admitted = samples.filter((v) => guarded('value gate', () => gate.safeParse(v).success));
+  const outside = admitted.filter((v) => !guarded('base validValue', () => bare.validValue(v)));
+  if (failures.length > 0) {
+    problems.push({
+      path: ['checkFieldType', decl.name, 'value'],
+      code: 'conformance.gate-throws',
+      severity: 'error',
+      message:
+        `The \`value\` gate THREW on a sample rather than refusing it: ${failures.join('; ')}. A gate is ` +
+        'asked about values that are not of your type — that is what makes it a gate — so it has to ' +
+        'ANSWER for them. A `.refine()` body that parses its input needs a guard, or a `z.string()` ' +
+        'in front of it. Every sample it threw on was counted as refused, so the checks below ran on ' +
+        'what is left.',
+    });
+  }
   if (outside.length > 0) {
     problems.push({
       path: ['checkFieldType', decl.name, 'value'],
       code: 'conformance.gate-disagrees-with-base',
       severity: 'error',
       message:
-        `The \`value\` gate accepts ${outside.map((v) => JSON.stringify(v)).join(', ')}, which a bare ` +
+        `The \`value\` gate accepts ${outside.map((v) => safeJson(v)).join(', ')}, which a bare ` +
         `\`${decl.base}\` refuses. A refinement's gate is applied in CONJUNCTION with the base's, so a ` +
         'value only it accepts can never reach a column — and the disagreement means the declared bucket ' +
         'and the declared contract describe different types.',
@@ -578,7 +662,7 @@ function checkValueGate(
       severity: 'warning',
       message:
         `The \`value\` gate accepts every one of the ${samples.length} sample values, including ` +
-        `${JSON.stringify(samples[0])}. A gate that refuses nothing is the shape an unresolved schema ` +
+        `${safeJson(samples[0])}. A gate that refuses nothing is the shape an unresolved schema ` +
         'degrades to, and it degrades SILENTLY. Pass `samples` holding values of your type and values ' +
         'that are nearly it, or check that the gate is the one you meant.',
     });
@@ -598,11 +682,44 @@ function checkValueGate(
 function optionValues(type: FieldType, fallback: JsonValue | undefined): JsonValue[] {
   const values = type.values();
   if (values && values.length > 0) return values.slice(0, MAX_OPTION_VALUES).map((v) => v.value);
-  return fallback === undefined ? [] : [fallback];
+  if (fallback === undefined) return [];
+  // A LEGAL NEIGHBOUR beside the default, so the flat lattice's "two different
+  // values conflict" arm is actually exercised. Returning only the default built
+  // a set in which every column agreed on every open option — so for
+  // `srid: { type: {kind:'number', whole:true}, default: 4326 }`, the shape every
+  // worked example uses, the one arm that can go wrong was never reached.
+  // Filtered through the option's own type so a neighbour that is not a legal
+  // value of it is dropped rather than turned into a spurious failure.
+  return [fallback, ...neighboursOf(fallback).filter((v) => type.validValue(v))];
+}
+
+/**
+ * One or two values NEAR `value` — a different member of the same category, for
+ * exercising a single-valued option's conflict arm (see {@link optionValues}).
+ * Deliberately tiny: the lattice loops are cubic in the number of types.
+ */
+function neighboursOf(value: JsonValue): JsonValue[] {
+  if (typeof value === 'number') return [value + 1];
+  if (typeof value === 'boolean') return [!value];
+  if (typeof value === 'string') return [`${value}_x`];
+  return [];
 }
 
 /** How many members of a closed option set the check builds a column for (see {@link optionValues}). */
 const MAX_OPTION_VALUES = 3;
+
+/**
+ * `value` as JSON for a message, or a placeholder — `JSON.stringify` throws on a
+ * cyclic sample, and a report that crashes while EXPLAINING a defect is the same
+ * failure the `total` law exists to prevent, one layer out.
+ */
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return '<unrenderable>';
+  }
+}
 
 /** A thrown `QueryTypeError` as its own `Problem`; anything else as a conformance one. */
 function asProblem(err: unknown, path: (string | number)[], code: string): Problem {

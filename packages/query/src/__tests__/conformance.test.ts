@@ -124,6 +124,34 @@ describe('checkFieldType — one declaration, held to the builtins’ own proper
     expect(DEFAULT_SAMPLES.some((v) => geoJson.safeParse(v).success)).toBe(false);
   });
 
+  it('REPORTS a value gate that THROWS on a sample, rather than crashing', () => {
+    // The measured regression this check exists for, and it is the shape the
+    // module's own docs recommend: `FieldTypeDef` has no record branch, so a
+    // struct-valued refinement's contract lives in `impl.value` — and the
+    // obvious gate for one parses its input. `DEFAULT_SAMPLES` opens with `'a'`,
+    // so the FIRST thing a geometry declarer did threw `SyntaxError: Unexpected
+    // token 'a'` straight out of `checkFieldType`. The first pass guarded schema
+    // CONSTRUCTION and not schema USE.
+    const parsing = z.string().refine((raw) => {
+      const parsed: unknown = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed !== null && 'type' in parsed;
+    });
+    const report = checkFieldType({ name: 'Geo', base: 'text', instructions: 'A geometry as text.' }, { value: parsing });
+    const problem = report.problems.find((p) => p.code === 'conformance.gate-throws');
+    expect(problem).toBeDefined();
+    expect(problem!.message).toContain('THREW on a sample rather than refusing it');
+    // …and the run CONTINUED: the lattice was still proved.
+    expect(report.lattice!.laws.length).toBeGreaterThan(0);
+  });
+
+  it('REPORTS a non-array `samples` rather than throwing at the spread', () => {
+    const report = checkFieldType(
+      { name: 'Geo', base: 'text', instructions: 'A geometry as text.' },
+      { samples: 'not an array' } as unknown as { samples?: readonly JsonValue[] },
+    );
+    expect(report.problems.map((p) => p.code)).toContain('conformance.bad-samples');
+  });
+
   it('builds a column per value of each declared option — the arm the flat lattice must get right', () => {
     // Visible through the round-trip law having something to round-trip: the
     // set holds `Geometry` unset, one column per `subtype` member, one per
@@ -233,6 +261,81 @@ describe('checkLatticeLaws finds a law that is actually broken', () => {
     expect(laws).toContain('total');
     expect(report.failed.find((l) => l.law === 'round-trip')!.violations[0]).toContain('does not re-parse');
     expect(report.failed.find((l) => l.law === 'total')!.violations[0]).toContain('Invalid regular expression');
+  });
+
+  it('catches a subclass whose members THROW — from every law, not just the guarded ones', () => {
+    // `toJSON`, `clone`, `comparableWith` and `meetWith` are all members a
+    // subclass supplies, and the first pass guarded only the meet. `toJSON` in
+    // particular sat OUTSIDE the round-trip law's own try, so a throwing one took
+    // the whole run rather than being reported.
+    class Exploding extends FieldType {
+      readonly kind = 'text' as const;
+      constructor(private readonly where: 'toJSON' | 'clone' | 'comparableWith') {
+        super();
+      }
+      resolve(): ScalarKind {
+        return 'text';
+      }
+      toSQLType(): string {
+        return 'text';
+      }
+      protected builtinJSON(): FieldTypeDef {
+        if (this.where === 'toJSON') throw new Error('toJSON blew up');
+        return { kind: 'text' };
+      }
+      protected builtinClone(): FieldType {
+        if (this.where === 'clone') throw new Error('clone blew up');
+        return new Exploding(this.where);
+      }
+      protected override builtinComparableWith(): boolean {
+        if (this.where === 'comparableWith') throw new Error('comparableWith blew up');
+        return true;
+      }
+      protected builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+        return z.string();
+      }
+      protected builtinAvgBytes(): number {
+        return 4;
+      }
+    }
+    for (const where of ['toJSON', 'clone', 'comparableWith'] as const) {
+      const report = checkLatticeLaws({ boom: new Exploding(where), text: new TextFieldType() });
+      const total = report.failed.find((l) => l.law === 'total');
+      expect(total, `no \`total\` violation for a throwing ${where}`).toBeDefined();
+      expect(total!.violations.join(' ')).toContain(`${where} blew up`);
+    }
+  });
+
+  it('DEDUPES what it reports — one broken method throws once per pair', () => {
+    class AlwaysThrows extends FieldType {
+      readonly kind = 'text' as const;
+      resolve(): ScalarKind {
+        return 'text';
+      }
+      toSQLType(): string {
+        return 'text';
+      }
+      protected builtinJSON(): FieldTypeDef {
+        throw new Error('nope');
+      }
+      protected builtinClone(): FieldType {
+        return new AlwaysThrows();
+      }
+      protected builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+        return z.string();
+      }
+      protected builtinAvgBytes(): number {
+        return 1;
+      }
+    }
+    const many = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`t${i}`, new AlwaysThrows()]));
+    const total = checkLatticeLaws(many).failed.find((l) => l.law === 'total');
+    // 64 pairs, one `toJSON` that always throws, ONE reported line. Deduping on
+    // the whole line would have collapsed nothing, because the labels differ
+    // (`t0 ∧ t1`, `t0 ∧ t2`, …) while the message — the informative half — is the
+    // same. A 50-type set would otherwise report one defect 2,500 times.
+    expect(total!.violations).toHaveLength(1);
+    expect(total!.violations[0]).toContain('nope');
   });
 
   it('is otherwise SILENT — the builtins pass it with nothing declared', () => {

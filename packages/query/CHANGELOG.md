@@ -653,16 +653,36 @@ an undeclared option is `field-type.unknown-option` (with a `didYouMean`), a bad
 `field-type.bad-option` (naming the members), and a `with` with no `as` is refused rather than
 dropped.
 
-**`compare: { equality, ordering, textMatch }` — which arms of the builtin grammar apply.**
-`ComparisonOp` is a CLOSED nine-member union and it stays closed: a type does not ADD an operator,
-it says which of the nine mean anything for it. Every arm defaults to `true`, so an existing
-declaration keeps the grammar it had. The refusal is `Problems`-grade (`comparison.type`) and
-QUOTES THE TYPE'S OWN `instructions`, because a bare refusal costs the retry it was meant to
-prevent — the model then has to guess what to reach for. Neither operand is exempt, unlike the
-comparability check which excuses a bare param: the fact belongs to the COLUMN's declared type and
-holds whatever it is compared to. **`compare` gates the GRAMMAR, never the LATTICE** — a type
-declaring every arm `false` still meets like any other, and tying the two together would owe
-`x ⊓ ⊤ = x` a carve-out on the first such type.
+**`compare: { equality, ordering, textMatch }` — which arms of the builtin PREDICATE grammar
+apply.** `ComparisonOp` is a CLOSED nine-member union and it stays closed: a type does not ADD an
+operator, it says which of the nine mean anything for it. Every arm defaults to `true`, so an
+existing declaration keeps the grammar it had. The refusal is `Problems`-grade and QUOTES THE
+TYPE'S OWN `instructions`, because a bare refusal costs the retry it was meant to prevent — the
+model then has to guess what to reach for. Neither operand is exempt, unlike the comparability
+check which excuses a bare param: the fact belongs to the COLUMN's declared type and holds whatever
+it is compared to.
+
+**All THREE predicates share one gate, keyed by ARM rather than by operator.** `ordering: false`
+refuses `BETWEEN` as well as `< <= > >=` (it IS `>=` and `<=`), and `equality: false` refuses `IN`
+as well as `=` / `<>` (it is a disjunction of `=`). Keyed by `ComparisonOp` the gate was reachable
+only from `ComparisonExpr`, so a model refused at `shape < :p` restated it as
+`shape BETWEEN :p AND :q` and got `WHERE "parcel"."shape" BETWEEN $1 AND $2` — the exact SQL the
+refusal exists to prevent, from a one-token rewrite.
+
+**IT GATES PREDICATES, NOT SORTS**, and that is a stated gap rather than a claim. `ORDER BY shape`,
+`min(shape)` and window ordering are all accepted over a type declaring no ordering. A sort over an
+unordered type is deterministic nonsense where an unordered predicate is worse (its truth is a
+storage-format detail), and closing it must keep `ORDER BY ST_Distance(shape, :here)` working — so
+the gate belongs on a BARE COLUMN REFERENCE in a sort position rather than on the sort position.
+Not designed yet; the docs say so where a reader will look.
+
+**`compare` gates the GRAMMAR, never the LATTICE** — a type declaring every arm `false` still meets
+like any other, and tying the two together would owe `x ⊓ ⊤ = x` a carve-out on the first such type.
+It also now REACHES THE MODEL: the type tag renders the refused arms
+(`json(as Geometry,subtype=Polygon,srid=4326,no <,no LIKE)`) and the `as` enum's glossary carries
+`(refuses: <, LIKE)`. Until it did, the only channel was whatever the declarer typed into
+`instructions`, so a model discovered the refusal by writing a predicate and failing validation —
+which by this release's own accounting costs thousands of tokens to save twenty.
 
 **`comparableWith` — compatibility as a declared relation, symmetrized by the REGISTRY.** The
 declared form of the hardcoded `number`/`money` and `date`/`timestamp` families. Naming a type that
@@ -701,15 +721,20 @@ and must not be vacuous.
 **Two limits of the conformance export, stated rather than discovered.** It cannot tell whether the
 emitted SQL means what you intended, or whether an in-memory answer agrees with the database's;
 those need a live connection and belong in a consumer's integration suite. And **the subpath
-resolves to the same bundle as `@aeye/query`** — measured, not chosen: adding `src/conformance.ts`
-as a second `tsup` entry makes esbuild code-split the shared half into a chunk, and this package's
-circular re-exports (`shape/index.ts` ↔ `shape/shape.ts`, `exprs/index.ts` ↔ `exprs/field-ref.ts`,
-and the one that actually bit, `field-types/index.ts`) then land in a different chunk from the code
-that reads them at module-eval time. The BUILT bundle threw `Cannot read properties of undefined
-(reading 'NAME')` out of `createRegistry()` while the whole suite — which runs from `src` — stayed
-green. A second self-contained bundle is worse: it would carry its own `TextFieldType`, and every
-`instanceof` across the two would answer `false`, so the harness would report spurious failures for
-correct types. One bundle, two specifiers; prefer the subpath, which is what the docs name.
+resolves to the same bundle as `@aeye/query`**, which is a packaging decision with one measurement
+behind it. A second build entry either splits or it does not, and the not-splitting half is
+disqualifying: `--no-splitting` gives each entry its own copy of every class, so
+`instanceof ArrayFieldType` is FALSE across them — a consumer's `array` type met against the
+harness's own `array` TOP answered `undefined`, and `checkLatticeLaws` then reported a spurious
+`top-identity` violation for a correct type. A harness that fails correct input is worse than no
+harness. The splitting half BUILDS AND RUNS (tsup 8.5.1, both import orders), but puts this
+package's circular re-exports — `shape/index.ts` ↔ `shape/shape.ts`, `exprs/index.ts` ↔
+`exprs/field-ref.ts`, `field-types/index.ts` — across a chunk boundary, which rollup itself warns
+"will likely lead to broken execution order" in warnings the DTS pass prints verbatim. That is a
+hazard taken on for no gain, since there is one module either way. One bundle, two specifiers;
+prefer the subpath, which is what the docs name. `npm run build` now ends by importing the built
+artifact through BOTH specifiers and calling into it, because the suite runs from `src` and cannot
+see a packaging failure at all.
 
 **One internal contract changed, for anyone who SUBCLASSES `FieldType`** — the same shape as the
 four template methods step 1 introduced. `comparableWith` is now FINAL (it adds the declared edges

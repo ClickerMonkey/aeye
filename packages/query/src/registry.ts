@@ -196,6 +196,25 @@ export class Registry {
       if (!addedNames && !existingNames) continue;
       added.linkComparable(existing.name);
       existing.linkComparable(added.name);
+      // An edge may cross BASES — that is the point of a declared relation, and
+      // it is what `number`↔`money` already does natively. But it is also how a
+      // `json` type ends up compared to a `text` one, emitting
+      // `"t"."shape" = "t"."token"` for the database to make what it can of. The
+      // meet still refuses the pair (a registered name meets only itself), so
+      // nothing downstream is typed wrongly; it is worth SAYING, because a
+      // cross-base edge is far more often a typo than a decision.
+      if (added.base !== existing.base) {
+        this.comparabilityNotes.push({
+          path: ['registerFieldType', added.name, 'comparableWith'],
+          code: 'field-type.cross-base-comparability',
+          severity: 'warning',
+          message:
+            `\`${added.name}\` (a ${added.base}) and \`${existing.name}\` (a ${existing.base}) are declared ` +
+            'comparable across DIFFERENT base kinds. The edge is recorded, and the meet still refuses the ' +
+            'pair — but a predicate over the two emits a comparison the database resolves however it ' +
+            'resolves it. Intended for a pair like a length and a plain number; a typo otherwise.',
+        });
+      }
       if (addedNames === existingNames) continue;
       const [names, silent] = addedNames ? [added, existing] : [existing, added];
       this.comparabilityNotes.push({

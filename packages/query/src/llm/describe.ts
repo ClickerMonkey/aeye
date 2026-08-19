@@ -153,6 +153,32 @@ function refinementOptionQuals(ft: FieldType): string[] {
 }
 
 /**
+ * The arms of the comparison grammar a column's registered type REFUSES,
+ * rendered as `no <arm>` — `json(as Geometry,no <,no LIKE)`.
+ *
+ * The declaration is the only place that knows, and until this rendered existed
+ * the ONLY channel was whatever the declarer happened to type into
+ * `instructions`. That is a retry waiting to happen, and by this package's own
+ * accounting a retry costs thousands of tokens to save the twenty this line
+ * spends: a model with no way to know `<` is unavailable finds out by writing
+ * one, failing validation, and re-reading the whole schema.
+ *
+ * Rendered as the OPERATORS a model would write rather than as the declaration's
+ * key names (`no <` rather than `ordering: false`), because the tag is read
+ * while choosing an operator, not while writing a declaration. Nothing is
+ * rendered for a type that refuses nothing, so an existing tag is unchanged.
+ */
+function refinementCompareQuals(ft: FieldType): string[] {
+  const compare = ft.refinement?.compare;
+  if (!compare) return [];
+  const parts: string[] = [];
+  if (!compare.equality) parts.push('no =');
+  if (!compare.ordering) parts.push('no <');
+  if (!compare.textMatch) parts.push('no LIKE');
+  return parts;
+}
+
+/**
  * The kind-specific part of a type tag, without its own closed value set.
  *
  * A registered REFINEMENT is the FIRST qualifier on every kind —
@@ -175,10 +201,14 @@ function refinementOptionQuals(ft: FieldType): string[] {
  * and a model reading `geometry(Point,4326)` in the emitted SQL of one column
  * and nothing in the description of another has no way to know which SRID it is
  * writing against.
+ *
+ * Then the arms of the comparison grammar the type REFUSES (`no <`, `no LIKE`)
+ * — see {@link refinementCompareQuals} for why a refusal a model can only
+ * discover by tripping over it is the expensive kind.
  */
 function fieldTypeBase(ft: FieldType): string {
   const parts: string[] = [];
-  if (ft.as !== undefined) parts.push(`as ${ft.as}`, ...refinementOptionQuals(ft));
+  if (ft.as !== undefined) parts.push(`as ${ft.as}`, ...refinementOptionQuals(ft), ...refinementCompareQuals(ft));
   if (ft instanceof ArrayFieldType) {
     // The element type is where an array's constraints actually live — without
     // it the model cannot author an element at all, let alone a member of a set.

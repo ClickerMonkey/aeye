@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import type { FieldType } from '../field-type';
+import type { FieldTypeCompareDecl } from '../refinement';
 import type { AggregateMerge, QueryDef } from '../schema';
 import type {
   ResolvedType,
@@ -215,3 +216,62 @@ export function childQuerySchema(Query?: z.ZodTypeAny): z.ZodTypeAny {
 export function emitSubquerySQL(dialect: Dialect, ctx: SqlContext, def: QueryDef): SqlText {
   return ctx.engine.parseQuery(def).toSQL(dialect, ctx).parens();
 }
+
+// ─── A registered type's DECLARED comparison grammar ─────────────────────────
+
+/**
+ * The refusal for an operand whose registered type declares that `arm` of the
+ * comparison grammar does not apply to it, or `undefined`.
+ *
+ * KEYED BY ARM RATHER THAN BY OPERATOR, and that is the whole reason it lives
+ * here instead of in `comparison.ts`. It was keyed by `ComparisonOp`, so it was
+ * reachable only from `ComparisonExpr` — and `BETWEEN` is `>=` AND `<=` while
+ * `IN` is a disjunction of `=`. Measured on the first cut of this feature: a
+ * model refused at `shape < :p` restated it as `shape BETWEEN :p AND :q` and got
+ * `WHERE "parcel"."shape" BETWEEN $1 AND $2`, i.e. exactly the SQL the refusal
+ * exists to prevent, from a one-token rewrite. The three predicates share one
+ * closed nine-member grammar, so they must share one gate.
+ *
+ * `ComparisonOp` stays CLOSED — a type does not ADD an operator, it says which
+ * of the nine mean anything for it. Ordering two geometries is not a query the
+ * engine could answer more carefully; it is a query with no meaning, and
+ * emitting it hands the database a comparison whose answer is an implementation
+ * detail of the storage format.
+ *
+ * The message quotes the type's own `instructions`, because a bare refusal costs
+ * the retry it was meant to prevent: the model then has to GUESS what to reach
+ * for, and the declaration is the one place that knows. `syntax` names the shape
+ * being refused (`'<'`, `'BETWEEN'`, `'IN'`) so the message points at what the
+ * author actually wrote.
+ *
+ * NO OPERAND IS EXEMPT — unlike the comparability check, which excuses a bare
+ * param whose type is still being inferred. The fact refused here belongs to the
+ * COLUMN's declared type and holds whatever it is compared to.
+ */
+export function declaredArmRefusal(
+  arm: keyof FieldTypeCompareDecl,
+  syntax: string,
+  operands: readonly (FieldType | undefined)[],
+): string | undefined {
+  const { verb, noun } = ARM_WORDS[arm];
+  for (const ft of operands) {
+    const refinement = ft?.refinement;
+    if (!refinement || refinement.compare[arm]) continue;
+    return (
+      `Cannot ${verb} \`${refinement.name}\` values with ${syntax}: the type declares no ${noun} ` +
+      `(\`compare.${arm}: false\`). ${refinement.name} — ${refinement.instructions}`
+    );
+  }
+  return undefined;
+}
+
+/**
+ * How each arm's refusal reads. A total `Record` over the arms, so an arm added
+ * to {@link FieldTypeCompareDecl} fails to compile here rather than rendering as
+ * `undefined undefined`.
+ */
+const ARM_WORDS: Readonly<Record<keyof FieldTypeCompareDecl, { verb: string; noun: string }>> = {
+  equality: { verb: 'compare', noun: 'equality' },
+  ordering: { verb: 'order', noun: 'ordering' },
+  textMatch: { verb: 'pattern-match', noun: 'text matching' },
+};

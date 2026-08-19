@@ -80,19 +80,32 @@ export {
 // name to prefer: it says what the surface is for, and it is where the docs
 // point.
 //
-// The subpath resolves to THIS bundle rather than to one of its own, and that is
-// a measurement rather than a preference. Adding `src/conformance.ts` as a
-// second tsup entry makes esbuild code-split the shared half into a chunk, and
-// this package's `index.ts` ↔ member circular RE-EXPORTS (`shape/index.ts` ↔
-// `shape/shape.ts`, `exprs/index.ts` ↔ `exprs/field-ref.ts`, and the one that
-// actually bit, `field-types/index.ts`) then land in a different chunk from the
-// code that reads them at module-eval time. Measured on the two-entry build:
-// `createRegistry()` threw `Cannot read properties of undefined (reading
-// 'NAME')` — i.e. the SHIPPED package crashed on its first call, while the suite
-// (which runs from `src`) stayed green. A second self-contained bundle is worse
-// still: it would carry its OWN `TextFieldType`, and every `instanceof` across
-// the two would answer `false`, so the harness would report spurious failures
-// for correct types. One bundle, two specifiers.
+// THE SUBPATH RESOLVES TO THIS BUNDLE rather than to one of its own, and the
+// reason is a measurement on the alternative. A second build entry has to
+// either code-split or not, and the not-splitting half is disqualifying:
+// `tsup src/index.ts src/conformance.ts --no-splitting` gives each entry its own
+// copy of every class, so `instanceof ArrayFieldType` is FALSE across them.
+// Measured — a consumer's `array` type met against the harness's own `array`
+// TOP answered `undefined`, and `checkLatticeLaws` then reported a spurious
+// `top-identity` violation for a perfectly correct type. A harness that fails
+// correct input is worse than no harness.
+//
+// The `exports` map carries NO `source` condition, for the same reason: `src/`
+// is not in `files`, so it is dead for an installed consumer, and in-repo it
+// diverged from the `import` condition — one specifier resolving to sources and
+// the other to `dist` is two copies of this module in one process, which is the
+// failure above by another road. `npm run build` ends in `scripts/check-dist.mjs`,
+// which reads the map and imports what it names, because the suite runs from
+// `src` and cannot see any of this.
+//
+// Splitting is therefore the only viable second-entry shape, and it puts the
+// shared half in a chunk while this package's circular RE-EXPORTS
+// (`shape/index.ts` ↔ `shape/shape.ts`, `exprs/index.ts` ↔ `exprs/field-ref.ts`,
+// `field-types/index.ts`) sit across the boundary — rollup says so itself, in
+// warnings the DTS pass prints verbatim: "will likely lead to broken execution
+// order". It BUILT and RAN correctly on tsup 8.5.1 in both import orders, so
+// that is a hazard rather than a reproduced failure; it buys nothing, because
+// there is one module either way. One bundle, two specifiers.
 export {
   DEFAULT_SAMPLES,
   checkFieldType,

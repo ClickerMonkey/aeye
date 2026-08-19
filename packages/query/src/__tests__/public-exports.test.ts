@@ -81,11 +81,12 @@ describe('A3 — the public barrel', () => {
   it('exports the CONFORMANCE surface, which `@aeye/query/conformance` also names', () => {
     // The subpath resolves to THIS bundle rather than to one of its own, so the
     // barrel is where the bindings live and this is the test that proves the
-    // subpath has something to resolve TO. (A second tsup entry code-splits the
-    // package into chunks its own circular re-exports cannot survive — measured:
-    // `createRegistry()` threw `Cannot read properties of undefined (reading
-    // 'NAME')` out of the BUILT bundle while the suite, which runs from `src`,
-    // stayed green. See the note on the re-export in `index.ts`.)
+    // subpath has something to resolve TO. (A second SELF-CONTAINED bundle is
+    // disqualifying — measured: its own `ArrayFieldType` makes every cross-copy
+    // `instanceof` false, and the harness then reports a spurious `top-identity`
+    // violation for a correct type. See the note on the re-export in `index.ts`,
+    // and `scripts/check-dist.mjs`, which exercises the built artifact this test
+    // cannot see.)
     for (const name of ['checkFieldType', 'checkLatticeLaws', 'topsByKind'] as const) {
       expect(typeof pkg[name]).toBe('function');
     }

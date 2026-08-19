@@ -54,7 +54,7 @@
 import { z } from 'zod';
 import { didYouMean } from './aids';
 import type { FieldType } from './field-type';
-import { SCALAR_KINDS, type ScalarKind } from './field-type';
+import { SCALAR_KINDS, TOKEN_PATTERN, type ScalarKind } from './field-type';
 import type { SchemaOptions } from './node';
 import { QueryTypeError } from './problem';
 import type { Registry } from './registry';
@@ -97,8 +97,15 @@ const TEMPLATE_SLOT = /\{([^{}]*)\}/g;
  * body, which the declarer wrote. A bare identifier / number token is the widest
  * thing that is safe with no quoting rules of its own, and it covers every real
  * case (`Point`, `4326`, `36`, `USD`).
+ *
+ * An ALIAS of `FieldType.TOKEN_PATTERN`, not a copy. The two guard one fact from
+ * opposite ends — `tokenSafeValues()` proves at REGISTRATION that every member
+ * of a closed option type is a token, this proves at PARSE that each written
+ * value is — so a charset that drifted by one character would let a member pass
+ * the declaration and then refuse every column that wrote it. The local name is
+ * kept because it says what the charset is FOR here.
  */
-const TEMPLATE_VALUE_PATTERN = /^[A-Za-z0-9_]+$/;
+const TEMPLATE_VALUE_PATTERN = TOKEN_PATTERN;
 
 /**
  * Stand-in tokens a template is CHECKED against at registration, once an
@@ -443,10 +450,19 @@ const DECLARATION_KEYS = [
 /** {@link DECLARATION_KEYS} as a membership test over an arbitrary key string. */
 const DECLARATION_KEY_SET: ReadonlySet<string> = new Set<string>(DECLARATION_KEYS);
 
-/** Keys that MOVED, so their refusal can say where they went instead of just "unknown". */
-const RELOCATED_KEYS: Readonly<Record<string, string>> = {
-  value: '`registerFieldTypeImpl(name, { value })` — it is a zod schema, and a declaration is JSON',
-};
+/**
+ * Keys that MOVED, so their refusal can say where they went instead of just
+ * "unknown".
+ *
+ * A `Map`, not an object literal, because it is indexed by an ARBITRARY key
+ * taken off a caller's declaration — and `{}['toString']` is a function, so a
+ * declaration carrying a `toString` key produced the model-facing message
+ * *"It moved to function toString() { [native code] }"*. A `Map` has no
+ * prototype chain to fall through.
+ */
+const RELOCATED_KEYS: ReadonlyMap<string, string> = new Map([
+  ['value', '`registerFieldTypeImpl(name, { value })` — it is a zod schema, and a declaration is JSON'],
+]);
 
 type Assert<T extends true> = T;
 /** `DECLARATION_KEYS` covers the declaration exactly — neither list may drift. */
@@ -455,6 +471,28 @@ type _DeclarationKeysAreExact = Assert<
     ? (typeof DECLARATION_KEYS)[number] extends keyof FieldTypeRefinementDefFor<'text'> ? true : false
     : false
 >;
+
+/**
+ * `value` with every object's keys sorted, at every depth — the canonical form a
+ * `with` bag is stored in.
+ *
+ * `meet` and the identity short-circuit compare two types by their SERIALIZED
+ * form, so two columns whose option objects differ only in key order would be
+ * two different types: `{meta:{a:1,b:2}} ⊓ {meta:{b:2,a:1}}` had no meet at all.
+ * Commutative either way (both directions agreed on `undefined`), so no law
+ * caught it — which is exactly why the canonicalization has to be structural
+ * rather than left to the arrangement a law happens to notice.
+ */
+function canonicalJson(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value === null || typeof value !== 'object') return value;
+  const sorted: Record<string, JsonValue> = {};
+  for (const key of Object.keys(value).sort()) {
+    const inner = value[key];
+    if (inner !== undefined) sorted[key] = canonicalJson(inner);
+  }
+  return sorted;
+}
 
 /** Throw a declaration-defect `QueryTypeError` for refinement `name`. */
 function refuse(name: string, path: (string | number)[], message: string): never {
@@ -893,7 +931,7 @@ export class FieldTypeRefinement {
     // and then sit inert.
     for (const key of Object.keys(def)) {
       if (DECLARATION_KEY_SET.has(key)) continue;
-      const moved = RELOCATED_KEYS[key];
+      const moved = RELOCATED_KEYS.get(key);
       refuse(
         name,
         [key],
@@ -1174,7 +1212,12 @@ export class FieldTypeRefinement {
             `identifier or number token; ${JSON.stringify(value)} is not.`,
         });
       }
-      bag[key] = value;
+      // Key-sorted at EVERY depth, not just the top. The bag is compared by its
+      // serialized form (`meet` does, `withRefinement`'s identity check does), and
+      // an object-valued option would otherwise make `{meta:{a:1,b:2}}` and
+      // `{meta:{b:2,a:1}}` two different types — the same argument that sorts the
+      // bag's own keys, which the first pass applied one level and stopped.
+      bag[key] = canonicalJson(value);
     }
     return bag;
   }
@@ -1292,7 +1335,14 @@ export function refinementKeySchema(
         .describe(`No registered type refines a ${base} here — omit \`with\`.`),
     };
   }
-  const glossary = registered.map((r) => `${r.name} — ${r.instructions}`).join(' ');
+  // The glossary carries each type's REFUSED comparison arms beside its
+  // instructions, because this schema is read while a model is CHOOSING a type
+  // for a column and the refusal is otherwise only discoverable by writing a
+  // predicate and failing validation — which costs a retry carrying the whole
+  // schema to save the handful of tokens this adds.
+  const glossary = registered
+    .map((r) => `${r.name} — ${r.instructions}${refusedArmsNote(r)}`)
+    .join(' ');
   return {
     as: z
       .enum([first, ...rest])
@@ -1303,6 +1353,20 @@ export function refinementKeySchema(
       ),
     with: refinementOptionsSchema(base, registered, opts),
   };
+}
+
+/**
+ * ` (refuses: <, LIKE)` for a type that declares arms of the comparison grammar
+ * do not apply to it, or `''`. Rendered as the OPERATORS a model would write
+ * rather than as the declaration's key names — the reader is choosing an
+ * operator, not writing a declaration.
+ */
+function refusedArmsNote(refinement: FieldTypeRefinement): string {
+  const refused: string[] = [];
+  if (!refinement.compare.equality) refused.push('=');
+  if (!refinement.compare.ordering) refused.push('<');
+  if (!refinement.compare.textMatch) refused.push('LIKE');
+  return refused.length === 0 ? '' : ` (refuses: ${refused.join(', ')})`;
 }
 
 /**

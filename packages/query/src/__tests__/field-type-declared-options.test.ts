@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { createRegistry, type Registry } from '../registry';
 import { QueryEngine } from '../engine';
 import { QueryTypeError } from '../problem';
+import { TOKEN_PATTERN } from '../field-type';
 import { fieldTypeDefSchema, JsonFieldType } from '../field-types/index';
 import { describeType } from '../llm/describe';
 import { Type } from '../type';
@@ -138,6 +139,35 @@ function whereSelect(...where: ExprDef[]): SelectDef {
     kind: 'select',
     fields: [{ expr: { kind: 'field-ref', source: 'parcel', field: 'name' } }],
     from: { kind: 'type', type: 'parcel' },
+    where,
+  };
+}
+
+/**
+ * A registry + engine for `Blob` — a type that refuses EVERY arm of the grammar.
+ * Its own fixture because the point is a type nothing may predicate on, which
+ * `parcel` (whose columns must stay usable) cannot also be.
+ */
+function blobFixture(): { registry: Registry; engine: QueryEngine } {
+  const registry = createRegistry().registerFieldType({
+    name: 'Blob', base: 'json',
+    instructions: 'An opaque payload. Read it; never predicate on it.',
+    compare: { equality: false, ordering: false, textMatch: false },
+  });
+  registry.registerType(registry.parseType({
+    name: 'doc', count: 10,
+    fields: [{ name: 'id', type: { kind: 'text' } }, { name: 'payload', type: { kind: 'json', as: 'Blob' } }],
+  }));
+  registry.finalize();
+  return { registry, engine: new QueryEngine(registry) };
+}
+
+/** `SELECT id FROM doc WHERE <where>`. */
+function blobSelect(...where: ExprDef[]): SelectDef {
+  return {
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 'doc', field: 'id' } }],
+    from: { kind: 'type', type: 'doc' },
     where,
   };
 }
@@ -425,26 +455,12 @@ describe('`compare` refuses an arm of the grammar that means nothing for the typ
   });
 
   it('refuses EQUALITY when the type declares none', () => {
-    const registry = createRegistry().registerFieldType({
-      name: 'Blob', base: 'json',
-      instructions: 'An opaque payload. Read it; never predicate on it.',
-      compare: { equality: false, ordering: false, textMatch: false },
-    });
-    registry.registerType(registry.parseType({
-      name: 'doc', count: 10,
-      fields: [{ name: 'id', type: { kind: 'text' } }, { name: 'payload', type: { kind: 'json', as: 'Blob' } }],
-    }));
-    registry.finalize();
-    const problems = new QueryEngine(registry).validateQuery({
-      kind: 'select',
-      fields: [{ expr: { kind: 'field-ref', source: 'doc', field: 'id' } }],
-      from: { kind: 'type', type: 'doc' },
-      where: [{
-        kind: 'comparison', op: '=',
-        left: { kind: 'field-ref', source: 'doc', field: 'payload' },
-        right: { kind: 'param', name: 'p' },
-      }],
-    }).list;
+    const { engine } = blobFixture();
+    const problems = engine.validateQuery(blobSelect({
+      kind: 'comparison', op: '=',
+      left: { kind: 'field-ref', source: 'doc', field: 'payload' },
+      right: { kind: 'param', name: 'p' },
+    })).list;
     expect(codes(problems)).toEqual(['comparison.type']);
     expect(problems[0]!.message).toContain('the type declares no equality');
   });
@@ -462,6 +478,66 @@ describe('`compare` refuses an arm of the grammar that means nothing for the typ
     };
     expect(codes(engine.validateQuery(whereSelect(columns)).list)).toEqual(['comparison.type']);
     expect(codes(engine.validateQuery(whereSelect(cmp('shape', '<'))).list)).toEqual(['comparison.type']);
+  });
+
+  it('refuses BETWEEN on a type that declares no ORDERING — it is `>=` and `<=`', () => {
+    // The hole a one-token rewrite opened: a model refused at `shape < :p`
+    // restates it as `shape BETWEEN :p AND :q`. `declaredArmRefusal` was keyed
+    // by `ComparisonOp` and so was reachable only from `ComparisonExpr`, while
+    // `BETWEEN` emitted `WHERE "parcel"."shape" BETWEEN $1 AND $2` — the exact
+    // SQL the refusal exists to prevent.
+    const { engine } = fixture();
+    const between: ExprDef = {
+      kind: 'between',
+      value: { kind: 'field-ref', source: 'parcel', field: 'shape' },
+      lower: { kind: 'param', name: 'a' },
+      upper: { kind: 'param', name: 'b' },
+    };
+    const problems = engine.validateQuery(whereSelect(between)).list;
+    expect(codes(problems)).toEqual(['between.type']);
+    expect(problems[0]!.message).toContain("Cannot order `Geometry` values with 'BETWEEN'");
+    expect(problems[0]!.message).toContain('order by ST_Distance');
+    // …and a bound may be the offending operand too, not only the value.
+    const boundIsGeo: ExprDef = {
+      kind: 'between',
+      value: { kind: 'param', name: 'v' },
+      lower: { kind: 'field-ref', source: 'parcel', field: 'shape' },
+      upper: { kind: 'field-ref', source: 'parcel', field: 'centre' },
+    };
+    expect(codes(engine.validateQuery(whereSelect(boundIsGeo)).list)).toContain('between.type');
+  });
+
+  it('refuses IN on a type that declares no EQUALITY — it is a disjunction of `=`', () => {
+    const { registry, engine } = blobFixture();
+    void registry;
+    const inList: ExprDef = {
+      kind: 'in',
+      value: { kind: 'field-ref', source: 'doc', field: 'payload' },
+      in: [{ kind: 'param', name: 'a' }, { kind: 'param', name: 'b' }],
+    };
+    const problems = engine.validateQuery(blobSelect(inList)).list;
+    expect(codes(problems)).toEqual(['in.type']);
+    expect(problems[0]!.message).toContain("Cannot compare `Blob` values with 'IN'");
+  });
+
+  it('…and BETWEEN / IN stay untouched for a type that declares those arms', () => {
+    // The control that stops the two above from passing because the predicates
+    // broke generally.
+    const { engine } = fixture();
+    const between: ExprDef = {
+      kind: 'between',
+      value: { kind: 'field-ref', source: 'parcel', field: 'name' },
+      lower: { kind: 'param', name: 'a' },
+      upper: { kind: 'param', name: 'b' },
+    };
+    expect(engine.validateQuery(whereSelect(between)).list).toEqual([]);
+    const inList: ExprDef = {
+      kind: 'in',
+      value: { kind: 'field-ref', source: 'parcel', field: 'token' },
+      in: [{ kind: 'param', name: 'a' }],
+    };
+    // `Token` refuses only the LIKE family, so IN (equality) is fine.
+    expect(engine.validateQuery(whereSelect(inList)).list).toEqual([]);
   });
 
   it('the CONTROL — the arms it DOES declare, and an unrefined column, are untouched', () => {
@@ -542,14 +618,39 @@ describe('what the model is told about a declared option', () => {
   it('renders each option\'s EFFECTIVE value in the type tag', () => {
     const { registry } = fixture();
     const described = describeType(registry.type('parcel')!);
-    expect(described).toContain('- shape: json(as Geometry,subtype=Polygon,srid=4326)');
-    expect(described).toContain('- centre: json(as Geometry,subtype=Point,srid=3857)');
+    expect(described).toContain('- shape: json(as Geometry,subtype=Polygon,srid=4326,no <,no LIKE)');
+    expect(described).toContain('- centre: json(as Geometry,subtype=Point,srid=3857,no <,no LIKE)');
     // A column that named none is rendered with the DEFAULTS rather than blank:
     // the SRID it is stored under is a fact about it either way, and a model
     // reading nothing has no way to know which one it is writing against.
-    expect(described).toContain('- bounds: json(as Geometry,subtype=Geometry,srid=4326)');
-    // A refinement with no options of its own reads exactly as it did in step 1.
-    expect(described).toContain('- region: json(as Geography) (nullable)');
+    expect(described).toContain('- bounds: json(as Geometry,subtype=Geometry,srid=4326,no <,no LIKE)');
+    // A refinement with no options of its own renders only what it refuses.
+    expect(described).toContain('- region: json(as Geography,no <) (nullable)');
+  });
+
+  it('renders the arms the type REFUSES, so a model does not discover them by failing', () => {
+    // The whole argument for this line, in this package's own accounting: a
+    // model that learns `<` is unavailable by WRITING one pays a validate-fail
+    // retry carrying the entire schema — thousands of tokens to save the handful
+    // this spends. Before it existed the only channel was whatever the declarer
+    // happened to type into `instructions`.
+    const { registry } = fixture();
+    const described = describeType(registry.type('parcel')!);
+    expect(described).toContain('json(as Geography,no <)');
+    expect(described).toContain('text(as Token,no LIKE)');
+    // A type that refuses nothing renders exactly as it did — no empty qualifier.
+    const plain = createRegistry().registerFieldType({ name: 'Sha', base: 'text', instructions: 'A digest.' });
+    const doc = plain.parseType({ name: 'd', count: 1, fields: [{ name: 'h', type: { kind: 'text', as: 'Sha' } }] });
+    expect(describeType(doc)).toContain('- h: text(as Sha) —');
+  });
+
+  it('names the refused arms in the `as` enum a model AUTHORS a type against', () => {
+    // The tag above is read while writing a PREDICATE; this is read while
+    // choosing a TYPE for a column, and both readers need the fact.
+    const rendered = schemaDescription(JsonFieldType.toSchema({ registry: refinedRegistry() }));
+    expect(rendered).toContain('Geometry — A PostGIS geometry');
+    expect(rendered).toContain('(refuses: <, LIKE)');
+    expect(rendered).toContain('Geography — A PostGIS geography as GeoJSON, on the spheroid. (refuses: <)');
   });
 
   it('offers `with` as a STRICT object of the options registered over that base', () => {
@@ -645,6 +746,109 @@ describe('a step-1 declaration behaves exactly as it did', () => {
       options: { min: -90 },
       sql: { postgres: 'numeric({min})' },
     }))).toContain('interpolable: none');
+  });
+});
+
+describe('the two ends of the token guarantee cannot drift apart', () => {
+  it('registration and parse hold values to the SAME charset — ONE constant, not two', () => {
+    // They guard one fact from opposite ends: `tokenSafeValues()` proves at
+    // REGISTRATION that every member of a closed option type is a bare token,
+    // and `refine` proves at PARSE that each written value is. The charset was
+    // RESTATED in both files, and a mutation to one left the whole suite green —
+    // so this asserts the shared constant is what both ends use, over a corpus
+    // that straddles the boundary.
+    for (const member of ['a', 'A_1', '0']) expect(TOKEN_PATTERN.test(member)).toBe(true);
+    for (const member of ['a.b', 'a-b', 'a b', '']) {
+      expect(TOKEN_PATTERN.test(member)).toBe(false);
+      // The REGISTRATION end refuses a closed set holding it.
+      expect(() => createRegistry().registerFieldType({
+        name: 'Tagged', base: 'json', instructions: 'x.',
+        ownOptions: { tag: { type: { kind: 'text', values: [{ value: member }] }, default: member } },
+        sql: { postgres: 'geometry({tag})' },
+      })).toThrow();
+    }
+    // …and the PARSE end refuses a column writing a non-token under a type that
+    // is closed enough to declare but still admits one. A charset differing by a
+    // character would put a value on the wrong side of exactly one of these.
+    const open = createRegistry().registerFieldType({
+      name: 'Srid', base: 'json', instructions: 'x.',
+      ownOptions: { n: { type: { kind: 'number', whole: true }, default: 1 } },
+      sql: { postgres: 'geometry({n})' },
+    });
+    expect(refusalCode(() => open.parseFieldType({ kind: 'json', as: 'Srid', with: { n: -1 } })))
+      .toBe('field-type.bad-option');
+  });
+
+  it('a DECLARED closed set decides token-safety, and `whole` is only the fallback', () => {
+    // Written as `whole || set`, `whole: true` short-circuited past a set the
+    // base was about to inspect — so a declaration carrying a NEGATIVE member
+    // registered cleanly and then refused every column writing it, blaming the
+    // column for a value its own type declares legal. That is the exact failure
+    // a `relation` base is refused for.
+    expect(refusal(() => createRegistry().registerFieldType({
+      name: 'Srid', base: 'json', instructions: 'x.',
+      ownOptions: { n: { type: { kind: 'number', whole: true, values: [{ value: -1 }, { value: 5 }] }, default: 5 } },
+      sql: { postgres: 'geometry({n})' },
+    }))).toContain('Give it a CLOSED type');
+    // …while a set whose members are ALL tokens is accepted, and every one of
+    // them is then writable on a column.
+    const ok = createRegistry().registerFieldType({
+      name: 'Srid', base: 'json', instructions: 'x.',
+      ownOptions: { n: { type: { kind: 'number', whole: true, values: [{ value: 4326 }, { value: 3857 }] }, default: 4326 } },
+      sql: { postgres: 'geometry({n})' },
+    });
+    for (const n of [4326, 3857]) {
+      expect(ok.dialect('postgres')!.sqlTypeFor(ok.parseFieldType({ kind: 'json', as: 'Srid', with: { n } })))
+        .toBe(`geometry(${n})`);
+    }
+  });
+});
+
+describe('the small edges a model-facing message walks into', () => {
+  it('a declaration key that is an OBJECT PROTOTYPE member reads as unknown, not as a native function', () => {
+    // `RELOCATED_KEYS` was an object literal indexed by an arbitrary caller key,
+    // so a declaration carrying `toString` produced *"It moved to function
+    // toString() { [native code] }"* in a message a model reads.
+    const message = refusal(() => createRegistry().registerFieldType(
+      { ...geometryDecl, toString: 'oops' } as unknown as FieldTypeRefinementDef));
+    expect(message).toContain('Unknown declaration key `toString`');
+    expect(message).not.toContain('native code');
+  });
+
+  it('an OBJECT-valued option is canonicalized at every DEPTH, so key order is not identity', () => {
+    // The bag's own keys were sorted for exactly this reason and the sorting
+    // stopped one level down, so two columns whose option objects differed only
+    // in key order were two different types with NO MEET. No law caught it —
+    // both directions agreed on `undefined` — which is why it has to be
+    // structural rather than left to a property to notice.
+    const registry = createRegistry().registerFieldType({
+      name: 'Meta', base: 'json', instructions: 'x.',
+      ownOptions: { meta: { type: { kind: 'json' } } },
+    });
+    const a = registry.parseFieldType({ kind: 'json', as: 'Meta', with: { meta: { a: 1, b: 2 } } });
+    const b = registry.parseFieldType({ kind: 'json', as: 'Meta', with: { meta: { b: 2, a: 1 } } });
+    expect(JSON.stringify(a.toJSON())).toBe(JSON.stringify(b.toJSON()));
+    expect(a.meet(b)?.toJSON()).toEqual(a.toJSON());
+  });
+
+  it('NOTES a comparability edge that crosses BASE kinds', () => {
+    // Legitimate — it is what `number`/`money` does natively — but far more often
+    // a typo, and the emitted predicate compares a json column to a text one for
+    // the database to make what it can of.
+    const registry = createRegistry()
+      .registerFieldType({ name: 'Shape', base: 'json', instructions: 'A shape.' })
+      .registerFieldType({ name: 'Label', base: 'text', instructions: 'A label.', comparableWith: ['Shape'] });
+    const note = registry.fieldTypeComparabilityNotes().find((x) => x.code === 'field-type.cross-base-comparability');
+    expect(note?.severity).toBe('warning');
+    expect(note!.message).toContain('across DIFFERENT base kinds');
+    // The edge is still RECORDED — the note says "look at this", not "refused".
+    expect(registry.fieldTypeRefinement('Shape')!.comparableTo('Label')).toBe(true);
+    // …and a SAME-base edge files no such note.
+    const same = createRegistry()
+      .registerFieldType({ name: 'A', base: 'json', instructions: 'a.' })
+      .registerFieldType({ name: 'B', base: 'json', instructions: 'b.', comparableWith: ['A'] });
+    expect(same.fieldTypeComparabilityNotes().map((x) => x.code))
+      .not.toContain('field-type.cross-base-comparability');
   });
 });
 
