@@ -24,7 +24,7 @@ import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
-import { Value } from '../runtime/value';
+import { Value, effectiveComparator } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import type { Dialect } from '../sql/dialect';
@@ -128,11 +128,42 @@ export const OP_ARMS: Readonly<Record<ComparisonOp, keyof FieldTypeCompareDecl>>
  * rule the runtime road now honours (`Value.type` reaches a produced value
  * through the dispatch helpers), and a rule that held on one road only is the
  * divergence this function exists to prevent.
+ *
+ * A DECLARED COMPARATOR SUPPRESSES THE FOLD, and it is the twin of the guard in
+ * {@link Value.compareToCase}. A refinement that supplies `compareValues` has
+ * said how its values compare, and the runtime stops folding for it — so a
+ * `LOWER()` here would leave the database comparing something the runtime never
+ * compares. Measured before this arm existed, on a `base:'text'` refinement with
+ * a case-sensitive comparator and no `options.casing`: `WHERE
+ * LOWER("rel"."tag") = LOWER($1)` returned the row and `engine.run` returned
+ * nothing, for a declaration `checkFieldType` reported no problem with. Both
+ * roads gate on the SAME {@link effectiveComparator}, not on two spellings of
+ * it, so the two-different-comparators fallback lines up too.
+ *
+ * IT DOES NOT GOVERN THE LIKE FAMILY, and that exclusion is what keeps the fix
+ * from introducing the defect it removes. `compareValues` is an ORDER;
+ * `like` / `notLike` are a text PATTERN match, evaluated by `evalLike` and not
+ * by `compareToCase`, so the runtime folds them per the casing whatever the
+ * comparator says. Suppressing the fold here would make the LIKE arm exact in
+ * SQL and folded in memory. (`ilike` never reaches this function — `toSQL`
+ * hands it to the dialect first.) A text refinement that wants ONE case policy
+ * across both families declares `options.casing`, which `checkFieldType` warns
+ * about when it does not.
  */
-function comparisonCasing(lrt: ResolvedType, rrt: ResolvedType, engine: QueryEngine): TextCasing | undefined {
+function comparisonCasing(
+  op: ComparisonOp,
+  lrt: ResolvedType,
+  rrt: ResolvedType,
+  engine: QueryEngine,
+): TextCasing | undefined {
   const textual = categoryOf(lrt) === 'text' && categoryOf(rrt) === 'text';
   if (!textual) return undefined;
-  return effectiveCasing(asFieldType(lrt)?.textCasing(), asFieldType(rrt)?.textCasing(), engine.textCasing);
+  const left = asFieldType(lrt);
+  const right = asFieldType(rrt);
+  if (!LIKE_OPS.has(op) && effectiveComparator(left?.valueComparator(), right?.valueComparator())) {
+    return 'exact';
+  }
+  return effectiveCasing(left?.textCasing(), right?.textCasing(), engine.textCasing);
 }
 
 /** Wrap a fragment in `LOWER(...)` for case-insensitive textual SQL. */
@@ -426,6 +457,7 @@ export class ComparisonExpr extends BoolExpr {
     // policy exists (a `LOWER(col)` predicate can use no ordinary index, and
     // over a physical `uuid` column PostgreSQL has no such function to call).
     const casing = comparisonCasing(
+      this.op,
       this.left.resolve(ctx.engine, ctx.scope),
       this.right.resolve(ctx.engine, ctx.scope),
       ctx.engine,

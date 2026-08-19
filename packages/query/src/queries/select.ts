@@ -1034,7 +1034,13 @@ export class SelectQuery extends Query {
     return rec;
   }
 
-  /** Group rows by the GROUP BY key tuple, preserving first-seen order. */
+  /**
+   * Group rows by the GROUP BY key tuple, preserving first-seen order.
+   *
+   * Keyed on the raw values' JSON, so a refinement's declared `compareValues`
+   * does NOT decide which rows share a group — see `recordSignature` in
+   * `runtime/record.ts` for the boundary and why it is drawn there.
+   */
   private async groupRows(rows: readonly SourceRow[], ctx: RuntimeContext): Promise<SourceRow[][]> {
     const groups = new Map<string, SourceRow[]>();
     const order: string[] = [];

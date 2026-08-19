@@ -628,7 +628,7 @@ export function checkFieldType(
   }
 
   problems.push(...checkValueGate(decl, registry, impl, samples));
-  problems.push(...checkComparator(decl, impl, samples));
+  problems.push(...checkComparator(refinement, impl, samples));
   return { ok: problems.length === 0, problems, lattice };
 }
 
@@ -642,9 +642,13 @@ export function checkFieldType(
  * order makes each of those wrong in a DIFFERENT way, none of them detectable:
  * a non-antisymmetric one sorts differently depending on the input's initial
  * permutation, a non-transitive one produces an implementation-defined
- * permutation from `sort`, and a `NaN` answer reads as "equal" so two distinct
- * values silently become one group key. There is no error channel at any of
- * those sites, which is exactly why the check belongs at the declaration.
+ * permutation from `sort`, and a `NaN` answer reads as "equal" so `a = b` is
+ * TRUE for values that are not, `IN` matches a member it should not, a join
+ * pairs rows that do not correspond, and `min` / `max` keep whichever candidate
+ * they saw first. (Not a group KEY: `DISTINCT` / `GROUP BY` key on the raw
+ * value and never reach a comparator at all — see `runtime/record.ts`.) There is
+ * no error channel at any of those sites, which is exactly why the check belongs
+ * at the declaration.
  *
  * NULLs ARE EXCLUDED FROM THE CORPUS, and that is a fact about the contract
  * rather than a gap: `compareTo` decides NULL placement before it consults a
@@ -653,17 +657,17 @@ export function checkFieldType(
  * test a call that cannot happen.
  */
 function checkComparator(
-  decl: FieldTypeRefinementDef,
+  refinement: FieldTypeRefinement,
   impl: FieldTypeCheckImpl | undefined,
   samples: readonly JsonValue[],
 ): Problem[] {
   const compare = impl?.compareValues;
   if (!compare) return [];
-  const path = ['checkFieldType', decl.name, 'compareValues'];
+  const path = ['checkFieldType', refinement.name, 'compareValues'];
   const corpus = samples.filter((v) => v !== null);
   const problems: Problem[] = [];
-  const bad = (code: string, message: string): void => {
-    problems.push({ path, code, severity: 'error', message });
+  const bad = (code: string, message: string, severity: Problem['severity'] = 'error'): void => {
+    problems.push({ path, code, severity, message });
   };
 
   // EVERY call below is consumer code, and the first thing a comparator does
@@ -734,6 +738,71 @@ function checkComparator(
     }
   }
 
+  // ── The two facts a correct ORDER can still be wrong about ────────────────
+  //
+  // Both are WARNINGS and both are about a comparator that IS a total order and
+  // still makes two of this package's roads disagree. Neither is detectable from
+  // the declaration alone, and both are detectable from the declaration PLUS the
+  // samples — which is exactly what this harness is.
+
+  // A TEXT refinement's comparator covers the comparison arms and nothing else.
+  // `comparisonCasing` suppresses its `LOWER()` fold for those arms (so `=` and
+  // `<` agree across both roads), but `like` / `notLike` / `ilike`,
+  // `text-search`, `text-score` and array-element containment are not comparator
+  // roads at all — they fold per `casing`, which is the ENGINE default unless the
+  // declaration narrows it. So one column answers two different case policies
+  // depending on the operator, and the declaration says neither.
+  if (refinement.base === 'text' && refinement.declared.textCasing() !== 'exact') {
+    bad(
+      'conformance.comparator-without-casing',
+      `\`${refinement.name}\` is a \`text\` refinement with a \`compareValues\` and no ` +
+        '`options.casing`. Its comparator governs `= <> < <= > >=` — and only those: the LIKE family, ' +
+        '`text-search`, `text-score` and array-element containment fold per `casing`, which is the ' +
+        "ENGINE's default (`'fold'` as shipped) while your comparator is whatever you wrote. One column " +
+        'then answers two case policies depending on the operator. Declare `options: { casing: ' +
+        "'exact' }` if your comparator is case-sensitive (the usual case — it makes the whole column one " +
+        "policy), or `'collated'` if the STORE folds; leave it only if the split is deliberate.",
+      'warning',
+    );
+  }
+
+  // A comparator whose EQUALITY is coarser than raw-JSON identity splits this
+  // package in half: the predicate roads ask the comparator, and `DISTINCT` /
+  // `GROUP BY` / aggregate `DISTINCT` key on `JSON.stringify(raw)` (see
+  // `queries/select.ts` `recordSignature`). Reported HERE because it is the one
+  // form of the boundary that is statically visible: two samples the comparator
+  // calls equal and `JSON.stringify` does not. A comparator that only REORDERS
+  // (an `inet`, a semver) has identical equality and never trips this.
+  //
+  // Over the values the TYPE ADMITS, unlike every check above it. The order laws
+  // run on the whole corpus because a comparator is genuinely reached with
+  // whatever a row held; this one asks what happens to values that can actually
+  // be STORED, and a comparator that stringifies quite properly calls `'a'` and
+  // `['a']` equal — a pair no `text` column can hold, and a finding no declarer
+  // can act on.
+  const storable = corpus.filter((v) => refinement.declared.validValue(v));
+  const merged: string[] = [];
+  for (const [i, a] of storable.entries()) {
+    for (const b of storable.slice(i + 1)) {
+      if (safeJson(a) === safeJson(b)) continue;
+      if (call(a, b) === 0) merged.push(`${safeJson(a)} and ${safeJson(b)}`);
+    }
+  }
+  if (merged.length > 0) {
+    bad(
+      'conformance.comparator-coarser-than-identity',
+      `\`compareValues\` calls values EQUAL that are not identical: ${merged.slice(0, 5).join('; ')}` +
+        `${merged.length > 5 ? ' …' : ''}. That is legal and may be exactly what you meant, but this ` +
+        'package only honours it on the roads that go through a comparison — `=`, `<>`, ordering, ' +
+        '`BETWEEN`, `IN`, join and relation equality, `min` / `max`. `DISTINCT`, `GROUP BY` and an ' +
+        "aggregate's `DISTINCT` key on the raw value's JSON, so they will keep those values APART while " +
+        '`WHERE a = b` says they are the same — and a database whose column type agrees with your ' +
+        'comparator will collapse them. `differentialCheck`\'s `distinct` / `group by` probes measure ' +
+        'it against a real server.',
+      'warning',
+    );
+  }
+
   if (threw.length > 0) {
     bad(
       'conformance.comparator-not-total',
@@ -741,7 +810,9 @@ function checkComparator(
         `${threw.length > 5 ? ' …' : ''}. It is reached from every sort, every comparison and every ` +
         '`min()` in the runtime, over whatever the row actually held — so it is asked about values that ' +
         'are not of your type, and it has to have an answer for them. Nothing catches a throw, and a ' +
-        '`NaN` is read as "equal", which silently merges two distinct values into one group key.',
+        '`NaN` is read as "equal", which makes `=` true for values that are not, matches an `IN` member ' +
+        'that should not match, pairs unrelated rows across a join, and leaves `min` / `max` on ' +
+        'whichever candidate came first.',
     );
   }
   if (notOrder.length > 0) {
@@ -1261,8 +1332,25 @@ export { REFINABLE_BASES, SCALAR_KINDS };
  * One row a live database handed back — a column-name → value map, which is what
  * every driver this could be wired to already produces (`pg`'s `result.rows`,
  * `mysql2`'s, `better-sqlite3`'s `.all()`).
+ *
+ * THE VALUES ARE `unknown`, DELIBERATELY, and this is the harness's second
+ * unverifiable premise after "the same rows". A driver decides what a column
+ * DESERIALISES to, and the defaults are not this package's JSON model: `pg`
+ * hands back a `Date` for `timestamptz`, a STRING for `numeric` and `bigint`
+ * (precision it will not silently lose), and a `Buffer` for `bytea`. Typed as
+ * `JsonValue` this compiled only because `pg` types its rows as `any` — and the
+ * comparison would then read a `Date`'s ISO rendering against `engine.run`'s
+ * plain string and file a DRIVER ARTIFACT as a divergence of the type, which is
+ * the most expensive kind of false positive a harness can produce.
+ *
+ * So the remedy is the caller's and it is one line at their end, not a
+ * normalisation this package could guess: register the type parsers that match
+ * your model (`pg.types.setTypeParser(1114, (v) => v)` for a timestamp, `1700`
+ * for numeric), or project a text form in the column you point `columns.field`
+ * at. A first run against a `timestamptz` column will say so loudly, which is
+ * the point of leaving it visible rather than coercing.
  */
-export type DifferentialRow = Readonly<Record<string, JsonValue>>;
+export type DifferentialRow = Readonly<Record<string, unknown>>;
 
 /**
  * How {@link differentialCheck} reaches the live database: the emitted statement
@@ -1324,6 +1412,22 @@ export interface DifferentialCheckOptions {
   readonly functions?: readonly string[];
 }
 
+/**
+ * HOW a probe's two answers are compared, which is a property of the probe
+ * rather than a global.
+ *
+ *  - `'sequence'` — position by position. The ORDER probes, where the SEQUENCE
+ *    is the whole property under test.
+ *  - `'multiset'` — both sides sorted canonically first. Everything else, where
+ *    the VALUES are the property and the `ORDER BY` is there only to give the
+ *    statement a deterministic plan. A `valueProbe` projects an expression and
+ *    orders by the driving FIELD, so two rows with equal driving values may come
+ *    back in either order — positionally that is a disagreement, and it is not
+ *    one. Comparing the multiset removes the "your driving column must be
+ *    unique" precondition instead of documenting it.
+ */
+export type DifferentialComparison = 'sequence' | 'multiset';
+
 /** One probe: the statement, both roads' answers, and whether they agreed. */
 export interface DifferentialProbe {
   /** What this probe exercises — `order asc`, `field < other`, `&&`, `ST_Contains`. */
@@ -1332,8 +1436,13 @@ export interface DifferentialProbe {
   readonly sql: string;
   /** The values `engine.run` produced, in row order. */
   readonly runValues: readonly JsonValue[];
-  /** The values the database produced, in row order. */
-  readonly sqlValues: readonly JsonValue[];
+  /**
+   * The values the database produced, in row order — `unknown`, because that is
+   * what a driver hands back (see {@link DifferentialRow}).
+   */
+  readonly sqlValues: readonly unknown[];
+  /** How the two were compared (see {@link DifferentialComparison}). */
+  readonly comparison: DifferentialComparison;
   /** Whether the two agreed. */
   readonly agreed: boolean;
 }
@@ -1342,16 +1451,37 @@ export interface DifferentialProbe {
 export interface DifferentialReport {
   /**
    * True when NOTHING was found — every probe ran, every probe agreed, and
-   * nothing was skipped. A skipped probe counts (it is a `warning` in
-   * {@link problems}), because a check that quietly did less than it was asked
-   * to is the shape that reports `ok` forever; assert on `problems` when you
-   * want to allow one.
+   * nothing the CALLER asked for was skipped. Arms this package's own validation
+   * refuses do not count against it (they are in {@link unprobeable} instead):
+   * a `json` type cannot be `LIKE`d, and reporting that as a finding would make
+   * `ok` false for a correct declaration on its first run.
    */
   readonly ok: boolean;
   /** Everything found: a disagreement or a throw is an `error`, a skip a `warning`. */
   readonly problems: readonly Problem[];
   /** Every probe that ran, agreed or not — the record a consumer diffs across releases. */
   readonly probes: readonly DifferentialProbe[];
+  /**
+   * Probes that were NOT emitted because `engine.validateQuery` refuses them,
+   * each with the codes it refused for — the harness's blind spots, named.
+   *
+   * It exists because the alternative is invisible. The arm loop enumerates all
+   * nine comparison operators, and several are illegal for any given type for
+   * reasons a `compare` declaration does not state (`like` over a `json` column
+   * is `comparison.like`, not `compare.textMatch`). Emitting them anyway sends
+   * statements this package calls invalid to a real server and files each
+   * refusal as a divergence — three red herrings on a correct declaration's
+   * first run, which is the failure the arm skip claims to prevent.
+   */
+  readonly unprobeable: readonly DifferentialSkip[];
+}
+
+/** One probe `engine.validateQuery` refused, and why (see {@link DifferentialReport.unprobeable}). */
+export interface DifferentialSkip {
+  /** The probe's label. */
+  readonly label: string;
+  /** The problem codes validation reported, in walk order. */
+  readonly codes: readonly string[];
 }
 
 /**
@@ -1399,7 +1529,9 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
   const { engine, dialect, execute, columns } = opts;
   const problems: Problem[] = [];
   const probes: DifferentialProbe[] = [];
+  const unprobeable: DifferentialSkip[] = [];
   const path = ['differentialCheck', columns.type, columns.field];
+  const verdict = (ok: boolean): DifferentialReport => ({ ok, problems, probes, unprobeable });
 
   const type = engine.registry.type(columns.type);
   const field = type?.field(columns.field);
@@ -1412,14 +1544,59 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
         `\`columns\` names ${type ? `field '${columns.field}' of` : 'Type'} '${columns.type}', which this ` +
         'engine does not have. Every probe reads a real column, so there is nothing to compare.',
     });
-    return { ok: false, problems, probes };
+    return verdict(false);
   }
 
-  const probe = async (label: string, def: SelectDef): Promise<void> => {
+  /**
+   * Run one probe both ways — after asking THIS PACKAGE whether the statement is
+   * legal at all.
+   *
+   * The validation gate is the whole reason `probe` is a closure rather than a
+   * loop body. Neither `toSQL` nor `run` validates, so without it the harness
+   * emits statements the package itself refuses, sends them to a real server,
+   * and files each server refusal as a divergence "of the strongest kind" —
+   * measured on the flagship shape, three of those on the first run of a
+   * perfectly correct `json` declaration, because the arm loop enumerates
+   * `like` / `notLike` / `ilike` and `comparison.like` needs a text operand.
+   * Asking `validateQuery` uses the package's own authority and covers every
+   * gate it grows, rather than the one gate a loop happened to know about.
+   *
+   * `whenRefused` says whose problem a refusal is. An ARM is enumerated by this
+   * harness, so an arm the package refuses is a probe that does not EXIST for
+   * this type — recorded in `unprobeable` and nothing more, or `ok` would be
+   * false for every correct declaration. An operator, a function or the ordering
+   * probe is asked for by the CALLER, so a refusal there is something they need
+   * told.
+   */
+  const probe = async (
+    label: string,
+    def: SelectDef,
+    comparison: DifferentialComparison,
+    whenRefused: 'note' | 'warn' = 'warn',
+  ): Promise<void> => {
     let sql: string;
     let params: readonly SqlValue[];
     let runValues: JsonValue[];
     try {
+      const refused = engine.validateQuery(def);
+      if (refused.hasErrors) {
+        const codes = refused.list.filter((p) => p.severity === 'error').map((p) => p.code);
+        unprobeable.push({ label, codes });
+        if (whenRefused === 'warn') {
+          problems.push({
+            path: [...path, label],
+            code: 'conformance.differential-unprobeable',
+            severity: 'warning',
+            message:
+              `\`${label}\` is refused by this package's own validation (${codes.join(', ')}), so it was ` +
+              'not emitted. A statement the library calls invalid tells you nothing about your type — ' +
+              'the server would refuse it for its own reasons and the report would blame the ' +
+              'declaration. Fix the probe (a different column, an operand of the right shape) or drop ' +
+              'it from what you asked for.',
+          });
+        }
+        return;
+      }
       const emitted = engine.toSQL(def, dialect);
       sql = emitted.sql;
       params = emitted.params;
@@ -1428,7 +1605,7 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
       problems.push(asProblem(err, [...path, label], 'conformance.differential-threw'));
       return;
     }
-    let sqlValues: JsonValue[];
+    let sqlValues: unknown[];
     try {
       sqlValues = probeValues(await execute(sql, params));
     } catch (err) {
@@ -1443,8 +1620,8 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
       });
       return;
     }
-    const agreed = safeJson(runValues) === safeJson(sqlValues);
-    probes.push({ label, sql, runValues, sqlValues, agreed });
+    const agreed = canonical(runValues, comparison) === canonical(sqlValues, comparison);
+    probes.push({ label, sql, runValues, sqlValues, comparison, agreed });
     if (agreed) return;
     problems.push({
       path: [...path, label],
@@ -1454,7 +1631,9 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
         `\`${label}\` answers differently in memory and at the database. \`engine.run\` gave ` +
         `${safeJson(runValues)}; \`${dialect}\` gave ${safeJson(sqlValues)}. SQL: ${sql}. One query, two ` +
         "answers: reconcile the type's SQL half (`sql` / `cast`) with its in-memory half " +
-        "(`registerFieldTypeImpl`'s `compareValues`) — whichever of the two is not what you meant.",
+        "(`registerFieldTypeImpl`'s `compareValues`) — whichever of the two is not what you meant. If " +
+        'the two look the same, check what your driver deserialises this column to (see ' +
+        '`DifferentialRow`): a `Date` and its ISO string are not the same value here.',
     });
   };
 
@@ -1462,8 +1641,18 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
   // the one that needs no second column. BOTH directions: a comparator that is
   // not antisymmetric can agree ascending and disagree descending.
   for (const dir of ['asc', 'desc'] as const) {
-    await probe(`order ${dir}`, orderProbe(columns.type, columns.field, dir));
+    await probe(`order ${dir}`, orderProbe(columns.type, columns.field, dir), 'sequence');
   }
+  // DISTINCT and GROUP BY, which are the roads a comparator is NOT wired into:
+  // they key on the raw value's JSON (`queries/select.ts` `recordSignature`),
+  // while every predicate road asks the comparator. For a comparator that only
+  // REORDERS the two agree and these cost two statements; for one whose equality
+  // is COARSER than raw identity they are the divergence, and it is the one the
+  // rest of this harness could not see. `checkFieldType` warns about the same
+  // fact statically (`conformance.comparator-coarser-than-identity`) — this is
+  // what settles it against a real column type.
+  await probe('distinct', distinctProbe(columns.type, columns.field), 'multiset');
+  await probe('group by', groupProbe(columns.type, columns.field), 'multiset');
 
   const other = columns.other;
   if (other === undefined) {
@@ -1472,12 +1661,12 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
       code: 'conformance.differential-skipped',
       severity: 'warning',
       message:
-        'No `columns.other` was supplied, so only the ORDERING probes ran — every comparison arm and ' +
-        'every operator / function of arity ≥ 2 needs a second operand, and it has to be a COLUMN (a ' +
-        'bound sample would measure the known value-binding limit instead of your type). Declare a ' +
+        'No `columns.other` was supplied, so only the single-column probes ran — every comparison arm ' +
+        'and every operator / function of arity ≥ 2 needs a second operand, and it has to be a COLUMN ' +
+        '(a bound sample would measure the known value-binding limit instead of your type). Declare a ' +
         `second field of the same type on '${columns.type}' and name it here.`,
     });
-    return { ok: problems.length === 0, problems, probes };
+    return verdict(problems.length === 0);
   }
   if (!type.field(other)) {
     problems.push({
@@ -1486,12 +1675,13 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
       severity: 'error',
       message: `\`columns.other\` names field '${other}', which Type '${columns.type}' does not have.`,
     });
-    return { ok: false, problems, probes };
+    return verdict(false);
   }
 
-  // Only the comparison arms the type ADMITS. A refused arm is not probed,
-  // because `validateQuery` refuses it — running it would report this package's
-  // own refusal as a divergence.
+  // The comparison arms, filtered twice and for two different reasons. The
+  // `compare` DECLARATION is the consumer's own statement that an arm is
+  // meaningless for their type, so skipping it is silent — they said so. Every
+  // other refusal is validation's, and lands in `unprobeable` (see `probe`).
   const compare = field.fieldType.refinement?.compare;
   for (const [op, arm] of opArmEntries()) {
     if (compare && !compare[arm]) continue;
@@ -1503,6 +1693,8 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
         left: fieldRef(columns.type, columns.field),
         right: fieldRef(columns.type, other),
       }),
+      'multiset',
+      'note',
     );
   }
 
@@ -1519,6 +1711,7 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
         op: name,
         args: spreadArgs(operator.operands.map((o) => o.name), columns.type, columns.field, other),
       }),
+      'multiset',
     );
   }
 
@@ -1535,10 +1728,25 @@ export async function differentialCheck(opts: DifferentialCheckOptions): Promise
         function: name,
         args: spreadArgs(fn.params.map((p) => p.name), columns.type, columns.field, other),
       }),
+      'multiset',
     );
   }
 
-  return { ok: problems.length === 0, problems, probes };
+  return verdict(problems.length === 0);
+}
+
+/**
+ * One side's answer, rendered for comparison: as a SEQUENCE, or as a sorted
+ * MULTISET (see {@link DifferentialComparison}).
+ *
+ * The multiset sort is over each value's own JSON rendering, which is the same
+ * canonicalisation the comparison itself uses — so it is a stable total order on
+ * exactly the values being compared, and it needs no opinion about how the
+ * TYPE orders (which is the thing under test and must not be assumed).
+ */
+function canonical(values: readonly unknown[], comparison: DifferentialComparison): string {
+  const rendered = values.map((v) => safeJson(v));
+  return safeJson(comparison === 'multiset' ? [...rendered].sort() : rendered);
 }
 
 /**
@@ -1559,7 +1767,7 @@ const PROBE_COLUMN = 'probe';
  * makes the disagreement VISIBLE in the report rather than a `undefined` that
  * `JSON.stringify` silently drops from the comparison.
  */
-function probeValues(rows: readonly DifferentialRow[]): JsonValue[] {
+function probeValues<T>(rows: readonly Readonly<Record<string, T>>[]): (T | null)[] {
   return rows.map((r) => r[PROBE_COLUMN] ?? null);
 }
 
@@ -1599,6 +1807,34 @@ function orderProbe(type: string, field: string, dir: 'asc' | 'desc'): SelectDef
     from: { kind: 'type', type },
     order: [{ expr: fieldRef(type, field), dir }],
   };
+}
+
+/**
+ * `SELECT DISTINCT <field> AS probe FROM <type> ORDER BY <field>` — the probe
+ * for the one road a comparator is NOT wired into.
+ *
+ * `DISTINCT` keys on the raw value's JSON in this package's runtime while the
+ * predicate roads ask the declared comparator, so a comparator whose equality is
+ * COARSER than raw identity keeps values apart here that `WHERE a = b` calls the
+ * same — and a database whose column type agrees with the comparator collapses
+ * them. That gap and the harness's blind spot were the same shape until this
+ * probe existed.
+ */
+function distinctProbe(type: string, field: string): SelectDef {
+  return { ...orderProbe(type, field, 'asc'), distinct: true };
+}
+
+/**
+ * `SELECT <field> AS probe FROM <type> GROUP BY <field> ORDER BY <field>` — the
+ * grouping twin of {@link distinctProbe}, and a separate probe because it is a
+ * separate implementation (`recordSignature`, not the DISTINCT sweep).
+ *
+ * It projects the group KEY and no aggregate, which is the smallest legal
+ * grouped SELECT and keeps what is compared to the one thing under test: how
+ * many distinct keys each road thinks there are.
+ */
+function groupProbe(type: string, field: string): SelectDef {
+  return { ...orderProbe(type, field, 'asc'), groupBy: [fieldRef(type, field)] };
 }
 
 /**

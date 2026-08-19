@@ -328,7 +328,13 @@ export class AggregateExpr extends Expr {
   }
 }
 
-/** Deduplicate per-row named args by the JSON signature of their values. */
+/**
+ * Deduplicate per-row named args by the JSON signature of their values.
+ *
+ * RAW identity, like `recordSignature` and `groupRows` and for the same reason —
+ * see `runtime/record.ts`. So `count(DISTINCT addr)` counts raw distinct values
+ * even where `WHERE addr = other` asks the column's declared comparator.
+ */
 function dedupeArgs(rows: readonly NamedArgs[]): NamedArgs[] {
   const seen = new Set<string>();
   const out: NamedArgs[] = [];

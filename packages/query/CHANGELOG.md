@@ -18,7 +18,7 @@ engine does with it.** A declared parameter type should type the param handed to
 emitted name should be held to the guarantee its doc claims, a named type declared once should
 narrow every column that names it, an operator a deployment declares should emit its own SQL
 rather than being unspellable, and a type that says how its values order should order them that
-way on both roads. There are **six behaviour changes to read before adopting**, of different
+way on both roads. There are **seven behaviour changes to read before adopting**, of different
 kinds, and **one renamed option**:
 
 - **A query that was REFUSED before can now pass, and a param can now report a type it did
@@ -66,6 +66,11 @@ kinds, and **one renamed option**:
   comparison resolved a missing operand type to case-INSENSITIVE, so `tags contains 'BETA'` and
   `tag = 'BETA'` answered differently over one deployment for no reason a caller could see. Under
   the shipped default that means an untyped `contains` folds where it did not.
+- **A DECLARED COMPARATOR SUPPRESSES THE `LOWER()` FOLD, in the emitted SQL as well as in the
+  runtime** — on `= <> < <= > >=` only, never on the LIKE family. A `text` refinement that declares
+  `compareValues` and no `options.casing` therefore emits a bare, sargable comparison where it used
+  to emit `LOWER(a) = LOWER(b)`. That is what makes the comparator mean the same thing on both
+  roads; `checkFieldType` warns when the two halves of a text type's case policy disagree.
 - **A DECLARED OUTPUT TYPE now governs how its value is COMPARED, on both roads.** A registered
   function's / operator's result carries its declared output type, so a function declaring
   `output: { kind:'text', casing:'exact' }` makes comparisons of its result case-sensitive where the
@@ -990,15 +995,17 @@ registry.registerFieldTypeImpl('IpAddress', { compareValues: byAddress });   // 
 **`FieldTypeImpl.compareValues`** is the hook, and `Value.compareTo` consults it before its own
 rules. It sits beside `value` on the CODE half for the reason that split exists: a declaration is
 persisted and replayed, and a closure survives `JSON.stringify` no better than a zod schema does.
-Three consequences worth reading rather than discovering:
+Three consequences worth reading rather than discovering — and one road it deliberately does NOT
+reach, further down:
 
-- **It governs EQUALITY too**, because `Value.equals` / `identical` are `compareTo(...) === 0`. That
-  is why there is no separate `equalValues`: two hooks are two chances to disagree about whether `a`
-  and `b` are the same value, with nothing able to adjudicate it.
-- **It OUT-RANKS case folding.** `compareToCase` skips the fold when a comparator is in effect,
-  because a type that has said how its values compare has said so including their case — and folding
-  first would mutate the input to a comparator that may not be comparing text at all. A refinement
-  that wants the package's folding declares no comparator and narrows `options.casing`.
+- **It governs EQUALITY too**, because `Value.equals` / `identical` are `compareTo(...) === 0`, so
+  one comparator keeps ordering and equality from contradicting each other — see the `equalValues`
+  note at the end of this section for why that is the SQL half's requirement rather than tidiness.
+- **It OUT-RANKS case folding, on BOTH roads.** `compareToCase` skips the fold when a comparator is
+  in effect, and `comparisonCasing` suppresses the emitted `LOWER()` for the same pairs, because a
+  type that has said how its values compare has said so including their case. It covers
+  `= <> < <= > >=` and NOT the LIKE family (see below). A refinement that wants the package's folding
+  declares no comparator and narrows `options.casing`.
 - **NULL is decided BEFORE it** — SQL's NULL placement belongs to the SORT (`ORDER BY … NULLS
   FIRST` is the same clause whatever the type is), so a comparator is never handed one and cannot
   break three-valued logic by accident.
@@ -1055,6 +1062,80 @@ suite (this package's own `integration/run.ts` is the shape) and **nothing in `n
 against one**; `execute` is a callback for the same reason every seam here is one — the package has
 no driver and must not acquire one. The engine's executor for that Type must hold the SAME rows the
 table does, which is its one unverifiable premise and is stated rather than checked.
+
+**A DECLARED COMPARATOR SUPPRESSES THE `LOWER()` FOLD IN SQL TOO**, on the arms it governs. The
+first cut taught only the RUNTIME that a comparator out-ranks case folding, and a `text` refinement
+declares no `casing` unless its author thinks to — so a comparator alone produced a BRAND-NEW
+divergence, by default, that `checkFieldType` reported nothing about:
+
+```
+SQL  : WHERE LOWER("rel"."tag") = LOWER($1)     -- the row matches
+run  : []                                       -- {tag:'V1.2.3'} vs 'v1.2.3'
+```
+
+Before the comparator existed the pair agreed (both folded). `comparisonCasing` now answers
+`'exact'` when a comparator governs the pair, gating on the SAME `effectiveComparator` the runtime
+uses rather than on a `left ?? right` spelling of it — the two-different-comparators case falls back
+to folding on BOTH roads together, where the shorter spelling would have left SQL exact and the
+runtime folded. **The LIKE family is excluded**, and that exclusion is what keeps the fix from
+re-introducing the defect one operator over: `compareValues` is an ORDER, `like` / `notLike` are a
+text PATTERN match (`evalLike`, never `compareToCase`), so they keep folding per `casing` on both
+roads. `checkFieldType` warns (`conformance.comparator-without-casing`) when a `text` refinement
+declares a comparator and no `options.casing`, because the comparison arms then follow the comparator
+while the LIKE family, `text-search`, `text-score` and array containment follow the engine default —
+one column, two case policies, and the declaration stating neither.
+
+**`DISTINCT`, `GROUP BY`, an aggregate's `DISTINCT` and the set operations key on the RAW value, and
+a comparator does not reach them.** Stated rather than fixed, at the shared root
+(`runtime/record.ts`'s `recordSignature`) with the two copies pointing at it. The signature is the
+reason: those take a `SourceRecord` — raw cells, no `Field` and no `FieldType` in scope — because a
+whole ROW's identity is not a question one column's type can answer. It bites only a comparator whose
+equality is COARSER than raw identity (a `Net` treating a /24 as one value); one that merely
+REORDERS (an `inet`, a semver) has identical equality and is unaffected, which is the common case.
+Closing it means grouping by SORT-MERGE rather than by hash — a comparator is an order, not a
+canonical form, so there is no key to build from one — which changes the complexity of every
+`DISTINCT` and `GROUP BY` in the package. It is not hidden either way: `checkFieldType` warns
+statically (`conformance.comparator-coarser-than-identity`) when a declaration's comparator merges
+two values it ADMITS, and `differentialCheck` ships `distinct` and `group by` probes that settle it
+against a real column type.
+
+**`differentialCheck` asks THIS PACKAGE whether a probe is legal before emitting it.** The arm loop
+enumerates all nine comparison operators and several are illegal for a given type for reasons a
+`compare` declaration does not state — `like` over a `json` column is `comparison.like`, not
+`compare.textMatch` — and neither `toSQL` nor `run` validates. Measured on the flagship shape: three
+statements the package itself calls invalid, sent to a real server, each server refusal filed as a
+divergence "of the strongest kind", on a correct declaration's FIRST run. `engine.validateQuery` is
+now the gate, which covers every gate it grows rather than the one a loop knew about. A refused probe
+lands in the new **`report.unprobeable`** (label + codes) — and files a `warning` only when the
+CALLER named it (an operator, a function, the ordering probe), because an arm the HARNESS enumerated
+is a probe that does not EXIST for that type, and reporting it would make `ok` false for every
+correct `json` declaration.
+
+**A probe now declares HOW its two answers are compared.** The ORDER probes compare the SEQUENCE —
+that is the property. Everything else compares a sorted MULTISET, because a `valueProbe` projects an
+expression and orders by the driving FIELD: two rows with equal driving values may come back in
+either order, which is a disagreement positionally and is not one. That removes a "your driving
+column must be unique" precondition instead of documenting it. `DifferentialProbe.comparison` says
+which was used.
+
+**`DifferentialRow`'s values are `unknown`, not `JsonValue`.** A driver decides what a column
+deserialises to and the defaults are not this package's JSON model — `pg` hands back a `Date` for
+`timestamptz`, a STRING for `numeric` and `bigint`, a `Buffer` for `bytea`. Typed as `JsonValue` the
+documented one-liner compiled only because `pg` types its rows as `any`, and the comparison would
+then read a `Date`'s ISO rendering against `engine.run`'s plain string and file a DRIVER ARTIFACT as
+a divergence of the type. The remedy is one line at the caller's end (`pg.types.setTypeParser`, or a
+text projection) rather than a normalisation this package could guess, and the disagreement message
+now names it as a thing to check.
+
+**`equalValues` is still not shipped, and the reason is the SQL half rather than tidiness**: a btree
+operator class requires its `=` and `<` to be consistent, so one comparator is the faithful model of
+what the emitted statement runs on — two hooks would let this package describe an index the server
+would refuse to build. The consequence is recorded at the site: **a type whose equality is finer than
+its ordering must tie-break INSIDE the comparator**, because answering `0` for values you consider
+distinct does not only conflate them under `=`, it leaves their relative ORDER undefined — so
+`ORDER BY` returns them however the sort happened to land and the database however its index happened
+to hold. Semver build metadata, a case-insensitively sorted username and a zoned timestamp ordered by
+instant are all that shape.
 
 **Two carried from step 3's review, both about the value-position rule.**
 

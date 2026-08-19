@@ -263,8 +263,10 @@ export abstract class FieldType implements Node {
    * own `with` bag covers every slot. Non-empty means "this cast can only be
    * resolved by asserting something the declaration did not say", which a COLUMN
    * may do (a default is a fact about the column) and a VALUE may not — see
-   * {@link FieldTypeRefinement.castOptions}, and the refusal in
-   * `exprs/_bound-value.ts` that reads this.
+   * {@link FieldTypeRefinement.castOptions}, and `refuseUnwrittenCast` in
+   * `sql/dialect.ts`, which reads this. (The refusal lives in the DIALECT, not
+   * at the operand's emit site, because a dialect binding a native array
+   * re-enters `jsonValue` per ELEMENT.)
    */
   uncastableOptions(dialect: string): string[] {
     const refinement = this.declaredRefinement;

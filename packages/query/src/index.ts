@@ -150,10 +150,12 @@ export {
   differentialCheck,
   type DifferentialCheckOptions,
   type DifferentialColumns,
+  type DifferentialComparison,
   type DifferentialExecute,
   type DifferentialProbe,
   type DifferentialReport,
   type DifferentialRow,
+  type DifferentialSkip,
 } from './conformance';
 
 // Meta-model

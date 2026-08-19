@@ -304,14 +304,24 @@ function hostEngine(withComparator: boolean): QueryEngine {
  * The real thing runs against a real server, in a consumer's integration suite,
  * which is the whole reason `differentialCheck` takes an `execute` callback.
  */
-function scriptedDb(answers: readonly (readonly JsonValue[] | Error)[]): {
-  execute: DifferentialExecute;
-  statements: string[];
-} {
+function scriptedDb(
+  answers: readonly (readonly JsonValue[] | Error)[],
+  /**
+   * Answers keyed by a SUBSTRING of the statement, consulted before the
+   * sequence. A probe's position moves whenever the harness gains one (the
+   * `distinct` / `group by` probes moved every index once already), so anything
+   * asserted about a SPECIFIC probe is matched rather than counted. FIRST match
+   * wins, so list the most specific needle first — every probe over one column
+   * ends in the same `ORDER BY`.
+   */
+  matches: Readonly<Record<string, readonly JsonValue[]>> = {},
+): { execute: DifferentialExecute; statements: string[] } {
   const statements: string[] = [];
   let i = 0;
   const execute: DifferentialExecute = async (sql) => {
     statements.push(sql);
+    const matched = Object.entries(matches).find(([needle]) => sql.includes(needle));
+    if (matched) return matched[1].map((probe) => ({ probe }));
     const next = answers[i] ?? [];
     i += 1;
     if (next instanceof Error) throw next;
@@ -322,7 +332,7 @@ function scriptedDb(answers: readonly (readonly JsonValue[] | Error)[]): {
 
 describe('`differentialCheck` — the run-vs-SQL question nothing static can answer', () => {
   it('AGREES when the declared comparator matches what the database does', async () => {
-    const db = scriptedDb([BY_ADDRESS, [...BY_ADDRESS].reverse()]);
+    const db = scriptedDb([BY_ADDRESS, [...BY_ADDRESS].reverse(), BY_ADDRESS, BY_ADDRESS]);
     const report = await differentialCheck({
       engine: hostEngine(true),
       dialect: 'postgres',
@@ -330,18 +340,23 @@ describe('`differentialCheck` — the run-vs-SQL question nothing static can ans
       columns: { type: 'host', field: 'addr' },
     });
     // The only problem is the SKIP note: no `other` column was named, so the
-    // ordering probes are all that could run.
+    // single-column probes are all that could run.
     expect(report.problems.map((p) => p.code)).toEqual(['conformance.differential-skipped']);
-    expect(report.probes.map((p) => p.label)).toEqual(['order asc', 'order desc']);
+    expect(report.probes.map((p) => p.label)).toEqual(['order asc', 'order desc', 'distinct', 'group by']);
     expect(report.probes.every((p) => p.agreed)).toBe(true);
+    // The ORDER probes compare the SEQUENCE; everything else compares the
+    // multiset, so a tie in the driving column cannot read as a disagreement.
+    expect(report.probes.map((p) => p.comparison)).toEqual(['sequence', 'sequence', 'multiset', 'multiset']);
     expect(db.statements[0]).toContain('ORDER BY "host"."addr" ASC');
     expect(db.statements[1]).toContain('ORDER BY "host"."addr" DESC');
+    expect(db.statements[2]).toContain('SELECT DISTINCT');
+    expect(db.statements[3]).toContain('GROUP BY "host"."addr"');
   });
 
   it('REPORTS the disagreement, both answers and the statement, when the halves differ', async () => {
     // The same database, an engine with NO comparator — which is exactly the
     // state every registered type was in before this release.
-    const db = scriptedDb([BY_ADDRESS, [...BY_ADDRESS].reverse()]);
+    const db = scriptedDb([BY_ADDRESS, [...BY_ADDRESS].reverse(), BY_ADDRESS, BY_ADDRESS]);
     const report = await differentialCheck({
       engine: hostEngine(false),
       dialect: 'postgres',
@@ -376,7 +391,7 @@ describe('`differentialCheck` — the run-vs-SQL question nothing static can ans
       functions: ['sameAddr'],
     });
     expect(report.probes.map((p) => p.label)).toEqual([
-      'order asc', 'order desc',
+      'order asc', 'order desc', 'distinct', 'group by',
       'addr = other', 'addr <> other', 'addr < other', 'addr <= other', 'addr > other', 'addr >= other',
       'addr like other', 'addr notLike other', 'addr ilike other',
       'sameAddr',
@@ -412,8 +427,11 @@ describe('`differentialCheck` — the run-vs-SQL question nothing static can ans
       columns: { type: 'host', field: 'addr', other: 'other' },
     });
     expect(report.probes.map((p) => p.label)).toEqual([
-      'order asc', 'order desc', 'addr = other', 'addr <> other',
+      'order asc', 'order desc', 'distinct', 'group by', 'addr = other', 'addr <> other',
     ]);
+    // A DECLARED refusal is the consumer's own statement that the arm is
+    // meaningless, so it is skipped silently — it is not a blind spot.
+    expect(report.unprobeable).toEqual([]);
   });
 
   it('reports a statement the DATABASE refused as a divergence of its own', async () => {
@@ -579,5 +597,282 @@ describe('the harness answers for its own edges as well as the type\'s', () => {
       columns: { type: 'host', field: 'addr' },
     });
     expect(report.problems[0]!.message).toContain('ECONNRESET');
+  });
+});
+
+// ─── The two facts a correct ORDER can still be wrong about ──────────────────
+
+describe('`checkFieldType` warns about what a correct comparator can still break', () => {
+  it('WARNS when a TEXT refinement declares a comparator and no `casing`', () => {
+    // The comparator governs `= <> < <= > >=` on both roads; the LIKE family,
+    // `text-search`, `text-score` and array containment keep folding per the
+    // ENGINE default. One column, two case policies, and the declaration says
+    // neither — which is how the blocker reached review.
+    const warning = checkFieldType(
+      { name: 'Tag', base: 'text', instructions: 'A tag ordered by its own rules.' },
+      { compareValues: (a, b) => String(a).localeCompare(String(b)), samples: ['V1'] },
+    ).problems.find((p) => p.code === 'conformance.comparator-without-casing');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.message).toContain('LIKE family');
+    expect(warning?.message).toContain("casing: 'exact'");
+  });
+
+  it('is SILENT once the declaration narrows `casing` to `exact`', () => {
+    const report = checkFieldType(
+      { name: 'Tag', base: 'text', instructions: 'x', options: { casing: 'exact' } },
+      { compareValues: (a, b) => String(a).localeCompare(String(b)), samples: ['V1'] },
+    );
+    expect(report.problems).toEqual([]);
+  });
+
+  it('does not fire for a NON-text base, where no road folds at all', () => {
+    expect(
+      checkFieldType(
+        { name: 'Version', base: 'number', instructions: 'A version number.' },
+        { compareValues: (a, b) => Number(a) - Number(b), samples: [1, 2] },
+      ).problems.map((p) => p.code),
+    ).not.toContain('conformance.comparator-without-casing');
+  });
+
+  it('WARNS when a comparator merges two values the type ADMITS', () => {
+    // The `DISTINCT` / `GROUP BY` boundary, caught statically: those roads key on
+    // the raw value and never reach a comparator (`runtime/record.ts`), so a
+    // comparator whose equality is coarser than raw identity splits the package
+    // in half.
+    const warning = checkFieldType(
+      { name: 'Net', base: 'text', instructions: 'An address whose /24 is its identity.', options: { casing: 'exact' } },
+      {
+        compareValues: (a, b) => String(a).replace(/\.\d+$/, '').localeCompare(String(b).replace(/\.\d+$/, '')),
+        samples: ['10.0.0.1', '10.0.0.9'],
+      },
+    ).problems.find((p) => p.code === 'conformance.comparator-coarser-than-identity');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.message).toContain('"10.0.0.1" and "10.0.0.9"');
+    expect(warning?.message).toContain('DISTINCT');
+    // Two merged pairs list in full; a comparator that merges EVERYTHING elides.
+    expect(warning?.message).not.toContain('…');
+    const everything = checkFieldType(
+      { name: 'One', base: 'text', instructions: 'Every value is the same value.', options: { casing: 'exact' } },
+      { compareValues: () => 0 },
+    ).problems.find((p) => p.code === 'conformance.comparator-coarser-than-identity');
+    expect(everything?.message).toContain('…');
+  });
+
+  it('does NOT fire for a comparator that only re-orders — the common case', () => {
+    // `byAddress` gives `inet` ordering and raw-identical equality, so DISTINCT
+    // and `=` agree and there is nothing to say.
+    expect(
+      checkFieldType(IP_ADDRESS, { compareValues: byAddress, samples: ['10.0.0.2', '10.0.0.10'] }).problems,
+    ).toEqual([]);
+  });
+
+  it('ignores a merge between values the type could never STORE', () => {
+    // A comparator that stringifies quite properly calls `'a'` and `['a']` equal.
+    // A `text` column cannot hold `['a']`, so reporting it would be a finding no
+    // declarer can act on — the coarseness check filters the corpus by the
+    // declaration's own gate, unlike the ORDER laws above it.
+    expect(
+      checkFieldType(
+        { name: 'Loose', base: 'text', instructions: 'x', options: { casing: 'exact' } },
+        { compareValues: (a, b) => String(a).localeCompare(String(b)) },
+      ).problems.map((p) => p.code),
+    ).not.toContain('conformance.comparator-coarser-than-identity');
+  });
+});
+
+describe('`differentialCheck` asks THIS PACKAGE whether a probe is legal', () => {
+  /** A `json`-based type: every comparison arm defaults to admitted, and LIKE is still illegal. */
+  function geoEngine(): QueryEngine {
+    const registry = createRegistry().registerFieldType({
+      name: 'Geometry',
+      base: 'json',
+      instructions: 'A geometry. Declares no `compare`, so every arm defaults to admitted.',
+    });
+    registry.registerType(
+      registry.parseType({
+        name: 'parcel',
+        fields: [
+          { name: 'shape', type: { kind: 'json', as: 'Geometry' } },
+          { name: 'nextShape', type: { kind: 'json', as: 'Geometry' } },
+        ],
+        count: 10,
+        bytes: 96,
+      }),
+    );
+    registry.finalize();
+    return new QueryEngine(registry, { executors: { parcel: arrayExecutor([]) } });
+  }
+
+  it('does not EMIT an arm `validateQuery` refuses, and names it in `unprobeable`', async () => {
+    // Measured before the gate: the harness emitted `like` / `notLike` / `ilike`
+    // over a `json` column, the server refused all three, and each landed as
+    // `differential-threw` — "the strongest kind" of divergence — on a correct
+    // declaration's FIRST run.
+    const db = scriptedDb([]);
+    const report = await differentialCheck({
+      engine: geoEngine(),
+      dialect: 'postgres',
+      execute: db.execute,
+      columns: { type: 'parcel', field: 'shape', other: 'nextShape' },
+    });
+    expect(report.unprobeable.map((s) => s.label)).toEqual([
+      'shape like nextShape', 'shape notLike nextShape', 'shape ilike nextShape',
+    ]);
+    expect(report.unprobeable[0]!.codes).toContain('comparison.like');
+    expect(report.probes.map((p) => p.label)).not.toContain('shape like nextShape');
+    expect(db.statements.some((sql) => sql.includes('LIKE'))).toBe(false);
+    // An arm the HARNESS enumerated is a probe that does not exist for this
+    // type, not a finding — a correct declaration still passes the documented
+    // `expect(report.problems).toEqual([])`.
+    expect(report.problems).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it('WARNS when a probe the CALLER named is refused, because that is theirs to fix', async () => {
+    const engine = geoEngine();
+    engine.registry.registerFunction({
+      name: 'needsText',
+      shape: 'scalar',
+      params: [{ name: 'a', type: { kind: 'text' } }],
+      output: { kind: 'bool' },
+      instructions: 'Takes text, so a geometry column cannot be handed to it.',
+    });
+    const report = await differentialCheck({
+      engine,
+      dialect: 'postgres',
+      execute: scriptedDb([]).execute,
+      columns: { type: 'parcel', field: 'shape', other: 'nextShape' },
+      functions: ['needsText'],
+    });
+    const warning = report.problems.find((p) => p.code === 'conformance.differential-unprobeable');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.message).toContain('needsText');
+    expect(warning?.message).toContain('refused by this package');
+    expect(report.unprobeable.map((s) => s.label)).toContain('needsText');
+  });
+});
+
+describe('`differentialCheck` probes the roads a comparator is NOT wired into', () => {
+  /** A comparator whose EQUALITY is coarser than raw identity — the case DISTINCT diverges on. */
+  const by24: ValueComparator = (a, b) =>
+    String(a).replace(/\.\d+$/, '').localeCompare(String(b).replace(/\.\d+$/, ''));
+
+  function netEngine(): QueryEngine {
+    const registry = createRegistry().registerFieldType({
+      name: 'Net',
+      base: 'text',
+      instructions: 'An address whose /24 is its identity.',
+      options: { casing: 'exact' },
+    });
+    registry.registerFieldTypeImpl('Net', { compareValues: by24 });
+    registry.registerType(
+      registry.parseType({
+        name: 'host',
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'addr', type: { kind: 'text', as: 'Net' } },
+        ],
+        count: 10,
+        bytes: 32,
+      }),
+    );
+    registry.finalize();
+    return new QueryEngine(registry, {
+      executors: { host: arrayExecutor([{ id: 1, addr: '10.0.0.1' }, { id: 2, addr: '10.0.0.9' }]) },
+    });
+  }
+
+  it('reports the DISTINCT and GROUP BY divergence a coarse comparator produces', async () => {
+    // The database's column type agrees with the comparator and collapses the
+    // two addresses; this package keys `DISTINCT` / `GROUP BY` on the raw value
+    // and keeps them apart (`runtime/record.ts` states the boundary). Before
+    // these probes existed the mechanism's gap and the harness's blind spot were
+    // the same shape.
+    // BOTH addresses tie under this comparator, so a stable sort returns them in
+    // insertion order for asc AND desc — the "tie-break inside the comparator"
+    // consequence `FieldTypeImpl.compareValues` records, here as a fixture.
+    // Most specific FIRST: every probe here ends in the same `ORDER BY`, so the
+    // DISTINCT and GROUP BY keys have to be consulted before it.
+    const db = scriptedDb([], {
+      'SELECT DISTINCT': ['10.0.0.1'],
+      'GROUP BY': ['10.0.0.1'],
+      'ORDER BY "host"."addr" ASC': ['10.0.0.1', '10.0.0.9'],
+      'ORDER BY "host"."addr" DESC': ['10.0.0.1', '10.0.0.9'],
+    });
+    const report = await differentialCheck({
+      engine: netEngine(),
+      dialect: 'postgres',
+      execute: db.execute,
+      columns: { type: 'host', field: 'addr' },
+    });
+    const failed = report.probes.filter((p) => !p.agreed).map((p) => p.label);
+    expect(failed).toEqual(['distinct', 'group by']);
+    expect(db.statements[2]).toContain('SELECT DISTINCT "host"."addr" AS "probe"');
+    expect(db.statements[3]).toContain('GROUP BY "host"."addr"');
+  });
+
+  it('compares a VALUE probe as a MULTISET, so a tie in the driving column is not a disagreement', async () => {
+    // `valueProbe` projects an expression and orders by the driving FIELD, so two
+    // rows with equal driving values may come back in either order. Positionally
+    // that reads as a divergence for an operator that agrees; as a multiset it
+    // does not, and no "your driving column must be unique" precondition is owed.
+    const engine = netEngine();
+    engine.registry.registerFunction({
+      name: 'tail',
+      shape: 'scalar',
+      params: [{ name: 'a', type: { kind: 'text' } }],
+      output: { kind: 'text' },
+      instructions: 'The last octet, so two rows of one /24 project different values.',
+    });
+    engine.registry.registerFunctionRun('tail', {
+      shape: 'scalar',
+      run: (args) => Value.of(String(args['a']!.raw).split('.').pop() ?? ''),
+    });
+    // The same two values the run produced, in the OTHER order — which is what a
+    // server is free to return under an ORDER BY whose key ties.
+    const db = scriptedDb([], { 'tail(': ['9', '1'] });
+    const report = await differentialCheck({
+      engine,
+      dialect: 'postgres',
+      execute: db.execute,
+      columns: { type: 'host', field: 'addr', other: 'addr' },
+      functions: ['tail'],
+    });
+    const probe = report.probes.find((p) => p.label === 'tail');
+    expect(probe?.comparison).toBe('multiset');
+    expect(probe?.runValues).toEqual(['1', '9']);
+    expect(probe?.sqlValues).toEqual(['9', '1']);
+    expect(probe?.agreed).toBe(true);
+  });
+
+  it('an ORDER probe still compares the SEQUENCE — that is the property under test', async () => {
+    const db = scriptedDb([], { 'ORDER BY "host"."addr" ASC': ['10.0.0.9', '10.0.0.1'] });
+    const report = await differentialCheck({
+      engine: netEngine(),
+      dialect: 'postgres',
+      execute: db.execute,
+      columns: { type: 'host', field: 'addr' },
+    });
+    const asc = report.probes.find((p) => p.label === 'order asc');
+    expect(asc?.comparison).toBe('sequence');
+    // The same MULTISET, a different sequence — and the ordering probe says so.
+    expect(asc?.agreed).toBe(false);
+  });
+
+  it('reads a driver value that is not JSON as itself, so an artifact shows as one', async () => {
+    // `pg` hands back a `Date` for `timestamptz` and a string for `numeric`. The
+    // row type says `unknown` rather than pretending otherwise, and the
+    // comparison renders both sides the same way — so the report shows the driver
+    // artifact instead of silently agreeing or silently blaming the type.
+    const when = new Date('2026-01-01T00:00:00.000Z');
+    const execute: DifferentialExecute = async () => [{ probe: when }];
+    const report = await differentialCheck({
+      engine: netEngine(),
+      dialect: 'postgres',
+      execute,
+      columns: { type: 'host', field: 'addr' },
+    });
+    expect(report.probes[0]!.sqlValues).toEqual([when]);
+    expect(report.problems.some((p) => p.message.includes('what your driver deserialises'))).toBe(true);
   });
 });

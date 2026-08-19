@@ -406,3 +406,124 @@ describe('runtime ↔ SQL agreement — a declared output casing governs both ro
     expect(casedEngine().toSQL(def, 'base').sql).toContain('LOWER(loosely("doc"."title")) = LOWER(?)');
   });
 });
+
+// ─── P0-6 (cont.): a comparator suppresses the SQL fold, on the arms it governs ─
+
+describe('runtime ↔ SQL agreement — a declared comparator suppresses the fold on BOTH roads', () => {
+  /** Compare tags EXACTLY — a case-sensitive comparator, which is the usual shape. */
+  const byTagExactly: ValueComparator = (a, b) => String(a).localeCompare(String(b));
+
+  /** An engine over one `rel` type whose `tag` is a `Tag`, with or without the comparator. */
+  function tagEngine(withComparator: boolean, casing?: 'exact'): QueryEngine {
+    const registry = createRegistry();
+    registry.registerFieldType({
+      name: 'Tag',
+      base: 'text',
+      instructions: 'A release tag ordered by its own rules.',
+      ...(casing ? { options: { casing } } : {}),
+    });
+    if (withComparator) registry.registerFieldTypeImpl('Tag', { compareValues: byTagExactly });
+    registry.registerType(
+      registry.parseType({
+        name: 'rel',
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'tag', type: { kind: 'text', as: 'Tag' } },
+        ],
+        count: 10,
+        bytes: 32,
+      }),
+    );
+    registry.finalize();
+    return new QueryEngine(registry, { executors: { rel: arrayExecutor([{ id: 1, tag: 'V1.2.3' }]) } });
+  }
+  /** `SELECT id FROM rel WHERE tag <op> 'v1.2.3'`. */
+  const whereTag = (op: 'like' | '='): SelectDef => ({
+    kind: 'select',
+    fields: [{ expr: ref('rel', 'id'), as: 'id' }],
+    from: { kind: 'type', type: 'rel' },
+    where: [cmp(op, ref('rel', 'tag'), lit('v1.2.3'))],
+    order: [{ expr: ref('rel', 'id'), dir: 'asc' }],
+  });
+
+  it('WITHOUT a comparator the column keeps the package\'s fold, in run and in SQL', async () => {
+    // The control, and the state every text column is in by default: the engine
+    // default is `'fold'`, so `'V1.2.3' = 'v1.2.3'` holds on both roads.
+    const engine = tagEngine(false);
+    expect((await engine.run(whereTag('='))).rows).toEqual([{ id: 1 }]);
+    expect(engine.toSQL(whereTag('='), 'postgres').sql).toContain('LOWER("rel"."tag") = LOWER($1)');
+  });
+
+  it('WITH a comparator the fold is suppressed on BOTH roads, not just the runtime', async () => {
+    // The blocker this pins. `compareToCase` skips its fold when a comparator is
+    // in effect; before `comparisonCasing` learned the same rule, SQL still
+    // emitted `LOWER(…) = LOWER($1)` — so the database matched the row and
+    // `engine.run` did not, for a declaration nothing complained about. The two
+    // roads gate on the SAME `effectiveComparator`.
+    const engine = tagEngine(true);
+    expect((await engine.run(whereTag('=')))?.rows).toEqual([]);
+    const sql = engine.toSQL(whereTag('='), 'postgres').sql;
+    expect(sql).toContain('"rel"."tag" = $1');
+    expect(sql).not.toContain('LOWER(');
+  });
+
+  it('the LIKE family is EXCLUDED, so it keeps folding on both roads', async () => {
+    // `compareValues` is an ORDER; `like` is a text pattern match, evaluated by
+    // `evalLike` and never by `compareToCase`. Suppressing the fold for it would
+    // make the arm exact in SQL and folded in memory — the very defect the
+    // suppression exists to remove, reintroduced one operator over.
+    const engine = tagEngine(true);
+    expect((await engine.run(whereTag('like'))).rows).toEqual([{ id: 1 }]);
+    expect(engine.toSQL(whereTag('like'), 'postgres').sql).toContain('LOWER("rel"."tag") LIKE LOWER($1)');
+  });
+
+  it('a comparator declared beside `casing: exact` gives the whole column one policy', async () => {
+    // What `conformance.comparator-without-casing` asks a declarer to do: the
+    // comparison arms follow the comparator and the LIKE family follows the
+    // casing, and with `'exact'` they are the same answer.
+    const engine = tagEngine(true, 'exact');
+    expect((await engine.run(whereTag('like'))).rows).toEqual([]);
+    expect(engine.toSQL(whereTag('like'), 'postgres').sql).not.toContain('LOWER(');
+  });
+
+  it('two DIFFERENT comparators fall back to the fold on both roads, not just one', async () => {
+    // `effectiveComparator` answers `undefined` for a mixed pair so operand order
+    // cannot decide — and because the SQL road calls that same function rather
+    // than a `left ?? right` spelling of it, the fold comes back on BOTH sides
+    // together instead of only in memory.
+    const registry = createRegistry();
+    registry.registerFieldType({ name: 'Tag', base: 'text', instructions: 'One tag scheme.' });
+    registry.registerFieldType({
+      name: 'Other',
+      base: 'text',
+      instructions: 'A different tag scheme, comparable with the first.',
+      comparableWith: ['Tag'],
+    });
+    registry.registerFieldTypeImpl('Tag', { compareValues: byTagExactly });
+    registry.registerFieldTypeImpl('Other', { compareValues: (a, b) => String(b).localeCompare(String(a)) });
+    registry.registerType(
+      registry.parseType({
+        name: 'rel',
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'tag', type: { kind: 'text', as: 'Tag' } },
+          { name: 'alt', type: { kind: 'text', as: 'Other' } },
+        ],
+        count: 10,
+        bytes: 40,
+      }),
+    );
+    registry.finalize();
+    const engine = new QueryEngine(registry, {
+      executors: { rel: arrayExecutor([{ id: 1, tag: 'V1', alt: 'v1' }]) },
+    });
+    const def: SelectDef = {
+      kind: 'select',
+      fields: [{ expr: ref('rel', 'id'), as: 'id' }],
+      from: { kind: 'type', type: 'rel' },
+      where: [cmp('=', ref('rel', 'tag'), ref('rel', 'alt'))],
+    };
+    expect((await engine.run(def)).rows).toEqual([{ id: 1 }]);
+    expect(engine.toSQL(def, 'postgres').sql).toContain('LOWER("rel"."tag") = LOWER("rel"."alt")');
+  });
+});

@@ -384,6 +384,23 @@ export abstract class Dialect implements DialectEntry {
    * one road the first cut could not see. Measured before the fix: an
    * `array<json as Geometry>` OPERAND with no `with`, handed a Polygon document,
    * emitted `ARRAY[ST_GeomFromGeoJSON($1)::geometry(Point)]::geometry(Point)[]`.
+   *
+   * THAT REQUIREMENT RESTS ON THIS COMMENT, AND THE ALTERNATIVE WAS WEIGHED.
+   * There is no LOUD spelling available: TypeScript lets an override declare
+   * FEWER parameters, so making `site` required would not break an existing
+   * 2-argument override, and `jsonValue`'s own third argument is optional so a
+   * recursing call that drops it still compiles. The genuinely loud shape is to
+   * stop depending on override discipline at all — hoist the refusal in
+   * {@link jsonValue} to walk `castTargetsOf(fieldType)` (the type, then an
+   * array's item, recursively — the walk `checkOperandCastsAreWritable` already
+   * owns) BEFORE dispatching, so no dialect can route around it. It is not what
+   * ships, because it refuses strictly MORE: an `array<json as …>` whose
+   * elements are all scalars binds every element as a bare parameter and reaches
+   * no element cast, and hoisting would refuse that emit for a cast that was
+   * never going to fire. Refusing a legal statement is worse than a documented
+   * requirement on the two dialects in this package, so the requirement is
+   * documented — and if a third dialect ever binds containers element-wise, the
+   * hoist is the change to make rather than a third copy of this note.
    */
   protected builtinJsonValue(value: JsonValue, fieldType?: FieldType, _site?: ValueSite): SqlText {
     const target = fieldType ? this.sqlTypeFor(fieldType) : this.jsonSqlType();

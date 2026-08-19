@@ -398,8 +398,21 @@ export interface FieldTypeImpl {
    * IT GOVERNS EQUALITY TOO, and deliberately: `Value.equals` / `identical` are
    * `compareTo(...) === 0`, so ONE comparator keeps ordering and equality from
    * contradicting each other. That is also why there is no separate
-   * `equalValues` — two hooks are two chances to disagree about whether `a` and
-   * `b` are the same value, with nothing able to adjudicate it.
+   * `equalValues` — and the reason is the SQL half rather than tidiness. A btree
+   * operator class requires its `=` and its `<` to be consistent, so a single
+   * comparator is the faithful model of the thing the emitted statement actually
+   * runs on; two hooks would let this package describe an index Postgres would
+   * refuse to build.
+   *
+   * THE CONSEQUENCE, which is easy to miss: a type whose EQUALITY is finer than
+   * its ordering has to TIE-BREAK inside the comparator. Answering `0` for two
+   * values you consider distinct does not merely conflate them under `=` — it
+   * also leaves their relative ORDER undefined, so `ORDER BY` returns them in
+   * whichever order the sort happened to produce and the database returns them
+   * in whichever order its index happened to hold. Semver build metadata, a
+   * username sorted case-insensitively, and a zoned timestamp ordered by instant
+   * are all this shape: compare the primary key first, then the tie-breaker, and
+   * both roads become deterministic together.
    *
    * IT OUT-RANKS CASE FOLDING. `Value.compareToCase` consults it before folding,
    * because a type that has said how its values compare has said so including

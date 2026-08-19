@@ -318,10 +318,24 @@ const report = await differentialCheck({
 if (!report.ok) console.error(report.problems);
 ```
 
-It probes `ORDER BY` in both directions, every comparison arm the type ADMITS,
+It probes `ORDER BY` in both directions, `DISTINCT` and `GROUP BY` (the roads a
+declared comparator is *not* wired into), every comparison arm the type admits,
 and each named operator / function over the two columns. Every probe is driven
 from COLUMNS rather than from bound samples — seed the values you care about into
 the table, because a bound value reaches a declared `cast` only in a write cell or
 an operator operand, and probing with one would measure that known limit instead
 of your type. `report.probes` keeps each statement and both answers, which is the
 artifact worth diffing across releases.
+
+Two things it does deliberately, both of which cost a first-run false positive
+otherwise:
+
+- **it validates every probe through `engine.validateQuery` before emitting it**,
+  so a statement this package itself calls invalid never reaches your server (the
+  arm loop enumerates all nine comparison operators, and `like` over a `json`
+  column is `comparison.like` — a refusal no `compare` declaration mentions).
+  Those land in `report.unprobeable`;
+- **its rows are `unknown`-valued.** `(await pool.query(…)).rows` gives you a
+  `Date` for `timestamptz`, a string for `numeric` and a `Buffer` for `bytea` —
+  configure `pg.types.setTypeParser` to match your model, or a driver artifact
+  reads as a divergence of your type.

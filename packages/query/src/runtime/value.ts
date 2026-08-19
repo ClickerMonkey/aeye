@@ -238,8 +238,16 @@ export class Value {
  * compared with each other, which needs a declared `comparableWith` edge and is
  * refused by the meet in any query that was validated; the fallback is the
  * behaviour such a pair already had.
+ *
+ * EXPORTED BECAUSE THE SQL ROAD ASKS THE SAME QUESTION. `comparisonCasing` has
+ * to suppress its `LOWER()` fold on exactly the pairs {@link Value.compareToCase}
+ * suppresses it for, and "exactly" means the SAME FUNCTION rather than the same
+ * intent: a `left ?? right` spelling agrees with this one on every input except
+ * the two-different-comparators case, where it would leave SQL case-SENSITIVE
+ * while the runtime folded — a fresh divergence in the one place the fallback
+ * exists to prevent one.
  */
-function effectiveComparator(
+export function effectiveComparator(
   left: ValueComparator | undefined,
   right: ValueComparator | undefined,
 ): ValueComparator | undefined {
