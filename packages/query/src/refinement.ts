@@ -34,13 +34,21 @@
  * `Extension.narrow` law, and this package already satisfies it because here the
  * meet IS narrow.
  *
- * WHAT IS NOT HERE. Custom OPTION DECLARATIONS — a refinement that invents an
- * option its base has never heard of (`srid`, `subtype`) — are a later step.
- * Everything a refinement may narrow today is drawn from the base's own
- * vocabulary, which is why `options` is typed straight off `FieldTypeDef` and
- * validated by the machinery that already validates a builtin's def. So are
- * declared comparability (`compare` / `comparableWith`), operators, and the
- * in-memory `compareValues` hook: a refinement is a SQL-road feature, exactly as
+ * TWO OPTION VOCABULARIES, AND THEY STAY APART. `options` narrows the BASE's own
+ * vocabulary and is typed straight off `FieldTypeDef`. {@link
+ * FieldTypeRefinementDefFor.ownOptions} declares options the base has never
+ * heard of (`srid`, `subtype`), each typed by a `FieldTypeDef` of its own, and a
+ * site supplies them in a separate `with` bag. They are two bags rather than one
+ * because merging them would make a `{maxLength}` template slot ambiguous
+ * between the base's option and a refinement's, and would force the strictly-
+ * parsed branch schemas open — after which a typo'd base option would be read as
+ * somebody's custom one. Both obey the same law from opposite directions: a base
+ * option narrows through the OPTIONS meet, an own option through the flat
+ * `meetExact` (unset is TOP, equal keeps, different conflicts), which is the
+ * only lattice a single-valued attribute has.
+ *
+ * WHAT IS NOT HERE. Custom OPERATORS (`&&`, `<->`) and the in-memory
+ * `compareValues` hook: a refinement is still a SQL-road feature, exactly as
  * `semantic` and `text-search` already are.
  */
 import { z } from 'zod';
@@ -50,7 +58,7 @@ import { SCALAR_KINDS, type ScalarKind } from './field-type';
 import type { SchemaOptions } from './node';
 import { QueryTypeError } from './problem';
 import type { Registry } from './registry';
-import type { FieldTypeDef } from './schema';
+import type { FieldTypeDef, JsonValue } from './schema';
 
 /**
  * Allowed charset for a registered refinement NAME.
@@ -93,6 +101,29 @@ const TEMPLATE_SLOT = /\{([^{}]*)\}/g;
 const TEMPLATE_VALUE_PATTERN = /^[A-Za-z0-9_]+$/;
 
 /**
+ * Stand-in tokens a template is CHECKED against at registration, once an
+ * author-declared option can put a different value in the same slot on every
+ * column.
+ *
+ * Through step 1 every slot resolved to a constant, so checking the RESOLVED
+ * string against {@link SQL_TYPE_PATTERN} settled the question once. An
+ * `ownOptions` slot does not: `{subtype}` is `Point` on one column and `Polygon`
+ * on the next, and refusing at EMIT — the only place the real value is known —
+ * would be a failure with no declaration to attribute it to. So the check moves
+ * to the shape of the token rather than its identity.
+ *
+ * These three probe the only distinctions {@link SQL_TYPE_PATTERN} draws over
+ * the {@link TEMPLATE_VALUE_PATTERN} charset: a token may start with a letter,
+ * an underscore or a digit, and after the first character every remaining class
+ * is a superset of the others. A template that resolves to a legal SQL type name
+ * under ALL THREE therefore does so under every value the option can hold —
+ * `{srid}` inside `geometry(Point,{srid})` passes, `{srid}_geom` (which would
+ * emit `4326_geom`) is refused at the DECLARATION rather than on the one column
+ * that happens to trip it.
+ */
+const TEMPLATE_PROBE_TOKENS: readonly string[] = ['a', '_', '0'];
+
+/**
  * What a fully-resolved `sql` entry may look like. It lands in a raw
  * `CAST(… AS <here>)` slot, so it is held to the shape of a SQL TYPE NAME:
  * an identifier, optionally parameterized (`varchar(36)`, `geometry(Point,4326)`),
@@ -103,7 +134,7 @@ const SQL_TYPE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*( [A-Za-z_][A-Za-z0-9_]*)*(\([A
 
 /**
  * The OPTION BAG of one builtin branch — that branch's own def minus the
- * discriminant and the refinement key.
+ * discriminant and the two refinement keys.
  *
  * DERIVED from `FieldTypeDef`, never restated: an option added to a builtin is
  * immediately declarable on a refinement of it, and an option removed from one
@@ -111,8 +142,60 @@ const SQL_TYPE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*( [A-Za-z_][A-Za-z0-9_]*)*(\([A
  */
 export type FieldTypeOptionsOf<B extends ScalarKind> = Omit<
   Extract<FieldTypeDef, { kind: B }>,
-  'kind' | 'as'
+  'kind' | 'as' | 'with'
 >;
+
+/**
+ * One option a refinement declares FOR ITSELF — an option its base has never
+ * heard of (`srid`, `subtype`), supplied per column in the def's `with` bag.
+ *
+ * `type` is an ordinary {@link FieldTypeDef}, so validation, the model-facing
+ * description and the JSON round-trip all come from machinery that already
+ * exists — the same reason `FunctionDef.params` types its parameters that way
+ * rather than inventing a second vocabulary.
+ */
+export interface FieldTypeOptionDecl {
+  /**
+   * The option's own type, in this package's field-type vocabulary. A site's
+   * value is checked against it with {@link FieldType.validValue}, at parse,
+   * where the def is read.
+   */
+  readonly type: FieldTypeDef;
+  /**
+   * The value a column that names none carries. REQUIRED for an option any
+   * `sql` / `cast` template interpolates — a template must resolve for EVERY
+   * column, and "the site said nothing" is otherwise a hole with no answer.
+   */
+  readonly default?: JsonValue;
+  /** What the option means, for a model. Rendered beside it in the generated schema. */
+  readonly docs?: string;
+}
+
+/**
+ * WHICH ARMS OF THE BUILTIN COMPARISON GRAMMAR a refinement admits.
+ *
+ * `ComparisonOp` is a closed 9-member union (`=`, `<>`, `<`, `<=`, `>`, `>=`,
+ * `like`, `notLike`, `ilike`) and it STAYS closed — what a type declares is
+ * which of them mean anything for it, not a new one. Every arm defaults to
+ * `true`, so an existing declaration keeps the grammar it always had.
+ *
+ * The refusal is `Problems`-grade (`comparison.type`) and quotes the type's own
+ * `instructions`, because "you cannot order a geometry" is only half an answer:
+ * the half that saves a round trip is what to reach for instead, and the
+ * declaration is the one place that knows.
+ */
+export interface FieldTypeCompareDecl {
+  /** `=` / `<>`. Default `true`. */
+  readonly equality?: boolean;
+  /** `<` / `<=` / `>` / `>=`. Default `true`. */
+  readonly ordering?: boolean;
+  /**
+   * `like` / `notLike` / `ilike`. Default `true`. Already gated by the operand's
+   * CATEGORY being text, so this narrows a text refinement and is simply moot
+   * for the other eight bases.
+   */
+  readonly textMatch?: boolean;
+}
 
 /**
  * A field-type refinement DECLARATION, for one base `B`. The union over every
@@ -148,17 +231,63 @@ export interface FieldTypeRefinementDefFor<B extends ScalarKind> {
    */
   readonly options?: FieldTypeOptionsOf<B>;
   /**
+   * The options this refinement declares FOR ITSELF, beyond its base's
+   * vocabulary — `{ srid: { type: { kind:'number', whole:true }, default: 4326 } }`.
+   * A column supplies them in its `with` bag.
+   *
+   * They meet through the flat {@link meetExact} lattice, per key: unset is TOP,
+   * equal keeps, and two DIFFERENT values conflict — because there is no third
+   * SRID that is both 4326 and 3857, exactly as there is no third `pattern` that
+   * is both `^a` and `^b`. So "narrow, never widen" reads here as "a use may SET
+   * an option the declaration left open, and may not contradict another use".
+   */
+  readonly ownOptions?: Readonly<Record<string, FieldTypeOptionDecl>>;
+  /**
+   * Which arms of the builtin comparison grammar this type admits — see
+   * {@link FieldTypeCompareDecl}. Omitted ⇒ all three, i.e. the grammar the base
+   * kind already had.
+   */
+  readonly compare?: FieldTypeCompareDecl;
+  /**
+   * OTHER registered refinement names a value of this type may be compared
+   * with — the declared form of the hardcoded `number`/`money` and
+   * `date`/`timestamp` families in `field-type.ts`.
+   *
+   * It only ever GROWS the comparability relation; it never shrinks it, and that
+   * is load-bearing rather than a simplification. `meet` implies
+   * `comparableWith` (a property test asserts it over every pair), so a
+   * declaration that could REMOVE an edge would have to remove the corresponding
+   * meet with it — and the meet a restriction would have to remove is
+   * `refinement ⊓ its own unrefined base`, i.e. the `x ⊓ ⊤ = x` identity. One
+   * declaration would then owe the lattice a carve-out. Growing the relation
+   * owes it nothing: a superset of the meets is still a superset.
+   *
+   * THE REGISTRY SYMMETRIZES IT. Naming a type that does not name you back
+   * records the edge in BOTH directions and files a `warn`-grade note
+   * (`Registry.fieldTypeComparabilityNotes`), so commutativity of
+   * `comparableWith` is structural rather than the declarer's discipline — and
+   * so a name may be declared before the type it names is registered, which
+   * mutual pairs otherwise make impossible.
+   *
+   * It is NOT transitive and is not meant to be: `Meters` may be comparable with
+   * `Number` and `Feet` comparable with `Number` while `Meters` and `Feet` are
+   * not comparable with each other.
+   */
+  readonly comparableWith?: readonly string[];
+  /**
    * Per-dialect SQL TYPE — the CAST target for a value of this type, keyed by
-   * `Dialect.name`. `{slot}` names a declared option and is resolved at
-   * REGISTRATION (the options are constants). A dialect with no entry falls back
-   * to the builtin's answer for the base kind.
+   * `Dialect.name`. A `{slot}` naming a base `options` key resolves at
+   * REGISTRATION (those are constants); a slot naming an {@link ownOptions} key
+   * resolves PER COLUMN, from that column's `with` bag or the option's declared
+   * `default`. A dialect with no entry falls back to the builtin's answer for
+   * the base kind.
    */
   readonly sql?: Readonly<Record<string, string>>;
   /**
    * Per-dialect CAST of a bound DOCUMENT into this type, keyed by
    * `Dialect.name`. `{value}` is the bound parameter slot and must appear at
-   * least once; every other `{slot}` names a declared option and resolves at
-   * registration.
+   * least once; every other `{slot}` names a declared option — a base one
+   * resolving at registration, an own one per column (see {@link sql}).
    *
    * ONLY DECLARABLE ON A BASE WHOSE VALUES ROUTE THROUGH `Dialect.jsonValue`
    * (see {@link CAST_CAPABLE_BASES}) — a scalar predicate binds its value
@@ -302,6 +431,9 @@ const DECLARATION_KEYS = [
   'base',
   'instructions',
   'options',
+  'ownOptions',
+  'compare',
+  'comparableWith',
   'sql',
   'cast',
   'avgBytes',
@@ -343,42 +475,266 @@ function refuse(name: string, path: (string | number)[], message: string): never
  */
 function templateSlots(options: object): Map<string, string> {
   const slots = new Map<string, string>();
-  const entries: [string, unknown][] = Object.entries(options);
-  for (const [key, value] of entries) {
-    if (typeof value === 'number' && Number.isFinite(value)) slots.set(key, String(value));
-    else if (typeof value === 'boolean') slots.set(key, String(value));
-    else if (typeof value === 'string' && TEMPLATE_VALUE_PATTERN.test(value)) slots.set(key, value);
+  for (const [key, value] of Object.entries(options)) {
+    const token = templateToken(value);
+    if (token !== undefined) slots.set(key, token);
   }
   return slots;
 }
 
 /**
- * Resolve every `{slot}` in `template` from `slots`, refusing an unknown one
- * with a `didYouMean` over the declared options. `keep` names the one slot that
- * is left in place (`{value}` for a cast) rather than resolved.
+ * One piece of a compiled template: literal SQL the declarer wrote, or a slot
+ * still to be filled per column.
+ *
+ * A LIST rather than a string with placeholders left in it, because the two
+ * unresolved slot kinds — an own option and a cast's `{value}` — are filled by
+ * different machinery at different times, and re-scanning for `{…}` at emit
+ * would let a resolved value that happened to contain braces be read as a slot.
  */
-function resolveTemplate(
+type TemplatePart = { readonly text: string } | { readonly slot: string };
+
+/** A compiled template — literal parts and the slots still to be filled. */
+type Template = readonly TemplatePart[];
+
+/** Whether `part` is an unresolved slot (the discriminator, in one place). */
+function isSlot(part: TemplatePart): part is { readonly slot: string } {
+  return 'slot' in part;
+}
+
+/**
+ * An option this refinement declares FOR ITSELF, compiled: its declared type as
+ * a `FieldType` (so a site's value is checked by the machinery that already
+ * checks every other value) beside the declaration it came from.
+ */
+export interface CompiledFieldTypeOption {
+  /** The option name — the key a column writes in its `with` bag. */
+  readonly name: string;
+  /** The option's declared type, parsed. */
+  readonly type: FieldType;
+  /** The declared type's def, for the generated schema and for describing it. */
+  readonly typeDef: FieldTypeDef;
+  /** The value a column that names none carries, or `undefined`. */
+  readonly default: JsonValue | undefined;
+  /** What the option means, for a model. */
+  readonly docs: string | undefined;
+  /** Whether any `sql` / `cast` template interpolates it — which is what makes its values an injection surface. */
+  readonly interpolated: boolean;
+}
+
+/**
+ * Compile `template` against the slots that resolve NOW (`constants`, the base
+ * options) and the slots that resolve PER COLUMN (`deferred`, the own options
+ * plus `keep`), refusing an unknown one with a `didYouMean`.
+ */
+function compileTemplate(
   name: string,
   path: (string | number)[],
   template: string,
-  slots: ReadonlyMap<string, string>,
+  constants: ReadonlyMap<string, string>,
+  deferred: ReadonlySet<string>,
   keep?: string,
-): string {
-  return template.replace(TEMPLATE_SLOT, (whole, slot: string) => {
-    if (slot === keep) return whole;
-    const resolved = slots.get(slot);
-    if (resolved !== undefined) return resolved;
-    const candidates = [...slots.keys(), ...(keep === undefined ? [] : [keep])];
-    refuse(
-      name,
-      path,
-      `SQL template ${JSON.stringify(template)} names \`{${slot}}\`, which is not an interpolable ` +
-        `declared option of \`${name}\`.${didYouMean(slot, candidates)} ` +
-        `(interpolable: ${candidates.length > 0 ? candidates.map((c) => `\`{${c}}\``).join(', ') : 'none'}). ` +
-        'A slot must name an option whose declared value is a bare identifier or number token — the ' +
-        'templates are raw-interpolated into emitted SQL, so anything else is refused rather than quoted.',
-    );
-  });
+): Template {
+  const parts: TemplatePart[] = [];
+  let at = 0;
+  TEMPLATE_SLOT.lastIndex = 0;
+  for (let m = TEMPLATE_SLOT.exec(template); m !== null; m = TEMPLATE_SLOT.exec(template)) {
+    const slot = m[1] ?? '';
+    if (m.index > at) parts.push({ text: template.slice(at, m.index) });
+    at = m.index + m[0].length;
+    const constant = constants.get(slot);
+    if (constant !== undefined) parts.push({ text: constant });
+    else if (slot === keep || deferred.has(slot)) parts.push({ slot });
+    else {
+      const candidates = [...constants.keys(), ...deferred, ...(keep === undefined ? [] : [keep])];
+      refuse(
+        name,
+        path,
+        `SQL template ${JSON.stringify(template)} names \`{${slot}}\`, which is not an interpolable ` +
+          `declared option of \`${name}\`.${didYouMean(slot, candidates)} ` +
+          `(interpolable: ${candidates.length > 0 ? candidates.map((c) => `\`{${c}}\``).join(', ') : 'none'}). ` +
+          'A slot must name an option whose value is a bare identifier or number token — the templates ' +
+          'are raw-interpolated into emitted SQL, so anything else is refused rather than quoted.',
+      );
+    }
+  }
+  if (at < template.length) parts.push({ text: template.slice(at) });
+  return parts;
+}
+
+/** Every own-option slot `template` still carries (`{value}` excluded). */
+function deferredSlots(template: Template): Set<string> {
+  const slots = new Set<string>();
+  for (const part of template) {
+    if (isSlot(part) && part.slot !== CAST_VALUE_SLOT) slots.add(part.slot);
+  }
+  return slots;
+}
+
+/**
+ * `template` rendered with every own-option slot filled from `tokens` and
+ * `{value}` left as a segment boundary — the shape both `sqlType` (one segment)
+ * and `cast` (n+1 segments around n value slots) are read as.
+ */
+function renderTemplate(template: Template, tokens: ReadonlyMap<string, string>): string[] {
+  const segments: string[] = [''];
+  for (const part of template) {
+    if (!isSlot(part)) segments[segments.length - 1] += part.text;
+    else if (part.slot === CAST_VALUE_SLOT) segments.push('');
+    // A slot with no token is unreachable: an interpolated option is refused at
+    // registration unless it declares a `default`, so every slot always resolves.
+    else segments[segments.length - 1] += tokens.get(part.slot) ?? '';
+  }
+  return segments;
+}
+
+/**
+ * The SQL token form of `value`, or `undefined` when it has none.
+ *
+ * The ONE place a declared value becomes raw SQL text, so it is the whole
+ * injection surface of the template mechanism — see
+ * {@link TEMPLATE_VALUE_PATTERN}. A number and a boolean render as themselves; a
+ * string must already BE a bare token; everything else (an object, an array,
+ * `null`) has no token form.
+ *
+ * `unknown` because it answers for BOTH option vocabularies: a base option's
+ * value is one of nine unrelated shapes (a bound, a flag, a `values` list, a
+ * nested `FieldTypeDef`) and an own option's is any `JsonValue`. Narrowing here
+ * by `typeof` is the honest form of that question, and it keeps the two roads on
+ * ONE rule rather than on two that could drift.
+ */
+function templateToken(value: unknown): string | undefined {
+  // A number goes through the SAME pattern as a string rather than being trusted
+  // for being a number: `String(1e21)` is `1e+21`, `String(-4)` is `-4`, and
+  // neither is a bare token. One rule, no numeric special case to get wrong.
+  const text = typeof value === 'number' || typeof value === 'boolean' ? String(value)
+    : typeof value === 'string' ? value
+      : undefined;
+  return text !== undefined && TEMPLATE_VALUE_PATTERN.test(text) ? text : undefined;
+}
+
+/** Every deferred slot of `template` bound to one probe token (see {@link TEMPLATE_PROBE_TOKENS}). */
+function probeTokens(template: Template, probe: string): Map<string, string> {
+  const tokens = new Map<string, string>();
+  for (const slot of deferredSlots(template)) tokens.set(slot, probe);
+  return tokens;
+}
+
+/**
+ * Compile the declaration's OWN options — the ones its base has never heard of.
+ *
+ * Each option's `type` goes through the same `parseFieldType` the declaration's
+ * base options do, so a bad bound, an uncompilable pattern or a self-
+ * contradictory closed set is refused with the message that road already has;
+ * and each `default` is checked against its own type, so a declaration cannot
+ * ship a default no column could have written.
+ */
+function compileOwnOptions(
+  name: string,
+  declared: Readonly<Record<string, FieldTypeOptionDecl>> | undefined,
+  baseSlots: ReadonlyMap<string, string>,
+  parseFieldType: (json: FieldTypeDef) => FieldType,
+): Map<string, CompiledFieldTypeOption> {
+  const compiled = new Map<string, CompiledFieldTypeOption>();
+  for (const [key, option] of Object.entries(declared ?? {})) {
+    if (!REFINEMENT_NAME_PATTERN.test(key)) {
+      refuse(
+        name,
+        ['ownOptions', key],
+        `Option name ${JSON.stringify(key)} must match ${REFINEMENT_NAME_PATTERN.source} — it is a ` +
+          'template slot name and a key a model writes in a `with` bag.',
+      );
+    }
+    // A name that a BASE option already answers as a template slot would make
+    // `{maxLength}` mean two things, and nothing in the template says which.
+    if (baseSlots.has(key)) {
+      refuse(
+        name,
+        ['ownOptions', key],
+        `Option \`${key}\` is already a declared BASE option of this refinement, so a \`{${key}}\` ` +
+          'template slot would name two different values. Rename the declared option, or narrow the ' +
+          'base option in `options` instead of redeclaring it.',
+      );
+    }
+    if (key === CAST_VALUE_SLOT) {
+      refuse(
+        name,
+        ['ownOptions', key],
+        `\`${CAST_VALUE_SLOT}\` is reserved: it is the slot a \`cast\` template puts the BOUND VALUE in.`,
+      );
+    }
+    if (option === null || typeof option !== 'object' || !('type' in option)) {
+      refuse(
+        name,
+        ['ownOptions', key],
+        `Option \`${key}\` must be declared as \`{ type: <FieldTypeDef>, default?, docs? }\` — its type ` +
+          'is an ordinary field type, so it is validated, described and round-tripped by machinery that ' +
+          'already exists.',
+      );
+    }
+    let type: FieldType;
+    try {
+      type = parseFieldType(option.type);
+    } catch (err) {
+      refuse(
+        name,
+        ['ownOptions', key, 'type'],
+        `Option \`${key}\` does not declare a valid field type: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (option.default !== undefined && !type.validValue(option.default)) {
+      refuse(
+        name,
+        ['ownOptions', key, 'default'],
+        `Option \`${key}\`'s default ${JSON.stringify(option.default)} is not a valid ` +
+          `${type.toCode()} — the value a column inherits has to be one a column could have written.`,
+      );
+    }
+    compiled.set(key, {
+      name: key,
+      type,
+      typeDef: option.type,
+      default: option.default,
+      docs: option.docs,
+      interpolated: false,
+    });
+  }
+  return compiled;
+}
+
+/** Resolve the three {@link FieldTypeCompareDecl} arms, defaulting each to the base's own grammar. */
+function compileCompare(name: string, declared: FieldTypeCompareDecl | undefined): Required<FieldTypeCompareDecl> {
+  const arm = (key: keyof FieldTypeCompareDecl): boolean => {
+    const value = declared?.[key];
+    if (value === undefined) return true;
+    if (typeof value !== 'boolean') {
+      refuse(name, ['compare', key], `\`compare.${key}\` must be a boolean, got ${JSON.stringify(value)}.`);
+    }
+    return value;
+  };
+  return { equality: arm('equality'), ordering: arm('ordering'), textMatch: arm('textMatch') };
+}
+
+/**
+ * Validate the declared `comparableWith` names. They are NOT resolved here: an
+ * edge may name a refinement that is not registered yet (a mutual pair makes
+ * that unavoidable — one of the two has to be declared first), so resolution and
+ * symmetrization belong to the registry, which sees every registration.
+ */
+function compileComparableWith(name: string, declared: readonly string[] | undefined): readonly string[] {
+  if (declared === undefined) return [];
+  if (!Array.isArray(declared)) {
+    refuse(name, ['comparableWith'], `\`comparableWith\` must be an array of registered refinement names, got ${JSON.stringify(declared)}.`);
+  }
+  const names: string[] = [];
+  for (const other of declared) {
+    if (typeof other !== 'string' || !REFINEMENT_NAME_PATTERN.test(other)) {
+      refuse(name, ['comparableWith'], `\`comparableWith\` entry ${JSON.stringify(other)} is not a refinement name (${REFINEMENT_NAME_PATTERN.source}).`);
+    }
+    // Naming yourself is redundant rather than wrong — every type is comparable
+    // with itself — so it is dropped rather than refused.
+    if (other !== name && !names.includes(other)) names.push(other);
+  }
+  return names;
 }
 
 /**
@@ -403,15 +759,64 @@ export class FieldTypeRefinement {
      * site's type is a pure options meet.
      */
     readonly declared: FieldType,
+    /**
+     * The options this refinement declares FOR ITSELF, in declaration order —
+     * the vocabulary a column's `with` bag may name.
+     */
+    readonly ownOptions: ReadonlyMap<string, CompiledFieldTypeOption>,
+    /**
+     * Which arms of the builtin comparison grammar this type admits, every arm
+     * resolved (an omitted one defaults to `true`, i.e. the base's own grammar).
+     */
+    readonly compare: Required<FieldTypeCompareDecl>,
+    /** The `comparableWith` names AS DECLARED, before the registry symmetrizes them. */
+    readonly declaredComparableWith: readonly string[],
     /** The declared average stored bytes, or `undefined` to keep the base's estimate. */
     readonly avgBytes: number | undefined,
-    /** Fully-resolved SQL type per dialect name. */
-    private readonly sqlTypes: ReadonlyMap<string, string>,
-    /** Per dialect name, a cast template split on `{value}` (n+1 literal segments around n slots). */
-    private readonly casts: ReadonlyMap<string, readonly string[]>,
+    /** Per dialect name, the compiled `sql` template (base slots already resolved). */
+    private readonly sqlTypes: ReadonlyMap<string, Template>,
+    /** Per dialect name, the compiled `cast` template (its `{value}` slots still open). */
+    private readonly casts: ReadonlyMap<string, Template>,
     /** Who declared it, when they said. */
     readonly declaredBy: string | undefined,
   ) {}
+
+  /**
+   * The OTHER refinement names this type may be compared with — the declared
+   * relation after the registry has symmetrized it. Mutable, and mutated ONLY by
+   * {@link linkComparable}: an edge may be declared before the type on its far
+   * end is registered, and both ends must end up carrying it whichever order
+   * they arrive in.
+   */
+  private readonly comparable = new Set<string>();
+
+  /**
+   * Record a comparability edge to `other`. Registry-only — it is what makes the
+   * relation symmetric, and it is called for BOTH ends of every edge, so no
+   * declarer can produce a one-way one.
+   */
+  linkComparable(other: string): void {
+    this.comparable.add(other);
+  }
+
+  /**
+   * Whether a value of this type may be compared with one of the refinement
+   * named `other` — itself always, plus every symmetrized declared edge.
+   *
+   * By NAME rather than by instance, unlike the meet. The meet has to be exact
+   * because it hands back a type whose value gate and `sqlType` a caller then
+   * uses; comparability only answers whether a predicate is meaningful, and
+   * answering `true` for a same-named type compiled in another registry cannot
+   * produce a wrong TYPE — the meet still refuses it.
+   */
+  comparableTo(other: string): boolean {
+    return other === this.name || this.comparable.has(other);
+  }
+
+  /** The declared own-option names, in declaration order (for messages and schemas). */
+  ownOptionNames(): string[] {
+    return [...this.ownOptions.keys()];
+  }
 
   /** The CODE half, when one has been registered (see {@link FieldTypeImpl}). */
   private impl: FieldTypeImpl | undefined;
@@ -554,21 +959,36 @@ export class FieldTypeRefinement {
     }
 
     const slots = templateSlots(options);
-    const sqlTypes = new Map<string, string>();
+    const ownOptions = compileOwnOptions(name, def.ownOptions, slots, parseFieldType);
+    const ownNames = new Set(ownOptions.keys());
+
+    const sqlTypes = new Map<string, Template>();
     for (const [dialect, template] of Object.entries(def.sql ?? {})) {
-      const resolved = resolveTemplate(name, ['sql', dialect], template, slots);
-      if (!SQL_TYPE_PATTERN.test(resolved)) {
+      const path = ['sql', dialect];
+      const compiled = compileTemplate(name, path, template, slots, ownNames);
+      // Checked against PROBE tokens rather than against the one resolved
+      // string, because an own-option slot holds a different value on every
+      // column and emit is far too late to find out. See
+      // `TEMPLATE_PROBE_TOKENS` for why three probes cover every legal token.
+      for (const probe of TEMPLATE_PROBE_TOKENS) {
+        const probed = renderTemplate(compiled, probeTokens(compiled, probe)).join('');
+        if (SQL_TYPE_PATTERN.test(probed)) continue;
         refuse(
           name,
-          ['sql', dialect],
-          `SQL type ${JSON.stringify(resolved)} is not a SQL type name (it is raw-interpolated into ` +
-            `\`CAST(… AS …)\`). Expected something matching ${SQL_TYPE_PATTERN.source}.`,
+          path,
+          `SQL type ${JSON.stringify(probed)} is not a SQL type name (it is raw-interpolated into ` +
+            `\`CAST(… AS …)\`). Expected something matching ${SQL_TYPE_PATTERN.source}.` +
+            (deferredSlots(compiled).size > 0
+              ? ` That is this template with every declared option rendered as \`${probe}\` — an option's ` +
+                'value differs per column, so the template must be a legal type name for EVERY value it ' +
+                'can hold, not only for one.'
+              : ''),
         );
       }
-      sqlTypes.set(dialect, resolved);
+      sqlTypes.set(dialect, compiled);
     }
 
-    const casts = new Map<string, readonly string[]>();
+    const casts = new Map<string, Template>();
     const declaredCasts = Object.entries(def.cast ?? {});
     if (declaredCasts.length > 0 && !CAST_CAPABLE_BASES.has(def.base)) {
       refuse(
@@ -582,9 +1002,8 @@ export class FieldTypeRefinement {
       );
     }
     for (const [dialect, template] of declaredCasts) {
-      const resolved = resolveTemplate(name, ['cast', dialect], template, slots, CAST_VALUE_SLOT);
-      const segments = resolved.split(`{${CAST_VALUE_SLOT}}`);
-      if (segments.length < 2) {
+      const compiled = compileTemplate(name, ['cast', dialect], template, slots, ownNames, CAST_VALUE_SLOT);
+      if (!compiled.some((part) => isSlot(part) && part.slot === CAST_VALUE_SLOT)) {
         refuse(
           name,
           ['cast', dialect],
@@ -593,7 +1012,52 @@ export class FieldTypeRefinement {
             'supplies. A cast must place the value it casts.',
         );
       }
-      casts.set(dialect, segments);
+      casts.set(dialect, compiled);
+    }
+
+    // An option a template interpolates is the injection surface (see
+    // `TEMPLATE_VALUE_PATTERN`), and its value now arrives PER COLUMN rather than
+    // from the declaration — so its declared TYPE has to guarantee what the
+    // declared VALUE used to be checked for.
+    const interpolated = new Set<string>();
+    for (const template of [...sqlTypes.values(), ...casts.values()]) {
+      for (const slot of deferredSlots(template)) interpolated.add(slot);
+    }
+    const withInterpolation = new Map<string, CompiledFieldTypeOption>();
+    for (const [key, option] of ownOptions) {
+      if (!interpolated.has(key)) {
+        withInterpolation.set(key, option);
+        continue;
+      }
+      if (!option.type.tokenSafeValues()) {
+        refuse(
+          name,
+          ['ownOptions', key],
+          `Option \`${key}\` is interpolated into a SQL template, so EVERY value it can hold is spliced ` +
+            'into emitted SQL as raw text — and its declared type does not bound that. Give it a CLOSED ' +
+            'type: a `values` set whose members are all bare tokens, a `bool`, or a `number` with ' +
+            '`whole: true`. The template body is the declarer\'s; the values are the column author\'s, ' +
+            'and only a closed type makes them safe without quoting rules of their own.',
+        );
+      }
+      if (option.default === undefined) {
+        refuse(
+          name,
+          ['ownOptions', key],
+          `Option \`${key}\` is interpolated into a SQL template but declares no \`default\`. A template ` +
+            'must resolve for EVERY column, and a column that names no value would otherwise leave the ' +
+            'slot with no answer at all.',
+        );
+      }
+      if (templateToken(option.default) === undefined) {
+        refuse(
+          name,
+          ['ownOptions', key, 'default'],
+          `Option \`${key}\` interpolates into a SQL template, so its \`default\` ` +
+            `(${JSON.stringify(option.default)}) must be a bare identifier or number token.`,
+        );
+      }
+      withInterpolation.set(key, { ...option, interpolated: true });
     }
 
     return new FieldTypeRefinement(
@@ -601,6 +1065,9 @@ export class FieldTypeRefinement {
       def.base,
       def.instructions,
       declared,
+      withInterpolation,
+      compileCompare(name, def.compare),
+      compileComparableWith(name, def.comparableWith),
       def.avgBytes,
       sqlTypes,
       casts,
@@ -619,7 +1086,7 @@ export class FieldTypeRefinement {
    * introduced — `as` itself merges through the existing flat `meetExact`, in
    * which a registered name meets only itself and an unrefined base is TOP.
    */
-  refine(site: FieldType): FieldType {
+  refine(site: FieldType, withOptions?: Readonly<Record<string, JsonValue>>): FieldType {
     if (site.kind !== this.base) {
       throw new QueryTypeError({
         path: ['as'],
@@ -643,20 +1110,123 @@ export class FieldTypeRefinement {
           'it may not contradict it.',
       });
     }
-    return met.withRefinement(this);
+    return met.withRefinement(this, this.checkOwnOptions(withOptions));
   }
 
-  /** The declared SQL type for `dialect`, or `undefined` to keep the builtin's answer. */
-  sqlType(dialect: string): string | undefined {
-    return this.sqlTypes.get(dialect);
+  /**
+   * A column's `with` bag, checked and canonicalized — or `undefined` when it
+   * declares none.
+   *
+   * Checked HERE, where the def is read, for the same reason every other
+   * declaration defect is: emit is the only other place the values are known,
+   * and a refusal there has no declaration to point at. Canonicalized (keys
+   * sorted, empty dropped) because `toJSON` feeds `meet`'s identity comparison
+   * and a bag that serialized in insertion order would make two equal types
+   * unequal.
+   */
+  private checkOwnOptions(
+    withOptions: Readonly<Record<string, JsonValue>> | undefined,
+  ): Readonly<Record<string, JsonValue>> | undefined {
+    const entries = Object.entries(withOptions ?? {}).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) return undefined;
+    const bag: Record<string, JsonValue> = {};
+    for (const [key, value] of entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const option = this.ownOptions.get(key);
+      if (!option) {
+        const names = this.ownOptionNames();
+        throw new QueryTypeError({
+          path: ['with', key],
+          code: 'field-type.unknown-option',
+          severity: 'error',
+          message:
+            `\`${this.name}\` declares no option \`${key}\`.${didYouMean(key, names)} ` +
+            `(declared: ${names.length > 0 ? names.join(', ') : 'none'}). An unknown option is refused ` +
+            'rather than carried, because a column whose declaration says something the type never reads ' +
+            'is a fact its author believes is in force and is not.',
+        });
+      }
+      if (!option.type.validValue(value)) {
+        // The closed set is spelled out rather than left to `toCode()`, which
+        // renders a `text{values:[…]}` as a bare `text`. A refusal that does not
+        // name the alternatives costs the retry it was supposed to prevent.
+        const members = option.type.values();
+        throw new QueryTypeError({
+          path: ['with', key],
+          code: 'field-type.bad-option',
+          severity: 'error',
+          message:
+            `\`${this.name}.${key}\` is declared ${option.type.toCode()}` +
+            `${members ? ` (one of ${members.map((m) => String(m.value)).join('|')})` : ''}, and ` +
+            `${JSON.stringify(value)} is not one.`,
+        });
+      }
+      // Belt AND braces on the injection surface. The declared type being closed
+      // is the structural guarantee (checked at registration); this is the
+      // per-value one, and it is what makes `sqlType` / `cast` total — with both,
+      // no reachable value can produce a token the templates were not checked for.
+      if (option.interpolated && templateToken(value) === undefined) {
+        throw new QueryTypeError({
+          path: ['with', key],
+          code: 'field-type.bad-option',
+          severity: 'error',
+          message:
+            `\`${this.name}.${key}\` is interpolated into emitted SQL, so its value must be a bare ` +
+            `identifier or number token; ${JSON.stringify(value)} is not.`,
+        });
+      }
+      bag[key] = value;
+    }
+    return bag;
+  }
+
+  /**
+   * The EFFECTIVE value of own option `key` for a column carrying `options` —
+   * the column's own, else the declared `default`, else `undefined`.
+   *
+   * A default is resolved on READ rather than materialized into the bag, and
+   * that is what keeps the flat lattice honest: materializing it would make a
+   * column that said nothing carry `Geometry` and a column that said `Polygon`
+   * CONFLICT with it, when the second is exactly the narrowing the first left
+   * room for.
+   */
+  optionValue(key: string, options: Readonly<Record<string, JsonValue>> | undefined): JsonValue | undefined {
+    const own = options?.[key];
+    return own !== undefined ? own : this.ownOptions.get(key)?.default;
+  }
+
+  /** Every own option's effective value for a column carrying `options`, as interpolable tokens. */
+  private optionTokens(options: Readonly<Record<string, JsonValue>> | undefined): Map<string, string> {
+    const tokens = new Map<string, string>();
+    for (const key of this.ownOptions.keys()) {
+      const token = templateToken(this.optionValue(key, options));
+      if (token !== undefined) tokens.set(key, token);
+    }
+    return tokens;
+  }
+
+  /**
+   * The declared SQL type for `dialect` on a column carrying `options`, or
+   * `undefined` to keep the builtin's answer.
+   *
+   * Resolved per COLUMN rather than at registration, because an own option holds
+   * a different value on every column — `geometry({subtype},{srid})` is
+   * `geometry(Point,4326)` on one and `geometry(Polygon,3857)` on the next. Every
+   * token it can splice was proved safe at registration (a closed declared type)
+   * and again at parse (the value itself), so this cannot fail.
+   */
+  sqlType(dialect: string, options?: Readonly<Record<string, JsonValue>>): string | undefined {
+    const template = this.sqlTypes.get(dialect);
+    return template && renderTemplate(template, this.optionTokens(options)).join('');
   }
 
   /**
    * The declared cast for `dialect` as literal segments around the `{value}`
-   * slot, or `undefined` to keep the base's cast.
+   * slot, or `undefined` to keep the base's cast. Own-option slots resolve
+   * against `options`, exactly as {@link sqlType}'s do.
    */
-  cast(dialect: string): readonly string[] | undefined {
-    return this.casts.get(dialect);
+  cast(dialect: string, options?: Readonly<Record<string, JsonValue>>): readonly string[] | undefined {
+    const template = this.casts.get(dialect);
+    return template && renderTemplate(template, this.optionTokens(options));
   }
 }
 
@@ -696,11 +1266,17 @@ export class FieldTypeRefinement {
  * Returns a spreadable fragment rather than a schema so a branch declares the
  * key exactly where it declares the rest of its wire shape.
  */
-export function refinementKeySchema(base: ScalarKind, opts?: SchemaOptions): { as: z.ZodTypeAny } {
+export function refinementKeySchema(
+  base: ScalarKind,
+  opts?: SchemaOptions,
+): { as: z.ZodTypeAny; with: z.ZodTypeAny } {
   // A base that can never be refined says so, rather than "none registered
   // HERE" — which would imply another registry could have one.
   if (!REFINABLE_BASE_SET.has(base)) {
-    return { as: z.never().optional().describe(`A ${base} cannot be refined — omit \`as\`.`) };
+    return {
+      as: z.never().optional().describe(`A ${base} cannot be refined — omit \`as\`.`),
+      with: z.never().optional().describe(`A ${base} cannot be refined — omit \`with\`.`),
+    };
   }
   const registered = (opts?.registry?.fieldTypeRefinementList() ?? []).filter((r) => r.base === base);
   const [first, ...rest] = registered.map((r) => r.name);
@@ -710,6 +1286,10 @@ export function refinementKeySchema(base: ScalarKind, opts?: SchemaOptions): { a
         .never()
         .optional()
         .describe(`No registered type refines a ${base} here — omit \`as\`.`),
+      with: z
+        .never()
+        .optional()
+        .describe(`No registered type refines a ${base} here — omit \`with\`.`),
     };
   }
   const glossary = registered.map((r) => `${r.name} — ${r.instructions}`).join(' ');
@@ -721,5 +1301,63 @@ export function refinementKeySchema(base: ScalarKind, opts?: SchemaOptions): { a
         `Narrow this ${base} to a registered type. It carries that type's own constraints; you may ` +
           `constrain further here, never loosen. ${glossary}`,
       ),
+    with: refinementOptionsSchema(base, registered, opts),
   };
+}
+
+/**
+ * The `with` KEY of one branch's generated def schema — the options the
+ * refinements over that base declare FOR THEMSELVES.
+ *
+ * Keyed by option NAME across every refinement of the base rather than
+ * discriminated on the `as` the model chose, because zod cannot make one key's
+ * shape depend on another's without turning the branch into a union whose size
+ * is the number of registered refinements. So the schema is a GUIDE — it names
+ * every option that exists, with its type and its owner — and `parseFieldType`
+ * is the gate: an option belonging to a different refinement of the same base is
+ * offered here and refused there (`field-type.unknown-option`).
+ *
+ * STRICT, unlike the branch objects around it, and deliberately: a stripped
+ * unknown key is the exact failure the empty-`as` case documents. A model that
+ * writes `with: { srid: 4326 }` on a type with no `srid` must hear about it, not
+ * silently get a column with no SRID.
+ *
+ * Each option renders as its OWN declared type's value schema, so a closed
+ * `subtype` arrives as an enum the model cannot invent a member of — the same
+ * argument that makes `as` an enum rather than a string.
+ */
+function refinementOptionsSchema(
+  base: ScalarKind,
+  registered: readonly FieldTypeRefinement[],
+  opts?: SchemaOptions,
+): z.ZodTypeAny {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  const glossary: string[] = [];
+  for (const refinement of registered) {
+    for (const option of refinement.ownOptions.values()) {
+      const existing = shape[option.name];
+      const schema = option.type.toValueSchema(opts);
+      // Two refinements of one base may name one option; the model is told which
+      // is which in the glossary, and the parse decides.
+      shape[option.name] = (existing === undefined ? schema : z.union([existing, schema])).optional();
+      glossary.push(
+        `${refinement.name}.${option.name}: ${option.type.toCode()}` +
+          `${option.default === undefined ? '' : ` (default ${JSON.stringify(option.default)})`}` +
+          `${option.docs === undefined ? '' : ` — ${option.docs}`}`,
+      );
+    }
+  }
+  if (glossary.length === 0) {
+    return z
+      .never()
+      .optional()
+      .describe(`No registered type refining a ${base} declares options of its own — omit \`with\`.`);
+  }
+  return z
+    .strictObject(shape)
+    .optional()
+    .describe(
+      "Values for the options the type named in `as` declares for itself. Omit an option to take its " +
+        `declared default. ${glossary.join('; ')}`,
+    );
 }

@@ -260,8 +260,12 @@ export class RelationFieldType extends FieldType {
     return 'relation';
   }
 
-  /** A relation is only comparable with another relation to the same Type. */
-  override comparableWith(other: FieldType): boolean {
+  /**
+   * A relation is only comparable with another relation to the same Type. It is
+   * also the one base a refinement may not narrow, so no declared edge can ever
+   * widen this.
+   */
+  protected override builtinComparableWith(other: FieldType): boolean {
     return other instanceof RelationFieldType && other.to === this.to;
   }
 

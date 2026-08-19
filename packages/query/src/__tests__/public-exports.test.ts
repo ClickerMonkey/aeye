@@ -39,6 +39,7 @@ import type {
   DrillValue,
 } from '../index';
 import { IndexPart, Index, renameSource, aliasedDigest, relationKeyColumns, relationOf, valueFieldType } from '../index';
+import { checkFieldType, checkLatticeLaws } from '../conformance';
 import { TextFieldType } from '../field-types/index';
 
 describe('A3 — the public barrel', () => {
@@ -75,5 +76,25 @@ describe('A3 — the public barrel', () => {
     // And they are the same bindings the barrel re-exports.
     expect(pkg.IndexPart).toBe(IndexPart);
     expect(pkg.Index).toBe(Index);
+  });
+
+  it('exports the CONFORMANCE surface, which `@aeye/query/conformance` also names', () => {
+    // The subpath resolves to THIS bundle rather than to one of its own, so the
+    // barrel is where the bindings live and this is the test that proves the
+    // subpath has something to resolve TO. (A second tsup entry code-splits the
+    // package into chunks its own circular re-exports cannot survive — measured:
+    // `createRegistry()` threw `Cannot read properties of undefined (reading
+    // 'NAME')` out of the BUILT bundle while the suite, which runs from `src`,
+    // stayed green. See the note on the re-export in `index.ts`.)
+    for (const name of ['checkFieldType', 'checkLatticeLaws', 'topsByKind'] as const) {
+      expect(typeof pkg[name]).toBe('function');
+    }
+    expect(Array.isArray(pkg.DEFAULT_SAMPLES)).toBe(true);
+    // And they are the SAME bindings the module itself exports — ONE copy of the
+    // harness, which is the half that matters: a second copy would carry its own
+    // `TextFieldType`, every `instanceof` across the two would answer `false`,
+    // and the harness would report spurious failures for correct types.
+    expect(pkg.checkFieldType).toBe(checkFieldType);
+    expect(pkg.checkLatticeLaws).toBe(checkLatticeLaws);
   });
 });

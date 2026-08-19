@@ -252,9 +252,14 @@ export abstract class Dialect implements DialectEntry {
    * A refinement with no entry for this dialect falls through to the base kind's
    * answer, which is a real answer for a value of the base type — a fallback,
    * not a degrade. That is why this never throws for an unmapped dialect.
+   *
+   * Asked of the FIELD TYPE rather than of its refinement, because a declared
+   * `sql` template may interpolate options the COLUMN carries
+   * (`geometry({subtype},{srid})`) — so the answer is per column, and the column
+   * is the only thing that has both halves.
    */
   sqlTypeFor(fieldType: FieldType): string {
-    return fieldType.refinement?.sqlType(this.name) ?? this.builtinSqlTypeFor(fieldType);
+    return fieldType.refinedSqlType(this.name) ?? this.builtinSqlTypeFor(fieldType);
   }
 
   /** The BUILTIN per-kind SQL type mapping, before any refinement overrides it. */
@@ -278,7 +283,7 @@ export abstract class Dialect implements DialectEntry {
    * `text[]`) must override — an array literal there is not JSON text.
    */
   jsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
-    const cast = fieldType?.refinement?.cast(this.name);
+    const cast = fieldType?.refinedCast(this.name);
     if (cast) return renderCast(cast, SqlText.param(JSON.stringify(value)));
     return this.builtinJsonValue(value, fieldType);
   }

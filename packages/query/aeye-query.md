@@ -34,7 +34,7 @@ A `Type` is a named collection of `Field`s plus index + cardinality estimates (`
 - **Identity** — a Type may declare `identity?: string | string[]`, the field (or ordered fields) that IDENTIFY a row. When present it is THE answer for `identityField()` / `primaryKey()` and index ORDER stops mattering. Without it, identity is INFERRED as "the first single-part unique index, else the field named `id`" — so a Type declaring both `id` and a unique `email`, with the email index listed first, silently identifies by `email`, and every relation into it joins a stored id against an email address. Declaring a name the Type does not have is an ERROR, not a silent fall-back to the inferred rule.
 - **Indexes** are composite (ordered parts, each with a non-increasing prefix distinct-row `count`); unique iff the last part's `count === 1`. They drive cost estimation. An index part is a TYPE-level fact, so it is written against the Type NAME; a query binding that Type under an ALIAS (`{kind:'aliased'}`, either side of a self-join) has its probes NORMALIZED back to the type name before matching (`renameSource` / `aliasedDigest` / `Index.prefixReduction(used, alias?)`), and matching is SOURCE-SCOPED so a join alias equal to another Type's name cannot match the scanned Type's parts.
 - **Arrays** are ordered collections with optional `minItems`/`maxItems` and an optional `item` element field type (omit `item` for heterogeneous); they nest (`array<array<number>>`).
-- **Refinements** — any branch may carry `as: <registered name>`, naming a refinement of that builtin (`{ kind: 'text', as: 'uuid' }`). It is the ONE extension point on a field type: the nine kinds never grow. See "A registered REFINEMENT names a builtin" under the function library.
+- **Refinements** — any branch may carry `as: <registered name>`, naming a refinement of that builtin (`{ kind: 'text', as: 'uuid' }`), plus a `with` bag of values for the options that refinement declares for itself (`{ kind: 'json', as: 'Geometry', with: { srid: 4326 } }`). It is the ONE extension point on a field type: the nine kinds never grow. See "A registered REFINEMENT names a builtin" under the function library.
 
 `createRegistry()` bootstraps the Type/expr/function catalog; `registry.parseType(def)` + `registerType` add Types. `inferType(name, rows)` derives a `TypeDef` (field types + nullability, array detection) straight from sampled JSON rows.
 
@@ -197,10 +197,10 @@ ORDER BY ST_Distance("parcel"."shape", CAST($2 AS jsonb)) ASC LIMIT 10
 
 That is valid PostGIS, and `:here` is typed `json` by the declared parameter — a param used ONLY as a function argument still reports its type through `engine.parameters` / `checkParams`. Four things a registered function CANNOT do, so you know what you are trading away — the first and third are what a REFINEMENT (below) adds:
 
-1. **The cast target is the BASE type's** — `CAST($1 AS jsonb)`, not `::geometry(Point,4326)`. Declare a refinement's `sql` / `cast`, bind a value your function accepts (`ST_GeomFromGeoJSON` around the argument, or a text/WKB parameter), or subclass the dialect.
+1. **The cast target is the BASE type's** — `CAST($1 AS jsonb)`, not `::geometry(Point,4326)`. A refinement's `sql` / `cast` fixes this, and its `ownOptions` make the target PER COLUMN (`geometry(Polygon,4326)` on one, `geometry(Point,3857)` on the next).
 2. **No infix operators.** `&&` / `<->` have no call form; only `name(a, b)` is emittable from a declaration. Still true with a refinement.
-3. **The domain's NAME and meaning do not reach the model beyond `instructions`** — the field still describes itself as `shape: json — A JSON document`. A refinement makes it `shape: json(as Geometry) — <your instructions>`.
-4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable; refusing it needs a type that declares no ordering, not a function.
+3. **The domain's NAME and meaning do not reach the model beyond `instructions`** — the field still describes itself as `shape: json — A JSON document`. A refinement makes it `shape: json(as Geometry,subtype=Polygon,srid=4326) — <your instructions>`.
+4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable. A refinement declaring `compare: { ordering: false }` refuses it, with the type's own instructions naming the alternative.
 
 ### A registered REFINEMENT names a builtin: `{ kind: <base>, as: <name> }`
 
@@ -230,8 +230,85 @@ registry.registerFieldTypeImpl('uuid', { value: z.uuid() });   // the CODE half 
 - **Registration is all-or-nothing**, because a refinement that registered half-broken would be wrong on every column that ever named it. `base` is a `ScalarKind` other than `relation` (a relation carries an IDENTITY and a cardinality ESTIMATE, neither of which is a constraint a name can narrow — refine what it points at instead); the name matches the pattern, is not a builtin `kind`, and is not already registered (the second declarer is REFUSED, naming the incumbent's `declaredBy`); `options` parse as a def of the base kind, with that road's own message; `avgBytes > 0`; and `instructions` is non-empty and REQUIRED — deliberately stricter than `FunctionDef.instructions`, because an undocumented registered type renders as a bare tag beside documented siblings and a model choosing among them guesses, which costs a validate-fail retry carrying the whole schema. `registerFieldTypeImpl` refuses an unknown name, a second impl, and a `value` that is not a zod schema. Every failure is a `QueryTypeError` (`field-type.bad-refinement`).
 - **Ordering is ENFORCED, not advised.** `registerFieldType` / `registerFieldTypeImpl` are REFUSED (`field-type.late-refinement`) once that registry has built a FIELD TYPE — through `parseType`, `registerType`, `parseFieldType`, `Type.from`, or a declared function parameter, all of which route through the same parse. A stored `as` resolves against the registry as it stood at parse time, so a late registration would leave every already-built column carrying the un-narrowed base — with the `LOWER()` back and the tag still reading `text` — and a late IMPL is worse still, because it attaches to the compiled refinement every such column SHARES and retroactively changes what they validate against. It is the one failure in this design that would otherwise be silent.
 - **An unknown declaration key is REFUSED, not ignored.** TypeScript's excess-property check only fires on an inline literal, so `registerFieldType(JSON.parse(stored) as FieldTypeRefinementDef)` would otherwise type-check and silently drop whatever it did not recognise — the same dead-gate end state the impl split exists to prevent, reached from the other side. A key that MOVED (`value`) is refused by name, with its new home.
-- **What a refinement is NOT, yet.** Custom OPTION declarations (`srid`, `subtype`), declared comparability (`compare` / `comparableWith`), custom operators, and an in-memory `compareValues` hook are not here — everything a refinement narrows today is drawn from the base's own vocabulary. A refinement is a SQL-road feature, exactly as `semantic` and `text-search` already are.
-- **Enumerating what a registry knows.** `registry.fieldTypeKinds()` lists the registered builtin kinds; `fieldTypeRefinement(name)` / `fieldTypeRefinementList()` / `fieldTypeRefinementNames()` list the refinements. `REFINABLE_BASES` is the set a `base` may name.
+- **What a refinement is NOT, yet.** Custom OPERATORS (`&&`, `<->`, a new `operator` expr kind) and an in-memory `compareValues` hook are not here. A refinement is a SQL-road feature, exactly as `semantic` and `text-search` already are: two geometries compared through `engine.run` fall back to `Value.compareTo`'s stringification, and there is no per-type hook for that yet.
+- **Enumerating what a registry knows.** `registry.fieldTypeKinds()` lists the registered builtin kinds; `fieldTypeRefinement(name)` / `fieldTypeRefinementList()` / `fieldTypeRefinementNames()` list the refinements; `fieldTypeComparabilityNotes()` returns the `warn`-grade notes symmetrization filed. `REFINABLE_BASES` is the set a `base` may name.
+
+### A refinement's OWN options: `ownOptions` + a column's `with` bag
+
+The base's vocabulary cannot say `srid`. `ownOptions` declares options the base has never heard of, each typed by an ordinary `FieldTypeDef` — so validation, the model-facing description and the JSON round-trip all come from machinery that already exists — and a column supplies them in a `with` bag.
+
+```ts
+registry.registerFieldType({
+  name: 'Geometry', base: 'json',
+  instructions: 'A PostGIS geometry, carried as GeoJSON. Compare with ST_Contains / ST_Within, or order by ST_Distance; `<` and LIKE are not defined on one.',
+  ownOptions: {
+    subtype: { type: { kind: 'text', values: [{ value: 'Point' }, { value: 'Polygon' }] }, default: 'Point', docs: 'The subtype this column holds.' },
+    srid:    { type: { kind: 'number', whole: true }, default: 4326 },
+  },
+  sql:  { postgres: 'geometry({subtype},{srid})' },
+  cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype},{srid})' },
+  compare: { equality: true, ordering: false, textMatch: false },
+  comparableWith: ['Geography'],
+  avgBytes: 96,
+});
+// on a Type:  { name: 'shape', type: { kind: 'json', as: 'Geometry', with: { subtype: 'Polygon', srid: 4326 } } }
+//   → postgres CAST target `geometry(Polygon,4326)`; a sibling column declaring
+//     `{ subtype: 'Point', srid: 3857 }` gets `geometry(Point,3857)`, from ONE declaration.
+```
+
+- **TWO BAGS, DELIBERATELY.** `options` narrows the BASE's vocabulary; `ownOptions` declares new ones and a column writes them under `with`. Merging them would make a `{maxLength}` slot ambiguous between the base's option and a refinement's, and would force the strictly-parsed branch schemas open — after which a typo'd base option would be read as somebody's custom one. An `ownOptions` name colliding with a declared base option is REFUSED, and so is `value` (a `cast` puts the bound value there).
+- **A `{slot}` now resolves at TWO different times.** A base-option slot still resolves at REGISTRATION (those are constants). An `ownOptions` slot resolves PER COLUMN, from that column's `with` bag or the option's declared `default`. `Dialect.sqlTypeFor` / `jsonValue` therefore ask the FIELD TYPE (`refinedSqlType` / `refinedCast`), not the refinement, because the column is the only thing holding both halves. A dialect with no entry still falls back to the base's answer.
+- **A DEFAULT is resolved on READ, never materialized into the bag.** That is what leaves room to narrow: a column that said nothing carries no value at all, so it MEETS a column that said `Polygon` instead of conflicting with the default. It also keeps an existing def byte-identical — a column naming no options serializes with no `with` key.
+- **They meet through the flat `meetExact` lattice, per key.** Unset is TOP, equal keeps, and two DIFFERENT values conflict — there is no third SRID that is both 4326 and 3857, exactly as there is no third `pattern` that is both `^a` and `^b`. So "narrow, never widen" reads here as *a use may SET an option the declaration left open, and may not contradict another use*. The merged bag's keys are SORTED, because `meet` compares two types by their serialized form. **No new law**: the same laws the builtins are held to pass over a set carrying every arm of this (unset, one set, both set, a sibling differing in one), with no carve-out.
+- **THE INJECTION SURFACE MOVED, so the check did.** Through step 1 a template slot's value was a declared CONSTANT, checkable once. An `ownOptions` value is the COLUMN AUTHOR's, so three things replace that one check: (1) an option any template interpolates must have a **CLOSED declared type** — a `values` set whose members are all bare tokens, a `bool`, or a `number` with `whole: true` — and must declare a `default`, so the template resolves for every column; (2) the template is validated against **PROBE tokens** (`a`, `_`, `0`) rather than one resolved string, so `{srid}_geom` is refused at the DECLARATION rather than on the one column that writes a number there; (3) each column's actual value is re-checked as a bare token at PARSE. Together they make emission total — no reachable value can produce a token the templates were not checked for.
+- **A column's bag is checked where the def is read.** An option the type does not declare is REFUSED (`field-type.unknown-option`, with a `didYouMean`), a value its declared type refuses is REFUSED (`field-type.bad-option`, naming the members), and a `with` with no `as` is refused too. The generated def schema offers `with` as a **strict** object keyed by every option registered over that base, each rendered as its own declared type's value schema, so a model cannot invent a member — and a base where no refinement declares options refuses a `with` rather than stripping it.
+- **What the model sees.** `shape: json(as Geometry,subtype=Polygon,srid=4326)` — EFFECTIVE values, so a defaulted column reads with the defaults rather than blank. The SRID a column is stored under is a fact about it either way, and a model shown nothing has no way to know which one it is writing against.
+
+### `compare` — which arms of the builtin grammar apply
+
+```ts
+compare: { equality: true, ordering: false, textMatch: false }   // every arm defaults to `true`
+```
+
+`ComparisonOp` is a CLOSED nine-member union (`= <> < <= > >= like notLike ilike`) and it stays closed: a type does not ADD an operator, it says which of the nine mean anything for it. `ordering: false` refuses `< <= > >=`; `textMatch: false` refuses the LIKE family (already gated by the operand's category being text, so it narrows a `text` refinement and is moot for the other eight bases); `equality: false` refuses `=` / `<>`.
+
+```
+where[0]  comparison.type
+  Cannot order `Geometry` values with '<': the type declares no ordering (`compare.ordering: false`).
+  Geometry — A PostGIS geometry, carried as GeoJSON. Compare with ST_Contains / ST_Within, or order
+  by ST_Distance; `<` and LIKE are not defined on one.
+```
+
+The refusal quotes the type's own `instructions`, because a bare refusal costs the retry it was meant to prevent — the model then has to GUESS what to reach for, and the declaration is the one place that knows. **Neither operand is exempt**, unlike the comparability check which excuses a bare param: the fact belongs to the COLUMN's declared type and holds whatever it is compared to, so `shape < :p` is refused exactly as `shape < other.shape` is.
+
+**`compare` gates the GRAMMAR, never the LATTICE.** A type declaring every arm `false` still meets exactly like any other (`Opaque ⊓ text = Opaque`). Tying the two together is the tempting simplification and it would owe `x ⊓ ⊤ = x` a carve-out on the first such type.
+
+### `comparableWith` — compatibility as a declared relation
+
+```ts
+comparableWith: ['Geography']    // OTHER registered names this type may be compared with
+```
+
+The declared form of the hardcoded `number`/`money` and `date`/`timestamp` families. **THE REGISTRY SYMMETRIZES IT**: naming a type that does not name you back records the edge in BOTH directions and files a `warn`-grade note (`registry.fieldTypeComparabilityNotes()`, code `field-type.one-sided-comparability`), so commutativity is structural rather than the declarer's discipline — and a name may be declared BEFORE the type it names is registered, which a mutual pair otherwise makes impossible. An edge naming something that never registers is simply inert.
+
+**It only ever GROWS the relation, and that is load-bearing rather than a simplification.** `meet` implies `comparableWith` (a property test asserts it over every pair), so a declaration that could REMOVE an edge would have to remove the corresponding meet with it — and the meet a restriction would have to remove is `refinement ⊓ its own unrefined base`, i.e. the `x ⊓ ⊤ = x` identity. One declaration would then owe the lattice a carve-out. Growing it owes nothing. Correspondingly, **a declared edge does NOT create a meet**: `Geometry ⊓ Geography` is still no meet, because a registered name meets only itself. Comparable-and-un-meetable is an existing, real state (two disjoint closed sets are the builtin example), and keeping it is what lets the relation be NON-TRANSITIVE — `Meters` and `Feet` may each be comparable with `Number` without being comparable with each other.
+
+### `@aeye/query/conformance` — run the builtins' own property tests on YOUR declaration
+
+```ts
+import { checkFieldType } from '@aeye/query/conformance';
+
+const report = checkFieldType(geometryDecl, { value: geoJsonSchema, samples: [aRealPoint] });
+expect(report.problems).toEqual([]);
+```
+
+A declarer cannot break the lattice by writing CODE — the library compiles the meet from the declaration. What a declarer CAN do is declare a shape whose consequences they did not follow through, and none of that is detectable at registration because each declaration is individually legal; it is only visible as a PROPERTY over a set of types. So the property runner ships rather than the properties being described.
+
+- `checkFieldType(decl, impl?)` registers `decl` in a fresh registry alongside a PEER refinement over the same base, builds a column per value of each declared option plus the unrefined top of every refinable kind, and runs every law over that set. It returns `Problem[]` — nothing throws.
+- `checkLatticeLaws(types, { registry?, samples?, tops? })` is the runner itself, over any type set you hand it: **commutative, idempotent, associative, top-identity, meet-implies-comparable, sound**, plus **refinement-base** (a surviving `as` is on its own base kind), **refinement-instance** (it came from an OPERAND, not from a name), **round-trip** (every type and every meet re-parses to itself on the registry that produced it) and **total** (nothing throws — a defect is reported, never raised). `param-meet.test.ts` runs this same function over the widest type set in the package, so the export is exercised against a correct implementation on every run of this package's suite.
+- With an `impl.value`, two cross-library checks: the gate must AGREE with the declared base bucket (a value only the gate accepts can never reach a column, and the disagreement means the bucket and the contract describe different types) and must not be VACUOUS (`z.any()` is what an unresolved schema degrades to, and it degrades silently). **Pass `samples`** — the default corpus spans JSON shapes and cannot guess what a well-formed value of your type looks like.
+- It cannot tell whether the emitted SQL MEANS what you intended, or whether an in-memory answer agrees with the database's. Those need a live connection and belong in your integration suite.
+- The subpath and `@aeye/query` resolve to the SAME bundle. Prefer the subpath — it names what the surface is for — but know it is one artifact: a second build entry code-splits this package into chunks its own circular re-exports cannot survive (measured: the BUILT `createRegistry()` threw while the suite, which runs from `src`, stayed green), and a second self-contained bundle would carry its own `TextFieldType` and fail every `instanceof` across the two.
 
 ## Schema depth & capability gating
 

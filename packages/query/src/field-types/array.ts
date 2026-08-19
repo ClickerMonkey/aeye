@@ -90,8 +90,10 @@ export class ArrayFieldType extends FieldType {
    * type, the element types must themselves be comparable; an unknown element
    * type on either side is treated as compatible (no constraint to enforce).
    */
-  override comparableWith(other: FieldType): boolean {
+  protected override builtinComparableWith(other: FieldType): boolean {
     if (!(other instanceof ArrayFieldType)) return false;
+    // Through the ELEMENTS' PUBLIC `comparableWith`, so an edge two refined
+    // element types declare reaches an array of them too.
     if (this.item && other.item) return this.item.comparableWith(other.item);
     return true;
   }

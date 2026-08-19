@@ -557,10 +557,9 @@ declared option whose value is a bare identifier/number token — the templates 
 raw-interpolated, so the values spliced into them are the injection surface, not the template body
 — and a resolved `sql` must look like a SQL type name.
 
-**Not here, deliberately:** custom OPTION declarations (`srid`, `subtype`), declared comparability
-(`compare` / `comparableWith`), custom operators, and an in-memory `compareValues` hook.
-Everything a refinement narrows today is drawn from the base's own vocabulary, which is why
-`options` is typed straight off `FieldTypeDef` and validated by machinery that already exists.
+**Not here, deliberately:** custom OPERATORS (`&&`, `<->`, a new `operator` expr kind) and an
+in-memory `compareValues` hook. Custom OPTION declarations and declared comparability landed
+alongside this in the same release — see the section below.
 
 **One internal contract changed, for anyone who SUBCLASSES `FieldType`** — nobody has to, and a
 declaration is now the recommended road. The four members a refinement can override are template
@@ -582,6 +581,144 @@ emission, so read this one even if the paragraph above does not apply:
   quietly disables every refinement `cast` on that dialect. The saving grace is the row above:
   the same class must be touched anyway for `builtinSqlTypeFor`, so the rename is caught at the
   same moment. Rename both.
+
+### A refinement declares its OWN options, its own comparison grammar, and who it compares with (**additive**)
+
+Step 2 of the same work, and the part that makes a registered type more than a name. Everything
+above stays exactly as it was: `options`, `sql`, `cast`, `avgBytes`, `instructions`, the meet, the
+late-registration refusal. What is new is the three facts the BASE's vocabulary cannot express.
+
+```ts
+registry.registerFieldType({
+  name: 'Geometry', base: 'json',
+  instructions: 'A PostGIS geometry, carried as GeoJSON. Compare with ST_Contains / ST_Within, or order by ST_Distance; `<` and LIKE are not defined on one.',
+  ownOptions: {
+    subtype: { type: { kind: 'text', values: [{ value: 'Point' }, { value: 'Polygon' }] }, default: 'Point' },
+    srid:    { type: { kind: 'number', whole: true }, default: 4326 },
+  },
+  sql:  { postgres: 'geometry({subtype},{srid})' },
+  cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype},{srid})' },
+  compare: { equality: true, ordering: false, textMatch: false },
+  comparableWith: ['Geography'],
+});
+// on a Type:  { name: 'shape', type: { kind: 'json', as: 'Geometry', with: { subtype: 'Polygon', srid: 4326 } } }
+```
+
+**`ownOptions` + a column's `with` bag.** An option's `type` is an ordinary `FieldTypeDef`, so
+validation, the model-facing description and the JSON round-trip come from machinery that already
+exists — the same relationship `FunctionDef.params` has to its parameter types. **TWO BAGS,
+deliberately**: `options` narrows the base's vocabulary, `ownOptions` declares new ones, and a
+column writes the second under `with`. Merging them would make a `{maxLength}` slot ambiguous
+between the base's option and a refinement's, and would force the strictly-parsed branch schemas
+open — after which a typo'd base option would be read as somebody's custom one. `FieldTypeDef`
+gains exactly one optional key (`with`) on the shared `FieldTypeRefinementKey`, so `ScalarKind`,
+the nine branches and every exhaustiveness guard are as closed as they were.
+
+**The measured delta over step 1: the cast target is now PER COLUMN.** Two columns naming one type
+emit `geometry(Polygon,4326)` and `geometry(Point,3857)` from ONE declaration. Under step 1 a
+refinement's `sql` was a single string resolved at registration, so every column of a type shared
+it — and a `Point` column would have been cast to the wrong type on every predicate over it. A
+base-option slot still resolves at registration (those are constants); an `ownOptions` slot
+resolves per column, which is why `Dialect.sqlTypeFor` / `jsonValue` now ask the FIELD TYPE
+(`refinedSqlType` / `refinedCast`) rather than its refinement. **No dialect signature changed.**
+
+**A default is resolved on READ, never materialized.** A column that named no options carries no
+bag at all — so an existing def serializes byte-for-byte as it did, and, more importantly, a column
+that said nothing MEETS a column that said `Polygon` rather than conflicting with the declared
+default. **They meet through the flat `meetExact` lattice, per key**: unset is TOP, equal keeps,
+two different values conflict, and the merged bag's keys are SORTED because `meet` compares two
+types by their serialized form. Again **no new law** — the six the builtins are held to, plus the
+two the `as` tag added, pass over a set carrying every arm of this (unset, one set, both set, a
+sibling differing in exactly one, a refined element inside a container) with **no carve-out**.
+
+**THE INJECTION SURFACE MOVED, so the check did — this is the safety half.** Through step 1 a
+template slot's value was a DECLARED CONSTANT, checkable once against a bare-token pattern. An
+`ownOptions` value is the COLUMN AUTHOR's, and emit is far too late to find out. Three checks
+replace that one:
+
+1. an option any template interpolates must have a **CLOSED declared type** — a `values` set whose
+   members are all bare tokens, a `bool`, or a `number` with `whole: true` — and must declare a
+   `default`, so the template resolves for every column. Answered by `FieldType.tokenSafeValues()`,
+   declared ON the type rather than switched on by kind;
+2. the template is validated against **PROBE tokens** (`a`, `_`, `0`) rather than against one
+   resolved string, because a template must be a legal SQL type name for EVERY value its option can
+   hold. `geometry(Point,{srid})` passes; `{srid}_geom` — which would emit `4326_geom` — is refused
+   at the DECLARATION rather than on the one column that trips it;
+3. each column's actual value is re-checked as a bare token at PARSE, which catches the residue a
+   closed type still admits (`-1`, `1e21`).
+
+Together they make emission total: no reachable value can produce a token the templates were not
+checked for. A column's bag is otherwise checked exactly where every other declaration defect is —
+an undeclared option is `field-type.unknown-option` (with a `didYouMean`), a bad value is
+`field-type.bad-option` (naming the members), and a `with` with no `as` is refused rather than
+dropped.
+
+**`compare: { equality, ordering, textMatch }` — which arms of the builtin grammar apply.**
+`ComparisonOp` is a CLOSED nine-member union and it stays closed: a type does not ADD an operator,
+it says which of the nine mean anything for it. Every arm defaults to `true`, so an existing
+declaration keeps the grammar it had. The refusal is `Problems`-grade (`comparison.type`) and
+QUOTES THE TYPE'S OWN `instructions`, because a bare refusal costs the retry it was meant to
+prevent — the model then has to guess what to reach for. Neither operand is exempt, unlike the
+comparability check which excuses a bare param: the fact belongs to the COLUMN's declared type and
+holds whatever it is compared to. **`compare` gates the GRAMMAR, never the LATTICE** — a type
+declaring every arm `false` still meets like any other, and tying the two together would owe
+`x ⊓ ⊤ = x` a carve-out on the first such type.
+
+**`comparableWith` — compatibility as a declared relation, symmetrized by the REGISTRY.** The
+declared form of the hardcoded `number`/`money` and `date`/`timestamp` families. Naming a type that
+does not name you back records the edge in BOTH directions and files a `warn`-grade note
+(`registry.fieldTypeComparabilityNotes()`, `field-type.one-sided-comparability`), so commutativity
+is structural rather than the declarer's discipline — and a name may be declared BEFORE the type it
+names is registered, which a mutual pair otherwise makes impossible. **It only ever GROWS the
+relation, and that is load-bearing**: `meet` implies `comparableWith`, so a declaration that could
+REMOVE an edge would have to remove `refinement ⊓ its own base` with it, i.e. break the top
+identity. Correspondingly a declared edge does NOT create a meet — comparable-and-un-meetable is an
+existing, real state (two disjoint closed sets), and keeping it is what lets the relation be
+NON-TRANSITIVE, which `Meters`/`Feet`/`Number` needs it to be.
+
+**`@aeye/query/conformance` — the builtins' own property tests, exported.** A declarer cannot break
+the lattice by writing CODE, because the library compiles the meet from the declaration. What a
+declarer CAN do is declare a shape whose consequences they did not follow through, and none of that
+is detectable at registration — each declaration is individually legal, and the defect is only
+visible as a PROPERTY over a set of types. So the runner ships:
+
+```ts
+import { checkFieldType } from '@aeye/query/conformance';
+expect(checkFieldType(geometryDecl, { value: geoJsonSchema, samples: [aRealPoint] }).problems).toEqual([]);
+```
+
+`checkFieldType(decl, impl?)` builds a registry, a peer refinement over the same base, a column per
+value of each declared option and the unrefined top of every refinable kind, and runs every law over
+that set — returning `Problem[]` rather than throwing. `checkLatticeLaws(types, opts)` is the runner
+itself over any set: **commutative, idempotent, associative, top-identity, meet-implies-comparable,
+sound**, plus **refinement-base**, **refinement-instance**, **round-trip** and **total**.
+`param-meet.test.ts` now CALLS that function instead of carrying its own copy of the loops, so the
+export is exercised against a correct implementation on every run of this package's suite, and each
+law additionally has a positive control proving it fails on a set that breaks it. With an
+`impl.value` it adds the two cross-library checks: the gate must agree with the declared base bucket
+and must not be vacuous.
+
+**Two limits of the conformance export, stated rather than discovered.** It cannot tell whether the
+emitted SQL means what you intended, or whether an in-memory answer agrees with the database's;
+those need a live connection and belong in a consumer's integration suite. And **the subpath
+resolves to the same bundle as `@aeye/query`** — measured, not chosen: adding `src/conformance.ts`
+as a second `tsup` entry makes esbuild code-split the shared half into a chunk, and this package's
+circular re-exports (`shape/index.ts` ↔ `shape/shape.ts`, `exprs/index.ts` ↔ `exprs/field-ref.ts`,
+and the one that actually bit, `field-types/index.ts`) then land in a different chunk from the code
+that reads them at module-eval time. The BUILT bundle threw `Cannot read properties of undefined
+(reading 'NAME')` out of `createRegistry()` while the whole suite — which runs from `src` — stayed
+green. A second self-contained bundle is worse: it would carry its own `TextFieldType`, and every
+`instanceof` across the two would answer `false`, so the harness would report spurious failures for
+correct types. One bundle, two specifiers; prefer the subpath, which is what the docs name.
+
+**One internal contract changed, for anyone who SUBCLASSES `FieldType`** — the same shape as the
+four template methods step 1 introduced. `comparableWith` is now FINAL (it adds the declared edges
+around the builtin rule) and `protected builtinComparableWith` is the override point. A subclass
+overriding the public method stops compiling, which is the loud kind: leaving it overridable would
+let a builtin that narrows the rule silently shut a declared edge out. `ArrayFieldType`,
+`JsonFieldType` and `RelationFieldType` are renamed accordingly. `FieldType` also gains
+`tokenSafeValues()` (concrete, with a `values`-derived default), `refinedSqlType(dialect)` /
+`refinedCast(dialect)`, `refinementOptions` and `refinementOption(key)`.
 
 ### Also
 

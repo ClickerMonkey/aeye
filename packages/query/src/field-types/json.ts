@@ -64,8 +64,8 @@ export class JsonFieldType extends FieldType {
     return 'json';
   }
 
-  /** JSON only compares meaningfully with other JSON. */
-  override comparableWith(other: FieldType): boolean {
+  /** JSON only compares meaningfully with other JSON — plus any declared refinement edge. */
+  protected override builtinComparableWith(other: FieldType): boolean {
     return other.resolve() === 'json';
   }
 

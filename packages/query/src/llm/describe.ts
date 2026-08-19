@@ -133,6 +133,26 @@ function quals(parts: readonly string[]): string {
 }
 
 /**
+ * `key=value` qualifiers for the options a column's refinement declares for
+ * itself, in DECLARATION order (not the column's), so two columns of one type
+ * read alike.
+ *
+ * An option with no value at all — declared with no `default` and unset on this
+ * column — is omitted rather than rendered as empty: there is nothing true to
+ * say about it.
+ */
+function refinementOptionQuals(ft: FieldType): string[] {
+  const refinement = ft.refinement;
+  if (!refinement) return [];
+  const parts: string[] = [];
+  for (const key of refinement.ownOptions.keys()) {
+    const value = ft.refinementOption(key);
+    if (value !== undefined) parts.push(`${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`);
+  }
+  return parts;
+}
+
+/**
  * The kind-specific part of a type tag, without its own closed value set.
  *
  * A registered REFINEMENT is the FIRST qualifier on every kind —
@@ -147,10 +167,18 @@ function quals(parts: readonly string[]): string {
  * to tell which token is the refinement and which the currency — and the prefix
  * doubles as the answer, because it names the very key the model has to write to
  * ask for one (`{kind:'money', as:'Usd'}`).
+ *
+ * The refinement's OWN options follow it as `key=value`
+ * (`json(as Geometry,subtype=Polygon,srid=4326)`), rendered from their EFFECTIVE
+ * values — the column's own, or the type's declared default. A defaulted option
+ * is shown rather than elided because it is a fact about the column either way,
+ * and a model reading `geometry(Point,4326)` in the emitted SQL of one column
+ * and nothing in the description of another has no way to know which SRID it is
+ * writing against.
  */
 function fieldTypeBase(ft: FieldType): string {
   const parts: string[] = [];
-  if (ft.as !== undefined) parts.push(`as ${ft.as}`);
+  if (ft.as !== undefined) parts.push(`as ${ft.as}`, ...refinementOptionQuals(ft));
   if (ft instanceof ArrayFieldType) {
     // The element type is where an array's constraints actually live — without
     // it the model cannot author an element at all, let alone a member of a set.

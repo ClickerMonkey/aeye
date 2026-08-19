@@ -115,3 +115,34 @@ export function meetRanked<T>(a: T | undefined, b: T | undefined, rank: (v: T) =
 export function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
+
+/**
+ * Meet of two REFINEMENT OPTION BAGS — the values a column supplies for the
+ * options its refinement declares for itself (`{ srid: 4326 }`).
+ *
+ * {@link meetExact} per key, over the UNION of the two key sets: an absent key
+ * is TOP (the column left the option at its declared default and so constrains
+ * nothing), an equal one keeps, and two different values conflict. Which is the
+ * only lattice a single-valued attribute has, and the same one `pattern` and
+ * `currency` already use — so no new law is introduced and the three properties
+ * `param-meet.test.ts` proves carry over unchanged.
+ *
+ * The result's keys are SORTED, because the merged bag is serialized into
+ * `toJSON()` and `meet` compares two types by their serialized form: a bag built
+ * in `this`-then-`other` insertion order would make `a ⊓ b` and `b ⊓ a` differ as
+ * STRINGS while describing the same type.
+ */
+export function meetRefinementOptions<T>(
+  a: Readonly<Record<string, T>> | undefined,
+  b: Readonly<Record<string, T>> | undefined,
+): MeetResult<Readonly<Record<string, T>>> {
+  if (a === undefined) return met(b);
+  if (b === undefined) return met(a);
+  const merged: Record<string, T> = {};
+  for (const key of [...new Set([...Object.keys(a), ...Object.keys(b)])].sort()) {
+    const value = meetExact(a[key], b[key], sameJson);
+    if (!value.ok) return MEET_CONFLICT;
+    if (value.value !== undefined) merged[key] = value.value;
+  }
+  return met(Object.keys(merged).length === 0 ? undefined : merged);
+}

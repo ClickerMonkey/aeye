@@ -14,6 +14,8 @@ import type { ResolvedType } from '../resolved-type';
 import { asFieldType, valueFieldType, relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
+import type { FieldType } from '../field-type';
+import type { FieldTypeCompareDecl } from '../refinement';
 import type { CostContext, IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
 import { categoryOf, childExprSchema, relationValueProblem, RELATION_VS_VALUE } from './_shared';
@@ -66,6 +68,61 @@ function assertNeverOp(op: never): never {
 /** Whether an operand is exempt from the comparability check. */
 function exempt(e: Expr): boolean {
   return (e instanceof LiteralExpr && e.isNullLiteral()) || e instanceof ParamExpr;
+}
+
+/**
+ * Which ARM of a refinement's declared `compare` each operator belongs to, and
+ * the words its refusal reads with.
+ *
+ * A total `Record` over `ComparisonOp` rather than a switch with a `default:`,
+ * so a tenth operator fails to COMPILE here instead of silently landing in
+ * whichever arm the default happened to pick — and so the mapping is one table a
+ * reader can check against `FieldTypeCompareDecl` rather than a chain to trace.
+ */
+const OP_ARMS: Readonly<Record<ComparisonOp, { arm: keyof FieldTypeCompareDecl; verb: string; noun: string }>> = {
+  '=': { arm: 'equality', verb: 'compare', noun: 'equality' },
+  '<>': { arm: 'equality', verb: 'compare', noun: 'equality' },
+  '<': { arm: 'ordering', verb: 'order', noun: 'ordering' },
+  '<=': { arm: 'ordering', verb: 'order', noun: 'ordering' },
+  '>': { arm: 'ordering', verb: 'order', noun: 'ordering' },
+  '>=': { arm: 'ordering', verb: 'order', noun: 'ordering' },
+  like: { arm: 'textMatch', verb: 'pattern-match', noun: 'text matching' },
+  notLike: { arm: 'textMatch', verb: 'pattern-match', noun: 'text matching' },
+  ilike: { arm: 'textMatch', verb: 'pattern-match', noun: 'text matching' },
+};
+
+/**
+ * The refusal for an operand whose registered type declares that this arm of the
+ * grammar does not apply to it, or `undefined`.
+ *
+ * `ComparisonOp` stays a CLOSED 9-member union — a type does not ADD an
+ * operator, it says which of the nine mean anything for it. Ordering two
+ * geometries is not a query the engine could answer more carefully; it is a
+ * query with no meaning, and emitting `"parcel"."shape" < $1` for it hands the
+ * database a comparison whose answer is an implementation detail of the storage
+ * format.
+ *
+ * The message quotes the type's own `instructions`, because a bare refusal costs
+ * a whole retry: the model then has to GUESS what to reach for instead, and the
+ * declaration is the one place that knows ("order by ST_Distance"). That is the
+ * same argument that makes `instructions` REQUIRED on a declaration.
+ *
+ * Neither operand is exempt — unlike the comparability check, which excuses a
+ * bare param because its type is still being inferred. The fact refused here
+ * belongs to the COLUMN's declared type and holds whatever it is compared to, so
+ * `shape < :p` is refused exactly as `shape < other.shape` is.
+ */
+function declaredArmRefusal(op: ComparisonOp, operands: readonly (FieldType | undefined)[]): string | undefined {
+  const { arm, verb, noun } = OP_ARMS[op];
+  for (const ft of operands) {
+    const refinement = ft?.refinement;
+    if (!refinement || refinement.compare[arm]) continue;
+    return (
+      `Cannot ${verb} \`${refinement.name}\` values with '${op}': the type declares no ${noun} ` +
+      `(\`compare.${arm}: false\`). ${refinement.name} — ${refinement.instructions}`
+    );
+  }
+  return undefined;
 }
 
 /**
@@ -193,6 +250,13 @@ export class ComparisonExpr extends BoolExpr {
         `Has-many relation '${set.source}.${set.field}' compares against a value (its members' key), not another relation ('${(set === lRel ? rRel : lRel).source}.${(set === lRel ? rRel : lRel).field}').`,
       );
     }
+
+    // A registered type may declare which arms of this closed grammar apply to
+    // it (`compare: { ordering: false }`). Checked before the arms themselves,
+    // and on both operands, so `shape < :p` is refused with the type's own
+    // instructions rather than emitting a comparison with no meaning.
+    const armRefusal = declaredArmRefusal(this.op, [lft, rft]);
+    if (armRefusal) p.error('comparison.type', armRefusal);
 
     if (LIKE_OPS.has(this.op)) {
       // LIKE family requires text operands (params exempt — inferred text).

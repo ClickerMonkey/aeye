@@ -25,7 +25,7 @@
  * operands do not.
  */
 import { describe, it, expect } from 'vitest';
-import type { z } from 'zod';
+import { checkLatticeLaws } from '../conformance';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import { FieldType } from '../field-type';
@@ -93,6 +93,51 @@ const REFINED = createRegistry()
     instructions: 'A UUID (RFC 4122).',
     options: { minLength: 36, maxLength: 36, casing: 'exact' },
   })
+  // ── The step-2 shapes: declared OPTIONS, declared COMPARE, declared EDGES ──
+  //
+  // Added for the same reason the cross-kind pair was: every review round on
+  // this release found a meet defect, and each was caught by a type set WIDER
+  // than the change that introduced it. Each entry below is here because it is
+  // the counterexample to a plausible implementation:
+  //
+  //  - `Geometry` declares two OWN options, one closed-set and one whole number,
+  //    so the flat per-key lattice is exercised by columns that set them
+  //    differently, set only one, and set none;
+  //  - `Geography` is comparable with `Geometry` ONE WAY ONLY in the
+  //    declaration — the registry symmetrizes it, and the `meet ⇒ comparable`
+  //    law is what would catch a symmetrization that only went one way;
+  //  - `Feet` and `Meters` are each comparable with `Scalar` and NOT with each
+  //    other, so a comparability relation implemented as a transitive closure
+  //    (or as a union-find) fails here and nowhere else;
+  //  - `Opaque` declares `compare: { equality: false }`, i.e. a type for which
+  //    no comparison arm applies at all. Its MEET is unaffected — `compare`
+  //    gates the GRAMMAR, not the lattice — and that is exactly the thing worth
+  //    pinning, because tying the two together is the tempting simplification
+  //    and it would break `x ⊓ ⊤ = x` on the first such type.
+  .registerFieldType({
+    name: 'Geometry', base: 'json',
+    instructions: 'A PostGIS geometry as GeoJSON.',
+    ownOptions: {
+      subtype: { type: { kind: 'text', values: [{ value: 'Point' }, { value: 'Polygon' }] }, default: 'Point' },
+      srid: { type: { kind: 'number', whole: true }, default: 4326 },
+    },
+    sql: { postgres: 'geometry({subtype},{srid})' },
+    compare: { equality: true, ordering: false, textMatch: false },
+    comparableWith: ['Geography'],
+  })
+  .registerFieldType({
+    name: 'Geography', base: 'json',
+    instructions: 'A PostGIS geography as GeoJSON.',
+    compare: { ordering: false },
+  })
+  .registerFieldType({ name: 'Scalar', base: 'number', instructions: 'A dimensionless number.' })
+  .registerFieldType({ name: 'Feet', base: 'number', instructions: 'A length in feet.', comparableWith: ['Scalar'] })
+  .registerFieldType({ name: 'Meters', base: 'number', instructions: 'A length in metres.', comparableWith: ['Scalar'] })
+  .registerFieldType({
+    name: 'Opaque', base: 'text',
+    instructions: 'A token no predicate should touch.',
+    compare: { equality: false, ordering: false, textMatch: false },
+  })
   .registerFieldType({
     name: 'Slug', base: 'text',
     instructions: 'A lower-case URL slug.',
@@ -140,6 +185,23 @@ const TYPES: Readonly<Record<string, FieldType>> = {
   tags: REFINED.parseFieldType({ kind: 'array', as: 'Tags' }),
   // A refined ELEMENT inside an unrefined container.
   arrUuid: REFINED.parseFieldType({ kind: 'array', item: { kind: 'text', as: 'uuid' } }),
+  // ── Declared OWN options: unset, one set, both set, and a sibling that
+  // differs in exactly one. Unset must meet all of them; two that differ in one
+  // option must not meet at all.
+  geom: REFINED.parseFieldType({ kind: 'json', as: 'Geometry' }),
+  geomPoint: REFINED.parseFieldType({ kind: 'json', as: 'Geometry', with: { subtype: 'Point' } }),
+  geomPoly: REFINED.parseFieldType({ kind: 'json', as: 'Geometry', with: { subtype: 'Polygon' } }),
+  geomPoly3857: REFINED.parseFieldType({ kind: 'json', as: 'Geometry', with: { subtype: 'Polygon', srid: 3857 } }),
+  geomSrid: REFINED.parseFieldType({ kind: 'json', as: 'Geometry', with: { srid: 3857 } }),
+  // A refined element carrying its OWN options, inside a container.
+  arrGeom: REFINED.parseFieldType({ kind: 'array', item: { kind: 'json', as: 'Geometry', with: { srid: 3857 } } }),
+  // ── Declared comparability: a one-way pair, and a non-transitive triangle.
+  geography: REFINED.parseFieldType({ kind: 'json', as: 'Geography' }),
+  scalar: REFINED.parseFieldType({ kind: 'number', as: 'Scalar' }),
+  feet: REFINED.parseFieldType({ kind: 'number', as: 'Feet' }),
+  meters: REFINED.parseFieldType({ kind: 'number', as: 'Meters' }),
+  // ── A type no arm of the grammar applies to. Its meet is ordinary.
+  opaque: REFINED.parseFieldType({ kind: 'text', as: 'Opaque' }),
   textMin5: new TextFieldType({ minLength: 5 }),
   textMax10: new TextFieldType({ maxLength: 10 }),
   textMin12: new TextFieldType({ minLength: 12 }),
@@ -193,76 +255,65 @@ const at = (name: string): FieldType => TYPES[name]!;
 const meetJson = (a: FieldType, b: FieldType): unknown => a.meet(b)?.toJSON() ?? null;
 
 /**
- * A meet as a canonical STRING, for the exhaustive property loops. They compare
- * ~70k results; one `expect` per comparison spends the whole budget inside
- * vitest's deep-equal rather than on the property, so each loop compares strings
- * and asserts ONCE on the collected mismatches (which is also what makes a
- * failure list every offending combination instead of only the first).
+ * Values spanning every category, for the soundness property. Passed to the
+ * harness rather than left to its default corpus, because this set is wider —
+ * it carries the members of the closed sets `TYPES` declares, which is what
+ * makes a narrowed-set meet observable.
  */
-const meetKey = (a: FieldType | undefined, b: FieldType | undefined): string =>
-  JSON.stringify(a && b ? (a.meet(b)?.toJSON() ?? null) : null);
-
-/**
- * The unconstrained (TOP) type of each kind, for the `x ⊓ ⊤ = x` law. `relation`
- * is absent deliberately — its `to` is an identity, not a constraint, so there
- * is no relation that constrains nothing.
- */
-const TOP_BY_KIND: Partial<Record<FieldTypeKind, FieldType>> = {
-  text: new TextFieldType(),
-  number: new NumberFieldType(),
-  money: new MoneyFieldType(),
-  bool: new BoolFieldType(),
-  date: new DateFieldType(),
-  timestamp: new TimestampFieldType(),
-  json: new JsonFieldType(),
-  array: new ArrayFieldType(),
-};
-
-/** The pairwise meets, precomputed once and shared by the associativity loop. */
-const PAIRS = new Map<string, FieldType | undefined>(
-  NAMES.flatMap((x) => NAMES.map((y) => [`${x}|${y}`, at(x).meet(at(y))] as const)),
-);
-const pair = (x: string, y: string): FieldType | undefined => PAIRS.get(`${x}|${y}`);
-
-/** Values spanning every category, for the soundness property. */
 const SAMPLES: JsonValue[] = [
   'a', 'bb', 'c', 'abcdefgh', 'abcdefghijklmnop', '', 0, 1, 2, 3, 7, 15, -1, 1.5,
   true, false, null, '2026-01-01', '2026-01-01T09:30', ['a'], [1], [], { x: 1 },
 ];
 
+/**
+ * The laws, run through the SHIPPED harness (`@aeye/query/conformance`) rather
+ * than through a second copy of the loops here.
+ *
+ * That is not a refactor for tidiness. The harness is a public export precisely
+ * so a consumer can hold THEIR declaration to the properties the builtins are
+ * held to, and a harness proved against a different implementation than the one
+ * it ships is a harness nobody should trust. Running it here — over the widest
+ * type set in the package — is what makes the export's claim true.
+ *
+ * `registry` is passed, so the ROUND-TRIP law runs too: every type and every
+ * type the meet produces must re-parse on `REFINED` to exactly itself.
+ */
+const LAWS = checkLatticeLaws(TYPES, { registry: REFINED, samples: SAMPLES });
+
+/** One law's violations, or `[]` — what each `it` below asserts is empty. */
+const violations = (law: string): readonly string[] => {
+  const found = LAWS.laws.find((l) => l.law === law);
+  if (!found) throw new Error(`no such law '${law}' — the harness reports: ${LAWS.laws.map((l) => l.law).join(', ')}`);
+  return found.violations;
+};
+
 describe('the meet is a genuine meet (property, over every pair and triple)', () => {
   it('is COMMUTATIVE — a ∧ b is b ∧ a, byte for byte', () => {
-    const mismatched: string[] = [];
-    for (const x of NAMES) {
-      for (const y of NAMES) {
-        const forward = meetKey(at(x), at(y));
-        const backward = meetKey(at(y), at(x));
-        if (forward !== backward) mismatched.push(`${x} ∧ ${y}: ${forward} vs ${backward}`);
-      }
-    }
-    expect(mismatched).toEqual([]);
+    expect(violations('commutative')).toEqual([]);
   });
 
-  it('is IDEMPOTENT — a ∧ a is a', () => {
-    for (const x of NAMES) {
-      expect(at(x).meet(at(x))?.toJSON()).toEqual(at(x).toJSON());
-      // …and against an equal-but-distinct instance, not just the same object.
-      expect(at(x).meet(at(x).clone())?.toJSON()).toEqual(at(x).toJSON());
-    }
+  it('is IDEMPOTENT — a ∧ a is a, and a ∧ clone(a) is a', () => {
+    expect(violations('idempotent')).toEqual([]);
   });
 
   it('is ASSOCIATIVE — (a ∧ b) ∧ c is a ∧ (b ∧ c)', () => {
-    const mismatched: string[] = [];
-    for (const x of NAMES) {
-      for (const y of NAMES) {
-        for (const z of NAMES) {
-          const left = meetKey(pair(x, y), at(z));
-          const right = meetKey(at(x), pair(y, z));
-          if (left !== right) mismatched.push(`${x} ∧ ${y} ∧ ${z}: ${left} vs ${right}`);
-        }
-      }
-    }
-    expect(mismatched).toEqual([]);
+    expect(violations('associative')).toEqual([]);
+  });
+
+  it('produces a def the SAME registry re-parses to exactly itself', () => {
+    // The property a `ParamDef.type` handed back by `params()` has to satisfy —
+    // and the one a stapled-on `as` broke, by producing `{kind:'money', …,
+    // as:'Score'}`, a def this very registry throws on.
+    expect(violations('round-trip')).toEqual([]);
+  });
+
+  it('keeps every surviving `as` tag on its own base kind, and takes it from an OPERAND', () => {
+    // Two laws the last review added, now stated by the harness rather than
+    // only inside one sweep: a tag on the wrong kind is a def the registry
+    // refuses, and a tag that came from neither operand would be a DIFFERENT
+    // compilation of the same name — same JSON, different value gate.
+    expect(violations('refinement-base')).toEqual([]);
+    expect(violations('refinement-instance')).toEqual([]);
   });
 
   it('every type in the set is one `parseFieldType` can BUILD — the domain the next law is stated over', () => {
@@ -294,15 +345,10 @@ describe('the meet is a genuine meet (property, over every pair and triple)', ()
     // set is empty and the law is asserted with no carve-out: over every shape
     // a def can express, the meet is the greatest lower bound, and
     // `param.conflict` can no longer blame a query for a defect in the type.
-    const offenders: string[] = [];
-    for (const x of NAMES) {
-      const top = TOP_BY_KIND[at(x).kind];
-      // `relation` has no top: `to` is identity rather than a constraint, and
-      // the meet drops the inverse metadata by design (see `relation.ts`).
-      if (!top) continue;
-      if (meetKey(at(x), top) !== JSON.stringify(at(x).toJSON())) offenders.push(`${x}: narrowed`);
-    }
-    expect(offenders).toEqual([]);
+    //
+    // `relation` has no top: `to` is identity rather than a constraint, so the
+    // harness's `topsByKind` has no entry for it and those types are skipped.
+    expect(violations('top-identity')).toEqual([]);
   });
 
   it('…and still only a LOWER bound for a HAND-BUILT type, which is why the law names its domain', () => {
@@ -327,41 +373,27 @@ describe('the meet is a genuine meet (property, over every pair and triple)', ()
   });
 
   it('is at least as strict as comparableWith — a meet implies comparability', () => {
-    const offenders: string[] = [];
-    for (const x of NAMES) {
-      for (const y of NAMES) {
-        if (pair(x, y) !== undefined && !at(x).comparableWith(at(y))) offenders.push(`${x} ∧ ${y}`);
-      }
-    }
-    expect(offenders).toEqual([]);
+    // The law `comparableWith` had to be DECLARED carefully to keep: a declared
+    // edge only ever GROWS the relation, so the meets already inside it stay
+    // inside it. A declaration that could REMOVE an edge would have to remove
+    // `refinement ⊓ its own base` with it, i.e. break the law above.
+    expect(violations('meet-implies-comparable')).toEqual([]);
   });
 
   it('is SOUND — the meet accepts nothing that both operands do not', () => {
     // The property that makes it usable as a validator: checking a supplied
     // value against the merged type can never admit a value one of the uses
     // would have refused.
-    // `validValue` rebuilds its zod schema per call, so the schemas are cached
-    // per type here — otherwise the loop measures zod construction, not the
-    // property.
-    const schemas = new Map<FieldType, z.ZodTypeAny>();
-    const admits = (ft: FieldType, v: JsonValue): boolean => {
-      let s = schemas.get(ft);
-      if (!s) schemas.set(ft, (s = ft.toValueSchema()));
-      return s.safeParse(v).success;
-    };
-    const unsound: string[] = [];
-    for (const x of NAMES) {
-      for (const y of NAMES) {
-        const m = pair(x, y);
-        if (!m) continue;
-        for (const v of SAMPLES) {
-          if (admits(m, v) && !(admits(at(x), v) && admits(at(y), v))) {
-            unsound.push(`${x} ∧ ${y} admits ${JSON.stringify(v)}`);
-          }
-        }
-      }
-    }
-    expect(unsound).toEqual([]);
+    expect(violations('sound')).toEqual([]);
+  });
+
+  it('…and NO law needed a carve-out', () => {
+    // Stated as its own assertion because the roll-up is the claim: a meet that
+    // holds "except for X" means a param's inferred type depends on where in the
+    // JSON tree its uses happened to sit. A failure here lists every law and
+    // every counterexample at once.
+    expect(LAWS.failed.map((l) => `${l.law}: ${l.violations.slice(0, 3).join(' | ')}`)).toEqual([]);
+    expect(LAWS.ok).toBe(true);
   });
 });
 
@@ -396,6 +428,119 @@ describe('a REFINEMENT meets through the flat lattice, and adds no law', () => {
   it('the meet conflicts when the OPTIONS cannot coexist, refinement or not', () => {
     // `uuid` is exactly 36 characters; `textMax10` is at most 10.
     expect(meetJson(TYPES['uuid']!, TYPES['textMax10']!)).toBeNull();
+  });
+});
+
+describe('a refinement\'s OWN options meet through the same flat lattice', () => {
+  it('an UNSET option is TOP — a column that named none adopts the other\'s', () => {
+    expect(meetJson(TYPES['geom']!, TYPES['geomPoly']!)).toEqual({
+      kind: 'json', as: 'Geometry', with: { subtype: 'Polygon' },
+    });
+    expect(meetJson(TYPES['geomPoly']!, TYPES['geom']!)).toEqual(meetJson(TYPES['geom']!, TYPES['geomPoly']!));
+  });
+
+  it('two DIFFERENT values of one option conflict — there is no third subtype that is both', () => {
+    expect(meetJson(TYPES['geomPoint']!, TYPES['geomPoly']!)).toBeNull();
+    expect(meetJson(TYPES['geomPoly']!, TYPES['geomPoint']!)).toBeNull();
+  });
+
+  it('two columns each setting a DIFFERENT option keep both', () => {
+    // The per-key half of the lattice: `subtype` from one, `srid` from the
+    // other, and the merged bag's keys SORTED so `a ⊓ b` and `b ⊓ a` are equal
+    // as strings and not merely as types.
+    expect(meetJson(TYPES['geomPoly']!, TYPES['geomSrid']!)).toEqual({
+      kind: 'json', as: 'Geometry', with: { srid: 3857, subtype: 'Polygon' },
+    });
+    expect(Object.keys((meetJson(TYPES['geomSrid']!, TYPES['geomPoly']!) as { with: object }).with)).toEqual(['srid', 'subtype']);
+  });
+
+  it('an option survives a meet with the UNREFINED base — the base carries no bag at all', () => {
+    // The `x ⊓ ⊤ = x` arm for the option bag. If the declared DEFAULT were
+    // materialized into the bag instead of resolved on read, a column that said
+    // `srid: 3857` would conflict with the default `4326` here.
+    expect(meetJson(TYPES['geomSrid']!, TYPES['json']!)).toEqual({
+      kind: 'json', as: 'Geometry', with: { srid: 3857 },
+    });
+  });
+
+  it('a DEFAULT is resolved on read, never stored — which is what leaves room to narrow', () => {
+    expect(TYPES['geom']!.refinementOptions).toBeUndefined();
+    expect(TYPES['geom']!.refinementOption('srid')).toBe(4326);
+    expect(TYPES['geomSrid']!.refinementOption('srid')).toBe(3857);
+    expect(TYPES['geomSrid']!.refinementOption('subtype')).toBe('Point');
+  });
+
+  it('the SQL type resolves per COLUMN, from that column\'s own options', () => {
+    const pg = REFINED.dialect('postgres')!;
+    expect(pg.sqlTypeFor(TYPES['geom']!)).toBe('geometry(Point,4326)');
+    expect(pg.sqlTypeFor(TYPES['geomPoly3857']!)).toBe('geometry(Polygon,3857)');
+    // …and a meet's result carries the merged answer, not either operand's.
+    expect(pg.sqlTypeFor(TYPES['geomPoly']!.meet(TYPES['geomSrid']!)!)).toBe('geometry(Polygon,3857)');
+  });
+});
+
+describe('declared comparability grows the relation, and the registry symmetrizes it', () => {
+  it('a ONE-WAY declaration is comparable in BOTH directions', () => {
+    // `Geometry` names `Geography`; `Geography` names nothing. Both ends carry
+    // the edge, so no caller can observe an order-dependent answer.
+    expect(TYPES['geom']!.comparableWith(TYPES['geography']!)).toBe(true);
+    expect(TYPES['geography']!.comparableWith(TYPES['geom']!)).toBe(true);
+  });
+
+  it('…and the registry NOTES the asymmetry rather than swallowing it', () => {
+    const note = REFINED.fieldTypeComparabilityNotes().find((p) => p.message.includes('Geography'));
+    expect(note?.code).toBe('field-type.one-sided-comparability');
+    expect(note?.severity).toBe('warning');
+    expect(note?.message).toContain('does not name it back');
+  });
+
+  it('is NOT transitive — two types comparable with a third need not be with each other', () => {
+    expect(TYPES['feet']!.comparableWith(TYPES['scalar']!)).toBe(true);
+    expect(TYPES['meters']!.comparableWith(TYPES['scalar']!)).toBe(true);
+    // Both are `number`s, so the BUILTIN rule already calls them comparable —
+    // which is the honest answer here and the reason the declared relation is
+    // additive: it can widen a rule, never contradict one.
+    expect(TYPES['feet']!.comparableWith(TYPES['meters']!)).toBe(true);
+    // The declared edge itself is not transitive, and that is what is asserted:
+    // `Feet` names `Scalar`, `Scalar` names nothing, so no edge reaches
+    // `Meters`.
+    expect(REFINED.fieldTypeRefinement('Feet')!.comparableTo('Meters')).toBe(false);
+    expect(REFINED.fieldTypeRefinement('Feet')!.comparableTo('Scalar')).toBe(true);
+  });
+
+  it('a declared edge does NOT create a meet — comparability is the weaker question', () => {
+    // `Geometry ⊓ Geography` is still no meet: a registered name meets only
+    // itself, and there is no third type that is both. Comparable and
+    // un-meetable is a real state (two disjoint closed sets are the builtin
+    // example), and keeping it that way is what stops the declared relation
+    // from having to be transitive.
+    expect(meetJson(TYPES['geom']!, TYPES['geography']!)).toBeNull();
+  });
+
+  it('an ARRAY of a declared-comparable element is comparable too', () => {
+    const geoms = REFINED.parseFieldType({ kind: 'array', item: { kind: 'json', as: 'Geometry' } });
+    const geogs = REFINED.parseFieldType({ kind: 'array', item: { kind: 'json', as: 'Geography' } });
+    expect(geoms.comparableWith(geogs)).toBe(true);
+  });
+});
+
+describe('a declared `compare` gates the GRAMMAR, never the lattice', () => {
+  it('a type no comparison arm applies to still meets exactly like any other', () => {
+    // The simplification worth refusing: tying `compare` to the meet. `Opaque`
+    // declares every arm off, and `Opaque ⊓ text` is still `Opaque` — otherwise
+    // one declaration would owe `x ⊓ ⊤ = x` a carve-out.
+    expect(meetJson(TYPES['opaque']!, TYPES['text']!)).toEqual({ kind: 'text', as: 'Opaque' });
+    expect(meetJson(TYPES['opaque']!, TYPES['opaque']!.clone())).toEqual({ kind: 'text', as: 'Opaque' });
+    expect(meetJson(TYPES['opaque']!, TYPES['uuid']!)).toBeNull();
+  });
+
+  it('an omitted arm defaults to the base\'s own grammar', () => {
+    expect(REFINED.fieldTypeRefinement('Geography')!.compare).toEqual({
+      equality: true, ordering: false, textMatch: true,
+    });
+    expect(REFINED.fieldTypeRefinement('uuid')!.compare).toEqual({
+      equality: true, ordering: true, textMatch: true,
+    });
   });
 });
 

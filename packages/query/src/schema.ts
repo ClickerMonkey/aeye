@@ -81,6 +81,25 @@ export interface FieldTypeRefinementKey {
    * may narrow the refinement's declared options further but never widen them.
    */
   as?: string;
+  /**
+   * Values for the options the REFINEMENT declares for ITSELF — the ones its
+   * base has never heard of (`{ as: 'Geometry', with: { subtype: 'Polygon',
+   * srid: 4326 } }`). Each key must be an option the named refinement declares,
+   * and each value is validated against that option's own `FieldTypeDef`; an
+   * unknown key is refused at parse rather than dropped.
+   *
+   * A SEPARATE BAG rather than keys spliced into the branch, because the branch
+   * is a CLOSED, strictly-parsed shape: an author-declared `srid` sitting beside
+   * `minLength` would either force every branch schema open (so a typo'd base
+   * option would then be read as somebody's custom one) or make `{maxLength}`
+   * ambiguous between the base's option and a refinement's. Keeping the two
+   * vocabularies in two bags is what lets both stay strict.
+   *
+   * Absent for every unrefined type, and absent for a refinement whose options
+   * are all left at their declared defaults — so an existing def serializes
+   * byte-for-byte as it always did.
+   */
+  with?: Readonly<Record<string, JsonValue>>;
 }
 
 /**

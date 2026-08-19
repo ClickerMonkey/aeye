@@ -35,6 +35,16 @@ export class BoolFieldType extends FieldType {
     return 'bool';
   }
 
+  /**
+   * A bool admits exactly `true` and `false`, so every value it can hold is
+   * already a bare SQL token — which makes it a legal type for a refinement
+   * option a `sql` / `cast` template interpolates (see
+   * {@link FieldType.tokenSafeValues}).
+   */
+  override tokenSafeValues(): boolean {
+    return true;
+  }
+
   /** Estimated average stored byte size. */
   protected override builtinAvgBytes(): number {
     return 1;

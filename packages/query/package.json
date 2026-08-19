@@ -13,6 +13,14 @@
         "default": "./dist/index.js"
       },
       "default": "./dist/index.js"
+    },
+    "./conformance": {
+      "source": "./src/conformance.ts",
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "default": "./dist/index.js"
     }
   },
   "scripts": {

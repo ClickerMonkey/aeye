@@ -169,6 +169,23 @@ export class NumberFieldType extends FieldType {
   }
 
   /**
+   * A WHOLE number is a legal type for a refinement option a `sql` / `cast`
+   * template interpolates (see {@link FieldType.tokenSafeValues}) — it is the
+   * `number` half of the closed-type rule, and it is what makes
+   * `{ kind:'number', whole:true }` a spellable type for an `srid`.
+   *
+   * ALMOST every value it admits is a bare token, and the residue is why the
+   * template mechanism does not rest on this check alone: `String(-4)` is `-4`
+   * and `String(1e21)` is `1e+21`, neither of which is one. Those are refused
+   * PER VALUE where the column is parsed (`FieldTypeRefinement.refine`), so the
+   * pair is total; declaring `min: 0` and a `max` moves that refusal onto the
+   * type, where the message is better, and is worth doing for a real option.
+   */
+  override tokenSafeValues(): boolean {
+    return super.tokenSafeValues() || this.options.whole === true;
+  }
+
+  /**
    * Meet with another `number` (bounds / integrality / closed set reconciled by
    * {@link meetNumberOptions}), or with `money` — which is the more specific of
    * the pair `comparableWith` calls mutually numeric, so it answers for both.

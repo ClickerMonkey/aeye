@@ -16,7 +16,7 @@
  * `from` — never a central switch on `kind`.
  */
 import type { ExprDef, FieldTypeDef, FieldTypeKind, FunctionDef, QueryDef, TypeDef } from './schema';
-import { QueryTypeError, type Problems } from './problem';
+import { QueryTypeError, type Problem, type Problems } from './problem';
 import type { FieldType, FieldTypeClass } from './field-type';
 import { FieldTypeRefinement, type FieldTypeImpl, type FieldTypeRefinementDef } from './refinement';
 import { z } from 'zod';
@@ -166,7 +166,61 @@ export class Registry {
     this.refuseLateRegistration('registerFieldType', def.name);
     const refinement = FieldTypeRefinement.compile(def, this, (json) => this.parseFieldTypeUnflagged(json));
     this.fieldTypeRefinements.set(refinement.name, refinement);
+    this.linkComparability(refinement);
     return this;
+  }
+
+  /**
+   * SYMMETRIZE the new refinement's declared `comparableWith` against everything
+   * already registered — every edge either side names is recorded on BOTH ends.
+   *
+   * Commutativity of comparability is then STRUCTURAL rather than the declarer's
+   * discipline: `a.comparableWith(b)` and `b.comparableWith(a)` cannot disagree,
+   * because there is no direction stored to disagree about. Which also means an
+   * edge may name a type that is not registered yet — unavoidable for a mutual
+   * pair, since one of the two has to be declared first, and the reason this
+   * runs on EVERY registration rather than only resolving the new one's list.
+   *
+   * A one-sided declaration is honoured and NOTED (`warn`) rather than refused.
+   * Refusing would make a mutual pair the only legal spelling and force both
+   * declarers to know about each other, which is exactly the coupling a
+   * registry-level relation removes; and dropping it would silently discard the
+   * fact one of them stated. The note is the honest middle, and
+   * {@link fieldTypeComparabilityNotes} is where a consumer reads it.
+   */
+  private linkComparability(added: FieldTypeRefinement): void {
+    for (const existing of this.fieldTypeRefinements.values()) {
+      if (existing === added) continue;
+      const addedNames = added.declaredComparableWith.includes(existing.name);
+      const existingNames = existing.declaredComparableWith.includes(added.name);
+      if (!addedNames && !existingNames) continue;
+      added.linkComparable(existing.name);
+      existing.linkComparable(added.name);
+      if (addedNames === existingNames) continue;
+      const [names, silent] = addedNames ? [added, existing] : [existing, added];
+      this.comparabilityNotes.push({
+        path: ['registerFieldType', names.name, 'comparableWith'],
+        code: 'field-type.one-sided-comparability',
+        severity: 'warning',
+        message:
+          `\`${names.name}\` declares \`comparableWith: ['${silent.name}']\` and \`${silent.name}\` does ` +
+          `not name it back. The edge is recorded in BOTH directions — comparability is symmetric by ` +
+          `construction here — so \`${silent.name}\` is now comparable with \`${names.name}\` whether or ` +
+          'not its declarer intended it. Name it on both sides to say so deliberately.',
+      });
+    }
+  }
+
+  /** One-sided `comparableWith` declarations the registry symmetrized (see {@link linkComparability}). */
+  private readonly comparabilityNotes: Problem[] = [];
+
+  /**
+   * The `warn`-grade notes {@link registerFieldType} filed while symmetrizing
+   * declared comparability. Empty for a registry whose declarations all name
+   * each other (or name nothing).
+   */
+  fieldTypeComparabilityNotes(): readonly Problem[] {
+    return this.comparabilityNotes;
   }
 
   /**
@@ -356,7 +410,22 @@ export class Registry {
     // Pass `this` so composite field types (e.g. `array`) can reconstruct
     // their nested `FieldTypeDef` children; scalar types ignore the argument.
     const built = cls.from(json, this);
-    if (json.as === undefined) return built;
+    if (json.as === undefined) {
+      // A `with` bag with no `as` names options belonging to nothing. Refused
+      // rather than dropped, for the reason every other silently-dropped key is:
+      // its author believes a fact is in force that is not.
+      if (json.with !== undefined) {
+        throw new QueryTypeError({
+          path: ['with'],
+          code: 'field-type.unknown-option',
+          severity: 'error',
+          message:
+            'A `with` bag supplies values for the options a REFINEMENT declares, and this def names no ' +
+            '`as`. Name the registered type these options belong to, or drop them.',
+        });
+      }
+      return built;
+    }
     const refinement = this.fieldTypeRefinements.get(json.as);
     if (!refinement) {
       const names = this.fieldTypeRefinementNames();
@@ -369,7 +438,7 @@ export class Registry {
           `(registered: ${names.length > 0 ? names.join(', ') : 'none'}).`,
       });
     }
-    return refinement.refine(built);
+    return refinement.refine(built, json.with);
   }
 
   // ─── Named Type registration / dispatch ──────────────────────────────────

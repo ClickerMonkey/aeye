@@ -18,7 +18,7 @@ import type { Registry } from './registry';
 import type { FieldTypeRefinement } from './refinement';
 import type { TextCasing } from './text-casing';
 import { eqSelectivityOf, isClosedSetMember, type ClosedSetViolation } from './field-types/_values';
-import { meetExact, sameJson } from './field-types/_meet';
+import { meetExact, meetRefinementOptions, sameJson } from './field-types/_meet';
 
 /**
  * The underlying primitive categories, as an array — the source of both the
@@ -58,6 +58,15 @@ type Assert<T extends true> = T;
 type _ScalarKindIsAFieldTypeKind = Assert<
   ScalarKind extends FieldTypeKind ? (FieldTypeKind extends ScalarKind ? true : false) : false
 >;
+
+/**
+ * A bare SQL token — what {@link FieldType.tokenSafeValues} holds a closed set's
+ * members to. Deliberately the same charset `refinement.ts` splices into a
+ * template (`TEMPLATE_VALUE_PATTERN`); it is restated here rather than imported
+ * because `refinement.ts` already imports this module, and one of the two has to
+ * own it. The pair is pinned by a test.
+ */
+const TOKEN_PATTERN = /^[A-Za-z0-9_]+$/;
 
 /** Categories considered mutually numeric for comparison purposes. */
 const NUMERIC_KINDS: ReadonlySet<ScalarKind> = new Set<ScalarKind>(['number', 'money']);
@@ -106,6 +115,20 @@ export abstract class FieldType implements Node {
   /** The refinement this instance carries; set only through {@link withRefinement}. */
   private declaredRefinement: FieldTypeRefinement | undefined;
 
+  /**
+   * This COLUMN's values for the options the refinement declares for ITSELF
+   * (`{ subtype: 'Polygon' }`), canonicalized (keys sorted) and holding only
+   * what the column actually said — a defaulted option is absent here and
+   * resolved on read (`FieldTypeRefinement.optionValue`).
+   *
+   * A separate bag from the builtin's own options because the two are validated
+   * by different declarations, and because the flat lattice they meet through is
+   * not the one the builtin's bag meets through. `undefined` for every unrefined
+   * type and for every refined one that took all its defaults, so an existing
+   * def serializes exactly as it did.
+   */
+  private declaredOptions: Readonly<Record<string, JsonValue>> | undefined;
+
   /** The registered refinement narrowing this type, or `undefined` for a plain builtin. */
   get refinement(): FieldTypeRefinement | undefined {
     return this.declaredRefinement;
@@ -119,19 +142,41 @@ export abstract class FieldType implements Node {
     return this.declaredRefinement?.name;
   }
 
+  /** This column's own values for its refinement's declared options — the `with` bag, or `undefined`. */
+  get refinementOptions(): Readonly<Record<string, JsonValue>> | undefined {
+    return this.declaredOptions;
+  }
+
   /**
-   * A COPY of this type tagged with `refinement` (or `this`, when the tag is
-   * already that one).
+   * The EFFECTIVE value of the refinement option `key` — this column's own, else
+   * the refinement's declared default, else `undefined`. The one accessor every
+   * consumer (SQL emission, the description, the meet) asks, so "the column said
+   * nothing" and "the type's default" can never diverge.
+   */
+  refinementOption(key: string): JsonValue | undefined {
+    return this.declaredRefinement?.optionValue(key, this.declaredOptions);
+  }
+
+  /**
+   * A COPY of this type tagged with `refinement` and its `options` (or `this`,
+   * when it already carries exactly those).
    *
    * The CHECKED road is `Registry.parseFieldType` / `FieldTypeRefinement.refine`,
-   * which meets the site's options against the declaration's before tagging.
-   * This is the unchecked constructor half — same caveat as `new
-   * TextFieldType({...})`, which does not validate either.
+   * which meets the site's options against the declaration's and validates the
+   * `with` bag before tagging. This is the unchecked constructor half — same
+   * caveat as `new TextFieldType({...})`, which does not validate either.
    */
-  withRefinement(refinement: FieldTypeRefinement | undefined): FieldType {
-    if (refinement === this.declaredRefinement) return this;
+  withRefinement(
+    refinement: FieldTypeRefinement | undefined,
+    options?: Readonly<Record<string, JsonValue>>,
+  ): FieldType {
+    // The identity short-circuit compares the BAG too, not just the tag — the
+    // meet relies on `x ⊓ x === x` being exact, and two columns of one type
+    // differing only in an option are not the same type.
+    if (refinement === this.declaredRefinement && sameJson(options, this.declaredOptions)) return this;
     const copy = this.builtinClone();
     copy.declaredRefinement = refinement;
+    copy.declaredOptions = refinement === undefined ? undefined : options;
     return copy;
   }
 
@@ -161,7 +206,9 @@ export abstract class FieldType implements Node {
    */
   protected withRefinementKey<T extends FieldTypeDef>(own: T): T {
     const as = this.as;
-    return as === undefined ? own : { ...own, as };
+    if (as === undefined) return own;
+    const options = this.declaredOptions;
+    return options === undefined ? { ...own, as } : { ...own, as, with: options };
   }
 
   /** Deep-copy this field type, refinement included. */
@@ -172,10 +219,31 @@ export abstract class FieldType implements Node {
   /** Deep-copy the BUILTIN half — the options bag and nothing else. */
   protected abstract builtinClone(): FieldType;
 
-  /** `copy` carrying THIS type's refinement — the shared half of {@link clone}. */
+  /** `copy` carrying THIS type's refinement and its options — the shared half of {@link clone}. */
   protected sameRefinement<T extends FieldType>(copy: T): T {
     copy.declaredRefinement = this.declaredRefinement;
+    copy.declaredOptions = this.declaredOptions;
     return copy;
+  }
+
+  // ─── SQL, as the refinement declares it ───────────────────────────────────
+
+  /**
+   * The refinement's declared SQL type for `dialect` — resolved against THIS
+   * column's own options — or `undefined` to keep the builtin's answer.
+   *
+   * On the FieldType rather than read off `refinement` directly, because the
+   * option values live here: `Dialect.sqlTypeFor` would otherwise have to know
+   * that a refinement's template takes a bag, and every dialect would have to
+   * remember to pass it.
+   */
+  refinedSqlType(dialect: string): string | undefined {
+    return this.declaredRefinement?.sqlType(dialect, this.declaredOptions);
+  }
+
+  /** The refinement's declared cast for `dialect`, resolved against this column's own options. */
+  refinedCast(dialect: string): readonly string[] | undefined {
+    return this.declaredRefinement?.cast(dialect, this.declaredOptions);
   }
 
   // ─── Category / comparability ─────────────────────────────────────────
@@ -185,17 +253,54 @@ export abstract class FieldType implements Node {
 
   /**
    * Whether a value of this type can be meaningfully compared with one of
-   * `other`. Default: same category, with number/money and date/timestamp
-   * treated as mutually comparable families. Subclasses may override for
-   * stricter or looser rules.
+   * `other` — the builtin category rule, PLUS any edge the two types'
+   * refinements declare (`comparableWith`).
+   *
+   * FINAL, and the declared half is added here rather than in the subclasses so
+   * a builtin that narrows the rule (`json` compares only with `json`) cannot
+   * accidentally shut a declared edge out. Subclasses override
+   * {@link builtinComparableWith}.
+   *
+   * The declared half only ever ADDS. That is what keeps "a meet implies
+   * comparability" true with no carve-out: a superset of a relation the meet was
+   * already inside is still a superset (see `FieldTypeRefinementDefFor.comparableWith`).
    */
   comparableWith(other: FieldType): boolean {
+    if (this.builtinComparableWith(other)) return true;
+    const a = this.declaredRefinement;
+    const b = other.declaredRefinement;
+    return a !== undefined && b !== undefined && a.comparableTo(b.name);
+  }
+
+  /**
+   * The BUILTIN comparability rule: same category, with number/money and
+   * date/timestamp treated as mutually comparable families. Subclasses override
+   * for stricter or looser rules.
+   */
+  protected builtinComparableWith(other: FieldType): boolean {
     const a = this.resolve();
     const b = other.resolve();
     if (a === b) return true;
     if (NUMERIC_KINDS.has(a) && NUMERIC_KINDS.has(b)) return true;
     if (TEMPORAL_KINDS.has(a) && TEMPORAL_KINDS.has(b)) return true;
     return false;
+  }
+
+  /**
+   * Whether EVERY value this type admits renders as a bare SQL token
+   * (`^[A-Za-z0-9_]+$`) — the question `registerFieldType` asks of an option a
+   * `sql` / `cast` template interpolates, since a template's values are its
+   * whole injection surface.
+   *
+   * Declared ON THE TYPE rather than as a switch over kinds in `refinement.ts`,
+   * so a tenth field type answers for itself instead of falling into whichever
+   * arm a `default:` happened to pick. The default answer is the closed set's: a
+   * type with a `values` set admits exactly those, so it is token-safe when they
+   * all are, and a type with no set admits an unbounded range and is not.
+   */
+  tokenSafeValues(): boolean {
+    const values = this.values();
+    return values !== undefined && values.every((v) => TOKEN_PATTERN.test(String(v.value)));
   }
 
   /**
@@ -334,6 +439,15 @@ export abstract class FieldType implements Node {
     // is no third refinement that is both.
     const as = meetExact(this.declaredRefinement, other.declaredRefinement);
     if (!as.ok) return undefined;
+    // The refinement's OWN options meet the same way, per key: unset is TOP,
+    // equal keeps, different conflicts. A single-valued attribute has no other
+    // lattice — there is no third SRID that is both 4326 and 3857 — and it is the
+    // rule `pattern` / `currency` / `timezone` already follow, so the three laws
+    // carry over unchanged. An UNREFINED operand contributes no bag at all, which
+    // is why `Geometry{srid:3857} ⊓ json` keeps 3857 rather than conflicting with
+    // the declared default.
+    const withOptions = meetRefinementOptions(this.declaredOptions, other.declaredOptions);
+    if (!withOptions.ok) return undefined;
     // The short-circuit compares the BUILTIN halves, not the full defs, for the
     // same reason the two halves meet separately: `meetWith`'s documented
     // default is "no meet", and it is only correct for an option-less kind
@@ -372,7 +486,9 @@ export abstract class FieldType implements Node {
     // it drops the refinement's stricter value gate, so `score ⊓ money` would
     // admit a `7` that `score` itself refuses.
     if (as.value !== undefined && met.kind !== as.value.base) return undefined;
-    return met.withRefinement(as.value);
+    // The bag rides with the TAG: a dropped tag drops the options it belonged to,
+    // because an option is meaningless without the declaration that named it.
+    return met.withRefinement(as.value, as.value === undefined ? undefined : withOptions.value);
   }
 
   /**

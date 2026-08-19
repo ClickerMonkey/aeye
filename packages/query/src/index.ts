@@ -65,12 +65,45 @@ export {
   type FieldTypeRefinementDef,
   type FieldTypeRefinementDefFor,
   type FieldTypeOptionsOf,
+  type FieldTypeOptionDecl,
+  type FieldTypeCompareDecl,
+  type CompiledFieldTypeOption,
   type FieldTypeImpl,
   type RefinableBase,
   REFINABLE_BASES,
   REFINEMENT_NAME_PATTERN,
   refinementKeySchema,
 } from './refinement';
+
+// Conformance — the property tests the BUILTINS are held to, for a consumer's
+// own declaration. Also reachable as `@aeye/query/conformance`, which is the
+// name to prefer: it says what the surface is for, and it is where the docs
+// point.
+//
+// The subpath resolves to THIS bundle rather than to one of its own, and that is
+// a measurement rather than a preference. Adding `src/conformance.ts` as a
+// second tsup entry makes esbuild code-split the shared half into a chunk, and
+// this package's `index.ts` ↔ member circular RE-EXPORTS (`shape/index.ts` ↔
+// `shape/shape.ts`, `exprs/index.ts` ↔ `exprs/field-ref.ts`, and the one that
+// actually bit, `field-types/index.ts`) then land in a different chunk from the
+// code that reads them at module-eval time. Measured on the two-entry build:
+// `createRegistry()` threw `Cannot read properties of undefined (reading
+// 'NAME')` — i.e. the SHIPPED package crashed on its first call, while the suite
+// (which runs from `src`) stayed green. A second self-contained bundle is worse
+// still: it would carry its OWN `TextFieldType`, and every `instanceof` across
+// the two would answer `false`, so the harness would report spurious failures
+// for correct types. One bundle, two specifiers.
+export {
+  DEFAULT_SAMPLES,
+  checkFieldType,
+  checkLatticeLaws,
+  topsByKind,
+  type FieldTypeCheckImpl,
+  type FieldTypeConformanceReport,
+  type LatticeLaw,
+  type LatticeLawOptions,
+  type LatticeLawReport,
+} from './conformance';
 
 // Meta-model
 export { Field, type FieldSpec } from './field';
