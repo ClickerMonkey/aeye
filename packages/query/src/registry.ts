@@ -249,12 +249,20 @@ export class Registry {
    * (`^[A-Za-z_][A-Za-z0-9_.]*$`); the dialects raw-interpolate `${name}(` when
    * emitting calls, so a non-identifier name is rejected here to guarantee the
    * generated SQL can never contain an unescaped arbitrary string.
+   *
+   * `sql` — the emitted name when it differs (`log10` → `log`) — is held to the
+   * SAME pattern, because it is interpolated through the SAME raw slot: the four
+   * call-shaped exprs emit `${fn.sql ?? fn.name}(`. Checking only `name` left
+   * the guarantee reachable around, through a field whose whole purpose is to
+   * replace the checked one.
    */
   registerFunction(fn: FunctionDef): this {
-    if (!FUNCTION_NAME_PATTERN.test(fn.name)) {
-      throw new Error(
-        `registry.registerFunction: invalid function name '${fn.name}' — must match ${FUNCTION_NAME_PATTERN.source}.`,
-      );
+    for (const [what, value] of [['name', fn.name], ['sql', fn.sql]] as const) {
+      if (value !== undefined && !FUNCTION_NAME_PATTERN.test(value)) {
+        throw new Error(
+          `registry.registerFunction: invalid function ${what} '${value}' — must match ${FUNCTION_NAME_PATTERN.source}.`,
+        );
+      }
     }
     this.functions.set(fn.name, fn);
     return this;

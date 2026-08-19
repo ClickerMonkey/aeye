@@ -66,6 +66,9 @@ function isTypeRef(o: FunctionDef['output']): o is { type: string } {
   return typeof o === 'object' && o !== null && 'type' in o;
 }
 
+/** The default `paramArgs` of {@link QueryFunction.validateCall}: no argument is a bare bind param. */
+const EMPTY_PARAM_ARGS: ReadonlySet<string> = new Set<string>();
+
 /** A parsed callable (scalar / aggregate / window / tabular): name, params, and declared output. */
 export class QueryFunction {
   /** The function's name (its registry key and call name). */
@@ -76,7 +79,11 @@ export class QueryFunction {
   readonly params: ResolvedParam[];
   /** The output declaration: a static field type, a Type reference, or `'inferred'`. */
   readonly output: ResolvedOutput;
-  /** Optional SQL template / function name (consumed by Phase 5). */
+  /**
+   * The emitted SQL function NAME when it differs from {@link name} — NOT a
+   * template. See {@link FunctionDef.sql}: per-dialect or non-`name(args)`
+   * emission is a `Dialect` subclass, not a declaration.
+   */
   readonly sql?: string;
   /**
    * Declared-parameter indices whose argument is emitted as an INLINE SQL
@@ -347,8 +354,20 @@ export class QueryFunction {
    *  - every supplied arg must name a real param  → `function.unknown-arg`.
    *  - each supplied arg must be type-compatible  → `function.arg-type`
    *    (a `'any'` param accepts anything), reported at path `['args', name]`.
+   *
+   * `paramArgs` names the arguments that are a BARE bind param (`{kind:'param'}`),
+   * which the caller has already observed against the declared parameter type
+   * (`observeNamedParams`). They are exempt from the type check for the reason
+   * `ComparisonExpr` exempts a param operand: a param has no type of its own —
+   * this call site is where it GETS one — so there is nothing here to be wrong.
+   * A param whose uses across the query have no common type is reported once, by
+   * `ParamSet`, as `param.conflict`.
    */
-  validateCall(namedArgs: ReadonlyMap<string, ResolvedType>, p: Problems): void {
+  validateCall(
+    namedArgs: ReadonlyMap<string, ResolvedType>,
+    p: Problems,
+    paramArgs: ReadonlySet<string> = EMPTY_PARAM_ARGS,
+  ): void {
     // Required params present?
     for (const param of this.params) {
       if (param.optional) continue;
@@ -373,6 +392,7 @@ export class QueryFunction {
         continue;
       }
       if (!param.fieldType) continue; // 'any' accepts everything
+      if (paramArgs.has(name)) continue; // a bare bind param is TYPED BY this call
       const argFt = asFieldType(argType);
       if (!argFt) {
         p.at(['args', name], () => {

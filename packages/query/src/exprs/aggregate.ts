@@ -36,6 +36,7 @@ import {
   resolveNamedArgs,
   validateNamedArgs,
   evaluateNamedArgsRow,
+  observeNamedParams,
   namedArgsToJSON,
   namedArgsToCode,
 } from './_function-args';
@@ -216,6 +217,7 @@ export class AggregateExpr extends Expr {
       );
     }
 
+    const here = p.here;
     // Recurse with aggregate context so nested aggregates are caught.
     const childCtx: ValidateContext = { ...ctx, inAggregate: true, allowAggregate: false };
     const argTypes = validateNamedArgs(this.args, engine, scope, p, childCtx);
@@ -231,7 +233,10 @@ export class AggregateExpr extends Expr {
         `Function '${this.fn}' is '${fn.shape}', not an aggregate function.`,
       );
     } else {
-      fn.validateCall(argTypes, p);
+      // A param argument is TYPED BY the declared parameter (`sum(:p)` makes
+      // `:p` a number), so observe before validating — see `observeNamedParams`.
+      const paramArgs = observeNamedParams(this.args, fn, engine, scope, here, argTypes);
+      fn.validateCall(argTypes, p, paramArgs);
     }
 
     return this.resolve(engine, scope);

@@ -26,6 +26,25 @@ describe('Registry function registration guards', () => {
     );
   });
 
+  it('rejects an unsafe EMITTED name (`sql`), which lands in the same raw slot', () => {
+    // The four call-shaped exprs emit `${fn.sql ?? fn.name}(`, so guarding only
+    // `name` left the identifier guarantee reachable around it.
+    const r = createRegistry();
+    expect(() =>
+      r.registerFunction({
+        name: 'safeName',
+        shape: 'scalar',
+        params: [],
+        output: { kind: 'text' },
+        sql: 'now(); DROP TABLE users; --',
+      }),
+    ).toThrow(/invalid function sql/);
+    // A legitimate rename (the builtins' own use) still registers.
+    expect(() =>
+      r.registerFunction({ name: 'log10', shape: 'scalar', params: [], output: { kind: 'number' }, sql: 'log' }),
+    ).not.toThrow();
+  });
+
   it('rejects a run whose shape disagrees with the declared def', () => {
     const r = createRegistry();
     r.registerFunction({ name: 'myFn', shape: 'scalar', params: [], output: { kind: 'text' } });

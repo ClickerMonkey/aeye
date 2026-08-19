@@ -33,6 +33,7 @@ import {
   resolveNamedArgs,
   validateNamedArgs,
   evaluateNamedArgsRow,
+  observeNamedParams,
   namedArgsToJSON,
   namedArgsToCode,
 } from './_function-args';
@@ -197,6 +198,7 @@ export class WindowExpr extends Expr {
     if (ctx.inAggregate) {
       p.error('window.in-aggregate', `Window function '${this.fn}' cannot appear inside an aggregate.`);
     }
+    const here = p.here;
     const childCtx: ValidateContext = {
       ...ctx,
       inWindow: true,
@@ -222,7 +224,11 @@ export class WindowExpr extends Expr {
         `Function '${this.fn}' is '${fn.shape}', not usable as a window function.`,
       );
     } else {
-      fn.validateCall(argTypes, p);
+      // A param argument is TYPED BY the declared parameter (`ntile(n: :p)`
+      // makes `:p` a number), so observe before validating — see
+      // `observeNamedParams`.
+      const paramArgs = observeNamedParams(this.args, fn, engine, scope, here, argTypes);
+      fn.validateCall(argTypes, p, paramArgs);
     }
     return this.resolve(engine, scope);
   }

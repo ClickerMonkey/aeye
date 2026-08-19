@@ -8,9 +8,19 @@ commits); this file starts here and is the place to look from now on.
 Two asks about the same thing from two directions: **a declared type should decide which values
 are allowed**, and until now it only did so on the way OUT (schemas, descriptions, cost) rather
 than on the way IN — plus a third, from the owner, about the one thing a declared type decided
-TOO much: text case. There are **three behaviour changes to read before adopting**, of different
-kinds, and **one renamed option**:
+TOO much: text case. Plus the step-0 fixes for the registered-type work (A22 and the "Also"
+list below), whose common thread is the same one: **what a DECLARATION says should be what the
+engine does with it** — a declared parameter type should type the param handed to it, and a
+declared emitted name should be held to the guarantee its doc claims. There are **five behaviour
+changes to read before adopting**, of different kinds, and **one renamed option**:
 
+- **A query that was REFUSED before can now pass, and a param can now report a type it did
+  not.** A bare bind param as a function argument (`abs(:p)`, `sum(:p)`) is typed by the
+  declared parameter instead of judged against a `text` placeholder — see A22. `params()` may
+  therefore list a name it previously omitted.
+- **A FUNCTION DEFINITION that registered before can now THROW**: a `sql` (the emitted name) that
+  is not a safe SQL identifier is now refused at `registerFunction`, exactly as `name` always was.
+  It lands in the same raw-interpolated slot, so such a def was already emitting broken SQL.
 - **A query that was accepted before can now report a problem.** `write.value` for a literal
   outside a column's closed set (at any depth — an `array<text one of a|b>` is checked
   element-wise), and `param.conflict` for a param whose uses have no common type. Both are about
@@ -369,8 +379,74 @@ primitive — max over a ranked enum, i.e. `meetFlag` with more than two members
 from an `'exact'` column and a `'fold'` one infers `'exact'` by the SAME rank function the
 comparison uses, and the two answers cannot drift.
 
+### A22 — a bind param as a FUNCTION ARGUMENT was refused, order-dependently (**P1**)
+
+All four call-shaped expr kinds validated the call BEFORE observing their param arguments — and
+three of them (`aggregate`, `window`, tabular) never observed at all. An un-observed `ParamExpr`
+resolves to a `text` placeholder, so the arg-type check compared the DECLARED parameter type
+against `text` and refused a perfectly good call. Measured on `0.6.6`, against the shipped
+builtins and a registered function alike:
+
+```
+abs(:p) > 1                  ->  function.arg-type: Argument 'value' of 'abs' expects number, got text.
+abs(t.n) > 1     [control]   ->  []
+t.n = :p AND abs(:p) > 1     ->  []        <- an earlier typed use rescued it
+abs(:p) > 1 AND t.n = :p     ->  function.arg-type: …      <- THE SAME QUERY, CLAUSES SWAPPED
+sum(:p) / ntile(n: :p)       ->  function.arg-type + param.untyped   (never observed at all)
+```
+
+The last two lines are one query in two clause orders disagreeing — exactly the order-dependence
+the `0.6.6` param meet exists to remove — and the refusal contradicts the library's own
+`param.untyped` message, which advertises a **function argument** as one of the roads a param may
+be typed by.
+
+**What changed.** Each of the four kinds now observes (and RE-RESOLVES) its param arguments
+against the declared parameter type first, then validates — so the argument is a typing ROAD, not
+merely a position that stops complaining: `abs(:p)` with `:p` used nowhere else reports `number`
+from `params()`, `parameters()` and `checkParams()`, and an `'inferred'`-output call resolves from
+the parameter type instead of the placeholder. A bare param argument is additionally EXEMPT from
+the arg-type check, for the reason `ComparisonExpr` has always exempted a param operand: the call
+site is where the param GETS a type, so there is nothing there to be wrong.
+`QueryFunction.validateCall` takes the exempt names as an optional third argument (`paramArgs`),
+defaulting to none, so an existing caller is unaffected.
+
+**What changes for an existing consumer.** Queries that were refused now pass, and a param that
+reported no type now reports one — `params()` can therefore include a name it previously omitted,
+which is additive for binding. A param whose uses genuinely conflict still reports
+`param.conflict`, now ONCE and in either clause order, instead of a `function.arg-type` beside it
+in one order only. A parameter declared `'any'` states no type to observe, so a param used only
+there is still `param.untyped`.
+
 ### Also
 
+- **A function's EMITTED name (`sql`) is now identifier-guarded like its `name`.** The four
+  call-shaped exprs emit `${fn.sql ?? fn.name}(` by raw interpolation, and `registerFunction`
+  checked only `name` — so the identifier guarantee its doc comment states ("the generated SQL can
+  never contain an unescaped arbitrary string") was reachable around, through the one field whose
+  purpose is to REPLACE the checked one. `sql` is now held to the same
+  `^[A-Za-z_][A-Za-z0-9_.]*$`. **Registration can throw where it did not**: a `sql` that is not an
+  identifier was already emitting broken (or injected) SQL, so this surfaces it at the
+  declaration.
+- **The `shape/` combinators reach the public barrel**, as the namespace `shape` (plus the types
+  `Shape` / `CheckCtx` by name): `import { shape } from '@aeye/query'` →
+  `shape.obj({ kind: shape.lit('…'), … })`. They were exported from `src/shape/index.ts` and
+  nowhere else, so a class defined OUTSIDE the package could satisfy `defineExpr` — validating,
+  costing, emitting SQL and self-describing correctly — and still be refused by
+  `parseCheckedExpr` / `parseCheckedQuery` with `shape.unknown-kind`, which is the active
+  structural gate a model-authored query goes through. A namespace rather than flat names because
+  `lit` would otherwise SHADOW the expression builder's `lit` for every existing consumer. This
+  makes a `SHAPE` authorable; it does not open `ExprKind`, which stays a closed union.
+- **`FunctionDef.sql` is documented as what it is.** The comment called it a "SQL template"; the
+  emit path substitutes the identifier and nothing else, so `name(arg, arg)` is the only form a
+  declaration can produce. Per-dialect or differently-shaped emission is a `Dialect` subclass
+  overriding `emitBuiltinCall` — which is what the builtins already do.
+- **`aeye-query.md` now documents that a DOMAIN vocabulary needs no new field type.** Registering
+  `ST_Contains` / `ST_Distance` as ordinary scalar functions over a `{kind:'json'}` column emits
+  valid PostGIS today (`WHERE ST_Contains("parcel"."shape", CAST($1 AS jsonb)) ORDER BY
+  ST_Distance(…) ASC`), with the four honest limits named: the cast target is the BASE's, there
+  are no infix operators, the domain's meaning reaches the model only through `instructions`, and
+  a meaningless `json < json` ordering is not refused. The emitted SQL is asserted by a test, so
+  the doc cannot rot.
 - **`syntheticType`'s per-row byte estimate** dropped a defensive `estimate?.bytes ?? 0`.
   `Cost.bytes` is required, so the fallback could only ever have hidden a `Cost` that was not
   one; `estimate` is re-tested instead, which narrows properly.

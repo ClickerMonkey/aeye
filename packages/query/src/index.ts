@@ -101,6 +101,27 @@ export {
 } from './expr';
 export * from './exprs/index';
 
+/**
+ * The zod-free structural-parser combinators (`shape/`) — what an Expr / Query
+ * class needs to declare its `static SHAPE`, and therefore what a CALLER-defined
+ * kind needs to survive `registry.parseCheckedExpr` / `parseCheckedQuery`.
+ * Without them a third-party class registered through the public `defineExpr`
+ * validated, emitted SQL, costed and described correctly but was refused by the
+ * checked parser with `shape.unknown-kind` — the one gate an LLM-authored query
+ * goes through.
+ *
+ * Exported as a NAMESPACE, not flattened: the combinator names are deliberately
+ * terse (`lit`, `str`, `num`, `int`, `bool`, `scalar`, `json`, `list`,
+ * `record`, `optional`, `obj`, `enumOf`, …) and `lit` would SHADOW the
+ * expression builder's `lit` (`./builder`) for every existing consumer — an
+ * explicit re-export beats a `export *`, so the breakage would be silent. Spell
+ * it `shape.obj({ kind: shape.lit('my-kind'), … })`.
+ */
+export * as shape from './shape/index';
+// The two TYPES carry no such collision, so a class can annotate its
+// `static readonly SHAPE: Shape<MyExpr>` without the qualifier.
+export type { Shape, CheckCtx } from './shape/index';
+
 // Ergonomic expression builder (Phase 2) — `e.*` factories returning real Exprs
 export * from './builder';
 

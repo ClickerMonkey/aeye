@@ -1139,7 +1139,17 @@ export interface FunctionDef {
    * resolve time.
    */
   output: FieldTypeDef | { type: string } | 'inferred';
-  /** Optional SQL template / function name for emission. */
+  /**
+   * The emitted SQL function NAME, when it differs from `name` (`log10` → `log`,
+   * `rowNumber` → `row_number`). NOT a template: the emit path substitutes this
+   * identifier and nothing else — `name(arg, arg)` is the only call form a
+   * declaration can produce (`FunctionCallExpr.toSQL`). Anything shaped
+   * otherwise, or differing BY DIALECT, is code: a `Dialect` subclass
+   * overriding `emitBuiltinCall`, which is consulted first.
+   *
+   * It is raw-interpolated, exactly as `name` is, so it is held to the same
+   * identifier pattern at registration (`registry.registerFunction`).
+   */
   sql?: string;
   /**
    * DECLARED-PARAMETER INDICES whose argument must be emitted as an INLINE SQL

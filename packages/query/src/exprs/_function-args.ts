@@ -188,20 +188,50 @@ export function orderedArgSql(
 
 /**
  * Observe each bind-PARAM argument against the function's declared parameter
- * type, so `$param` usages infer their type from the call site.
+ * type, so `:param` usages infer their type from the call site — and RE-RESOLVE
+ * those arguments into `argTypes`, so the caller's `validateCall` /
+ * `resolveOutput` see the type the observation just produced rather than the
+ * `text` placeholder an un-observed `ParamExpr` resolves to.
+ *
+ * CALL THIS BEFORE `validateCall`. Through 0.6.6 all four call-shaped exprs
+ * validated first (and three of them never observed at all), so `abs(:p)` was
+ * refused with `function.arg-type: expects number, got text` — unless an
+ * EARLIER clause happened to type `:p` first, which made the answer depend on
+ * clause ORDER (`t.n = :p AND abs(:p) > 1` passed; the same two clauses swapped
+ * did not). A function argument is one of the typing roads `param.untyped`
+ * advertises, so the declared parameter type must reach the param before
+ * anything judges it.
+ *
+ * Returns the argument NAMES whose expr is a bare bind param, for
+ * {@link QueryFunction.validateCall} to exempt from its arg-type check — the
+ * same exemption `ComparisonExpr` applies to a param operand. A param arg can
+ * never be "the wrong type" for the parameter that types it; when its uses
+ * across the query cannot all hold, that is reported once, as `param.conflict`,
+ * and in that case the param falls back to `text` here — which without the
+ * exemption would add a second, order-dependent complaint about the same fact.
  */
 export function observeNamedParams(
   args: ReadonlyMap<string, Expr>,
   fn: QueryFunction,
+  engine: QueryEngine,
   scope: QueryScope,
-  here: (string | number)[],
-): void {
+  here: ReadonlyArray<string | number>,
+  argTypes: Map<string, ResolvedType>,
+): ReadonlySet<string> {
   const byName = new Map(fn.params.map((param) => [param.name, param]));
+  const paramArgs = new Set<string>();
   for (const [name, e] of args) {
     if (!(e instanceof ParamExpr)) continue;
     const param = byName.get(name);
-    if (param?.fieldType) scope.params.observe(e.name, param.fieldType, [...here, 'args', name]);
+    // An arg naming no declared param is `function.unknown-arg`, and an `'any'`
+    // param declares no type to observe (nor to check against): neither is a
+    // typing road, so neither is exempt from anything.
+    if (!param?.fieldType) continue;
+    paramArgs.add(name);
+    scope.params.observe(e.name, param.fieldType, [...here, 'args', name]);
+    argTypes.set(name, e.resolve(engine, scope));
   }
+  return paramArgs;
 }
 
 /** Serialize the args map back to its JSON named-arg object. */

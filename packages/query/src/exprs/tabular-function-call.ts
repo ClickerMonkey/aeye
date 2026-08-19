@@ -29,6 +29,7 @@ import {
   validateNamedArgs,
   evaluateNamedArgs,
   orderedArgSql,
+  observeNamedParams,
   namedArgsToJSON,
   namedArgsToCode,
 } from './_function-args';
@@ -121,6 +122,7 @@ export class TabularFunctionCallExpr extends Expr {
     p: Problems,
     ctx: ValidateContext,
   ): ResolvedType {
+    const here = p.here;
     const argTypes = validateNamedArgs(this.args, engine, scope, p, ctx);
     const fn = engine.lookupFunction(this.fn);
     if (!fn) {
@@ -131,7 +133,11 @@ export class TabularFunctionCallExpr extends Expr {
         `Function '${this.fn}' is '${fn.shape}', not a tabular function.`,
       );
     } else {
-      fn.validateCall(argTypes, p);
+      // A param argument is TYPED BY the declared parameter (`rangeRows(count:
+      // :n)` makes `:n` a number), so observe before validating — see
+      // `observeNamedParams`.
+      const paramArgs = observeNamedParams(this.args, fn, engine, scope, here, argTypes);
+      fn.validateCall(argTypes, p, paramArgs);
     }
     return this.resolve(engine, scope);
   }

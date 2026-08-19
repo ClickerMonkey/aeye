@@ -146,9 +146,12 @@ export class FunctionCallExpr extends Expr {
       );
     }
 
-    fn.validateCall(argTypes, p);
+    // Observe (and re-type) the bind-param args BEFORE the call is judged: a
+    // param argument takes its type FROM the declared parameter, so validating
+    // first refuses `abs(:p)` on the `text` placeholder — order-dependently.
+    const paramArgs = observeNamedParams(this.args, fn, engine, scope, here, argTypes);
+    fn.validateCall(argTypes, p, paramArgs);
     validateRawArgs(fn, this.args, p);
-    observeNamedParams(this.args, fn, scope, here);
 
     return fn.resolveOutput(argTypes);
   }
