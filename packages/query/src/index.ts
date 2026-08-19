@@ -92,6 +92,11 @@ export {
 // without re-deriving what a slot is.
 export { isSlot, scanTemplate, templateSlotNames, type Template, type TemplatePart } from './sql-template';
 
+// The known-target emit seam a write cell and an operator operand share — and
+// the POSITION distinction that decides whether a declared `cast` may resolve
+// an option the target never wrote (a column may, a value may not).
+export { boundValue, typedValueSql, type TargetPosition } from './exprs/_bound-value';
+
 // Conformance — the property tests the BUILTINS are held to, for a consumer's
 // own declaration. Also reachable as `@aeye/query/conformance`, which is the
 // name to prefer: it says what the surface is for, and it is where the docs

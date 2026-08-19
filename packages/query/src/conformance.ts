@@ -48,13 +48,13 @@ import {
   TextFieldType,
   TimestampFieldType,
 } from './field-types/index';
+import { OP_ARMS } from './exprs/comparison';
 import { OperatorExpr } from './exprs/operator';
 import type { OperatorDef, QueryOperator } from './operator';
 import type { Problem } from './problem';
 import { Problems, QueryTypeError } from './problem';
 import { createRegistry, type Registry } from './registry';
 import {
-  COMPARE_ARM_OPERATORS,
   REFINABLE_BASES,
   type FieldTypeCompareDecl,
   type FieldTypeImpl,
@@ -771,27 +771,79 @@ export function checkOperator(
  * and this is the check that says to use them.
  */
 function checkOperatorShadowsRefusal(operator: QueryOperator): Problem[] {
+  const arm = ARM_OF_TOKEN.get(operator.name);
+  if (arm === undefined) return [];
   const problems: Problem[] = [];
-  for (const [arm, token] of Object.entries(COMPARE_ARM_OPERATORS) as [keyof FieldTypeCompareDecl, string][]) {
-    if (operator.name !== token) continue;
-    for (const operand of operator.operands) {
-      const refinement = operand.fieldType?.refinement;
-      if (!refinement || refinement.compare[arm]) continue;
+  for (const operand of operator.operands) {
+    for (const refinement of refinementsOf(operand.fieldType)) {
+      if (refinement.compare[arm]) continue;
       problems.push({
         path: ['checkOperator', operator.name, 'operands', operand.name],
         code: 'conformance.shadows-refused-arm',
         severity: 'warning',
         message:
-          `\`${operator.name}\` is spelled like the builtin \`${token}\`, and its operand ` +
+          `\`${operator.name}\` is spelled like a builtin \`${arm}\` operator, and its operand ` +
           `\`${operand.name}\` is a \`${refinement.name}\`, which declares \`compare.${arm}: false\`. ` +
           'Both facts reach the model in ONE catalog — the type block prints the refusal, the operators ' +
           'block offers the operator — and nothing there says which wins. This is allowed (an operator ' +
           `declares its own meaning), but say in \`${operator.name}\`'s \`instructions\` how it differs ` +
-          `from the \`${token}\` the type refuses, or the model has to guess.`,
+          `from the builtin the type refuses, or the model has to guess.`,
       });
     }
   }
   return problems;
+}
+
+/**
+ * The PUNCTUATION spellings of the LIKE family, which `ComparisonOp` names as
+ * words (`like` / `notLike` / `ilike`) and no operator name may therefore use.
+ *
+ * These are PostgreSQL's own operator forms for exactly those predicates, and
+ * they are legal operator names — so `~~` over a type declaring
+ * `textMatch: false` is the realistic textMatch shadow, and the one the arm's
+ * rendering glyph could never have caught. Listed rather than derived because
+ * there is nothing to derive them from: they are a dialect's spelling of a
+ * predicate this package names differently.
+ */
+const TEXT_MATCH_TOKENS: readonly string[] = ['~~', '~~*', '!~~', '!~~*'];
+
+/**
+ * SQL TOKEN → the {@link FieldTypeCompareDecl} arm it belongs to — the
+ * MEMBERSHIP relation {@link checkOperatorShadowsRefusal} tests against, as
+ * distinct from `COMPARE_ARM_OPERATORS`, which is a RENDERING vocabulary.
+ *
+ * The distinction is the whole reason this exists. `COMPARE_ARM_OPERATORS` holds
+ * ONE representative glyph per arm, "as a model would write it" — so asking it
+ * for membership warned on `=` and not on `<>`, on `<` and not on `<=` / `>` /
+ * `>=`, and its `textMatch` entry is the WORD `LIKE`, which
+ * `OPERATOR_NAME_PATTERN` refuses outright: that branch could never fire at all.
+ *
+ * Derived from `OP_ARMS`, the package's only op→arm mapping and a total `Record`
+ * over `ComparisonOp`, so a tenth comparison operator lands here automatically.
+ * Its three WORD ops (`like` / `notLike` / `ilike`) are unspellable as operator
+ * names and simply never match; {@link TEXT_MATCH_TOKENS} adds the punctuation
+ * spellings an engine actually accepts for them, which is where a real textMatch
+ * shadow comes from.
+ */
+const ARM_OF_TOKEN: ReadonlyMap<string, keyof FieldTypeCompareDecl> = new Map([
+  ...(Object.entries(OP_ARMS) as [string, keyof FieldTypeCompareDecl][]),
+  ...TEXT_MATCH_TOKENS.map((token): [string, keyof FieldTypeCompareDecl] => [token, 'textMatch']),
+]);
+
+/**
+ * Every registered refinement reachable from `ft` — itself, and an ARRAY's
+ * element type.
+ *
+ * A container carries no refinement of its own while its ITEM may carry one, so
+ * an `array<json as Geometry>` operand named `=` answered "no refinement" and
+ * warned about nothing. One level is enough for the question being asked (does
+ * this operand's declared type refuse the arm this name spells), and `item`
+ * recursion covers the nested case for free.
+ */
+function refinementsOf(ft: FieldType | undefined): FieldTypeRefinement[] {
+  if (!ft) return [];
+  const own = ft.refinement ? [ft.refinement] : [];
+  return ft instanceof ArrayFieldType && ft.item ? [...own, ...refinementsOf(ft.item)] : own;
 }
 
 /** One shipped `examples` entry, parsed and matched against the declaration. */

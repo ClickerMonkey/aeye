@@ -50,9 +50,34 @@ const GEOMETRY: FieldTypeRefinementDef = {
     subtype: { type: { kind: 'text', values: [{ value: 'Point' }, { value: 'Polygon' }] }, default: 'Point' },
     srid: { type: { kind: 'number', whole: true }, default: 4326 },
   },
+  // `sql` — the CAST TARGET / column type — is per column and interpolates the
+  // options. `cast` deliberately does NOT: it says only "this document IS a
+  // geometry", which is the one thing true of a value in ANY position. A cast
+  // carrying the typmod (`::geometry({subtype},{srid})`) is column-shaped, and
+  // in a value position it pins a constraint the value never had to satisfy —
+  // PostGIS then refuses a Polygon cast to `geometry(Point,4326)`. `Typed`
+  // below is that shape, kept so both roads are exercised.
   sql: { postgres: 'geometry({subtype},{srid})' },
-  cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype},{srid})' },
+  cast: { postgres: 'ST_GeomFromGeoJSON({value})' },
   compare: { equality: false, ordering: false, textMatch: false },
+};
+
+/**
+ * A refinement whose `cast` IS column-shaped — it interpolates an `ownOptions`
+ * slot, so resolving it needs a value only a column has.
+ *
+ * The counterpart to `GEOMETRY` above, and the reason both exist: a write cell
+ * may resolve those slots (a default is a fact about the column), a VALUE
+ * position may not, and each road needs a type that reaches its arm.
+ */
+const TYPED: FieldTypeRefinementDef = {
+  name: 'Typed',
+  base: 'json',
+  instructions: 'A geometry whose cast pins the column typmod — column-shaped, on purpose.',
+  ownOptions: {
+    subtype: { type: { kind: 'text', values: [{ value: 'Point' }, { value: 'Polygon' }] }, default: 'Point' },
+  },
+  cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype})' },
 };
 
 /** `&&` — bounding-box overlap. Infix, no call form, no portable equivalent. */
@@ -594,17 +619,24 @@ describe('the `operator` expr — SQL', () => {
     // `operator does not exist: geometry && jsonb`, because the column is
     // DDL'd `geometry(Polygon,4326)`.
     //
-    // The cast target is `Point` — the OPERAND's declared type takes `Geometry`'s
-    // defaults, because `&&` accepts any geometry and the declaration wrote no
-    // `with`. That is the honest reading: an operand is a comparability
-    // constraint, not a restatement of the column's option set.
+    // NO TYPMOD. The operand declared no `with`, so the cast asserts only that
+    // the document IS a geometry — which is all `geometry && geometry` needs,
+    // and all a value position can honestly say. Pinning the refinement's
+    // DEFAULTS instead produced `::geometry(Point,4326)`, and PostGIS rejects a
+    // Polygon cast to a Point typmod — on the NORMAL case, since `&&` is a
+    // bounding-box pre-filter whose argument is usually a box.
     expect(sql.sql).toBe(
       'SELECT "parcel"."name" AS "name", ' +
-        '("parcel"."shape" <-> ST_GeomFromGeoJSON($1)::geometry(Point,4326)) AS "distance" ' +
+        '("parcel"."shape" <-> ST_GeomFromGeoJSON($1)) AS "distance" ' +
         'FROM "parcel" AS "parcel" ' +
-        'WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($2)::geometry(Point,4326)) ' +
+        'WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($2)) ' +
         'LIMIT 10',
     );
+    // …while the COLUMN's own type still carries the typmod, which is what a
+    // cast TARGET is for.
+    expect(engine.registry.dialect('postgres')!.sqlTypeFor(
+      engine.type('parcel')!.field('shape')!.fieldType,
+    )).toBe('geometry(Polygon,4326)');
   });
 
   it('emits the declared cast for a LITERAL operand too, not only for a bound param', () => {
@@ -627,7 +659,7 @@ describe('the `operator` expr — SQL', () => {
       }),
       'postgres',
     );
-    expect(sql.sql).toContain('("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))');
+    expect(sql.sql).toContain('("parcel"."shape" && ST_GeomFromGeoJSON($1))');
   });
 
   it('leaves a NON-document operand exactly as it was', () => {
@@ -662,20 +694,222 @@ describe('the `operator` expr — SQL', () => {
     expect(sql.params).toEqual([3]);
   });
 
-  it('still emits the COLUMN own cast on a write cell — the routing is shared, not replaced', () => {
-    // `writeCellSql` now delegates to the same helper, so the A12 behaviour it
-    // has had since 0.6.2 must be unchanged: the column's type, including its
-    // own `with` options (`Polygon`, not the refinement's `Point` default).
-    const sql = geoEngine().toSQL(
+  it('a COLUMN may resolve a cast option from its own bag AND from the default', () => {
+    // The column half of the position rule, over a COLUMN-SHAPED cast. A write
+    // cell is the one position that may fill an unwritten slot: a default is a
+    // fact about the column, so `shape` (which wrote `Polygon`) and `fallback`
+    // (which wrote nothing, and is a `Point` by declaration) both resolve — and
+    // this is the A12 behaviour `writeCellSql` has had since 0.6.2, unchanged by
+    // sharing the routing.
+    const registry = createRegistry().registerFieldType(TYPED);
+    const typedTypeDef: TypeDef = {
+      name: 'shapes',
+      count: 10,
+      fields: [
+        { name: 'id', type: { kind: 'number', whole: true } },
+        { name: 'shape', type: { kind: 'json', as: 'Typed', with: { subtype: 'Polygon' } } },
+        { name: 'fallback', type: { kind: 'json', as: 'Typed' } },
+      ],
+    };
+    registry.registerType(registry.parseType(typedTypeDef));
+    const sql = new QueryEngine(registry).toSQL(
       {
         kind: 'update',
-        type: 'parcel',
-        set: { shape: { kind: 'literal', value: { type: 'Polygon', coordinates: [] } } },
-        where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'parcel', field: 'id' }, right: { kind: 'literal', value: 1 } }],
+        type: 'shapes',
+        set: {
+          shape: { kind: 'literal', value: { type: 'Polygon', coordinates: [] } },
+          fallback: { kind: 'literal', value: { type: 'Point', coordinates: [0, 0] } },
+        },
+        where: [{ kind: 'comparison', op: '=', left: { kind: 'field-ref', source: 'shapes', field: 'id' }, right: { kind: 'literal', value: 1 } }],
       },
       'postgres',
     );
-    expect(sql.sql).toContain('ST_GeomFromGeoJSON($1)::geometry(Polygon,4326)');
+    expect(sql.sql).toContain('ST_GeomFromGeoJSON($1)::geometry(Polygon)');
+    expect(sql.sql).toContain('ST_GeomFromGeoJSON($2)::geometry(Point)');
+  });
+
+  it('REFUSES a document operand whose cast needs an option the operand never wrote', () => {
+    // The value half. `Typed`'s cast interpolates `{subtype}`, and this operand
+    // declares no `with` — so resolving it would assert `Point` about a value
+    // nothing required to be one. Both alternatives are worse: the default-fill
+    // emits SQL PostGIS rejects, and falling back to the base cast re-emits the
+    // `CAST($1 AS jsonb)` that broke this road to begin with.
+    const registry = createRegistry().registerFieldType(TYPED).registerOperator({
+      name: '&&',
+      operands: [
+        { name: 'left', type: { kind: 'json', as: 'Typed' } },
+        { name: 'right', type: { kind: 'json', as: 'Typed' } },
+      ],
+      output: { kind: 'bool' },
+      instructions: 'Overlap over a column-shaped cast.',
+      emit: { postgres: '({left} && {right})' },
+    });
+    const typedTypeDef: TypeDef = {
+      name: 'shapes',
+      count: 10,
+      fields: [
+        { name: 'id', type: { kind: 'number', whole: true } },
+        { name: 'shape', type: { kind: 'json', as: 'Typed', with: { subtype: 'Polygon' } } },
+      ],
+    };
+    registry.registerType(registry.parseType(typedTypeDef));
+    const query: QueryDef = {
+      kind: 'select',
+      fields: [{ expr: { kind: 'field-ref', source: 'shapes', field: 'id' } }],
+      from: { kind: 'type', type: 'shapes' },
+      where: [
+        {
+          kind: 'operator',
+          op: '&&',
+          args: {
+            left: { kind: 'field-ref', source: 'shapes', field: 'shape' },
+            right: { kind: 'param', name: 'box' },
+          },
+        },
+      ],
+    };
+    const engine = new QueryEngine(registry);
+    const problem = refusal(() => engine.toSQL(query, 'postgres', { params: { box: { type: 'Polygon' } } }));
+    expect(problem.code).toBe('cast.unwritten-option');
+    expect(problem.path).toEqual(['args', 'right']);
+    expect(problem.message).toContain('`{subtype}`');
+    expect(problem.message).toContain('a default belongs to the TYPE, not to this value');
+    // A COLUMN operand is untouched — it carries no bound value at all.
+    expect(
+      engine.toSQL({ ...query, where: [{ kind: 'operator', op: '&&', args: {
+        left: { kind: 'field-ref', source: 'shapes', field: 'shape' },
+        right: { kind: 'field-ref', source: 'shapes', field: 'shape' },
+      } }] }, 'postgres').sql,
+    ).toContain('("shapes"."shape" && "shapes"."shape")');
+  });
+
+  it('USES a column-shaped cast when the OPERAND itself wrote the options', () => {
+    // The other resolution the refusal names: an operand that pins `subtype` is
+    // making a real constraint, so the cast expresses something it declared.
+    const registry = createRegistry().registerFieldType(TYPED).registerOperator({
+      name: '&&',
+      operands: [
+        { name: 'left', type: { kind: 'json', as: 'Typed' } },
+        { name: 'right', type: { kind: 'json', as: 'Typed', with: { subtype: 'Polygon' } } },
+      ],
+      output: { kind: 'bool' },
+      instructions: 'Overlap against a Polygon specifically.',
+      emit: { postgres: '({left} && {right})' },
+    });
+    const typedTypeDef: TypeDef = {
+      name: 'shapes',
+      count: 10,
+      fields: [
+        { name: 'id', type: { kind: 'number', whole: true } },
+        { name: 'shape', type: { kind: 'json', as: 'Typed', with: { subtype: 'Polygon' } } },
+      ],
+    };
+    registry.registerType(registry.parseType(typedTypeDef));
+    const sql = new QueryEngine(registry).toSQL(
+      {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'shapes', field: 'id' } }],
+        from: { kind: 'type', type: 'shapes' },
+        where: [
+          {
+            kind: 'operator',
+            op: '&&',
+            args: {
+              left: { kind: 'field-ref', source: 'shapes', field: 'shape' },
+              right: { kind: 'param', name: 'box' },
+            },
+          },
+        ],
+      },
+      'postgres',
+      { params: { box: { type: 'Polygon' } } },
+    );
+    expect(sql.sql).toContain('("shapes"."shape" && ST_GeomFromGeoJSON($1)::geometry(Polygon))');
+  });
+
+  it('passes a refined operand that declares NO cast straight through to the base', () => {
+    // A refinement with an `as` but no `cast` for this dialect has no option
+    // slots to be unwritten, so nothing is refused and the base cast applies —
+    // the `as` alone was never a reason to change the binding.
+    const registry = createRegistry()
+      .registerFieldType({ name: 'Geography', base: 'json', instructions: 'A PostGIS geography.' })
+      .registerOperator({
+        name: '&&',
+        operands: [
+          { name: 'left', type: { kind: 'json', as: 'Geography' } },
+          { name: 'right', type: { kind: 'json', as: 'Geography' } },
+        ],
+        output: { kind: 'bool' },
+        instructions: 'Overlap over a cast-less refinement.',
+        emit: { postgres: '({left} && {right})' },
+      });
+    const geoTypeDef: TypeDef = {
+      name: 'area',
+      count: 10,
+      fields: [{ name: 'shape', type: { kind: 'json', as: 'Geography' } }],
+    };
+    registry.registerType(registry.parseType(geoTypeDef));
+    const sql = new QueryEngine(registry).toSQL(
+      {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'area', field: 'shape' } }],
+        from: { kind: 'type', type: 'area' },
+        where: [
+          {
+            kind: 'operator',
+            op: '&&',
+            args: {
+              left: { kind: 'field-ref', source: 'area', field: 'shape' },
+              right: { kind: 'param', name: 'box' },
+            },
+          },
+        ],
+      },
+      'postgres',
+      { params: { box: { type: 'Polygon' } } },
+    );
+    expect(sql.sql).toContain('("area"."shape" && CAST($1 AS jsonb))');
+  });
+
+  it('binds a SCALAR into a plain `json` operand encoded AND cast — the A12 arm', () => {
+    // The `target is json` half of the shared predicate, which no operator-road
+    // test reached: a bare scalar is a legal `json` value, and binding it raw
+    // gives Postgres a `text` where it wants `jsonb`. It must be JSON-ENCODED as
+    // well as cast, which is exactly the pair `jsonValue` applies.
+    const registry = createRegistry().registerOperator({
+      name: '@>',
+      operands: [{ name: 'left', type: { kind: 'json' } }, { name: 'right', type: { kind: 'json' } }],
+      output: { kind: 'bool' },
+      instructions: 'JSON containment.',
+      emit: { postgres: '({left} @> {right})' },
+    });
+    const docTypeDef: TypeDef = {
+      name: 'doc',
+      count: 10,
+      fields: [{ name: 'body', type: { kind: 'json' } }],
+    };
+    registry.registerType(registry.parseType(docTypeDef));
+    const sql = new QueryEngine(registry).toSQL(
+      {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'doc', field: 'body' } }],
+        from: { kind: 'type', type: 'doc' },
+        where: [
+          {
+            kind: 'operator',
+            op: '@>',
+            args: {
+              left: { kind: 'field-ref', source: 'doc', field: 'body' },
+              right: { kind: 'param', name: 'v' },
+            },
+          },
+        ],
+      },
+      'postgres',
+      { params: { v: 'bare' } },
+    );
+    expect(sql.sql).toContain('("doc"."body" @> CAST($1 AS jsonb))');
+    expect(sql.params).toEqual(['"bare"']);
   });
 
   it('REFUSES a dialect it declares no template for, rather than degrading', () => {
@@ -875,6 +1109,50 @@ describe('what a model is told about a registered operator', () => {
     expect(text).toContain('"op":"&&"');
   });
 
+  it('renders the OUTPUT in COLUMN style, so its refused arms are stated somewhere', () => {
+    // The output is not an operand and need not be any column's type, so the
+    // `types:` block may never mention it — rendering it in operand style
+    // deleted its refusals from the catalog entirely. Measured: `<->` returning
+    // a `Meters` that refuses ordering told a model nothing, and
+    // `WHERE (shape <-> :p) < :max` was then refused with `comparison.type`.
+    const registry = baseRegistry()
+      .registerFieldType({
+        name: 'Meters',
+        base: 'number',
+        instructions: 'A length in metres.',
+        compare: { equality: false, ordering: false },
+      })
+      .registerOperator({ ...DISTANCE, output: { kind: 'number', as: 'Meters' } });
+    registry.registerType(registry.parseType(parcelTypeDef));
+    const text = describeOperators(new QueryEngine(registry));
+    expect(text).toContain('→ number(as Meters,no =,no <)');
+    // The refusal it discloses is live, and this catalog is its ONLY mention:
+    // no column is a `Meters`.
+    expect(describeTypes(new QueryEngine(registry))).not.toContain('Meters');
+    expect(
+      problemsOf(
+        new QueryEngine(registry),
+        parcelSelect({
+          where: [
+            {
+              kind: 'comparison',
+              op: '<',
+              left: {
+                kind: 'operator',
+                op: '<->',
+                args: {
+                  left: { kind: 'field-ref', source: 'parcel', field: 'shape' },
+                  right: { kind: 'param', name: 'here' },
+                },
+              },
+              right: { kind: 'param', name: 'max' },
+            },
+          ],
+        }),
+      )[0],
+    ).toContain('comparison.type');
+  });
+
   it('DOES render an option the operand declaration itself wrote', () => {
     // The rule is "only what the declaration wrote", not "never any options": an
     // operand that pins an SRID is making a real constraint, and a model has to
@@ -944,9 +1222,17 @@ describe('capability gating', () => {
     noGeometry.registerType(noGeometry.parseType(noteTypeDef));
     expect(exprKindApplicable('operator', noGeometry.typeList(), selectFunctions(noGeometry, 'all'), noGeometry))
       .toBe(false);
-    // The registry is REQUIRED, so there is no "forgot it" call silently
-    // answering "no operators" — indistinguishable from a deployment with none.
-    expect(exprKindApplicable('semantic', geo.typeList(), selected, geo)).toBe(false);
+    // …and an operator over a type NO field could supply is gated out even on a
+    // registry that has both the operator and Types — reachability is about the
+    // operand types, not about the operator merely existing.
+    const unreachable = createRegistry().registerFieldType(GEOMETRY).registerOperator({
+      ...OVERLAPS,
+      operands: [{ name: 'left', type: { kind: 'timestamp' } }, { name: 'right', type: { kind: 'timestamp' } }],
+    });
+    unreachable.registerType(unreachable.parseType(parcelTypeDef));
+    expect(
+      exprKindApplicable('operator', unreachable.typeList(), selectFunctions(unreachable, 'all'), unreachable),
+    ).toBe(false);
   });
 
   it('enum-locks `op` to the registered names, and strictens the operands at `typed` depth', () => {
@@ -1064,6 +1350,63 @@ describe('an operator that reconstructs a refused arm', () => {
         (p) => p.code === 'conformance.shadows-refused-arm',
       ),
     ).toEqual([]);
+  });
+
+  it('says nothing about an `any` operand, which declares no type to refuse anything', () => {
+    const anyOperand: OperatorDef = {
+      name: '=',
+      operands: [{ name: 'left', type: 'any' }],
+      output: { kind: 'bool' },
+      instructions: 'Equality over anything at all.',
+      emit: { postgres: '({left} = {left})' },
+    };
+    expect(
+      checkOperator(anyOperand, { registry: baseRegistry() }).problems.filter(
+        (p) => p.code === 'conformance.shadows-refused-arm',
+      ),
+    ).toEqual([]);
+  });
+
+  it('tests MEMBERSHIP of an arm, not the one glyph that arm renders as', () => {
+    /** How many shadow warnings `name` raises over two `Geometry` operands. */
+    const warnings = (name: string): number =>
+      checkOperator(
+        { ...OVERLAPS, name, emit: { postgres: `({left} ${name} {right})` } },
+        { registry: baseRegistry() },
+      ).problems.filter((p) => p.code === 'conformance.shadows-refused-arm').length;
+
+    // `Geometry` refuses ALL THREE arms. Every SQL token of each arm must warn —
+    // the check was first written off `COMPARE_ARM_OPERATORS`, which holds ONE
+    // REPRESENTATIVE glyph per arm "as a model would write it", so `=` warned
+    // and `<>` did not, `<` warned and `<=` / `>` / `>=` did not.
+    for (const equality of ['=', '<>']) expect([equality, warnings(equality)]).toEqual([equality, 2]);
+    for (const ordering of ['<', '<=', '>', '>=']) expect([ordering, warnings(ordering)]).toEqual([ordering, 2]);
+    // And the textMatch branch was DEAD: its rendering glyph is the WORD `LIKE`,
+    // which `OPERATOR_NAME_PATTERN` refuses outright, so no operator name could
+    // ever equal it. The realistic shadow is Postgres's punctuation spelling.
+    for (const textMatch of ['~~', '~~*', '!~~', '!~~*']) {
+      expect([textMatch, warnings(textMatch)]).toEqual([textMatch, 2]);
+    }
+    // A token belonging to no arm still says nothing.
+    for (const unrelated of ['&&', '<->', '@>']) expect([unrelated, warnings(unrelated)]).toEqual([unrelated, 0]);
+  });
+
+  it('sees a refinement carried by an ARRAY operand ELEMENT type', () => {
+    // A container carries no refinement of its own, so an
+    // `array<json as Geometry>` operand answered "no refinement" and warned
+    // about nothing.
+    const arrayOperand: OperatorDef = {
+      name: '=',
+      operands: [{ name: 'left', type: { kind: 'array', item: { kind: 'json', as: 'Geometry' } } }],
+      output: { kind: 'bool' },
+      instructions: 'Equality over a list of geometries.',
+      emit: { postgres: '({left} = {left})' },
+    };
+    expect(
+      checkOperator(arrayOperand, { registry: baseRegistry() }).problems.filter(
+        (p) => p.code === 'conformance.shadows-refused-arm',
+      ),
+    ).toHaveLength(1);
   });
 });
 

@@ -481,7 +481,20 @@ function operatorSignature(operator: QueryOperator): string {
   const operands = operator.operands
     .map((o) => `${o.name}: ${o.fieldType ? typeTag(o.fieldType, 'operand') : 'any'}`)
     .join(', ');
-  return `${operator.name}(${operands}) → ${typeTag(operator.output, 'operand')}`;
+  // The OUTPUT is rendered in COLUMN style, and the asymmetry is the whole
+  // point. An operand's type says what may be PASSED, so the refinement's
+  // defaults describe a constraint nobody made. An output is a VALUE the
+  // operator produces, and everything true of that value is worth saying —
+  // including the arms its type refuses, which are otherwise stated NOWHERE:
+  // an output type need not be any column's type, so the `types:` block that
+  // carries a column's refusals may never mention it at all. Rendered in operand
+  // style, `<->` returning a `Meters` that declares `ordering: false` told a
+  // model nothing, and `WHERE (shape <-> :p) < :max` was then refused with
+  // `comparison.type` — the "refusal a model can only discover by tripping over
+  // it" that `refinementCompareQuals` exists to prevent. The prompt-cost
+  // argument does not transfer either: an output is ONE per operator, where an
+  // operand tail repeats per operand.
+  return `${operator.name}(${operands}) → ${typeTag(operator.output, 'column')}`;
 }
 
 /**

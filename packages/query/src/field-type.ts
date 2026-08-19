@@ -255,6 +255,24 @@ export abstract class FieldType implements Node {
     return this.declaredRefinement?.cast(dialect, this.declaredOptions);
   }
 
+  /**
+   * The declared-cast options THIS instance has not written a value for — the
+   * ones {@link refinedCast} would fill from the refinement's DEFAULTS.
+   *
+   * Empty for a cast that interpolates nothing, and empty for an instance whose
+   * own `with` bag covers every slot. Non-empty means "this cast can only be
+   * resolved by asserting something the declaration did not say", which a COLUMN
+   * may do (a default is a fact about the column) and a VALUE may not — see
+   * {@link FieldTypeRefinement.castOptions}, and the refusal in
+   * `exprs/_bound-value.ts` that reads this.
+   */
+  uncastableOptions(dialect: string): string[] {
+    const refinement = this.declaredRefinement;
+    if (!refinement) return [];
+    const written = this.declaredOptions;
+    return [...refinement.castOptions(dialect)].filter((key) => written?.[key] === undefined);
+  }
+
   // ─── Category / comparability ─────────────────────────────────────────
 
   /** The underlying primitive category this type resolves to. */

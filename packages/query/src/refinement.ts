@@ -1266,6 +1266,30 @@ export class FieldTypeRefinement {
     const template = this.casts.get(dialect);
     return template && renderTemplate(template, this.optionTokens(options));
   }
+
+  /**
+   * The own-option names this refinement's `cast` for `dialect` INTERPOLATES, or
+   * an empty set.
+   *
+   * Asked by a VALUE position, which is not a column and therefore has no
+   * honest value for those slots. {@link cast} fills them from the column's own
+   * bag ELSE the option's declared DEFAULT, and that default-fill is exactly
+   * right for a column (it is a fact about that column) and exactly wrong for a
+   * value: a default is the TYPE's, not this value's, so filling it PINS a
+   * constraint the value was never required to satisfy — measured, a
+   * `geometry(Point,4326)` typmod cast applied to a Polygon document, which
+   * PostGIS rejects outright.
+   *
+   * This is the same rule the model-facing renderer follows for an operand
+   * (`llm/describe.ts`'s `'operand'` tag style shows only what a declaration
+   * WROTE, never the refinement's defaults). One rule, two surfaces: what a
+   * declaration did not write is not a constraint anyone may assert on its
+   * behalf.
+   */
+  castOptions(dialect: string): ReadonlySet<string> {
+    const template = this.casts.get(dialect);
+    return template ? deferredSlots(template) : new Set<string>();
+  }
 }
 
 /**

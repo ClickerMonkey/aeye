@@ -33,7 +33,7 @@ import type { QueryScope } from '../scope';
 import type { Registry } from '../registry';
 import type { Field } from '../field';
 import type { Type } from '../type';
-import type { ExprDef, JsonValue, WriteValueDef } from '../schema';
+import type { ExprDef, WriteValueDef } from '../schema';
 import { LiteralExpr, ParamExpr } from '../exprs/index';
 import { typedValueSql } from '../exprs/_bound-value';
 import { RelationFieldType } from '../field-types/index';

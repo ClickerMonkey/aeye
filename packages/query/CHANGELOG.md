@@ -779,7 +779,7 @@ registry.registerOperator({
 });
 registry.registerOperatorRun('&&', (args, ctx) => Value.of(bboxOverlaps(args.left, args.right)));
 // { kind:'operator', op:'&&', args:{ left: <expr>, right: <expr> } }
-//   →  WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))
+//   →  WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1))
 ```
 
 **ONE new expr kind, not N registered Expr classes.** `ExprKind` gains exactly one member, once,
@@ -930,6 +930,26 @@ change: an operand's type is DECLARED, so it is known at emit whether or not a v
 `Dialect.jsonValue(value, fieldType?)` has always taken the type — until now exactly ONE road
 supplied it (`writeCellSql`), and that routing decision now lives in `exprs/_bound-value.ts` with
 two callers, a write cell and an operator operand, rather than being copied.
+
+**A VALUE POSITION MAY ASSERT ONLY WHAT ITS DECLARATION WROTE**, and getting that wrong is how the
+first cut still failed at the database. A refinement's `cast` resolves its option slots from the
+column's own bag ELSE the option's declared DEFAULT — which is exactly right for a COLUMN (a
+default is a fact about it) and exactly wrong for a VALUE. An operand declaring `{kind:'json',
+as:'Geometry'}` with no `with` therefore cast a Polygon document to `::geometry(Point,4326)`, a
+PostGIS TYPMOD, and the server refused it (`Geometry type (Polygon) does not match column type
+(Point)`) — on the NORMAL case, since `&&` is a bounding-box pre-filter whose argument is usually a
+box. It also contradicted this release's own operand RENDERING rule, which shows only what a
+declaration wrote for precisely the same reason.
+
+So a `'value'` position resolves a cast only from what it wrote, and a cast interpolating an option
+it did not write is REFUSED at emit (`cast.unwritten-option`) rather than filled from a default or
+degraded to the base cast — the first emits SQL the server rejects, the second re-emits the
+`CAST($1 AS jsonb)` that broke this road to begin with. The refusal names both resolutions: declare
+a `cast` that interpolates NO option (one that says only "this IS a Geometry", which is all a value
+position can honestly assert — the shipped example now does this, with the typmod living in `sql`,
+the cast TARGET, where it belongs), or write the options in the operand's own `with`, which makes
+the typmod a constraint the declaration actually made. `FieldType.uncastableOptions(dialect)` and
+`FieldTypeRefinement.castOptions(dialect)` are the accessors; a COLUMN's behaviour is unchanged.
 
 **The same defect remains for a FUNCTION argument, and for a bare `literal` / `param` anywhere
 else**, and that half genuinely is a release of its own: a `FunctionDef` param type would fix it

@@ -1043,13 +1043,17 @@ registry.registerOperatorRun('&&', (args) => Value.of(bboxOverlaps(args.left, ar
 ```
 
 ```sql
-WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))
+WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1))
 ```
 
 The operand's **declared type reaches emission**, so a document operand binds
 through that type's own `cast` rather than the dialect's default json cast —
 without it Postgres refuses the statement (`operator does not exist: geometry &&
-jsonb`).
+jsonb`). A value position asserts only what its declaration WROTE: an operand's
+cast resolves from the operand's own `with` bag and never from the refinement's
+defaults, since those would pin a typmod the value never had to satisfy. A cast
+needing an option the operand did not write is refused at emit
+(`cast.unwritten-option`).
 
 `registry.operatorList()` enumerates them; `describeOperators(engine)` renders
 the promptable block (and `describeEngine` includes it when any is registered).

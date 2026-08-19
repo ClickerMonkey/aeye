@@ -247,7 +247,7 @@ registry.registerFieldType({
     srid:    { type: { kind: 'number', whole: true }, default: 4326 },
   },
   sql:  { postgres: 'geometry({subtype},{srid})' },
-  cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype},{srid})' },
+  cast: { postgres: 'ST_GeomFromGeoJSON({value})' },   // position-INDEPENDENT: no option slots
   compare: { equality: true, ordering: false, textMatch: false },
   comparableWith: ['Geography'],
   avgBytes: 96,
@@ -331,10 +331,14 @@ registry.registerOperatorRun('&&', (args, ctx) => Value.of(bboxOverlaps(args.lef
             "right": { "kind": "param", "name": "box" } } }
 ```
 ```sql
-WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1)::geometry(Point,4326))
+WHERE ("parcel"."shape" && ST_GeomFromGeoJSON($1))
 ```
 
-That is the emitted SQL verbatim, asserted by a test. **The operand's DECLARED type reaches emission**, so a document operand — a `literal`, or a param bound to one — binds through that type's own `cast` template instead of the dialect's default `CAST($1 AS jsonb)`, which Postgres refuses outright (`operator does not exist: geometry && jsonb`). The cast target is `Point` because the OPERAND declared no `with` and takes `Geometry`'s defaults — an operand type is a comparability constraint, not a restatement of the column's options, and `&&` accepts any geometry.
+That is the emitted SQL verbatim, asserted by a test. **The operand's DECLARED type reaches emission**, so a document operand — a `literal`, or a param bound to one — binds through that type's own `cast` template instead of the dialect's default `CAST($1 AS jsonb)`, which Postgres refuses outright (`operator does not exist: geometry && jsonb`).
+
+**A VALUE POSITION MAY ONLY ASSERT WHAT ITS DECLARATION WROTE**, which is why there is no typmod there. An operand is not a column: `{kind:'json', as:'Geometry'}` says "any geometry", so resolving the cast's `{subtype}` / `{srid}` from the refinement's DEFAULTS would pin a constraint the value never had to satisfy — and PostGIS then rejects a Polygon cast to `::geometry(Point,4326)`, on the NORMAL case, since `&&` is a bounding-box pre-filter. So an operand's cast resolves ONLY from the operand's own `with` bag; a cast interpolating an option the operand did not write is REFUSED at emit (`cast.unwritten-option`), naming both remedies: declare a `cast` that interpolates no option (one that says only "this IS a Geometry" — what a value position can honestly assert, and what the example above does), or write the options in the operand's own `with`, which makes the typmod a constraint you actually declared. A COLUMN is unaffected and still resolves from its own bag ELSE the declared default: a default is a fact about that column.
+
+It is the same rule the model-facing renderer follows for an operand tag — show only what the declaration wrote. **One rule, two surfaces.**
 
 **ONE new expr kind, not N registered Expr classes.** `ExprKind` gained exactly one member, once, at this package's own hand; the operator VOCABULARY is what a third party opens — precisely the relationship `function-call` has to `registerFunction`. The alternative, `defineExpr`, is parse DISPATCH for a whole `ExprDef.kind` (registering one re-points every program's parse in that registry) and asks a declarer for ten members where a function author writes one JSON object.
 

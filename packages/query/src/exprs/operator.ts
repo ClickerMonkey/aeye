@@ -317,7 +317,14 @@ export class OperatorExpr extends Expr {
       // `FunctionDef` param type would fix it identically, but retro-fitting it
       // moves the emitted SQL of every existing `json` argument in every
       // consumer, where `operator` is a brand-new kind with none.
-      parts.push(typedValueSql(operand, operator.operand(part.slot)?.fieldType, dialect, ctx));
+      //
+      // A `'value'` POSITION, not a column: an operand type says what may be
+      // PASSED, so a cast may assert only what the operand's own declaration
+      // WROTE. Filling an unwritten option from the refinement's default pins a
+      // constraint the value never had to satisfy — see `TargetPosition`.
+      parts.push(
+        typedValueSql(operand, operator.operand(part.slot)?.fieldType, dialect, ctx, 'value', part.slot),
+      );
     }
     return SqlText.concat(parts);
   }

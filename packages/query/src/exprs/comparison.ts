@@ -77,12 +77,20 @@ function exempt(e: Expr): boolean {
  * whichever arm the default happened to pick — and so the mapping is one table a
  * reader can check against `FieldTypeCompareDecl` rather than a chain to trace.
  *
+ * EXPORTED, because it is the only place the mapping is stated and a second
+ * consumer now needs it: `checkOperator` asks "does this operator's NAME spell a
+ * builtin comparison over a type refusing that arm", which is a MEMBERSHIP
+ * question over the same relation. It was first answered from
+ * `COMPARE_ARM_OPERATORS`, whose own docs say it holds one REPRESENTATIVE glyph
+ * per arm "as a model would write it" — a rendering vocabulary, so `=` warned
+ * and `<>` did not.
+ *
  * This is the ONLY op->arm mapping in the package. The refusal ITSELF lives in
  * `_shared.ts` keyed by ARM, because `BETWEEN` (ordering) and `IN` (equality)
  * have no `ComparisonOp` to look up and must reach the same gate — see
  * `declaredArmRefusal`.
  */
-const OP_ARMS: Readonly<Record<ComparisonOp, keyof FieldTypeCompareDecl>> = {
+export const OP_ARMS: Readonly<Record<ComparisonOp, keyof FieldTypeCompareDecl>> = {
   '=': 'equality',
   '<>': 'equality',
   '<': 'ordering',
