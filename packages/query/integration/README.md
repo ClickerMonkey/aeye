@@ -282,3 +282,46 @@ by test id, so failures can be iterated on across runs:
   advisory **shape warnings** that differed) for fast iteration.
 
 Both are overwritten each run (a latest-snapshot for iteration).
+
+## `differentialCheck` — the same shape, for a CONSUMER's registered type
+
+This harness answers *"does the model author the right query"*. Its sibling
+`differentialCheck` (exported from `@aeye/query/conformance`, implemented in
+`src/conformance.ts`) answers *"do the two roads answer the same question"* — and
+it lives in the same category for the same reasons:
+
+- it needs a **live database**, so it cannot be a unit test;
+- it is therefore **outside `npm test`**, and nothing in this package's suite runs
+  it against a server (`field-type-comparator.test.ts` exercises the harness
+  itself with a scripted `execute`, which is a test of the harness, not of a
+  database);
+- it takes a **callback** rather than a driver dependency
+  (`execute: (sql, params) => rows`), exactly as this runner takes a `Provider`
+  rather than an HTTP client.
+
+A registered field type has two halves — its `sql` / `cast` declaration, which
+the DATABASE acts on, and its `compareValues`, which `engine.run` acts on — and
+nothing static relates them. `differentialCheck` runs every probe both ways and
+reports where they differ:
+
+```ts
+import { differentialCheck } from '@aeye/query/conformance';
+
+const report = await differentialCheck({
+  engine,                                  // its executor holds the SAME rows the table does
+  dialect: 'postgres',
+  execute: async (sql, params) => (await pool.query(sql, [...params])).rows,
+  columns: { type: 'host', field: 'addr', other: 'nextHop' },
+  operators: ['<->'],
+  functions: ['ST_Distance'],
+});
+if (!report.ok) console.error(report.problems);
+```
+
+It probes `ORDER BY` in both directions, every comparison arm the type ADMITS,
+and each named operator / function over the two columns. Every probe is driven
+from COLUMNS rather than from bound samples — seed the values you care about into
+the table, because a bound value reaches a declared `cast` only in a write cell or
+an operator operand, and probing with one would measure that known limit instead
+of your type. `report.probes` keeps each statement and both answers, which is the
+artifact worth diffing across releases.

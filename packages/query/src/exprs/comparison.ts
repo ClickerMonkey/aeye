@@ -114,17 +114,25 @@ export const OP_ARMS: Readonly<Record<ComparisonOp, keyof FieldTypeCompareDecl>>
  * `'abc' = 'ABC'` mean the same thing whether the query ran in memory or in the
  * database — the invariant `runtime-sql-agreement.test.ts` pins.
  *
- * A bare param, a literal, and a metadata-less computed / subquery text column
- * declare nothing, so a plain `text` column compared to a literal is governed by
- * the COLUMN when it declares a casing and by the deployment's default
- * otherwise. Two literals (`'abc' = 'ABC'`) are governed by the default alone.
+ * A bare param and a literal declare nothing, so a plain `text` column compared
+ * to a literal is governed by the COLUMN when it declares a casing and by the
+ * deployment's default otherwise. Two literals (`'abc' = 'ABC'`) are governed by
+ * the default alone.
+ *
+ * A COMPUTED operand asks its own resolved type, through the total
+ * {@link asFieldType} rather than a `kind === 'field'` narrowing. A registered
+ * function's / operator's DECLARED output is a `FieldType` like any other — it
+ * is what `resolve()` hands the caller and what the result column is typed by —
+ * so reading a casing off a column and not off `upper(col)` made one declaration
+ * govern in one position and not in the other. It is also the exact half of this
+ * rule the runtime road now honours (`Value.type` reaches a produced value
+ * through the dispatch helpers), and a rule that held on one road only is the
+ * divergence this function exists to prevent.
  */
 function comparisonCasing(lrt: ResolvedType, rrt: ResolvedType, engine: QueryEngine): TextCasing | undefined {
   const textual = categoryOf(lrt) === 'text' && categoryOf(rrt) === 'text';
   if (!textual) return undefined;
-  const lField = lrt.kind === 'field' ? lrt.field.fieldType : undefined;
-  const rField = rrt.kind === 'field' ? rrt.field.fieldType : undefined;
-  return effectiveCasing(lField?.textCasing(), rField?.textCasing(), engine.textCasing);
+  return effectiveCasing(asFieldType(lrt)?.textCasing(), asFieldType(rrt)?.textCasing(), engine.textCasing);
 }
 
 /** Wrap a fragment in `LOWER(...)` for case-insensitive textual SQL. */

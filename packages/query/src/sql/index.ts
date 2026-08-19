@@ -13,7 +13,7 @@ export {
   concat,
   join,
 } from './emit';
-export { Dialect } from './dialect';
+export { Dialect, type ValueSite } from './dialect';
 export { BaseDialect } from './base-dialect';
 export { PostgresDialect } from './postgres-dialect';
 export { JoinCtePlanner, type JoinRequest } from './planner';

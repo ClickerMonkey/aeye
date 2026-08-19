@@ -12,8 +12,19 @@
  *  - window    — `(partition, index) => Value`  the ordered partition + position.
  *
  * Everything is typed against `Value` and `NamedArgs`; no `any` / casts.
+ *
+ * EVERY SCALAR-VALUED DISPATCH TAGS ITS RESULT WITH THE CALLABLE'S DECLARED
+ * OUTPUT TYPE ({@link declaredOutput} / `Value.withType`), which is the second
+ * half of making the in-memory road honest for a registered type. The comparator
+ * a refinement declares reaches a comparison through `Value.type`, and a
+ * PRODUCED value had none — so `ORDER BY (a <-> b)` over a declared `Meters`
+ * stringified its keys while `ORDER BY parcel.distance` over the same type did
+ * not, for no reason a caller could see. It is done HERE, in the four dispatch
+ * helpers, rather than in the five call-shaped exprs, because the fact is one
+ * fact: a call's value is of its declared output type.
  */
 import type { QueryEngine } from '../engine';
+import type { FieldType } from '../field-type';
 import { QueryTypeError } from '../problem';
 import type { RuntimeContext } from './context';
 import { Value } from './value';
@@ -96,6 +107,23 @@ export type FunctionRunShape = FunctionRun['shape'];
 // missing / wrong-shape run degrades to NULL (scalar/window) or an empty row
 // set (tabular) — resolution-time validation reports the real problem.
 
+/**
+ * A registered FUNCTION's declared output type, when it declared a static one.
+ *
+ * `undefined` for `'inferred'` (there is no declared type — the resolver derives
+ * one from the ARGUMENTS, which this dispatch does not have) and for a Type
+ * reference (a whole row, not a value). Both are the honest answer: a value
+ * carries a type only where a declaration supplies one, exactly as a field-ref's
+ * does.
+ *
+ * `lookupFunction` is a cached parse of a def the same query's `resolve` and
+ * `toSQL` already take, so this adds a map read rather than a road.
+ */
+function declaredOutput(engine: QueryEngine, name: string): FieldType | undefined {
+  const output = engine.lookupFunction(name)?.output;
+  return output?.tag === 'field' ? output.fieldType : undefined;
+}
+
 /** Run a registered SCALAR function over its named args (NULL if absent). */
 export async function runScalarFunction(
   engine: QueryEngine,
@@ -104,7 +132,7 @@ export async function runScalarFunction(
   ctx: RuntimeContext,
 ): Promise<Value> {
   const impl = engine.functionRun(name);
-  if (impl && impl.shape === 'scalar') return impl.run(args, ctx);
+  if (impl && impl.shape === 'scalar') return (await impl.run(args, ctx)).withType(declaredOutput(engine, name));
   return Value.null();
 }
 
@@ -154,10 +182,20 @@ export async function runOperator(
         'UNKNOWN for every row, so the query would return ZERO ROWS and look exactly like one that ran.',
     });
   }
-  return impl(args, ctx);
+  // An operator's `output` is a CONCRETE `FieldTypeDef` by declaration — there
+  // is no `'inferred'` arm — so its result always carries a type, where a
+  // function's does only when it declared a static one.
+  return (await impl(args, ctx)).withType(engine.lookupOperator(name)?.output);
 }
 
-/** Run a registered TABULAR function over its named args (empty rows if absent). */
+/**
+ * Run a registered TABULAR function over its named args (empty rows if absent).
+ *
+ * The ONE dispatch that does not tag its result, because its `Value` is not a
+ * value of the function's output type: `raw` is the produced ROWS, and the
+ * declared output names the Type those rows belong to. Tagging it would put a
+ * row-set behind a scalar comparator.
+ */
 export async function runTabularFunction(
   engine: QueryEngine,
   name: string,
@@ -177,7 +215,7 @@ export async function runAggregateFunction(
   ctx: RuntimeContext,
 ): Promise<Value> {
   const impl = engine.functionRun(name);
-  if (impl && impl.shape === 'aggregate') return impl.run(rows, ctx);
+  if (impl && impl.shape === 'aggregate') return (await impl.run(rows, ctx)).withType(declaredOutput(engine, name));
   return Value.null();
 }
 
@@ -190,6 +228,8 @@ export async function runWindowFunction(
   ctx: RuntimeContext,
 ): Promise<Value> {
   const impl = engine.functionRun(name);
-  if (impl && impl.shape === 'window') return impl.run(partition, index, ctx);
+  if (impl && impl.shape === 'window') {
+    return (await impl.run(partition, index, ctx)).withType(declaredOutput(engine, name));
+  }
   return Value.null();
 }

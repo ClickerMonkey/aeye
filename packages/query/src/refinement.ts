@@ -47,9 +47,13 @@
  * `meetExact` (unset is TOP, equal keeps, different conflicts), which is the
  * only lattice a single-valued attribute has.
  *
- * WHAT IS NOT HERE. Custom OPERATORS (`&&`, `<->`) and the in-memory
- * `compareValues` hook: a refinement is still a SQL-road feature, exactly as
- * `semantic` and `text-search` already are.
+ * BOTH ROADS, NOT ONLY SQL. A refinement's SQL half is a declaration
+ * (`sql` / `cast`, per dialect); its IN-MEMORY half is
+ * {@link FieldTypeImpl.compareValues}, the comparator `Value.compareTo`
+ * consults. The two exist to answer the SAME question the same way — a type
+ * whose stored SQL ordering differs from its stringified one gives two answers
+ * for one query until it declares the comparator, and nothing static can detect
+ * that (`differentialCheck` in `conformance.ts` is what can).
  */
 import { z } from 'zod';
 import { didYouMean } from './aids';
@@ -366,9 +370,6 @@ export type FieldTypeRefinementDef = { [B in RefinableBase]: FieldTypeRefinement
  * that the DEFAULT outcome of doing the obvious thing with it. With the split,
  * a declaration is pure JSON and round-trips honestly, and the half that cannot
  * survive a round-trip is the half nobody tries to store.
- *
- * Later members (`compareValues`, `equalValues` for the in-memory runtime) land
- * here too; today there is one.
  */
 export interface FieldTypeImpl {
   /**
@@ -381,7 +382,53 @@ export interface FieldTypeImpl {
    * STRUCTURAL value contract for a refinement whose raw value is an object.
    */
   readonly value?: z.ZodTypeAny;
+  /**
+   * HOW TWO VALUES OF THIS TYPE ORDER, in the IN-MEMORY runtime — the hook
+   * `Value.compareTo` consults before its own rules (`runtime/value.ts`).
+   *
+   * WHAT IT IS FOR, precisely. `Value.compareTo` compares numbers numerically,
+   * booleans false-first, and EVERYTHING ELSE by `String(raw)`. So a refinement
+   * whose stored SQL type orders differently from its stringified form answers
+   * two different things for one query depending on which road ran it:
+   * `{ base:'text', sql:{postgres:'inet'} }` holding `10.0.0.2` and `10.0.0.10`
+   * orders them by address at the database (`inet` compares numerically) and
+   * lexicographically here (`'10.0.0.10' < '10.0.0.2'`). Declaring a comparator
+   * is how the runtime is told what the store already knew.
+   *
+   * IT GOVERNS EQUALITY TOO, and deliberately: `Value.equals` / `identical` are
+   * `compareTo(...) === 0`, so ONE comparator keeps ordering and equality from
+   * contradicting each other. That is also why there is no separate
+   * `equalValues` — two hooks are two chances to disagree about whether `a` and
+   * `b` are the same value, with nothing able to adjudicate it.
+   *
+   * IT OUT-RANKS CASE FOLDING. `Value.compareToCase` consults it before folding,
+   * because a type that has said how its values compare has said so including
+   * their case; a refinement that wants the package's folding declares no
+   * comparator and sets `options.casing` instead.
+   *
+   * IT IS HANDED VALUES THAT ARE NOT OF YOUR TYPE — a comparison, a sort key or
+   * a `min()` reaches it with whatever the row held, which is what makes it a
+   * comparator rather than an assertion. Return a negative / zero / positive
+   * number; a `NaN` or non-numeric answer is read as "equal" rather than allowed
+   * to corrupt a sort, and a THROW is not caught. `checkFieldType`
+   * property-tests reflexivity, antisymmetry, transitivity and totality over
+   * your samples; `differentialCheck` settles the one question neither it nor
+   * registration can — whether it agrees with the database.
+   */
+  readonly compareValues?: ValueComparator;
 }
+
+/**
+ * A refinement's in-memory ordering ({@link FieldTypeImpl.compareValues}) — the
+ * `Array.prototype.sort` contract over two RAW values.
+ *
+ * Typed against `JsonValue` rather than against a narrowed value type, because
+ * it is reached from `Value.compareTo`, which is total over every cell a row can
+ * hold and cannot know that a given cell really is of your type. A comparator
+ * written as though it will only ever see well-formed values of its own type is
+ * the shape that throws out of a sort.
+ */
+export type ValueComparator = (a: JsonValue, b: JsonValue) => number;
 
 /**
  * The OPTION-FREE def of each builtin kind — the target the declared `options`
@@ -863,9 +910,19 @@ export class FieldTypeRefinement {
   }
 
   /**
+   * The in-memory ordering this refinement's IMPL supplies, or `undefined`.
+   * Read by `FieldType.valueComparator`, which is what `Value.compareTo`
+   * consults (see {@link FieldTypeImpl.compareValues}).
+   */
+  get compareValues(): ValueComparator | undefined {
+    return this.impl?.compareValues;
+  }
+
+  /**
    * Attach the code half. Called only by `Registry.registerFieldTypeImpl`, which
    * owns the checks (that the impl is registered once, that a supplied `value`
-   * is really a zod schema, and that the catalog has not been parsed yet).
+   * is really a zod schema, that a supplied `compareValues` is really a
+   * function, and that the catalog has not been parsed yet).
    */
   attachImpl(impl: FieldTypeImpl): void {
     this.impl = impl;

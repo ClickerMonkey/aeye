@@ -318,12 +318,17 @@ export class OperatorExpr extends Expr {
       // moves the emitted SQL of every existing `json` argument in every
       // consumer, where `operator` is a brand-new kind with none.
       //
-      // A `'value'` POSITION, not a column: an operand type says what may be
-      // PASSED, so a cast may assert only what the operand's own declaration
-      // WROTE. Filling an unwritten option from the refinement's default pins a
-      // constraint the value never had to satisfy — see `TargetPosition`.
+      // A VALUE position, not a column: an operand type says what may be PASSED,
+      // so a cast may assert only what the operand's own declaration WROTE.
+      // Filling an unwritten option from the refinement's default pins a
+      // constraint the value never had to satisfy — see `ValueSite`, which also
+      // carries the OPERATOR, so a refusal names the declaration to fix instead
+      // of only the slot (two registered operators can both have a `right`).
       parts.push(
-        typedValueSql(operand, operator.operand(part.slot)?.fieldType, dialect, ctx, 'value', part.slot),
+        typedValueSql(operand, operator.operand(part.slot)?.fieldType, dialect, ctx, {
+          operator: this.op,
+          operand: part.slot,
+        }),
       );
     }
     return SqlText.concat(parts);

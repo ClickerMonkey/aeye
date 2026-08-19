@@ -71,6 +71,7 @@ export {
   COMPARE_ARM_OPERATORS,
   refusedOperators,
   type FieldTypeImpl,
+  type ValueComparator,
   type RefinableBase,
   REFINABLE_BASES,
   REFINEMENT_NAME_PATTERN,
@@ -92,10 +93,12 @@ export {
 // without re-deriving what a slot is.
 export { isSlot, scanTemplate, templateSlotNames, type Template, type TemplatePart } from './sql-template';
 
-// The known-target emit seam a write cell and an operator operand share — and
-// the POSITION distinction that decides whether a declared `cast` may resolve
-// an option the target never wrote (a column may, a value may not).
-export { boundValue, typedValueSql, type TargetPosition } from './exprs/_bound-value';
+// The known-target emit seam a write cell and an operator operand share. The
+// POSITION distinction that decides whether a declared `cast` may resolve an
+// option the target never wrote (a column may, a value may not) rides on
+// `ValueSite`, exported from the dialect barrel below — it lives there because
+// the rule has to survive a dialect's own element-wise recursion.
+export { boundValue, typedValueSql } from './exprs/_bound-value';
 
 // Conformance — the property tests the BUILTINS are held to, for a consumer's
 // own declaration. Also reachable as `@aeye/query/conformance`, which is the
@@ -141,6 +144,16 @@ export {
   type LatticeLaw,
   type LatticeLawOptions,
   type LatticeLawReport,
+  // The run-vs-SQL harness. It needs a live connection, so it belongs in a
+  // CONSUMER's integration suite (this package's own `integration/run.ts` is the
+  // shape) and nothing in `npm test` calls it against a database.
+  differentialCheck,
+  type DifferentialCheckOptions,
+  type DifferentialColumns,
+  type DifferentialExecute,
+  type DifferentialProbe,
+  type DifferentialReport,
+  type DifferentialRow,
 } from './conformance';
 
 // Meta-model
@@ -391,6 +404,7 @@ export {
   concat,
   join,
   Dialect,
+  type ValueSite,
   BaseDialect,
   PostgresDialect,
   JoinCtePlanner,

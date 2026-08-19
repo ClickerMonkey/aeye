@@ -9,15 +9,17 @@ Two asks about the same thing from two directions: **a declared type should deci
 are allowed**, and until now it only did so on the way OUT (schemas, descriptions, cost) rather
 than on the way IN — plus a third, from the owner, about the one thing a declared type decided
 TOO much: text case. Plus the step-0 fixes for the registered-type work (A22 and the "Also"
-list below) and its **steps 1–3** — a registered REFINEMENT naming a builtin (`{ kind: 'text',
-as: 'uuid' }`), the OPTIONS / grammar / comparability that refinement declares, and a registered
-OPERATOR (`&&`, `<->`) whose SQL a declaration supplies per dialect — whose common thread is the
-same one: **what a DECLARATION says should be what the engine does with it.** A declared
-parameter type should type the param handed to it, a declared emitted name should be held to the
-guarantee its doc claims, a named type declared once should narrow every column that names it,
-and an operator a deployment declares should emit its own SQL rather than being unspellable.
-There are **five behaviour changes to read before adopting**, of different kinds, and **one
-renamed option**:
+list below) and its **steps 1–4** — a registered REFINEMENT naming a builtin (`{ kind: 'text',
+as: 'uuid' }`), the OPTIONS / grammar / comparability that refinement declares, a registered
+OPERATOR (`&&`, `<->`) whose SQL a declaration supplies per dialect, and the IN-MEMORY half of a
+registered type (`compareValues`) so `engine.run` and the database answer the same question the
+same way — whose common thread is the same one: **what a DECLARATION says should be what the
+engine does with it.** A declared parameter type should type the param handed to it, a declared
+emitted name should be held to the guarantee its doc claims, a named type declared once should
+narrow every column that names it, an operator a deployment declares should emit its own SQL
+rather than being unspellable, and a type that says how its values order should order them that
+way on both roads. There are **six behaviour changes to read before adopting**, of different
+kinds, and **one renamed option**:
 
 - **A query that was REFUSED before can now pass, and a param can now report a type it did
   not.** A bare bind param as a function argument (`abs(:p)`, `sum(:p)`) is typed by the
@@ -64,6 +66,14 @@ renamed option**:
   comparison resolved a missing operand type to case-INSENSITIVE, so `tags contains 'BETA'` and
   `tag = 'BETA'` answered differently over one deployment for no reason a caller could see. Under
   the shipped default that means an untyped `contains` folds where it did not.
+- **A DECLARED OUTPUT TYPE now governs how its value is COMPARED, on both roads.** A registered
+  function's / operator's result carries its declared output type, so a function declaring
+  `output: { kind:'text', casing:'exact' }` makes comparisons of its result case-sensitive where the
+  engine default governed before — in `engine.run` (the result `Value` carries the type) and in the
+  emitted SQL (`comparisonCasing` reads a COMPUTED operand's type, not only a field's). The two were
+  taught it together, because a rule that holds on one road only is a divergence. **No shipped
+  builtin declares an output casing**, so nothing moves unless you declared one. It is the same
+  channel `compareValues` arrives through — see the in-memory section below.
 
 ### A20 — a WRITE ignored the column's closed value set (**P1, silently wrong data**)
 
@@ -957,6 +967,132 @@ identically, but retro-fitting it moves the emitted SQL of every existing `json`
 consumer, where `operator` is a brand-new kind with none. `aeye-query.md` states the boundary —
 there is no workaround for a function argument, since a function cannot declare its own SQL, so
 reach for an `operator` when the cast matters.
+
+### The IN-MEMORY road for a registered type: `compareValues` (**additive, one behaviour change**)
+
+Step 4, and the limit steps 1–3 each shipped in writing: *"a refinement is a SQL-road feature… two
+geometries compared through `engine.run` fall back to `Value.compareTo`'s stringification, and there
+is no per-type hook for that yet."* That is not a missing convenience — it is **two answers for one
+query**, decided by nothing the caller can see:
+
+```ts
+registry.registerFieldType({
+  name: 'IpAddress', base: 'text',
+  instructions: 'An IPv4 address, stored as `inet` and ordered by address rather than by spelling.',
+  options: { casing: 'exact', maxLength: 15 },
+  sql: { postgres: 'inet' },                    // Postgres orders `inet` BY ADDRESS
+});
+// ORDER BY addr  →  database: 10.0.0.2, 10.0.0.10, 10.0.1.1   (by address)
+//                →  engine.run: 10.0.0.10, 10.0.0.2, 10.0.1.1 (by STRING)
+registry.registerFieldTypeImpl('IpAddress', { compareValues: byAddress });   // now both are the first
+```
+
+**`FieldTypeImpl.compareValues`** is the hook, and `Value.compareTo` consults it before its own
+rules. It sits beside `value` on the CODE half for the reason that split exists: a declaration is
+persisted and replayed, and a closure survives `JSON.stringify` no better than a zod schema does.
+Three consequences worth reading rather than discovering:
+
+- **It governs EQUALITY too**, because `Value.equals` / `identical` are `compareTo(...) === 0`. That
+  is why there is no separate `equalValues`: two hooks are two chances to disagree about whether `a`
+  and `b` are the same value, with nothing able to adjudicate it.
+- **It OUT-RANKS case folding.** `compareToCase` skips the fold when a comparator is in effect,
+  because a type that has said how its values compare has said so including their case — and folding
+  first would mutate the input to a comparator that may not be comparing text at all. A refinement
+  that wants the package's folding declares no comparator and narrows `options.casing`.
+- **NULL is decided BEFORE it** — SQL's NULL placement belongs to the SORT (`ORDER BY … NULLS
+  FIRST` is the same clause whatever the type is), so a comparator is never handed one and cannot
+  break three-valued logic by accident.
+
+A comparator is asked about values that are **not of your type** — a sort key, a `min()`, and every
+predicate reach it with whatever the row held — so it must ANSWER for them. A `NaN` or non-numeric
+answer is normalised to "equal" rather than allowed into `Array.prototype.sort`, which is free to
+produce any permutation for a comparator that is not an order and does so without failing. Nothing
+catches a THROW, which is why `checkFieldType` now property-tests reflexivity, antisymmetry,
+transitivity and totality over your samples (`conformance.comparator-not-total` /
+`conformance.comparator-not-an-order`). `registerFieldTypeImpl` refuses a non-function
+`compareValues`, for the same reason it refuses a non-schema `value`: the failure is otherwise a raw
+`TypeError` out of a sort with no declaration in sight.
+
+**A PRODUCED VALUE NOW CARRIES ITS CALLABLE'S DECLARED OUTPUT TYPE**, which is the other half and the
+reason step 4 is "the in-memory runtime" rather than one method. A `Value` carried a `FieldType` only
+when it came from a field-ref, so `ORDER BY parcel.distance` consulted a declaration and
+`ORDER BY (a <-> b)` over the very same type did not. The four scalar-valued dispatch helpers in
+`runtime/functions.ts` now tag their result (`Value.withType`) — one fact in one place, rather than
+the same line in five call-shaped exprs. `runTabularFunction` deliberately does not: its `Value` is
+the produced ROWS, not a value of the output type. A function declaring `'inferred'` or a Type
+reference still carries none, which is the honest answer — there is no declared type to carry.
+
+- **THE BEHAVIOUR CHANGE TO READ.** A `Value` now carries a declared `casing` as well as a
+  comparator, so a function/operator whose declared OUTPUT declares `casing: 'exact'` makes
+  comparisons of its result case-sensitive where the engine default governed before. The SQL road
+  was taught the same fact in the same commit — `comparisonCasing` asks the total `asFieldType`
+  instead of narrowing to `kind === 'field'` — so the two roads agree, which is the point: a rule
+  that held on one road only is exactly the divergence that function exists to prevent. **No shipped
+  builtin declares an output casing**, so this moves nothing unless you declared one.
+
+**`differentialCheck` (`@aeye/query/conformance`)** is the harness for the one failure neither
+registration nor `checkFieldType` can detect: a `run` that disagrees with the SQL. It runs every
+probe BOTH ways — `engine.run` and a live connection — and reports where they differ:
+
+```ts
+const report = await differentialCheck({
+  engine, dialect: 'postgres',
+  execute: async (sql, params) => (await pool.query(sql, [...params])).rows,
+  columns: { type: 'host', field: 'addr', other: 'nextHop' },
+  operators: ['<->'], functions: ['ST_Distance'],
+});
+expect(report.problems).toEqual([]);
+```
+
+It probes ORDER BY in both directions, every comparison arm the type ADMITS (a refused arm is
+skipped, so this package's own refusal is never read as a divergence), and each named operator /
+function over the columns. **Every probe is driven from COLUMNS, never from a bound sample**, and
+that is a boundary rather than a simplification: a bound value reaches a declared `cast` only in a
+write cell or an operator operand, so probing with samples would report that known limit — for every
+type, on every run — and bury the divergence the harness exists to find. Seed the values you care
+about into the table instead. It needs a live database, so it belongs in a CONSUMER's integration
+suite (this package's own `integration/run.ts` is the shape) and **nothing in `npm test` calls it
+against one**; `execute` is a callback for the same reason every seam here is one — the package has
+no driver and must not acquire one. The engine's executor for that Type must hold the SAME rows the
+table does, which is its one unverifiable premise and is stated rather than checked.
+
+**Two carried from step 3's review, both about the value-position rule.**
+
+- **The `cast.unwritten-option` refusal now names the OPERATOR as well as the operand.** With two
+  registered operators each declaring a `right`, `… at args.right` identified neither declaration to
+  fix; the precedent is one screen away in the same file (*"Operator '&&' is missing required operand
+  'right'"*). `TargetPosition` is replaced by **`ValueSite`** (`{ operator, operand }`) — its
+  PRESENCE is what marks a value position, so one optional argument carries both the distinction and
+  the attribution.
+- **The ARRAY-ELEMENT road is closed.** Postgres constructs a native array element-wise and
+  re-enters `jsonValue` per element, so a value position refused correctly at the operand bound its
+  ELEMENTS through the item's defaults one level down. Measured on `2eda1d4`, over a refinement
+  declaring `sql: { postgres: 'geometry({subtype})' }` and the column-shaped
+  `cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype})' }`: an `array<json as …>`
+  operand with no `with`, handed `[{ type: 'Polygon' }]`, emitted
+  `ARRAY[ST_GeomFromGeoJSON($1)::geometry(Point)]::geometry(Point)[]` — a value position
+  default-filling a PostGIS typmod, the exact class refused one level up. The rule therefore MOVED
+  into the dialect:
+  `Dialect.jsonValue(value, fieldType?, site?)` takes the position and `builtinJsonValue` passes it
+  through its recursion, so the refusal fires wherever a cast fires rather than wherever a caller
+  remembered to ask. (A dialect subclass overriding `builtinJsonValue` gains a third parameter; it
+  is optional and an override that ignores it compiles unchanged, but one that RECURSES must carry
+  it.)
+
+**`checkOperator` now warns when an operand's declared cast can never be resolved**
+(`conformance.unwritable-operand-cast`) — the emit-time refusal above, found at the declaration
+instead of at the first query that binds a document, and reaching an ARRAY operand's element type
+because that is the level the emit road recurses into. It is a conformance check rather than a
+registration one for the reason already recorded for the `emit` dialect key: the question is per
+DIALECT, and a dialect may be registered after an operator, so asking it at registration would
+order-couple the two. A WARNING, because the refusal it predicts fires only for a DOCUMENT operand —
+an operand only ever handed a column emits fine forever. `uncastableOptions` has a second consumer,
+which was the point.
+
+**`operatorSignature`'s jsdoc said the whole signature renders in operand style**, while the body
+renders the OUTPUT in column style and explains why three lines below. Corrected — a doc comment
+that contradicts the code one screen down is the cheapest possible defect and the most expensive
+kind to trust.
 
 ### Also
 

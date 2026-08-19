@@ -15,7 +15,7 @@ import { z } from 'zod';
 import type { FieldTypeDef, FieldTypeKind, FieldValueDef, JsonValue } from './schema';
 import type { CodeOptions, Node, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Registry } from './registry';
-import type { FieldTypeRefinement } from './refinement';
+import type { FieldTypeRefinement, ValueComparator } from './refinement';
 import type { TextCasing } from './text-casing';
 import { eqSelectivityOf, isClosedSetMember, type ClosedSetViolation } from './field-types/_values';
 import { meetExact, meetRefinementOptions, sameJson } from './field-types/_meet';
@@ -550,6 +550,23 @@ export abstract class FieldType implements Node {
    */
   textCasing(): TextCasing | undefined {
     return undefined;
+  }
+
+  /**
+   * The IN-MEMORY ordering this type declares, or `undefined` — the hook
+   * `Value.compareTo` consults before its own rules.
+   *
+   * FINAL, and answered from the refinement rather than overridable per class,
+   * which is the opposite of {@link textCasing} and deliberately so. A casing is
+   * a BUILTIN option (`text` declares one, and the refinement narrows it through
+   * the ordinary options meet), so the class is the right owner. A comparator is
+   * not an option at all — it is the CODE half a declaration cannot carry, and
+   * the nine builtins each have a comparison rule `Value` implements directly.
+   * Leaving it overridable would invite a tenth builtin to answer here instead
+   * of in `Value`, where the pair of roads is kept in agreement.
+   */
+  valueComparator(): ValueComparator | undefined {
+    return this.declaredRefinement?.compareValues;
   }
 
   // ─── Value validation / schema ────────────────────────────────────────

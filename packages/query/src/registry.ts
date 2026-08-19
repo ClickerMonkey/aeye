@@ -244,12 +244,11 @@ export class Registry {
   }
 
   /**
-   * Register the CODE half of a refinement — today a stricter value gate, later
-   * the in-memory comparison hooks. The counterpart of `registerFunctionRun`
-   * beside `registerFunction`, and split from the declaration for the reason
-   * {@link FieldTypeImpl} gives: a declaration is PERSISTED, and a zod schema
-   * survives `JSON.stringify` as a husk that registers clean and then throws out
-   * of zod's own internals at first use.
+   * Register the CODE half of a refinement — a stricter value gate and the
+   * in-memory ordering. The counterpart of `registerFunctionRun` beside
+   * `registerFunction`, and split from the declaration for the reason
+   * {@link FieldTypeImpl} gives: a declaration is PERSISTED, and neither a zod
+   * schema nor a closure survives that round-trip honestly.
    *
    * The impl attaches to the compiled refinement, which every column naming it
    * SHARES — so it has to be registered before those columns are parsed, exactly
@@ -289,6 +288,18 @@ export class Registry {
           `\`value\` must be a zod schema, got ${typeof impl.value}. It is checked because the failure is ` +
           "otherwise unattributable: anything else is accepted here and then throws a raw `TypeError` out " +
           'of zod at the first `validValue()`, with no code and no path.',
+      });
+    }
+    if (impl.compareValues !== undefined && typeof impl.compareValues !== 'function') {
+      throw new QueryTypeError({
+        path: ['registerFieldTypeImpl', name, 'compareValues'],
+        code: 'field-type.bad-refinement',
+        severity: 'error',
+        message:
+          `\`compareValues\` must be a function, got ${typeof impl.compareValues}. Checked here for the ` +
+          'same reason `value` is: `Value.compareTo` is total and is reached from every sort, every ' +
+          'comparison and every `min()`, so a non-callable would surface as a raw `TypeError` from deep ' +
+          'inside a sort rather than as a problem naming the declaration that caused it.',
       });
     }
     refinement.attachImpl(impl);

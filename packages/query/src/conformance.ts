@@ -37,6 +37,8 @@
  * CHANGELOG name.
  */
 import { z } from 'zod';
+import { didYouMean } from './aids';
+import type { QueryEngine } from './engine';
 import { FieldType, SCALAR_KINDS } from './field-type';
 import {
   ArrayFieldType,
@@ -62,7 +64,8 @@ import {
   type FieldTypeRefinementDef,
   type RefinableBase,
 } from './refinement';
-import type { FieldTypeDef, FieldTypeKind, JsonValue } from './schema';
+import type { ComparisonOp, ExprDef, FieldTypeDef, FieldTypeKind, JsonValue, SelectDef } from './schema';
+import type { SqlValue } from './sql/emit';
 
 // ─── The corpus ──────────────────────────────────────────────────────────────
 
@@ -550,7 +553,9 @@ export function checkFieldType(
 
   if (impl) {
     try {
-      registry.registerFieldTypeImpl(decl.name, { value: impl.value });
+      // The full code half, not just the gate: a check that registered less than
+      // the consumer will is checking a different type than the one they ship.
+      registry.registerFieldTypeImpl(decl.name, { value: impl.value, compareValues: impl.compareValues });
     } catch (err) {
       problems.push(asProblem(err, ['registerFieldTypeImpl'], 'conformance.registration'));
       return { ok: false, problems, lattice: undefined };
@@ -623,8 +628,140 @@ export function checkFieldType(
   }
 
   problems.push(...checkValueGate(decl, registry, impl, samples));
+  problems.push(...checkComparator(decl, impl, samples));
   return { ok: problems.length === 0, problems, lattice };
 }
+
+/**
+ * The ORDER laws a supplied `compareValues` is held to — reflexivity,
+ * antisymmetry, transitivity, numeric answers, and totality.
+ *
+ * They are not style points. `Value.compareTo` normalises the answer to
+ * `-1 | 0 | 1` and hands it to `Array.prototype.sort`, to `min` / `max`, and to
+ * every `=` / `<` predicate in the runtime — and a comparator that is not an
+ * order makes each of those wrong in a DIFFERENT way, none of them detectable:
+ * a non-antisymmetric one sorts differently depending on the input's initial
+ * permutation, a non-transitive one produces an implementation-defined
+ * permutation from `sort`, and a `NaN` answer reads as "equal" so two distinct
+ * values silently become one group key. There is no error channel at any of
+ * those sites, which is exactly why the check belongs at the declaration.
+ *
+ * NULLs ARE EXCLUDED FROM THE CORPUS, and that is a fact about the contract
+ * rather than a gap: `compareTo` decides NULL placement before it consults a
+ * comparator (SQL's NULL ordering belongs to the SORT, not to the type), so a
+ * comparator is never handed one and holding it to an opinion about one would
+ * test a call that cannot happen.
+ */
+function checkComparator(
+  decl: FieldTypeRefinementDef,
+  impl: FieldTypeCheckImpl | undefined,
+  samples: readonly JsonValue[],
+): Problem[] {
+  const compare = impl?.compareValues;
+  if (!compare) return [];
+  const path = ['checkFieldType', decl.name, 'compareValues'];
+  const corpus = samples.filter((v) => v !== null);
+  const problems: Problem[] = [];
+  const bad = (code: string, message: string): void => {
+    problems.push({ path, code, severity: 'error', message });
+  };
+
+  // EVERY call below is consumer code, and the first thing a comparator does
+  // with a value it did not expect is usually to throw. A throw here is the
+  // finding, not a crash of the harness — `Value.compareTo` does not catch one,
+  // so it would surface as an exception out of a sort with no declaration in
+  // sight.
+  const threw: string[] = [];
+  const answered = new Map<string, number>();
+  const call = (a: JsonValue, b: JsonValue): number | undefined => {
+    const key = safeJson([a, b]);
+    const cached = answered.get(key);
+    if (cached !== undefined) return cached;
+    let answer: number;
+    try {
+      answer = compare(a, b);
+    } catch (err) {
+      const line = `compareValues(${safeJson(a)}, ${safeJson(b)}): ${err instanceof Error ? err.message : String(err)}`;
+      if (!threw.includes(line)) threw.push(line);
+      return undefined;
+    }
+    if (typeof answer !== 'number' || Number.isNaN(answer)) {
+      const line = `compareValues(${safeJson(a)}, ${safeJson(b)}) answered ${safeJson(answer)}`;
+      if (!threw.includes(line)) threw.push(line);
+      return undefined;
+    }
+    answered.set(key, answer);
+    return answer;
+  };
+
+  const notOrder: string[] = [];
+  for (const a of corpus) {
+    const self = call(a, a);
+    if (self !== undefined && self !== 0) notOrder.push(`compareValues(x, x) = ${self} for x = ${safeJson(a)}`);
+    for (const b of corpus) {
+      const ab = call(a, b);
+      const ba = call(b, a);
+      if (ab === undefined || ba === undefined) continue;
+      if (Math.sign(ab) !== -Math.sign(ba)) {
+        notOrder.push(
+          `compareValues(${safeJson(a)}, ${safeJson(b)}) = ${ab} but the reverse = ${ba}`,
+        );
+      }
+    }
+  }
+  // Transitivity is CUBIC, so it runs over a CAPPED corpus — and the cap takes
+  // the DECLARER's own samples first. Slicing the merged corpus took a prefix of
+  // `DEFAULT_SAMPLES` and dropped every supplied value, i.e. capped away exactly
+  // the values a comparator has opinions about: measured, a deliberately CYCLIC
+  // comparator over three supplied strings was reported as a perfect order. The
+  // pairwise laws above are quadratic and run over everything.
+  const declared = Array.isArray(impl?.samples) ? impl.samples.filter((v) => v !== null) : [];
+  const triples = [...new Set([...declared, ...corpus])].slice(0, MAX_COMPARATOR_SAMPLES);
+  for (const a of triples) {
+    for (const b of triples) {
+      const ab = call(a, b);
+      if (ab === undefined || ab > 0) continue;
+      for (const c of triples) {
+        const bc = call(b, c);
+        const ac = call(a, c);
+        if (bc === undefined || ac === undefined || bc > 0) continue;
+        if (ac > 0) {
+          notOrder.push(
+            `${safeJson(a)} ≤ ${safeJson(b)} ≤ ${safeJson(c)}, but compareValues(${safeJson(a)}, ${safeJson(c)}) = ${ac}`,
+          );
+        }
+      }
+    }
+  }
+
+  if (threw.length > 0) {
+    bad(
+      'conformance.comparator-not-total',
+      `\`compareValues\` did not ANSWER for every pair: ${threw.slice(0, 5).join('; ')}` +
+        `${threw.length > 5 ? ' …' : ''}. It is reached from every sort, every comparison and every ` +
+        '`min()` in the runtime, over whatever the row actually held — so it is asked about values that ' +
+        'are not of your type, and it has to have an answer for them. Nothing catches a throw, and a ' +
+        '`NaN` is read as "equal", which silently merges two distinct values into one group key.',
+    );
+  }
+  if (notOrder.length > 0) {
+    bad(
+      'conformance.comparator-not-an-order',
+      `\`compareValues\` is not a total order: ${notOrder.slice(0, 5).join('; ')}` +
+        `${notOrder.length > 5 ? ' …' : ''}. It must be reflexive, antisymmetric and transitive, because ` +
+        'its answer goes straight to `Array.prototype.sort` — which is free to produce any permutation ' +
+        'for a comparator that is not one, and does so without failing.',
+    );
+  }
+  return problems;
+}
+
+/**
+ * How many samples the CUBIC transitivity loop runs over (see
+ * {@link checkComparator}). Twelve is `MAX_DESCRIBED_VALUES`' order of
+ * magnitude and 1,728 triples, which is a check rather than a benchmark.
+ */
+const MAX_COMPARATOR_SAMPLES = 12;
 
 // ─── One OPERATOR declaration, checked end to end ────────────────────────────
 
@@ -723,6 +860,7 @@ export function checkOperator(
     problems.push(...checkOperatorExample(decl.name, index, example, operandNames, registry));
   }
   problems.push(...checkOperatorShadowsRefusal(operator));
+  problems.push(...checkOperandCastsAreWritable(operator, dialects));
 
   // The operand / output types, plus every unrefined top, so the laws run over a
   // set in which the operator's own types actually participate.
@@ -751,6 +889,69 @@ export function checkOperator(
     });
   }
   return { ok: problems.length === 0, problems, lattice };
+}
+
+/**
+ * WARN when an operand's declared type carries a `cast` this operand can never
+ * resolve — the emit-time `cast.unwritten-option` refusal, discovered at the
+ * DECLARATION instead of at the first query that binds a document.
+ *
+ * WHY IT IS HERE AND NOT AT `registerOperator`, which is where the rest of an
+ * operator's checks live. The question is per DIALECT — a cast interpolating
+ * `{srid}` matters only on the dialect that declares it — and a dialect may be
+ * registered after an operator (`defineDialect` is public and order-free), so
+ * asking it at registration would order-couple the two exactly as refusing an
+ * unknown `emit` key would. It is the same boundary, drawn the same way:
+ * everything an operator can be judged on ALONE is refused at its declaration,
+ * and everything that needs a FINISHED registry is a conformance check.
+ *
+ * A WARNING rather than an error, because the refusal it predicts fires only for
+ * a DOCUMENT operand — a `literal`, or a param bound to one. An operand that is
+ * only ever handed a column emits fine forever, and that is a legitimate
+ * operator. What is not legitimate is finding out from a query.
+ */
+function checkOperandCastsAreWritable(operator: QueryOperator, dialects: readonly string[]): Problem[] {
+  const problems: Problem[] = [];
+  for (const operand of operator.operands) {
+    for (const dialect of dialects) {
+      // Every type a document binds THROUGH — the operand's own, and an array
+      // element's, because a native-array dialect re-enters the cast road per
+      // element (see `Dialect.builtinJsonValue`).
+      for (const target of castTargetsOf(operand.fieldType)) {
+        const unwritten = target.uncastableOptions(dialect);
+        if (unwritten.length === 0) continue;
+        problems.push({
+          path: ['checkOperator', operator.name, 'operands', operand.name],
+          code: 'conformance.unwritable-operand-cast',
+          severity: 'warning',
+          message:
+            `Operand \`${operand.name}\` is typed \`${target.as}\`, whose \`${dialect}\` cast interpolates ` +
+            `${unwritten.map((o) => `\`{${o}}\``).join(', ')} — and the operand writes no value for ` +
+            `${unwritten.length === 1 ? 'it' : 'them'}. A document bound here is REFUSED at emit ` +
+            '(`cast.unwritten-option`), because resolving those slots from the type\'s DEFAULTS would ' +
+            'pin a constraint on the value that nothing required it to satisfy. A column operand is ' +
+            `unaffected. Either give \`${operand.name}\` a \`with\` bag naming them, or move the ` +
+            `per-column part of \`${target.as}\`'s \`cast\` into its \`sql\` (the cast TARGET), leaving a ` +
+            'cast that interpolates no option and is therefore position-independent.',
+        });
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * Every type a bound DOCUMENT can travel through for `ft` — itself, and an
+ * array's element type, recursively.
+ *
+ * The cast counterpart of {@link refinementsOf}, and separate from it because
+ * the two answer different questions: that one asks which REFINEMENTS an operand
+ * names (for the arm-shadow warning), this one asks which types a VALUE is cast
+ * by (which is every level a `Dialect.jsonValue` recursion reaches).
+ */
+function castTargetsOf(ft: FieldType | undefined): FieldType[] {
+  if (!ft) return [];
+  return ft instanceof ArrayFieldType && ft.item ? [ft, ...castTargetsOf(ft.item)] : [ft];
 }
 
 /**
@@ -826,9 +1027,25 @@ const TEXT_MATCH_TOKENS: readonly string[] = ['~~', '~~*', '!~~', '!~~*'];
  * shadow comes from.
  */
 const ARM_OF_TOKEN: ReadonlyMap<string, keyof FieldTypeCompareDecl> = new Map([
-  ...(Object.entries(OP_ARMS) as [string, keyof FieldTypeCompareDecl][]),
+  ...opArmEntries(),
   ...TEXT_MATCH_TOKENS.map((token): [string, keyof FieldTypeCompareDecl] => [token, 'textMatch']),
 ]);
+
+/**
+ * `OP_ARMS` as typed entries — the ONE place this module asserts what
+ * `Object.entries` cannot infer.
+ *
+ * `Object.entries` widens a `Record`'s key to `string` unconditionally, so
+ * there is no cast-free spelling that keeps `OP_ARMS` as the single op→arm
+ * source; the alternative is a hand-written list of the nine operators beside
+ * it, which is the duplicated key set `OP_ARMS`' own docs exist to prevent. It
+ * is written ONCE and shared by the two consumers ({@link ARM_OF_TOKEN} and
+ * {@link differentialCheck}) rather than spelled at each — a second copy is how
+ * an assertion outlives the fact it asserted.
+ */
+function opArmEntries(): [ComparisonOp, keyof FieldTypeCompareDecl][] {
+  return Object.entries(OP_ARMS) as [ComparisonOp, keyof FieldTypeCompareDecl][];
+}
 
 /**
  * Every registered refinement reachable from `ft` — itself, and an ARRAY's
@@ -1037,3 +1254,390 @@ function asProblem(err: unknown, path: (string | number)[], code: string): Probl
 
 /** Every kind a refinement may narrow — re-exported so a caller can loop the same set the checks do. */
 export { REFINABLE_BASES, SCALAR_KINDS };
+
+// ─── run-vs-SQL divergence: the one thing nothing static can check ───────────
+
+/**
+ * One row a live database handed back — a column-name → value map, which is what
+ * every driver this could be wired to already produces (`pg`'s `result.rows`,
+ * `mysql2`'s, `better-sqlite3`'s `.all()`).
+ */
+export type DifferentialRow = Readonly<Record<string, JsonValue>>;
+
+/**
+ * How {@link differentialCheck} reaches the live database: the emitted statement
+ * and its positional params in, its rows out.
+ *
+ * ```ts
+ * execute: async (sql, params) => (await pool.query(sql, [...params])).rows
+ * ```
+ *
+ * It is a CALLBACK rather than a driver dependency for the reason every seam in
+ * this package is: the package has no database client, must not acquire one, and
+ * a consumer's pool already carries their connection, their search path and
+ * their transaction.
+ */
+export type DifferentialExecute = (
+  sql: string,
+  params: readonly SqlValue[],
+) => Promise<readonly DifferentialRow[]>;
+
+/** Which COLUMNS {@link differentialCheck} drives its probes from. */
+export interface DifferentialColumns {
+  /** A registered Type name — and a real table of that name in the database. */
+  readonly type: string;
+  /** A field of `type` whose declared field type is the one under test. */
+  readonly field: string;
+  /**
+   * A SECOND field of the same type, for the probes that need two operands — the
+   * comparison arms, and every operator / function of arity ≥ 2.
+   *
+   * Optional, and its absence is REPORTED rather than silently narrowing the run:
+   * a check that quietly skipped most of what it was asked to do would be worse
+   * than one that did not run.
+   */
+  readonly other?: string;
+}
+
+/** What {@link differentialCheck} needs. */
+export interface DifferentialCheckOptions {
+  /**
+   * The engine to drive BOTH roads from — its registry carrying the declaration
+   * under test, and its executor for {@link DifferentialColumns.type} holding
+   * THE SAME ROWS the database's table holds.
+   *
+   * That last part is the harness's one unverifiable premise, and it is stated
+   * rather than checked because nothing here can check it: if the two row sets
+   * differ, every probe disagrees and the report blames the type. Point the
+   * executor at the same fixture the table was seeded from.
+   */
+  readonly engine: QueryEngine;
+  /** The dialect to emit for — a name registered on the engine's registry. */
+  readonly dialect: string;
+  /** The live database (see {@link DifferentialExecute}). */
+  readonly execute: DifferentialExecute;
+  /** The columns to drive the probes from. */
+  readonly columns: DifferentialColumns;
+  /** Registered OPERATOR names to exercise over those columns. Default: none. */
+  readonly operators?: readonly string[];
+  /** Registered scalar FUNCTION names to exercise over those columns. Default: none. */
+  readonly functions?: readonly string[];
+}
+
+/** One probe: the statement, both roads' answers, and whether they agreed. */
+export interface DifferentialProbe {
+  /** What this probe exercises — `order asc`, `field < other`, `&&`, `ST_Contains`. */
+  readonly label: string;
+  /** The statement that was emitted and executed. */
+  readonly sql: string;
+  /** The values `engine.run` produced, in row order. */
+  readonly runValues: readonly JsonValue[];
+  /** The values the database produced, in row order. */
+  readonly sqlValues: readonly JsonValue[];
+  /** Whether the two agreed. */
+  readonly agreed: boolean;
+}
+
+/** The verdict of {@link differentialCheck}. */
+export interface DifferentialReport {
+  /**
+   * True when NOTHING was found — every probe ran, every probe agreed, and
+   * nothing was skipped. A skipped probe counts (it is a `warning` in
+   * {@link problems}), because a check that quietly did less than it was asked
+   * to is the shape that reports `ok` forever; assert on `problems` when you
+   * want to allow one.
+   */
+  readonly ok: boolean;
+  /** Everything found: a disagreement or a throw is an `error`, a skip a `warning`. */
+  readonly problems: readonly Problem[];
+  /** Every probe that ran, agreed or not — the record a consumer diffs across releases. */
+  readonly probes: readonly DifferentialProbe[];
+}
+
+/**
+ * Run every probe BOTH WAYS — `engine.run` and the live database — and report
+ * where they disagreed. The one failure mode neither registration nor
+ * {@link checkFieldType} can detect, and the reason it needs a connection.
+ *
+ * WHAT IT IS FOR. A registered type has two halves that must answer the same
+ * question the same way: its SQL half (`sql` / `cast`, per dialect) and its
+ * in-memory half (`FieldTypeImpl.compareValues`). Nothing static relates them —
+ * this package cannot read a column's collation, cannot know what a PostGIS
+ * `&&` returns, and cannot know that `inet` orders by address while a string
+ * orders lexicographically. A declaration whose two halves disagree produces
+ * TWO ANSWERS FOR ONE QUERY, silently, and which one a caller gets depends only
+ * on whether they ran it or emitted it.
+ *
+ * WHERE IT BELONGS. A consumer's INTEGRATION suite, not their unit tests — it is
+ * this package's `integration/run.ts` shape: a real connection, real fixtures,
+ * and deliberately outside `npm test`. It is exported from
+ * `@aeye/query/conformance` beside {@link checkFieldType} and
+ * {@link checkOperator} because it answers the same question they do, one level
+ * further out; nothing in this package's own suite calls it against a database.
+ *
+ * ```ts
+ * const report = await differentialCheck({
+ *   engine, dialect: 'postgres',
+ *   execute: async (sql, params) => (await pool.query(sql, [...params])).rows,
+ *   columns: { type: 'parcel', field: 'shape', other: 'nextShape' },
+ *   operators: ['&&'], functions: ['ST_Distance'],
+ * });
+ * expect(report.problems).toEqual([]);
+ * ```
+ *
+ * EVERY PROBE IS DRIVEN FROM COLUMNS, never from a bound sample, and that is a
+ * deliberate boundary rather than a simplification. A bound VALUE reaches a
+ * declared `cast` only in a write cell or a registered operator's operand
+ * (`exprs/_bound-value.ts`); everywhere else it binds through the dialect's
+ * default, which is a KNOWN and documented limit. Probing with samples would
+ * therefore report that limit — the same disagreement, for every type, on every
+ * run — and bury the divergence the harness exists to find. Seed the values you
+ * care about into the table instead: they are then columns, and every road types
+ * them.
+ */
+export async function differentialCheck(opts: DifferentialCheckOptions): Promise<DifferentialReport> {
+  const { engine, dialect, execute, columns } = opts;
+  const problems: Problem[] = [];
+  const probes: DifferentialProbe[] = [];
+  const path = ['differentialCheck', columns.type, columns.field];
+
+  const type = engine.registry.type(columns.type);
+  const field = type?.field(columns.field);
+  if (!type || !field) {
+    problems.push({
+      path,
+      code: 'conformance.differential-unknown-column',
+      severity: 'error',
+      message:
+        `\`columns\` names ${type ? `field '${columns.field}' of` : 'Type'} '${columns.type}', which this ` +
+        'engine does not have. Every probe reads a real column, so there is nothing to compare.',
+    });
+    return { ok: false, problems, probes };
+  }
+
+  const probe = async (label: string, def: SelectDef): Promise<void> => {
+    let sql: string;
+    let params: readonly SqlValue[];
+    let runValues: JsonValue[];
+    try {
+      const emitted = engine.toSQL(def, dialect);
+      sql = emitted.sql;
+      params = emitted.params;
+      runValues = probeValues((await engine.run(def)).rows);
+    } catch (err) {
+      problems.push(asProblem(err, [...path, label], 'conformance.differential-threw'));
+      return;
+    }
+    let sqlValues: JsonValue[];
+    try {
+      sqlValues = probeValues(await execute(sql, params));
+    } catch (err) {
+      problems.push({
+        path: [...path, label],
+        code: 'conformance.differential-threw',
+        severity: 'error',
+        message:
+          `The database REFUSED the emitted statement for \`${label}\`: ` +
+          `${err instanceof Error ? err.message : String(err)}. SQL: ${sql}. That is a divergence too — ` +
+          'the strongest kind, since the in-memory road answered and the emitted one could not run.',
+      });
+      return;
+    }
+    const agreed = safeJson(runValues) === safeJson(sqlValues);
+    probes.push({ label, sql, runValues, sqlValues, agreed });
+    if (agreed) return;
+    problems.push({
+      path: [...path, label],
+      code: 'conformance.differential-disagreement',
+      severity: 'error',
+      message:
+        `\`${label}\` answers differently in memory and at the database. \`engine.run\` gave ` +
+        `${safeJson(runValues)}; \`${dialect}\` gave ${safeJson(sqlValues)}. SQL: ${sql}. One query, two ` +
+        "answers: reconcile the type's SQL half (`sql` / `cast`) with its in-memory half " +
+        "(`registerFieldTypeImpl`'s `compareValues`) — whichever of the two is not what you meant.",
+    });
+  };
+
+  // ORDERING FIRST, because it is the property `compareValues` exists for and
+  // the one that needs no second column. BOTH directions: a comparator that is
+  // not antisymmetric can agree ascending and disagree descending.
+  for (const dir of ['asc', 'desc'] as const) {
+    await probe(`order ${dir}`, orderProbe(columns.type, columns.field, dir));
+  }
+
+  const other = columns.other;
+  if (other === undefined) {
+    problems.push({
+      path,
+      code: 'conformance.differential-skipped',
+      severity: 'warning',
+      message:
+        'No `columns.other` was supplied, so only the ORDERING probes ran — every comparison arm and ' +
+        'every operator / function of arity ≥ 2 needs a second operand, and it has to be a COLUMN (a ' +
+        'bound sample would measure the known value-binding limit instead of your type). Declare a ' +
+        `second field of the same type on '${columns.type}' and name it here.`,
+    });
+    return { ok: problems.length === 0, problems, probes };
+  }
+  if (!type.field(other)) {
+    problems.push({
+      path,
+      code: 'conformance.differential-unknown-column',
+      severity: 'error',
+      message: `\`columns.other\` names field '${other}', which Type '${columns.type}' does not have.`,
+    });
+    return { ok: false, problems, probes };
+  }
+
+  // Only the comparison arms the type ADMITS. A refused arm is not probed,
+  // because `validateQuery` refuses it — running it would report this package's
+  // own refusal as a divergence.
+  const compare = field.fieldType.refinement?.compare;
+  for (const [op, arm] of opArmEntries()) {
+    if (compare && !compare[arm]) continue;
+    await probe(
+      `${columns.field} ${op} ${other}`,
+      predicateProbe(columns.type, columns.field, {
+        kind: 'comparison',
+        op,
+        left: fieldRef(columns.type, columns.field),
+        right: fieldRef(columns.type, other),
+      }),
+    );
+  }
+
+  for (const name of opts.operators ?? []) {
+    const operator = engine.lookupOperator(name);
+    if (!operator) {
+      problems.push(unknownCallable(path, 'operator', name, engine.registry.operatorNames()));
+      continue;
+    }
+    await probe(
+      name,
+      valueProbe(columns.type, columns.field, {
+        kind: 'operator',
+        op: name,
+        args: spreadArgs(operator.operands.map((o) => o.name), columns.type, columns.field, other),
+      }),
+    );
+  }
+
+  for (const name of opts.functions ?? []) {
+    const fn = engine.lookupFunction(name);
+    if (!fn) {
+      problems.push(unknownCallable(path, 'function', name, engine.registry.functionList().map((f) => f.name)));
+      continue;
+    }
+    await probe(
+      name,
+      valueProbe(columns.type, columns.field, {
+        kind: 'function-call',
+        function: name,
+        args: spreadArgs(fn.params.map((p) => p.name), columns.type, columns.field, other),
+      }),
+    );
+  }
+
+  return { ok: problems.length === 0, problems, probes };
+}
+
+/**
+ * The alias every probe projects under. ONE name for every statement, so the two
+ * roads are read the same way and a probe's shape is not part of its comparison.
+ */
+const PROBE_COLUMN = 'probe';
+
+/**
+ * The `probe` cell of each row, in row order — the ONE reading applied to both
+ * roads, so a difference in the two answers is never a difference in how they
+ * were read.
+ *
+ * A row with no `probe` column reads as NULL. That cannot happen on the run side
+ * (every probe projects the alias) and can on the SQL side, where the rows come
+ * from a consumer's driver: one that lower-cases identifiers, or is handed a
+ * `RETURNING`-less statement, hands back something else. Reading it as NULL
+ * makes the disagreement VISIBLE in the report rather than a `undefined` that
+ * `JSON.stringify` silently drops from the comparison.
+ */
+function probeValues(rows: readonly DifferentialRow[]): JsonValue[] {
+  return rows.map((r) => r[PROBE_COLUMN] ?? null);
+}
+
+/** `{ kind:'field-ref', source, field }` — the only expr a probe builds twice. */
+function fieldRef(source: string, field: string): ExprDef {
+  return { kind: 'field-ref', source, field };
+}
+
+/**
+ * Fill a callable's declared argument names from the two probe columns,
+ * ALTERNATING so a binary callable gets one of each and a unary one gets the
+ * field under test.
+ *
+ * Alternating rather than "the field first, the other for the rest" because
+ * arguments are ORDERED and a non-commutative callable (`<->`, `@>`,
+ * `ST_Contains`) is exactly where a divergence hides: handing both roads the
+ * same asymmetric argument list is what makes the comparison mean anything.
+ */
+function spreadArgs(
+  names: readonly string[],
+  source: string,
+  field: string,
+  other: string,
+): Record<string, ExprDef> {
+  const args: Record<string, ExprDef> = {};
+  names.forEach((name, i) => {
+    args[name] = fieldRef(source, i % 2 === 0 ? field : other);
+  });
+  return args;
+}
+
+/** `SELECT <field> AS probe FROM <type> ORDER BY <field> <dir>` — the ordering probe. */
+function orderProbe(type: string, field: string, dir: 'asc' | 'desc'): SelectDef {
+  return {
+    kind: 'select',
+    fields: [{ expr: fieldRef(type, field), as: PROBE_COLUMN }],
+    from: { kind: 'type', type },
+    order: [{ expr: fieldRef(type, field), dir }],
+  };
+}
+
+/**
+ * `SELECT <field> AS probe FROM <type> WHERE <predicate> ORDER BY <field>` — a
+ * PREDICATE probe, which compares WHICH ROWS survived rather than what the
+ * predicate evaluated to (a `bool` renders differently across drivers, and row
+ * membership is the fact a predicate actually decides).
+ *
+ * Ordered by the field so the two roads' row order is the STATEMENT's rather
+ * than each engine's own, which is what makes a positional comparison legitimate
+ * at all.
+ */
+function predicateProbe(type: string, field: string, where: ExprDef): SelectDef {
+  return { ...orderProbe(type, field, 'asc'), where: [where] };
+}
+
+/** `SELECT <expr> AS probe FROM <type> ORDER BY <field>` — a VALUE probe. */
+function valueProbe(type: string, field: string, expr: ExprDef): SelectDef {
+  return {
+    kind: 'select',
+    fields: [{ expr, as: PROBE_COLUMN }],
+    from: { kind: 'type', type },
+    order: [{ expr: fieldRef(type, field), dir: 'asc' }],
+  };
+}
+
+/** A named operator / function this engine does not have — a caller typo, reported rather than thrown. */
+function unknownCallable(
+  path: readonly (string | number)[],
+  what: string,
+  name: string,
+  registered: readonly string[],
+): Problem {
+  return {
+    path: [...path, name],
+    code: 'conformance.differential-unknown-callable',
+    severity: 'error',
+    message:
+      `No ${what} '${name}' is registered on this engine.${didYouMean(name, [...registered])} ` +
+      `(registered: ${registered.length > 0 ? registered.join(', ') : 'none'}).`,
+  };
+}

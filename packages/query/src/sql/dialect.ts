@@ -10,6 +10,7 @@
  * getter so a dialect INSTANCE can be registered directly.
  */
 import type { FieldType } from '../field-type';
+import { QueryTypeError } from '../problem';
 import type { JsonValue } from '../schema';
 import { SqlText } from './emit';
 import type { DialectEntry } from '../registry';
@@ -31,6 +32,76 @@ export function jsonObjectArgs(entries: readonly { key: string; value: SqlText }
     args.push(e.value);
   }
   return args;
+}
+
+/**
+ * WHO a value being bound belongs to — supplied by a VALUE position, absent for
+ * a COLUMN, and the distinction is what decides whether a declared `cast` may
+ * fill an option the target did not write.
+ *
+ *  - **a COLUMN** (`site` absent) — a real column. Its refinement's option
+ *    DEFAULTS are facts about it, so a cast may resolve them; that is what makes
+ *    a write cell emit `ST_GeomFromGeoJSON($1)::geometry(Polygon,4326)`.
+ *  - **a VALUE** (`site` present) — a declared type standing in for "any value
+ *    of this type", which is what an operator OPERAND is. Filling a slot from
+ *    the refinement's default PINS a constraint the value was never required to
+ *    satisfy: measured on the flagship predicate, an operand declaring
+ *    `{kind:'json', as:'Geometry'}` with no `with` cast a Polygon document to
+ *    `::geometry(Point,4326)` — a PostGIS TYPMOD — and the server refused it
+ *    (`Geometry type (Polygon) does not match column type (Point)`).
+ *
+ * It is the same rule the model-facing renderer already follows: an operand's
+ * tag shows only what its declaration WROTE. One rule, two surfaces.
+ *
+ * IT CARRIES THE OPERATOR AS WELL AS THE OPERAND, because the refusal is a
+ * message to a DECLARER and the operand name alone does not identify a
+ * declaration: two registered operators both having a `right` gave `… at
+ * args.right` twice and named neither. The precedent is one screen away in
+ * `OperatorExpr.toSQL` — *"Operator '&&' is missing required operand 'right'"*.
+ */
+export interface ValueSite {
+  /** The registered operator this value is an operand of. */
+  readonly operator: string;
+  /** The declared operand name — the `args` key, and the emit template's slot. */
+  readonly operand: string;
+}
+
+/**
+ * Refuse a VALUE-position cast that could only be resolved by asserting an
+ * option the target never wrote.
+ *
+ * A REFUSAL rather than either alternative, and both alternatives were
+ * considered. Filling from the refinement's DEFAULTS is what shipped first and
+ * it emits confidently wrong SQL — a typmod the value need not satisfy, rejected
+ * by the server on the NORMAL case (`&&` is a bounding-box pre-filter, so a
+ * Polygon argument is the ordinary one). Falling back to the BASE cast is worse
+ * still: that is `CAST($1 AS jsonb)`, which is how this whole road was broken to
+ * begin with (`operator does not exist: geometry && jsonb`) — silently emitting
+ * SQL the database rejects for a different reason is not an improvement.
+ *
+ * So the declarer is told, at the one point the ambiguity is real, with the two
+ * things that actually resolve it: move the per-column part out of `cast` (a
+ * cast that interpolates NO option is position-independent and is used here
+ * unchanged), or have the operand WRITE the options in its own `with` — which
+ * makes the typmod a constraint the operand genuinely declares.
+ */
+function refuseUnwrittenCast(target: FieldType, dialect: string, site: ValueSite): void {
+  const unwritten = target.uncastableOptions(dialect);
+  if (unwritten.length === 0) return;
+  throw new QueryTypeError({
+    path: ['args', site.operand],
+    code: 'cast.unwritten-option',
+    severity: 'error',
+    message:
+      `Operand '${site.operand}' of operator '${site.operator}' binds a document typed \`${target.as}\`, ` +
+      `whose \`${dialect}\` cast interpolates ${unwritten.map((o) => `\`{${o}}\``).join(', ')} — and that ` +
+      `operand declared no value for ${unwritten.length === 1 ? 'it' : 'them'}. Resolving from the type's ` +
+      'DEFAULTS would pin a constraint on the value that nothing required it to satisfy (a default ' +
+      'belongs to the TYPE, not to this value), which is how a PostGIS `::geometry(Point,4326)` came to ' +
+      `be applied to a Polygon. Either declare a \`cast\` that interpolates no option — one that says ` +
+      `only "this IS a ${target.as}", which is what a value position can honestly assert — or write the ` +
+      `options in this operand's own \`with\` bag, so the cast expresses a constraint you actually made.`,
+  });
 }
 
 /**
@@ -281,11 +352,20 @@ export abstract class Dialect implements DialectEntry {
    * The base dialect casts to whatever `sqlTypeFor` names, which is the portable
    * answer for a JSON-typed column. A dialect with a NATIVE array type (Postgres
    * `text[]`) must override — an array literal there is not JSON text.
+   *
+   * `site` says this is a VALUE position rather than a column, and names who to
+   * blame when the target's declared cast cannot honestly be resolved there —
+   * see {@link ValueSite} and {@link refuseUnwrittenCast}. Absent ⇒ a COLUMN,
+   * which is what the write path is and what every dialect caller predating the
+   * rule remains.
    */
-  jsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+  jsonValue(value: JsonValue, fieldType?: FieldType, site?: ValueSite): SqlText {
     const cast = fieldType?.refinedCast(this.name);
-    if (cast) return renderCast(cast, SqlText.param(JSON.stringify(value)));
-    return this.builtinJsonValue(value, fieldType);
+    if (cast) {
+      if (site && fieldType) refuseUnwrittenCast(fieldType, this.name, site);
+      return renderCast(cast, SqlText.param(JSON.stringify(value)));
+    }
+    return this.builtinJsonValue(value, fieldType, site);
   }
 
   /**
@@ -294,8 +374,18 @@ export abstract class Dialect implements DialectEntry {
    * (Postgres does, for native array columns); {@link jsonValue} stays final so
    * a `cast` declaration is honoured on every dialect rather than on the ones
    * that happened not to override.
+   *
+   * AN OVERRIDE THAT RECURSES MUST CARRY `site` THROUGH, and that is the whole
+   * reason it is a parameter here rather than a flag the caller checks once.
+   * Postgres constructs a native array ELEMENT-WISE (`ARRAY[…]::geometry[]`),
+   * re-entering `jsonValue` per element with the ITEM's type — so a value
+   * position that was refused correctly one level up bound its elements through
+   * the item's defaults one level down, which is the same defect reached by the
+   * one road the first cut could not see. Measured before the fix: an
+   * `array<json as Geometry>` OPERAND with no `with`, handed a Polygon document,
+   * emitted `ARRAY[ST_GeomFromGeoJSON($1)::geometry(Point)]::geometry(Point)[]`.
    */
-  protected builtinJsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+  protected builtinJsonValue(value: JsonValue, fieldType?: FieldType, _site?: ValueSite): SqlText {
     const target = fieldType ? this.sqlTypeFor(fieldType) : this.jsonSqlType();
     return SqlText.concat([
       SqlText.raw('CAST('),

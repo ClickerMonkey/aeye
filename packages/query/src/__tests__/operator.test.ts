@@ -35,7 +35,7 @@ import { arrayExecutor } from '../runtime/executor';
 import type { FieldType } from '../field-type';
 import type { OperatorDef } from '../operator';
 import type { FieldTypeRefinementDef } from '../refinement';
-import type { ExprDef, QueryDef, SelectDef, TypeDef } from '../schema';
+import type { ExprDef, JsonValue, QueryDef, SelectDef, TypeDef } from '../schema';
 
 // ─── The worked PostGIS registry ─────────────────────────────────────────────
 
@@ -774,6 +774,10 @@ describe('the `operator` expr — SQL', () => {
     expect(problem.path).toEqual(['args', 'right']);
     expect(problem.message).toContain('`{subtype}`');
     expect(problem.message).toContain('a default belongs to the TYPE, not to this value');
+    // It names the OPERATOR as well as the operand. Two registered operators can
+    // both declare a `right`, and `… at args.right` identified neither — the
+    // precedent is `operator.missing-arg`, one screen away, which always did.
+    expect(problem.message).toContain("Operand 'right' of operator '&&'");
     // A COLUMN operand is untouched — it carries no bound value at all.
     expect(
       engine.toSQL({ ...query, where: [{ kind: 'operator', op: '&&', args: {
@@ -1426,5 +1430,219 @@ describe('an operator perturbs NOTHING about the lattice', () => {
     const withOperators = verdict(baseRegistry().registerOperator(OVERLAPS).registerOperator(DISTANCE));
     expect(without).toEqual([]);
     expect(withOperators).toEqual(without);
+  });
+});
+
+// ─── The value-position rule, one level DOWN ─────────────────────────────────
+
+describe('the value-position rule survives a dialect\'s own element-wise recursion', () => {
+  /** A registry over an `array<json as Typed>` operand — the road that bypassed the rule. */
+  function arrayRegistry(operandWith?: Record<string, string>): Registry {
+    const registry = createRegistry().registerFieldType(TYPED);
+    const item = { kind: 'json', as: 'Typed', ...(operandWith ? { with: operandWith } : {}) } as const;
+    registry.registerOperator({
+      name: '@>',
+      operands: [
+        { name: 'left', type: { kind: 'array', item: { kind: 'json', as: 'Typed' } } },
+        { name: 'right', type: { kind: 'array', item } },
+      ],
+      output: { kind: 'bool' },
+      instructions: 'Array containment over typed documents.',
+      emit: { postgres: '({left} @> {right})' },
+    });
+    registry.registerType(
+      registry.parseType({
+        name: 'shapes',
+        count: 10,
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'geoms', type: { kind: 'array', item: { kind: 'json', as: 'Typed', with: { subtype: 'Polygon' } } } },
+        ],
+      }),
+    );
+    return registry;
+  }
+  /** `geoms @> <literal>` over `shapes`. */
+  const contains = (right: JsonValue): QueryDef => ({
+    kind: 'select',
+    fields: [{ expr: { kind: 'field-ref', source: 'shapes', field: 'id' } }],
+    from: { kind: 'type', type: 'shapes' },
+    where: [
+      {
+        kind: 'operator',
+        op: '@>',
+        args: {
+          left: { kind: 'field-ref', source: 'shapes', field: 'geoms' },
+          right: { kind: 'literal', value: right },
+        },
+      },
+    ],
+  });
+
+  it('REFUSES an ELEMENT whose cast interpolates an option the operand never wrote', () => {
+    // Measured before the fix, on this exact declaration and this exact value:
+    //   ARRAY[ST_GeomFromGeoJSON($1)::geometry(Point)]::geometry(Point)[]
+    // — a Polygon document cast to a Point typmod, which is precisely the class
+    // the rule refuses ONE LEVEL UP. Postgres constructs a native array
+    // element-wise and re-enters `jsonValue` per element, so a rule enforced
+    // only at the operand was enforced for the container and skipped for
+    // everything inside it.
+    const engine = new QueryEngine(arrayRegistry());
+    const problem = refusal(() => engine.toSQL(contains([{ type: 'Polygon' }]), 'postgres'));
+    expect(problem.code).toBe('cast.unwritten-option');
+    expect(problem.path).toEqual(['args', 'right']);
+    expect(problem.message).toContain('`{subtype}`');
+  });
+
+  it('EMITS the element cast when the operand wrote the options', () => {
+    const sql = new QueryEngine(arrayRegistry({ subtype: 'Polygon' })).toSQL(
+      contains([{ type: 'Polygon' }]),
+      'postgres',
+    ).sql;
+    // The ELEMENT carries the declared cast; the ARRAY's own `::` target is the
+    // BASE's, because `Typed` declares a `cast` and no `sql` — the documented
+    // fallback, and the reason the shipped `Geometry` declares both.
+    expect(sql).toContain('ARRAY[ST_GeomFromGeoJSON($1)::geometry(Polygon)]::jsonb[]');
+  });
+
+  it('leaves a COLUMN position resolving its defaults, as it always did', () => {
+    // A write cell is a column: its refinement's defaults are facts about it.
+    const registry = arrayRegistry();
+    const sql = new QueryEngine(registry).toSQL(
+      {
+        kind: 'insert',
+        into: 'shapes',
+        rows: [{ id: { kind: 'literal', value: 1 }, geoms: { kind: 'literal', value: [{ type: 'Polygon' }] } }],
+      },
+      'postgres',
+    ).sql;
+    expect(sql).toContain('ST_GeomFromGeoJSON($2)::geometry(Polygon)');
+  });
+});
+
+describe('`checkOperator` finds an operand cast that can never be resolved', () => {
+  /** `&&` over a column-shaped `Typed`, with no `with` on either operand. */
+  const UNWRITABLE: OperatorDef = {
+    name: '&&',
+    operands: [
+      { name: 'left', type: { kind: 'json', as: 'Typed' } },
+      { name: 'right', type: { kind: 'json', as: 'Typed' } },
+    ],
+    output: { kind: 'bool' },
+    instructions: 'Overlap over a column-shaped cast — the shape that is refused at emit.',
+    emit: { postgres: '({left} && {right})' },
+  };
+
+  it('WARNS at the declaration for what would otherwise appear at the first bound document', () => {
+    const warnings = checkOperator(UNWRITABLE, {
+      registry: createRegistry().registerFieldType(TYPED),
+    }).problems.filter((p) => p.code === 'conformance.unwritable-operand-cast');
+    // One per operand — both are typed `Typed` and neither writes `subtype`.
+    expect(warnings.map((p) => p.path)).toEqual([
+      ['checkOperator', '&&', 'operands', 'left'],
+      ['checkOperator', '&&', 'operands', 'right'],
+    ]);
+    expect(warnings[0]!.severity).toBe('warning');
+    expect(warnings[0]!.message).toContain('`{subtype}`');
+    // It names BOTH resolutions the emit-time refusal names.
+    expect(warnings[0]!.message).toContain('`with` bag');
+    expect(warnings[0]!.message).toContain('cast TARGET');
+  });
+
+  it('is SILENT once the operand writes the options, or when the cast interpolates none', () => {
+    const written = checkOperator(
+      { ...UNWRITABLE, operands: UNWRITABLE.operands.map((o) => ({ ...o, type: { kind: 'json', as: 'Typed', with: { subtype: 'Polygon' } } })) },
+      { registry: createRegistry().registerFieldType(TYPED) },
+    );
+    expect(written.problems.filter((p) => p.code === 'conformance.unwritable-operand-cast')).toEqual([]);
+    // `Geometry`'s cast interpolates nothing, so it is position-independent.
+    expect(
+      checkOperator(OVERLAPS, { registry: baseRegistry() })
+        .problems.filter((p) => p.code === 'conformance.unwritable-operand-cast'),
+    ).toEqual([]);
+  });
+
+  it('reaches an ARRAY operand\'s ELEMENT type, the level the emit road recurses into', () => {
+    const warnings = checkOperator(
+      {
+        ...UNWRITABLE,
+        name: '@>',
+        operands: UNWRITABLE.operands.map((o) => ({
+          ...o,
+          type: { kind: 'array', item: { kind: 'json', as: 'Typed' } },
+        })),
+        emit: { postgres: '({left} @> {right})' },
+      },
+      { registry: createRegistry().registerFieldType(TYPED) },
+    ).problems.filter((p) => p.code === 'conformance.unwritable-operand-cast');
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]!.message).toContain('typed `Typed`');
+  });
+});
+
+describe('an unwritable cast naming TWO options reads as a list, in both surfaces', () => {
+  /** A refinement whose cast interpolates BOTH of its own options. */
+  const TWO_SLOT: FieldTypeRefinementDef = {
+    name: 'TwoSlot',
+    base: 'json',
+    instructions: 'A geometry whose cast pins BOTH the subtype and the SRID — doubly column-shaped.',
+    ownOptions: {
+      subtype: { type: { kind: 'text', values: [{ value: 'Point' }, { value: 'Polygon' }] }, default: 'Point' },
+      srid: { type: { kind: 'number', whole: true }, default: 4326 },
+    },
+    cast: { postgres: 'ST_GeomFromGeoJSON({value})::geometry({subtype},{srid})' },
+  };
+  const OVERLAPS_TWO: OperatorDef = {
+    name: '&&',
+    operands: [
+      { name: 'left', type: { kind: 'json', as: 'TwoSlot' } },
+      { name: 'right', type: { kind: 'json', as: 'TwoSlot' } },
+    ],
+    output: { kind: 'bool' },
+    instructions: 'Overlap over a doubly column-shaped cast.',
+    emit: { postgres: '({left} && {right})' },
+  };
+
+  it('the EMIT refusal lists both, and says "them"', () => {
+    const registry = createRegistry().registerFieldType(TWO_SLOT).registerOperator(OVERLAPS_TWO);
+    registry.registerType(
+      registry.parseType({
+        name: 'shapes',
+        count: 10,
+        fields: [
+          { name: 'id', type: { kind: 'number', whole: true } },
+          { name: 'shape', type: { kind: 'json', as: 'TwoSlot', with: { subtype: 'Polygon', srid: 3857 } } },
+        ],
+      }),
+    );
+    const problem = refusal(() =>
+      new QueryEngine(registry).toSQL(
+        {
+          kind: 'select',
+          fields: [{ expr: { kind: 'field-ref', source: 'shapes', field: 'id' } }],
+          from: { kind: 'type', type: 'shapes' },
+          where: [
+            {
+              kind: 'operator',
+              op: '&&',
+              args: {
+                left: { kind: 'field-ref', source: 'shapes', field: 'shape' },
+                right: { kind: 'literal', value: { type: 'Polygon' } },
+              },
+            },
+          ],
+        },
+        'postgres',
+      ),
+    );
+    expect(problem.message).toContain('`{subtype}`, `{srid}`');
+    expect(problem.message).toContain('declared no value for them');
+  });
+
+  it('the `checkOperator` warning lists both too', () => {
+    const warning = checkOperator(OVERLAPS_TWO, { registry: createRegistry().registerFieldType(TWO_SLOT) })
+      .problems.find((p) => p.code === 'conformance.unwritable-operand-cast');
+    expect(warning?.message).toContain('`{subtype}`, `{srid}`');
+    expect(warning?.message).toContain('writes no value for them');
   });
 });

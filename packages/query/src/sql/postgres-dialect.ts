@@ -7,7 +7,7 @@
  *  - richer field types (`text`, `jsonb`, `timestamptz`, `numeric`).
  */
 import { BaseDialect } from './base-dialect';
-import { jsonObjectArgs } from './dialect';
+import { jsonObjectArgs, type ValueSite } from './dialect';
 import { SqlText } from './emit';
 import type { FieldType } from '../field-type';
 import type { JsonValue } from '../schema';
@@ -108,13 +108,17 @@ export class PostgresDialect extends BaseDialect {
    * Everything else — a `json` / `jsonb` column, a heterogeneous array (which
    * `sqlTypeFor` already stores as `jsonb`), or a bare document with no declared
    * target — casts the JSON text to `jsonb`.
+   *
+   * THE ELEMENT RECURSION CARRIES `site`, so the value-position rule reaches the
+   * ITEM's declared cast as well as the container's — see
+   * `Dialect.builtinJsonValue` for the emit this closed.
    */
-  protected override builtinJsonValue(value: JsonValue, fieldType?: FieldType): SqlText {
+  protected override builtinJsonValue(value: JsonValue, fieldType?: FieldType, site?: ValueSite): SqlText {
     const array = fieldType instanceof ArrayFieldType ? fieldType : undefined;
     const item = array?.item;
     if (array !== undefined && item !== undefined && Array.isArray(value)) {
       const elements = value.map((v) =>
-        v !== null && typeof v === 'object' ? this.jsonValue(v, item) : SqlText.param(v),
+        v !== null && typeof v === 'object' ? this.jsonValue(v, item, site) : SqlText.param(v),
       );
       return SqlText.concat([
         SqlText.raw('ARRAY['),

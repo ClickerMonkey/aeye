@@ -473,9 +473,12 @@ export function describeOperators(
  * `&&(left: json(as Geometry), right: json(as Geometry)) → bool` — one
  * operator's signature.
  *
- * Rendered in the OPERAND style (see {@link TagStyle}): an operand's declared
- * type says WHAT MAY BE PASSED, so rendering the refinement's defaults there
- * would describe a constraint the declaration never made.
+ * The OPERANDS are rendered in the operand style (see {@link TagStyle}): an
+ * operand's declared type says WHAT MAY BE PASSED, so rendering the refinement's
+ * defaults there would describe a constraint the declaration never made. The
+ * OUTPUT is rendered in COLUMN style, for the reasons stated at the return —
+ * this line used to say "the signature", which covered the half of it that is
+ * not true.
  */
 function operatorSignature(operator: QueryOperator): string {
   const operands = operator.operands
