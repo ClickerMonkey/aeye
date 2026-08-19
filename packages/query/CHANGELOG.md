@@ -526,12 +526,23 @@ guesses, which costs a validate-fail retry carrying the whole schema. Every fail
 because degrading silently would take the narrowing with it.
 
 **Ordering is ENFORCED, not advised.** `registerFieldType` / `registerFieldTypeImpl` throw
-`field-type.late-refinement` once a Type has been parsed or registered on that registry. A stored
-`as` resolves against the registry as it stood AT PARSE TIME, so a runtime-installed system
-registering `uuid` after the catalog crawl would leave every already-parsed column carrying the
-un-narrowed base — the `LOWER()` this feature exists to remove — while the type tag still read
-`text` and nothing raised. That is the one failure in this design that would otherwise be silent,
-which is why it is a refusal rather than a sentence in the docs.
+`field-type.late-refinement` once that registry has built a FIELD TYPE — armed at the parse
+itself, so `parseType`, `registerType`, `parseFieldType`, `Type.from` and a declared function
+parameter all count, rather than only the first two. A stored `as` resolves against the registry
+as it stood AT PARSE TIME, so a runtime-installed system registering `uuid` after the catalog
+crawl would leave every already-built column carrying the un-narrowed base — the `LOWER()` this
+feature exists to remove — while the type tag still read `text` and nothing raised. A late IMPL is
+worse: it attaches to the compiled refinement every column naming it SHARES, so it retroactively
+changes what an already-handed-out column validates against, mid-process. That is the one failure
+in this design that would otherwise be silent, which is why it is a refusal rather than a sentence
+in the docs.
+
+**An unknown declaration key is REFUSED, not ignored.** TypeScript's excess-property check only
+fires on an INLINE literal, so `registerFieldType(JSON.parse(stored) as FieldTypeRefinementDef)` —
+the road these docs advertise — would type-check and silently drop anything unrecognised. For the
+one key that MOVED (`value`) that is the exact dead-gate end state the impl split exists to
+prevent, reached from the other side, so it is refused by name with its new home. The key list is
+compile-checked against the declaration interface, so the two cannot drift.
 
 **SQL.** `Dialect.sqlTypeFor` answers the refinement's `sql` for that dialect; a dialect with no
 entry falls back to the base kind's own mapping — a FALLBACK, not a degrade, because the base's
@@ -607,6 +618,17 @@ emission, so read this one even if the paragraph above does not apply:
   one; `estimate` is re-tested instead, which narrows properly.
 - **`semanticTexts` on an engine with no registered dialect** is now covered by a test rather
   than only by inspection.
+- **A known limit that is NOT new, found while measuring one that is.**
+  `z.toJSONSchema(Type.toSchema())` throws `RangeError: Maximum call stack size exceeded` — on this
+  release and on released `0.6.5` alike. `ArrayFieldType.toSchema`'s `z.lazy(() =>
+  fieldTypeDefSchema(opts))` returns a FRESH schema on every call, which defeats zod's
+  identity-based cycle detection; the query road escapes it only because `schema-build.ts` gives
+  its lazies stable ids (`aids.ts`). So a "author a Type" tool cannot generate a JSON Schema off
+  `Type.toSchema` today. It is recorded here because this release's `as` key is justified partly on
+  JSON-Schema representability (`z.never()` renders `{"not":{}}`; `z.undefined()` throws, and under
+  `unrepresentable: 'any'` renders as *permit anything* — the opposite of the intent), and that
+  argument is true of a SINGLE BRANCH's schema, which is what the test asserts. Fixing the union
+  needs a stable-id lazy and is not this release's change.
 - **Two known limits, stated rather than discovered.** `write.value` names the members through
   `describeValues`, which ELIDES past `MAX_DESCRIBED_VALUES` (12) — so a larger set yields a
   refusal whose remedy is partial. That is deliberate: it is the same rendering the model was

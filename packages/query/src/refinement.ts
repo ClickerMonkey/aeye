@@ -9,9 +9,10 @@
  *    opens, every `def.kind === 'text'` narrowing and every `instanceof
  *    TextFieldType` check stays correct by construction, and the exhaustiveness
  *    guards in the SQL / cost / value-schema switches stay unreachable;
- *  - a refinement is pure DATA (bar one optional zod schema), so it can be
- *    persisted, sent over the wire and shown to a model — the same split
- *    `FunctionDef` has to `registerFunction`;
+ *  - a DECLARATION is pure JSON, so it can be persisted, sent over the wire and
+ *    shown to a model, while the CODE half ({@link FieldTypeImpl}) is a separate
+ *    registration — the same split `FunctionDef` has to `FunctionRun`, and for a
+ *    measured reason rather than symmetry (see {@link FieldTypeImpl});
  *  - the library COMPILES the declaration into a builtin instance. A declarer
  *    never writes a `FieldType` subclass, never writes `meetWith`, and therefore
  *    cannot break the lattice laws `param-meet.test.ts` proves.
@@ -265,6 +266,9 @@ export const REFINABLE_BASES = SCALAR_KINDS.filter((kind) => kind !== 'relation'
 /** A base a refinement may narrow (see {@link REFINABLE_BASES}). */
 export type RefinableBase = Exclude<ScalarKind, 'relation'>;
 
+/** {@link REFINABLE_BASES} as a membership test over the WIDER `ScalarKind`. */
+const REFINABLE_BASE_SET: ReadonlySet<ScalarKind> = new Set<ScalarKind>(REFINABLE_BASES);
+
 /**
  * The bases whose VALUES are bound through `Dialect.jsonValue` — the ONE seam a
  * declared `cast` template can reach.
@@ -277,6 +281,48 @@ export type RefinableBase = Exclude<ScalarKind, 'relation'>;
  * rather than accepted-and-inert.
  */
 const CAST_CAPABLE_BASES: ReadonlySet<ScalarKind> = new Set<ScalarKind>(['json', 'array']);
+
+/**
+ * Every key a DECLARATION may carry. An unknown one is REFUSED rather than
+ * ignored, because "ignored" is how the failure this whole split exists to
+ * prevent comes back in a different disguise.
+ *
+ * The measured case is `value`. It used to live on the declaration and now lives
+ * on the impl, and TypeScript's excess-property check only fires on an INLINE
+ * literal — so `registerFieldType(JSON.parse(stored) as FieldTypeRefinementDef)`,
+ * which is the road the docs advertise, type-checks and silently drops the
+ * strictest gate on the column. Same end state as a revived husk, reached by a
+ * different road.
+ *
+ * The list is checked against the interface below, so adding a key to one
+ * without the other does not compile.
+ */
+const DECLARATION_KEYS = [
+  'name',
+  'base',
+  'instructions',
+  'options',
+  'sql',
+  'cast',
+  'avgBytes',
+  'declaredBy',
+] as const;
+
+/** {@link DECLARATION_KEYS} as a membership test over an arbitrary key string. */
+const DECLARATION_KEY_SET: ReadonlySet<string> = new Set<string>(DECLARATION_KEYS);
+
+/** Keys that MOVED, so their refusal can say where they went instead of just "unknown". */
+const RELOCATED_KEYS: Readonly<Record<string, string>> = {
+  value: '`registerFieldTypeImpl(name, { value })` — it is a zod schema, and a declaration is JSON',
+};
+
+type Assert<T extends true> = T;
+/** `DECLARATION_KEYS` covers the declaration exactly — neither list may drift. */
+type _DeclarationKeysAreExact = Assert<
+  Exclude<keyof FieldTypeRefinementDefFor<'text'>, (typeof DECLARATION_KEYS)[number]> extends never
+    ? (typeof DECLARATION_KEYS)[number] extends keyof FieldTypeRefinementDefFor<'text'> ? true : false
+    : false
+>;
 
 /** Throw a declaration-defect `QueryTypeError` for refinement `name`. */
 function refuse(name: string, path: (string | number)[], message: string): never {
@@ -398,7 +444,17 @@ export class FieldTypeRefinement {
    * refinement that registered half-broken would be wrong on every column that
    * ever names it.
    */
-  static compile(def: FieldTypeRefinementDef, registry: Registry): FieldTypeRefinement {
+  static compile(
+    def: FieldTypeRefinementDef,
+    registry: Registry,
+    /**
+     * How the declared `options` become a `FieldType`. Supplied by the registry
+     * rather than taken off it, because this road must NOT freeze the refinement
+     * vocabulary — compiling the first declaration would otherwise refuse the
+     * second (`Registry.parseFieldTypeUnflagged`).
+     */
+    parseFieldType: (json: FieldTypeDef) => FieldType,
+  ): FieldTypeRefinement {
     const { name } = def;
     if (typeof name !== 'string' || !REFINEMENT_NAME_PATTERN.test(name)) {
       refuse(
@@ -427,6 +483,23 @@ export class FieldTypeRefinement {
           'which package registered last.',
       );
     }
+    // An unknown key is REFUSED, not ignored — see `DECLARATION_KEYS`. Checked
+    // before anything reads the declaration, so a stale `value` cannot register
+    // and then sit inert.
+    for (const key of Object.keys(def)) {
+      if (DECLARATION_KEY_SET.has(key)) continue;
+      const moved = RELOCATED_KEYS[key];
+      refuse(
+        name,
+        [key],
+        `Unknown declaration key \`${key}\`.` +
+          `${moved !== undefined ? ` It moved to ${moved}.` : didYouMean(key, [...DECLARATION_KEYS])} ` +
+          `A declaration carries only: ${DECLARATION_KEYS.join(', ')}. An unknown key is refused rather ` +
+          'than dropped, because a key that is silently dropped is a fact the declarer believes is in ' +
+          'force and is not.',
+      );
+    }
+
     // Read as a plain string: `def.base` is typed `RefinableBase`, so `relation`
     // is already a compile error — this is the runtime half, for an untyped
     // caller, and it earns its own message because it is the one base a declarer
@@ -471,7 +544,7 @@ export class FieldTypeRefinement {
     const options: object = def.options ?? {};
     let declared: FieldType;
     try {
-      declared = registry.parseFieldType(Object.assign(BARE_DEF_OF[def.base](), def.options));
+      declared = parseFieldType(Object.assign(BARE_DEF_OF[def.base](), def.options));
     } catch (err) {
       refuse(
         name,
@@ -610,14 +683,25 @@ export class FieldTypeRefinement {
  * with no registrations — and the normal pipeline is `Tool.parse` →
  * `engine.parseType(result)`, so `parseType` never sees the raw def and the loud
  * `field-type.unknown-refinement` never fires. The identical mistake was caught
- * on `text` and silently discarded on `json`. `z.never()` refuses any value while
- * `.optional()` keeps the key absent-able, and it is representable in JSON Schema
- * (`{"not":{}}`) where `z.undefined()` is not.
+ * on `text` and silently discarded on `json`.
+ *
+ * `z.never()` refuses any value while `.optional()` keeps the key absent-able,
+ * and it is the right refusal for two reasons: `z.undefined()` is
+ * UNREPRESENTABLE in JSON Schema (it throws, and under `unrepresentable: 'any'`
+ * it renders as "permit anything" — the opposite of the intent), whereas `never`
+ * renders as `{"not":{}}`. That is true of ONE BRANCH's schema; converting the
+ * whole `fieldTypeDefSchema` union is a separate, pre-existing matter (see the
+ * known limit in `CHANGELOG.md`).
  *
  * Returns a spreadable fragment rather than a schema so a branch declares the
  * key exactly where it declares the rest of its wire shape.
  */
 export function refinementKeySchema(base: ScalarKind, opts?: SchemaOptions): { as: z.ZodTypeAny } {
+  // A base that can never be refined says so, rather than "none registered
+  // HERE" — which would imply another registry could have one.
+  if (!REFINABLE_BASE_SET.has(base)) {
+    return { as: z.never().optional().describe(`A ${base} cannot be refined — omit \`as\`.`) };
+  }
   const registered = (opts?.registry?.fieldTypeRefinementList() ?? []).filter((r) => r.base === base);
   const [first, ...rest] = registered.map((r) => r.name);
   if (first === undefined) {

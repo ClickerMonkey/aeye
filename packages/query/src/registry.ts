@@ -164,7 +164,7 @@ export class Registry {
    */
   registerFieldType(def: FieldTypeRefinementDef): this {
     this.refuseLateRegistration('registerFieldType', def.name);
-    const refinement = FieldTypeRefinement.compile(def, this);
+    const refinement = FieldTypeRefinement.compile(def, this, (json) => this.parseFieldTypeUnflagged(json));
     this.fieldTypeRefinements.set(refinement.name, refinement);
     return this;
   }
@@ -222,22 +222,32 @@ export class Registry {
   }
 
   /**
-   * Set once this registry has been used to build a Type. Registration of a
-   * refinement (or its impl) is refused past that point — see
+   * Set once this registry has built a FIELD TYPE — through `parseFieldType`,
+   * and so through `parseType` / `registerType` / `Type.from` / a function's
+   * declared parameter types, all of which route there. Registration of a
+   * refinement (or its impl) is refused past that point; see
    * {@link refuseLateRegistration}.
    */
   private catalogBuilt = false;
 
   /**
-   * Refuse a refinement registration once the catalog has been built.
+   * Refuse a refinement registration once this registry has built a field type.
    *
    * A stored `{kind:'text', as:'uuid'}` resolves against whatever the registry
    * knew AT PARSE TIME, and the resolved column is what every later predicate
    * uses. So a system that registers `uuid` after the catalog crawl leaves every
    * already-parsed column carrying the un-narrowed base — the `LOWER()` this
    * feature exists to remove — while the type tag still reads `text` and no
-   * error is raised anywhere. That is the one failure in this design that is
-   * SILENT, which is why ordering is enforced rather than documented.
+   * error is raised anywhere. A late IMPL is worse still: it attaches to the
+   * compiled refinement every column naming it SHARES, so it retroactively
+   * changes what an already-handed-out column validates against, mid-process.
+   * That is the one failure in this design that is SILENT, which is why ordering
+   * is enforced rather than documented.
+   *
+   * Armed at the field-type parse rather than at `parseType`, because
+   * `parseType` is not the only road to a refined instance — `parseFieldType` is
+   * public, `Type.from` is on the package barrel, and a function's declared
+   * parameter types parse through the same place.
    */
   private refuseLateRegistration(verb: string, name: string): void {
     if (!this.catalogBuilt) return;
@@ -246,11 +256,12 @@ export class Registry {
       code: 'field-type.late-refinement',
       severity: 'error',
       message:
-        `\`${verb}('${name}')\` was called after a Type had already been parsed or registered on this ` +
-        'registry. A stored `as` resolves against the registry as it stood AT PARSE TIME, so every column ' +
-        'parsed before this call would keep the UN-narrowed base — silently, since it still describes ' +
-        'itself as the base kind. Register every refinement (and its impl) before the first `parseType` / ' +
-        '`registerType`, or build a fresh registry.',
+        `\`${verb}('${name}')\` was called after this registry had already built a field type ` +
+        '(`parseType` / `registerType` / `parseFieldType` / `Type.from`, or a declared function ' +
+        'parameter). A stored `as` resolves against the registry as it stood AT PARSE TIME, so every ' +
+        'column built before this call would keep the UN-narrowed base — silently, since it still ' +
+        'describes itself as the base kind — and a late impl would retroactively change what those ' +
+        'columns validate against. Register every refinement and its impl first, or build a fresh registry.',
     });
   }
 
@@ -305,6 +316,39 @@ export class Registry {
    * predicate over it.
    */
   parseFieldType(json: FieldTypeDef): FieldType {
+    // Building a refined instance is what FREEZES the vocabulary, so the flag is
+    // set HERE rather than only in `parseType` / `registerType`. Those two are
+    // not the only roads to a field type: `parseFieldType` is public, `Type.from`
+    // is reachable off the barrel, and a function's declared parameter types
+    // parse through here too — all three built refined instances while leaving
+    // late registration open, and a late IMPL then RETROACTIVELY changed what an
+    // already-handed-out column validates against, because the impl attaches to
+    // the compiled refinement every column naming it shares.
+    this.catalogBuilt = true;
+    return this.parseFieldTypeInternal(json);
+  }
+
+  /**
+   * {@link parseFieldType} WITHOUT freezing the vocabulary — the road
+   * `FieldTypeRefinement.compile` takes to build a declaration's own options.
+   *
+   * The exemption is necessary and narrow: compiling the FIRST refinement would
+   * otherwise freeze the registry and refuse the second. It SAVES AND RESTORES
+   * the flag rather than bypassing the public method, because a composite option
+   * recurses through `parseFieldType` for its element (`ArrayFieldType.from`) and
+   * a bypass would only exempt the top level.
+   */
+  private parseFieldTypeUnflagged(json: FieldTypeDef): FieldType {
+    const was = this.catalogBuilt;
+    try {
+      return this.parseFieldTypeInternal(json);
+    } finally {
+      this.catalogBuilt = was;
+    }
+  }
+
+  /** The parse itself, with no opinion about freezing (see the two callers above). */
+  private parseFieldTypeInternal(json: FieldTypeDef): FieldType {
     const cls = this.fieldTypeClasses.get(json.kind);
     if (!cls) {
       throw new Error(`registry.parseFieldType: unknown field-type kind '${json.kind}'`);

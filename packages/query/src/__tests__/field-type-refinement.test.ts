@@ -579,19 +579,64 @@ describe('registration refuses a declaration that would be wrong on every column
     // registry as it stood AT PARSE TIME, so a system registering `uuid` after
     // the catalog crawl leaves every already-parsed column carrying the
     // un-narrowed base — with the LOWER() back, and the tag still reading `text`.
-    for (const build of [
-      (r: Registry): void => void r.parseType(thingTypeDef),
-      (r: Registry): void => void r.registerType(r.parseType({ name: 'x', fields: [], count: 1 })),
-    ]) {
+    //
+    // EVERY road that builds a refined instance arms it, not just `parseType`.
+    // `parseFieldType` is public, `Type.from` is on the barrel, and a function's
+    // declared parameter types parse through the same place — each of those left
+    // the door open, and a late IMPL then retroactively changed what an
+    // already-handed-out column validates against (it attaches to the compiled
+    // refinement every column naming it shares).
+    const roads: Readonly<Record<string, (r: Registry) => void>> = {
+      parseType: (r) => void r.parseType(thingTypeDef),
+      registerType: (r) => void r.registerType(r.parseType({ name: 'x', fields: [], count: 1 })),
+      parseFieldType: (r) => void r.parseFieldType({ kind: 'text', as: 'uuid' }),
+      'Type.from': (r) => void Type.from(thingTypeDef, r),
+      'parseFieldType(array item)': (r) =>
+        void r.parseFieldType({ kind: 'array', item: { kind: 'text', as: 'uuid' } }),
+    };
+    // Collected rather than asserted per iteration, so a failure names EVERY
+    // road still open instead of only the first.
+    const open: string[] = [];
+    for (const [road, build] of Object.entries(roads)) {
       const registry = refinedRegistry();
       build(registry);
-      expect(refusal(() => register({ name: 'Late', base: 'text', instructions: 'x.' }, registry)))
-        .toContain('after a Type had already been parsed or registered');
-      expect(refusal(() => registry.registerFieldTypeImpl('uuid', { value: z.string() })))
-        .toContain('after a Type had already been parsed or registered');
-      expect(refusalCode(() => register({ name: 'Late', base: 'text', instructions: 'x.' }, registry)))
-        .toBe('field-type.late-refinement');
+      const decl = refusalCode(() => register({ name: 'Late', base: 'text', instructions: 'x.' }, registry));
+      const impl = refusalCode(() => registry.registerFieldTypeImpl('Geometry', { value: z.string() }));
+      if (decl !== 'field-type.late-refinement') open.push(`${road}: declaration (${decl})`);
+      if (impl !== 'field-type.late-refinement') open.push(`${road}: impl (${impl})`);
     }
+    expect(open).toEqual([]);
+  });
+
+  it('…but compiling a declaration does NOT arm it, however nested its options', () => {
+    // `compile` parses the declared options, and that road must stay exempt or
+    // the FIRST refinement would freeze the registry and refuse the second. The
+    // exemption saves and restores the flag rather than bypassing the parse,
+    // because a composite option recurses through the public method.
+    const registry = createRegistry();
+    registry.registerFieldType(uuidDecl);
+    registry.registerFieldType({
+      name: 'Ids', base: 'array', instructions: 'A list of ids.',
+      options: { maxItems: 8, item: { kind: 'text', as: 'uuid' } },
+    });
+    registry.registerFieldType(geoDecl);
+    registry.registerFieldTypeImpl('uuid', { value: z.uuid() });
+    expect(registry.fieldTypeRefinementNames()).toEqual(['uuid', 'Ids', 'Geometry']);
+  });
+
+  it('refuses an unknown declaration key — and says where a RELOCATED one went', () => {
+    // The end state the impl split exists to prevent, reached by a different
+    // road: TypeScript's excess-property check only fires on an INLINE literal,
+    // so `registerFieldType(JSON.parse(stored) as FieldTypeRefinementDef)` — the
+    // road the docs advertise — used to type-check and silently drop the
+    // strictest gate on the column.
+    const stale = { ...uuidDecl, value: z.uuid() } as unknown as FieldTypeRefinementDef;
+    const message = refusal(() => register(stale));
+    expect(message).toContain('Unknown declaration key `value`');
+    expect(message).toContain('registerFieldTypeImpl');
+    // …and a plain typo gets a suggestion rather than a relocation.
+    const typo = { ...uuidDecl, instuctions: 'oops' } as unknown as FieldTypeRefinementDef;
+    expect(refusal(() => register(typo))).toContain('did you mean `instructions`?');
   });
 });
 
@@ -712,17 +757,27 @@ describe('the meet never produces a type the registry itself would refuse', () =
     const all = [
       { kind: 'number', as: 'Score' }, { kind: 'number' }, { kind: 'money' },
       { kind: 'money', currency: 'USD' }, { kind: 'date', as: 'Day' }, { kind: 'date' },
+      { kind: 'money', as: 'Usd' }, { kind: 'timestamp', as: 'Instant' },
       { kind: 'timestamp' }, { kind: 'timestamp', timezone: true },
     ] satisfies FieldTypeDef[];
+    let survivingTags = 0;
     for (const x of all) {
       for (const y of all) {
         const met = registry.parseFieldType(x).meet(registry.parseFieldType(y));
         if (!met) continue;
+        if (met.as !== undefined) survivingTags += 1;
         const json = met.toJSON();
         expect(() => registry.parseFieldType(json)).not.toThrow();
         expect(registry.parseFieldType(json).toJSON()).toEqual(json);
+        // The invariant the check establishes, asserted directly: a surviving
+        // tag is always on its own base kind.
+        expect(met.refinement === undefined || met.kind === met.refinement.base).toBe(true);
       }
     }
+    // BOTH sides of both families are refined here, so the sweep must exercise
+    // the SURVIVING direction too — otherwise the property would pass by
+    // refusing every tagged meet.
+    expect(survivingTags).toBeGreaterThan(0);
   });
 
   it('REFUSES two DIFFERENT compilations of one name — the left operand no longer wins', () => {

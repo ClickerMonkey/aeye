@@ -352,20 +352,25 @@ export abstract class FieldType implements Node {
     // `date`/`timestamp`) answer with whichever side is the more specific, so a
     // meet can legitimately change kind underneath a tag: `money{as:'Usd'} ⊓
     // number` is still a money and keeps it, while `number{as:'Score'} ⊓ money`
-    // is a MONEY and cannot. Stapling the tag on regardless produced
-    // `{kind:'money', …, as:'Score'}` — a def this very registry throws on —
-    // which reached callers through `params()`.
+    // is a MONEY and cannot.
     //
-    // Checked on the RESULT rather than on the two operands' kinds, and that
-    // distinction is load-bearing: refusing whenever the operands' kinds differ
-    // is NOT ASSOCIATIVE, because `money ⊓ number` is a money, so
-    // `usd ⊓ (money ⊓ number)` would succeed where `(usd ⊓ money) ⊓ number`
-    // failed. Asking about the result asks the only question that is stable
-    // however the fold is grouped.
+    // THE CHECK IS ON THE RESULT, NOT ON THE TWO OPERANDS' KINDS, and that is the
+    // load-bearing half. Refusing whenever the operands' kinds differ is NOT
+    // ASSOCIATIVE — `money ⊓ number` is a money, so `usd ⊓ (money ⊓ number)`
+    // succeeds where `(usd ⊓ money) ⊓ number` fails (measured: 176 mismatches
+    // over the property set). Asking about the RESULT is stable however a fold
+    // groups, because the check ESTABLISHES its own premise: a surviving tag
+    // implies `kind(a ⊓ b) === r.base`, so a later meet against that result can
+    // only move to the strictly more specific side of the family — which is
+    // absorbing in both families, so the outer check fires too and the two
+    // groupings agree.
     //
-    // Dropping the tag instead of refusing would be unsound: it drops the
-    // refinement's stricter value gate, so the meet would admit values the
-    // refined operand refuses.
+    // Two further reasons for REFUSING rather than dropping the tag, both real
+    // and both weaker than the one above: stapling it on regardless produced
+    // `{kind:'money', …, as:'Score'}`, a def this very registry throws on, which
+    // reached callers through `params()`; and dropping it is outright UNSOUND —
+    // it drops the refinement's stricter value gate, so `score ⊓ money` would
+    // admit a `7` that `score` itself refuses.
     if (as.value !== undefined && met.kind !== as.value.base) return undefined;
     return met.withRefinement(as.value);
   }
