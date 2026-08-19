@@ -27,6 +27,7 @@ import type { Type } from '../type';
 import type { Field } from '../field';
 import type { ExprDef, FunctionDef, FunctionShape } from '../schema';
 import type { FieldType } from '../field-type';
+import { refusedOperators } from '../refinement';
 import { ArrayFieldType, RelationFieldType, TextFieldType, MoneyFieldType } from '../field-types/index';
 import { hasFieldDefault, type DefaultCondition, type DefaultOrder, type FieldBacking, type TypeBacking } from '../backing';
 import { describeValues } from '../field-types/_values';
@@ -170,12 +171,10 @@ function refinementOptionQuals(ft: FieldType): string[] {
  */
 function refinementCompareQuals(ft: FieldType): string[] {
   const compare = ft.refinement?.compare;
-  if (!compare) return [];
-  const parts: string[] = [];
-  if (!compare.equality) parts.push('no =');
-  if (!compare.ordering) parts.push('no <');
-  if (!compare.textMatch) parts.push('no LIKE');
-  return parts;
+  // DERIVED from the one table in `refinement.ts`, not re-spelled. Two hand-
+  // written `if (!compare.x)` chains in two files is how a fourth arm gets added
+  // and mentioned by neither surface.
+  return compare ? refusedOperators(compare).map((op) => `no ${op}`) : [];
 }
 
 /**

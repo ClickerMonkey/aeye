@@ -669,12 +669,22 @@ only from `ComparisonExpr`, so a model refused at `shape < :p` restated it as
 `shape BETWEEN :p AND :q` and got `WHERE "parcel"."shape" BETWEEN $1 AND $2` — the exact SQL the
 refusal exists to prevent, from a one-token rewrite.
 
-**IT GATES PREDICATES, NOT SORTS**, and that is a stated gap rather than a claim. `ORDER BY shape`,
-`min(shape)` and window ordering are all accepted over a type declaring no ordering. A sort over an
-unordered type is deterministic nonsense where an unordered predicate is worse (its truth is a
-storage-format detail), and closing it must keep `ORDER BY ST_Distance(shape, :here)` working — so
-the gate belongs on a BARE COLUMN REFERENCE in a sort position rather than on the sort position.
-Not designed yet; the docs say so where a reader will look.
+**AND CONTAINMENT, because `contains` is `IN` with a different keyword** — it emits a literal
+`$1 = ANY("t"."list")`. `array-op`'s three containment ops are gated on `equality`; `isEmpty` /
+`notEmpty` are not, because `cardinality(…) = 0` compares a COUNT and never an element. Both
+refinement positions are checked: `declaredArmRefusal` reads `ft.refinement`, which on an array is
+the ARRAY's own tag, so a refined array and an array of a refined ITEM are two different places to
+look and a single check at the top of the expr found only the first.
+
+**WHERE IT IS NOT ENFORCED IS A LIST, NOT A SLOGAN.** An earlier draft of this section said "it
+gates predicates, not sorts", which was both wrong (containment is a predicate and was ungated) and
+not a partition (grouping is neither). Measured as accepted over a column refusing the relevant arm:
+`ORDER BY <column>`, `min` / `max`, window `ORDER BY` — all ordering, all one answer, and closing
+them must keep `ORDER BY ST_Distance(shape, :here)` working, so the gate belongs on a bare COLUMN
+REFERENCE in a sort position; `SELECT DISTINCT`, `GROUP BY`, window `PARTITION BY`,
+`UNION` / `INTERSECT` / `EXCEPT` — equality used to BUCKET rather than to filter, which is a real
+question rather than an oversight; and `text-search`, which `textMatch: false` does not refuse.
+`aeye-query.md` carries the same table where a reader will look.
 
 **`compare` gates the GRAMMAR, never the LATTICE** — a type declaring every arm `false` still meets
 like any other, and tying the two together would owe `x ⊓ ⊤ = x` a carve-out on the first such type.

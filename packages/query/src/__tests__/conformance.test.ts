@@ -140,8 +140,20 @@ describe('checkFieldType — one declaration, held to the builtins’ own proper
     const problem = report.problems.find((p) => p.code === 'conformance.gate-throws');
     expect(problem).toBeDefined();
     expect(problem!.message).toContain('THREW on a sample rather than refusing it');
-    // …and the run CONTINUED: the lattice was still proved.
-    expect(report.lattice!.laws.length).toBeGreaterThan(0);
+    // …and the run CONTINUED rather than stopping at the throw. Asserted on what
+    // the laws SAID, not on `laws.length` — that is populated unconditionally
+    // (even `checkLatticeLaws({})` returns all nine), so a length assertion
+    // could not fail and proved nothing.
+    //
+    // Every LATTICE law is clean: the meet is fine, it is the gate that is not.
+    for (const law of ['commutative', 'associative', 'idempotent', 'top-identity', 'sound', 'round-trip']) {
+      expect(report.lattice!.laws.find((l) => l.law === law)!.violations, law).toEqual([]);
+    }
+    // `total` names the STAGE, so the report says WHERE it threw and not only
+    // that something did — and it is reported twice on purpose, once as a
+    // property of the run and once as `gate-throws`, the declaration-level fact.
+    const total = report.lattice!.laws.find((l) => l.law === 'total')!;
+    expect(total.violations.every((v) => v.startsWith('ZodType.safeParse(sample)'))).toBe(true);
   });
 
   it('REPORTS a non-array `samples` rather than throwing at the spread', () => {
@@ -306,6 +318,91 @@ describe('checkLatticeLaws finds a law that is actually broken', () => {
     }
   });
 
+  it('REPORTS a `toJSON` that RETURNS something unserializable, not only one that throws', () => {
+    // The guard went on the CALL and the serialization sat outside it. A
+    // subclass may return a def that `JSON.stringify` refuses — a cyclic
+    // structure, or one carrying a BigInt — and both throw from the SERIALIZER,
+    // so both escaped a wrapper that only covered `toJSON()` itself.
+    class BadJson extends FieldType {
+      readonly kind = 'text' as const;
+      constructor(private readonly how: 'cyclic' | 'bigint') {
+        super();
+      }
+      resolve(): ScalarKind {
+        return 'text';
+      }
+      toSQLType(): string {
+        return 'text';
+      }
+      protected builtinJSON(): FieldTypeDef {
+        if (this.how === 'bigint') {
+          return { kind: 'text', pattern: 1n } as unknown as FieldTypeDef;
+        }
+        const cyclic: Record<string, unknown> = { kind: 'text' };
+        cyclic['self'] = cyclic;
+        return cyclic as unknown as FieldTypeDef;
+      }
+      protected builtinClone(): FieldType {
+        return new BadJson(this.how);
+      }
+      protected builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+        return z.string();
+      }
+      protected builtinAvgBytes(): number {
+        return 1;
+      }
+    }
+    for (const how of ['cyclic', 'bigint'] as const) {
+      const report = checkLatticeLaws({ bad: new BadJson(how), text: new TextFieldType() });
+      const total = report.failed.find((l) => l.law === 'total');
+      expect(total, `no \`total\` violation for a ${how} def`).toBeDefined();
+      expect(total!.violations.join(' ')).toContain('JSON.stringify(FieldType.toJSON())');
+    }
+  });
+
+  it('REPORTS a throwing `refinement` or `kind` ACCESSOR', () => {
+    // Both are getters on the base class that a subclass can shadow, and both
+    // were read bare — `tops[at(x).kind]` in the top-identity law and
+    // `m?.refinement` in the two tag laws.
+    class BadAccessor extends FieldType {
+      constructor(private readonly which: 'kind' | 'refinement') {
+        super();
+      }
+      override get kind(): 'text' {
+        if (this.which === 'kind') throw new Error('kind blew up');
+        return 'text';
+      }
+      override get refinement(): undefined {
+        if (this.which === 'refinement') throw new Error('refinement blew up');
+        return undefined;
+      }
+      resolve(): ScalarKind {
+        return 'text';
+      }
+      toSQLType(): string {
+        return 'text';
+      }
+      protected builtinJSON(): FieldTypeDef {
+        return { kind: 'text' };
+      }
+      protected builtinClone(): FieldType {
+        return new BadAccessor(this.which);
+      }
+      protected builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+        return z.string();
+      }
+      protected builtinAvgBytes(): number {
+        return 1;
+      }
+    }
+    for (const which of ['kind', 'refinement'] as const) {
+      const report = checkLatticeLaws({ bad: new BadAccessor(which), text: new TextFieldType() });
+      const total = report.failed.find((l) => l.law === 'total');
+      expect(total, `no \`total\` violation for a throwing ${which}`).toBeDefined();
+      expect(total!.violations.join(' ')).toContain(`${which} blew up`);
+    }
+  });
+
   it('DEDUPES what it reports — one broken method throws once per pair', () => {
     class AlwaysThrows extends FieldType {
       readonly kind = 'text' as const;
@@ -330,12 +427,50 @@ describe('checkLatticeLaws finds a law that is actually broken', () => {
     }
     const many = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`t${i}`, new AlwaysThrows()]));
     const total = checkLatticeLaws(many).failed.find((l) => l.law === 'total');
-    // 64 pairs, one `toJSON` that always throws, ONE reported line. Deduping on
-    // the whole line would have collapsed nothing, because the labels differ
-    // (`t0 ∧ t1`, `t0 ∧ t2`, …) while the message — the informative half — is the
-    // same. A 50-type set would otherwise report one defect 2,500 times.
-    expect(total!.violations).toHaveLength(1);
-    expect(total!.violations[0]).toContain('nope');
+    // 64 pairs, one `toJSON` that always throws, ONE reported line per STAGE.
+    // Deduping the whole LINE would collapse nothing (the labels differ every
+    // time), so a 50-type set would report one defect 2,500 times.
+    expect(total!.violations.filter((v) => v.startsWith('FieldType.toJSON()'))).toHaveLength(1);
+    expect(total!.violations.every((v) => v.includes('nope'))).toBe(true);
+    // …and the kept line still POINTS somewhere: the stage, plus the first site.
+    expect(total!.violations[0]).toMatch(/^FieldType\.\w+\(\)( at .+)?: nope$/);
+  });
+
+  it('…but does NOT collapse two different STAGES that share a message', () => {
+    // The over-collapse the message-only key caused: two types failing at two
+    // different stages with the same message became ONE line, labelled with a
+    // meet-pair naming neither of them. The stage is part of the key now.
+    class ThrowsIn extends FieldType {
+      readonly kind = 'text' as const;
+      constructor(private readonly stage: 'toJSON' | 'valueSchema') {
+        super();
+      }
+      resolve(): ScalarKind {
+        return 'text';
+      }
+      toSQLType(): string {
+        return 'text';
+      }
+      protected builtinJSON(): FieldTypeDef {
+        if (this.stage === 'toJSON') throw new Error('same message');
+        return { kind: 'text', pattern: 'b' };
+      }
+      protected builtinClone(): FieldType {
+        return new ThrowsIn(this.stage);
+      }
+      protected builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+        if (this.stage === 'valueSchema') throw new Error('same message');
+        return z.string();
+      }
+      protected builtinAvgBytes(): number {
+        return 1;
+      }
+    }
+    const total = checkLatticeLaws({ alpha: new ThrowsIn('toJSON'), beta: new ThrowsIn('valueSchema') })
+      .failed.find((l) => l.law === 'total');
+    const stages = total!.violations.map((v) => v.split(/[: ]/)[0]);
+    expect(stages).toContain('FieldType.toJSON()');
+    expect(stages).toContain('FieldType.toValueSchema()');
   });
 
   it('is otherwise SILENT — the builtins pass it with nothing declared', () => {

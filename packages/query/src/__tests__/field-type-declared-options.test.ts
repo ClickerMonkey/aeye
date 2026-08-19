@@ -154,9 +154,23 @@ function blobFixture(): { registry: Registry; engine: QueryEngine } {
     instructions: 'An opaque payload. Read it; never predicate on it.',
     compare: { equality: false, ordering: false, textMatch: false },
   });
+  registry.registerFieldType({
+    name: 'BlobList', base: 'array',
+    instructions: 'A list of opaque payloads. Read it; never predicate on it.',
+    compare: { equality: false, ordering: false, textMatch: false },
+  });
   registry.registerType(registry.parseType({
     name: 'doc', count: 10,
-    fields: [{ name: 'id', type: { kind: 'text' } }, { name: 'payload', type: { kind: 'json', as: 'Blob' } }],
+    fields: [
+      { name: 'id', type: { kind: 'text' } },
+      { name: 'payload', type: { kind: 'json', as: 'Blob' } },
+      // The ARRAY itself is refined…
+      { name: 'list', type: { kind: 'array', as: 'BlobList' } },
+      // …and here only the ITEM is, which is a different place to look.
+      { name: 'items', type: { kind: 'array', item: { kind: 'json', as: 'Blob' } } },
+      // The control: an array of a type that refuses nothing.
+      { name: 'tags', type: { kind: 'array', item: { kind: 'text' } } },
+    ],
   }));
   registry.finalize();
   return { registry, engine: new QueryEngine(registry) };
@@ -518,6 +532,74 @@ describe('`compare` refuses an arm of the grammar that means nothing for the typ
     const problems = engine.validateQuery(blobSelect(inList)).list;
     expect(codes(problems)).toEqual(['in.type']);
     expect(problems[0]!.message).toContain("Cannot compare `Blob` values with 'IN'");
+  });
+
+  it('refuses IN over a SUBQUERY too — the offending type may be the OUTPUT', () => {
+    // The list arm and the subquery arm are two different roads through
+    // `InExpr`, and mutating `operandTypes.push(oft)` to `void oft` left the
+    // whole suite green while a list-only test passed. This is the road a model
+    // reaches for once a literal list is refused, so it gets its own pin.
+    const { engine } = blobFixture();
+    const subquery: ExprDef = {
+      kind: 'in',
+      value: { kind: 'param', name: 'p' },
+      in: {
+        kind: 'select',
+        fields: [{ expr: { kind: 'field-ref', source: 'doc', field: 'payload' } }],
+        from: { kind: 'type', type: 'doc' },
+      },
+    };
+    const problems = engine.validateQuery(blobSelect(subquery)).list;
+    expect(problems.map((x) => x.code)).toContain('in.type');
+    expect(problems.find((x) => x.code === 'in.type')!.message)
+      .toContain("Cannot compare `Blob` values with 'IN'");
+  });
+
+  it('refuses CONTAINMENT — `contains` is `IN` with a different keyword', () => {
+    // `ArrayOpExpr` is a predicate whose `contains` emits a literal
+    // `$1 = ANY("doc"."list")`, so an `equality: false` type must refuse it for
+    // the reason it refuses `=` and `IN`. Both shapes are covered, and they are
+    // genuinely different: `declaredArmRefusal` reads `ft.refinement`, which on
+    // an array is the ARRAY's own tag — so a refined array and an array of a
+    // refined ITEM are two places to look, and a single check at the top of the
+    // expr would have found only the first.
+    const { engine } = blobFixture();
+    const aop = (field: string, op: 'contains' | 'containsAny' | 'containsAll', n = 1): ExprDef => ({
+      kind: 'array-op', op,
+      target: { kind: 'field-ref', source: 'doc', field },
+      value: Array.from({ length: n }, (_, i) => ({ kind: 'param', name: `p${i}` } as ExprDef)),
+    });
+    for (const [field, op, n] of [
+      ['list', 'contains', 1], ['list', 'containsAll', 2],
+      ['items', 'contains', 1], ['items', 'containsAny', 2],
+    ] as const) {
+      const problems = engine.validateQuery(blobSelect(aop(field, op, n))).list;
+      expect(problems.map((x) => x.code), `${field} ${op}`).toContain('array-op.type-mismatch');
+      expect(problems.find((x) => x.code === 'array-op.type-mismatch')!.message)
+        .toContain(`values with '${op}'`);
+    }
+  });
+
+  it('…but NOT `isEmpty` / `notEmpty`, which compare a COUNT and never an element', () => {
+    // `cardinality(…) = 0` has no operand comparison in it, so a type that
+    // cannot be compared can still be asked whether there is one.
+    const { engine } = blobFixture();
+    for (const op of ['isEmpty', 'notEmpty'] as const) {
+      const def: ExprDef = { kind: 'array-op', op, target: { kind: 'field-ref', source: 'doc', field: 'list' } };
+      expect(engine.validateQuery(blobSelect(def)).list, op).toEqual([]);
+    }
+  });
+
+  it('the CONTAINMENT control — an unrestricted element type still emits `= ANY`', () => {
+    // Without this the two above could pass because array ops broke generally.
+    const { engine } = blobFixture();
+    const def: ExprDef = {
+      kind: 'array-op', op: 'contains',
+      target: { kind: 'field-ref', source: 'doc', field: 'tags' },
+      value: [{ kind: 'param', name: 'p' }],
+    };
+    expect(engine.validateQuery(blobSelect(def)).list).toEqual([]);
+    expect(engine.toSQL(blobSelect(def), 'postgres').sql).toContain('$1 = ANY("doc"."tags")');
   });
 
   it('…and BETWEEN / IN stay untouched for a type that declares those arms', () => {

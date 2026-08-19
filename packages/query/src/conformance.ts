@@ -54,6 +54,7 @@ import { createRegistry, type Registry } from './registry';
 import {
   REFINABLE_BASES,
   type FieldTypeImpl,
+  type FieldTypeRefinement,
   type FieldTypeRefinementDef,
   type RefinableBase,
 } from './refinement';
@@ -198,44 +199,74 @@ export function checkLatticeLaws(
   //    first thing a geometry declarer did crashed the harness;
   //  - even RENDERING a value: `JSON.stringify` throws on a cyclic sample.
   //
-  // Violations are DEDUPED BY MESSAGE, keeping the first site that produced it.
-  // One broken method throws once per PAIR, and the labels differ (`t0 ∧ t1`,
-  // `t0 ∧ t2`, …) while the message is the same and is the informative half — so
-  // deduping on the whole line would have collapsed nothing and a 50-type set
-  // would report the same failure 2,500 times. The first label is kept because a
-  // reader wants one place to start looking, not all of them.
+  // Violations are DEDUPED BY STAGE + MESSAGE, keeping the first site that
+  // produced each. One broken method throws once per PAIR with a different label
+  // each time (`t0 ∧ t1`, `t0 ∧ t2`, …) while the message is identical, so
+  // deduping the whole LINE collapses nothing and a 50-type set reports one
+  // defect 2,500 times.
+  //
+  // The key is the STAGE plus the message; the LABEL — which pair, which type —
+  // rides along on the first occurrence and is not part of the key. That split
+  // is the whole design, and both halves were got wrong once:
+  //
+  //  - keying on the whole LINE collapsed nothing, because a per-pair label
+  //    differs every time (`t0 ∧ t1`, `t0 ∧ t2`, …) while the message is
+  //    identical — one broken `toJSON` reported 64 times over 8 types, and 2,500
+  //    times over 50;
+  //  - keying on the MESSAGE alone over-collapsed, merging genuinely different
+  //    failures: one type's throwing `toJSON` and another's throwing
+  //    `builtinValueSchema` are two types at two stages, and with the same
+  //    message they became a single line labelled with a pair naming neither.
+  //
+  // Stage + message separates the stages and collapses the repetition, and the
+  // kept label still points at one place to start looking.
   const threwSeen = new Set<string>();
   const threw: string[] = [];
-  const attempt = <T>(what: string, fn: () => T): T | undefined => {
+  const attempt = <T>(stage: string, fn: () => T, where?: string): T | undefined => {
     try {
       return fn();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!threwSeen.has(message)) {
-        threwSeen.add(message);
-        threw.push(`${what}: ${message}`);
+      const seen = `${stage}|${message}`;
+      if (!threwSeen.has(seen)) {
+        threwSeen.add(seen);
+        threw.push(`${stage}${where === undefined ? '' : ` at ${where}`}: ${message}`);
       }
       return undefined;
     }
   };
   /** `value` as JSON for a message — total, because a cyclic sample throws. */
   const render = (value: unknown): string => attempt('JSON.stringify(sample)', () => JSON.stringify(value)) ?? '<unrenderable>';
+  /** The stage label for a meet, so 2,500 identical meet failures collapse to one line. */
+  const MEET = 'FieldType.meet()';
 
   // Every pairwise meet, computed ONCE — associativity would otherwise recompute
   // each of them |names| times.
   const pairs = new Map<string, FieldType | undefined>();
   for (const x of names) {
-    for (const y of names) pairs.set(`${x}|${y}`, attempt(`${x} ∧ ${y}`, () => at(x).meet(at(y))));
+    for (const y of names) pairs.set(`${x}|${y}`, attempt(MEET, () => at(x).meet(at(y)), `${x} ∧ ${y}`));
   }
   const pair = (x: string, y: string): FieldType | undefined => pairs.get(`${x}|${y}`);
-  // A type's canonical form for comparison — guarded, because `toJSON` is one of
-  // the members a subclass supplies and a throwing one would otherwise escape
-  // from every law at once. A type that cannot serialize compares as `null`,
-  // which fails the laws it participates in AND is reported under `total`.
-  const key = (ft: FieldType | undefined): string =>
-    ft === undefined ? 'null' : JSON.stringify(attempt('FieldType.toJSON()', () => ft.toJSON()) ?? null);
+  // A type's canonical form for comparison. BOTH halves are guarded, and the
+  // second is the one the first pass missed: `toJSON()` is a member a subclass
+  // supplies, so it can throw — and it can also RETURN something
+  // `JSON.stringify` refuses. A cyclic def gives `TypeError: Converting circular
+  // structure to JSON` and a `BigInt` gives `Do not know how to serialize a
+  // BigInt`, both from the serializer rather than from the call, both uncaught
+  // when only the call was wrapped. A type that cannot be rendered compares as
+  // `null` — it fails the laws it takes part in AND is reported under `total`.
+  const key = (ft: FieldType | undefined): string => {
+    if (ft === undefined) return 'null';
+    const json = attempt('FieldType.toJSON()', () => ft.toJSON());
+    return attempt('JSON.stringify(FieldType.toJSON())', () => JSON.stringify(json ?? null)) ?? 'null';
+  };
+  /** `ft.kind` — an ACCESSOR on a subclass, so it can throw like any other. */
+  const kindOf = (ft: FieldType): FieldTypeKind | undefined => attempt('FieldType.kind', () => ft.kind);
+  /** `ft.refinement` — likewise an accessor, and likewise consumer-supplied. */
+  const refinementOf = (ft: FieldType): FieldTypeRefinement | undefined =>
+    attempt('FieldType.refinement', () => ft.refinement);
   const metKey = (a: FieldType | undefined, b: FieldType | undefined): string =>
-    key(a && b ? attempt(`${key(a)} ∧ ${key(b)}`, () => a.meet(b)) : undefined);
+    key(a && b ? attempt(MEET, () => a.meet(b), `${key(a)} ∧ ${key(b)}`) : undefined);
 
   // 1 — COMMUTATIVE. Byte for byte, not merely equivalent: `params()` hands the
   // def out, and a def that differs by key order is a different tool schema.
@@ -255,7 +286,7 @@ export function checkLatticeLaws(
   for (const x of names) {
     const self = key(at(x));
     if (key(pair(x, x)) !== self) notIdempotent.push(`${x} ∧ ${x}: ${key(pair(x, x))} vs ${self}`);
-    const copy = key(attempt(`clone(${x})`, () => at(x).meet(at(x).clone())));
+    const copy = key(attempt('FieldType.clone()', () => at(x).meet(at(x).clone()), `clone(${x})`));
     if (copy !== self) notIdempotent.push(`${x} ∧ clone(${x}): ${copy} vs ${self}`);
   }
   law('idempotent', 'a ⊓ a is a, and a ⊓ clone(a) is a', notIdempotent);
@@ -277,9 +308,10 @@ export function checkLatticeLaws(
   // one: meeting with the unconstrained type of your own kind changes nothing.
   const narrowed: string[] = [];
   for (const x of names) {
-    const top = tops[at(x).kind];
+    const kind = kindOf(at(x));
+    const top = kind === undefined ? undefined : tops[kind];
     if (!top) continue;
-    const met = key(attempt(`${x} ∧ ⊤`, () => at(x).meet(top)));
+    const met = key(attempt(MEET, () => at(x).meet(top), `${x} ∧ ⊤`));
     if (met !== key(at(x))) narrowed.push(`${x} ∧ ⊤: ${met} vs ${key(at(x))}`);
   }
   law('top-identity', 'x ⊓ ⊤ is x — the meet is the GREATEST lower bound', narrowed);
@@ -290,7 +322,8 @@ export function checkLatticeLaws(
   const incomparable: string[] = [];
   for (const x of names) {
     for (const y of names) {
-      if (pair(x, y) !== undefined && attempt(`${x}.comparableWith(${y})`, () => at(x).comparableWith(at(y))) === false) {
+      if (pair(x, y) !== undefined
+        && attempt('FieldType.comparableWith()', () => at(x).comparableWith(at(y)), `${x} ∧ ${y}`) === false) {
         incomparable.push(`${x} ∧ ${y} has a meet but the two are not comparableWith`);
       }
     }
@@ -342,10 +375,11 @@ export function checkLatticeLaws(
   for (const x of names) {
     for (const y of names) {
       const m = pair(x, y);
-      const tag = m?.refinement;
+      const tag = m === undefined ? undefined : refinementOf(m);
       if (!m || !tag) continue;
-      if (m.kind !== tag.base) strayTags.push(`${x} ∧ ${y}: \`${tag.name}\` refines ${tag.base}, met kind is ${m.kind}`);
-      if (tag !== at(x).refinement && tag !== at(y).refinement) {
+      const metKind = kindOf(m);
+      if (metKind !== tag.base) strayTags.push(`${x} ∧ ${y}: \`${tag.name}\` refines ${tag.base}, met kind is ${String(metKind)}`);
+      if (tag !== refinementOf(at(x)) && tag !== refinementOf(at(y))) {
         foreignTags.push(`${x} ∧ ${y}: \`${tag.name}\` is neither operand's own compilation`);
       }
     }

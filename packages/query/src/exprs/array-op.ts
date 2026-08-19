@@ -24,10 +24,11 @@ import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
+import type { FieldType } from '../field-type';
 import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { categoryOf, childExprSchema } from './_shared';
+import { categoryOf, childExprSchema, declaredArmRefusal } from './_shared';
 import { effectiveCasing, foldsAtRuntime, type TextCasing } from '../text-casing';
 import { withAid } from '../aids';
 import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
@@ -185,6 +186,24 @@ export class ArrayOpExpr extends BoolExpr {
     const arityMsg = ArrayOpExpr.arityMessage(this.op, this.values.length);
     if (arityMsg) p.at('value', () => p.error('array-op.value-arity', arityMsg));
 
+    // CONTAINMENT IS EQUALITY WITH A DIFFERENT KEYWORD, so a type declaring no
+    // equality refuses it for the reason it refuses `=` and `IN`. `contains`
+    // emits a literal `$1 = ANY("doc"."list")`; `containsAll` emits
+    // `@> ARRAY[$1, $2]`. `isEmpty` / `notEmpty` are deliberately NOT gated —
+    // they emit `cardinality(…) = 0`, which compares a COUNT and never an
+    // element, so a type that cannot be compared can still be asked whether
+    // there is one.
+    //
+    // BOTH REFINEMENTS ARE CONSULTED, and that is the part a single check at the
+    // top would have got wrong: `declaredArmRefusal` reads `ft.refinement`, which
+    // on an `ArrayFieldType` is the ARRAY's own tag — so a
+    // `{kind:'array', as:'BlobList'}` target and an
+    // `array<json as Blob>` target are two different shapes, and only the first
+    // has a tag where a top-level check would look. The element operands go in
+    // too, for the same reason `IN` collects them: a declared comparability edge
+    // lets the refusing side be any of them.
+    const operandTypes: (FieldType | undefined)[] = [tft, item];
+
     // Validate each element operand + element-type compatibility with `item`.
     this.values.forEach((el, i) => {
       const rt = p.at(['value', i], () => el.validateWalk(engine, scope, p, ctx));
@@ -198,6 +217,7 @@ export class ArrayOpExpr extends BoolExpr {
         return;
       }
       const eft = asFieldType(rt);
+      operandTypes.push(eft);
       if (item && eft && !item.comparableWith(eft)) {
         p.at(['value', i], () =>
           p.error(
@@ -207,6 +227,11 @@ export class ArrayOpExpr extends BoolExpr {
         );
       }
     });
+
+    if (!NO_VALUE_OPS.has(this.op)) {
+      const armRefusal = declaredArmRefusal('equality', `'${this.op}'`, operandTypes);
+      if (armRefusal) p.error('array-op.type-mismatch', armRefusal);
+    }
 
     return this.resolve(engine, scope);
   }

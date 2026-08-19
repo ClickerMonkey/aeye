@@ -179,6 +179,34 @@ export interface FieldTypeOptionDecl {
 }
 
 /**
+ * The OPERATOR each arm of {@link FieldTypeCompareDecl} governs, as a model
+ * would write it — the one vocabulary every renderer of a refused arm derives
+ * from.
+ *
+ * A total `Record` over the arms, and it is the ONLY place the arm key set is
+ * spelled outside the interface itself. It was spelled twice more, as
+ * `if (!compare.equality) …` chains in two files with two different glyph
+ * vocabularies — so a FOURTH arm would have compiled clean and been mentioned by
+ * neither the type tag nor the generated schema's glossary, which is exactly the
+ * failure those renderers exist to prevent. Adding an arm now fails to compile
+ * here, and both readers pick it up for free.
+ */
+export const COMPARE_ARM_OPERATORS: Readonly<Record<keyof FieldTypeCompareDecl, string>> = {
+  equality: '=',
+  ordering: '<',
+  textMatch: 'LIKE',
+};
+
+/**
+ * The operators a refinement REFUSES, in a stable order — the shared half of
+ * every "what can I not write on this column" rendering.
+ */
+export function refusedOperators(compare: Required<FieldTypeCompareDecl>): string[] {
+  const arms: (keyof FieldTypeCompareDecl)[] = Object.keys(COMPARE_ARM_OPERATORS) as (keyof FieldTypeCompareDecl)[];
+  return arms.filter((arm) => !compare[arm]).map((arm) => COMPARE_ARM_OPERATORS[arm]);
+}
+
+/**
  * WHICH ARMS OF THE BUILTIN COMPARISON GRAMMAR a refinement admits.
  *
  * `ComparisonOp` is a closed 9-member union (`=`, `<>`, `<`, `<=`, `>`, `>=`,
@@ -1362,10 +1390,7 @@ export function refinementKeySchema(
  * operator, not writing a declaration.
  */
 function refusedArmsNote(refinement: FieldTypeRefinement): string {
-  const refused: string[] = [];
-  if (!refinement.compare.equality) refused.push('=');
-  if (!refinement.compare.ordering) refused.push('<');
-  if (!refinement.compare.textMatch) refused.push('LIKE');
+  const refused = refusedOperators(refinement.compare);
   return refused.length === 0 ? '' : ` (refuses: ${refused.join(', ')})`;
 }
 

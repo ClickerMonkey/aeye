@@ -68,6 +68,8 @@ export {
   type FieldTypeOptionDecl,
   type FieldTypeCompareDecl,
   type CompiledFieldTypeOption,
+  COMPARE_ARM_OPERATORS,
+  refusedOperators,
   type FieldTypeImpl,
   type RefinableBase,
   REFINABLE_BASES,

@@ -200,7 +200,7 @@ That is valid PostGIS, and `:here` is typed `json` by the declared parameter —
 1. **The cast target is the BASE type's** — `CAST($1 AS jsonb)`, not `::geometry(Point,4326)`. A refinement's `sql` / `cast` fixes this, and its `ownOptions` make the target PER COLUMN (`geometry(Polygon,4326)` on one, `geometry(Point,3857)` on the next).
 2. **No infix operators.** `&&` / `<->` have no call form; only `name(a, b)` is emittable from a declaration. Still true with a refinement.
 3. **The domain's NAME and meaning do not reach the model beyond `instructions`** — the field still describes itself as `shape: json — A JSON document`. A refinement makes it `shape: json(as Geometry,subtype=Polygon,srid=4326) — <your instructions>`.
-4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable. A refinement declaring `compare: { ordering: false }` refuses it — in `comparison`, `between` and `in` — with the type's own instructions naming the alternative. (It does NOT yet gate `ORDER BY`; see `compare` below.)
+4. **Meaningless comparisons are not refused.** `parcel.shape < parcel.other` is `json < json`, which is comparable. A refinement declaring `compare: { ordering: false }` refuses it — in `comparison`, `between` and `in`, and `equality: false` also refuses `array-op` containment — with the type's own instructions naming the alternative. It does NOT yet gate `ORDER BY`, grouping or set operations; `compare` below has the exact list.
 
 ### A registered REFINEMENT names a builtin: `{ kind: <base>, as: <name> }`
 
@@ -270,7 +270,17 @@ registry.registerFieldType({
 compare: { equality: true, ordering: false, textMatch: false }   // every arm defaults to `true`
 ```
 
-**IT GATES PREDICATES, NOT SORTS.** Read that first, because "which arms of the grammar apply" does not say it: `compare` is enforced on `comparison`, `between` and `in`, and **`ORDER BY shape` is accepted today**, as are `min` / `max` and window ordering over an unordered type. That is a real gap and a deliberate one — a sort over an unordered type is *deterministic nonsense* (a stable answer nobody asked for), where an unordered PREDICATE is worse (its truth is a storage-format detail) — and closing it has to keep `ORDER BY ST_Distance(shape, :here)` working, so the gate belongs on a bare column reference in a sort position rather than on the sort position. That is not designed yet.
+**WHERE IT IS ENFORCED, EXACTLY.** "Which arms of the grammar apply" does not say where, so here is the list rather than a slogan. **Enforced** on `comparison` (which also covers a join `on` and a `CASE WHEN`), `between`, `in` (list and subquery), and `array-op` containment (`contains` / `containsAny` / `containsAll`). **Not enforced**, all measured as emitting over a column whose type refuses the relevant arm:
+
+| construct | emits | why not gated (yet) |
+|---|---|---|
+| `ORDER BY <column>` | `ORDER BY "t"."shape" ASC` | a sort over an unordered type is *deterministic nonsense* — a stable answer nobody asked for — where an unordered PREDICATE is worse, since its truth is a storage-format detail. And the gate must keep `ORDER BY ST_Distance(shape, :here)` working, so it belongs on a bare COLUMN REFERENCE in a sort position, not on the sort position. Not designed. |
+| `min` / `max`, window `ORDER BY` | ordering, by another name | same answer as the row above, and it has to be one answer |
+| `SELECT DISTINCT`, `GROUP BY`, window `PARTITION BY` | equality over rows | neither predicate nor sort — grouping is equality used to BUCKET rather than to filter, and whether a type that refuses `=` may still be grouped is a real question, not an oversight |
+| `UNION` / `INTERSECT` / `EXCEPT` | row equality (the latter two compare rows) | same question as grouping, one level up |
+| `text-search` | `to_tsvector(tok) @@ plainto_tsquery($1)` | `textMatch: false` refuses `LIKE` and not this; full-text matching is arguably a different capability from pattern matching, and `search: true` is already its own opt-in |
+
+`array-op` containment is gated because **`contains` is `IN` with a different keyword** — it emits a literal `$1 = ANY("t"."list")`. `isEmpty` / `notEmpty` are deliberately NOT gated: they emit `cardinality(…) = 0`, which compares a COUNT and never an element, so a type that cannot be compared can still be asked whether there is one. Both refinement positions are checked — a refined ARRAY (`{kind:'array', as:'BlobList'}`) and an array of a refined ITEM (`array<json as Geometry>`) are two different places for the tag to sit.
 
 `ComparisonOp` is a CLOSED nine-member union (`= <> < <= > >= like notLike ilike`) and it stays closed: a type does not ADD an operator, it says which of the nine mean anything for it. `ordering: false` refuses `< <= > >=` **and `BETWEEN`**, which is `>=` and `<=`; `textMatch: false` refuses the LIKE family (already gated by the operand's category being text, so it narrows a `text` refinement and is moot for the other eight bases); `equality: false` refuses `=` / `<>` **and `IN`**, which is a disjunction of `=`. All three predicates share ONE gate, keyed by ARM rather than by operator — keyed by operator it was reachable only from `comparison`, and a model refused at `shape < :p` got the SQL it was refused by writing `shape BETWEEN :p AND :q` instead.
 
