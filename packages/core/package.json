@@ -1,6 +1,6 @@
 {
   "name": "@aeye/core",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "@aeye Core - Core primitives for AI components (agents, tools, prompts)",
   "type": "module",
   "main": "dist/index.js",
