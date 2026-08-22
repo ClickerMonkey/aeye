@@ -87,15 +87,28 @@ export interface FormatDescriptor {
   /**
    * How `z.any()` / `z.unknown()` is encoded.
    * - `recursive-strict`: self-referencing $defs/Any with array-of-pairs records
-   *   (OpenAI strict has no open-object support)
-   * - `recursive-open`: $defs/Any with `additionalProperties: <self>` records
+   *   (OpenAI strict has no open-object support). REQUIRES `allowAnyOf` and
+   *   `allowDefsRef`.
+   * - `recursive-open`: $defs/Any with `additionalProperties: <self>` records.
+   *   REQUIRES `allowAnyOf` and `allowDefsRef`.
    * - `flat`: a non-recursive `anyOf` over the JSON value types
    *   (`string`/`number`/`boolean`/`null`/`array`/open-`object`). Used by
    *   descriptors that reject recursive `$defs/Any` definitions (Anthropic
    *   strict). Equivalent to TypeScript `any` — accepts every JSON value
-   *   without imposing any structural constraints.
+   *   without imposing any structural constraints. REQUIRES `allowAnyOf`
+   *   (no `$defs` needed).
+   * - `unconstrained`: the empty schema `{}` (plus any `description`). Per
+   *   JSON Schema, a schema with no assertion keywords validates EVERY
+   *   instance — which is exactly what "any JSON value" means — and it
+   *   introduces no keyword a restrictive dialect could reject. REQUIRES
+   *   NOTHING, so it's the only encoding available to a dialect that forbids
+   *   both combinators and named `$defs`/`$ref` (Google — see `GOOGLE_STRICT`).
+   *
+   * The `REQUIRES` notes above are enforced by `checkDescriptorConsistency`,
+   * which `registerDescriptor` runs so a self-contradictory descriptor is
+   * caught at declaration time rather than as a provider HTTP 400.
    */
-  readonly anyEncoding: 'recursive-strict' | 'recursive-open' | 'flat';
+  readonly anyEncoding: 'recursive-strict' | 'recursive-open' | 'flat' | 'unconstrained';
 
   // ---- Per-request strict-mode budget ----
   // Limits enforced by the API across ALL strict tools + structured-output
@@ -307,6 +320,16 @@ export const ANTHROPIC_NON_STRICT: FormatDescriptor = Object.freeze({
  *   three documented) are not supported.
  * - `propertyOrdering` is REQUIRED for Gemini 2.0 strict; we always emit it
  *   on object schemas under this descriptor.
+ * - `z.any()` / `z.unknown()` uses the `unconstrained` encoding. Every other
+ *   "any" encoding needs `anyOf` and/or a named `$defs/Any` — both of which
+ *   this descriptor forbids two lines below — so the recursive `$defs/Any`
+ *   this descriptor used to declare was a schema it says it cannot emit.
+ *   Gemini compiles the tool schemas into a decoding grammar whenever the
+ *   caller forces a tool call (`toolChoice: 'required'` → Google's function
+ *   calling mode `ANY`), and a self-referencing `$defs/Any` fails that
+ *   compile with `400 INVALID_ARGUMENT` — the same request succeeds under
+ *   `toolChoice: 'auto'`, where no grammar is built. Reported against
+ *   `google/gemini-3-flash-preview` via OpenRouter, 100% reproducible.
  */
 export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   id: 'google-strict',
@@ -329,7 +352,9 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   allowMinMaxItems: true,
   allowMinimumMaximum: true,
   optionalAsNullable: false,
-  anyEncoding: 'recursive-open',
+  // The ONLY encoding expressible under `allowAnyOf: false` +
+  // `allowDefsRef: false` — see the descriptor doc above.
+  anyEncoding: 'unconstrained',
   // No documented per-request slot limits.
   supportsRecursion: true,
   // Gemini's structured-output endpoint rejects `anyOf`/`$defs` schemas
@@ -339,13 +364,91 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
     'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
 });
 
+/**
+ * Google Gemini non-strict — LENIENT's permissive rules EXCEPT for the "any"
+ * encoding.
+ *
+ * Gemini rejects a self-referencing `$defs/Any` when it has to build a
+ * decoding grammar, and it builds one whenever a tool call is forced —
+ * independent of any per-tool `strict` flag, which Google's function-calling
+ * API doesn't even have. So the `unconstrained` encoding is a property of the
+ * DIALECT, not of strict mode, and belongs on both Google descriptors.
+ *
+ * Everything else stays LENIENT deliberately: the restrictions on
+ * `GOOGLE_STRICT` come from the documented structured-output keyword list,
+ * which is a grammar-mode concern, and tightening them here would push
+ * ordinary Gemini schemas onto the prompt-text delivery fallback for no
+ * measured reason.
+ */
 export const GOOGLE_NON_STRICT: FormatDescriptor = Object.freeze({
   ...LENIENT,
   id: 'google-non-strict',
   family: 'google',
+  anyEncoding: 'unconstrained',
   jsonFallbackInstruction:
     'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
 });
+
+// ============================================================================
+// Descriptor self-consistency
+// ============================================================================
+
+/**
+ * JSON-Schema keywords each `anyEncoding` has to emit. Single source of truth
+ * for both `buildAnyValueSchema` (which produces the shape) and
+ * `checkDescriptorConsistency` (which checks the descriptor is allowed to).
+ */
+const ANY_ENCODING_REQUIREMENTS: Readonly<Record<
+  FormatDescriptor['anyEncoding'],
+  { readonly anyOf: boolean; readonly defsRef: boolean }
+>> = Object.freeze({
+  'recursive-strict': { anyOf: true, defsRef: true },
+  'recursive-open': { anyOf: true, defsRef: true },
+  'flat': { anyOf: true, defsRef: false },
+  'unconstrained': { anyOf: false, defsRef: false },
+});
+
+/**
+ * Report the ways a `FormatDescriptor` contradicts itself — settings that ask
+ * the emitter to produce a keyword the same descriptor forbids. Returns one
+ * human-readable line per problem; an empty array means the descriptor is
+ * internally consistent.
+ *
+ * This exists because a contradiction here is invisible until a provider
+ * answers HTTP 400: `GOOGLE_STRICT` shipped with `allowAnyOf: false` +
+ * `allowDefsRef: false` AND `anyEncoding: 'recursive-open'` (which needs
+ * both), so every `z.any()` in a Gemini tool schema emitted exactly the
+ * `anyOf` + `$defs/Any` shape the descriptor declared unrepresentable.
+ * Nothing checked, so nothing caught it.
+ *
+ * Called by `registerDescriptor` (which warns) and asserted over every
+ * built-in by the test suite.
+ *
+ * @example
+ * ```ts
+ * checkDescriptorConsistency(GOOGLE_STRICT);   // → []
+ * checkDescriptorConsistency({ ...GOOGLE_STRICT, anyEncoding: 'flat' });
+ * //  → ["anyEncoding 'flat' emits `anyOf`, but allowAnyOf is false"]
+ * ```
+ */
+export function checkDescriptorConsistency(descriptor: FormatDescriptor): string[] {
+  const problems: string[] = [];
+  const needs = ANY_ENCODING_REQUIREMENTS[descriptor.anyEncoding];
+  if (needs === undefined) {
+    problems.push(`anyEncoding '${descriptor.anyEncoding}' is not a known encoding`);
+    return problems;
+  }
+  if (needs.anyOf && !descriptor.allowAnyOf) {
+    problems.push(`anyEncoding '${descriptor.anyEncoding}' emits \`anyOf\`, but allowAnyOf is false`);
+  }
+  if (needs.defsRef && !descriptor.allowDefsRef) {
+    problems.push(`anyEncoding '${descriptor.anyEncoding}' emits a self-referencing \`$defs/Any\`, but allowDefsRef is false`);
+  }
+  if (needs.defsRef && !descriptor.supportsRecursion) {
+    problems.push(`anyEncoding '${descriptor.anyEncoding}' emits a self-referencing \`$defs/Any\`, but supportsRecursion is false`);
+  }
+  return problems;
+}
 
 // ============================================================================
 // Descriptor registry — mutable lookup tables for built-in + user-registered
@@ -410,8 +513,16 @@ for (const d of [
  * getDescriptor('openai-no-regex', true);   // → the registered descriptor
  * getDescriptorById('openai-no-regex');     // → same
  * ```
+ *
+ * A descriptor that contradicts itself (see `checkDescriptorConsistency`) is
+ * still registered — the caller may know something we don't — but each
+ * problem is warned once at registration, because the alternative is finding
+ * out from a provider's HTTP 400.
  */
 export function registerDescriptor(descriptor: FormatDescriptor): void {
+  for (const problem of checkDescriptorConsistency(descriptor)) {
+    console.warn(`FormatDescriptor '${descriptor.id}' is inconsistent: ${problem}`);
+  }
   indexDescriptor(descriptor);
 }
 
@@ -683,8 +794,23 @@ function strictifySimple(
     for (const key in schema.shape) {
       transformedShape[key] = transform(schema.shape[key]);
     }
+    // Carry the catchall through. `z.object(shape)` alone DROPS it, so every
+    // `.catchall(...)` / `z.looseObject(...)` / `z.strictObject(...)` schema
+    // silently lost its open (or explicitly closed) tail the moment a strict
+    // dialect was selected — while `toJSONSchema` kept emitting that same
+    // catchall as `additionalProperties` and `analyzeSchema` kept walking it.
+    // strictify and the emitter were describing different schemas, and the
+    // mismatch surfaced only as keys stripped at validation time.
+    //
+    // Dialects that close objects (`objectClosedByDefault`: OpenAI/Anthropic
+    // strict) still emit `additionalProperties: false` regardless, so no wire
+    // shape changes for them — this restores the open tail exactly where the
+    // dialect permits one (Google).
+    const catchall = schema.def.catchall;
     return transferMetadata(
-      z.object(transformedShape),
+      catchall
+        ? z.object(transformedShape).catchall(transform(catchall))
+        : z.object(transformedShape),
       schema
     );
   }
@@ -1246,8 +1372,20 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
   let cacheKey: z.ZodType | z.core.$ZodType = schema;
   let unwrappedSchema: z.ZodType | z.core.$ZodType = schema;
 
+  // `z.any()` / `z.unknown()` under an INLINE any-encoding (`flat`,
+  // `unconstrained`) must never travel through the definition cache: a second
+  // use site of the SAME schema instance — common when a codegen layer hands
+  // out one shared "any" node — would otherwise be emitted as
+  // `$ref: '#/$defs/__schemaN'`, resurrecting the `$defs` entry the inline
+  // encoding exists to avoid. Bypassing the cache re-inlines the (tiny,
+  // keyword-free) shape at each site instead.
+  const bypassCache = !usesSharedAnyDefinition(context.descriptor)
+    && (schema instanceof z.ZodAny || schema instanceof z.ZodUnknown);
+
   // Check if this is a lazy schema and extract metadata early
-  if (schema instanceof z.ZodLazy) {
+  if (bypassCache) {
+    // fall through to conversion with no cache read
+  } else if (schema instanceof z.ZodLazy) {
     // Check cache FIRST before evaluating getter to prevent infinite recursion
     const [cachedJs, cachedId] = context.definitions.get(schema) || [];
     if (cachedJs && cachedId) {
@@ -1295,15 +1433,20 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
     }
   }
 
-  // If the schema has an 'aid' or 'id' in meta, promote it to a definition
+  // If the schema has an 'aid' or 'id' in meta, promote it to a definition.
+  // A cache-bypassed "any" node is never promoted — naming a schema that
+  // asserts nothing buys nothing, and the `$defs` entry is precisely what the
+  // inline encoding is avoiding.
   const id = (metadata.aid ? String(metadata.aid) : 0) || metadata.id || `__schema${context.refCounter++}`;
-  const save = !!(metadata.aid || metadata.id) && context.root !== schema;
+  const save = !bypassCache && !!(metadata.aid || metadata.id) && context.root !== schema;
 
   // A schema target - will hold either the converted schema or a $ref
   const target: JSONSchema = {};
 
   // Before converting, register this schema to handle recursion
-  context.definitions.set(cacheKey, [target, id]);
+  if (!bypassCache) {
+    context.definitions.set(cacheKey, [target, id]);
+  }
   context.inProgress.add(id);
 
   // Convert the unwrapped schema
@@ -1920,9 +2063,10 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
     // `$defs/Any` definition that covers every JSON value and return a
     // `$ref` — sharing keeps the output compact when `z.any()` appears many
     // times inside a big union. For descriptors with `flat` Any encoding
-    // (e.g. Anthropic, which rejects recursive `$defs` graphs), inline the
-    // permissive shape directly so the schema stays acyclic.
-    if (descriptor.anyEncoding === 'flat') {
+    // (e.g. Anthropic, which rejects recursive `$defs` graphs) or `unconstrained`
+    // (Google, which rejects both `anyOf` and named `$defs`), inline the
+    // permissive shape directly so the schema stays acyclic and `$defs`-free.
+    if (!usesSharedAnyDefinition(descriptor)) {
       return buildAnyValueSchema(descriptor);
     }
     const id = 'Any';
@@ -1947,19 +2091,38 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
 }
 
 /**
- * Builds the body of the "any value" schema — an `anyOf` covering every JSON
- * value (string, number, boolean, null, array, object).
+ * True when the descriptor's "any" encoding is a self-referencing definition,
+ * i.e. it has to be hoisted into `$defs/Any` and referenced by `$ref`. The
+ * non-recursive encodings (`flat`, `unconstrained`) are inlined at each use
+ * site instead, so no `$defs` entry is ever created for them.
+ */
+function usesSharedAnyDefinition(descriptor: FormatDescriptor): boolean {
+  return descriptor.anyEncoding === 'recursive-strict'
+    || descriptor.anyEncoding === 'recursive-open';
+}
+
+/**
+ * Builds the body of the "any value" schema — for most dialects an `anyOf`
+ * covering every JSON value (string, number, boolean, null, array, object).
  *
  * Encoding modes:
  * - `recursive-strict` (OpenAI strict): self-referencing `$defs/Any` with
  *   array-of-pairs records (no open-object support in strict mode).
- * - `recursive-open` (Lenient / Google): self-referencing `$defs/Any` with
+ * - `recursive-open` (Lenient): self-referencing `$defs/Any` with
  *   `additionalProperties: <self>` records.
  * - `flat` (Anthropic strict): non-recursive — array branch has no `items`
  *   constraint, object branch is `additionalProperties: true`. Equivalent
  *   to TypeScript `any`; safe under descriptors that reject cyclic `$defs`.
+ * - `unconstrained` (Google): the empty schema `{}`. A schema with no
+ *   assertion keywords validates every instance, so this says "any JSON
+ *   value" using zero keywords — the only option for a dialect that forbids
+ *   `anyOf` AND named `$defs`/`$ref`. The caller re-attaches `description`
+ *   from the source schema's metadata, so the model still gets the prose.
  */
 function buildAnyValueSchema(descriptor: FormatDescriptor): JSONSchema {
+  if (descriptor.anyEncoding === 'unconstrained') {
+    return {};
+  }
   const isFlat = descriptor.anyEncoding === 'flat';
   const selfRef: JSONSchema = isFlat ? {} : { $ref: '#/$defs/Any' };
   const arrayBranch: JSONSchema = isFlat

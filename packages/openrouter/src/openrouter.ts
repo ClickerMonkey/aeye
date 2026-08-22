@@ -17,7 +17,7 @@
 
 import type { Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier } from '@aeye/ai';
-import { accumulateReasoning, type Chunk, type Request, type Response } from '@aeye/core';
+import { accumulateReasoning, type Chunk, type DescriptorFamily, type Request, type Response } from '@aeye/core';
 import { OpenAIConfig, OpenAIProvider } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
@@ -225,6 +225,26 @@ export function convertOpenRouterModel(
  */
 export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> implements Provider<OpenRouterConfig> {
   readonly name = 'openrouter';
+
+  /**
+   * OpenRouter is a router, not a model host: it speaks an OpenAI-shaped API
+   * but forwards each request to the upstream provider that actually serves
+   * the model, translating the tool/response schemas on the way. So the wire
+   * dialect that matters is the UPSTREAM model's, which
+   * `resolveStrictFormat` already derives from the `[family]/...` id prefix
+   * (`google/gemini-3-flash-preview` → `'google'`).
+   *
+   * The inherited default is `['openai']` — correct for api.openai.com, wrong
+   * here, and it silently forced EVERY tool schema through LENIENT no matter
+   * which family the model belonged to. LENIENT encodes `z.any()` as a
+   * self-referencing `$defs/Any`, which Gemini's function-calling grammar
+   * compiler rejects with `400 INVALID_ARGUMENT` as soon as a tool call is
+   * forced. `applySchemaDeliveryFallback` never hid this because it resolves
+   * the family itself and only covers `response_format`, not tools — which is
+   * why structured output looked family-aware while tools were not.
+   */
+  protected override supportedStrictFamilies: ReadonlySet<DescriptorFamily> =
+    new Set<DescriptorFamily>(['openai', 'anthropic', 'google']);
 
   protected createClient(config: OpenRouterConfig): OpenAI {
     return new OpenAI({

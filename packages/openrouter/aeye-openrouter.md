@@ -156,6 +156,6 @@ console.log(response.usage?.cost); // real cost reported by OpenRouter
 
 - **Chat-only provider.** `generateImage`, `editImage`, `transcribe`, `speech`, and `embed` are set to `undefined` — calling those operations on this provider will not work; use OpenAI/AWS/Replicate for them.
 - Model ids are `provider/model` slugs (e.g. `anthropic/claude-3.5-sonnet`), not raw OpenAI ids.
-- Strict/structured output behavior is inherited from `OpenAIProvider` (OpenAI-shaped strict schemas, best-effort, silent lenient fallback).
+- Strict/structured output behavior is inherited from `OpenAIProvider` (best-effort, silent lenient fallback), but the accepted dialects are widened here: `supportedStrictFamilies = {'openai', 'anthropic', 'google'}`, because the model id's `family/…` prefix names the upstream that actually serves the request. This applies to **tool** schemas as well as `response_format`; before 0.4.x the inherited `{'openai'}` quietly forced every non-OpenAI model's tools through LENIENT.
 - Assistant reasoning is split into a separate preceding message during conversion to work around OpenRouter not round-tripping reasoning attached to content — expect an extra assistant message in transformed payloads.
 - ZDR (`zdr: true` / `dataCollection: 'deny'`) only constrains upstreams that honor it; combine with `only`/`ignore` for strict guarantees.

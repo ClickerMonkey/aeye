@@ -9,7 +9,7 @@
  */
 
 import z from 'zod';
-import { toJSONSchema, JSONSchema } from '../schema';
+import { GOOGLE_STRICT, LENIENT, toJSONSchema, JSONSchema } from '../schema';
 
 describe('toJSONSchema — z.any() / z.unknown()', () => {
   describe('basic promotion', () => {
@@ -146,6 +146,113 @@ describe('toJSONSchema — z.any() / z.unknown()', () => {
       const js = toJSONSchema(z.object({ a: z.any() }), { strict: true });
       const props = js.properties as Record<string, JSONSchema>;
       expect(props.a.$ref).toBe('#/$defs/Any');
+    });
+  });
+
+  describe('Google dialect — unconstrained encoding', () => {
+    /**
+     * Collect every JSON-Schema keyword present anywhere in a schema tree.
+     * Used to assert the ABSENCE of a whole class of keyword rather than
+     * spot-checking the few positions we happened to think of.
+     */
+    const keywordsIn = (node: unknown, into = new Set<string>()): Set<string> => {
+      if (Array.isArray(node)) {
+        for (const item of node) keywordsIn(item, into);
+      } else if (node && typeof node === 'object') {
+        for (const [k, v] of Object.entries(node)) {
+          into.add(k);
+          keywordsIn(v, into);
+        }
+      }
+      return into;
+    };
+
+    const FORBIDDEN_BY_GOOGLE = ['anyOf', 'oneOf', 'allOf', '$defs', '$ref'];
+
+    test('a bare z.any() is the empty schema — no keyword at all', () => {
+      const js = toJSONSchema(z.any(), GOOGLE_STRICT);
+      expect(js).toEqual({});
+    });
+
+    test('z.unknown() encodes identically to z.any()', () => {
+      expect(toJSONSchema(z.unknown(), GOOGLE_STRICT)).toEqual(toJSONSchema(z.any(), GOOGLE_STRICT));
+    });
+
+    test('a described z.any() keeps its description — the model still gets the prose', () => {
+      // The empty schema carries no assertion, so the description is the only
+      // signal left about what belongs there. Losing it would be a silent
+      // downgrade of every open-value argument on Gemini.
+      const js = toJSONSchema(z.any().describe('Arbitrary JSON value'), GOOGLE_STRICT);
+      expect(js).toEqual({ description: 'Arbitrary JSON value' });
+    });
+
+    test('ONE shared z.any() instance used many times never becomes a $ref', () => {
+      // A codegen layer that hands out a single "any" node would otherwise hit
+      // the definition cache on the second use and emit `$ref: '#/$defs/…'`,
+      // resurrecting the exact keyword the encoding exists to avoid.
+      const shared = z.any();
+      const js = toJSONSchema(
+        z.object({ a: shared, b: shared, c: z.array(shared) }),
+        GOOGLE_STRICT,
+      );
+      expect(js.$defs).toBeUndefined();
+      const props = js.properties as Record<string, JSONSchema>;
+      expect(props.a).toEqual({});
+      expect(props.b).toEqual({});
+      expect((props.c.items as JSONSchema)).toEqual({});
+    });
+
+    test("a z.any() tagged with meta({id}) is still inlined, not promoted to $defs", () => {
+      const js = toJSONSchema(
+        z.object({ a: z.any().meta({ id: 'AnyValue' }), b: z.string() }),
+        GOOGLE_STRICT,
+      );
+      expect(js.$defs).toBeUndefined();
+      expect(keywordsIn(js).has('$ref')).toBe(false);
+    });
+
+    test('REGRESSION: the api_signature tool schema compiles Google-safely', () => {
+      // The exact shape captured from the wire request that produced a 100%
+      // reproducible `400 INVALID_ARGUMENT` from Google, via OpenRouter, on
+      // `google/gemini-3-flash-preview` with a forced tool call: an open
+      // TypeDef — a named object that also accepts arbitrary extra JSON
+      // values. Before the fix this emitted
+      //   additionalProperties: { $ref: '#/$defs/Any' }
+      // plus a self-referencing `$defs/Any` built out of `anyOf`, i.e. both
+      // keyword families GOOGLE_STRICT declares forbidden.
+      const apiSignature = z.object({
+        signature: z.object({ name: z.string() })
+          .catchall(z.any())
+          .describe('The signature of the API function being declared.'),
+      });
+
+      const js = toJSONSchema(apiSignature, GOOGLE_STRICT);
+      const keywords = keywordsIn(js);
+      for (const forbidden of FORBIDDEN_BY_GOOGLE) {
+        expect([forbidden, keywords.has(forbidden)]).toEqual([forbidden, false]);
+      }
+
+      // The useful structure survives: the named field is still declared and
+      // still required, and the open tail still accepts any JSON value.
+      const signature = (js.properties as Record<string, JSONSchema>).signature;
+      expect(signature.type).toBe('object');
+      expect((signature.properties as Record<string, JSONSchema>).name.type).toBe('string');
+      expect(signature.required).toEqual(['name']);
+      expect(signature.additionalProperties).toEqual({});
+      expect(signature.description).toBe('The signature of the API function being declared.');
+    });
+
+    test('REGRESSION: the same schema under LENIENT still shows the shape Google rejected', () => {
+      // Guards the diagnosis, not just the fix: if this ever stops emitting
+      // `anyOf` + `$defs/Any`, the Google assertions above have stopped
+      // proving anything.
+      const apiSignature = z.object({
+        signature: z.object({ name: z.string() }).catchall(z.any()),
+      });
+      const keywords = keywordsIn(toJSONSchema(apiSignature, LENIENT));
+      expect(keywords.has('anyOf')).toBe(true);
+      expect(keywords.has('$defs')).toBe(true);
+      expect(keywords.has('$ref')).toBe(true);
     });
   });
 });

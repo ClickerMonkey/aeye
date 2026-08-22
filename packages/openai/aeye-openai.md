@@ -115,6 +115,8 @@ Retry config can also be overridden per request via `request.extra.retry` / `req
 
 The provider only emits OpenAI-shaped strict schemas (`supportedStrictFamilies = {'openai'}`). Strict mode for a tool or structured output engages only when the resolved model's strict format is `openai` **and** the model declares the `toolsStrict` / `structured` capability; otherwise it silently falls back to a lenient (non-strict) schema. A shared `SchemaBudget` is used so tools and the response format cooperate on per-request limits.
 
+That default is correct for api.openai.com, which speaks exactly one dialect. **A subclass that fronts other providers' models must widen it** — `supportedStrictFamilies` is the gate on the whole family resolution, so leaving it at `{'openai'}` sends every other family's tool schemas out as LENIENT no matter what the model declares. `OpenRouterProvider` sets `{'openai', 'anthropic', 'google'}` for this reason; `AWSProvider` does the same.
+
 ## Usage examples
 
 ```typescript

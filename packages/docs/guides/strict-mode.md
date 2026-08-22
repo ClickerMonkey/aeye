@@ -96,7 +96,7 @@ A model's strict-mode JSON Schema dialect is one of three families. Each provide
 |---|---|
 | `openai` | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, all fields required. |
 | `anthropic` | Closed objects + all-required honored, but no recursive schemas, no length / numeric constraints, per-request slot budgets. |
-| `google` | Standard `prefixItems`, `$ref: '#'` recursion, `propertyOrdering` emitted, restricted format whitelist (date-time / date / time only). |
+| `google` | Standard `prefixItems`, `$ref: '#'` recursion, `propertyOrdering` emitted, restricted format whitelist (date-time / date / time only). No combinators and no named `$defs`, so `z.any()` emits the empty schema `{}` rather than an `anyOf` union. |
 
 `@aeye/core` ships seven `FormatDescriptor` constants encoding all this: `OPENAI_STRICT`, `ANTHROPIC_STRICT`, `GOOGLE_STRICT`, `LENIENT`, plus three non-strict family aliases. See the [`@aeye/core` README](https://github.com/ClickerMonkey/aeye/blob/main/packages/core/README.md#strict-mode) for the full descriptor table and how to register a custom one.
 
@@ -119,7 +119,7 @@ Without it, models default to lenient even when their underlying API supports st
 
 - `gpt-4o`, `gpt-4.1`, `gpt-5`, `o1`/`o3`/`o4` get the OpenAI dialect.
 - AWS Bedrock + Claude 4.5 / Sonnet 4 / Haiku 4 / Opus 4 get the Anthropic dialect.
-- OpenRouter `openai/*`, `anthropic/*`, `google/gemini-2+` get their respective dialects.
+- OpenRouter `openai/*`, `anthropic/*`, `google/gemini-2+` get their respective dialects, for **tool** schemas as well as `response_format`. (Before 0.4.x only `response_format` was family-aware on OpenRouter; tool schemas silently fell back to LENIENT for every non-OpenAI model, which is how Gemini ended up receiving a recursive `$defs/Any` it answers `400 INVALID_ARGUMENT` to whenever a tool call is forced.)
 
 You can mix it with your own overrides:
 

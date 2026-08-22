@@ -245,6 +245,26 @@ describe('FormatDescriptor matrix', () => {
       expect(stringified).not.toContain('$ref');
     });
 
+    it('GOOGLE_STRICT uses unconstrained (no anyOf, no $defs) Any encoding', () => {
+      // Google's dialect forbids `anyOf` AND named `$defs`/`$ref`, so neither
+      // recursive encoding nor the flat `anyOf` is available to it. The empty
+      // schema is what's left, and it is the exact meaning of "any JSON
+      // value" — a schema with no assertion keywords validates every instance.
+      const json = toJSONSchema(schema, GOOGLE_STRICT);
+      expect(json.$defs).toBeUndefined();
+      expect(json.properties!.data).toEqual({});
+    });
+
+    it('GOOGLE_NON_STRICT uses the same unconstrained Any encoding as GOOGLE_STRICT', () => {
+      // Gemini compiles the decoding grammar whenever a tool call is forced,
+      // which has nothing to do with a per-tool `strict` flag — Google's
+      // function-calling API has none. The encoding is a property of the
+      // dialect, so it has to hold on the non-strict descriptor too.
+      const json = toJSONSchema(schema, GOOGLE_NON_STRICT);
+      expect(json.$defs).toBeUndefined();
+      expect(json.properties!.data).toEqual({});
+    });
+
     it('LENIENT uses recursive-open', () => {
       const json = toJSONSchema(schema, LENIENT);
       const branches = json.$defs!.Any.anyOf!;
@@ -529,6 +549,21 @@ describe('FormatDescriptor matrix', () => {
       expect(JSON.stringify(toJSONSchema(schema, OPENAI_NON_STRICT))).toBe(lenient);
       expect(JSON.stringify(toJSONSchema(schema, ANTHROPIC_NON_STRICT))).toBe(lenient);
       expect(JSON.stringify(toJSONSchema(schema, GOOGLE_NON_STRICT))).toBe(lenient);
+    });
+
+    it('GOOGLE_NON_STRICT diverges from LENIENT on exactly one axis: the Any encoding', () => {
+      // The one deliberate exception to the alias above. Gemini rejects a
+      // self-referencing `$defs/Any` whenever it has to compile a decoding
+      // grammar, and it does that for a forced tool call regardless of any
+      // strict flag — so this divergence is dialect-level, not strict-level.
+      // Asserted explicitly so a future "tidy up the alias" edit has to
+      // confront it rather than silently reintroduce the 400.
+      expect(GOOGLE_NON_STRICT.anyEncoding).toBe('unconstrained');
+      expect(LENIENT.anyEncoding).toBe('recursive-open');
+
+      const { id, family, anyEncoding, jsonFallbackInstruction, ...rest } = GOOGLE_NON_STRICT;
+      const { id: lid, family: lfamily, anyEncoding: lany, jsonFallbackInstruction: ljfi, ...lrest } = LENIENT;
+      expect(rest).toEqual(lrest);
     });
   });
 });

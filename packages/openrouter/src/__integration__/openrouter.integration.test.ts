@@ -7,6 +7,7 @@
 
 import { OpenRouterProvider } from '../openrouter';
 import type { Request } from '@aeye/ai';
+import { z } from 'zod';
 import { getAPIKey, skipIfNoAPIKey } from './setup';
 
 const describeIntegration = skipIfNoAPIKey();
@@ -273,4 +274,131 @@ describeIntegration('OpenRouter Integration', () => {
       }
     }, 30000);
   });
+});
+
+/**
+ * LIVE verification of the Google tool-schema fix (schema.ts `GOOGLE_STRICT`/
+ * `GOOGLE_NON_STRICT` `anyEncoding: 'unconstrained'`, and this provider's
+ * `supportedStrictFamilies` now including `'google'`). The unit suite
+ * (`__tests__/openrouter.test.ts`, `describe('OpenRouterProvider tool schema
+ * dialects')`) proves the WIRE SHAPE is keyword-clean; it cannot prove Gemini's
+ * own function-calling grammar compiler actually ACCEPTS that shape — only a
+ * real request against the real model can. `toolChoice: 'required'` is the
+ * trigger throughout (Google's function-calling mode `ANY`, which is what
+ * compiles the tool schemas into a decoding grammar in the first place — under
+ * `'auto'` no grammar is built and the pre-fix shape never 400s).
+ *
+ * `google/gemini-3-flash-preview` specifically, matching the curated
+ * `strictSupport` pattern (`^google\/gemini-(2\.0|2\.5|3|3\.1)`) and the exact
+ * model the reported regression was measured against — a cheaper/older Gemini
+ * could easily behave differently.
+ */
+describeIntegration('OpenRouter — Google tool-schema fix (live)', () => {
+  let provider: OpenRouterProvider;
+  const model = 'google/gemini-3-flash-preview';
+
+  beforeAll(() => {
+    provider = new OpenRouterProvider({ apiKey: getAPIKey() });
+  });
+
+  /** The exact `[kind]_signature` shape from the reported 400 (product's
+   *  `api_agent`/`code_agent`/etc.): a named field alongside an open TypeDef —
+   *  `z.any()` is the case `GOOGLE_STRICT.anyEncoding` was fixed for. */
+  const signatureTool = {
+    name: 'api_signature',
+    description: 'Declare the signature of the API function.',
+    parameters: z.object({
+      signature: z.object({ name: z.string() })
+        .catchall(z.any())
+        .describe('The signature of the API function being declared.'),
+    }),
+    strict: 1,
+  };
+
+  /** A genuinely nested/multi-level schema with NO "any" and NO union — arrays
+   *  of objects, an enum, an optional field — the "complex but expressible"
+   *  case that was never broken. Included so a live failure here would mean a
+   *  DIFFERENT regression, not the one this fix targets. */
+  const complexTool = {
+    name: 'file_ticket',
+    description: 'File a support ticket with structured fields.',
+    parameters: z.object({
+      title: z.string(),
+      priority: z.enum(['low', 'medium', 'high']),
+      labels: z.array(z.string()),
+      assignee: z.optional(z.string()),
+      steps: z.array(z.object({
+        description: z.string(),
+        completed: z.boolean(),
+      })),
+    }),
+    strict: 1,
+  };
+
+  /** A `z.union(...)` argument — the ONE case the fix's own report flags as a
+   *  KNOWN, still-open gap ("Tool schemas never consult `canExpress`... a
+   *  `z.union(...)` in a Google tool still emits `anyOf` despite
+   *  `allowAnyOf: false`"). This is diagnostic, not a regression guard: it
+   *  logs the real outcome rather than asserting one, so this suite stays
+   *  green regardless and the log is what tells Phil whether that gap is
+   *  still live against the real API. */
+  const unionTool = {
+    name: 'set_contact_method',
+    description: 'Record how to reach the requester.',
+    parameters: z.object({
+      contact: z.union([
+        z.object({ kind: z.literal('email'), address: z.string() }),
+        z.object({ kind: z.literal('phone'), number: z.string() }),
+      ]),
+    }),
+    strict: 1,
+  };
+
+  it('an "Any"-typed tool argument, FORCED, does not 400 — the reported regression, fixed', async () => {
+    const executor = provider.createExecutor();
+    const request: Request = {
+      messages: [{ role: 'user', content: 'Declare a signature with one field "id" of type text.' }],
+      tools: [{ ...signatureTool }],
+      toolChoice: 'required',
+    };
+
+    const response = await executor(request, {}, { model });
+
+    expect(response.finishReason).toBeTruthy();
+    expect(response.toolCalls?.length ?? 0).toBeGreaterThan(0);
+    console.log(`  tool_choice:required + Any-typed arg → ${response.toolCalls?.length} call(s), finishReason=${response.finishReason}`);
+  }, 30000);
+
+  it('a complex multi-level object argument, FORCED, does not 400', async () => {
+    const executor = provider.createExecutor();
+    const request: Request = {
+      messages: [{ role: 'user', content: 'File a high-priority ticket titled "Printer on fire" with one step: "unplug it", not yet completed.' }],
+      tools: [{ ...complexTool }],
+      toolChoice: 'required',
+    };
+
+    const response = await executor(request, {}, { model });
+
+    expect(response.finishReason).toBeTruthy();
+    expect(response.toolCalls?.length ?? 0).toBeGreaterThan(0);
+    console.log(`  tool_choice:required + nested object arg → ${response.toolCalls?.length} call(s), finishReason=${response.finishReason}`);
+  }, 30000);
+
+  it('DIAGNOSTIC (not a regression guard): a z.union(...) tool argument, FORCED — logs whether the known unaddressed gap still 400s live', async () => {
+    const executor = provider.createExecutor();
+    const request: Request = {
+      messages: [{ role: 'user', content: 'Record that they reached out by email at test@example.com.' }],
+      tools: [{ ...unionTool }],
+      toolChoice: 'required',
+    };
+
+    try {
+      const response = await executor(request, {}, { model });
+      console.log(`  UNION TOOL SUCCEEDED (unexpected — the flagged gap may not be live for this shape): ${response.toolCalls?.length} call(s)`);
+    } catch (error) {
+      console.log(`  UNION TOOL FAILED as the fix's own report predicted (known gap, not covered by this change): ${(error as Error).message}`);
+    }
+    // No assertion — this test exists to OBSERVE, not to gate. Both outcomes are informative.
+    expect(true).toBe(true);
+  }, 30000);
 });

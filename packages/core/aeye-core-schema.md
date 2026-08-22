@@ -29,9 +29,24 @@ A descriptor (see `src/schema.ts` line ~26 for the fully documented interface) d
 | `tupleEncoding` | `'object-numeric-keys'` vs `'prefix-items'` vs `'items-union'`. |
 | `optionalAsNullable` | Emit optionals as `T \| null` (OpenAI strict) vs drop from `required[]`. |
 | `allowAllOf` / `allowAnyOf` / `allowOneOf` | Combinator support. |
+| `allowRootRef` / `allowDefsRef` | Whether `$ref: '#'` / `$ref: '#/$defs/X'` are permitted. |
+| `anyEncoding` | How `z.any()` / `z.unknown()` is emitted — see below. |
 | `supportedStringFormats` | `'all'` or a `Set<string>` whitelist. |
 | `supportsRecursion` | Whether `$ref` self-reference works. |
 | `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request slot budgets (`undefined` = no documented limit). |
+
+### `anyEncoding` — and what each mode requires
+
+An open "any JSON value" slot has no single portable spelling, so each dialect picks one. **Each mode needs keywords the same descriptor has to allow**, and `checkDescriptorConsistency` enforces that pairing:
+
+| Mode | Shape | Requires |
+|------|------|------|
+| `'recursive-strict'` | `$defs/Any` with array-of-pairs records (OpenAI strict has no open objects) | `allowAnyOf`, `allowDefsRef`, `supportsRecursion` |
+| `'recursive-open'` | `$defs/Any` with `additionalProperties: <self>` | `allowAnyOf`, `allowDefsRef`, `supportsRecursion` |
+| `'flat'` | inline non-recursive `anyOf` over every JSON type | `allowAnyOf` |
+| `'unconstrained'` | the empty schema `{}` (plus any `description`) | nothing |
+
+`'unconstrained'` is the only mode available to a dialect that forbids combinators **and** named `$defs` (Google). Per JSON Schema a schema with no assertion keywords validates every instance, which is exactly what "any value" means — so it is lossless as a constraint, and the source schema's `description` still rides along as the human/model-facing signal.
 
 ## Built-in descriptors
 
@@ -41,9 +56,10 @@ Seven ship frozen and pre-registered:
 |------|------|-------|
 | `OPENAI_STRICT` | openai / strict | records→array-of-pairs, tuples→numeric-key objects, `optional → T \| null`, closed objects, restricted format whitelist. |
 | `ANTHROPIC_STRICT` | anthropic / strict | closed objects, no recursion, no length/range constraints; budgets 20 tools / 24 optional params / 16 unions. |
-| `GOOGLE_STRICT` | google / strict | `prefixItems`, `$ref: '#'` recursion, `propertyOrdering`, restricted format whitelist. |
+| `GOOGLE_STRICT` | google / strict | `prefixItems`, `$ref: '#'` recursion, `propertyOrdering`, restricted format whitelist, `z.any()` → `unconstrained` (Gemini forbids `anyOf` and named `$defs`). |
 | `LENIENT` | lenient / non-strict | No rewrites; everything passes through. Default for unannotated models. |
-| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT`, `GOOGLE_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
+| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
+| `GOOGLE_NON_STRICT` | google / non-strict | `LENIENT` **except** `anyEncoding: 'unconstrained'`. Gemini compiles a decoding grammar whenever a tool call is forced, and rejects a self-referencing `$defs/Any` when it does — which has nothing to do with a per-tool strict flag (Google's function-calling API has none), so the encoding belongs to the dialect. |
 
 ## Functions
 
@@ -53,6 +69,7 @@ toJSONSchema(schema: z.ZodType,
 strictify<S extends z.ZodType>(schema: S, descriptor?: FormatDescriptor): S   // default OPENAI_STRICT
 analyzeSchema(schema): SchemaFeatures
 registerDescriptor(descriptor: FormatDescriptor): void
+checkDescriptorConsistency(descriptor: FormatDescriptor): string[]   // [] when consistent
 getDescriptor(family: DescriptorFamily, strict: boolean): FormatDescriptor
 getDescriptorById(id: string | undefined): FormatDescriptor
 hasDescriptorFamily(family: string | undefined): boolean
@@ -64,6 +81,7 @@ strictPriority(requested: boolean | number | undefined): number
 - `toJSONSchema` accepts a descriptor, a `ToJSONSchemaOptions` object, or a boolean (back-compat: `true` ⇒ `OPENAI_STRICT`, `false` ⇒ `LENIENT`).
 - `strictify` rewrites a Zod schema in place per the descriptor (results cached in a WeakMap; same OOM-safe pattern as `analyzeSchema`).
 - `analyzeSchema` returns `SchemaFeatures`: `{ hasRecursion, optionalParameterCount, unionTypeCount, recordCount, tupleCount }` — cached per schema.
+- `checkDescriptorConsistency` reports settings that ask the emitter for a keyword the same descriptor forbids (today: `anyEncoding` vs `allowAnyOf` / `allowDefsRef` / `supportsRecursion`). `registerDescriptor` runs it and `console.warn`s each problem, because otherwise the first report of a contradiction is a provider HTTP 400.
 
 ```typescript
 import { OPENAI_STRICT, ANTHROPIC_STRICT, getDescriptor, toJSONSchema } from '@aeye/core';

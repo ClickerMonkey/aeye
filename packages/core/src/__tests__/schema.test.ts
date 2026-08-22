@@ -698,6 +698,65 @@ describe('Schema Utilities', () => {
         expect(strictSchema.shape.value.meta()).toEqual({ custom: 'data' });
       });
     });
+
+    describe('open objects (catchall)', () => {
+      // `strictify` rebuilds every object via `z.object(shape)`, which drops
+      // the catchall. That silently closed every open TypeDef the moment a
+      // strict dialect was chosen, while `toJSONSchema` went on emitting the
+      // catchall as `additionalProperties` — the two disagreed about the same
+      // schema, and the only symptom was extra keys vanishing at parse time.
+      it('preserves .catchall() so an open object stays open', () => {
+        const schema = z.object({ name: z.string() }).catchall(z.any());
+
+        const strictSchema = strictify(schema);
+
+        const parsed = strictSchema.parse({ name: 'x', extra: 1, nested: { a: true } });
+        expect(parsed).toEqual({ name: 'x', extra: 1, nested: { a: true } });
+      });
+
+      it('preserves a TYPED catchall and validates through it', () => {
+        const schema = z.object({ name: z.string() }).catchall(z.number());
+
+        const strictSchema = strictify(schema);
+
+        expect(strictSchema.parse({ name: 'x', count: 2 })).toEqual({ name: 'x', count: 2 });
+        expect(() => strictSchema.parse({ name: 'x', count: 'nope' })).toThrow();
+      });
+
+      it('preserves z.strictObject (catchall of never) so unknown keys still reject', () => {
+        const schema = z.strictObject({ name: z.string() });
+
+        const strictSchema = strictify(schema);
+
+        expect(() => strictSchema.parse({ name: 'x', extra: 1 })).toThrow();
+      });
+
+      it('leaves a plain object closed-by-stripping, as before', () => {
+        const schema = z.object({ name: z.string() });
+
+        const strictSchema = strictify(schema);
+
+        expect(strictSchema.parse({ name: 'x', extra: 1 })).toEqual({ name: 'x' });
+      });
+
+      it('strictifies the catchall VALUE type too, not just the shape', () => {
+        // The catchall value has to travel the same rewrite road as any other
+        // slot, or an OpenAI-strict record nested in the open tail would be
+        // validated against the natural shape while the wire carries pairs.
+        const schema = z.object({ name: z.string() })
+          .catchall(z.object({ tags: z.record(z.string(), z.string()) }));
+
+        const strictSchema = strictify(schema);
+
+        // Array-of-pairs is the OpenAI-strict wire shape for a record; the
+        // strictified schema must accept it inside the catchall value.
+        const parsed = strictSchema.parse({
+          name: 'x',
+          anything: { tags: [{ key: 'a', value: 'b' }] },
+        });
+        expect(parsed.anything.tags).toEqual({ a: 'b' });
+      });
+    });
   });
 
   describe('toJSONSchema', () => {
