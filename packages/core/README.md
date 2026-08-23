@@ -521,6 +521,7 @@ The descriptor's full field list is exported as the `FormatDescriptor` interface
 | `optionalAsNullable` | Whether `optional` fields are emitted as `T \| null` (OpenAI strict) vs omitted from `required[]`. |
 | `supportsRecursion` | Whether `$ref` self-reference works under this dialect. |
 | `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request budget caps; `undefined` means no documented limit. |
+| `schemaSizeLimits` | Per-SCHEMA size ceilings (properties, nesting, total string characters, enum values); `undefined` means no documented limit. An over-size schema degrades on its own, even when it asked for `strict: true`. |
 
 You don't need to set every field — spread an existing descriptor and override deltas. Tested via `analyzeSchema` + the schema test suite; see the strict-mode guide in `@aeye/docs` for end-to-end examples.
 

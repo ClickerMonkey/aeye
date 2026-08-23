@@ -73,6 +73,27 @@ describe('FormatDescriptor self-consistency', () => {
       expect(problems).toEqual([expect.stringContaining('supportsRecursion is false')]);
     });
 
+    it('flags a maxEnumValues that would strip every enum constraint', () => {
+      // A cap below 1 widens EVERY enum the dialect emits, including a
+      // two-member one, and a fractional cap reads as a threshold nobody
+      // intended. Both are silent — the schema stays valid, it just stops
+      // constraining anything — which is what this function is for.
+      expect(checkDescriptorConsistency({ ...GOOGLE_STRICT, maxEnumValues: 0 })).toEqual([
+        expect.stringContaining('maxEnumValues must be a positive integer'),
+      ]);
+      expect(checkDescriptorConsistency({ ...GOOGLE_STRICT, maxEnumValues: -5 })).toEqual([
+        expect.stringContaining('maxEnumValues must be a positive integer'),
+      ]);
+      expect(checkDescriptorConsistency({ ...GOOGLE_STRICT, maxEnumValues: 2.5 })).toEqual([
+        expect.stringContaining('maxEnumValues must be a positive integer'),
+      ]);
+    });
+
+    it('accepts a descriptor that declares no maxEnumValues at all', () => {
+      // The field is optional: "no cap" is the default, not a contradiction.
+      expect(checkDescriptorConsistency({ ...GOOGLE_STRICT, maxEnumValues: undefined })).toEqual([]);
+    });
+
     it('accepts the unconstrained encoding under every combination of flags', () => {
       // `unconstrained` emits no keyword, so no `allow*` flag can forbid it —
       // which is what makes it the fallback for a maximally restrictive

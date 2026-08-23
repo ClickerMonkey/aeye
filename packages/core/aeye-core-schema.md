@@ -34,6 +34,56 @@ A descriptor (see `src/schema.ts` line ~26 for the fully documented interface) d
 | `supportedStringFormats` | `'all'` or a `Set<string>` whitelist. |
 | `supportsRecursion` | Whether `$ref` self-reference works. |
 | `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request slot budgets (`undefined` = no documented limit). |
+| `schemaSizeLimits` | Per-SCHEMA size ceilings — properties, nesting, total string characters, enum values (`undefined` = no documented limit) — see below. |
+| `maxEnumValues` | Opt-in ceiling on how many values ONE emitted `enum` may carry (`undefined` = no cap, and that is what every built-in declares) — see below. |
+
+### `schemaSizeLimits` — how BIG one strict schema may be
+
+Separate from the per-request slot budgets above: every bound here is a **sum over ONE schema** (one tool's `parameters`, or one structured-output schema), so no other item in the request can change the verdict. `SchemaBudget` therefore treats an over-size schema as a feasibility failure rather than a budget one — that single item degrades to the family's non-strict descriptor **even when it asked for `strict: true`**, and the rest of the request is untouched.
+
+```typescript
+interface SchemaSizeLimits {
+  maxObjectProperties: number;      // summed over every nesting level
+  maxNestingDepth: number;          // levels of nested containers below the root
+  maxTotalStringChars: number;      // property names + enum values + const values
+  maxTotalEnumValues: number;       // summed across every enum property
+  largeEnumValueCount: number;      // the single-enum value count above which…
+  maxLargeEnumStringChars: number;  // …that one enum's string values are also bounded
+}
+```
+
+**`OPENAI_STRICT` is the only built-in that declares them**, because Structured Outputs is the only one of the three dialects that documents them. Verified against developers.openai.com "Supported schemas" on 2026-08-23: *"A schema may have up to 5000 object properties total, with up to 10 levels of nesting"*, *"total string length of all property names, definition names, enum values, and const values cannot exceed 120,000 characters"*, *"A schema may have up to 1000 enum values across all enum properties"*, and *"For a single enum property with string values, the total string length of all enum values cannot exceed 15,000 characters when there are more than 250 enum values"*. Every one of those was raised in July 2025 (100→5000 properties, 15,000→120,000 characters, 500→1000 enum values, 7,500→15,000 for the >250-value enum); the pre-raise numbers are still widely quoted secondhand.
+
+Scope is Structured Outputs — a tool carrying `strict: true`, or a `json_schema` response format. Non-strict function calling is best-effort with no compiled decoder, which is exactly why degrading the offending item is a complete answer rather than a partial one.
+
+`checkSchemaSizeLimits(schema, descriptor)` is the public form and returns one line per bound broken (empty = it fits, or the dialect publishes none) — the answer to "why did my tool silently stop being strict?".
+
+The measurement is taken from the **Zod** schema rather than from the emitted JSON, so where an encoding is descriptor-dependent it counts the widest one (a record as its `{key, value}` pair form, a tuple as its numeric-key form). Over-counting costs strictness on a schema that would have fitted; under-counting costs an HTTP 400, so the rounding goes up. `$defs` entry names are not counted: they are generated at emit time, few, and short against a 120,000-character budget.
+
+### `maxEnumValues` — an opt-in dialect ceiling that WIDENS, and why no built-in sets one
+
+Some providers may reject a schema whose `enum` is simply too long. That is **not** one of the per-request budgets above: those are strict-mode allowances the `SchemaBudget` spends across a whole request, degrading an item that no longer fits to the family's non-strict descriptor, whereas this one would fire whatever the strictness, so it is enforced structurally at the point an `enum` is emitted.
+
+Over the cap the emitter **widens** — it does not truncate. It drops the `enum` keyword, emits the node's plain scalar `type`, and puts **every** value into the `description`:
+
+```jsonc
+// z.enum([...20 values]) under a descriptor with maxEnumValues: 8
+{ "type": "string", "description": "One of these 20 values: name_0, name_1, …, name_19" }
+```
+
+Truncating would make the values past the cap **unreachable** — the wire schema would constrain them away, so a caller whose 96 values are all legitimately selectable would lose 56 of them. Widening removes only the cardinality the dialect cannot compile, and the model keeps complete information. If the source schema carries its own `.describe()`, the value list is appended to it rather than replacing it.
+
+The trade is enforcement: a widened node no longer rejects a value structurally, so whatever validates the model's output afterwards must. `Tool.parse` does — it runs against the ORIGINAL zod schema, whose `enum` is untouched — so a hallucinated member comes back as a normal, re-promptable validation error.
+
+**No built-in descriptor declares a cap, and that is a measured result.** The field exists because a large `enum` was believed to make Gemini answer `400 INVALID_ARGUMENT`. Measured against `google/gemini-3-flash-preview` through OpenRouter (2026-08-23), it does not: single-parameter enums at 50/64/72/80/96/128/256/512/1024/**2048** values (52 KB of tool schema) all returned HTTP 200 with the expected tool call, under `tool_choice` both `required` (which is what makes Gemini compile a decoding grammar) and `auto` — as did 96 values with 80-character members, 20 tools each carrying a 96-value enum in one request, a 96-value enum next to `strict: true` / `minItems` / `propertyOrdering` / a sibling `anyOf`, and a 2048-value enum inside a `response_format` schema. Reliability was compared too, since a cap's whole cost is losing the enum's can't-hallucinate guarantee: 10 trials each of `enum` vs plain-string-with-full-list, over confusable near-duplicate names, at 96 and again at 512 values — both picked the correct member 10/10 with zero off-list answers.
+
+A second pass answered the obvious objection — that an isolated probe is not what a real session sends. Same date and model, upstream **pinned to Google AI Studio** with fallbacks off (the upstream that served the production failures), an eleven-tool roster emitted through this library for a Google model and modelled on a real kind-authoring agent (`fn_load` / `fn_search` / `type_load` / `api_signature` / `api_set` / …, real descriptions, real system prompt): a 96-value enum on one of those tools returned 200 with the expected tool call under `tool_choice` `required` and `auto` alike, as did the same roster at 8 values and a tool carrying a bare typeless `{}` property.
+
+The caveat that keeps that from being proof: the **control** — the recursive `$defs/Any` shape documented elsewhere in this file as 100% reproducible HTTP 400 — also returned 200, pinned and unpinned, forced and automatic, both hand-built and as the product's real 32 KB gin `api_set` schema. That failure class is not visible from this route today, so treat the numbers as evidence, not a verdict.
+
+One trap for whoever measures this next: at `max_tokens: 64` the `$defs/Any` tool answered `finish_reason: "length"` with no tool call and empty content, which reads exactly like a grammar that produced nothing. It is not — this model spends reasoning tokens first, and at 400 the identical request emitted a correct call in 28 output tokens. Give a forced-tool probe room before calling an empty completion a failure.
+
+So: **set this only against a measured provider rejection, and set it as high as the measurement allows.** An `enum` that fits is the more correct encoding, because it is the one the model cannot answer outside of.
 
 ### `anyEncoding` — and what each mode requires
 
@@ -80,8 +130,9 @@ strictPriority(requested: boolean | number | undefined): number
 
 - `toJSONSchema` accepts a descriptor, a `ToJSONSchemaOptions` object, or a boolean (back-compat: `true` ⇒ `OPENAI_STRICT`, `false` ⇒ `LENIENT`).
 - `strictify` rewrites a Zod schema in place per the descriptor (results cached in a WeakMap; same OOM-safe pattern as `analyzeSchema`).
-- `analyzeSchema` returns `SchemaFeatures`: `{ hasRecursion, optionalParameterCount, unionTypeCount, recordCount, tupleCount }` — cached per schema.
-- `checkDescriptorConsistency` reports settings that ask the emitter for a keyword the same descriptor forbids (today: `anyEncoding` vs `allowAnyOf` / `allowDefsRef` / `supportsRecursion`). `registerDescriptor` runs it and `console.warn`s each problem, because otherwise the first report of a contradiction is a provider HTTP 400.
+- `analyzeSchema` returns `SchemaFeatures`: `{ hasRecursion, optionalParameterCount, unionTypeCount, recordCount, tupleCount, enums, objectPropertyCount, maxNestingDepth, stringSizeChars }` — cached per schema. The last four feed `schemaSizeLimits`; `enums` keeps a per-enum `{valueCount, stringValueChars}` breakdown because the large-enum character rule is conditional on that SAME enum's value count, which a pair of totals cannot answer.
+- `checkSchemaSizeLimits(schema, descriptor)` reports the per-schema size bounds a schema breaks (see `schemaSizeLimits`).
+- `checkDescriptorConsistency` reports settings that ask the emitter for a keyword the same descriptor forbids (`anyEncoding` vs `allowAnyOf` / `allowDefsRef` / `supportsRecursion`), or a limit that would quietly stop governing anything: a `maxEnumValues` below 1 or non-integer (which widens every enum the dialect emits), a non-positive `schemaSizeLimits` bound (which degrades every schema), a `largeEnumValueCount` at or above `maxTotalEnumValues` (unreachable rule), or size limits on a non-strict descriptor (the API applies none). `registerDescriptor` runs it and `console.warn`s each problem, because otherwise the first report of a contradiction is a provider HTTP 400.
 
 ```typescript
 import { OPENAI_STRICT, ANTHROPIC_STRICT, getDescriptor, toJSONSchema } from '@aeye/core';
@@ -103,11 +154,13 @@ toJSONSchema(schema, false);                         // === LENIENT
 `new SchemaBudget(descriptor)` allocates strict "slots" across a single request when a descriptor has per-request limits (e.g. Anthropic). Providers call:
 
 ```typescript
-budget.allocateTool(schema, requested): FormatDescriptor   // returns strict or LENIENT, decrements
+budget.allocateTool(schema, requested): FormatDescriptor   // returns strict or the family's non-strict, decrements
 budget.allocateOutput(schema, requested): FormatDescriptor // output schema; consumes param/union budget, not a tool slot
 ```
 
-It returns `LENIENT` when `requested === false`, when the schema uses an unrepresentable feature, or when a positive-number request can't fit the remaining budget (priority order; `true` always wins subject to *budget*, never subject to feasibility).
+It falls back when `requested === false`, when the schema uses an unrepresentable feature, when the schema exceeds the dialect's `schemaSizeLimits`, or when a positive-number request can't fit the remaining budget (priority order; `true` always wins subject to *budget*, never subject to feasibility or size).
+
+**The fallback is the descriptor's own family, non-strict — never the family-blind `LENIENT`.** A dialect rule can outlive strict mode: `GOOGLE_NON_STRICT` exists for exactly one such rule, the `unconstrained` encoding of `z.any()`, because Gemini compiles a decoding grammar whenever a tool call is forced and no per-tool `strict` flag is involved. Degrading to `LENIENT` put the self-referencing `$defs/Any` that encoding was created to avoid straight back on the Google wire — and did so for *every* schema that degrades, which under `GOOGLE_STRICT` (`allowAnyOf: false`) is every recursive gin/query program schema there is. For the other families the change is behaviour-neutral by construction: `OPENAI_NON_STRICT` / `ANTHROPIC_NON_STRICT` are `LENIENT` with a family tag, and a family that registers no non-strict variant resolves to `LENIENT`. Only the `descriptor` id pinned on the tool differs, and it round-trips through `getDescriptorById`.
 
 "Unrepresentable" here means a **combinator the descriptor forbids** (`z.union` → `anyOf`, `z.intersection` → `allOf`), because nothing rewrites those away — a schema carrying one under `GOOGLE_STRICT` is a provider HTTP 400. **Recursion is not unrepresentable**: the emitter replaces any back-edge the descriptor cannot spell with a bounded placeholder, so a recursive schema stays strict (looser at the back-edge, never rejected). That is the difference between this check and `canExpress`, which additionally treats a widened back-edge as a reason to fall back — the right answer for a structured *output* (it can be delivered as prompt text instead) and the wrong one for a *tool* (it cannot).
 

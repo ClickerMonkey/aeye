@@ -25,6 +25,7 @@ import { z } from 'zod';
 import {
   analyzeSchema,
   canExpress,
+  GOOGLE_NON_STRICT,
   GOOGLE_STRICT,
   LENIENT,
   OPENAI_STRICT,
@@ -113,15 +114,37 @@ describe('a z.lazy getter that rebuilds', () => {
 });
 
 describe('SchemaBudget honours the descriptor it cannot send', () => {
-  it('degrades a union-bearing tool to LENIENT under GOOGLE_STRICT (allowAnyOf: false)', () => {
+  it('degrades a union-bearing tool to GOOGLE_NON_STRICT (allowAnyOf: false), never to LENIENT', () => {
     // The api_set case in miniature: a recursive UNION is the shape a gin
     // program schema takes, and `anyOf` is the one thing nothing rewrites away.
+    //
+    // WHICH descriptor it degrades to is the point. `LENIENT` encodes
+    // `z.any()` as a self-referencing `$defs/Any`, which is precisely what
+    // `GOOGLE_NON_STRICT` exists to keep off the Google wire: Gemini compiles a
+    // decoding grammar whenever a tool call is forced, with no per-tool strict
+    // flag involved. Degrading to LENIENT put that shape back on every schema
+    // that degrades — which, under `GOOGLE_STRICT`, is every gin program schema
+    // there is.
     const schema = z.object({ value: z.union([z.string(), z.number()]) });
     const budget = new SchemaBudget(GOOGLE_STRICT);
-    expect(budget.allocateTool(schema, 1)).toBe(LENIENT);
+    expect(budget.allocateTool(schema, 1)).toBe(GOOGLE_NON_STRICT);
     // A hard `strict: true` is degraded too — feasibility is not a budget
     // question, and emitting it would be a guaranteed 400.
-    expect(budget.allocateTool(schema, true)).toBe(LENIENT);
+    expect(budget.allocateTool(schema, true)).toBe(GOOGLE_NON_STRICT);
+  });
+
+  it('the degraded tool emits Google\'s "any" encoding, not a recursive $defs/Any', () => {
+    // The consequence the swap buys, asserted on the WIRE rather than on a
+    // descriptor identity: a degraded Google tool must carry no `$defs/Any`.
+    const schema = z.object({ value: z.union([z.string(), z.number()]), payload: z.any() });
+    const budget = new SchemaBudget(GOOGLE_STRICT);
+    const descriptor = budget.allocateTool(schema, true);
+    const json = JSON.stringify(toJSONSchema(strictify(schema, descriptor), descriptor));
+    expect(json).not.toContain('$defs');
+    expect(json).not.toContain('$ref');
+    // Same schema through the old target, so the assertion above is known to
+    // be capable of failing.
+    expect(JSON.stringify(toJSONSchema(strictify(schema, LENIENT), LENIENT))).toContain('#/$defs/Any');
   });
 
   it('still grants strict for a schema the descriptor CAN send', () => {

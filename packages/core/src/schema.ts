@@ -14,6 +14,49 @@ import z from 'zod';
 export type DescriptorFamily = 'openai' | 'anthropic' | 'google' | (string & {});
 
 /**
+ * Documented ceilings on how BIG one strict schema may be, as opposed to which
+ * keywords it may use. Every limit here is a SUM taken over a single schema —
+ * one tool's `parameters`, or one structured-output schema — not a per-request
+ * allowance shared between them (that is `maxStrictTools` and friends, which
+ * the `SchemaBudget` spends across the whole request).
+ *
+ * A schema that exceeds one of these is a guaranteed provider rejection under
+ * strict mode, so `SchemaBudget.allocate` treats it like any other
+ * infeasibility and degrades that ONE item to the family's non-strict
+ * descriptor, where no size rule applies. The rest of the request is
+ * unaffected.
+ *
+ * Declared as one object rather than six optional fields on purpose: a
+ * provider documents these together, and the object being present is what says
+ * "this dialect publishes size limits". Adding a rule here is then a compile
+ * error at every descriptor that declares the group, which is the point
+ * (a missed limit is invisible until a 400).
+ */
+export interface SchemaSizeLimits {
+  /** Maximum object properties in one schema, summed over every nesting level. */
+  readonly maxObjectProperties: number;
+  /** Maximum levels of nested containers below the schema root. */
+  readonly maxNestingDepth: number;
+  /**
+   * Maximum total characters over the schema's property names, `enum` values
+   * and `const` values together.
+   */
+  readonly maxTotalStringChars: number;
+  /** Maximum `enum` values summed across every enum property in one schema. */
+  readonly maxTotalEnumValues: number;
+  /**
+   * The single-enum value count above which `maxLargeEnumStringChars` starts
+   * to apply. A smaller enum is bounded only by the two totals above.
+   */
+  readonly largeEnumValueCount: number;
+  /**
+   * Maximum total characters of ONE enum's string values, applied only to an
+   * enum carrying more than `largeEnumValueCount` values.
+   */
+  readonly maxLargeEnumStringChars: number;
+}
+
+/**
  * Format descriptor — describes the JSON Schema dialect of a target.
  *
  * Each provider/strict combination is represented by one descriptor. The
@@ -122,6 +165,111 @@ export interface FormatDescriptor {
   /** Maximum total union-type parameters across all strict schemas in one request. */
   readonly maxStrictUnionTypes?: number;
 
+  // ---- Per-SCHEMA strict size limits ----
+  /**
+   * Documented ceilings on the SIZE of one strict schema (properties, nesting,
+   * total string bytes, enum values), or `undefined` when the dialect
+   * publishes none. See {@link SchemaSizeLimits} for what each bound counts and
+   * why it is per-schema rather than per-request.
+   *
+   * Only a STRICT descriptor declares these: they are Structured-Outputs rules
+   * — the API compiles the schema into a decoder and rejects one it cannot —
+   * and a non-strict schema is a best-effort hint the API does not compile. So
+   * degrading the offending item to the family's non-strict descriptor is both
+   * the fix and the reason the limits stop applying to it
+   * (`SchemaBudget.allocate`, `checkSchemaSizeLimits`).
+   *
+   * The measurement is taken from the ZOD schema, not from the emitted JSON,
+   * so it is deliberately CONSERVATIVE where an encoding is descriptor-
+   * dependent (a record counts as its widest encoding, a tuple as its
+   * numeric-key one). Over-counting costs strictness on a schema that would
+   * have fit; under-counting costs an HTTP 400, so the round goes up.
+   */
+  readonly schemaSizeLimits?: SchemaSizeLimits;
+
+  // ---- Enum cardinality ----
+  /**
+   * Maximum number of values ONE emitted `enum` may carry, or `undefined`
+   * (the default) for no cap.
+   *
+   * This is deliberately NOT one of the per-request budget fields above. Those
+   * are strict-mode allowances the SchemaBudget spends across a whole request,
+   * degrading an item that no longer fits to the family's non-strict
+   * descriptor; this one is a property of the dialect itself — it fires whatever the strictness — so it is enforced
+   * structurally at the point an `enum` is emitted (`convertSchema`), where
+   * the cardinality is actually known.
+   *
+   * Over the cap the emitter **widens** rather than truncates: it drops the
+   * `enum` keyword entirely, emits the node's plain scalar `type`
+   * (`{type: 'string'}` for a string enum), and puts EVERY value into the
+   * node's `description`. Nothing becomes unreachable — the model still has
+   * the complete list and can name any member — and the cardinality the
+   * dialect could not compile is simply no longer on the wire.
+   *
+   * The trade this makes is enforcement: a widened node no longer rejects a
+   * value structurally, so whatever validates the model's output afterwards
+   * has to. `Tool.parse` does, against the ORIGINAL zod schema — the enum is
+   * still there, only the emitted JSON Schema widened — so a hallucinated
+   * member comes back as a normal, re-promptable validation error.
+   *
+   * **NO BUILT-IN DESCRIPTOR DECLARES A CAP, and that is a measured result, not
+   * an omission.** This field exists because a large `enum` was believed to make
+   * Gemini answer `400 INVALID_ARGUMENT`; measured against
+   * `google/gemini-3-flash-preview` through OpenRouter (2026-08-23), it does
+   * not. Every one of these returned HTTP 200 with the expected tool call, under
+   * `tool_choice` both `required` (which is what makes Gemini compile the tool
+   * schemas into a decoding grammar) and `auto`:
+   *
+   * - single-parameter `enum` at 50 / 64 / 72 / 80 / 96 / 128 / 256 / 512 /
+   *   1024 / **2048** values (52 KB of tool schema);
+   * - 96 values with 80-character members (byte size, not member count);
+   * - 20 tools each carrying a 96-value `enum` in one request (51 KB);
+   * - a 96-value `enum` alongside `strict: true`, alongside `minItems` on an
+   *   array-of-enum, alongside `propertyOrdering`, alongside a sibling `anyOf`;
+   * - a 2048-value `enum` inside a `response_format` JSON schema.
+   *
+   * A second pass answered the obvious objection — that an isolated probe is
+   * not what a real session sends. Same date, same model, upstream PINNED to
+   * Google AI Studio with fallbacks off (the upstream that served the
+   * production failures), an eleven-tool roster emitted through this library
+   * for a Google model and modelled on a real kind-authoring agent
+   * (`fn_load`/`fn_search`/`type_load`/`api_signature`/`api_set`/…, real
+   * descriptions, a real system prompt): a 96-value enum on one of those tools
+   * returned 200 with the expected tool call under `tool_choice` `required`
+   * and `auto` alike, as did the same roster at 8 values and a tool carrying a
+   * bare typeless `{}` property.
+   *
+   * **Caveat that keeps this from being proof**: the CONTROL — the recursive
+   * `$defs/Any` shape this file recorded as "100% reproducible" HTTP 400 —
+   * also returned 200, pinned and unpinned, forced and automatic, both
+   * hand-built and as the product's real 32 KB gin `api_set` schema. So that
+   * failure class is simply not visible from this route today (upstream fixed
+   * it, or sanitizes), and a negative here is evidence, not a verdict. What it
+   * does establish is that nothing reachable from a request — isolated or
+   * realistic — reproduces an enum-size limit, so declaring a cap would trade
+   * real structural enforcement for an unverified one.
+   *
+   * One trap for whoever measures this next: with `max_tokens` at 64, the
+   * $defs/Any tool came back `finish_reason: 'length'` with no tool call and
+   * empty content, which reads exactly like a grammar that produced nothing.
+   * It is not — this model spends reasoning tokens first, and at 400 the same
+   * request emitted a correct call in 28 output tokens. Give a forced-tool
+   * probe room before calling an empty completion a failure.
+   *
+   * Reliability was compared too, since a cap's whole cost is losing the
+   * `enum`'s can't-hallucinate guarantee: same tool and paraphrased prompt,
+   * 10 trials each, `enum` vs plain string with the full list in the
+   * description, over confusable near-duplicate names. At 96 values and again
+   * at 512, both encodings picked the correct member 10/10 with zero off-list
+   * answers. No measured reliability gap — but also no measured reason to give
+   * up the guarantee.
+   *
+   * So: set this only where a provider is MEASURED to reject a large enum, and
+   * set it as high as the measurement allows. An `enum` that fits is the more
+   * correct encoding, because it is the one the model cannot answer outside of.
+   */
+  readonly maxEnumValues?: number;
+
   // ---- Schema-feature feasibility ----
   /**
    * Whether the descriptor can express recursive `$ref` schemas (`$ref: '#'`
@@ -205,10 +353,28 @@ export const LENIENT: FormatDescriptor = Object.freeze({
  * tuples→numeric-keys, optional→nullable.
  *
  * No documented per-request slot limit (max strict tools / optional params /
- * union types). The SchemaBudget treats those caps as `undefined` (no limit)
- * for OpenAI; OpenAI's own ~5000-property and ~5-level-depth schema caps
- * aren't enforced here either — they're rare in practice and produce a
- * server-side rejection that the user can react to.
+ * union types) — the SchemaBudget treats those caps as `undefined` for OpenAI.
+ *
+ * OpenAI DOES document per-SCHEMA size limits for Structured Outputs, and they
+ * are declared below (`schemaSizeLimits`). Verified against
+ * developers.openai.com/api/docs/guides/structured-outputs on 2026-08-23,
+ * section "Supported schemas": *"A schema may have up to 5000 object
+ * properties total, with up to 10 levels of nesting"*, *"total string length of
+ * all property names, definition names, enum values, and const values cannot
+ * exceed 120,000 characters"*, *"A schema may have up to 1000 enum values
+ * across all enum properties"*, and *"For a single enum property with string
+ * values, the total string length of all enum values cannot exceed 15,000
+ * characters when there are more than 250 enum values"*. Every one of those
+ * numbers was raised in July 2025 (100→5000 properties, 15,000→120,000
+ * characters, 500→1000 enum values, 7,500→15,000 for the >250-value enum) —
+ * the pre-raise figures are still widely quoted secondhand, so they are named
+ * here to keep a future reader from "correcting" these downward.
+ *
+ * Scope is Structured Outputs, i.e. a tool carrying `strict: true` or a
+ * `json_schema` response format — the function-calling guide defines strict
+ * mode as "leveraging our structured outputs feature", and non-strict function
+ * calling is best-effort with no compiled decoder. That is exactly why
+ * degrading the over-size item to `OPENAI_NON_STRICT` is a complete answer.
  */
 export const OPENAI_STRICT: FormatDescriptor = Object.freeze({
   id: 'openai-strict',
@@ -233,6 +399,17 @@ export const OPENAI_STRICT: FormatDescriptor = Object.freeze({
   optionalAsNullable: true,
   anyEncoding: 'recursive-strict',
   supportsRecursion: true,
+  // Every number is quoted from OpenAI's own "Supported schemas" section — see
+  // the descriptor doc above for the exact sentences and the date they were
+  // read. Frozen because `Object.freeze` on the descriptor is shallow.
+  schemaSizeLimits: Object.freeze({
+    maxObjectProperties: 5000,
+    maxNestingDepth: 10,
+    maxTotalStringChars: 120_000,
+    maxTotalEnumValues: 1000,
+    largeEnumValueCount: 250,
+    maxLargeEnumStringChars: 15_000,
+  }),
 });
 
 /** OpenAI non-strict — alias of LENIENT but tagged with the openai family. */
@@ -326,10 +503,21 @@ export const ANTHROPIC_NON_STRICT: FormatDescriptor = Object.freeze({
  *   this descriptor used to declare was a schema it says it cannot emit.
  *   Gemini compiles the tool schemas into a decoding grammar whenever the
  *   caller forces a tool call (`toolChoice: 'required'` → Google's function
- *   calling mode `ANY`), and a self-referencing `$defs/Any` fails that
- *   compile with `400 INVALID_ARGUMENT` — the same request succeeds under
+ *   calling mode `ANY`), and a self-referencing `$defs/Any` failed that
+ *   compile with `400 INVALID_ARGUMENT` — the same request succeeded under
  *   `toolChoice: 'auto'`, where no grammar is built. Reported against
- *   `google/gemini-3-flash-preview` via OpenRouter, 100% reproducible.
+ *   `google/gemini-3-flash-preview` via OpenRouter as 100% reproducible.
+ *
+ *   **That 400 no longer reproduces (re-measured 2026-08-23)** and the
+ *   encoding stays anyway. Same model, same route, upstream pinned to Google
+ *   AI Studio with fallbacks off, `tool_choice` forced to one named tool: the
+ *   hand-built recursive `$defs/Any` tool, and the product's real 32 KB gin
+ *   `api_set` schema carrying nine `#/$defs/Any` references, both answered
+ *   HTTP 200 with a valid tool call. So the upstream either fixed or now
+ *   sanitizes it. The descriptor still declares what this dialect's own
+ *   documented keyword list supports; depending on a provider's current
+ *   leniency for a shape we say it cannot express is how the first version of
+ *   this descriptor shipped a guaranteed 400 in the first place.
  */
 export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   id: 'google-strict',
@@ -355,7 +543,9 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   // The ONLY encoding expressible under `allowAnyOf: false` +
   // `allowDefsRef: false` — see the descriptor doc above.
   anyEncoding: 'unconstrained',
-  // No documented per-request slot limits.
+  // No documented per-request slot limits, and NO `maxEnumValues` — a large
+  // `enum` was suspected of causing `400 INVALID_ARGUMENT` here and did not
+  // survive measurement. See `FormatDescriptor.maxEnumValues` for the numbers.
   supportsRecursion: true,
   // Gemini's structured-output endpoint rejects `anyOf`/`$defs` schemas
   // (HTTP 400). When a schema can't be expressed here it's delivered as
@@ -410,7 +600,8 @@ const ANY_ENCODING_REQUIREMENTS: Readonly<Record<
 
 /**
  * Report the ways a `FormatDescriptor` contradicts itself — settings that ask
- * the emitter to produce a keyword the same descriptor forbids. Returns one
+ * the emitter to produce a keyword the same descriptor forbids, or a limit
+ * that would quietly strip every constraint it governs. Returns one
  * human-readable line per problem; an empty array means the descriptor is
  * internally consistent.
  *
@@ -446,6 +637,60 @@ export function checkDescriptorConsistency(descriptor: FormatDescriptor): string
   }
   if (needs.defsRef && !descriptor.supportsRecursion) {
     problems.push(`anyEncoding '${descriptor.anyEncoding}' emits a self-referencing \`$defs/Any\`, but supportsRecursion is false`);
+  }
+  // `maxEnumValues` is an independent scalar — there is no other field it can
+  // contradict — but a cap below 1 widens EVERY enum the dialect ever emits
+  // (including a two-member one), and a fractional cap reads as a threshold
+  // nobody intended. Both are silent: the schema stays valid, it just stops
+  // constraining anything, which is the "invisible until you read the wire"
+  // class this function exists to catch. Only reachable through
+  // `registerDescriptor`; the built-ins are asserted clean by the test suite.
+  const cap = descriptor.maxEnumValues;
+  if (cap !== undefined && (!Number.isInteger(cap) || cap < 1)) {
+    problems.push(`maxEnumValues must be a positive integer, got ${cap}`);
+  }
+  problems.push(...schemaSizeLimitProblems(descriptor));
+  return problems;
+}
+
+/**
+ * The ways a `schemaSizeLimits` group contradicts itself or the descriptor
+ * carrying it. Split out only to keep `checkDescriptorConsistency` readable;
+ * it is part of the same contract.
+ *
+ * The failures below are all SILENT: a non-positive bound degrades every
+ * schema to lenient (strict mode simply stops happening, with no error
+ * anywhere), a threshold above the total makes the large-enum rule
+ * unreachable, and limits on a non-strict descriptor describe a rule the API
+ * does not apply — each one is a rule that reads as enforced and is not.
+ */
+function schemaSizeLimitProblems(descriptor: FormatDescriptor): string[] {
+  const limits = descriptor.schemaSizeLimits;
+  if (limits === undefined) return [];
+  const problems: string[] = [];
+  if (!descriptor.strict) {
+    problems.push('schemaSizeLimits is declared on a non-strict descriptor, but the size rules bound Structured Outputs only');
+  }
+  // Keyed off the interface, so a bound added to `SchemaSizeLimits` is checked
+  // here without an edit — `satisfies` makes a missed key a compile error.
+  const bounds = {
+    maxObjectProperties: limits.maxObjectProperties,
+    maxNestingDepth: limits.maxNestingDepth,
+    maxTotalStringChars: limits.maxTotalStringChars,
+    maxTotalEnumValues: limits.maxTotalEnumValues,
+    largeEnumValueCount: limits.largeEnumValueCount,
+    maxLargeEnumStringChars: limits.maxLargeEnumStringChars,
+  } satisfies Record<keyof SchemaSizeLimits, number>;
+  for (const [name, value] of Object.entries(bounds)) {
+    if (!Number.isInteger(value) || value < 1) {
+      problems.push(`schemaSizeLimits.${name} must be a positive integer, got ${value}`);
+    }
+  }
+  if (limits.largeEnumValueCount >= limits.maxTotalEnumValues) {
+    problems.push(
+      `schemaSizeLimits.largeEnumValueCount (${limits.largeEnumValueCount}) is not below maxTotalEnumValues ` +
+        `(${limits.maxTotalEnumValues}), so the large-enum character rule can never apply`,
+    );
   }
   return problems;
 }
@@ -1538,7 +1783,17 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
   } finally {
     context.inProgress.delete(id);
   }
+  // A description the CONVERTER produced describes the EMITTED node, not the
+  // source schema — today that is only the `maxEnumValues` widening, whose
+  // description IS the value list that replaced the `enum` keyword. The source's
+  // own `.describe()` must not silently replace it, or a model handed a widened
+  // `{type:'string'}` is told nothing about which strings are legal. Keep both,
+  // converter note last.
+  const emittedNote = result.description;
   Object.assign(result, metadata);
+  if (emittedNote !== undefined && metadata.description !== undefined && metadata.description !== emittedNote) {
+    result.description = `${metadata.description} ${emittedNote}`;
+  }
   delete result.aid;
 
   // Promote it because user requested it or it's recursive
@@ -1800,6 +2055,65 @@ function uniqueByJSON(nodes: JSONSchema[]): JSONSchema[] {
 }
 
 /**
+ * The values a `z.enum` actually EMITS as JSON-Schema `enum` members.
+ *
+ * A numeric TypeScript enum compiles to a two-way map (`{A: 0, 0: 'A'}`), so
+ * the reverse-mapping keys have to be dropped or every value appears twice.
+ * Shared with `analyzeSchema` deliberately: the size budget counts what goes on
+ * the wire, and "what goes on the wire" must have ONE definition (a second
+ * copy of this filter would drift from the emitter it is supposed to measure).
+ */
+function enumEmittedValues(schema: z.ZodEnum): unknown[] {
+  const numericValues = Object.values(schema.def.entries).filter((v) => typeof v === 'number');
+  return Object.entries(schema.def.entries)
+    .filter(([k]) => numericValues.indexOf(+k) === -1)
+    .map(([, v]) => v);
+}
+
+/**
+ * The values a `z.literal` emits — one for the `const` form, several for the
+ * multi-value form that emits `enum`. Types JSON Schema cannot carry
+ * (functions, symbols, bigints, `undefined`) are dropped, matching the
+ * emitter. Shared with `analyzeSchema` for the same reason as above.
+ */
+function literalEmittedValues(schema: z.ZodLiteral): unknown[] {
+  return Array.from(schema.values).filter(
+    (v) => v !== undefined && typeof v !== 'function' && typeof v !== 'symbol' && typeof v !== 'bigint',
+  );
+}
+
+/**
+ * Decide whether a set of values may be emitted as a JSON-Schema `enum` under
+ * this descriptor, per `maxEnumValues`.
+ *
+ * Under the cap (or with no cap declared) the caller emits its `enum` as
+ * normal. Over it, the caller emits NO `enum` — just the widened `type` — and
+ * attaches `note`, which lists EVERY value in prose.
+ *
+ * Widening rather than truncating is the deliberate choice, and the two differ
+ * in what the model can still say. A truncated `enum` makes the values past the
+ * cap **unreachable**: the wire schema constrains them away, so a caller whose
+ * 96 values are all legitimately selectable loses 56 of them. Widening removes
+ * the wire-level constraint that the dialect can't compile in the first place
+ * and moves the full list into the `description`, so the model retains complete
+ * information and can name any of the 96. Nothing is hidden — it is described
+ * instead of enforced, and enforcement moves to whatever validates the value
+ * afterwards (`Tool.parse` against the ORIGINAL zod schema still rejects a name
+ * that was never in the enum, with a message the model can act on).
+ *
+ * The note is deliberately DOMAIN-NEUTRAL. This library has no idea what the
+ * values mean; whichever caller relies on the cap (a session's known-name enum,
+ * a country list, anything) reads its own semantics into them.
+ */
+function describeOversizeEnum(values: readonly unknown[], descriptor: FormatDescriptor): string | undefined {
+  const cap = descriptor.maxEnumValues;
+  if (cap === undefined || values.length <= cap) return undefined;
+  // A flat comma-separated list: it is how an enum reads in prose anyway, and
+  // the values are single tokens by construction (they were `enum` members).
+  return `One of these ${values.length} values: ${values.map((v) => String(v)).join(', ')}`;
+}
+
+/**
  * Main conversion function
  */
 function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionContext): JSONSchema {
@@ -2008,28 +2322,35 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
 
   // Handle ZodEnum
   if (schema instanceof z.ZodEnum) {
-    const numericValues = Object.values(schema.def.entries).filter((v) => typeof v === "number");
-    const values = Object.entries(schema.def.entries)
-        .filter(([k, _]) => numericValues.indexOf(+k) === -1)
-        .map(([_, v]) => v);
+    const values = enumEmittedValues(schema);
+    // Over the dialect's cap the `enum` keyword is DROPPED and the node widens
+    // to its plain scalar type, with every value listed in the description —
+    // see `describeOversizeEnum` for why widening beats truncating.
+    const oversize = describeOversizeEnum(values, descriptor);
     return {
       type: values.every((v) => typeof v === 'number')
         ? 'number'
         : values.every((v) => typeof v === 'string')
           ? 'string'
           : undefined,
-      enum: values,
+      ...(oversize === undefined ? { enum: values } : { description: oversize }),
     };
   }
 
   // Handle ZodLiteral
   if (schema instanceof z.ZodLiteral) {
-    const values = Array.from(schema.values).filter(v => v !== undefined && typeof v !== 'function' && typeof v !== 'symbol' && typeof v !== 'bigint');
+    const values = literalEmittedValues(schema);
     const types = Array.from(new Set(values.map(v => v === null ? 'null' : typeof v) as ('string' | 'number' | 'boolean' | 'null')[]));
+    // A multi-value literal emits the SAME `enum` keyword as ZodEnum, so the
+    // dialect cap applies identically — the provider sees no difference. The
+    // single-value form emits `const`, which no cap can be exceeded by.
+    const oversize = values.length === 1 ? undefined : describeOversizeEnum(values, descriptor);
 
     return {
       ...(types.length === 1 ? { type: types[0] } : {}),
-      ...(values.length === 1 ? { const: values[0] } : { enum: values }),
+      ...(values.length === 1
+        ? { const: values[0] }
+        : oversize === undefined ? { enum: values } : { description: oversize }),
     };
   }
 
@@ -2383,9 +2704,27 @@ function stringWithFormat(format: string, descriptor: FormatDescriptor): JSONSch
 // ============================================================================
 
 /**
+ * One emitted `enum` node's contribution to a dialect's size limits. A dialect
+ * bounds the TOTAL number of enum values in a schema and, separately, the
+ * character length of a SINGLE large enum — so the per-enum breakdown has to
+ * survive the walk; a pair of totals cannot answer the second question
+ * (two enums, one long-valued and one many-valued, would answer it wrongly).
+ */
+export interface EnumFeature {
+  /** How many members the enum emits. */
+  readonly valueCount: number;
+  /**
+   * Total character length of its STRING members. Non-string members
+   * contribute nothing: the character rules are written for string values.
+   */
+  readonly stringValueChars: number;
+}
+
+/**
  * Structural feature counts for a Zod schema, used by the SchemaBudget to
- * decide whether an item fits a descriptor's per-request budget and whether
- * the descriptor can express it at all.
+ * decide whether an item fits a descriptor's per-request budget, whether it
+ * fits the dialect's per-schema size limits, and whether the descriptor can
+ * express it at all.
  */
 export interface SchemaFeatures {
   /** True if the schema (or any subschema) uses `z.lazy` / self-recursion. */
@@ -2402,6 +2741,27 @@ export interface SchemaFeatures {
   recordCount: number;
   /** Count of `z.tuple` nodes. */
   tupleCount: number;
+
+  // ---- Size, for `FormatDescriptor.schemaSizeLimits` ----
+  /** One entry per emitted `enum` node, in walk order. */
+  enums: readonly EnumFeature[];
+  /**
+   * Object properties the schema emits, summed over every nesting level. A
+   * record counts as the 2 properties its widest encoding emits
+   * (`{key, value}` pairs) and a tuple as one per item (numeric-key
+   * encoding) — the count is descriptor-independent, so it takes the largest
+   * encoding any dialect could choose (see `schemaSizeLimits`).
+   */
+  objectPropertyCount: number;
+  /** Deepest container nesting below the root (an object of scalars is 1). */
+  maxNestingDepth: number;
+  /**
+   * Total characters over property names plus `enum` and `const` string
+   * values — the "total string size" a dialect bounds. `$defs` entry names are
+   * NOT included: they are generated at emit time, are few, and are short
+   * relative to a 120,000-character budget.
+   */
+  stringSizeChars: number;
 }
 
 const ZERO_FEATURES: SchemaFeatures = Object.freeze({
@@ -2410,6 +2770,10 @@ const ZERO_FEATURES: SchemaFeatures = Object.freeze({
   unionTypeCount: 0,
   recordCount: 0,
   tupleCount: 0,
+  enums: Object.freeze([]),
+  objectPropertyCount: 0,
+  maxNestingDepth: 0,
+  stringSizeChars: 0,
 });
 
 const featuresCache = new WeakMap<z.ZodType | z.core.$ZodType, SchemaFeatures>();
@@ -2432,8 +2796,24 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
 
   const visiting = new Set<z.ZodType | z.core.$ZodType | string>();
   const features: SchemaFeatures = { ...ZERO_FEATURES };
+  // Collected mutably and frozen onto `features` at the end — `ZERO_FEATURES`
+  // is a frozen singleton, so spreading it must not hand out its array.
+  const enums: EnumFeature[] = [];
 
-  function walk(s: z.ZodType | z.core.$ZodType | undefined | null): void {
+  /** Total characters of the string members of an emitted enum/const value set. */
+  const stringChars = (values: readonly unknown[]): number =>
+    values.reduce<number>((n, v) => n + (typeof v === 'string' ? v.length : 0), 0);
+
+  /** Record the deepest container nesting reached. `depth` is the level of `s` itself. */
+  const noteDepth = (depth: number): void => {
+    if (depth > features.maxNestingDepth) features.maxNestingDepth = depth;
+  };
+
+  // `depth` counts CONTAINERS entered (an object of scalars is depth 1). Wrapper
+  // nodes — optional, nullable, default, lazy, union arms — are transparent on
+  // the wire and pass their own depth through, so `{a?: {b: string}}` is 2, the
+  // same as `{a: {b: string}}`.
+  function walk(s: z.ZodType | z.core.$ZodType | undefined | null, depth: number): void {
     if (!s) return;
     const key = walkKey(s);
     if (visiting.has(key)) return;
@@ -2444,68 +2824,105 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
       if (s instanceof z.ZodLazy) {
         features.hasRecursion = true;
         try {
-          walk(s.def.getter());
+          walk(s.def.getter(), depth);
         } catch { /* lazy getter may throw at analyze time; ignore */ }
         return;
       }
 
       if (s instanceof z.ZodOptional) {
         features.optionalParameterCount += 1;
-        walk(s.unwrap());
+        walk(s.unwrap(), depth);
         return;
       }
 
       if (s instanceof z.ZodNullable) {
         features.unionTypeCount += 1; // T|null counts as a union on the wire
-        walk(s.unwrap());
+        walk(s.unwrap(), depth);
         return;
       }
 
       if (s instanceof z.ZodUnion || s instanceof z.ZodDiscriminatedUnion) {
         features.unionTypeCount += 1;
-        for (const opt of (s as z.ZodUnion).options) walk(opt);
+        for (const opt of (s as z.ZodUnion).options) walk(opt, depth);
         return;
       }
 
       if (s instanceof z.ZodIntersection) {
-        walk(s.def.left);
-        walk(s.def.right);
+        walk(s.def.left, depth);
+        walk(s.def.right, depth);
         return;
       }
 
       if (s instanceof z.ZodObject) {
-        for (const key in s.shape) walk(s.shape[key]);
-        if (s.def.catchall) walk(s.def.catchall);
+        noteDepth(depth + 1);
+        for (const key in s.shape) {
+          features.objectPropertyCount += 1;
+          features.stringSizeChars += key.length;
+          walk(s.shape[key], depth + 1);
+        }
+        if (s.def.catchall) walk(s.def.catchall, depth + 1);
         return;
       }
 
       if (s instanceof z.ZodArray) {
-        walk(s.element);
+        noteDepth(depth + 1);
+        walk(s.element, depth + 1);
         return;
       }
 
       if (s instanceof z.ZodRecord) {
         features.recordCount += 1;
-        if (s.keyType) walk(s.keyType);
-        walk(s.valueType);
+        // Widest encoding wins (see `SchemaFeatures.objectPropertyCount`): the
+        // array-of-pairs form is an array of `{key, value}` objects, so two
+        // properties, two property names, and two levels of container.
+        features.objectPropertyCount += 2;
+        features.stringSizeChars += 'key'.length + 'value'.length;
+        noteDepth(depth + 2);
+        if (s.keyType) walk(s.keyType, depth + 2);
+        walk(s.valueType, depth + 2);
         return;
       }
 
       if (s instanceof z.ZodTuple) {
         features.tupleCount += 1;
-        for (const item of s.def.items) walk(item);
-        if (s.def.rest) walk(s.def.rest);
+        // The numeric-key object encoding emits one property per item, named
+        // "0", "1", … — one character each until there are ten of them, which
+        // is close enough for a 120,000-character budget.
+        features.objectPropertyCount += s.def.items.length;
+        features.stringSizeChars += s.def.items.length;
+        noteDepth(depth + 1);
+        for (const item of s.def.items) walk(item, depth + 1);
+        if (s.def.rest) walk(s.def.rest, depth + 1);
         return;
       }
 
       if (s instanceof z.ZodDefault) {
-        walk(s.def.innerType);
+        walk(s.def.innerType, depth);
         return;
       }
 
       if (s instanceof z.ZodCodec || s instanceof z.ZodPipe) {
-        walk(s.def.in);
-        walk(s.def.out);
+        walk(s.def.in, depth);
+        walk(s.def.out, depth);
+        return;
+      }
+
+      if (s instanceof z.ZodEnum) {
+        const values = enumEmittedValues(s);
+        const chars = stringChars(values);
+        enums.push({ valueCount: values.length, stringValueChars: chars });
+        features.stringSizeChars += chars;
+        return;
+      }
+
+      if (s instanceof z.ZodLiteral) {
+        const values = literalEmittedValues(s);
+        const chars = stringChars(values);
+        // One value emits `const`, several emit `enum` — only the latter is an
+        // enum for the purpose of a dialect's enum-value budget, but both count
+        // toward the total string size.
+        if (values.length > 1) enums.push({ valueCount: values.length, stringValueChars: chars });
+        features.stringSizeChars += chars;
         return;
       }
 
@@ -2515,10 +2932,71 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
     }
   }
 
-  walk(schema);
+  walk(schema, 0);
+  features.enums = Object.freeze(enums);
   Object.freeze(features);
   featuresCache.set(schema, features);
   return features;
+}
+
+/** Shared empty result, so the common "dialect publishes no size limits" path allocates nothing. */
+const NO_SIZE_PROBLEMS: readonly string[] = Object.freeze([]);
+
+/**
+ * Report the ways ONE schema exceeds the descriptor's documented per-schema
+ * size limits (`FormatDescriptor.schemaSizeLimits`). Empty means it fits, or
+ * that the dialect publishes no limits.
+ *
+ * This is a FEASIBILITY question, not a budget one: the numbers bound a single
+ * schema, so no other tool in the request can change the answer, and
+ * `SchemaBudget.allocate` therefore treats a hit exactly like an
+ * unrepresentable keyword — that item degrades to the family's non-strict
+ * descriptor and the rest of the request is untouched.
+ *
+ * Exported because "why did my tool silently stop being strict?" needs an
+ * answer a caller can print; each line names the bound and the measurement.
+ *
+ * @example
+ * ```ts
+ * checkSchemaSizeLimits(z.object({ pick: z.enum(tenThousandNames) }), OPENAI_STRICT);
+ * //  → ['enum values 10000 exceed maxTotalEnumValues 1000']
+ * ```
+ */
+export function checkSchemaSizeLimits(
+  schema: z.ZodType | z.core.$ZodType,
+  descriptor: FormatDescriptor,
+): readonly string[] {
+  const limits = descriptor.schemaSizeLimits;
+  if (limits === undefined) return NO_SIZE_PROBLEMS;
+
+  const features = analyzeSchema(schema);
+  const problems: string[] = [];
+
+  if (features.objectPropertyCount > limits.maxObjectProperties) {
+    problems.push(`object properties ${features.objectPropertyCount} exceed maxObjectProperties ${limits.maxObjectProperties}`);
+  }
+  if (features.maxNestingDepth > limits.maxNestingDepth) {
+    problems.push(`nesting depth ${features.maxNestingDepth} exceeds maxNestingDepth ${limits.maxNestingDepth}`);
+  }
+  if (features.stringSizeChars > limits.maxTotalStringChars) {
+    problems.push(`total string characters ${features.stringSizeChars} exceed maxTotalStringChars ${limits.maxTotalStringChars}`);
+  }
+  const totalEnumValues = features.enums.reduce((n, e) => n + e.valueCount, 0);
+  if (totalEnumValues > limits.maxTotalEnumValues) {
+    problems.push(`enum values ${totalEnumValues} exceed maxTotalEnumValues ${limits.maxTotalEnumValues}`);
+  }
+  // The large-enum character rule is per-enum and conditional on that SAME
+  // enum's value count, which is why the walk keeps the breakdown instead of
+  // two totals.
+  for (const e of features.enums) {
+    if (e.valueCount > limits.largeEnumValueCount && e.stringValueChars > limits.maxLargeEnumStringChars) {
+      problems.push(
+        `an enum of ${e.valueCount} values (over largeEnumValueCount ${limits.largeEnumValueCount}) spends ` +
+          `${e.stringValueChars} characters, over maxLargeEnumStringChars ${limits.maxLargeEnumStringChars}`,
+      );
+    }
+  }
+  return problems;
 }
 
 /**
@@ -2527,8 +3005,9 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
  * Constructed once per outgoing request with the chosen model's strictest
  * descriptor. Tracks remaining slots (strict tools, optional parameters,
  * union types) against the descriptor's documented per-request limits and
- * decides per-tool / per-output whether to emit strict or fall back to
- * LENIENT.
+ * decides per-tool / per-output whether to emit strict or fall back to the
+ * SAME FAMILY's non-strict descriptor (`degraded` — never the family-blind
+ * `LENIENT`, which would undo dialect rules that outlive strict mode).
  *
  * Selection guarantees that any tool with `strict: true` (hard requirement)
  * has a model that supports the family — `allocate` therefore always grants
@@ -2542,12 +3021,38 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
  */
 export class SchemaBudget {
   private readonly descriptor: FormatDescriptor;
+  /**
+   * What an item that does NOT get strict is emitted through: the descriptor's
+   * own family, non-strict.
+   *
+   * It is deliberately NOT the family-blind `LENIENT`. A dialect restriction
+   * can belong to the DIALECT rather than to strict mode — `GOOGLE_NON_STRICT`
+   * exists for exactly one such rule, the `unconstrained` encoding of
+   * `z.any()`, because Gemini builds a decoding grammar whenever a tool call is
+   * forced, with no per-tool strict flag involved. Degrading to `LENIENT` put
+   * the self-referencing `$defs/Any` that encoding was created to avoid back on
+   * the Google wire — and it did so for every gin/query-style recursive `anyOf`
+   * schema, i.e. the schemas that ALWAYS degrade, since `GOOGLE_STRICT` cannot
+   * express `anyOf` at all (measured: the product's real `api_set` tool schema
+   * allocates to `lenient` under `GOOGLE_STRICT`, and its emitted JSON carries
+   * nine `#/$defs/Any` references).
+   *
+   * For the other families this is behaviour-neutral by construction:
+   * `OPENAI_NON_STRICT` and `ANTHROPIC_NON_STRICT` are `LENIENT` with a family
+   * tag, and a family with no registered non-strict variant resolves to
+   * `LENIENT` (`getDescriptor`). Only the pinned `descriptor` id on the tool
+   * changes, which round-trips through `getDescriptorById`.
+   */
+  private readonly degraded: FormatDescriptor;
   private remainingTools: number;
   private remainingOptionalParams: number;
   private remainingUnionTypes: number;
 
   constructor(descriptor: FormatDescriptor) {
     this.descriptor = descriptor;
+    // An already-non-strict budget degrades to itself: there is nothing looser
+    // in its family, and `LENIENT`'s own family has no other variant.
+    this.degraded = descriptor.strict ? getDescriptor(descriptor.family, false) : descriptor;
     this.remainingTools = descriptor.maxStrictTools ?? Infinity;
     this.remainingOptionalParams = descriptor.maxStrictOptionalParams ?? Infinity;
     this.remainingUnionTypes = descriptor.maxStrictUnionTypes ?? Infinity;
@@ -2557,12 +3062,15 @@ export class SchemaBudget {
    * Decide the effective descriptor for a tool's parameter schema given the
    * dev's strict request, the schema's features, and the remaining budget.
    *
-   * Returns `LENIENT` when:
+   * Returns the family's NON-STRICT descriptor (`LENIENT` for a family that
+   * registers none) when:
    * - `requested === false`
    * - the schema uses a feature the descriptor can't represent
+   * - the schema exceeds the dialect's per-schema size limits
+   *   (`checkSchemaSizeLimits`)
    * - the descriptor has slot limits and the budget is exhausted (only
    *   applies to `requested` being a positive number; `true` always wins
-   *   subject to feasibility)
+   *   subject to feasibility and size)
    *
    * Returns the strict descriptor (and decrements the budget) otherwise.
    */
@@ -2600,20 +3108,20 @@ export class SchemaBudget {
     requested: boolean | number | undefined,
     isTool: boolean,
   ): FormatDescriptor {
-    // strict: false → always lenient, no budget movement.
-    if (requested === false) return LENIENT;
+    // strict: false → always non-strict, no budget movement.
+    if (requested === false) return this.degraded;
     // Descriptor itself is lenient → nothing to allocate.
-    if (!this.descriptor.strict) return LENIENT;
+    if (!this.descriptor.strict) return this.degraded;
 
     const isHardRequired = requested === true;
     const isPreferredNumeric = typeof requested === 'number' && requested > 0;
 
     if (!isHardRequired && !isPreferredNumeric) {
       // requested is undefined or 0 — treat as no preference; default to
-      // lenient so callers explicitly opt into strict. Decided BEFORE any walk
-      // of `schema`: analysing a schema whose verdict is already LENIENT is
-      // pure waste on the hot path of every tool of every request.
-      return LENIENT;
+      // non-strict so callers explicitly opt into strict. Decided BEFORE any
+      // walk of `schema`: analysing a schema whose verdict is already
+      // non-strict is pure waste on the hot path of every tool of every request.
+      return this.degraded;
     }
 
     // FEASIBILITY, before budget — the second clause of this method's contract,
@@ -2621,16 +3129,23 @@ export class SchemaBudget {
     // schema carrying a combinator the descriptor forbids is a guaranteed
     // provider 400, not a degradation: `GOOGLE_STRICT` forbids `anyOf`, and the
     // recursive union a gin/query codegen layer produces is nothing but.
-    // Degrading to LENIENT is the documented answer for a TOOL (unlike a
-    // structured OUTPUT, a tool schema has no prompt-text delivery to fall back
-    // to — `applySchemaDeliveryFallback` covers `responseFormat` only), and it
-    // is also what keeps the API-level `strict: true` flag off the wire, since
-    // providers set it from `descriptor.strict`.
+    // Degrading to the family's non-strict descriptor is the documented answer
+    // for a TOOL (unlike a structured OUTPUT, a tool schema has no prompt-text
+    // delivery to fall back to — `applySchemaDeliveryFallback` covers
+    // `responseFormat` only), and it is also what keeps the API-level
+    // `strict: true` flag off the wire, since providers set it from
+    // `descriptor.strict`.
     //
     // `sendableUnder`, not `canExpress`: a cycle is always sendable (the
     // emitter's bounded placeholder), only looser — see that function's note on
     // why the two questions are different.
-    if (!sendableUnder(schema, this.descriptor)) return LENIENT;
+    if (!sendableUnder(schema, this.descriptor)) return this.degraded;
+
+    // SIZE, still before budget and still regardless of priority: these bounds
+    // are per-SCHEMA (see `checkSchemaSizeLimits`), so no other item in the
+    // request can make this one fit, and a hard `strict: true` cannot force a
+    // schema the API will refuse to compile.
+    if (checkSchemaSizeLimits(schema, this.descriptor).length > 0) return this.degraded;
 
     const features = analyzeSchema(schema);
 
@@ -2639,9 +3154,9 @@ export class SchemaBudget {
     // them — if there are too many, that's a request-construction bug we
     // surface via API error rather than degrading silently.
     if (isPreferredNumeric) {
-      if (isTool && this.remainingTools <= 0) return LENIENT;
-      if (this.remainingOptionalParams - features.optionalParameterCount < 0) return LENIENT;
-      if (this.remainingUnionTypes - features.unionTypeCount < 0) return LENIENT;
+      if (isTool && this.remainingTools <= 0) return this.degraded;
+      if (this.remainingOptionalParams - features.optionalParameterCount < 0) return this.degraded;
+      if (this.remainingUnionTypes - features.unionTypeCount < 0) return this.degraded;
     }
 
     // Allocation succeeded — decrement.
@@ -2659,6 +3174,13 @@ export class SchemaBudget {
  * shared between `convertTools` and `convertResponseFormat` — Anthropic's
  * documented limits apply across the whole request, so the strictest
  * descriptor wins.
+ *
+ * `schemaSizeLimits` deliberately does NOT participate. Those bounds are
+ * per-schema, so they are evaluated against whichever descriptor this returns
+ * rather than shared between the two — and every provider here passes two
+ * descriptors resolved from the SAME family, so there is nothing to break the
+ * tie on. Ranking six size bounds against three slot budgets would be an
+ * invented ordering, not a documented one.
  */
 export function strictestOf(a: FormatDescriptor, b: FormatDescriptor): FormatDescriptor {
   // LENIENT is the loosest — pick the strict side if either is strict.

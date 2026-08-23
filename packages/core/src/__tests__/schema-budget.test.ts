@@ -8,12 +8,15 @@
 
 import z from 'zod';
 import {
+  ANTHROPIC_NON_STRICT,
   ANTHROPIC_STRICT,
   GOOGLE_STRICT,
   LENIENT,
+  OPENAI_NON_STRICT,
   OPENAI_STRICT,
   SchemaBudget,
   analyzeSchema,
+  checkSchemaSizeLimits,
   strictPriority,
   strictestOf,
 } from '../schema';
@@ -99,9 +102,13 @@ describe('strictestOf', () => {
 describe('SchemaBudget — basic allocation', () => {
   const simple = z.object({ a: z.string() });
 
-  it('returns LENIENT when requested === false', () => {
+  it('returns the family\'s NON-STRICT descriptor when requested === false', () => {
+    // Not `LENIENT`: a dialect rule can outlive strict mode (Google's "any"
+    // encoding is one), so an item that loses strict still has to be emitted
+    // through its own family. For OpenAI the two are the same rules under a
+    // different id, which is exactly why this is asserted rather than assumed.
     const budget = new SchemaBudget(OPENAI_STRICT);
-    expect(budget.allocateTool(simple, false)).toBe(LENIENT);
+    expect(budget.allocateTool(simple, false)).toBe(OPENAI_NON_STRICT);
   });
 
   it('returns the descriptor when requested === true and feasible', () => {
@@ -115,10 +122,10 @@ describe('SchemaBudget — basic allocation', () => {
     expect(budget.allocateTool(simple, 1)).toBe(OPENAI_STRICT);
   });
 
-  it('returns LENIENT for undefined / 0 priority', () => {
+  it('returns the family\'s NON-STRICT descriptor for undefined / 0 priority', () => {
     const budget = new SchemaBudget(OPENAI_STRICT);
-    expect(budget.allocateTool(simple, undefined)).toBe(LENIENT);
-    expect(budget.allocateTool(simple, 0)).toBe(LENIENT);
+    expect(budget.allocateTool(simple, undefined)).toBe(OPENAI_NON_STRICT);
+    expect(budget.allocateTool(simple, 0)).toBe(OPENAI_NON_STRICT);
   });
 
   it('returns LENIENT when descriptor is itself LENIENT', () => {
@@ -225,8 +232,9 @@ describe('SchemaBudget — shared between tools and output', () => {
     });
     const budget = new SchemaBudget(ANTHROPIC_STRICT);
     expect(budget.allocateTool(wide, 5)).toBe(ANTHROPIC_STRICT); // 13 used, 11 left
-    // Second allocation needs 13 more; only 11 remain → fallback.
-    expect(budget.allocateTool(wide, 5)).toBe(LENIENT);
+    // Second allocation needs 13 more; only 11 remain → fallback, to the
+    // family's own non-strict descriptor.
+    expect(budget.allocateTool(wide, 5)).toBe(ANTHROPIC_NON_STRICT);
     // Output schema also competes — but tool 1 already exhausted nearly the
     // whole budget, so output fits or fails depending on its own optionals.
     const small = z.object({ x: z.string() });

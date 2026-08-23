@@ -68,7 +68,7 @@ Some providers cap the per-request strict load. Anthropic's documented limits:
 - 24 total optional parameters across all strict schemas.
 - 16 union-type parameters across all strict schemas.
 
-When a request exceeds budget, `@aeye` walks tools in **descending priority order** (`true` → ∞, then numbers high-to-low) and degrades the over-budget tail to LENIENT silently — rather than failing the API call:
+When a request exceeds budget, `@aeye` walks tools in **descending priority order** (`true` → ∞, then numbers high-to-low) and degrades the over-budget tail silently — rather than failing the API call. A degraded item is emitted through its own family's **non-strict** descriptor (`OPENAI_NON_STRICT`, `GOOGLE_NON_STRICT`, …), never the family-blind `LENIENT`: some dialect rules outlive strict mode, and Google's `z.any()` encoding is one of them.
 
 ```typescript
 // 25 tools all wanting strict, against an Anthropic model:
@@ -87,6 +87,22 @@ const tools = Array.from({ length: 25 }, (_, i) => new Tool({
 ```
 
 OpenAI doesn't publish hard caps, so its budget is unbounded. Google Gemini also has no documented per-request cap.
+
+## Per-schema size limits
+
+Separate from the per-request budget, a dialect may bound how big ONE schema can be. OpenAI documents four such limits for Structured Outputs, and `OPENAI_STRICT` declares them (`FormatDescriptor.schemaSizeLimits`):
+
+| Bound | Limit |
+|---|---|
+| object properties, summed over every nesting level | 5,000 |
+| levels of nesting | 10 |
+| characters over all property names + enum values + const values | 120,000 |
+| enum values summed across every enum property | 1,000 |
+| characters of ONE enum's string values, when that enum has more than 250 | 15,000 |
+
+Because each is a sum over a single schema, no other tool in the request can change the verdict — so an over-size tool is degraded on its own (to `OPENAI_NON_STRICT`) **even when it asked for `strict: true`**, and the rest of the request stays strict. `checkSchemaSizeLimits(schema, descriptor)` returns one line per bound broken, which is the answer to "why did my tool silently stop being strict?".
+
+Anthropic and Google publish no equivalent size ceilings, so their descriptors declare none.
 
 ## Format families
 
