@@ -551,18 +551,24 @@ describe('FormatDescriptor matrix', () => {
       expect(JSON.stringify(toJSONSchema(schema, GOOGLE_NON_STRICT))).toBe(lenient);
     });
 
-    it('GOOGLE_NON_STRICT diverges from LENIENT on exactly one axis: the Any encoding', () => {
-      // The one deliberate exception to the alias above. Gemini rejects a
-      // self-referencing `$defs/Any` whenever it has to compile a decoding
-      // grammar, and it does that for a forced tool call regardless of any
-      // strict flag — so this divergence is dialect-level, not strict-level.
-      // Asserted explicitly so a future "tidy up the alias" edit has to
-      // confront it rather than silently reintroduce the 400.
+    it('GOOGLE_NON_STRICT diverges from LENIENT on exactly two measured axes: Any encoding and enum cardinality', () => {
+      // Two deliberate exceptions to the alias above, both dialect-level (they
+      // fire whatever the strictness) rather than strict-level, and both
+      // asserted explicitly so a future "tidy up the alias" edit has to
+      // confront them rather than silently reintroduce a 400:
+      //  - Gemini rejects a self-referencing `$defs/Any` whenever it has to
+      //    compile a decoding grammar, and it does that for a forced tool
+      //    call regardless of any strict flag.
+      //  - Gemini's grammar compiler rejected a real product enum past ~92
+      //    real values (see `FormatDescriptor.maxEnumValues`'s doc comment for
+      //    the bisection); the 40-value cap applies here too.
       expect(GOOGLE_NON_STRICT.anyEncoding).toBe('unconstrained');
       expect(LENIENT.anyEncoding).toBe('recursive-open');
+      expect(GOOGLE_NON_STRICT.maxEnumValues).toBe(40);
+      expect(LENIENT.maxEnumValues).toBeUndefined();
 
-      const { id, family, anyEncoding, jsonFallbackInstruction, ...rest } = GOOGLE_NON_STRICT;
-      const { id: lid, family: lfamily, anyEncoding: lany, jsonFallbackInstruction: ljfi, ...lrest } = LENIENT;
+      const { id, family, anyEncoding, maxEnumValues, jsonFallbackInstruction, ...rest } = GOOGLE_NON_STRICT;
+      const { id: lid, family: lfamily, anyEncoding: lany, maxEnumValues: lmax, jsonFallbackInstruction: ljfi, ...lrest } = LENIENT;
       expect(rest).toEqual(lrest);
     });
   });

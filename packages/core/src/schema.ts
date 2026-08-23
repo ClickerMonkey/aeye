@@ -212,61 +212,64 @@ export interface FormatDescriptor {
    * still there, only the emitted JSON Schema widened — so a hallucinated
    * member comes back as a normal, re-promptable validation error.
    *
-   * **NO BUILT-IN DESCRIPTOR DECLARES A CAP, and that is a measured result, not
-   * an omission.** This field exists because a large `enum` was believed to make
-   * Gemini answer `400 INVALID_ARGUMENT`; measured against
-   * `google/gemini-3-flash-preview` through OpenRouter (2026-08-23), it does
-   * not. Every one of these returned HTTP 200 with the expected tool call, under
-   * `tool_choice` both `required` (which is what makes Gemini compile the tool
-   * schemas into a decoding grammar) and `auto`:
+   * **`GOOGLE_STRICT`/`GOOGLE_NON_STRICT` declare 40. Every other built-in
+   * declares no cap.** Two earlier rounds of live measurement against
+   * `google/gemini-3-flash-preview` through OpenRouter (2026-08-23) — single
+   * enums up to 2048 SYNTHETIC values, 20 tools each with a 96-value enum, and
+   * an eleven-tool roster modelled on a real kind-authoring agent — all
+   * returned HTTP 200 and concluded there was no reproducible limit. **That
+   * conclusion was wrong, because none of those enums used the CONTENT of a
+   * real session.** A third round replayed the exact wire bytes of a real
+   * product request — `fn_load`'s `names` array, enum-constrained to the
+   * session's actual 98 known component/fn names (`default_renderer`,
+   * `QueryWidget`, `ConfirmPrompt`, `list_widget_types`, …) — and it 400'd,
+   * reproducibly, twice, byte-for-byte identical to what the provider was
+   * actually sent. Bisecting that same real value list: 90 values passes, 93
+   * fails. Bisecting what changes between the passing synthetic probes and the
+   * failing real one: 98 SHORT synthetic values (`n0`..`n97`, 284 chars) pass;
+   * 206 short values matching the REAL list's total character count (714
+   * chars) also pass; only the REAL, longer, dictionary-like/identifier-shaped
+   * values fail, and only past ~92 of them. So the limit tracks neither raw
+   * member count nor total character/byte budget — most likely actual
+   * tokenized grammar-state count, which short repetitive synthetic strings
+   * compress far below what real identifier text does at the same count or
+   * character budget. This is why the first two rounds' synthetic and
+   * lightly-realistic probes never tripped it.
    *
-   * - single-parameter `enum` at 50 / 64 / 72 / 80 / 96 / 128 / 256 / 512 /
-   *   1024 / **2048** values (52 KB of tool schema);
-   * - 96 values with 80-character members (byte size, not member count);
-   * - 20 tools each carrying a 96-value `enum` in one request (51 KB);
-   * - a 96-value `enum` alongside `strict: true`, alongside `minItems` on an
-   *   array-of-enum, alongside `propertyOrdering`, alongside a sibling `anyOf`;
-   * - a 2048-value `enum` inside a `response_format` JSON schema.
+   * **The widen-to-string fallback this field triggers was verified against
+   * the exact failing real schema**: dropping `enum` and putting the same 98
+   * values into the `description` of a plain string field returned HTTP 200
+   * with the expected tool call — confirming the fallback mechanism actually
+   * fixes the failure it exists for, not just a synthetic stand-in.
    *
-   * A second pass answered the obvious objection — that an isolated probe is
-   * not what a real session sends. Same date, same model, upstream PINNED to
-   * Google AI Studio with fallbacks off (the upstream that served the
-   * production failures), an eleven-tool roster emitted through this library
-   * for a Google model and modelled on a real kind-authoring agent
-   * (`fn_load`/`fn_search`/`type_load`/`api_signature`/`api_set`/…, real
-   * descriptions, a real system prompt): a 96-value enum on one of those tools
-   * returned 200 with the expected tool call under `tool_choice` `required`
-   * and `auto` alike, as did the same roster at 8 values and a tool carrying a
-   * bare typeless `{}` property.
+   * **40 is not a measured edge — it is a conservative floor with roughly 2x
+   * margin under the real one (90 passes / 93 fails) measured on this one real
+   * value set.** Given the failure tracks content, not just count, a different
+   * session's actual name list could plausibly fail at a different count; 40
+   * was also the cap this exact product ran under in production for months
+   * before a since-reverted attempt to remove it, which is corroborating
+   * evidence it holds in practice, not just in this one measurement.
    *
-   * **Caveat that keeps this from being proof**: the CONTROL — the recursive
-   * `$defs/Any` shape this file recorded as "100% reproducible" HTTP 400 —
-   * also returned 200, pinned and unpinned, forced and automatic, both
-   * hand-built and as the product's real 32 KB gin `api_set` schema. So that
-   * failure class is simply not visible from this route today (upstream fixed
-   * it, or sanitizes), and a negative here is evidence, not a verdict. What it
-   * does establish is that nothing reachable from a request — isolated or
-   * realistic — reproduces an enum-size limit, so declaring a cap would trade
-   * real structural enforcement for an unverified one.
+   * The reliability comparison from the earlier rounds still stands and is
+   * why a cap is preferable to leaving every enum uncapped "to be safe" at a
+   * much lower number: `enum` vs plain-string-with-full-list, 10 trials each
+   * over confusable near-duplicate names at 96 and 512 values, scored 10/10
+   * on-target with zero off-list answers for BOTH encodings. So there is no
+   * reliability cost to raising this cap later if a higher safe value is
+   * measured — only downside risk to leaving it too high.
    *
-   * One trap for whoever measures this next: with `max_tokens` at 64, the
-   * $defs/Any tool came back `finish_reason: 'length'` with no tool call and
-   * empty content, which reads exactly like a grammar that produced nothing.
-   * It is not — this model spends reasoning tokens first, and at 400 the same
-   * request emitted a correct call in 28 output tokens. Give a forced-tool
-   * probe room before calling an empty completion a failure.
+   * One trap for whoever measures this next: with `max_tokens` at 64, a
+   * forced-tool probe can come back `finish_reason: 'length'` with no tool
+   * call and empty content, which reads exactly like a grammar that produced
+   * nothing. It usually is not — this model spends reasoning tokens first.
+   * Give a forced-tool probe room before calling an empty completion a
+   * failure.
    *
-   * Reliability was compared too, since a cap's whole cost is losing the
-   * `enum`'s can't-hallucinate guarantee: same tool and paraphrased prompt,
-   * 10 trials each, `enum` vs plain string with the full list in the
-   * description, over confusable near-duplicate names. At 96 values and again
-   * at 512, both encodings picked the correct member 10/10 with zero off-list
-   * answers. No measured reliability gap — but also no measured reason to give
-   * up the guarantee.
-   *
-   * So: set this only where a provider is MEASURED to reject a large enum, and
-   * set it as high as the measurement allows. An `enum` that fits is the more
-   * correct encoding, because it is the one the model cannot answer outside of.
+   * So: set this only where a provider is MEASURED to reject a large enum
+   * using the SESSION'S OWN real content, not synthetic stand-ins, and set it
+   * conservatively below the measured edge until more value sets are tested.
+   * An `enum` that fits is the more correct encoding, because it is the one
+   * the model cannot answer outside of.
    */
   readonly maxEnumValues?: number;
 
@@ -543,9 +546,11 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   // The ONLY encoding expressible under `allowAnyOf: false` +
   // `allowDefsRef: false` — see the descriptor doc above.
   anyEncoding: 'unconstrained',
-  // No documented per-request slot limits, and NO `maxEnumValues` — a large
-  // `enum` was suspected of causing `400 INVALID_ARGUMENT` here and did not
-  // survive measurement. See `FormatDescriptor.maxEnumValues` for the numbers.
+  // No documented per-request slot limits. `maxEnumValues: 40` IS a measured
+  // response to a real `400 INVALID_ARGUMENT` on this exact product's live
+  // fn-catalog enum — see `FormatDescriptor.maxEnumValues` for the numbers,
+  // the bisection, and why 40 is conservative rather than the measured edge.
+  maxEnumValues: 40,
   supportsRecursion: true,
   // Gemini's structured-output endpoint rejects `anyOf`/`$defs` schemas
   // (HTTP 400). When a schema can't be expressed here it's delivered as
@@ -575,6 +580,10 @@ export const GOOGLE_NON_STRICT: FormatDescriptor = Object.freeze({
   id: 'google-non-strict',
   family: 'google',
   anyEncoding: 'unconstrained',
+  // Same measured enum-cardinality limit as GOOGLE_STRICT — it fires whatever
+  // the strictness (see FormatDescriptor.maxEnumValues), so a tool degraded
+  // to this descriptor still needs it.
+  maxEnumValues: 40,
   jsonFallbackInstruction:
     'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
 });

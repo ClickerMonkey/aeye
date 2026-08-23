@@ -106,24 +106,44 @@ describe('an over-cap enum WIDENS — it is never truncated', () => {
   });
 });
 
-describe('no built-in descriptor caps enums — measured, not assumed', () => {
+describe('only the Google descriptors cap enums — measured, not assumed', () => {
   // An `enum` is the more correct encoding whenever it fits, because it is the
   // one the model structurally cannot answer outside of. Declaring a cap trades
   // that guarantee away, so a built-in may only declare one against a measured
-  // provider rejection. None currently has one. If this test starts failing,
-  // the descriptor that changed owes a measurement in its doc comment.
+  // provider rejection. If this test starts failing for a NON-Google descriptor,
+  // that descriptor owes a measurement in its doc comment before gaining a cap;
+  // if it fails for a Google descriptor because the cap moved, the new value
+  // needs its own measurement recorded in `FormatDescriptor.maxEnumValues`.
   it.each([
     ['LENIENT', LENIENT],
     ['OPENAI_STRICT', OPENAI_STRICT],
     ['OPENAI_NON_STRICT', OPENAI_NON_STRICT],
     ['ANTHROPIC_STRICT', ANTHROPIC_STRICT],
     ['ANTHROPIC_NON_STRICT', ANTHROPIC_NON_STRICT],
-    ['GOOGLE_STRICT', GOOGLE_STRICT],
-    ['GOOGLE_NON_STRICT', GOOGLE_NON_STRICT],
   ] as const)('%s declares no cap and emits every value', (_name, descriptor) => {
     expect(descriptor.maxEnumValues).toBeUndefined();
     const json = render(z.enum(MANY), descriptor);
     expect(json.enum).toEqual(MANY);
     expect(json.description).toBeUndefined();
+  });
+
+  // GOOGLE_STRICT/GOOGLE_NON_STRICT declare 40 — a real `400 INVALID_ARGUMENT`
+  // was reproduced against this product's actual live fn-catalog enum (98 real
+  // component/fn names; 90 passed, 93 failed), and the widen-to-string fallback
+  // was verified to fix that exact failing request. See the field's doc comment
+  // for the full bisection and why 40 (not the measured 90-92 edge) was chosen.
+  it.each([
+    ['GOOGLE_STRICT', GOOGLE_STRICT],
+    ['GOOGLE_NON_STRICT', GOOGLE_NON_STRICT],
+  ] as const)('%s caps at 40 and widens past it', (_name, descriptor) => {
+    expect(descriptor.maxEnumValues).toBe(40);
+    const atCap = Array.from({ length: 40 }, (_, i) => `name_${i}`);
+    const overCap = Array.from({ length: 41 }, (_, i) => `name_${i}`);
+    const atCapJson = render(z.enum(atCap), descriptor);
+    expect(atCapJson.enum).toEqual(atCap);
+    const overCapJson = render(z.enum(overCap), descriptor);
+    expect(overCapJson.enum).toBeUndefined();
+    expect(overCapJson.type).toBe('string');
+    for (const value of overCap) expect(overCapJson.description).toContain(value);
   });
 });
