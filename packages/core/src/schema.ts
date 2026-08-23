@@ -582,6 +582,37 @@ export function resolveDescriptor(
 }
 
 /**
+ * The key an EAGER walk's cycle guard must use for `s`.
+ *
+ * Object identity alone is a broken guard, because a `z.lazy` is only required
+ * to return *a* schema — not the *same* schema object — from its getter. A
+ * codegen layer that derives zod from a live type registry rebuilds the subtree
+ * on every call (`@aeye/gin`'s `buildSchemas` does), so each re-entry into a
+ * recursive node is a FRESH object: an identity guard never fires, the walk
+ * descends forever, and because every level allocates a whole new subtree
+ * (measured ~9.4 KB/level) the process dies of heap exhaustion —
+ * `FATAL ERROR: Ineffective mark-compacts near heap limit` — rather than
+ * overflowing the stack. `convert()` already survives this by matching a cached
+ * definition on the `aid` such a layer stamps on the node (see its `ZodLazy`
+ * branch), so the eager walkers key on the SAME identity: a declared
+ * `aid`/`id` names the definition, and only an unnamed node falls back to
+ * object identity.
+ *
+ * The two IDs are read in `convert()`'s own precedence (`aid` then `id`), and
+ * carry the same meaning here that they do there: two nodes sharing one
+ * declared id ARE one definition.
+ */
+function walkKey(s: z.ZodType | z.core.$ZodType): z.ZodType | z.core.$ZodType | string {
+  if (!(s instanceof z.ZodType)) return s;
+  const meta = s.meta();
+  const declared = meta?.aid ?? meta?.id;
+  // Prefixed so a declared id can never be mistaken for anything else in the
+  // guard's key space (the alternative member is an object, so this is belt +
+  // braces against a future string-keyed member).
+  return typeof declared === 'string' ? `id:${declared}` : s;
+}
+
+/**
  * Decide whether `schema` can be expressed as structured output under
  * `descriptor`'s JSON-Schema dialect. Returns `false` when the schema uses a
  * construct the descriptor forbids, so the caller can DROP the wire schema and
@@ -603,27 +634,70 @@ export function resolveDescriptor(
  * are always expressible. The structure mirrors the descriptor flags so more
  * feasibility checks are easy to add.
  */
-export function canExpress(schema: z.ZodType, descriptor: FormatDescriptor): boolean {
-  const root: z.ZodType | z.core.$ZodType = schema;
+export function canExpress(
+  schema: z.ZodType | z.core.$ZodType,
+  descriptor: FormatDescriptor,
+): boolean {
+  return expressible(schema, descriptor, /* cycleBreakerCounts */ false);
+}
+
+/**
+ * `canExpress`, except that a cycle counts as EXPRESSIBLE whatever the
+ * descriptor's ref flags say, because `emitCachedRef` replaces any back-edge
+ * the descriptor cannot spell with the bounded `buildCycleBreakerSchema`
+ * placeholder. The emitted schema is therefore always *sendable*; it is only
+ * *looser* than the source at the back-edge.
+ *
+ * That distinction is the whole reason there are two predicates:
+ * - `canExpress` answers "will the model be properly CONSTRAINED by this?",
+ *   which is what a structured-OUTPUT delivery decision needs — a back-edge
+ *   silently widened to "any" is a good reason to deliver the schema as prompt
+ *   text instead (`applySchemaDeliveryFallback`), and
+ *   `ANTHROPIC_STRICT`'s `supportsRecursion: false` is exactly that case.
+ * - this one answers "will the provider REJECT this?", which is what a TOOL's
+ *   strict allocation needs. A tool has no prompt-text fallback, so degrading a
+ *   merely-loose schema to LENIENT would trade a real strict guarantee for
+ *   nothing.
+ *
+ * The combinator half is shared and is the half that actually bites: nothing
+ * rewrites a forbidden `anyOf`/`allOf` away, so a schema carrying one is a
+ * provider 400 under a descriptor that forbids it.
+ */
+function sendableUnder(
+  schema: z.ZodType | z.core.$ZodType,
+  descriptor: FormatDescriptor,
+): boolean {
+  return expressible(schema, descriptor, /* cycleBreakerCounts */ true);
+}
+
+function expressible(
+  schema: z.ZodType | z.core.$ZodType,
+  descriptor: FormatDescriptor,
+  cycleBreakerCounts: boolean,
+): boolean {
+  // Keys, not objects — a rebuilt `z.lazy` getter defeats identity (see `walkKey`).
+  const rootKey = walkKey(schema);
   // Nodes currently on the DFS stack — a re-encounter is a recursion cycle.
-  const inProgress = new Set<z.ZodType | z.core.$ZodType>();
+  const inProgress = new Set<z.ZodType | z.core.$ZodType | string>();
   // Completed nodes with their result, so shared (non-cyclic) sub-schemas
   // aren't re-walked (guards against exponential blow-up on DAG-shaped schemas).
-  const completed = new Map<z.ZodType | z.core.$ZodType, boolean>();
+  const completed = new Map<z.ZodType | z.core.$ZodType | string, boolean>();
 
   const walk = (s: z.ZodType | z.core.$ZodType): boolean => {
-    if (inProgress.has(s)) {
+    const key = walkKey(s);
+    if (inProgress.has(key)) {
       // Recursion cycle detected at `s`.
-      if (s === root) return descriptor.allowRootRef && descriptor.supportsRecursion;
+      if (cycleBreakerCounts) return true;
+      if (key === rootKey) return descriptor.allowRootRef && descriptor.supportsRecursion;
       return descriptor.allowDefsRef && descriptor.supportsRecursion;
     }
-    const cached = completed.get(s);
+    const cached = completed.get(key);
     if (cached !== undefined) return cached;
 
-    inProgress.add(s);
+    inProgress.add(key);
     const result = walkNode(s);
-    inProgress.delete(s);
-    completed.set(s, result);
+    inProgress.delete(key);
+    completed.set(key, result);
     return result;
   };
 
@@ -1436,9 +1510,17 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
   // If the schema has an 'aid' or 'id' in meta, promote it to a definition.
   // A cache-bypassed "any" node is never promoted — naming a schema that
   // asserts nothing buys nothing, and the `$defs` entry is precisely what the
-  // inline encoding is avoiding.
+  // inline encoding is avoiding. A descriptor that forbids `$defs` outright
+  // (`allowDefsRef: false` — Google strict) is never promoted to either: the id
+  // is still computed, because the cycle-breaker's description names it, but
+  // the definition is inlined at each use site, which is the only spelling that
+  // dialect has for a shared node.
   const id = (metadata.aid ? String(metadata.aid) : 0) || metadata.id || `__schema${context.refCounter++}`;
-  const save = !bypassCache && !!(metadata.aid || metadata.id) && context.root !== schema;
+  const save =
+    !bypassCache
+    && !!(metadata.aid || metadata.id)
+    && context.root !== schema
+    && context.descriptor.allowDefsRef;
 
   // A schema target - will hold either the converted schema or a $ref
   const target: JSONSchema = {};
@@ -1478,11 +1560,21 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
  *
  * Three cases:
  * 1. Re-encounter while still on the conversion stack (`inProgress.has(id)`)
- *    AND the descriptor rejects recursive `$ref`s — emit a shape-aware
- *    placeholder via `buildCycleBreakerSchema()` (number stays number, array
- *    stays array, etc.) with a description naming the `$defs` entry it would
- *    have referenced. This breaks the cycle inline so providers like
- *    Anthropic don't reject the schema.
+ *    AND the descriptor cannot express the `$ref` this back-edge would need —
+ *    emit a shape-aware placeholder via `buildCycleBreakerSchema()` (number
+ *    stays number, array stays array, etc.) with a description naming the
+ *    `$defs` entry it would have referenced. This breaks the cycle inline so
+ *    providers like Anthropic don't reject the schema.
+ *
+ *    "Cannot express" is TWO flags, not one, because a back-edge is only ever
+ *    spelled one of two ways: `{$ref: '#'}` at the root, or `{$ref:
+ *    '#/$defs/X'}` anywhere else. `!supportsRecursion` rules out both.
+ *    `!allowDefsRef` rules out the second — so a NON-ROOT cycle under a
+ *    descriptor that forbids `$defs` (Google strict is exactly that:
+ *    `supportsRecursion: true`, `allowRootRef: true`, `allowDefsRef: false`)
+ *    must take the same bounded placeholder. Checking only `supportsRecursion`
+ *    silently emitted the `$defs`/`$ref` pair the descriptor declares it cannot
+ *    send — a schema the provider answers with HTTP 400.
  * 2. Re-encounter at root with `allowRootRef` — emit `{$ref: '#'}`.
  * 3. Otherwise — emit `{$ref: '#/$defs/<id>'}`, promoting the original
  *    target to a `$defs` entry on first share.
@@ -1495,8 +1587,11 @@ function emitCachedRef(
 ): JSONSchema {
   const descriptor = context.descriptor;
   const isCycle = context.inProgress.has(cachedId);
+  const isRoot = schema === context.root;
+  // The spelling this back-edge would need, and whether the descriptor has it.
+  const backEdgeExpressible = isRoot ? descriptor.allowRootRef : descriptor.allowDefsRef;
 
-  if (isCycle && !descriptor.supportsRecursion) {
+  if (isCycle && (!descriptor.supportsRecursion || !backEdgeExpressible)) {
     // Replace the back-edge with a placeholder whose top-level shape matches
     // the recursive zod schema. The original `cachedJs` target keeps filling
     // in normally — once conversion completes the `$defs` entry exists; we
@@ -1505,8 +1600,30 @@ function emitCachedRef(
     return buildCycleBreakerSchema(schema, cachedId, descriptor);
   }
 
-  if (schema === context.root && descriptor.allowRootRef) {
+  if (isRoot && descriptor.allowRootRef) {
     return { $ref: `#` };
+  }
+
+  // A non-cyclic re-encounter under a descriptor with no `$defs`: INLINE the
+  // already-converted shape instead of naming it. There is no third spelling in
+  // that dialect — a shared node is either repeated or it is a `$ref` the
+  // provider rejects. Safe and finite: `!isCycle` means this node's conversion
+  // already completed, and any cycle BELOW it was replaced by the bounded
+  // placeholder above, so the inlined value is a finite tree. The cost is
+  // duplication in the emitted schema, which is what that dialect charges for
+  // shared structure.
+  //
+  // On a schema the dialect can actually SEND that cost is negligible (measured
+  // on the cases in `schema-google-defs.test.ts`: 497→435, 627→565, 280→322
+  // bytes — inlining a leaf is often smaller than naming it). It is only large
+  // on a heavily-shared recursive DAG — a gin `buildSchemas().Expr` renders
+  // 44 KB with `$defs` and 1.36 MB without — and such a schema carries 1646
+  // `anyOf`s, so `canExpress` already answers `false` for it and no provider
+  // path reaches here. Paying size on a schema that must not be sent anyway is
+  // the right side of the trade against emitting `$defs` the descriptor
+  // declares it cannot send.
+  if (!descriptor.allowDefsRef) {
+    return { ...cachedJs };
   }
 
   if (!context.definitionSchemas.has(cachedId)) {
@@ -1535,10 +1652,14 @@ function buildCycleBreakerSchema(
   descriptor: FormatDescriptor,
 ): JSONSchema {
   const placeholder = genericize(schema, descriptor, 1);
-  return {
-    ...placeholder,
-    description: `Would recursively reference #/$defs/${refId}`,
-  };
+  // The description is MODEL-FACING, so it must not point at a `$defs` entry
+  // this dialect never emits — under `allowDefsRef: false` there is no `$defs`
+  // section at all, and telling the model to look at one is a lie about the
+  // document it was handed. Name the recursion instead.
+  const description = descriptor.allowDefsRef
+    ? `Would recursively reference #/$defs/${refId}`
+    : `Recursive reference to '${refId}' — repeat this shape here`;
+  return { ...placeholder, description };
 }
 
 /**
@@ -2297,18 +2418,26 @@ const featuresCache = new WeakMap<z.ZodType | z.core.$ZodType, SchemaFeatures>()
  * Walk a Zod schema once and count its structural features. Result is
  * cached per schema in a WeakMap — second-and-subsequent calls are O(1) and
  * the entry is GC'd with the schema (same OOM-safe pattern as `strictify`).
+ *
+ * The walk is EAGER (it has to descend to count), so its cycle guard keys on
+ * `walkKey`, not on object identity: a `z.lazy` that rebuilds its inner schema
+ * per call would otherwise never re-enter the same object and the walk would
+ * never terminate. That is not hypothetical — it is a measured, reproducible
+ * heap-death, and this function is on the hot path of EVERY tool of EVERY
+ * request to a strict-family model (`SchemaBudget.allocate`).
  */
 export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatures {
   const cached = featuresCache.get(schema);
   if (cached) return cached;
 
-  const visiting = new Set<z.ZodType | z.core.$ZodType>();
+  const visiting = new Set<z.ZodType | z.core.$ZodType | string>();
   const features: SchemaFeatures = { ...ZERO_FEATURES };
 
   function walk(s: z.ZodType | z.core.$ZodType | undefined | null): void {
     if (!s) return;
-    if (visiting.has(s)) return;
-    visiting.add(s);
+    const key = walkKey(s);
+    if (visiting.has(key)) return;
+    visiting.add(key);
     try {
       // Recursion is detected via z.lazy: peek at the inner schema (but only
       // once — the visiting set bounds the walk).
@@ -2382,7 +2511,7 @@ export function analyzeSchema(schema: z.ZodType | z.core.$ZodType): SchemaFeatur
 
       // Primitives and unknown leaves contribute nothing.
     } finally {
-      visiting.delete(s);
+      visiting.delete(key);
     }
   }
 
@@ -2476,15 +2605,34 @@ export class SchemaBudget {
     // Descriptor itself is lenient → nothing to allocate.
     if (!this.descriptor.strict) return LENIENT;
 
-    const features = analyzeSchema(schema);
     const isHardRequired = requested === true;
     const isPreferredNumeric = typeof requested === 'number' && requested > 0;
 
     if (!isHardRequired && !isPreferredNumeric) {
       // requested is undefined or 0 — treat as no preference; default to
-      // lenient so callers explicitly opt into strict.
+      // lenient so callers explicitly opt into strict. Decided BEFORE any walk
+      // of `schema`: analysing a schema whose verdict is already LENIENT is
+      // pure waste on the hot path of every tool of every request.
       return LENIENT;
     }
+
+    // FEASIBILITY, before budget — the second clause of this method's contract,
+    // and the one that was documented but never implemented. Emitting a strict
+    // schema carrying a combinator the descriptor forbids is a guaranteed
+    // provider 400, not a degradation: `GOOGLE_STRICT` forbids `anyOf`, and the
+    // recursive union a gin/query codegen layer produces is nothing but.
+    // Degrading to LENIENT is the documented answer for a TOOL (unlike a
+    // structured OUTPUT, a tool schema has no prompt-text delivery to fall back
+    // to — `applySchemaDeliveryFallback` covers `responseFormat` only), and it
+    // is also what keeps the API-level `strict: true` flag off the wire, since
+    // providers set it from `descriptor.strict`.
+    //
+    // `sendableUnder`, not `canExpress`: a cycle is always sendable (the
+    // emitter's bounded placeholder), only looser — see that function's note on
+    // why the two questions are different.
+    if (!sendableUnder(schema, this.descriptor)) return LENIENT;
+
+    const features = analyzeSchema(schema);
 
     // Soft-priority items must fit the budget. Hard-required items skip
     // budget checks because selection already promised the model can take

@@ -29,7 +29,7 @@ A descriptor (see `src/schema.ts` line ~26 for the fully documented interface) d
 | `tupleEncoding` | `'object-numeric-keys'` vs `'prefix-items'` vs `'items-union'`. |
 | `optionalAsNullable` | Emit optionals as `T \| null` (OpenAI strict) vs drop from `required[]`. |
 | `allowAllOf` / `allowAnyOf` / `allowOneOf` | Combinator support. |
-| `allowRootRef` / `allowDefsRef` | Whether `$ref: '#'` / `$ref: '#/$defs/X'` are permitted. |
+| `allowRootRef` / `allowDefsRef` | Whether `$ref: '#'` / `$ref: '#/$defs/X'` are permitted. Under `allowDefsRef: false` the emitter never produces a `$defs` section at all: a shared node is **inlined** at each use site, and a non-root cycle takes the bounded placeholder (`supportsRecursion` alone does not license a `$ref` the descriptor cannot spell). |
 | `anyEncoding` | How `z.any()` / `z.unknown()` is emitted — see below. |
 | `supportedStringFormats` | `'all'` or a `Set<string>` whitelist. |
 | `supportsRecursion` | Whether `$ref` self-reference works. |
@@ -107,7 +107,9 @@ budget.allocateTool(schema, requested): FormatDescriptor   // returns strict or 
 budget.allocateOutput(schema, requested): FormatDescriptor // output schema; consumes param/union budget, not a tool slot
 ```
 
-It returns `LENIENT` when `requested === false`, when the schema uses an unrepresentable feature, or when a positive-number request can't fit the remaining budget (priority order; `true` always wins subject to feasibility).
+It returns `LENIENT` when `requested === false`, when the schema uses an unrepresentable feature, or when a positive-number request can't fit the remaining budget (priority order; `true` always wins subject to *budget*, never subject to feasibility).
+
+"Unrepresentable" here means a **combinator the descriptor forbids** (`z.union` → `anyOf`, `z.intersection` → `allOf`), because nothing rewrites those away — a schema carrying one under `GOOGLE_STRICT` is a provider HTTP 400. **Recursion is not unrepresentable**: the emitter replaces any back-edge the descriptor cannot spell with a bounded placeholder, so a recursive schema stays strict (looser at the back-edge, never rejected). That is the difference between this check and `canExpress`, which additionally treats a widened back-edge as a reason to fall back — the right answer for a structured *output* (it can be delivered as prompt text instead) and the wrong one for a *tool* (it cannot).
 
 ## Registering a custom descriptor
 
