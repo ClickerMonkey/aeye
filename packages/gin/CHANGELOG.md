@@ -3,6 +3,54 @@
 Releases before `0.4.0` are recorded in the git log (`chore(release): @aeye/gin <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.4.3
+
+One diagnostic. `registry.parse` refuses a LIVE `Type` by name, instead of
+tripping over the instance's own bookkeeping.
+
+### `parse(liveType)` said `type 'alias' has unknown key 'scope'`
+
+`parse` takes the SERIALIZED form, so handing it a live `Type` was always going
+to fail — but *how* it failed was the problem. Every `Type` carries a `scope`
+(the registry/parent back-references), so a live instance walked past the name
+and `extends` checks and reached `checkWireKeys`, which reported the first key it
+did not recognise:
+
+```
+registry.parse: type 'alias' has unknown key 'scope' — valid keys: name, docs,
+extends, satisfies, generic, options, init, props, get, call, constraint
+```
+
+Every word of that is true and none of it names the caller's mistake. It says
+`'alias'` because that is the live instance's `.name`, and `'scope'` because that
+is whichever internal field enumerated first — so the message changes with the
+subclass and points at gin's internals either way.
+
+It cost a downstream consumer a debugging session, and the path there is worth
+recording because it is the one that will recur: their jsonb read boundary
+revived a stored `{kind:'new', type:{name:'HttpRequest'}, value:…}` program's
+`type` slot into a live `Type`, `NewExpr.from` resolves that slot through
+`registry.parse`, and **every stored program in their catalogue stopped
+parsing** — reported as a complaint about a key nobody wrote.
+
+Now:
+
+```
+registry.parse: expected a serialized TypeDef, got a LIVE AliasType instance
+(`alias`) — pass `type.toJSON()`, or use the type as it stands.
+```
+
+**Refusal, not pass-through**, and deliberately so. `parseExpr` and `parseValue`
+both hand back an already-live `Expr`/`Value`, so idempotence would have been the
+consistent-looking choice — but a `Type` is not like those two: it is bound to
+the `scope` it was built against. Accepting one would install a type resolved in
+the WRONG registry, which for the case above means an unbound `AliasType` whose
+`create()` answers `null` — a silent wrong value at runtime in place of a loud
+error at parse. A caller that genuinely holds the right live type does not need
+`parse` at all.
+
+No behaviour change: these inputs threw before and throw now.
+
 ## 0.4.2
 
 Four defects found by the first real consumers of `0.4.1`, plus one diagnostic

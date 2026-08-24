@@ -619,6 +619,24 @@ export class Registry implements TypeBuilder, TypeScope {
     if (!json || typeof json !== 'object') {
       throw new Error(`registry.parse: expected object, got ${typeof json}`);
     }
+    // A LIVE `Type`, not a wire def. `parse` takes the SERIALIZED form, and it is
+    // refused here rather than deliberately — a live instance is bound to the scope it
+    // was built against, so quietly accepting one would install a type resolved in the
+    // WRONG registry and fail later as a null value rather than an error.
+    //
+    // Refused *here* because the alternative is a diagnostic about gin's own
+    // bookkeeping: every `Type` carries a `scope`, so a live instance used to reach
+    // `checkWireKeys` and come back as `registry.parse: type 'alias' has unknown key
+    // 'scope'`. That is true and useless — it names an internal field, not the
+    // caller's mistake, and it cost a downstream team a whole debugging session
+    // (their jsonb read path had revived a stored `{kind:'new', type:{…}}` program's
+    // `type` slot into a live Type, and every stored program stopped parsing).
+    if (json instanceof Type) {
+      throw new Error(
+        `registry.parse: expected a serialized TypeDef, got a LIVE ${json.constructor.name}`
+        + ` instance (\`${json.name}\`) — pass \`type.toJSON()\`, or use the type as it stands.`,
+      );
+    }
     const def = json as TypeDef;
     // Type names must be \w+ (letters, digits, underscore — no
     // whitespace, no punctuation). LLM-emitted TypeDefs sometimes

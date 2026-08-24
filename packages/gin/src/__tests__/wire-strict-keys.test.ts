@@ -516,3 +516,49 @@ describe('the key list mirrors the schema', () => {
     expect(() => createRegistry().parse(maximal)).not.toThrow();
   });
 });
+
+/**
+ * A LIVE `Type` handed to `parse` — the DIAGNOSTIC, which is the whole point.
+ *
+ * `parse` takes the serialized form, so a live instance was always going to be
+ * refused; what it was refused WITH was the problem. Every `Type` carries a `scope`
+ * (registry bookkeeping), so a live instance fell through to `checkWireKeys` and came
+ * back as `type 'alias' has unknown key 'scope'` — a true statement about gin's
+ * internals that says nothing about the caller's mistake. A downstream jsonb read
+ * path revived a stored program's `type` slot into a live Type and every stored
+ * program stopped parsing; that message is what they had to work from.
+ *
+ * Refusal (not pass-through) is deliberate: a live `Type` is bound to the scope it
+ * was built against, so accepting one would install a type resolved in the WRONG
+ * registry — an unbound alias that later evaluates to `null` instead of erroring.
+ */
+describe('a live Type is not a TypeDef', () => {
+  const r = createRegistry();
+
+  test('every shape of live Type is refused, by NAME, pointing at toJSON()', () => {
+    const live: Type[] = [r.text(), r.list(r.num()), r.obj({ a: { type: r.text() } }), r.parse({ name: 'NoSuchType' })];
+    for (const type of live) {
+      const msg = refusal(() => r.parse(type));
+      expect(msg).toContain('expected a serialized TypeDef');
+      expect(msg).toContain('LIVE');
+      expect(msg).toContain('toJSON()');
+      // NOT the old accident — a complaint about gin's own internal field.
+      expect(msg).not.toContain("unknown key 'scope'");
+    }
+  });
+
+  test('the SERIALIZED form of the very same type still parses', () => {
+    for (const type of [r.text(), r.list(r.num())]) {
+      expect(() => r.parse(type.toJSON())).not.toThrow();
+    }
+  });
+
+  test('a live Type nested in a `new` Expr is refused the same way (the downstream case)', () => {
+    // `NewExpr.from` resolves its `type` slot through `registry.parse`, so a program
+    // whose slot was replaced with a live instance lands here. The message must name
+    // the slot's real problem, not gin's bookkeeping.
+    const msg = refusal(() => r.parseExpr({ kind: 'new', type: r.text() as unknown as TypeDef, value: 'x' }));
+    expect(msg).toContain('expected a serialized TypeDef');
+    expect(msg).not.toContain("unknown key 'scope'");
+  });
+});
