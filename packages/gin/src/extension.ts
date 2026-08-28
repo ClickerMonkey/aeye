@@ -361,7 +361,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
 
   // ─── TYPE RELATIONS ────────────────────────────────────────────────────
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (opts?.exact) {
       // Exact requires same Extension name.
       if (other instanceof Extension && other.name === this.name) {

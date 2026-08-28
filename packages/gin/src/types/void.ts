@@ -58,7 +58,7 @@ export class VoidType extends Type<void, Record<string, never>> {
     return undefined;
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof VoidType;
   }
 

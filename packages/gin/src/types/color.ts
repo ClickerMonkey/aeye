@@ -66,7 +66,7 @@ export class ColorType extends Type<number, ColorOptions> {
     return rnd(0, 0xffffffff, true);
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof ColorType;
   }
 

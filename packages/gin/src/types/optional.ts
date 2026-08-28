@@ -103,7 +103,7 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return this.registry.optional(inner);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (other instanceof OptionalType) {
       return this.inner.compatible(other.inner, opts, scope);
     }

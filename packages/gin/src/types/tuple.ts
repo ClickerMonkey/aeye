@@ -131,7 +131,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return this.registry.tuple(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof TupleType)) return false;
     if (other.elements.length !== this.elements.length) return false;
     return this.elements.every((e, i) => e.compatible(other.elements[i]!, opts, scope));

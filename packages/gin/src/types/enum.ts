@@ -101,7 +101,7 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     );
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof EnumType)) return false;
     if (!this.value.compatible(other.value, opts, scope)) return false;
     if (!opts?.value) return true;

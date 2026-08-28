@@ -108,7 +108,7 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     return this.constraint;
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof TypType)) return false;
     return this.constraint.compatible(other.constraint, opts, scope);
   }

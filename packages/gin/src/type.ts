@@ -96,10 +96,11 @@ export function slotAccepts(declared: Type, actual: Type, scope?: TypeScope): bo
   // valid base value (covariant)". Nothing here can accept a `positive` into
   // a `map<num, text>` key slot without walking the chain, and refusing it
   // would break the subtype preservation this whole mechanism exists to
-  // protect. (Same family as the open ask that `A.compatible(or<A, A>)` is
-  // false: `compatible` matches on the left's class and never opens the
-  // right. The general fix belongs in `compatible` itself and is not made
-  // here — it would move a relation the whole library is written against.)
+  // protect. (The `or`-on-the-right half of that family IS fixed in
+  // `compatible` itself now — see `Type.compatible` — so only the Extension
+  // chain is still walked here. An Extension is a NAMED subtype whose own
+  // relation each class may want an opinion on; a union is pure structure,
+  // which is why the two got different answers.)
   for (let t = extensionBase(actual); t; t = extensionBase(t)) {
     if (declared.compatible(t, undefined, scope)) return true;
   }
@@ -112,6 +113,24 @@ export function slotAccepts(declared: Type, actual: Type, scope?: TypeScope): bo
 function extensionBase(t: Type): Type | undefined {
   const base = (t as unknown as { base?: Type }).base;
   return base instanceof Type && base !== t ? base : undefined;
+}
+
+/** The variants of an `or`, or undefined for anything else — what
+ *  {@link Type.compatible} descends on the RIGHT. Read structurally rather
+ *  than with `instanceof OrType`, which `type.ts` cannot import without a
+ *  cycle (`types/or.ts` imports `Type` from here); same reading as
+ *  {@link extensionBase} above.
+ *
+ *  The name alone is not enough: an Extension or an alias could carry it
+ *  while holding no variants at all, and this runs on the hot path of every
+ *  compatibility question. Both halves are checked, and the `Type` guard on
+ *  each element is what keeps a same-named foreign object from steering the
+ *  relation. */
+function orVariants(t: Type): Type[] | undefined {
+  if (t.name !== 'or') return undefined;
+  const variants = (t as unknown as { variants?: unknown }).variants;
+  if (!Array.isArray(variants) || !variants.every((v) => v instanceof Type)) return undefined;
+  return variants as Type[];
 }
 
 /**
@@ -890,12 +909,46 @@ export abstract class Type<T = any, O = any> implements Node {
   // ─── TYPE RELATIONS ──────────────────────────────────────────────────────
 
   /**
-   * Structural + (optional) strict compatibility check.
-   * Concrete types implement this — the default impls below (accepts,
-   * exact) compose it with pre-set option flags.
+   * Structural + (optional) strict compatibility check — "every value of
+   * `other` is also a valid value of `this`". The default impls below
+   * (accepts, exact) compose it with pre-set option flags.
    * `scope` propagates the call-site TypeScope (see `valid`).
+   *
+   * An `or` on the RIGHT is opened HERE, once, for every type: a union is
+   * assignable to `this` exactly when EVERY variant is, so
+   * `A.compatible(or<X, Y>)` is `A.compatible(X) && A.compatible(Y)`.
+   * Concrete classes match on `other`'s class (`other instanceof NumType`
+   * …), so without this an `or` on the right was unconditionally
+   * incompatible — `num.compatible(or<num, num>)` was false, and so was
+   * `A.compatible(or<A, A>)` for one and the same instance twice. That is
+   * the shape a downstream program hands over whenever a slot's declared
+   * type meets a union built from it, and refusing it is simply wrong.
+   *
+   * The recursion goes through the PUBLIC method, not `compatibleType`, so
+   * a nested union (`or<num, or<num, num>>`) and a union whose variants are
+   * of mixed classes both descend to the leaves. `or<>` has no values, so
+   * `every` over no variants is vacuously true — the empty union is the
+   * bottom type and every type accepts it.
+   *
+   * Concrete types implement {@link compatibleType}, never this.
    */
-  abstract compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean;
+  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+    const variants = orVariants(other);
+    if (variants) return variants.every((v) => this.compatible(v, opts, scope));
+    return this.compatibleType(other, opts, scope);
+  }
+
+  /**
+   * The per-class half of {@link compatible}: is every value of `other` —
+   * which is guaranteed NOT to be an `or` — a valid value of `this`?
+   *
+   * This is where each class puts its own structural comparison, and it is
+   * the only one of the pair a subclass implements. Call `compatible` (not
+   * this) from anywhere that is asking the semantic question, including
+   * from inside an implementation recursing into a slot type: a slot can
+   * hold a union even when the containers around it cannot.
+   */
+  abstract compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean;
 
   /** Strict: another instance of the same class must match structurally. */
   accepts(other: Type, scope?: TypeScope): boolean {

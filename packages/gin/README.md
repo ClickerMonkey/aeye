@@ -127,6 +127,12 @@ rule), covariant on returns. Most code wants the bivariant form;
 edit-compat tooling splits args + returns and checks each side
 directionally to enforce strict TS-style variance.
 
+An `or` on the RIGHT is descended for every type: `a.compatible(or<X,
+Y>)` is `a.compatible(X) && a.compatible(Y)`, so `num.compatible(or<num,
+num>)` is true and `num.compatible(or<num, text>)` is false. Concrete
+types implement `compatibleType` — the per-class half, which never sees
+a union; `compatible` is the base-class method everything calls.
+
 ---
 
 ## Extensions

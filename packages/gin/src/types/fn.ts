@@ -156,7 +156,7 @@ export class FnType extends Type<any, Record<string, never>> {
     return r.fn({ args: args as Type<any>, returns, throws, generic: this.generic });
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof FnType)) return false;
     // Bivariant on args: a satisfier with narrower args (e.g. `num.eq`
     // takes `other: num`) is accepted as a witness of a wider-args

@@ -102,7 +102,7 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return this.literal as RuntimeOf<T>;
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (other instanceof LiteralType) {
       return this.inner.compatible(other.inner, opts, scope) && this.literal === other.literal;
     }

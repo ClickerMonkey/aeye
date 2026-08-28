@@ -141,7 +141,7 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     return this.registry.list(item);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof ListType)) return false;
     if (!this.item.compatible(other.item, opts, scope)) return false;
     if (!opts?.value) return true;

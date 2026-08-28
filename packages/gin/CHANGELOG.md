@@ -3,6 +3,57 @@
 Releases before `0.4.0` are recorded in the git log (`chore(release): @aeye/gin <version>`
 commits); this file starts here and is the place to look from now on.
 
+## 0.4.4
+
+One relation fix. `compatible` opens an `or` on the **right**, for every type —
+the long-open `A.compatible(or<A, A>)` ask.
+
+### `num.compatible(or<num, num>)` was `false`
+
+`a.compatible(b)` reads "every value of `b` is also a valid value of `a`", so a
+union on the right is assignable to `a` exactly when **every one of its variants
+is**. Every concrete class implements the relation by matching on `other`'s
+class first — `if (!(other instanceof NumType)) return false` — and an `or` is
+not an instance of any of them. So the answer was `false` for a union that
+nothing about it could fail:
+
+```ts
+num.compatible(or<num, num>)     // false ← every value of that union IS a num
+A.compatible(or<A, A>)           // false ← same instance, twice
+```
+
+`OrType` alone carried the correct branch, and it only fired with the `Or` on
+the LEFT. What surfaced it: a downstream API-kind program whose slot declared
+`HttpRequest` met an `or<HttpRequest, HttpRequest>` built from that very type,
+and the compatibility check refused its own type.
+
+The descent now lives **once**, on the base class, and it recurses through the
+public method — so a nested union (`or<num, or<num, num>>`) and a union of mixed
+variant classes both reach the leaves, and a slot type inside a `list` / `obj` /
+`map` gets it for free. Nothing is newly accepted that shouldn't be: one foreign
+arm still refuses the whole union.
+
+```ts
+num.compatible(or<num, text>)              // false — the text arm genuinely isn't a num
+list<num>.compatible(list<or<num, num>>)   // true  — nested slots descend too
+num.compatible(or<>)                       // true  — the empty union has no values
+```
+
+**One API addition.** The per-class half of the relation is now
+`compatibleType(other, opts?, scope?)` — the abstract method a concrete type
+implements, guaranteed never to be handed a union. `compatible` is the concrete
+base-class method that opens the union and then delegates; it is unchanged for
+every caller, and it stays the one to call from anywhere asking the semantic
+question. **Only a custom `Type` SUBCLASS is affected** — rename its
+`compatible` override to `compatibleType`. `registry.extend`, which is how
+consumers actually add types, is untouched.
+
+The Extension half of the same family is still open: `num.compatible(<Extension
+over num>)` remains `false`, and `slotAccepts` still walks the Extension chain
+itself. An Extension is a NAMED subtype each class may want an opinion on; a
+union is pure structure, which is why the two got different answers. The gap is
+pinned by a test so the two cannot be silently conflated.
+
 ## 0.4.3
 
 One diagnostic. `registry.parse` refuses a LIVE `Type` by name, instead of

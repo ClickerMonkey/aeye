@@ -31,6 +31,9 @@ describe('OrType', () => {
     expect(t.encode('x')).toBe('x');
   });
 
+  // An `or` on the RIGHT — `A.compatible(or<A, A>)`, for every A, not just
+  // when A is itself an Or — lives in `compatible-or-descent.test.ts`; the
+  // rule is on the base Type, not on this class.
   test('compatible: other assignable iff at least one variant accepts', () => {
     const t = r.or([r.num(), r.text()]);
     expect(t.compatible(r.num())).toBe(true);

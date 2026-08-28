@@ -78,7 +78,7 @@ export class NotType extends Type<any, NotOptions> {
     return this.registry.not(excluded);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (opts?.exact) return other instanceof NotType && this.excluded.exact(other.excluded, scope);
     // other must NOT be structurally compatible with excluded.
     return !this.excluded.compatible(other, opts, scope);

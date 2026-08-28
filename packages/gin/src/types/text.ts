@@ -104,7 +104,7 @@ export class TextType extends Type<string, TextOptions> {
     return out;
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatibleType(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof TextType)) return false;
     if (!opts?.value) return true;
     const a = this.options, b = other.options;

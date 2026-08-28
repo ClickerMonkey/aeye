@@ -297,6 +297,21 @@ i.e. `b` is assignable to `a`. Convenience wrappers:
   optional `a`-fields may be absent; extra `b`-fields ignored. `opts.exact`
   forces exact field-set match.
 - **function**: bivariant on args, covariant on returns (matches TS default).
+- **`or` on the RIGHT (0.4.4)**: descended for EVERY `a`, since a union is
+  assignable exactly when all of its variants are —
+  `a.compatible(or<X, Y>)` is `a.compatible(X) && a.compatible(Y)`.
+
+```ts
+num.compatible(or<num, num>)    // true   — every value of the union IS a num
+num.compatible(or<num, text>)   // false  — the text arm is not
+list<num>.compatible(list<or<num, num>>)   // true — nested slots descend too
+```
+
+Concrete types implement `compatibleType(other, opts?, scope?)`, the per-class
+half of the relation, which is guaranteed never to be handed a union.
+`compatible` is the base-class method — call that one from anywhere asking the
+semantic question, including from inside a `compatibleType` recursing into a
+slot type.
 
 ## Value schemas (`toValueSchema`)
 

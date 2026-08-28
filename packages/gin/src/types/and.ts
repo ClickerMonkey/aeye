@@ -210,7 +210,7 @@ export class AndType extends Type<any, AndOptions> {
     return this.registry.and(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     // other assignable to And iff assignable to every part.
     return this.parts.every((p) => p.compatible(other, opts, scope));
   }
