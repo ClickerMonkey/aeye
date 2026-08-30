@@ -75,7 +75,7 @@ export class TimestampType extends Type<Date, TimestampOptions> {
     return new Date(rnd(Date.UTC(2000, 0, 1), Date.UTC(2050, 11, 31), true));
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof TimestampType;
   }
 

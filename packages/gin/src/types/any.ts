@@ -52,7 +52,7 @@ export class AnyType extends Type<any, Record<string, never>> {
     return null;
   }
 
-  compatible(_other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(_other: Type, _opts?: CompatOptions): boolean {
     return true;
   }
 

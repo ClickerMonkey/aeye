@@ -99,7 +99,7 @@ export class NullableType<T = any> extends Type<T | null, Record<string, never>>
     return this.registry.nullable(inner);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (other instanceof NullableType) {
       return this.inner.compatible(other.inner, opts, scope);
     }

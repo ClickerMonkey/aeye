@@ -59,7 +59,7 @@ export class NullType extends Type<null, Record<string, never>> {
     return null;
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof NullType;
   }
 

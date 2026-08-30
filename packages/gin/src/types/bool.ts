@@ -59,7 +59,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
     return rnd(0, 1, true) === 1;
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof BoolType;
   }
 

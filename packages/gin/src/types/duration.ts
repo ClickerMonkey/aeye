@@ -61,7 +61,7 @@ export class DurationType extends Type<number, Record<string, never>> {
     return rnd(0, 1000 * 60 * 60 * 24, true);
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof DurationType;
   }
 

@@ -78,7 +78,7 @@ export class DateType extends Type<Date, DateOptions> {
     return new Date(rnd(min, max, true));
   }
 
-  compatible(other: Type, _opts?: CompatOptions): boolean {
+  compatibleType(other: Type, _opts?: CompatOptions): boolean {
     return other instanceof DateType;
   }
 

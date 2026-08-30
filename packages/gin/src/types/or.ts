@@ -126,11 +126,14 @@ export class OrType extends Type<any, OrOptions> {
     return this.registry.or(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
-    // other is assignable to Or iff it's assignable to at least one variant.
-    if (other instanceof OrType) {
-      return other.variants.every((v) => this.compatible(v, opts, scope));
-    }
+  /** other is assignable to Or iff it's assignable to at least one variant.
+   *
+   *  An `or` on the RIGHT used to be handled by an explicit branch here —
+   *  the only class that had one, which is exactly why `A.compatible(or<A,
+   *  A>)` was false for every OTHER class. `Type.compatible` now opens a
+   *  right-hand union before delegating, for `Or` along with everyone else,
+   *  so `other` cannot be one by the time this runs. */
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     return this.variants.some((v) => v.compatible(other, opts, scope));
   }
 

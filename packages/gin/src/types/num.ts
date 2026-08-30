@@ -106,7 +106,7 @@ export class NumType extends Type<number, NumOptions> {
     return rnd(min, max, this.options.whole ?? false);
   }
 
-  compatible(other: Type, opts?: CompatOptions): boolean {
+  compatibleType(other: Type, opts?: CompatOptions): boolean {
     if (!(other instanceof NumType)) return false;
     if (!opts?.value) return true;
     // value-mode: other's range must fit inside this's range (and whole-compat)

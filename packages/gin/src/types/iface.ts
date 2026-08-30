@@ -129,7 +129,7 @@ export class IfaceType extends Type<any, Record<string, never>> {
     });
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     // "other satisfies this interface" — structural.
     const theirProps = other.props(scope);
     for (const [name, prop] of Object.entries(this._props)) {

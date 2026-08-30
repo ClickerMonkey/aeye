@@ -179,7 +179,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return this.registry.obj(narrowed);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof ObjType)) return false;
     // Structural: `this` accepts every value of `other`. Each field
     // declared on `this` either appears on `other` with a compatible

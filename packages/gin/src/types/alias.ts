@@ -132,7 +132,7 @@ export class AliasType extends Type<any, AliasOptions> {
     return t ? t.random(rnd) : null;
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     const t = this.resolve(scope);
     return t ? t.compatible(other, opts, scope) : true;
   }

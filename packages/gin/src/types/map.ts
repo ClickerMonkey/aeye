@@ -190,7 +190,7 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return this.registry.map(key, value);
   }
 
-  compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+  compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
     if (!(other instanceof MapType)) return false;
     return this.key.compatible(other.key, opts, scope) && this.value.compatible(other.value, opts, scope);
   }
