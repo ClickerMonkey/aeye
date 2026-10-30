@@ -10,142 +10,66 @@
 import type { ModelInfo } from '@aeye/ai';
 
 export const openaiModels: ModelInfo[] = [{
-  id: 'gpt-4-0613',
+  id: 'babbage-002',
   provider: 'openai',
-  name: 'gpt-4-0613',
-  contextWindow: 8192,
-  maxOutputTokens: 8192,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
-  pricing: {
-    text: {
-      input: 30,
-      output: 60
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "dec 01, 2023",
-    performance: "average",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4',
-  provider: 'openai',
-  name: 'gpt-4',
-  contextWindow: 8192,
-  maxOutputTokens: 8192,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
-  pricing: {
-    text: {
-      input: 30,
-      output: 60
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "dec 01, 2023",
-    performance: "average",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-3.5-turbo',
-  provider: 'openai',
-  name: 'gpt-3.5-turbo',
-  contextWindow: 16385,
-  maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
-  pricing: {
-    text: {
-      input: 0.5,
-      output: 1.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-realtime-mini',
-  provider: 'openai',
-  name: 'gpt-realtime-mini',
-  contextWindow: 32000,
-  maxOutputTokens: 4096,
+  name: 'babbage-002',
+  contextWindow: 0,
+  maxOutputTokens: 16384,
   tier: 'flagship',
-  capabilities: new Set(['vision', 'hearing', 'audio', 'chat', 'tools']),
+  capabilities: new Set([]),
   pricing: {
     text: {
-      input: 0.6,
-      output: 2.4,
-      cached: 0.06
-    },
-    audio: {
-      input: 10,
-      output: 20
-    },
-    image: {
-      input: 0.8
+      input: 0.4,
+      output: 0.4
     }
   },
+  retiresAt: '2024-10-28',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "higher",
-    speed: "very fast"
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
   }
 }, {
-  id: 'gpt-realtime-mini-2025-10-06',
+  id: 'chat-latest',
   provider: 'openai',
-  name: 'gpt-realtime-mini-2025-10-06',
-  contextWindow: 32000,
-  maxOutputTokens: 4096,
+  name: 'Chat Latest',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
   tier: 'flagship',
-  capabilities: new Set(['vision', 'hearing', 'audio', 'chat', 'tools']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
-      input: 0.6,
-      output: 2.4,
-      cached: 0.06
-    },
-    audio: {
-      input: 10,
-      output: 20
-    },
-    image: {
-      input: 0.8
+      input: 5,
+      output: 30,
+      cached: 0.5
     }
   },
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "higher",
-    speed: "very fast"
+    knowledgeCutoff: "Apr 20, 2026",
+    responsesOnly: false
   }
 }, {
-  id: 'sora-2',
+  id: 'chatgpt-image-latest',
   provider: 'openai',
-  name: 'sora-2',
+  name: 'chatgpt-image-latest',
   contextWindow: 0,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'audio']),
-  pricing: {},
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 10,
+      cached: 1.25
+    },
+    image: {
+      input: 8,
+      tokens: 32
+    }
+  },
+  retiresAt: '2026-12-01',
   metadata: {
-    intelligence: "higher",
-    speed: "slow"
-  }
-}, {
-  id: 'sora-2-pro',
-  provider: 'openai',
-  name: 'sora-2-pro',
-  contextWindow: 0,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'audio']),
-  pricing: {},
-  metadata: {
-    intelligence: "highest",
-    speed: "slow"
+    responsesOnly: false
   }
 }, {
   id: 'davinci-002',
@@ -153,37 +77,78 @@ export const openaiModels: ModelInfo[] = [{
   name: 'davinci-002',
   contextWindow: 0,
   maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat']),
+  tier: 'flagship',
+  capabilities: new Set([]),
   pricing: {
     text: {
       input: 2,
       output: 2
     }
   },
+  retiresAt: '2024-10-28',
   metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "medium"
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
   }
 }, {
-  id: 'babbage-002',
+  id: 'gpt-3.5-turbo',
   provider: 'openai',
-  name: 'babbage-002',
-  contextWindow: 0,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
+  name: 'GPT-3.5 Turbo',
+  contextWindow: 16385,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
   capabilities: new Set(['chat']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
-      input: 0.4,
-      output: 0.4
+      input: 0.5,
+      output: 1.5
     }
   },
+  retiresAt: '2026-10-23',
   metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "medium"
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-3.5-turbo-0125',
+  provider: 'openai',
+  name: 'GPT-3.5 Turbo',
+  contextWindow: 16385,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  capabilities: new Set(['chat']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 1.5
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-3.5-turbo-1106',
+  provider: 'openai',
+  name: 'GPT-3.5 Turbo',
+  contextWindow: 16385,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  capabilities: new Set(['chat']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 1.5
+    }
+  },
+  retiresAt: '2026-09-28',
+  metadata: {
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-3.5-turbo-instruct',
@@ -191,330 +156,255 @@ export const openaiModels: ModelInfo[] = [{
   name: 'gpt-3.5-turbo-instruct',
   contextWindow: 4096,
   maxOutputTokens: 4096,
-  tier: 'legacy',
+  tier: 'flagship',
   capabilities: new Set(['chat']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 1.5,
       output: 2
     }
   },
+  retiresAt: '2026-09-28',
   metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "slow"
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-3.5-turbo-instruct-0914',
   provider: 'openai',
-  name: 'gpt-3.5-turbo-instruct-0914',
+  name: 'gpt-3.5-turbo-instruct',
   contextWindow: 4096,
   maxOutputTokens: 4096,
-  tier: 'legacy',
+  tier: 'flagship',
   capabilities: new Set(['chat']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 1.5,
       output: 2
     }
   },
+  retiresAt: '2026-09-28',
   metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "slow"
+    knowledgeCutoff: "Sep 01, 2021",
+    responsesOnly: false
   }
 }, {
-  id: 'dall-e-3',
+  id: 'gpt-4',
   provider: 'openai',
-  name: 'dall-e-3',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['image', 'chat']),
-  supportedParameters: new Set([]),
-  pricing: {
-    image: {
-      output: [
-        {
-          quality: "standard",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.04
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.08
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.08
-            }
-          ]
-        },
-        {
-          quality: "hd",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.08
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.12
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.12
-            }
-          ]
-        }
-      ]
-    }
-  },
-  metadata: {
-    intelligence: "high",
-    speed: "slow"
-  }
-}, {
-  id: 'dall-e-2',
-  provider: 'openai',
-  name: 'dall-e-2',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['image', 'chat']),
-  supportedParameters: new Set(['imageStyle', 'imageMultiple']),
-  pricing: {
-    image: {
-      output: [
-        {
-          quality: "standard",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.016
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.018
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.02
-            }
-          ]
-        }
-      ]
-    }
-  },
-  metadata: {
-    intelligence: "low",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-3.5-turbo-1106',
-  provider: 'openai',
-  name: 'gpt-3.5-turbo-1106',
-  contextWindow: 16385,
-  maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
+  name: 'GPT-4',
+  contextWindow: 8192,
+  maxOutputTokens: 8192,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
-      input: 1,
-      output: 2
+      input: 30,
+      output: 60
     }
   },
+  retiresAt: '2026-10-23',
   metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "slow"
+    knowledgeCutoff: "Dec 01, 2023",
+    responsesOnly: false
   }
 }, {
-  id: 'tts-1-hd',
+  id: 'gpt-4-0613',
   provider: 'openai',
-  name: 'tts-1-hd',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['audio', 'chat']),
-  supportedParameters: new Set([]),
-  pricing: {
-    audio: {
-      output: 30
-    }
-  },
-  metadata: {
-    intelligence: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'tts-1-1106',
-  provider: 'openai',
-  name: 'tts-1-1106',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['audio', 'chat']),
-  supportedParameters: new Set([]),
-  pricing: {
-    audio: {
-      output: 15
-    }
-  },
-  metadata: {
-    intelligence: "average",
-    speed: "fast"
-  }
-}, {
-  id: 'tts-1-hd-1106',
-  provider: 'openai',
-  name: 'tts-1-hd-1106',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['audio', 'chat']),
-  supportedParameters: new Set([]),
-  pricing: {
-    audio: {
-      output: 30
-    }
-  },
-  metadata: {
-    intelligence: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'text-embedding-3-small',
-  provider: 'openai',
-  name: 'text-embedding-3-small',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['embedding', 'chat']),
-  supportedParameters: new Set(['embeddingDimensions']),
-  pricing: {
-    embeddings: {
-      cost: 0.02
-    }
-  },
-  metadata: {
-    intelligence: "average",
-    speed: "medium"
-  }
-}, {
-  id: 'text-embedding-3-large',
-  provider: 'openai',
-  name: 'text-embedding-3-large',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['embedding', 'chat']),
-  supportedParameters: new Set(['embeddingDimensions']),
-  pricing: {
-    embeddings: {
-      cost: 0.13
-    }
-  },
-  metadata: {
-    intelligence: "high",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-4-turbo-preview',
-  provider: 'openai',
-  name: 'gpt-4-turbo-preview',
-  contextWindow: 128000,
-  maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
+  name: 'GPT-4',
+  contextWindow: 8192,
+  maxOutputTokens: 8192,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
-      input: 10,
-      output: 30
+      input: 30,
+      output: 60
     }
   },
+  retiresAt: '2026-10-23',
   metadata: {
-    knowledgeCutoff: "dec 01, 2023",
-    performance: "average",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-3.5-turbo-0125',
-  provider: 'openai',
-  name: 'gpt-3.5-turbo-0125',
-  contextWindow: 16385,
-  maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
-  pricing: {
-    text: {
-      input: 0.5,
-      output: 1.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "sep 01, 2021",
-    performance: "low",
-    speed: "slow"
+    knowledgeCutoff: "Dec 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4-turbo',
   provider: 'openai',
-  name: 'gpt-4-turbo',
+  name: 'GPT-4 Turbo',
   contextWindow: 128000,
   maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 10,
       output: 30
     }
   },
+  retiresAt: '2026-10-23',
   metadata: {
-    knowledgeCutoff: "dec 01, 2023",
-    performance: "average",
-    speed: "medium"
+    knowledgeCutoff: "Dec 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4-turbo-2024-04-09',
   provider: 'openai',
-  name: 'gpt-4-turbo-2024-04-09',
+  name: 'GPT-4 Turbo',
   contextWindow: 128000,
   maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 10,
       output: 30
     }
   },
+  retiresAt: '2026-10-23',
   metadata: {
-    knowledgeCutoff: "dec 01, 2023",
-    performance: "average",
-    speed: "medium"
+    knowledgeCutoff: "Dec 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4.1',
+  provider: 'openai',
+  name: 'GPT-4.1',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 8,
+      cached: 0.5
+    }
+  },
+  retiresAt: '2027-01-14',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4.1-2025-04-14',
+  provider: 'openai',
+  name: 'GPT-4.1',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 8,
+      cached: 0.5
+    }
+  },
+  retiresAt: '2027-01-14',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4.1-mini',
+  provider: 'openai',
+  name: 'GPT-4.1 Mini',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.4,
+      output: 1.6,
+      cached: 0.1
+    }
+  },
+  retiresAt: '2027-01-14',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4.1-mini-2025-04-14',
+  provider: 'openai',
+  name: 'GPT-4.1 Mini',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.4,
+      output: 1.6,
+      cached: 0.1
+    }
+  },
+  retiresAt: '2027-01-14',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4.1-nano',
+  provider: 'openai',
+  name: 'GPT-4.1 nano',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.1,
+      output: 0.4,
+      cached: 0.025
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4.1-nano-2025-04-14',
+  provider: 'openai',
+  name: 'GPT-4.1 nano',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.1,
+      output: 0.4,
+      cached: 0.025
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o',
   provider: 'openai',
-  name: 'gpt-4o',
+  name: 'GPT-4o',
   contextWindow: 128000,
   maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 2.5,
@@ -522,82 +412,41 @@ export const openaiModels: ModelInfo[] = [{
       cached: 1.25
     }
   },
+  retiresAt: '2027-01-14',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o-2024-05-13',
   provider: 'openai',
-  name: 'gpt-4o-2024-05-13',
-  contextWindow: 128000,
-  maxOutputTokens: 4096,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 5,
-      output: 15
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-mini-2024-07-18',
-  provider: 'openai',
-  name: 'gpt-4o-mini-2024-07-18',
+  name: 'GPT-4o',
   contextWindow: 128000,
   maxOutputTokens: 16384,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
-      input: 0.15,
-      output: 0.6,
-      cached: 0.075
+      input: 2.5,
+      output: 10,
+      cached: 1.25
     }
   },
+  retiresAt: '2026-10-23',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "average",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-4o-mini',
-  provider: 'openai',
-  name: 'gpt-4o-mini',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.15,
-      output: 0.6,
-      cached: 0.075
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "average",
-    speed: "fast"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o-2024-08-06',
   provider: 'openai',
-  name: 'gpt-4o-2024-08-06',
+  name: 'GPT-4o',
   contextWindow: 128000,
   maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 2.5,
@@ -605,418 +454,20 @@ export const openaiModels: ModelInfo[] = [{
       cached: 1.25
     }
   },
+  retiresAt: '2027-01-14',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'chatgpt-4o-latest',
-  provider: 'openai',
-  name: 'chatgpt-4o-latest',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'stop']),
-  pricing: {
-    text: {
-      input: 5,
-      output: 15
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'o1-mini-2024-09-12',
-  provider: 'openai',
-  name: 'o1-mini-2024-09-12',
-  contextWindow: 128000,
-  maxOutputTokens: 65536,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'streaming', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'stop']),
-  pricing: {
-    text: {
-      input: 1.1,
-      output: 4.4,
-      cached: 0.55
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "high",
-    speed: "slow"
-  }
-}, {
-  id: 'o1-mini',
-  provider: 'openai',
-  name: 'o1-mini',
-  contextWindow: 128000,
-  maxOutputTokens: 65536,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'streaming', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'stop']),
-  pricing: {
-    text: {
-      input: 1.1,
-      output: 4.4,
-      cached: 0.55
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "high",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-4o-realtime-preview-2024-10-01',
-  provider: 'openai',
-  name: 'gpt-4o-realtime-preview-2024-10-01',
-  contextWindow: 16000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 5,
-      output: 20,
-      cached: 2.5
-    },
-    audio: {
-      input: 100,
-      output: 200
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "average",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-4o-audio-preview-2024-10-01',
-  provider: 'openai',
-  name: 'gpt-4o-audio-preview-2024-10-01',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 100,
-      output: 200
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-audio-preview',
-  provider: 'openai',
-  name: 'gpt-4o-audio-preview',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 40,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-realtime-preview',
-  provider: 'openai',
-  name: 'gpt-4o-realtime-preview',
-  contextWindow: 32000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 5,
-      output: 20,
-      cached: 2.5
-    },
-    audio: {
-      input: 40,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'omni-moderation-latest',
-  provider: 'openai',
-  name: 'omni-moderation-latest',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision']),
-  pricing: {},
-  metadata: {
-    intelligence: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-realtime-preview-2024-12-17',
-  provider: 'openai',
-  name: 'gpt-4o-realtime-preview-2024-12-17',
-  contextWindow: 16000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 5,
-      output: 20,
-      cached: 2.5
-    },
-    audio: {
-      input: 40,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-4o-audio-preview-2024-12-17',
-  provider: 'openai',
-  name: 'gpt-4o-audio-preview-2024-12-17',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 40,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-mini-realtime-preview-2024-12-17',
-  provider: 'openai',
-  name: 'gpt-4o-mini-realtime-preview-2024-12-17',
-  contextWindow: 16000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 0.6,
-      output: 2.4,
-      cached: 0.3
-    },
-    audio: {
-      input: 10,
-      output: 20
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "average",
-    speed: "very fast"
-  }
-}, {
-  id: 'gpt-4o-mini-audio-preview-2024-12-17',
-  provider: 'openai',
-  name: 'gpt-4o-mini-audio-preview-2024-12-17',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 0.15,
-      output: 0.6
-    },
-    audio: {
-      input: 10,
-      output: 20
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "average",
-    speed: "fast"
-  }
-}, {
-  id: 'o1-2024-12-17',
-  provider: 'openai',
-  name: 'o1-2024-12-17',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 15,
-      output: 60,
-      cached: 7.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "higher",
-    speed: "slow"
-  }
-}, {
-  id: 'o1',
-  provider: 'openai',
-  name: 'o1',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 15,
-      output: 60,
-      cached: 7.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "higher",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-4o-mini-realtime-preview',
-  provider: 'openai',
-  name: 'gpt-4o-mini-realtime-preview',
-  contextWindow: 16000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 0.6,
-      output: 2.4,
-      cached: 0.3
-    },
-    audio: {
-      input: 10,
-      output: 20
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "average",
-    speed: "very fast"
-  }
-}, {
-  id: 'gpt-4o-mini-audio-preview',
-  provider: 'openai',
-  name: 'gpt-4o-mini-audio-preview',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 0.15,
-      output: 0.6
-    },
-    audio: {
-      input: 10,
-      output: 20
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "average",
-    speed: "fast"
-  }
-}, {
-  id: 'o3-mini',
-  provider: 'openai',
-  name: 'o3-mini',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput']),
-  pricing: {
-    text: {
-      input: 1.1,
-      output: 4.4,
-      cached: 0.55
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'o3-mini-2025-01-31',
-  provider: 'openai',
-  name: 'o3-mini-2025-01-31',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput']),
-  pricing: {
-    text: {
-      input: 1.1,
-      output: 4.4,
-      cached: 0.55
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "higher",
-    speed: "medium"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o-2024-11-20',
   provider: 'openai',
-  name: 'gpt-4o-2024-11-20',
+  name: 'GPT-4o',
   contextWindow: 128000,
   maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 2.5,
@@ -1024,182 +475,160 @@ export const openaiModels: ModelInfo[] = [{
       cached: 1.25
     }
   },
+  retiresAt: '2027-01-14',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
-  id: 'gpt-4o-search-preview-2025-03-11',
+  id: 'gpt-4o-mini',
   provider: 'openai',
-  name: 'gpt-4o-search-preview-2025-03-11',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-search-preview',
-  provider: 'openai',
-  name: 'gpt-4o-search-preview',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4o-mini-search-preview-2025-03-11',
-  provider: 'openai',
-  name: 'gpt-4o-mini-search-preview-2025-03-11',
+  name: 'GPT-4o Mini',
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'responseFormat', 'structuredOutput', 'stop']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 0.15,
-      output: 0.6
+      output: 0.6,
+      cached: 0.075
     }
   },
+  retiresAt: '2027-01-14',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "average",
-    speed: "fast"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-mini-2024-07-18',
+  provider: 'openai',
+  name: 'GPT-4o Mini',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.6,
+      cached: 0.075
+    }
+  },
+  retiresAt: '2027-01-14',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o-mini-search-preview',
   provider: 'openai',
-  name: 'gpt-4o-mini-search-preview',
+  name: 'GPT-4o Mini Search Preview',
   contextWindow: 128000,
   maxOutputTokens: 16384,
-  tier: 'efficient',
+  tier: 'experimental',
   capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'responseFormat', 'structuredOutput', 'stop']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
       input: 0.15,
       output: 0.6
     }
   },
+  retiresAt: '2026-07-23',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "average",
-    speed: "fast"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
-  id: 'gpt-4o-transcribe',
+  id: 'gpt-4o-mini-search-preview-2025-03-11',
   provider: 'openai',
-  name: 'gpt-4o-transcribe',
-  contextWindow: 16000,
-  maxOutputTokens: 2000,
-  tier: 'flagship',
-  capabilities: new Set(['hearing', 'chat']),
-  supportedParameters: new Set(['transcribePrompt', 'transcribeStream']),
+  name: 'GPT-4o Mini Search Preview',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'experimental',
+  capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 6
+      input: 0.15,
+      output: 0.6
     }
   },
+  retiresAt: '2026-07-23',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    intelligence: "higher",
-    speed: "medium"
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o-mini-transcribe',
   provider: 'openai',
-  name: 'gpt-4o-mini-transcribe',
+  name: 'GPT-4o Mini Transcribe',
   contextWindow: 16000,
   maxOutputTokens: 2000,
   tier: 'efficient',
-  capabilities: new Set(['hearing', 'chat']),
-  supportedParameters: new Set(['transcribePrompt', 'transcribeStream']),
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
   pricing: {
-    text: {
+    audio: {
       input: 1.25,
       output: 5
-    },
+    }
+  },
+  retiresAt: '2027-02-26',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-mini-transcribe-2025-03-20',
+  provider: 'openai',
+  name: 'GPT-4o Mini Transcribe',
+  contextWindow: 16000,
+  maxOutputTokens: 2000,
+  tier: 'efficient',
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
+  pricing: {
     audio: {
-      input: 3
+      input: 1.25,
+      output: 5
     }
   },
+  retiresAt: '2027-01-20',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    intelligence: "high",
-    speed: "fast"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
   }
 }, {
-  id: 'o1-pro-2025-03-19',
+  id: 'gpt-4o-mini-transcribe-2025-12-15',
   provider: 'openai',
-  name: 'o1-pro-2025-03-19',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'json', 'reasoning']),
+  name: 'GPT-4o Mini Transcribe',
+  contextWindow: 16000,
+  maxOutputTokens: 2000,
+  tier: 'efficient',
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
   pricing: {
-    text: {
-      input: 150,
-      output: 600
+    audio: {
+      input: 1.25,
+      output: 5
     }
   },
+  retiresAt: '2027-02-26',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "higher",
-    speed: "slow"
-  }
-}, {
-  id: 'o1-pro',
-  provider: 'openai',
-  name: 'o1-pro',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'json', 'reasoning']),
-  pricing: {
-    text: {
-      input: 150,
-      output: 600
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    reasoning: "higher",
-    speed: "slow"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
   }
 }, {
   id: 'gpt-4o-mini-tts',
   provider: 'openai',
-  name: 'gpt-4o-mini-tts',
+  name: 'GPT-4o Mini TTS',
   contextWindow: 0,
-  tier: 'flagship',
-  capabilities: new Set(['audio', 'chat']),
+  tier: 'efficient',
+  capabilities: new Set(['audio']),
   supportedParameters: new Set(['speechInstructions']),
   pricing: {
     text: {
@@ -1209,51 +638,1718 @@ export const openaiModels: ModelInfo[] = [{
       output: 12
     }
   },
+  retiresAt: '2027-01-06',
   metadata: {
-    intelligence: "higher",
-    speed: "fast"
+    responsesOnly: false
   }
 }, {
-  id: 'o3-2025-04-16',
+  id: 'gpt-4o-mini-tts-2025-03-20',
   provider: 'openai',
-  name: 'o3-2025-04-16',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput']),
+  name: 'GPT-4o Mini TTS',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['audio']),
+  supportedParameters: new Set(['speechInstructions']),
   pricing: {
     text: {
-      input: 1,
-      output: 4,
+      input: 0.6
+    },
+    audio: {
+      output: 12
+    }
+  },
+  retiresAt: '2027-01-06',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-mini-tts-2025-12-15',
+  provider: 'openai',
+  name: 'GPT-4o Mini TTS',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['audio']),
+  supportedParameters: new Set(['speechInstructions']),
+  pricing: {
+    text: {
+      input: 0.6
+    },
+    audio: {
+      output: 12
+    }
+  },
+  retiresAt: '2027-01-06',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-search-preview',
+  provider: 'openai',
+  name: 'GPT-4o Search Preview',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'experimental',
+  capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 10
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-search-preview-2025-03-11',
+  provider: 'openai',
+  name: 'GPT-4o Search Preview',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'experimental',
+  capabilities: new Set(['chat', 'streaming', 'structured', 'json']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 10
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-transcribe',
+  provider: 'openai',
+  name: 'GPT-4o Transcribe',
+  contextWindow: 16000,
+  maxOutputTokens: 2000,
+  tier: 'flagship',
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
+  pricing: {
+    audio: {
+      input: 2.5,
+      output: 10
+    }
+  },
+  retiresAt: '2027-02-26',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-4o-transcribe-diarize',
+  provider: 'openai',
+  name: 'GPT-4o Transcribe Diarize',
+  contextWindow: 16000,
+  maxOutputTokens: 2000,
+  tier: 'flagship',
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
+  pricing: {
+    audio: {
+      input: 2.5,
+      output: 10
+    }
+  },
+  retiresAt: '2027-02-26',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5',
+  provider: 'openai',
+  name: 'GPT-5',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-2025-08-07',
+  provider: 'openai',
+  name: 'GPT-5',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-chat-latest',
+  provider: 'openai',
+  name: 'GPT-5 Chat',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-codex',
+  provider: 'openai',
+  name: 'GPT-5-Codex',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5-mini',
+  provider: 'openai',
+  name: 'GPT-5 Mini',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.25,
+      output: 2,
+      cached: 0.025
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "May 31, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-mini-2025-08-07',
+  provider: 'openai',
+  name: 'GPT-5 Mini',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.25,
+      output: 2,
+      cached: 0.025
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "May 31, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-nano',
+  provider: 'openai',
+  name: 'GPT-5 nano',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.05,
+      output: 0.4,
+      cached: 0.005
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "May 31, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-nano-2025-08-07',
+  provider: 'openai',
+  name: 'GPT-5 nano',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.05,
+      output: 0.4,
+      cached: 0.005
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "May 31, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5-pro',
+  provider: 'openai',
+  name: 'GPT-5 Pro',
+  contextWindow: 400000,
+  maxOutputTokens: 272000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 15,
+      output: 120
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5-pro-2025-10-06',
+  provider: 'openai',
+  name: 'GPT-5 Pro',
+  contextWindow: 400000,
+  maxOutputTokens: 272000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 15,
+      output: 120
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.1',
+  provider: 'openai',
+  name: 'GPT-5.1',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  retiresAt: '2027-04-01',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.1-2025-11-13',
+  provider: 'openai',
+  name: 'GPT-5.1',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  retiresAt: '2027-04-01',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.1-chat-latest',
+  provider: 'openai',
+  name: 'GPT-5.1 Chat',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.1-codex',
+  provider: 'openai',
+  name: 'GPT-5.1-Codex',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.1-codex-max',
+  provider: 'openai',
+  name: 'GPT-5.1-Codex-Max',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 10,
+      cached: 0.125
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.1-codex-mini',
+  provider: 'openai',
+  name: 'GPT-5.1-Codex Mini',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.25,
+      output: 2,
+      cached: 0.025
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.2',
+  provider: 'openai',
+  name: 'GPT-5.2',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.75,
+      output: 14,
+      cached: 0.175
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.2-2025-12-11',
+  provider: 'openai',
+  name: 'GPT-5.2',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.75,
+      output: 14,
+      cached: 0.175
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.2-chat-latest',
+  provider: 'openai',
+  name: 'GPT-5.2 Chat',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 1.75,
+      output: 14,
+      cached: 0.175
+    }
+  },
+  retiresAt: '2026-08-10',
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.2-codex',
+  provider: 'openai',
+  name: 'GPT-5.2-Codex',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.75,
+      output: 14,
+      cached: 0.175
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.2-pro',
+  provider: 'openai',
+  name: 'GPT-5.2 Pro',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 21,
+      output: 168
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.2-pro-2025-12-11',
+  provider: 'openai',
+  name: 'GPT-5.2 Pro',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 21,
+      output: 168
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.3-chat-latest',
+  provider: 'openai',
+  name: 'GPT-5.3 Chat',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 1.75,
+      output: 14,
+      cached: 0.175
+    }
+  },
+  retiresAt: '2026-08-10',
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.3-codex',
+  provider: 'openai',
+  name: 'GPT-5.3-Codex',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.75,
+      output: 14,
+      cached: 0.175
+    }
+  },
+  retiresAt: '2027-04-01',
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.4',
+  provider: 'openai',
+  name: 'GPT-5.4',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 15,
       cached: 0.25
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "highest",
-    speed: "slow"
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
   }
 }, {
-  id: 'o4-mini-2025-04-16',
+  id: 'gpt-5.4-2026-03-05',
   provider: 'openai',
-  name: 'o4-mini-2025-04-16',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
+  name: 'GPT-5.4',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
   pricing: {
     text: {
-      input: 1.1,
-      output: 4.4,
-      cached: 0.275
+      input: 2.5,
+      output: 15,
+      cached: 0.25
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.4-mini',
+  provider: 'openai',
+  name: 'GPT-5.4 Mini',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 4.5,
+      cached: 0.075
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.4-mini-2026-03-17',
+  provider: 'openai',
+  name: 'GPT-5.4 Mini',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 4.5,
+      cached: 0.075
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.4-nano',
+  provider: 'openai',
+  name: 'GPT-5.4 nano',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.2,
+      output: 1.25,
+      cached: 0.02
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  retiresAt: '2027-04-01',
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.4-nano-2026-03-17',
+  provider: 'openai',
+  name: 'GPT-5.4 nano',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.2,
+      output: 1.25,
+      cached: 0.02
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  retiresAt: '2027-04-01',
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.4-pro',
+  provider: 'openai',
+  name: 'GPT-5.4 Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 30,
+      output: 180
+    }
+  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.4-pro-2026-03-05',
+  provider: 'openai',
+  name: 'GPT-5.4 Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 30,
+      output: 180
+    }
+  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Aug 31, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.5',
+  provider: 'openai',
+  name: 'GPT-5.5',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 30,
+      cached: 0.5
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Dec 01, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.5-2026-04-23',
+  provider: 'openai',
+  name: 'GPT-5.5',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 30,
+      cached: 0.5
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Dec 01, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.5-pro',
+  provider: 'openai',
+  name: 'GPT-5.5 Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 30,
+      output: 180
+    }
+  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Dec 01, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.5-pro-2026-04-23',
+  provider: 'openai',
+  name: 'GPT-5.5 Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 30,
+      output: 180
+    }
+  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
+  metadata: {
+    knowledgeCutoff: "Dec 01, 2025",
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-5.6-luna',
+  provider: 'openai',
+  name: 'GPT-5.6 Luna',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.2,
+      output: 1.2,
+      cached: 0.02
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    knowledgeCutoff: "Feb 16, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.6-sol',
+  provider: 'openai',
+  name: 'GPT-5.6 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 4,
+      output: 20,
+      cached: 0.4
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    knowledgeCutoff: "Feb 16, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-5.6-terra',
+  provider: 'openai',
+  name: 'GPT-5.6 Terra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 12,
+      cached: 0.2
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    knowledgeCutoff: "Feb 16, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-6-astra',
+  provider: 'openai',
+  name: 'GPT-6 Astra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 50,
+      cached: 1,
+      cacheWrite: 12.5
     }
   },
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "higher",
-    speed: "medium"
+    knowledgeCutoff: "Apr 30, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-6-luna',
+  provider: 'openai',
+  name: 'GPT-6 Luna',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.1,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "May 18, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-6-sol',
+  provider: 'openai',
+  name: 'GPT-6 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.2,
+      cacheWrite: 2.5
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Apr 20, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-6.1-sol',
+  provider: 'openai',
+  name: 'GPT-6.1 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.1,
+      cacheWrite: 2.5
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Apr 30, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-6.1-terra',
+  provider: 'openai',
+  name: 'GPT-6.1 Terra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.05,
+      cacheWrite: 1.25
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2026",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-audio',
+  provider: 'openai',
+  name: 'GPT-Audio',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audioOutput']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 10
+    },
+    audio: {
+      input: 32,
+      output: 64
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-audio-1.5',
+  provider: 'openai',
+  name: 'GPT-Audio-1.5',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audioOutput']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 10
+    },
+    audio: {
+      input: 32,
+      output: 64
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-audio-2025-08-28',
+  provider: 'openai',
+  name: 'GPT-Audio',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audioOutput']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 10
+    },
+    audio: {
+      input: 32,
+      output: 64
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-audio-mini',
+  provider: 'openai',
+  name: 'GPT-Audio Mini',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'hearing', 'audioOutput']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.4
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-audio-mini-2025-10-06',
+  provider: 'openai',
+  name: 'GPT-Audio Mini',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'hearing', 'audioOutput']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.4
+    }
+  },
+  retiresAt: '2026-07-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-audio-mini-2025-12-15',
+  provider: 'openai',
+  name: 'GPT-Audio Mini',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'hearing', 'audioOutput']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.4
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-1',
+  provider: 'openai',
+  name: 'GPT-Image-1',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      cached: 1.25
+    },
+    image: {
+      input: 10,
+      tokens: 40
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    responsesOnly: true
+  }
+}, {
+  id: 'gpt-image-1-mini',
+  provider: 'openai',
+  name: 'GPT-Image-1 Mini',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 2,
+      cached: 0.2
+    },
+    image: {
+      input: 2.5,
+      tokens: 8
+    }
+  },
+  retiresAt: '2026-12-01',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-1.5',
+  provider: 'openai',
+  name: 'GPT-Image-1.5',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 10,
+      cached: 1.25
+    },
+    image: {
+      input: 8,
+      tokens: 32
+    }
+  },
+  retiresAt: '2026-12-01',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-2',
+  provider: 'openai',
+  name: 'GPT-Image-2',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    image: {
+      input: 8,
+      tokens: 30
+    },
+    text: {
+      input: 5,
+      cached: 1.25
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-2-2026-04-21',
+  provider: 'openai',
+  name: 'GPT-Image-2',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    image: {
+      input: 8,
+      tokens: 30
+    },
+    text: {
+      input: 5,
+      cached: 1.25
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-2.5-flare',
+  provider: 'openai',
+  name: 'GPT-Image-2.5 Flare',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      cached: 1.25
+    },
+    image: {
+      input: 8,
+      tokens: 30
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-2.5-flare-2026-09-08',
+  provider: 'openai',
+  name: 'GPT-Image-2.5 Flare',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      cached: 1.25
+    },
+    image: {
+      input: 8,
+      tokens: 30
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-2.5-sunburst',
+  provider: 'openai',
+  name: 'GPT-Image-2.5 Sunburst',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      cached: 1.25
+    },
+    image: {
+      input: 8,
+      tokens: 30
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-image-2.5-sunburst-2026-09-08',
+  provider: 'openai',
+  name: 'GPT-Image-2.5 Sunburst',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['image']),
+  supportedParameters: new Set(['imageBackground', 'imageMultiple', 'imageFormat', 'imageStream']),
+  pricing: {
+    text: {
+      input: 5,
+      cached: 1.25
+    },
+    image: {
+      input: 8,
+      tokens: 30
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-live-1',
+  provider: 'openai',
+  name: 'GPT-Live 1',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {},
+  metadata: {
+    knowledgeCutoff: "Jul 31, 2025",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-live-transcribe',
+  provider: 'openai',
+  name: 'GPT-Live-Transcribe',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {},
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime',
+  provider: 'openai',
+  name: 'GPT-Realtime',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 4,
+      output: 16,
+      cached: 0.4
+    },
+    audio: {
+      input: 32,
+      output: 64
+    },
+    image: {
+      input: 5
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-1.5',
+  provider: 'openai',
+  name: 'GPT-Realtime-1.5',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 4,
+      output: 16,
+      cached: 0.4
+    },
+    audio: {
+      input: 32,
+      output: 64
+    },
+    image: {
+      input: 5
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-2',
+  provider: 'openai',
+  name: 'GPT-Realtime-2',
+  contextWindow: 128000,
+  maxOutputTokens: 32000,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 4,
+      output: 24,
+      cached: 0.4
+    },
+    audio: {
+      input: 32,
+      output: 64
+    },
+    image: {
+      input: 5
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-2.1',
+  provider: 'openai',
+  name: 'GPT-Realtime-2.1',
+  contextWindow: 128000,
+  maxOutputTokens: 32000,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 4,
+      output: 24,
+      cached: 0.4
+    },
+    audio: {
+      input: 32,
+      output: 64
+    },
+    image: {
+      input: 5
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-2.1-mini',
+  provider: 'openai',
+  name: 'GPT-Realtime-2.1 Mini',
+  contextWindow: 128000,
+  maxOutputTokens: 32000,
+  tier: 'efficient',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.4,
+      cached: 0.06
+    },
+    audio: {
+      input: 10,
+      output: 20
+    },
+    image: {
+      input: 0.8
+    }
+  },
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-2025-08-28',
+  provider: 'openai',
+  name: 'GPT-Realtime',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 4,
+      output: 16,
+      cached: 0.4
+    },
+    audio: {
+      input: 32,
+      output: 64
+    },
+    image: {
+      input: 5
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-mini',
+  provider: 'openai',
+  name: 'GPT-Realtime Mini',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'efficient',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.4,
+      cached: 0.06
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-mini-2025-12-15',
+  provider: 'openai',
+  name: 'GPT-Realtime Mini',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'efficient',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.4,
+      cached: 0.06
+    }
+  },
+  retiresAt: '2027-01-20',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-translate',
+  provider: 'openai',
+  name: 'GPT-Realtime-Translate',
+  contextWindow: 16000,
+  maxOutputTokens: 2000,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {},
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-realtime-whisper',
+  provider: 'openai',
+  name: 'GPT-Realtime-Whisper',
+  contextWindow: 16000,
+  maxOutputTokens: 2000,
+  tier: 'flagship',
+  capabilities: new Set([]),
+  pricing: {},
+  metadata: {
+    knowledgeCutoff: "Sep 30, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'gpt-transcribe',
+  provider: 'openai',
+  name: 'GPT-Transcribe',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
+  pricing: {
+    audio: {
+      perSecond: 0.000075
+    }
+  },
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'o1',
+  provider: 'openai',
+  name: 'o1',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 15,
+      output: 60,
+      cached: 7.5
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'o1-2024-12-17',
+  provider: 'openai',
+  name: 'o1',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 15,
+      output: 60,
+      cached: 7.5
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'o1-pro',
+  provider: 'openai',
+  name: 'o1-pro',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 150,
+      output: 600
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: true
+  }
+}, {
+  id: 'o1-pro-2025-03-19',
+  provider: 'openai',
+  name: 'o1-pro',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 150,
+      output: 600
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: true
   }
 }, {
   id: 'o3',
@@ -1262,8 +2358,8 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
   pricing: {
     text: {
       input: 1,
@@ -1271,366 +2367,31 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.25
     }
   },
+  retiresAt: '2026-12-11',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "highest",
-    speed: "slow"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
   }
 }, {
-  id: 'o4-mini',
+  id: 'o3-2025-04-16',
   provider: 'openai',
-  name: 'o4-mini',
+  name: 'o3',
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
   pricing: {
     text: {
-      input: 1.1,
-      output: 4.4,
-      cached: 0.275
+      input: 1,
+      output: 4,
+      cached: 0.25
     }
   },
+  retiresAt: '2026-12-11',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4.1-2025-04-14',
-  provider: 'openai',
-  name: 'gpt-4.1-2025-04-14',
-  contextWindow: 1047576,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 2,
-      output: 8,
-      cached: 0.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    performance: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4.1',
-  provider: 'openai',
-  name: 'gpt-4.1',
-  contextWindow: 1047576,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 2,
-      output: 8,
-      cached: 0.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    performance: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-4.1-mini-2025-04-14',
-  provider: 'openai',
-  name: 'gpt-4.1-mini-2025-04-14',
-  contextWindow: 1047576,
-  maxOutputTokens: 32768,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.4,
-      output: 1.6,
-      cached: 0.1
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    performance: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-4.1-mini',
-  provider: 'openai',
-  name: 'gpt-4.1-mini',
-  contextWindow: 1047576,
-  maxOutputTokens: 32768,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.4,
-      output: 1.6,
-      cached: 0.1
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    performance: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-4.1-nano-2025-04-14',
-  provider: 'openai',
-  name: 'gpt-4.1-nano-2025-04-14',
-  contextWindow: 1047576,
-  maxOutputTokens: 32768,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.1,
-      output: 0.4,
-      cached: 0.025
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    performance: "average",
-    speed: "very fast"
-  }
-}, {
-  id: 'gpt-4.1-nano',
-  provider: 'openai',
-  name: 'gpt-4.1-nano',
-  contextWindow: 1047576,
-  maxOutputTokens: 32768,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.1,
-      output: 0.4,
-      cached: 0.025
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    performance: "average",
-    speed: "very fast"
-  }
-}, {
-  id: 'gpt-image-1',
-  provider: 'openai',
-  name: 'gpt-image-1',
-  contextWindow: 0,
-  tier: 'flagship',
-  capabilities: new Set(['vision', 'image', 'chat']),
-  supportedParameters: new Set(['imageStyle', 'imageMultiple', 'imageBackground', 'imageStream', 'imageFormat']),
-  pricing: {
-    text: {
-      input: 5,
-      cached: 1.25
-    },
-    image: {
-      input: 10,
-      output: [
-        {
-          quality: "low",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.011
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.016
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.016
-            }
-          ]
-        },
-        {
-          quality: "medium",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.042
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.063
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.063
-            }
-          ]
-        },
-        {
-          quality: "high",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.167
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.25
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.25
-            }
-          ]
-        }
-      ]
-    }
-  },
-  metadata: {
-    intelligence: "higher",
-    speed: "slow"
-  }
-}, {
-  id: 'codex-mini-latest',
-  provider: 'openai',
-  name: 'codex-mini-latest',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  pricing: {
-    text: {
-      input: 1.5,
-      output: 6,
-      cached: 0.375
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    intelligence: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'o3-pro',
-  provider: 'openai',
-  name: 'o3-pro',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'json', 'reasoning']),
-  pricing: {
-    text: {
-      input: 20,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "highest",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-4o-realtime-preview-2025-06-03',
-  provider: 'openai',
-  name: 'gpt-4o-realtime-preview-2025-06-03',
-  contextWindow: 32000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 5,
-      output: 20,
-      cached: 2.5
-    },
-    audio: {
-      input: 40,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-4o-audio-preview-2025-06-03',
-  provider: 'openai',
-  name: 'gpt-4o-audio-preview-2025-06-03',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'streaming', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 40,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'o3-pro-2025-06-10',
-  provider: 'openai',
-  name: 'o3-pro-2025-06-10',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'json', 'reasoning']),
-  pricing: {
-    text: {
-      input: 20,
-      output: 80
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "highest",
-    speed: "slow"
-  }
-}, {
-  id: 'o4-mini-deep-research',
-  provider: 'openai',
-  name: 'o4-mini-deep-research',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'reasoning']),
-  pricing: {
-    text: {
-      input: 2,
-      output: 8,
-      cached: 0.5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "higher",
-    speed: "medium"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
   }
 }, {
   id: 'o3-deep-research',
@@ -1639,7 +2400,8 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'reasoning']),
+  capabilities: new Set(['chat', 'streaming', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'reason', 'verbosity']),
   pricing: {
     text: {
       input: 10,
@@ -1647,42 +2409,20 @@ export const openaiModels: ModelInfo[] = [{
       cached: 2.5
     }
   },
+  retiresAt: '2026-07-23',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "highest",
-    speed: "slow"
-  }
-}, {
-  id: 'gpt-4o-transcribe-diarize',
-  provider: 'openai',
-  name: 'gpt-4o-transcribe-diarize',
-  contextWindow: 16000,
-  maxOutputTokens: 2000,
-  tier: 'flagship',
-  capabilities: new Set(['hearing', 'chat']),
-  supportedParameters: new Set(['transcribeStream']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 6
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    intelligence: "higher",
-    speed: "medium"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: true
   }
 }, {
   id: 'o3-deep-research-2025-06-26',
   provider: 'openai',
-  name: 'o3-deep-research-2025-06-26',
+  name: 'o3-deep-research',
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'reasoning']),
+  capabilities: new Set(['chat', 'streaming', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'reason', 'verbosity']),
   pricing: {
     text: {
       input: 10,
@@ -1690,19 +2430,144 @@ export const openaiModels: ModelInfo[] = [{
       cached: 2.5
     }
   },
+  retiresAt: '2026-07-23',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "highest",
-    speed: "slow"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: true
   }
 }, {
-  id: 'o4-mini-deep-research-2025-06-26',
+  id: 'o3-mini',
   provider: 'openai',
-  name: 'o4-mini-deep-research-2025-06-26',
+  name: 'o3-mini',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.1,
+      output: 4.4,
+      cached: 0.55
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'o3-mini-2025-01-31',
+  provider: 'openai',
+  name: 'o3-mini',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.1,
+      output: 4.4,
+      cached: 0.55
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Oct 01, 2023",
+    responsesOnly: false
+  }
+}, {
+  id: 'o3-pro',
+  provider: 'openai',
+  name: 'o3-pro',
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'reasoning']),
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 20,
+      output: 80
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'o3-pro-2025-06-10',
+  provider: 'openai',
+  name: 'o3-pro',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 20,
+      output: 80
+    }
+  },
+  retiresAt: '2026-12-11',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: true
+  }
+}, {
+  id: 'o4-mini',
+  provider: 'openai',
+  name: 'o4-mini',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.1,
+      output: 4.4,
+      cached: 0.275
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'o4-mini-2025-04-16',
+  provider: 'openai',
+  name: 'o4-mini',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.1,
+      output: 4.4,
+      cached: 0.275
+    }
+  },
+  retiresAt: '2026-10-23',
+  metadata: {
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: false
+  }
+}, {
+  id: 'o4-mini-deep-research',
+  provider: 'openai',
+  name: 'o4-mini-deep-research',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'streaming', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'reason', 'verbosity']),
   pricing: {
     text: {
       input: 2,
@@ -1710,500 +2575,178 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.5
     }
   },
+  retiresAt: '2026-07-23',
   metadata: {
-    knowledgeCutoff: "jun 01, 2024",
-    reasoning: "higher",
-    speed: "medium"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: true
   }
 }, {
-  id: 'gpt-5-chat-latest',
+  id: 'o4-mini-deep-research-2025-06-26',
   provider: 'openai',
-  name: 'gpt-5-chat-latest',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'legacy',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10,
-      cached: 0.125
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "sep 30, 2024",
-    performance: "high",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-5-2025-08-07',
-  provider: 'openai',
-  name: 'gpt-5-2025-08-07',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10,
-      cached: 0.125
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "sep 30, 2024",
-    reasoning: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-5',
-  provider: 'openai',
-  name: 'gpt-5',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10,
-      cached: 0.125
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "sep 30, 2024",
-    reasoning: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-5-mini-2025-08-07',
-  provider: 'openai',
-  name: 'gpt-5-mini-2025-08-07',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
+  name: 'o4-mini-deep-research',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.25,
-      output: 2,
-      cached: 0.025
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "may 31, 2024",
-    reasoning: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-5-mini',
-  provider: 'openai',
-  name: 'gpt-5-mini',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop']),
-  pricing: {
-    text: {
-      input: 0.25,
-      output: 2,
-      cached: 0.025
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "may 31, 2024",
-    reasoning: "high",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-5-nano-2025-08-07',
-  provider: 'openai',
-  name: 'gpt-5-nano-2025-08-07',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 0.05,
-      output: 0.4,
-      cached: 0.005
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "may 31, 2024",
-    reasoning: "average",
-    speed: "very fast"
-  }
-}, {
-  id: 'gpt-5-nano',
-  provider: 'openai',
-  name: 'gpt-5-nano',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'reason', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'stop', 'imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 0.05,
-      output: 0.4,
-      cached: 0.005
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "may 31, 2024",
-    reasoning: "average",
-    speed: "very fast"
-  }
-}, {
-  id: 'gpt-audio-2025-08-28',
-  provider: 'openai',
-  name: 'gpt-audio-2025-08-28',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 32,
-      output: 64
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-realtime',
-  provider: 'openai',
-  name: 'gpt-realtime',
-  contextWindow: 32000,
-  maxOutputTokens: 4096,
-  tier: 'flagship',
-  capabilities: new Set(['vision', 'hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 4,
-      output: 16,
-      cached: 0.5
-    },
-    audio: {
-      input: 32,
-      output: 64
-    },
-    image: {
-      input: 5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "highest",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-realtime-2025-08-28',
-  provider: 'openai',
-  name: 'gpt-realtime-2025-08-28',
-  contextWindow: 32000,
-  maxOutputTokens: 4096,
-  tier: 'flagship',
-  capabilities: new Set(['vision', 'hearing', 'audio', 'chat', 'tools']),
-  pricing: {
-    text: {
-      input: 4,
-      output: 16,
-      cached: 0.5
-    },
-    audio: {
-      input: 32,
-      output: 64
-    },
-    image: {
-      input: 5
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    intelligence: "highest",
-    speed: "fast"
-  }
-}, {
-  id: 'gpt-audio',
-  provider: 'openai',
-  name: 'gpt-audio',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    },
-    audio: {
-      input: 32,
-      output: 64
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-5-codex',
-  provider: 'openai',
-  name: 'gpt-5-codex',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'streaming', 'tools', 'structured', 'json', 'reasoning']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10,
-      cached: 0.125
-    }
-  },
-  metadata: {
-    knowledgeCutoff: "sep 30, 2024",
-    reasoning: "higher",
-    speed: "medium"
-  }
-}, {
-  id: 'gpt-image-1-mini',
-  provider: 'openai',
-  name: 'gpt-image-1-mini',
-  contextWindow: 0,
-  tier: 'flagship',
-  capabilities: new Set(['vision', 'image', 'chat']),
-  supportedParameters: new Set(['imageStyle', 'imageMultiple', 'imageBackground', 'imageStream', 'imageFormat']),
+  capabilities: new Set(['chat', 'streaming', 'vision', 'files', 'reasoning']),
+  supportedParameters: new Set(['maxTokens', 'serviceTier', 'reason', 'verbosity']),
   pricing: {
     text: {
       input: 2,
-      cached: 0.2
-    },
-    image: {
-      input: 2.5,
-      output: [
-        {
-          quality: "low",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.005
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.006
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.006
-            }
-          ]
-        },
-        {
-          quality: "medium",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.011
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.015
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.015
-            }
-          ]
-        },
-        {
-          quality: "high",
-          sizes: [
-            {
-              width: 1024,
-              height: 1024,
-              cost: 0.036
-            },
-            {
-              width: 1024,
-              height: 1536,
-              cost: 0.052
-            },
-            {
-              width: 1536,
-              height: 1024,
-              cost: 0.052
-            }
-          ]
-        }
-      ]
+      output: 8,
+      cached: 0.5
     }
   },
+  retiresAt: '2026-07-23',
   metadata: {
-    intelligence: "higher",
-    speed: "slow"
+    knowledgeCutoff: "Jun 01, 2024",
+    responsesOnly: true
   }
 }, {
-  id: 'gpt-5-pro-2025-10-06',
+  id: 'omni-moderation-latest',
   provider: 'openai',
-  name: 'gpt-5-pro-2025-10-06',
-  contextWindow: 400000,
-  maxOutputTokens: 272000,
+  name: 'omni-moderation',
+  contextWindow: 0,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 15,
-      output: 120
-    }
-  },
+  capabilities: new Set([]),
+  pricing: {},
   metadata: {
-    knowledgeCutoff: "sep 30, 2024",
-    reasoning: "highest",
-    speed: "slow"
+    responsesOnly: false
   }
 }, {
-  id: 'gpt-5-pro',
+  id: 'sora-2',
   provider: 'openai',
-  name: 'gpt-5-pro',
-  contextWindow: 400000,
-  maxOutputTokens: 272000,
+  name: 'Sora 2',
+  contextWindow: 0,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'json', 'reasoning']),
-  supportedParameters: new Set(['imageStyle', 'imageMultiple']),
-  pricing: {
-    text: {
-      input: 15,
-      output: 120
-    }
-  },
+  capabilities: new Set([]),
+  pricing: {},
+  retiresAt: '2026-09-24',
   metadata: {
-    knowledgeCutoff: "sep 30, 2024",
-    reasoning: "highest",
-    speed: "slow"
+    responsesOnly: false
   }
 }, {
-  id: 'gpt-audio-mini',
+  id: 'sora-2-pro',
   provider: 'openai',
-  name: 'gpt-audio-mini',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
+  name: 'Sora 2 Pro',
+  contextWindow: 0,
   tier: 'flagship',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
-  pricing: {
-    text: {
-      input: 0.6,
-      output: 2.4
-    },
-    audio: {
-      input: 10,
-      output: 20
-    }
-  },
+  capabilities: new Set([]),
+  pricing: {},
+  retiresAt: '2026-09-24',
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "higher",
-    speed: "very fast"
+    responsesOnly: false
   }
 }, {
-  id: 'gpt-audio-mini-2025-10-06',
+  id: 'text-embedding-3-large',
   provider: 'openai',
-  name: 'gpt-audio-mini-2025-10-06',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
+  name: 'text-embedding-3-large',
+  contextWindow: 0,
   tier: 'flagship',
-  capabilities: new Set(['hearing', 'audio', 'chat', 'tools']),
-  supportedParameters: new Set(['maxTokens', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'logitBias', 'logProbabilities', 'tools', 'toolChoice', 'stop']),
+  capabilities: new Set(['embedding']),
+  supportedParameters: new Set(['embeddingDimensions']),
   pricing: {
-    text: {
-      input: 0.6,
-      output: 2.4
-    },
-    audio: {
-      input: 10,
-      output: 20
+    embeddings: {
+      cost: 0.13
     }
   },
   metadata: {
-    knowledgeCutoff: "oct 01, 2023",
-    performance: "higher",
-    speed: "very fast"
+    responsesOnly: false
   }
 }, {
-  id: 'tts-1',
+  id: 'text-embedding-3-small',
   provider: 'openai',
-  name: 'tts-1',
+  name: 'text-embedding-3-small',
   contextWindow: 0,
   tier: 'efficient',
-  capabilities: new Set(['audio', 'chat']),
-  supportedParameters: new Set([]),
+  capabilities: new Set(['embedding']),
+  supportedParameters: new Set(['embeddingDimensions']),
   pricing: {
-    audio: {
-      output: 15
+    embeddings: {
+      cost: 0.02
     }
   },
   metadata: {
-    intelligence: "average",
-    speed: "fast"
-  }
-}, {
-  id: 'whisper-1',
-  provider: 'openai',
-  name: 'whisper-1',
-  contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['hearing']),
-  supportedParameters: new Set(['transcribePrompt']),
-  pricing: {
-    audio: {
-      input: 0.006
-    }
-  },
-  metadata: {
-    intelligence: "average",
-    speed: "medium"
+    responsesOnly: false
   }
 }, {
   id: 'text-embedding-ada-002',
   provider: 'openai',
   name: 'text-embedding-ada-002',
   contextWindow: 0,
-  tier: 'legacy',
-  capabilities: new Set(['embedding', 'chat']),
-  supportedParameters: new Set([]),
+  tier: 'flagship',
+  capabilities: new Set(['embedding']),
+  supportedParameters: new Set(['embeddingDimensions']),
   pricing: {
     embeddings: {
       cost: 0.1
     }
   },
   metadata: {
-    intelligence: "low",
-    speed: "slow"
+    responsesOnly: false
+  }
+}, {
+  id: 'tts-1',
+  provider: 'openai',
+  name: 'TTS-1',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['audio']),
+  supportedParameters: new Set(['speechInstructions']),
+  pricing: {},
+  retiresAt: '2027-01-06',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'tts-1-1106',
+  provider: 'openai',
+  name: 'TTS-1',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['audio']),
+  supportedParameters: new Set(['speechInstructions']),
+  pricing: {},
+  retiresAt: '2027-01-06',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'tts-1-hd',
+  provider: 'openai',
+  name: 'TTS-1 HD',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['audio']),
+  supportedParameters: new Set(['speechInstructions']),
+  pricing: {},
+  retiresAt: '2027-01-06',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'tts-1-hd-1106',
+  provider: 'openai',
+  name: 'TTS-1 HD',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['audio']),
+  supportedParameters: new Set(['speechInstructions']),
+  pricing: {},
+  retiresAt: '2027-01-06',
+  metadata: {
+    responsesOnly: false
+  }
+}, {
+  id: 'whisper-1',
+  provider: 'openai',
+  name: 'Whisper',
+  contextWindow: 0,
+  tier: 'flagship',
+  capabilities: new Set(['hearing']),
+  supportedParameters: new Set(['transcribeStream', 'transcribePrompt']),
+  pricing: {},
+  retiresAt: '2027-02-26',
+  metadata: {
+    responsesOnly: false
   }
 }];

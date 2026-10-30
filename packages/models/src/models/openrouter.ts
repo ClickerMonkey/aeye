@@ -17,15 +17,20 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 10,
-      output: 50
+      output: 50,
+      cached: 0.25,
+      cacheWrite: 12.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
     description: "This model always redirects to the latest model in the Claude Fable family.",
     defaultParameters: {},
@@ -35,22 +40,27 @@ export const openrouterModels: ModelInfo[] = [{
 }, {
   id: '~anthropic/claude-haiku-latest',
   provider: 'openrouter',
-  name: 'Anthropic Claude Haiku Latest',
-  contextWindow: 200000,
-  maxOutputTokens: 64000,
+  name: 'Anthropic: Claude Haiku Latest',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
   tier: 'efficient',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 1,
-      output: 5
+      input: 0.09999999999999999,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
-    description: "This model always redirects to the latest model in the Anthropic Claude Haiku family.",
+    description: "This model always redirects to the latest model in the Claude Haiku family.",
     defaultParameters: {},
     canonicalSlug: "~anthropic/claude-haiku-latest",
     created: 1777318492
@@ -63,15 +73,20 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 5,
-      output: 25
+      input: 4,
+      output: 20,
+      cached: 0.19999999999999998,
+      cacheWrite: 5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
     description: "This model always redirects to the latest model in the Claude Opus family.",
     defaultParameters: {},
@@ -82,51 +97,137 @@ export const openrouterModels: ModelInfo[] = [{
 }, {
   id: '~anthropic/claude-sonnet-latest',
   provider: 'openrouter',
-  name: 'Anthropic Claude Sonnet Latest',
+  name: 'Anthropic: Claude Sonnet Latest',
   contextWindow: 1000000,
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 2,
-      output: 10
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
-    description: "This model always redirects to the latest model in the Anthropic Claude Sonnet family.",
+    description: "This model always redirects to the latest model in the Claude Sonnet family.",
     defaultParameters: {},
     canonicalSlug: "~anthropic/claude-sonnet-latest",
     created: 1777318368
   }
 }, {
+  id: '~deepseek/deepseek-flash-latest',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek Flash Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.022,
+      output: 0.192,
+      cached: 0.004
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest model in the DeepSeek Flash family.",
+    defaultParameters: {},
+    canonicalSlug: "~deepseek/deepseek-flash-latest",
+    created: 1789399150
+  }
+}, {
+  id: '~deepseek/deepseek-pro-latest',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek Pro Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 393216,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.1035,
+      output: 4,
+      cached: 0.09999999999999999
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest model in the DeepSeek Pro family.",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 1
+    },
+    canonicalSlug: "~deepseek/deepseek-pro-latest",
+    created: 1789399174
+  }
+}, {
+  id: '~deepseek/deepseek-v4-flash-latest',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4 Flash Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.0462,
+      output: 0.1518,
+      cached: 0.028
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
+    defaultParameters: {},
+    canonicalSlug: "~deepseek/deepseek-v4-flash-latest",
+    created: 1785606009,
+    voices: []
+  }
+}, {
   id: '~google/gemini-flash-latest',
   provider: 'openrouter',
-  name: 'Google Gemini Flash Latest',
+  name: 'Google: Gemini Flash Latest',
   contextWindow: 1048576,
   maxOutputTokens: 65536,
   tier: 'efficient',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 1.5,
-      output: 9
+      input: 0.75,
+      output: 3.75,
+      cached: 0.075,
+      cacheWrite: 0.0416666666666667
     },
-    image: {
-      input: 1.5
+    audio: {
+      input: 0.75
     },
     reasoning: {
-      output: 9
+      output: 3.75
+    },
+    tools: {
+      web_search: 0.014
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high'],
   metadata: {
-    description: "This model always redirects to the latest model in the Google Gemini Flash family.",
+    description: "This model always redirects to the latest model in the Gemini Flash family.",
     defaultParameters: {},
     canonicalSlug: "~google/gemini-flash-latest",
     created: 1777318398
@@ -134,147 +235,411 @@ export const openrouterModels: ModelInfo[] = [{
 }, {
   id: '~google/gemini-pro-latest',
   provider: 'openrouter',
-  name: 'Google Gemini Pro Latest',
+  name: 'Google: Gemini Pro Latest',
   contextWindow: 1048576,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 943718,
   tier: 'efficient',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['hearing', 'files', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 12
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 0.1875
     },
-    image: {
+    audio: {
       input: 2
     },
     reasoning: {
-      output: 12
+      output: 10
+    },
+    tools: {
+      web_search: 0.014
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high'],
   metadata: {
-    description: "This model always redirects to the latest model in the Google Gemini Pro family.",
+    description: "This model always redirects to the latest model in the Gemini Pro family.",
     defaultParameters: {},
     canonicalSlug: "~google/gemini-pro-latest",
     created: 1777318451
   }
 }, {
-  id: '~moonshotai/kimi-latest',
+  id: '~liquid/d1-latest',
   provider: 'openrouter',
-  name: 'MoonshotAI Kimi Latest',
-  contextWindow: 262144,
-  maxOutputTokens: 262144,
+  name: 'LiquidAI: d1 Latest',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.02,
+      cached: 0.02
+    }
+  },
+  metadata: {
+    description: "This model always redirects to the latest model in the d1 family.",
+    defaultParameters: {},
+    canonicalSlug: "~liquid/d1-latest",
+    created: 1793127475
+  }
+}, {
+  id: '~liquid/d1-ultra-latest',
+  provider: 'openrouter',
+  name: 'LiquidAI: d1-ultra Latest',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.041999999999999996,
+      cached: 0.041999999999999996
+    }
+  },
+  metadata: {
+    description: "This model always redirects to the latest model in the d1-ultra family.",
+    defaultParameters: {},
+    canonicalSlug: "~liquid/d1-ultra-latest",
+    created: 1793127477
+  }
+}, {
+  id: '~moonshotai/kimi-latest',
+  provider: 'openrouter',
+  name: 'MoonshotAI: Kimi Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.66,
-      output: 3.41
+      input: 0.1529,
+      output: 9.75,
+      cached: 0.15
     }
   },
-  metrics: {},
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
   metadata: {
-    description: "This model always redirects to the latest model in the MoonshotAI Kimi family.",
-    defaultParameters: {},
+    description: "This model always redirects to the latest model in the Kimi family.",
+    defaultParameters: {
+      top_p: 0.95
+    },
     canonicalSlug: "~moonshotai/kimi-latest",
     created: 1777318428
   }
 }, {
-  id: '~openai/gpt-latest',
+  id: '~openai/gpt-astra-latest',
   provider: 'openrouter',
-  name: 'OpenAI GPT Latest',
+  name: 'OpenAI: GPT Astra Latest',
   contextWindow: 1050000,
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 5,
-      output: 30
+      input: 10,
+      output: 50,
+      cached: 1,
+      cacheWrite: 12.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
-    description: "This model always redirects to the latest model in the OpenAI GPT family.",
+    description: "This model always redirects to the latest model in the GPT Astra family.",
     defaultParameters: {},
-    canonicalSlug: "~openai/gpt-latest",
-    created: 1777318334
+    canonicalSlug: "~openai/gpt-astra-latest",
+    created: 1789130932
+  }
+}, {
+  id: '~openai/gpt-luna-latest',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Luna Latest',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest model in the GPT Luna family.",
+    defaultParameters: {},
+    canonicalSlug: "~openai/gpt-luna-latest",
+    created: 1789130922
   }
 }, {
   id: '~openai/gpt-mini-latest',
   provider: 'openrouter',
-  name: 'OpenAI GPT Mini Latest',
+  name: 'OpenAI: GPT Mini Latest',
   contextWindow: 400000,
   maxOutputTokens: 128000,
   tier: 'efficient',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 0.75,
-      output: 4.5
+      output: 4.5,
+      cached: 0.075
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metadata: {
-    description: "This model always redirects to the latest model in the OpenAI GPT Mini family.",
+    description: "This model always redirects to the latest model in the GPT Mini family.",
     defaultParameters: {},
     canonicalSlug: "~openai/gpt-mini-latest",
-    created: 1777318471
+    created: 1777318471,
+    knowledgeCutoff: "2025-08-31"
+  }
+}, {
+  id: '~openai/gpt-sol-latest',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Sol Latest',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest model in the GPT Sol family.",
+    defaultParameters: {},
+    canonicalSlug: "~openai/gpt-sol-latest",
+    created: 1789130928
+  }
+}, {
+  id: '~openai/gpt-terra-latest',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Terra Latest',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest model in the GPT Terra family.",
+    defaultParameters: {},
+    canonicalSlug: "~openai/gpt-terra-latest",
+    created: 1789130925
+  }
+}, {
+  id: '~perplexity/pplx-decider-flash-latest',
+  provider: 'openrouter',
+  name: 'Perplexity: Decider Flash Latest',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.01
+    }
+  },
+  metadata: {
+    description: "This model always redirects to the latest model in the Decider Flash family.",
+    defaultParameters: {},
+    canonicalSlug: "~perplexity/pplx-decider-flash-latest",
+    created: 1792173791
+  }
+}, {
+  id: '~perplexity/pplx-decider-latest',
+  provider: 'openrouter',
+  name: 'Perplexity: Decider Latest',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.02
+    }
+  },
+  metadata: {
+    description: "This model always redirects to the latest model in the Decider family.",
+    defaultParameters: {},
+    canonicalSlug: "~perplexity/pplx-decider-latest",
+    created: 1792003377
+  }
+}, {
+  id: '~typesafe/jev-latest',
+  provider: 'openrouter',
+  name: 'TypeSafe: Jev Latest',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.041999999999999996
+    }
+  },
+  metadata: {
+    description: "This model always redirects to the latest model in the Jev family.",
+    defaultParameters: {},
+    canonicalSlug: "~typesafe/jev-latest",
+    created: 1789689685
+  }
+}, {
+  id: '~unbiased/pareto-latest',
+  provider: 'openrouter',
+  name: 'Pareto Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision', 'chat', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.7999999999999999,
+      output: 3.1999999999999997,
+      cached: 0.03
+    }
+  },
+  metadata: {
+    description: "This model always redirects to the latest model in the Pareto family.",
+    defaultParameters: {},
+    canonicalSlug: "~unbiased/pareto-latest",
+    created: 1791933050
   }
 }, {
   id: '~x-ai/grok-latest',
   provider: 'openrouter',
   name: 'xAI: Grok Latest',
   contextWindow: 500000,
+  maxOutputTokens: 450000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 6
+      output: 6,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.005
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metadata: {
     description: "This model always redirects to the latest Grok model from xAI.",
-    defaultParameters: {},
+    defaultParameters: {
+      temperature: 0.7,
+      top_p: 0.95
+    },
     canonicalSlug: "~x-ai/grok-latest",
     created: 1783519360
   }
 }, {
-  id: 'ai21/jamba-large-1.7',
+  id: '~z-ai/glm-flash-latest',
   provider: 'openrouter',
-  name: 'AI21: Jamba Large 1.7',
-  contextWindow: 256000,
-  maxOutputTokens: 4096,
+  name: 'Z.ai: GLM Flash Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
   tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  tokenizer: 'Router',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 2,
-      output: 8
+      input: 0.018,
+      output: 0.1402,
+      cached: 0.018
     }
   },
-  metrics: {
-    timeToFirstToken: 0.64
-  },
+  reasoningEfforts: ['low', 'high', 'max'],
   metadata: {
-    description: "Jamba Large 1.7 is the latest model in the Jamba open family, offering improvements in grounding, instruction-following, and overall efficiency. Built on a hybrid SSM-Transformer architecture with a 256K context...",
-    defaultParameters: {},
-    canonicalSlug: "ai21/jamba-large-1.7",
-    huggingFaceId: "ai21labs/AI21-Jamba-Large-1.7",
-    created: 1754669020
+    description: "This model always redirects to the latest model in the GLM Flash family.",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "~z-ai/glm-flash-latest",
+    created: 1787817633
+  }
+}, {
+  id: '~z-ai/glm-latest',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM Latest',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.0699,
+      output: 1.4,
+      cached: 0.0689
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metadata: {
+    description: "This model always redirects to the latest GLM model from Z.ai.",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "~z-ai/glm-latest",
+    created: 1787151053
   }
 }, {
   id: 'aion-labs/aion-2.0',
@@ -284,22 +649,25 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.7999999999999999,
-      output: 1.5999999999999999
+      output: 1.5999999999999999,
+      cached: 0.19999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 1.5
+    timeToFirstToken: 897,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "Aion-2.0 is a variant of DeepSeek V3.2 optimized for immersive roleplaying and storytelling. It is particularly strong at introducing tension, crises, and conflict into stories, making narratives feel more engaging....",
     defaultParameters: {},
     canonicalSlug: "aion-labs/aion-2.0-20260223",
-    created: 1771881306
+    created: 1771881306,
+    uptime: 100
   }
 }, {
   id: 'aion-labs/aion-3.0',
@@ -309,22 +677,25 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 3,
-      output: 6
+      output: 6,
+      cached: 0.75
     }
   },
   metrics: {
-    timeToFirstToken: 1.56
+    timeToFirstToken: 1441,
+    tokensPerSecond: 40
   },
   metadata: {
     description: "Aion-3.0 is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It uses a collaborative generation process in which multiple specialized models each contribute...",
     defaultParameters: {},
     canonicalSlug: "aion-labs/aion-3.0-20260707",
-    created: 1783443095
+    created: 1783443095,
+    uptime: 100
   }
 }, {
   id: 'aion-labs/aion-3.0-mini',
@@ -334,29 +705,90 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.7,
-      output: 1.4
+      output: 1.4,
+      cached: 0.18
     }
   },
   metrics: {
-    timeToFirstToken: 0.91
+    timeToFirstToken: 900,
+    tokensPerSecond: 53
   },
   metadata: {
     description: "Aion-3.0 Mini is a multi-model roleplaying and storytelling system from AionLabs, built on the DeepSeek family of models. It uses a collaborative generation process in which multiple specialized models each...",
     defaultParameters: {},
     canonicalSlug: "aion-labs/aion-3.0-mini-20260707",
-    created: 1783443096
+    created: 1783443096,
+    uptime: 100
+  }
+}, {
+  id: 'aion-labs/aion-3.5',
+  provider: 'openrouter',
+  name: 'AionLabs: Aion 3.5',
+  contextWindow: 262144,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 3,
+      output: 6,
+      cached: 0.75
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1563,
+    tokensPerSecond: 53
+  },
+  metadata: {
+    description: "Aion 3.5 is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It uses a collaborative generation process in which multiple specialized models each...",
+    defaultParameters: {},
+    canonicalSlug: "aion-labs/aion-3.5-20260923",
+    created: 1790170961,
+    uptime: 100
+  }
+}, {
+  id: 'aion-labs/aion-3.5-mini',
+  provider: 'openrouter',
+  name: 'AionLabs: Aion 3.5 Mini',
+  contextWindow: 262144,
+  maxOutputTokens: 32768,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.7,
+      output: 1.4,
+      cached: 0.18
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1509,
+    tokensPerSecond: 54
+  },
+  metadata: {
+    description: "Aion 3.5 Mini is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It is the smaller, lower-cost sibling of Aion 3.5 and uses...",
+    defaultParameters: {},
+    canonicalSlug: "aion-labs/aion-3.5-mini-20260923",
+    created: 1790170962,
+    uptime: 100
   }
 }, {
   id: 'aion-labs/aion-rp-llama-3.1-8b',
   provider: 'openrouter',
   name: 'AionLabs: Aion-RP 1.0 (8B)',
   contextWindow: 32768,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'streaming']),
@@ -368,41 +800,151 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1.4
+    timeToFirstToken: 1564.5,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "Aion-RP-Llama-3.1-8B ranks the highest in the character evaluation portion of the RPBench-Auto benchmark, a roleplaying-specific variant of Arena-Hard-Auto, where LLMs evaluate each other’s responses. It is a fine-tuned base model...",
     defaultParameters: {},
     canonicalSlug: "aion-labs/aion-rp-llama-3.1-8b",
     huggingFaceId: "",
-    created: 1738696718
+    created: 1738696718,
+    knowledgeCutoff: "2023-12-31"
   }
 }, {
-  id: 'allenai/olmo-3-32b-think',
+  id: 'alibaba/happyhorse-1.0',
   provider: 'openrouter',
-  name: 'AllenAI: Olmo 3 32B Think',
-  contextWindow: 65536,
-  maxOutputTokens: 65536,
+  name: 'Alibaba: HappyHorse 1.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
   pricing: {
-    text: {
-      input: 0.15,
-      output: 0.5
-    }
+    text: {}
   },
-  metrics: {},
   metadata: {
-    description: "Olmo 3 32B Think is a large-scale, 32-billion-parameter model purpose-built for deep reasoning, complex logic chains and advanced instruction-following scenarios. Its capacity enables strong performance on demanding evaluation tasks and...",
-    defaultParameters: {
-      temperature: 0.6,
-      top_p: 0.95
-    },
-    canonicalSlug: "allenai/olmo-3-32b-think-20251121",
-    huggingFaceId: "allenai/Olmo-3-32B-Think",
-    created: 1763758276
+    description: "HappyHorse 1.0 is a video generation model from Alibaba. It generates short videos from a text prompt, a single starting image, or a set of reference images, with output up...",
+    defaultParameters: {},
+    canonicalSlug: "alibaba/happyhorse-1.0-20260624",
+    created: 1782260324
+  }
+}, {
+  id: 'alibaba/happyhorse-1.1',
+  provider: 'openrouter',
+  name: 'Alibaba: HappyHorse 1.1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 112951.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "HappyHorse 1.1 is a video generation model from Alibaba. It generates short videos from a text prompt, a single starting image, or a set of reference images, with output up...",
+    defaultParameters: {},
+    canonicalSlug: "alibaba/happyhorse-1.1-20260624",
+    created: 1782269643
+  }
+}, {
+  id: 'alibaba/wan-2.6',
+  provider: 'openrouter',
+  name: 'Alibaba: Wan 2.6',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 75100,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Alibaba's most advanced video generation model, supporting over 10 visual creation capabilities in a unified system. Wan 2.6 generates 1080p video at 24fps from text, images, reference videos, or audio,...",
+    defaultParameters: {},
+    canonicalSlug: "alibaba/wan-2.6-20260327",
+    created: 1774659190
+  }
+}, {
+  id: 'alibaba/wan-2.7',
+  provider: 'openrouter',
+  name: 'Alibaba: Wan 2.7',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 64763,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Wan 2.7 is a video generation model from Alibaba. It supports text-to-video, image-to-video with first and last frame control, and reference-to-video, where multiple reference images guide the style and content...",
+    defaultParameters: {},
+    canonicalSlug: "alibaba/wan-2.7-20260414",
+    created: 1776211362
+  }
+}, {
+  id: 'alibaba/wan-3.0',
+  provider: 'openrouter',
+  name: 'Alibaba: Wan 3.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 177963.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Wan 3.0 is a video generation model from Alibaba for text-to-video, image-to-video, and reference-guided video generation. It produces 480p, 720p, or 1080p video with durations from 2 to 30 seconds.",
+    defaultParameters: {},
+    canonicalSlug: "alibaba/wan-3.0-20260824",
+    created: 1787603856,
+    uptime: 50
+  }
+}, {
+  id: 'alibaba/wan-3.0-prime',
+  provider: 'openrouter',
+  name: 'Alibaba: Wan 3.0 Prime',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 85572.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Wan 3.0 Prime is a fast-mode variant of [Wan 3.0](https://openrouter.ai/alibaba/wan-3.0) from Alibaba. It supports text-to-video and first-frame image-to-video generation.",
+    defaultParameters: {},
+    canonicalSlug: "alibaba/wan-3.0-prime-20260827",
+    created: 1787863800
   }
 }, {
   id: 'amazon/nova-2-lite-v1',
@@ -412,7 +954,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65535,
   tier: 'flagship',
   tokenizer: 'Nova',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'files', 'chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -421,14 +963,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.69
+    timeToFirstToken: 1111,
+    tokensPerSecond: 104
   },
   metadata: {
     description: "Nova 2 Lite is a fast, cost-effective reasoning model for everyday workloads that can process text, images, and videos to generate text. Nova 2 Lite demonstrates standout capabilities in processing...",
     defaultParameters: {},
     canonicalSlug: "amazon/nova-2-lite-v1",
     huggingFaceId: "",
-    created: 1764696672
+    created: 1764696672,
+    uptime: 100
   }
 }, {
   id: 'amazon/nova-lite-v1',
@@ -438,7 +982,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 5120,
   tier: 'flagship',
   tokenizer: 'Nova',
-  capabilities: new Set(['chat', 'vision', 'tools', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'stop', 'temperature', 'tools', 'topP']),
   pricing: {
     text: {
@@ -447,14 +991,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.26
+    timeToFirstToken: 518.5,
+    tokensPerSecond: 122
   },
   metadata: {
     description: "Amazon Nova Lite 1.0 is a very low-cost multimodal model from Amazon that focused on fast processing of image, video, and text inputs to generate text output. Amazon Nova Lite...",
     defaultParameters: {},
     canonicalSlug: "amazon/nova-lite-v1",
     huggingFaceId: "",
-    created: 1733437363
+    created: 1733437363,
+    knowledgeCutoff: "2024-10-31",
+    uptime: 100
   }
 }, {
   id: 'amazon/nova-micro-v1',
@@ -473,14 +1020,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.34
+    timeToFirstToken: 348.5,
+    tokensPerSecond: 172
   },
   metadata: {
     description: "Amazon Nova Micro 1.0 is a text-only model that delivers the lowest latency responses in the Amazon Nova family of models at a very low cost. With a context length...",
     defaultParameters: {},
     canonicalSlug: "amazon/nova-micro-v1",
     huggingFaceId: "",
-    created: 1733437237
+    created: 1733437237,
+    knowledgeCutoff: "2024-10-31",
+    uptime: 100
   }
 }, {
   id: 'amazon/nova-premier-v1',
@@ -490,23 +1040,22 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32000,
   tier: 'flagship',
   tokenizer: 'Nova',
-  capabilities: new Set(['chat', 'vision', 'tools', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'stop', 'temperature', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2.5,
-      output: 12.5
+      output: 12.5,
+      cached: 0.625
     }
-  },
-  metrics: {
-    timeToFirstToken: 0.54
   },
   metadata: {
     description: "Amazon Nova Premier is the most capable of Amazon’s multimodal models for complex reasoning tasks and for use as the best teacher for distilling custom models.",
     defaultParameters: {},
     canonicalSlug: "amazon/nova-premier-v1",
     huggingFaceId: "",
-    created: 1761950332
+    created: 1761950332,
+    uptime: 0
   }
 }, {
   id: 'amazon/nova-pro-v1',
@@ -516,7 +1065,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 5120,
   tier: 'flagship',
   tokenizer: 'Nova',
-  capabilities: new Set(['chat', 'vision', 'tools', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'stop', 'temperature', 'tools', 'topP']),
   pricing: {
     text: {
@@ -525,65 +1074,108 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.64
+    timeToFirstToken: 629.5,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Amazon Nova Pro 1.0 is a capable multimodal model from Amazon focused on providing a combination of accuracy, speed, and cost for a wide range of tasks. As of December...",
     defaultParameters: {},
     canonicalSlug: "amazon/nova-pro-v1",
     huggingFaceId: "",
-    created: 1733436303
+    created: 1733436303,
+    knowledgeCutoff: "2024-10-31",
+    uptime: 100
+  }
+}, {
+  id: 'amazon/titan-embed-image-v1',
+  provider: 'openrouter',
+  name: 'Amazon: Titan Multimodal Embeddings G1',
+  contextWindow: 128,
+  maxOutputTokens: 115,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.7999999999999999
+    }
+  },
+  metadata: {
+    description: "Amazon Titan Multimodal Embeddings G1 embeds text, images, or text and image together into a shared vector space for multimodal search and recommendation. Images are sent as base64 (up to...",
+    defaultParameters: {},
+    canonicalSlug: "amazon/titan-embed-image-v1-20261026",
+    created: 1793044729,
+    uptime: 100
+  }
+}, {
+  id: 'amazon/titan-embed-text-v1',
+  provider: 'openrouter',
+  name: 'Amazon: Titan Embeddings G1 - Text',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.09999999999999999
+    }
+  },
+  metadata: {
+    description: "Amazon Titan Embeddings G1 - Text is the first-generation Titan text embedding model. It accepts up to 8,192 tokens per input and returns fixed 1,536-dimension vectors; the `dimensions` parameter is...",
+    defaultParameters: {},
+    canonicalSlug: "amazon/titan-embed-text-v1-20261026",
+    created: 1793044727
+  }
+}, {
+  id: 'amazon/titan-embed-text-v2',
+  provider: 'openrouter',
+  name: 'Amazon: Titan Text Embeddings V2',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.02
+    }
+  },
+  metadata: {
+    description: "Amazon Titan Text Embeddings V2 is a text embedding model for retrieval, search, and clustering. It accepts up to 8,192 tokens per input and returns normalized vectors of 1,024 dimensions...",
+    defaultParameters: {},
+    canonicalSlug: "amazon/titan-embed-text-v2-20261026",
+    created: 1793044722,
+    uptime: 100
   }
 }, {
   id: 'anthracite-org/magnum-v4-72b',
   provider: 'openrouter',
   name: 'Magnum v4 72B',
   contextWindow: 32768,
-  maxOutputTokens: 2048,
+  maxOutputTokens: 4096,
   tier: 'flagship',
   tokenizer: 'Qwen',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
-      input: 3,
+      input: 2.5,
       output: 5
     }
   },
   metrics: {
-    timeToFirstToken: 0.99
+    timeToFirstToken: 1039,
+    tokensPerSecond: 16
   },
   metadata: {
     description: "This is a series of models designed to replicate the prose quality of the Claude 3 models, specifically Sonnet(https://openrouter.ai/anthropic/claude-3.5-sonnet) and Opus(https://openrouter.ai/anthropic/claude-3-opus).\n\nThe model is fine-tuned on top of [Qwen2.5 72B](https://openrouter.ai/qwen/qwen-2.5-72b-instruct).",
     defaultParameters: {},
     canonicalSlug: "anthracite-org/magnum-v4-72b",
     huggingFaceId: "anthracite-org/magnum-v4-72b",
-    created: 1729555200
-  }
-}, {
-  id: 'anthropic/claude-3-haiku',
-  provider: 'openrouter',
-  name: 'Anthropic: Claude 3 Haiku',
-  contextWindow: 200000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.25,
-      output: 1.25
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.46
-  },
-  metadata: {
-    description: "Claude 3 Haiku is Anthropic's fastest and most compact model for\nnear-instant responsiveness. Quick and accurate targeted performance.\n\nSee the launch announcement and benchmark results [here](https://www.anthropic.com/news/claude-3-haiku)\n\n#multimodal",
-    defaultParameters: {},
-    canonicalSlug: "anthropic/claude-3-haiku",
-    created: 1710288000
+    created: 1729555200,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-fable-5',
@@ -593,22 +1185,91 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 10,
-      output: 50
+      output: 50,
+      cached: 1,
+      cacheWrite: 12.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 3.15
+    timeToFirstToken: 1214.5,
+    tokensPerSecond: 68
   },
   metadata: {
     description: "Claude Fable 5 is a Mythos-class model from Anthropic, built for autonomous knowledge work and coding. It supports text, image, and file inputs with text output, with reasoning support and...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-5-fable-20260609",
-    created: 1781007515
+    created: 1781007515,
+    uptime: 100
+  }
+}, {
+  id: 'anthropic/claude-fable-5.1',
+  provider: 'openrouter',
+  name: 'Anthropic: Claude Fable 5.1',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 50,
+      cached: 0.25,
+      cacheWrite: 12.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 1790,
+    tokensPerSecond: 69
+  },
+  metadata: {
+    description: "Claude Fable 5.1 improves on Claude Fable 5 across the board, with the biggest gains in agentic coding, long-running agentic workflows, and knowledge work: long code refactors, front-end and visual...",
+    defaultParameters: {},
+    canonicalSlug: "anthropic/claude-fable-5.1-20260831",
+    created: 1788285838,
+    uptime: 100
+  }
+}, {
+  id: 'anthropic/claude-fable-5.1:batch',
+  provider: 'openrouter',
+  name: 'Anthropic: Claude Fable 5.1 (batch)',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 25,
+      cached: 0.125,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "Claude Fable 5.1 improves on Claude Fable 5 across the board, with the biggest gains in agentic coding, long-running agentic workflows, and knowledge work: long code refactors, front-end and visual...",
+    defaultParameters: {},
+    canonicalSlug: "anthropic/claude-fable-5.1-20260831",
+    created: 1788285838
   }
 }, {
   id: 'anthropic/claude-haiku-4.5',
@@ -618,49 +1279,91 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 64000,
   tier: 'efficient',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1,
-      output: 5
+      output: 5,
+      cached: 0.09999999999999999,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 0.42
+    timeToFirstToken: 332,
+    tokensPerSecond: 189.5
   },
   metadata: {
     description: "Claude Haiku 4.5 is Anthropic’s fastest and most efficient model, delivering near-frontier intelligence at a fraction of the cost and latency of larger Claude models. Matching Claude Sonnet 4’s performance...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.5-haiku-20251001",
     huggingFaceId: "",
-    created: 1760547638
+    created: 1760547638,
+    uptime: 100
   }
 }, {
-  id: 'anthropic/claude-opus-4',
+  id: 'anthropic/claude-haiku-5.5',
   provider: 'openrouter',
-  name: 'Anthropic: Claude Opus 4',
-  contextWindow: 200000,
-  maxOutputTokens: 32000,
-  tier: 'flagship',
+  name: 'Anthropic: Claude Haiku 5.5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 15,
-      output: 75
+      input: 0.09999999999999999,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1.53
+    timeToFirstToken: 424,
+    tokensPerSecond: 192
   },
   metadata: {
-    description: "Claude Opus 4 is benchmarked as the world’s best coding model, at time of release, bringing sustained performance on complex, long-running tasks and agent workflows. It sets new benchmarks in...",
+    description: "Claude Haiku 5.5 is Anthropic's small, fast model for high-volume, cost-sensitive work such as summarization, subagents, and browser use. It succeeds Claude Haiku 4.5 with stronger coding, computer use, and...",
     defaultParameters: {},
-    canonicalSlug: "anthropic/claude-4-opus-20250522",
-    huggingFaceId: "",
-    created: 1747931245
+    canonicalSlug: "anthropic/claude-haiku-5.5-20261007",
+    created: 1791397883,
+    uptime: 100
+  }
+}, {
+  id: 'anthropic/claude-haiku-5.5:batch',
+  provider: 'openrouter',
+  name: 'Anthropic: Claude Haiku 5.5 (batch)',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.25,
+      cached: 0.005,
+      cacheWrite: 0.0625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "Claude Haiku 5.5 is Anthropic's small, fast model for high-volume, cost-sensitive work such as summarization, subagents, and browser use. It succeeds Claude Haiku 4.5 with stronger coding, computer use, and...",
+    defaultParameters: {},
+    canonicalSlug: "anthropic/claude-haiku-5.5-20261007",
+    created: 1791397883
   }
 }, {
   id: 'anthropic/claude-opus-4.1',
@@ -670,23 +1373,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 15,
-      output: 75
+      output: 75,
+      cached: 1.5,
+      cacheWrite: 18.75
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 1.38
+    timeToFirstToken: 3137,
+    tokensPerSecond: 18
   },
   metadata: {
     description: "Claude Opus 4.1 is an updated version of Anthropic’s flagship model, offering improved performance in coding, reasoning, and agentic tasks. It achieves 74.5% on SWE-bench Verified and shows notable gains...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.1-opus-20250805",
     huggingFaceId: "",
-    created: 1754411591
+    created: 1754411591,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-opus-4.5',
@@ -696,20 +1407,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 64000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 5,
-      output: 25
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
     }
+  },
+  metrics: {
+    timeToFirstToken: 1354.5,
+    tokensPerSecond: 57
   },
   metadata: {
     description: "Claude Opus 4.5 is Anthropic’s frontier reasoning model optimized for complex software engineering, agentic workflows, and long-horizon computer use. It offers strong multimodal capabilities, competitive performance across real-world coding and...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.5-opus-20251124",
     huggingFaceId: "",
-    created: 1764010580
+    created: 1764010580,
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-opus-4.6',
@@ -719,23 +1440,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP', 'verbosity']),
   pricing: {
     text: {
       input: 5,
-      output: 25
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1.89
+    timeToFirstToken: 1044,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "Opus 4.6 is Anthropic’s strongest model for coding and long-running professional tasks. It is built for agents that operate across entire workflows rather than single prompts, making it especially effective...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.6-opus-20260205",
     huggingFaceId: "",
-    created: 1770219050
+    created: 1770219050,
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-opus-4.7',
@@ -745,47 +1474,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 5,
-      output: 25
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1.78
+    timeToFirstToken: 494,
+    tokensPerSecond: 69.5
   },
   metadata: {
     description: "Opus 4.7 is the next generation of Anthropic's Opus family, built for long-running, asynchronous agents. Building on the coding and agentic strengths of Opus 4.6, it delivers stronger performance on...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.7-opus-20260416",
-    created: 1776351100
-  }
-}, {
-  id: 'anthropic/claude-opus-4.7-fast',
-  provider: 'openrouter',
-  name: 'Anthropic: Claude Opus 4.7 (Fast)',
-  contextWindow: 1000000,
-  maxOutputTokens: 128000,
-  tier: 'flagship',
-  tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
-  pricing: {
-    text: {
-      input: 30,
-      output: 150
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.93
-  },
-  metadata: {
-    description: "Fast-mode variant of [Opus 4.7](/anthropic/claude-opus-4.7) - identical capabilities with higher output speed at premium 6x pricing.\n\nLearn more in Anthropic's docs: https://platform.claude.com/docs/en/build-with-claude/fast-mode",
-    defaultParameters: {},
-    canonicalSlug: "anthropic/claude-4.7-opus-fast-20260512",
-    created: 1778613011
+    created: 1776351100,
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-opus-4.8',
@@ -795,73 +1507,152 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 5,
-      output: 25
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1.66
+    timeToFirstToken: 722,
+    tokensPerSecond: 148
   },
   metadata: {
     description: "Claude Opus 4.8 is Anthropic's most capable generally available model in the Opus family. It supports text, image, and file inputs with text output, with reasoning support and a 1M-token...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.8-opus-20260528",
-    created: 1779905091
+    created: 1779905091,
+    uptime: 100
   }
 }, {
-  id: 'anthropic/claude-opus-4.8-fast',
+  id: 'anthropic/claude-opus-5',
   provider: 'openrouter',
-  name: 'Anthropic: Claude Opus 4.8 (Fast)',
+  name: 'Anthropic: Claude Opus 5',
   contextWindow: 1000000,
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 10,
-      output: 50
+      input: 5,
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1.38
+    timeToFirstToken: 1421,
+    tokensPerSecond: 176
   },
   metadata: {
-    description: "Fast-mode variant of [Opus 4.8](/anthropic/claude-opus-4.8) - identical capabilities with higher output speed at 2x pricing relative to regular Opus 4.8.\n\nLearn more in Anthropic's docs: https://platform.claude.com/docs/en/build-with-claude/fast-mode",
+    description: "Claude Opus 5 is Anthropic’s flagship model for demanding reasoning, coding, and long-horizon agentic work. It is particularly strong at end-to-end software tasks, code review and bug finding, visual analysis...",
     defaultParameters: {},
-    canonicalSlug: "anthropic/claude-4.8-opus-fast-20260528",
-    created: 1779913703
+    canonicalSlug: "anthropic/claude-opus-5-20260723",
+    created: 1784912544,
+    uptime: 100
   }
 }, {
-  id: 'anthropic/claude-sonnet-4',
+  id: 'anthropic/claude-opus-5:batch',
   provider: 'openrouter',
-  name: 'Anthropic: Claude Sonnet 4',
+  name: 'Anthropic: Claude Opus 5 (batch)',
   contextWindow: 1000000,
-  maxOutputTokens: 64000,
+  maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 3,
-      output: 15
+      input: 2.5,
+      output: 12.5,
+      cached: 0.25,
+      cacheWrite: 3.125
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "Claude Opus 5 is Anthropic’s flagship model for demanding reasoning, coding, and long-horizon agentic work. It is particularly strong at end-to-end software tasks, code review and bug finding, visual analysis...",
+    defaultParameters: {},
+    canonicalSlug: "anthropic/claude-opus-5-20260723",
+    created: 1784912544
+  }
+}, {
+  id: 'anthropic/claude-opus-5.5',
+  provider: 'openrouter',
+  name: 'Anthropic: Claude Opus 5.5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 4,
+      output: 20,
+      cached: 0.19999999999999998,
+      cacheWrite: 5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 0.78
+    timeToFirstToken: 1255.5,
+    tokensPerSecond: 181
   },
   metadata: {
-    description: "Claude Sonnet 4 significantly enhances the capabilities of its predecessor, Sonnet 3.7, excelling in both coding and reasoning tasks with improved precision and controllability. Achieving state-of-the-art performance on SWE-bench (72.7%),...",
+    description: "Claude Opus 5.5 is Anthropic's flagship model for demanding reasoning, coding, and long-horizon agentic work, succeeding Claude Opus 5. It is particularly strong at multi-step changes in large codebases, code...",
     defaultParameters: {},
-    canonicalSlug: "anthropic/claude-4-sonnet-20250522",
-    huggingFaceId: "",
-    created: 1747930371
+    canonicalSlug: "anthropic/claude-opus-5.5-20260921",
+    created: 1790094732,
+    uptime: 100
+  }
+}, {
+  id: 'anthropic/claude-opus-5.5:batch',
+  provider: 'openrouter',
+  name: 'Anthropic: Claude Opus 5.5 (batch)',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "Claude Opus 5.5 is Anthropic's flagship model for demanding reasoning, coding, and long-horizon agentic work, succeeding Claude Opus 5. It is particularly strong at multi-step changes in large codebases, code...",
+    defaultParameters: {},
+    canonicalSlug: "anthropic/claude-opus-5.5-20260921",
+    created: 1790094732
   }
 }, {
   id: 'anthropic/claude-sonnet-4.5',
@@ -871,16 +1662,22 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 64000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 3,
-      output: 15
+      output: 15,
+      cached: 0.3,
+      cacheWrite: 3.75
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 1.12
+    timeToFirstToken: 1041,
+    tokensPerSecond: 51
   },
   metadata: {
     description: "Claude Sonnet 4.5 is Anthropic’s most advanced Sonnet model to date, optimized for real-world agents and coding workflows. It delivers state-of-the-art performance on coding benchmarks such as SWE-bench Verified, with...",
@@ -890,7 +1687,9 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "anthropic/claude-4.5-sonnet-20250929",
     huggingFaceId: "",
-    created: 1759161676
+    created: 1759161676,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-sonnet-4.6',
@@ -900,23 +1699,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP', 'verbosity']),
   pricing: {
     text: {
       input: 3,
-      output: 15
+      output: 15,
+      cached: 0.3,
+      cacheWrite: 3.75
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 0.95
+    timeToFirstToken: 631,
+    tokensPerSecond: 86
   },
   metadata: {
     description: "Sonnet 4.6 is Anthropic's most capable Sonnet-class model yet, with frontier performance across coding, agents, and professional work. It excels at iterative development, complex codebase navigation, end-to-end project management with...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-4.6-sonnet-20260217",
     huggingFaceId: "",
-    created: 1771342990
+    created: 1771342990,
+    uptime: 100
   }
 }, {
   id: 'anthropic/claude-sonnet-5',
@@ -926,153 +1733,526 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Claude',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 2,
-      output: 10
+      output: 10,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 0.84
+    timeToFirstToken: 1012,
+    tokensPerSecond: 104
   },
   metadata: {
     description: "Sonnet 5 is Anthropic's most capable Sonnet-class model, with frontier performance across coding, agents, and professional work. It supports adaptive thinking with selectable reasoning effort levels (low, medium, high, max,...",
     defaultParameters: {},
     canonicalSlug: "anthropic/claude-sonnet-5-20260630",
-    created: 1782843083
+    created: 1782843083,
+    uptime: 100
   }
 }, {
-  id: 'arcee-ai/coder-large',
+  id: 'anthropic/claude-sonnet-5.5',
   provider: 'openrouter',
-  name: 'Arcee AI: Coder Large',
-  contextWindow: 32768,
+  name: 'Anthropic: Claude Sonnet 5.5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
   tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'topP']),
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 0.5,
-      output: 0.7999999999999999
-    }
-  },
-  metrics: {},
-  metadata: {
-    description: "Coder‑Large is a 32 B‑parameter offspring of Qwen 2.5‑Instruct that has been further trained on permissively‑licensed GitHub, CodeSearchNet and synthetic bug‑fix corpora. It supports a 32k context window, enabling multi‑file...",
-    defaultParameters: {},
-    canonicalSlug: "arcee-ai/coder-large",
-    huggingFaceId: "",
-    created: 1746478663
-  }
-}, {
-  id: 'arcee-ai/trinity-large-thinking',
-  provider: 'openrouter',
-  name: 'Arcee AI: Trinity Large Thinking',
-  contextWindow: 262144,
-  maxOutputTokens: 80000,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.25,
-      output: 0.7999999999999999
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.37
-  },
-  metadata: {
-    description: "Trinity Large Thinking is a powerful open source reasoning model from the team at Arcee AI. It shows strong performance in PinchBench, agentic workloads, and reasoning tasks. Launch video: https://youtu.be/Gc82AXLa0Rg?si=4RLn6WBz33qT--B7...",
-    defaultParameters: {
-      temperature: 0.3,
-      top_p: 0.8
+      input: 2,
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 2.5
     },
-    canonicalSlug: "arcee-ai/trinity-large-thinking",
-    huggingFaceId: "arcee-ai/Trinity-Large-Thinking",
-    created: 1775058318
-  }
-}, {
-  id: 'arcee-ai/trinity-mini',
-  provider: 'openrouter',
-  name: 'Arcee AI: Trinity Mini',
-  contextWindow: 131072,
-  maxOutputTokens: 131072,
-  tier: 'efficient',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.045,
-      output: 0.15
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 0.2
+    timeToFirstToken: 1004,
+    tokensPerSecond: 121
   },
   metadata: {
-    description: "Trinity Mini is a 26B-parameter (3B active) sparse mixture-of-experts language model featuring 128 experts with 8 active per token. Engineered for efficient reasoning over long contexts (131k) with robust function...",
-    defaultParameters: {
-      temperature: 0.15,
-      top_p: 0.75
+    description: "Claude Sonnet 5.5 is Anthropic's Sonnet-class model for well-scoped everyday work, succeeding Claude Sonnet 5 as a direct upgrade. It is especially strong at building features, fixing bugs, and producing...",
+    defaultParameters: {},
+    canonicalSlug: "anthropic/claude-sonnet-5.5-20260928",
+    created: 1790618686,
+    uptime: 100
+  }
+}, {
+  id: 'anthropic/claude-sonnet-5.5:batch',
+  provider: 'openrouter',
+  name: 'Anthropic: Claude Sonnet 5.5 (batch)',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Claude',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 1.25
     },
-    canonicalSlug: "arcee-ai/trinity-mini-20251201",
-    huggingFaceId: "arcee-ai/Trinity-Mini",
-    created: 1764601720
-  }
-}, {
-  id: 'arcee-ai/virtuoso-large',
-  provider: 'openrouter',
-  name: 'Arcee AI: Virtuoso Large',
-  contextWindow: 131072,
-  maxOutputTokens: 64000,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.75,
-      output: 1.2
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
-    description: "Virtuoso‑Large is Arcee's top‑tier general‑purpose LLM at 72 B parameters, tuned to tackle cross‑domain reasoning, creative writing and enterprise QA. Unlike many 70 B peers, it retains the 128 k...",
+    description: "Claude Sonnet 5.5 is Anthropic's Sonnet-class model for well-scoped everyday work, succeeding Claude Sonnet 5 as a direct upgrade. It is especially strong at building features, fixing bugs, and producing...",
     defaultParameters: {},
-    canonicalSlug: "arcee-ai/virtuoso-large",
-    huggingFaceId: "",
-    created: 1746478885
+    canonicalSlug: "anthropic/claude-sonnet-5.5-20260928",
+    created: 1790618686
   }
 }, {
-  id: 'baidu/ernie-4.5-vl-424b-a47b',
+  id: 'assemblyai/assemblyai-tts-1',
   provider: 'openrouter',
-  name: 'Baidu: ERNIE 4.5 VL 424B A47B ',
-  contextWindow: 131072,
-  maxOutputTokens: 16000,
+  name: 'AssemblyAI: TTS 1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'topP']),
+  capabilities: new Set(['audio']),
   pricing: {
     text: {
-      input: 0.42,
-      output: 1.25
+      input: 15
+    }
+  },
+  metadata: {
+    description: "AssemblyAI TTS 1 is a text-to-speech model from AssemblyAI. It is suited for voice agents, narration, and multilingual applications, and draws on a public library of several thousand voices across...",
+    defaultParameters: {},
+    canonicalSlug: "assemblyai/assemblyai-tts-1-20261028",
+    created: 1793217672,
+    voices: [
+      "aai-jane",
+      "aai-alba",
+      "aai-anna",
+      "aai-charles",
+      "aai-eve",
+      "aai-george",
+      "aai-jean",
+      "aai-mary",
+      "aai-michael",
+      "aai-paul",
+      "aai-vera"
+    ]
+  }
+}, {
+  id: 'assemblyai/universal-3-5-pro',
+  provider: 'openrouter',
+  name: 'AssemblyAI: Universal-3.5 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 83.33330000000001
+    }
+  },
+  metadata: {
+    description: "Universal-3.5 Pro is AssemblyAI's speech-to-text model served through its Sync API, returning a complete transcript with word-level timestamps in a single synchronous response for audio up to 20 minutes. It...",
+    defaultParameters: {},
+    canonicalSlug: "assemblyai/universal-3-5-pro-20260914",
+    created: 1790090022
+  }
+}, {
+  id: 'assemblyai/universal-3-6-pro',
+  provider: 'openrouter',
+  name: 'AssemblyAI: Universal-3.6 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 83.33330000000001
+    }
+  },
+  metadata: {
+    description: "Universal-3.6 Pro is AssemblyAI's speech-to-text model and the successor to Universal-3.5 Pro, served here through AssemblyAI's Sync API. Compared with Universal-3.5 Pro, AssemblyAI reports 30% fewer errors on short conversational...",
+    defaultParameters: {},
+    canonicalSlug: "assemblyai/universal-3-6-pro-20261014",
+    created: 1792013919,
+    uptime: 100
+  }
+}, {
+  id: 'baai/bge-base-en-v1.5',
+  provider: 'openrouter',
+  name: 'BAAI: bge-base-en-v1.5',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The bge-base-en-v1.5 embedding model converts English sentences and paragraphs into 768-dimensional dense vectors, delivering efficient, high-quality semantic embeddings optimized for retrieval, semantic search, and document-matching workflows. This version (v1.5) features...",
+    defaultParameters: {},
+    canonicalSlug: "baai/bge-base-en-v1.5-20251117",
+    huggingFaceId: "BAAI/bge-base-en-v1.5",
+    created: 1763431837,
+    uptime: 100
+  }
+}, {
+  id: 'baai/bge-large-en-v1.5',
+  provider: 'openrouter',
+  name: 'BAAI: bge-large-en-v1.5',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.01
+    }
+  },
+  metadata: {
+    description: "The bge-large-en-v1.5 embedding model maps English sentences, paragraphs, and documents into a 1024-dimensional dense vector space, delivering high-fidelity semantic embeddings optimized for semantic search, document retrieval, and downstream NLP tasks...",
+    defaultParameters: {},
+    canonicalSlug: "baai/bge-large-en-v1.5-20251117",
+    huggingFaceId: "BAAI/bge-large-en-v1.5",
+    created: 1763431087,
+    uptime: 100
+  }
+}, {
+  id: 'baai/bge-m3',
+  provider: 'openrouter',
+  name: 'BAAI: bge-m3',
+  contextWindow: 8194,
+  maxOutputTokens: 7374,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.01
+    }
+  },
+  metadata: {
+    description: "The bge-m3 embedding model encodes sentences, paragraphs, and long documents into a 1024-dimensional dense vector space, delivering high-quality semantic embeddings optimized for multilingual retrieval, semantic search, and large-context applications.",
+    defaultParameters: {},
+    canonicalSlug: "baai/bge-m3-20251117",
+    huggingFaceId: "BAAI/bge-m3",
+    created: 1763424372,
+    uptime: 100
+  }
+}, {
+  id: 'baseten/elephant-1',
+  provider: 'openrouter',
+  name: 'Baseten: Elephant 1',
+  contextWindow: 16384,
+  maxOutputTokens: 14745,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.035
     }
   },
   metrics: {
-    timeToFirstToken: 1.09
+    timeToFirstToken: 96,
+    tokensPerSecond: 0
   },
   metadata: {
-    description: "ERNIE-4.5-VL-424B-A47B is a multimodal Mixture-of-Experts (MoE) model from Baidu’s ERNIE 4.5 series, featuring 424B total parameters with 47B active per token. It is trained jointly on text and image data...",
+    description: "Elephant 1 is a 9B decision model from Base Labs, Baseten's research team, built on Qwen3.5-9B. Given a state (text or JSON) and typed questions (yes/no, multiple choice, or ordinal...",
     defaultParameters: {},
-    canonicalSlug: "baidu/ernie-4.5-vl-424b-a47b",
-    huggingFaceId: "baidu/ERNIE-4.5-VL-424B-A47B-PT",
-    created: 1751300903
+    canonicalSlug: "baseten/elephant-1-20261021",
+    huggingFaceId: "baselabs/elephant-1",
+    created: 1792622577,
+    uptime: 100
+  }
+}, {
+  id: 'baseten/joey-1',
+  provider: 'openrouter',
+  name: 'Baseten: Joey 1',
+  contextWindow: 16384,
+  maxOutputTokens: 14745,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 230,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Joey 1 is a 2B decision model from Base Labs, Baseten's research team, built on Qwen3.5-2B. Given a state (text or JSON) and typed questions (yes/no, multiple choice, or ordinal...",
+    defaultParameters: {},
+    canonicalSlug: "baseten/joey-1-20261029",
+    huggingFaceId: "baselabs/joey-1",
+    created: 1793301887,
+    uptime: 100
+  }
+}, {
+  id: 'baseten/mammoth-1',
+  provider: 'openrouter',
+  name: 'Baseten: Mammoth 1',
+  contextWindow: 16384,
+  maxOutputTokens: 14745,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999
+    }
+  },
+  metrics: {
+    timeToFirstToken: 263,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Mammoth 1 is a 27B decision model from Base Labs, Baseten's research team, built on Qwen3.5-27B. Given a state (text or JSON) and typed questions (yes/no, multiple choice, or ordinal...",
+    defaultParameters: {},
+    canonicalSlug: "baseten/mammoth-1-20261021",
+    huggingFaceId: "baselabs/mammoth-1",
+    created: 1792622578,
+    uptime: 100
+  }
+}, {
+  id: 'black-forest-labs/flux-3-image',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX 3 Image',
+  contextWindow: 46864,
+  maxOutputTokens: 42177,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['seed']),
+  pricing: {
+    text: {},
+    image: {
+      input: 9.82035928143713
+    }
+  },
+  metrics: {
+    timeToFirstToken: 32654,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX.3 Image is Black Forest Labs' flagship image generation and editing model. It handles text-to-image and multi-reference editing with up to 10 input images, and renders at fixed resolution tiers...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux-3-image-20261001",
+    created: 1790885807,
+    uptime: 100
+  }
+}, {
+  id: 'black-forest-labs/flux-3-image-klein',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX 3 Image Klein',
+  contextWindow: 46864,
+  maxOutputTokens: 42177,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['seed']),
+  pricing: {
+    text: {},
+    image: {
+      input: 1.91616766467066
+    }
+  },
+  metrics: {
+    timeToFirstToken: 7451,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX 3 Image Klein is an open-weights image generation and editing model from Black Forest Labs. It is suited for text-to-image, multi-reference editing that keeps characters and subjects consistent across...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux-3-image-klein-20261015",
+    created: 1792083863,
+    uptime: 100
+  }
+}, {
+  id: 'black-forest-labs/flux-3-video',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX 3 Video',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'videoInput']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 117744,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX.3 Video is a video generation model from Black Forest Labs. It supports text-to-video, image-guided generation with opening and closing keyframes, and video continuation workflows, making it suited for controlled...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux-3-video-20260804",
+    created: 1785858831
+  }
+}, {
+  id: 'black-forest-labs/flux-video-edit',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX Video Edit',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['videoInput']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 42128,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX Video Edit [fast] takes a source video and an edit prompt and returns a precisely edited video. Add, remove, or replace objects and characters, rebuild the setting, edit on-screen...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux-video-edit-20260910",
+    created: 1789073532
+  }
+}, {
+  id: 'black-forest-labs/flux-video-upscale',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX Video Upscale',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['videoInput']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "FLUX Video Upscale is a video upscaling model from Black Forest Labs. It enlarges a single source video by 1.5× to 3× while preserving its duration, with an optional prompt...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux-video-upscale-20260819",
+    created: 1787173919
+  }
+}, {
+  id: 'black-forest-labs/flux.2-flex',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX.2 Flex',
+  contextWindow: 67344,
+  maxOutputTokens: 60609,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['seed']),
+  pricing: {
+    text: {},
+    image: {
+      input: 14.6484375
+    }
+  },
+  metrics: {
+    timeToFirstToken: 12536,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX.2 [flex] excels at rendering complex text, typography, and fine details, and supports multi-reference editing in the same unified architecture. Pricing is as follows, [per the docs](https://bfl.ai/pricing?category=flux.2): We charge $0.06...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux.2-flex",
+    huggingFaceId: "",
+    created: 1764045987
+  }
+}, {
+  id: 'black-forest-labs/flux.2-klein-4b',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX.2 Klein 4B',
+  contextWindow: 40960,
+  maxOutputTokens: 36864,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['seed']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 3622,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX.2 [klein] 4B is the fastest and most cost-effective model in the FLUX.2 family, optimized for high-throughput use cases while maintaining excellent image quality. Pricing is based on the output...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux.2-klein-4b",
+    huggingFaceId: "black-forest-labs/FLUX.2-klein-4B",
+    created: 1768429228,
+    uptime: 100
+  }
+}, {
+  id: 'black-forest-labs/flux.2-max',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX.2 Max',
+  contextWindow: 46864,
+  maxOutputTokens: 42177,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['seed']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 24900,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "FLUX.2 [max] is the new top-tier image model from Black Forest Labs, pushing image quality, prompt understanding, and editing consistency to the highest level yet. Pricing is as follows, [per...",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux.2-max",
+    huggingFaceId: "",
+    created: 1765857570
+  }
+}, {
+  id: 'black-forest-labs/flux.2-pro',
+  provider: 'openrouter',
+  name: 'Black Forest Labs: FLUX.2 Pro',
+  contextWindow: 46864,
+  maxOutputTokens: 42177,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['seed']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 12217,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "A high-end image generation and editing model focused on frontier-level visual quality and reliability. It delivers strong prompt adherence, stable lighting, sharp textures, and consistent character/style reproduction across multi-reference inputs....",
+    defaultParameters: {},
+    canonicalSlug: "black-forest-labs/flux.2-pro",
+    huggingFaceId: "",
+    created: 1764030274,
+    uptime: 100
   }
 }, {
   id: 'bytedance-seed/seed-1.6',
@@ -1082,7 +2262,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -1090,15 +2270,18 @@ export const openrouterModels: ModelInfo[] = [{
       output: 2
     }
   },
+  retiresAt: '2026-11-11',
   metrics: {
-    timeToFirstToken: 0.79
+    timeToFirstToken: 603,
+    tokensPerSecond: 31
   },
   metadata: {
     description: "Seed 1.6 is a general-purpose model released by the ByteDance Seed team. It incorporates multimodal capabilities and adaptive deep thinking with a 256K context window.",
     defaultParameters: {},
     canonicalSlug: "bytedance-seed/seed-1.6-20250625",
     huggingFaceId: "",
-    created: 1766504997
+    created: 1766504997,
+    uptime: 100
   }
 }, {
   id: 'bytedance-seed/seed-1.6-flash',
@@ -1108,7 +2291,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -1116,15 +2299,74 @@ export const openrouterModels: ModelInfo[] = [{
       output: 0.3
     }
   },
+  retiresAt: '2026-11-11',
   metrics: {
-    timeToFirstToken: 0.83
+    timeToFirstToken: 793,
+    tokensPerSecond: 53
   },
   metadata: {
     description: "Seed 1.6 Flash is an ultra-fast multimodal deep thinking model by ByteDance Seed, supporting both text and visual understanding. It features a 256k context window and can generate outputs of...",
     defaultParameters: {},
     canonicalSlug: "bytedance-seed/seed-1.6-flash-20250625",
     huggingFaceId: "",
-    created: 1766505011
+    created: 1766505011,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seed-2-1-turbo',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seed 2.1 Turbo',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 2.5
+    }
+  },
+  metrics: {
+    timeToFirstToken: 4166,
+    tokensPerSecond: 48
+  },
+  metadata: {
+    description: "Seed 2.1 Turbo is a multimodal model from ByteDance Seed for coding and long-horizon agent workflows. It is suited for end-to-end software delivery, multi-step task execution, and understanding visual and...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seed-2-1-turbo-20260810",
+    created: 1786552176,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seed-2.0-code',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seed-2.0-Code',
+  contextWindow: 262144,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 3
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  retiresAt: '2026-11-11',
+  metrics: {
+    timeToFirstToken: 902,
+    tokensPerSecond: 55
+  },
+  metadata: {
+    description: "Seed 2.0 Code is a model from ByteDance Seed optimized for agentic coding. It is suited for frontend development, multilingual programming tasks, and coding-agent workflows in tools such as Claude...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seed-2.0-code-20260730",
+    created: 1786550701,
+    uptime: 100
   }
 }, {
   id: 'bytedance-seed/seed-2.0-lite',
@@ -1134,7 +2376,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -1142,12 +2384,17 @@ export const openrouterModels: ModelInfo[] = [{
       output: 2
     }
   },
-  metrics: {},
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 1333.5,
+    tokensPerSecond: 62
+  },
   metadata: {
     description: "Seed-2.0-Lite is a versatile, cost‑efficient enterprise workhorse that delivers strong multimodal and agent capabilities while offering noticeably lower latency, making it a practical default choice for most production workloads across...",
     defaultParameters: {},
     canonicalSlug: "bytedance-seed/seed-2.0-lite-20260309",
-    created: 1773157231
+    created: 1773157231,
+    uptime: 100
   }
 }, {
   id: 'bytedance-seed/seed-2.0-mini',
@@ -1157,7 +2404,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 131072,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -1165,15 +2412,265 @@ export const openrouterModels: ModelInfo[] = [{
       output: 0.39999999999999997
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.44
+    timeToFirstToken: 933,
+    tokensPerSecond: 36
   },
   metadata: {
     description: "Seed-2.0-mini targets latency-sensitive, high-concurrency, and cost-sensitive scenarios, emphasizing fast response and flexible inference deployment. It delivers performance comparable to ByteDance-Seed-1.6, supports 256k context, four reasoning effort modes (minimal/low/medium/high), multimodal understanding,...",
     defaultParameters: {},
     canonicalSlug: "bytedance-seed/seed-2.0-mini-20260224",
     huggingFaceId: "",
-    created: 1772131107
+    created: 1772131107,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seed-audio-1-0',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seed Audio 1.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      output: 2500
+    }
+  },
+  metadata: {
+    description: "Seed Audio 1.0 is ByteDance Seed's non-streaming audio generation model. It produces speech and other audio from a natural-language text prompt that can describe the desired voice, tone, and sound...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seed-audio-1-0-20260630",
+    created: 1790372476,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seedream-4.5',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seedream 4.5',
+  contextWindow: 4096,
+  maxOutputTokens: 3686,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 9.580838323353289
+    }
+  },
+  metrics: {
+    timeToFirstToken: 19787,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedream 4.5 is the latest in-house image generation model developed by ByteDance. Compared with Seedream 4.0, it delivers comprehensive improvements, especially in editing consistency, including better preservation of subject details,...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seedream-4.5-20251203",
+    huggingFaceId: "",
+    created: 1766519506,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seedream-5-0-flash',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seedream 5.0 Flash',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 4.31137724550898
+    }
+  },
+  metrics: {
+    timeToFirstToken: 11174.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedream 5.0 Flash is an image generation and editing model from ByteDance Seed. It is the fast, cost-efficient tier of the Seedream 5.0 family, suited for high-volume production and interactive...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seedream-5-0-flash-20261001",
+    created: 1790889880,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seedream-5-0-lite',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seedream 5.0 Lite',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 8.38323353293413
+    }
+  },
+  metrics: {
+    timeToFirstToken: 46916,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedream 5.0 Lite is an image generation model from ByteDance Seed. It is suited for professional visual creation that benefits from web-connected retrieval, complex-prompt comprehension, visual references, and broad knowledge...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seedream-5-0-lite-20260812",
+    created: 1786650094,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance-seed/seedream-5-0-pro',
+  provider: 'openrouter',
+  name: 'ByteDance Seed: Seedream 5.0 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 10.7784431137725
+    }
+  },
+  metrics: {
+    timeToFirstToken: 59969.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedream 5.0 Pro is an image generation and editing model from ByteDance Seed. It is suited for commercial visual-production workflows that require precise editing control, lifelike scenes, and natural rendering.",
+    defaultParameters: {},
+    canonicalSlug: "bytedance-seed/seedream-5-0-pro-20260812",
+    created: 1786578139,
+    uptime: 100
+  }
+}, {
+  id: 'bytedance/seedance-1-5-pro',
+  provider: 'openrouter',
+  name: 'ByteDance: Seedance 1.5 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['frequencyPenalty']),
+  pricing: {
+    text: {}
+  },
+  retiresAt: '2026-11-11',
+  metrics: {
+    timeToFirstToken: 69709,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "ByteDance's next-generation audio-visual generation model with a 4.5B parameter Dual-Branch Diffusion Transformer architecture. Seedance 1.5 Pro generates video and audio simultaneously in a single unified pass — eliminating the timing...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance/seedance-1-5-pro-20260320",
+    created: 1774277608
+  }
+}, {
+  id: 'bytedance/seedance-2.0',
+  provider: 'openrouter',
+  name: 'ByteDance: Seedance 2.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing']),
+  supportedParameters: new Set(['frequencyPenalty']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 200390,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedance 2.0 is a video generation model from ByteDance. It supports text-to-video, image-to-video with first and last frame control, and multimodal reference-to-video. It is particularly strong at preserving character consistency,...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance/seedance-2.0-20260414",
+    created: 1776211362
+  }
+}, {
+  id: 'bytedance/seedance-2.0-fast',
+  provider: 'openrouter',
+  name: 'ByteDance: Seedance 2.0 Fast',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing']),
+  supportedParameters: new Set(['frequencyPenalty']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 125864,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedance 2.0 Fast is a video generation model from ByteDance. It supports text-to-video, image-to-video with first and last frame control, and multimodal reference-to-video. It prioritizes generation speed and lower cost...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance/seedance-2.0-fast-20260414",
+    created: 1776211362
+  }
+}, {
+  id: 'bytedance/seedance-2.0-mini',
+  provider: 'openrouter',
+  name: 'ByteDance: Seedance 2.0 Mini',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing']),
+  supportedParameters: new Set(['frequencyPenalty']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 108272,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedance 2.0 Mini is a video generation model from ByteDance. It supports text-to-video, image-to-video with first and last frame control, and multimodal reference-to-video with image, video, and audio inputs. It...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance/seedance-2.0-mini-20260811",
+    created: 1786552600
+  }
+}, {
+  id: 'bytedance/seedance-2.5',
+  provider: 'openrouter',
+  name: 'ByteDance: Seedance 2.5',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'videoInput', 'hearing']),
+  supportedParameters: new Set(['frequencyPenalty']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 178162.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Seedance 2.5 is a video generation model from ByteDance. It is suited for long-form storytelling, multimodal reference-based generation, video editing, and video extension. It supports first-frame and first-and-last-frame control, up...",
+    defaultParameters: {},
+    canonicalSlug: "bytedance/seedance-2.5-20260807",
+    created: 1786141253,
+    uptime: 100
   }
 }, {
   id: 'bytedance/ui-tars-1.5-7b',
@@ -1183,43 +2680,185 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 2048,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.09999999999999999,
-      output: 0.19999999999999998
+      output: 0.19999999999999998,
+      cached: 0.09999999999999999
     }
   },
   metrics: {
-    timeToFirstToken: 1.29
+    timeToFirstToken: 1397,
+    tokensPerSecond: 43
   },
   metadata: {
     description: "UI-TARS-1.5 is a multimodal vision-language agent optimized for GUI-based environments, including desktop interfaces, web browsers, mobile systems, and games. Built by ByteDance, it builds upon the UI-TARS framework with reinforcement...",
     defaultParameters: {},
     canonicalSlug: "bytedance/ui-tars-1.5-7b",
     huggingFaceId: "ByteDance-Seed/UI-TARS-1.5-7B",
-    created: 1753205056
+    created: 1753205056,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 91.66666666666666
   }
 }, {
-  id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+  id: 'canopylabs/orpheus-3b-0.1-ft',
   provider: 'openrouter',
-  name: 'Venice: Uncensored (free)',
-  contextWindow: 32768,
+  name: 'Canopy Labs: Orpheus 3B',
+  contextWindow: 4096,
+  maxOutputTokens: 3686,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'topP']),
-  pricing: {},
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 7
+    }
+  },
+  metadata: {
+    description: "Orpheus 3B is an English text-to-speech model from Canopy Labs, fine-tuned for natural prosody and expressive delivery. It offers 7 preset voices and is suited for narration, voice assistants, and...",
+    defaultParameters: {},
+    canonicalSlug: "canopylabs/orpheus-3b-0.1-ft",
+    created: 1776983168,
+    voices: [
+      "tara",
+      "leah",
+      "jess",
+      "leo",
+      "dan",
+      "mia",
+      "zac"
+    ]
+  }
+}, {
+  id: 'cloudflare/clairic',
+  provider: 'openrouter',
+  name: 'Cloudflare: Clairic',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999
+    }
+  },
+  metadata: {
+    description: "Clairic is Cloudflare's System One-style extraction model served on Workers AI. Given a text state and optional images plus a schema of typed fields, it extracts, computes, estimates, and forecasts...",
+    defaultParameters: {},
+    canonicalSlug: "cloudflare/clairic-20261029",
+    huggingFaceId: "Cloudflare/clairic",
+    created: 1793325134,
+    uptime: 100
+  }
+}, {
+  id: 'cloudflare/clef',
+  provider: 'openrouter',
+  name: 'Cloudflare: Clef',
+  contextWindow: 65537,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.24
+    }
+  },
   metrics: {
-    timeToFirstToken: 0.81
+    timeToFirstToken: 350,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
+    defaultParameters: {},
+    canonicalSlug: "cloudflare/clef",
+    huggingFaceId: "Cloudflare/clef",
+    created: 1790870972,
+    uptime: 100
+  }
+}, {
+  id: 'cloudflare/clef-flash',
+  provider: 'openrouter',
+  name: 'Cloudflare: Clef Flash',
+  contextWindow: 24576,
+  maxOutputTokens: 22118,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.038000000000000006
+    }
+  },
+  metrics: {
+    timeToFirstToken: 246,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Clef-flash is the fast 9B member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3.5-9B served on Workers AI. It turns a state (text or structured JSON) plus...",
+    defaultParameters: {},
+    canonicalSlug: "cloudflare/clef-flash",
+    huggingFaceId: "Cloudflare/clef-flash",
+    created: 1790870973,
+    uptime: 100
+  }
+}, {
+  id: 'cloudflare/clef-omni',
+  provider: 'openrouter',
+  name: 'Cloudflare: Clef Omni',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'hearing', 'videoInput']),
+  pricing: {
+    text: {
+      input: 0.15
+    }
+  },
+  metrics: {
+    timeToFirstToken: 241,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Clef Omni is the mixture-of-experts member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3-Omni-30B-A3B (30B total, 3B active parameters) served on Workers AI. It turns a state...",
+    defaultParameters: {},
+    canonicalSlug: "cloudflare/clef-omni-20261009",
+    huggingFaceId: "Cloudflare/clef-omni",
+    created: 1791577078,
+    uptime: 100
+  }
+}, {
+  id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition',
+  provider: 'openrouter',
+  name: 'Venice: Uncensored',
+  contextWindow: 128000,
+  maxOutputTokens: 8192,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'json', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'temperature', 'topP']),
+  pricing: {
+    text: {
+      input: 0.19999999999999998,
+      output: 0.8999999999999999
+    }
+  },
+  metrics: {
+    timeToFirstToken: 726,
+    tokensPerSecond: 69
   },
   metadata: {
     description: "Venice Uncensored Dolphin Mistral 24B Venice Edition is a fine-tuned variant of Mistral-Small-24B-Instruct-2501, developed by dphn.ai in collaboration with Venice.ai. This model is designed as an “uncensored” instruct-tuned LLM, preserving...",
     defaultParameters: {},
     canonicalSlug: "venice/uncensored",
     huggingFaceId: "cognitivecomputations/Dolphin-Mistral-24B-Venice-Edition",
-    created: 1752094966
+    created: 1752094966,
+    knowledgeCutoff: "2024-04-30",
+    uptime: 100
   }
 }, {
   id: 'cohere/command-a',
@@ -1238,14 +2877,44 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.29
+    timeToFirstToken: 409,
+    tokensPerSecond: 51
   },
   metadata: {
     description: "Command A is an open-weights 111B parameter model with a 256k context window focused on delivering great performance across agentic, multilingual, and coding use cases. Compared to other leading proprietary...",
     defaultParameters: {},
     canonicalSlug: "cohere/command-a-03-2025",
     huggingFaceId: "CohereForAI/c4ai-command-a-03-2025",
-    created: 1741894342
+    created: 1741894342,
+    knowledgeCutoff: "2024-08-31"
+  }
+}, {
+  id: 'cohere/command-a-plus',
+  provider: 'openrouter',
+  name: 'Cohere: Command A+',
+  contextWindow: 192000,
+  maxOutputTokens: 64000,
+  tier: 'flagship',
+  tokenizer: 'Cohere',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.3,
+      output: 1.5,
+      cached: 0.15
+    }
+  },
+  metrics: {
+    timeToFirstToken: 255,
+    tokensPerSecond: 124
+  },
+  metadata: {
+    description: "Command A+ is Cohere's flagship model for enterprise agentic workflows. It accepts text and image inputs with a 192K context window, supports native tool calling with strict tool schemas, structured...",
+    defaultParameters: {},
+    canonicalSlug: "cohere/command-a-plus-05-2026",
+    created: 1790102896,
+    uptime: 100
   }
 }, {
   id: 'cohere/command-r-08-2024',
@@ -1255,7 +2924,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 4000,
   tier: 'flagship',
   tokenizer: 'Cohere',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -1264,13 +2933,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.26
+    timeToFirstToken: 294,
+    tokensPerSecond: 27
   },
   metadata: {
     description: "command-r-08-2024 is an update of the [Command R](/models/cohere/command-r) with improved performance for multilingual retrieval-augmented generation (RAG) and tool use. More broadly, it is better at math, code and reasoning and...",
     defaultParameters: {},
     canonicalSlug: "cohere/command-r-08-2024",
-    created: 1724976000
+    created: 1724976000,
+    knowledgeCutoff: "2024-03-31",
+    uptime: 100
   }
 }, {
   id: 'cohere/command-r-plus-08-2024',
@@ -1280,7 +2952,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 4000,
   tier: 'flagship',
   tokenizer: 'Cohere',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -1289,13 +2961,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.57
+    timeToFirstToken: 664,
+    tokensPerSecond: 5
   },
   metadata: {
     description: "command-r-plus-08-2024 is an update of the [Command R+](/models/cohere/command-r-plus) with roughly 50% higher throughput and 25% lower latencies as compared to the previous Command R+ version, while keeping the hardware footprint...",
     defaultParameters: {},
     canonicalSlug: "cohere/command-r-plus-08-2024",
-    created: 1724976000
+    created: 1724976000,
+    knowledgeCutoff: "2024-03-31"
   }
 }, {
   id: 'cohere/command-r7b-12-2024',
@@ -1314,14 +2988,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.24
+    timeToFirstToken: 494,
+    tokensPerSecond: 57.5
   },
   metadata: {
     description: "Command R7B (12-2024) is a small, fast update of the Command R+ model, delivered in December 2024. It excels at RAG, tool use, agents, and similar tasks requiring complex reasoning...",
     defaultParameters: {},
     canonicalSlug: "cohere/command-r7b-12-2024",
     huggingFaceId: "",
-    created: 1734158152
+    created: 1734158152,
+    knowledgeCutoff: "2024-08-31"
   }
 }, {
   id: 'cohere/north-mini-code:free',
@@ -1331,147 +3007,360 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 64000,
   tier: 'efficient',
   tokenizer: 'Cohere',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
   metrics: {
-    timeToFirstToken: 0.55
+    timeToFirstToken: 631,
+    tokensPerSecond: 70
   },
   metadata: {
     description: "North Mini Code is Cohere's first agentic coding model and the debut of its North family. A sparse mixture-of-experts model with 30B total parameters and 3B active, it is optimized...",
     defaultParameters: {},
     canonicalSlug: "cohere/north-mini-code-20260617",
     huggingFaceId: "CohereLabs/North-Mini-Code-1.0",
-    created: 1781723748
+    created: 1781723748,
+    uptime: 100
   }
 }, {
-  id: 'deepcogito/cogito-v2.1-671b',
+  id: 'cohere/rerank-4-fast',
   provider: 'openrouter',
-  name: 'Deep Cogito: Cogito v2.1 671B',
-  contextWindow: 128000,
+  name: 'Cohere: Rerank 4 Fast',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  tokenizer: 'Cohere',
+  capabilities: new Set([]),
   pricing: {
-    text: {
-      input: 1.25,
-      output: 1.25
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.36
+    text: {}
   },
   metadata: {
-    description: "Cogito v2.1 671B MoE represents one of the strongest open models globally, matching performance of frontier closed and open models. This model is trained using self play with reinforcement learning...",
+    description: "Cohere's AI search foundation model for enhancing the relevance of information surfaced within search and RAG systems. Features a 32K context window, multilingual support across 100+ languages, no data pre-processing...",
     defaultParameters: {},
-    canonicalSlug: "deepcogito/cogito-v2.1-671b-20251118",
-    huggingFaceId: "",
-    created: 1763071233
+    canonicalSlug: "cohere/rerank-4-fast",
+    created: 1775442269,
+    uptime: 100
+  }
+}, {
+  id: 'cohere/rerank-4-pro',
+  provider: 'openrouter',
+  name: 'Cohere: Rerank 4 Pro',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Cohere',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "Cohere's AI search foundation model for enhancing the relevance of information surfaced within search and RAG systems. Features a 32K context window, multilingual support across 100+ languages, no data pre-processing...",
+    defaultParameters: {},
+    canonicalSlug: "cohere/rerank-4-pro",
+    created: 1775446247,
+    uptime: 100
+  }
+}, {
+  id: 'cohere/rerank-v3.5',
+  provider: 'openrouter',
+  name: 'Cohere: Rerank v3.5',
+  contextWindow: 4096,
+  maxOutputTokens: 3686,
+  tier: 'flagship',
+  tokenizer: 'Cohere',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "Rerank v3.5 is designed to reorder search results for improved relevance. It supports multi-aspect and semi-structured data reranking over 100+ languages. Ideal for refining results from semantic or keyword search...",
+    defaultParameters: {},
+    canonicalSlug: "cohere/rerank-v3.5",
+    created: 1775416158,
+    uptime: 100
+  }
+}, {
+  id: 'deepgram/aura-2',
+  provider: 'openrouter',
+  name: 'Deepgram: Aura-2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 30
+    }
+  },
+  metadata: {
+    description: "Aura-2 is a multilingual text-to-speech model from Deepgram. It supports Deepgram’s canonical Aura-2 voice catalog for speech synthesis across multiple languages.",
+    defaultParameters: {},
+    canonicalSlug: "deepgram/aura-2-20260716",
+    created: 1784237167,
+    voices: [
+      "aura-2-thalia-en",
+      "aura-2-agathe-fr",
+      "aura-2-agustina-es",
+      "aura-2-alvaro-es",
+      "aura-2-ama-ja",
+      "aura-2-amalthea-en",
+      "aura-2-andromeda-en",
+      "aura-2-antonia-es",
+      "aura-2-apollo-en",
+      "aura-2-aquila-es",
+      "aura-2-arcas-en",
+      "aura-2-aries-en",
+      "aura-2-asteria-en",
+      "aura-2-athena-en",
+      "aura-2-atlas-en",
+      "aura-2-aurelia-de",
+      "aura-2-aurora-en",
+      "aura-2-beatrix-nl",
+      "aura-2-callista-en",
+      "aura-2-carina-es",
+      "aura-2-celeste-es",
+      "aura-2-cesare-it",
+      "aura-2-cinzia-it",
+      "aura-2-cora-en",
+      "aura-2-cordelia-en",
+      "aura-2-cornelia-nl",
+      "aura-2-daphne-nl",
+      "aura-2-delia-en",
+      "aura-2-demetra-it",
+      "aura-2-diana-es",
+      "aura-2-dionisio-it",
+      "aura-2-draco-en",
+      "aura-2-ebisu-ja",
+      "aura-2-elara-de",
+      "aura-2-electra-en",
+      "aura-2-elio-it",
+      "aura-2-estrella-es",
+      "aura-2-fabian-de",
+      "aura-2-flavio-it",
+      "aura-2-fujin-ja",
+      "aura-2-gloria-es",
+      "aura-2-harmonia-en",
+      "aura-2-hector-fr",
+      "aura-2-helena-en",
+      "aura-2-hera-en",
+      "aura-2-hermes-en",
+      "aura-2-hestia-nl",
+      "aura-2-hyperion-en",
+      "aura-2-iris-en",
+      "aura-2-izanami-ja",
+      "aura-2-janus-en",
+      "aura-2-javier-es",
+      "aura-2-julius-de",
+      "aura-2-juno-en",
+      "aura-2-jupiter-en",
+      "aura-2-kara-de",
+      "aura-2-lara-de",
+      "aura-2-lars-nl",
+      "aura-2-leda-nl",
+      "aura-2-livia-it",
+      "aura-2-luciano-es",
+      "aura-2-luna-en",
+      "aura-2-maia-it",
+      "aura-2-mars-en",
+      "aura-2-melia-it",
+      "aura-2-minerva-en",
+      "aura-2-neptune-en",
+      "aura-2-nestor-es",
+      "aura-2-odysseus-en",
+      "aura-2-olivia-es",
+      "aura-2-ophelia-en",
+      "aura-2-orion-en",
+      "aura-2-orpheus-en",
+      "aura-2-pandora-en",
+      "aura-2-phoebe-en",
+      "aura-2-pluto-en",
+      "aura-2-rhea-nl",
+      "aura-2-roman-nl",
+      "aura-2-sander-nl",
+      "aura-2-saturn-en",
+      "aura-2-selena-es",
+      "aura-2-selene-en",
+      "aura-2-silvia-es",
+      "aura-2-sirio-es",
+      "aura-2-theia-en",
+      "aura-2-uzume-ja",
+      "aura-2-valerio-es",
+      "aura-2-vesta-en",
+      "aura-2-viktoria-de",
+      "aura-2-zeus-en"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'deepgram/flux-tts',
+  provider: 'openrouter',
+  name: 'Deepgram: Flux TTS',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 45
+    }
+  },
+  metadata: {
+    description: "Flux TTS is a text-to-speech model from Deepgram. It is suited for natural, expressive English speech synthesis across Deepgram's Flux voice catalog.",
+    defaultParameters: {},
+    canonicalSlug: "deepgram/flux-tts-20260812",
+    created: 1786574888,
+    voices: [
+      "flux-alexis-en",
+      "flux-bree-en",
+      "flux-brittany-en",
+      "flux-brooke-en",
+      "flux-bruce-en",
+      "flux-cliff-en",
+      "flux-cole-en",
+      "flux-colin-en",
+      "flux-conor-en",
+      "flux-donovan-en",
+      "flux-drew-en",
+      "flux-elise-en",
+      "flux-gemma-en",
+      "flux-haley-en",
+      "flux-hannah-en",
+      "flux-heather-en",
+      "flux-jack-en",
+      "flux-kai-en",
+      "flux-kelsey-en",
+      "flux-kit-en",
+      "flux-maeve-en",
+      "flux-marcelo-en",
+      "flux-marcus-en",
+      "flux-meena-en",
+      "flux-meghan-en",
+      "flux-miles-en",
+      "flux-naveen-en",
+      "flux-paige-en",
+      "flux-priya-en",
+      "flux-rufus-en",
+      "flux-sean-en",
+      "flux-sharon-en",
+      "flux-sienna-en",
+      "flux-tanner-en",
+      "flux-wade-en",
+      "flux-wes-en"
+    ]
+  }
+}, {
+  id: 'deepgram/nova-3',
+  provider: 'openrouter',
+  name: 'Deepgram: Nova-3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 71.6666666667
+    }
+  },
+  metadata: {
+    description: "Deepgram Nova-3 general-purpose speech-to-text model with monolingual and multilingual transcription support.",
+    defaultParameters: {},
+    canonicalSlug: "deepgram/nova-3-20260714",
+    created: 1784075761,
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-chat',
   provider: 'openrouter',
   name: 'DeepSeek: DeepSeek V3',
-  contextWindow: 131072,
+  contextWindow: 163840,
   maxOutputTokens: 16000,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.20020000000000002,
-      output: 0.8000999999999999
+      input: 0.2574,
+      output: 1.0287
     }
   },
   metrics: {
-    timeToFirstToken: 0.39
+    timeToFirstToken: 1748,
+    tokensPerSecond: 31
   },
   metadata: {
     description: "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     defaultParameters: {},
     canonicalSlug: "deepseek/deepseek-chat-v3",
     huggingFaceId: "deepseek-ai/DeepSeek-V3",
-    created: 1735241320
+    created: 1735241320,
+    knowledgeCutoff: "2024-07-31",
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-chat-v3-0324',
   provider: 'openrouter',
   name: 'DeepSeek: DeepSeek V3 0324',
   contextWindow: 163840,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 115200,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.24,
-      output: 0.8999999999999999
+      input: 0.29,
+      output: 1.1400000000000001,
+      cached: 0.11
     }
   },
   metrics: {
-    timeToFirstToken: 1.26
+    timeToFirstToken: 1976,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "DeepSeek V3, a 685B-parameter, mixture-of-experts model, is the latest iteration of the flagship chat model family from the DeepSeek team. It succeeds the [DeepSeek V3](/deepseek/deepseek-chat-v3) model and performs really well...",
     defaultParameters: {},
     canonicalSlug: "deepseek/deepseek-chat-v3-0324",
     huggingFaceId: "deepseek-ai/DeepSeek-V3-0324",
-    created: 1742824755
+    created: 1742824755,
+    knowledgeCutoff: "2024-07-31",
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-chat-v3.1',
   provider: 'openrouter',
   name: 'DeepSeek: DeepSeek V3.1',
   contextWindow: 163840,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 147456,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.21,
-      output: 0.7899999999999999
+      input: 0.25,
+      output: 0.95,
+      cached: 0.13
     }
   },
   metrics: {
-    timeToFirstToken: 0.37
+    timeToFirstToken: 324,
+    tokensPerSecond: 91
   },
   metadata: {
     description: "DeepSeek-V3.1 is a large hybrid reasoning model (671B parameters, 37B active) that supports both thinking and non-thinking modes via prompt templates. It extends the DeepSeek-V3 base with a two-phase long-context...",
     defaultParameters: {},
     canonicalSlug: "deepseek/deepseek-chat-v3.1",
     huggingFaceId: "deepseek-ai/DeepSeek-V3.1",
-    created: 1755779628
-  }
-}, {
-  id: 'deepseek/deepseek-r1',
-  provider: 'openrouter',
-  name: 'DeepSeek: R1',
-  contextWindow: 163840,
-  maxOutputTokens: 16000,
-  tier: 'flagship',
-  tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.7,
-      output: 2.5
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.09
-  },
-  metadata: {
-    description: "DeepSeek R1 is here: Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active in an inference pass....",
-    defaultParameters: {},
-    canonicalSlug: "deepseek/deepseek-r1",
-    huggingFaceId: "deepseek-ai/DeepSeek-R1",
-    created: 1737381095
+    created: 1755779628,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-r1-0528',
@@ -1481,94 +3370,77 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.5,
-      output: 2.1500000000000004
+      output: 2.1500000000000004,
+      cached: 0.35
     }
   },
   metrics: {
-    timeToFirstToken: 0.63
+    timeToFirstToken: 754,
+    tokensPerSecond: 45
   },
   metadata: {
     description: "May 28th update to the [original DeepSeek R1](/deepseek/deepseek-r1) Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active...",
     defaultParameters: {},
     canonicalSlug: "deepseek/deepseek-r1-0528",
     huggingFaceId: "deepseek-ai/DeepSeek-R1-0528",
-    created: 1748455170
-  }
-}, {
-  id: 'deepseek/deepseek-r1-distill-llama-70b',
-  provider: 'openrouter',
-  name: 'DeepSeek: R1 Distill Llama 70B',
-  contextWindow: 128000,
-  maxOutputTokens: 8192,
-  tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 0.7999999999999999,
-      output: 0.7999999999999999
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.37
-  },
-  metadata: {
-    description: "DeepSeek R1 Distill Llama 70B is a distilled large language model based on [Llama-3.3-70B-Instruct](/meta-llama/llama-3.3-70b-instruct), using outputs from [DeepSeek R1](/deepseek/deepseek-r1). The model combines advanced distillation techniques to achieve high performance across...",
-    defaultParameters: {},
-    canonicalSlug: "deepseek/deepseek-r1-distill-llama-70b",
-    huggingFaceId: "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
-    created: 1737663169
+    created: 1748455170,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-v3.1-terminus',
   provider: 'openrouter',
   name: 'DeepSeek: DeepSeek V3.1 Terminus',
   contextWindow: 163840,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 147456,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.27,
-      output: 0.95
+      output: 1
     }
   },
   metrics: {
-    timeToFirstToken: 0.74
+    timeToFirstToken: 1951,
+    tokensPerSecond: 17
   },
   metadata: {
     description: "DeepSeek-V3.1 Terminus is an update to [DeepSeek V3.1](/deepseek/deepseek-chat-v3.1) that maintains the model's original capabilities while addressing issues reported by users, including language consistency and agent capabilities, further optimizing the model's...",
     defaultParameters: {},
     canonicalSlug: "deepseek/deepseek-v3.1-terminus",
     huggingFaceId: "deepseek-ai/DeepSeek-V3.1-Terminus",
-    created: 1758548275
+    created: 1758548275,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-v3.2',
   provider: 'openrouter',
   name: 'DeepSeek: DeepSeek V3.2',
-  contextWindow: 131072,
-  maxOutputTokens: 64000,
+  contextWindow: 163840,
+  maxOutputTokens: 147456,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.2288,
-      output: 0.3432
+      input: 0.26,
+      output: 0.38,
+      cached: 0.13
     }
   },
   metrics: {
-    timeToFirstToken: 0.33
+    timeToFirstToken: 1030,
+    tokensPerSecond: 74
   },
   metadata: {
     description: "DeepSeek-V3.2 is a large language model designed to harmonize high computational efficiency with strong reasoning and agentic tool-use performance. It introduces DeepSeek Sparse Attention (DSA), a fine-grained sparse attention mechanism...",
@@ -1578,18 +3450,19 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "deepseek/deepseek-v3.2-20251201",
     huggingFaceId: "deepseek-ai/DeepSeek-V3.2",
-    created: 1764594642
+    created: 1764594642,
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-v3.2-exp',
   provider: 'openrouter',
   name: 'DeepSeek: DeepSeek V3.2 Exp',
   contextWindow: 163840,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 147456,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.27,
@@ -1597,7 +3470,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1.31
+    timeToFirstToken: 2354,
+    tokensPerSecond: 15
   },
   metadata: {
     description: "DeepSeek-V3.2-Exp is an experimental large language model released by DeepSeek as an intermediate step between V3.1 and future architectures. It introduces DeepSeek Sparse Attention (DSA), a fine-grained sparse attention mechanism...",
@@ -1607,52 +3481,122 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "deepseek/deepseek-v3.2-exp",
     huggingFaceId: "deepseek-ai/DeepSeek-V3.2-Exp",
-    created: 1759150481
+    created: 1759150481,
+    knowledgeCutoff: "2025-07-31",
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-v4-flash',
   provider: 'openrouter',
-  name: 'DeepSeek: DeepSeek V4 Flash',
+  name: 'DeepSeek: DeepSeek V4 Flash 0423',
   contextWindow: 1048576,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 943717,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.09,
-      output: 0.18
+      input: 0.091,
+      output: 0.182,
+      cached: 0.0182
     }
   },
+  reasoningEfforts: ['none', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 0.25
+    timeToFirstToken: 525,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     defaultParameters: {},
     canonicalSlug: "deepseek/deepseek-v4-flash-20260423",
     huggingFaceId: "deepseek-ai/DeepSeek-V4-Flash",
-    created: 1777000666
+    created: 1777000666,
+    uptime: 100
+  }
+}, {
+  id: 'deepseek/deepseek-v4-flash-0731',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4 Flash 0731',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'DeepSeek',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.119,
+      output: 0.238,
+      cached: 0.0238
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 326,
+    tokensPerSecond: 132
+  },
+  metadata: {
+    description: "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
+    defaultParameters: {},
+    canonicalSlug: "deepseek/deepseek-v4-flash-20260731",
+    huggingFaceId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+    created: 1785478908,
+    voices: [],
+    uptime: 100
+  }
+}, {
+  id: 'deepseek/deepseek-v4-flash-vision-exp',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4 Flash Vision Exp',
+  contextWindow: 1048576,
+  maxOutputTokens: 262144,
+  tier: 'flagship',
+  tokenizer: 'DeepSeek',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.21559999999999999,
+      output: 0.6468,
+      cached: 0.00686
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1395,
+    tokensPerSecond: 115.5
+  },
+  metadata: {
+    description: "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
+    defaultParameters: {},
+    canonicalSlug: "deepseek/deepseek-v4-flash-vision-exp-20260821",
+    huggingFaceId: "deepseek-ai/DeepSeek-V4-Flash-Vision-Exp",
+    created: 1787311563,
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-v4-pro',
   provider: 'openrouter',
-  name: 'DeepSeek: DeepSeek V4 Pro',
+  name: 'DeepSeek: DeepSeek V4 Pro 0423',
   contextWindow: 1048576,
   maxOutputTokens: 384000,
   tier: 'flagship',
   tokenizer: 'DeepSeek',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.435,
-      output: 0.87
+      input: 0.9483,
+      output: 1.8966,
+      cached: 0.079025
     }
   },
+  reasoningEfforts: ['none', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 0.47
+    timeToFirstToken: 933,
+    tokensPerSecond: 79
   },
   metadata: {
     description: "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
@@ -1662,7 +3606,805 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "deepseek/deepseek-v4-pro-20260423",
     huggingFaceId: "deepseek-ai/DeepSeek-V4-Pro",
-    created: 1777000679
+    created: 1777000679,
+    uptime: 100
+  }
+}, {
+  id: 'deepseek/deepseek-v4-pro-0813',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4 Pro 0813',
+  contextWindow: 1048576,
+  maxOutputTokens: 393216,
+  tier: 'flagship',
+  tokenizer: 'DeepSeek',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.1035,
+      output: 4,
+      cached: 0.09999999999999999
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 435,
+    tokensPerSecond: 119
+  },
+  metadata: {
+    description: "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 1
+    },
+    canonicalSlug: "deepseek/deepseek-v4-pro-20260813",
+    huggingFaceId: "deepseek-ai/DeepSeek-V4-Pro-0813",
+    created: 1786549364,
+    uptime: 100
+  }
+}, {
+  id: 'deepseek/deepseek-v4.1-flash',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4.1 Flash',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'DeepSeek',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.045,
+      output: 0.5,
+      cached: 0.006
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 229,
+    tokensPerSecond: 241
+  },
+  metadata: {
+    description: "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
+    defaultParameters: {},
+    canonicalSlug: "deepseek/deepseek-v4.1-flash-20260910",
+    huggingFaceId: "deepseek-ai/DeepSeek-V4.1-Flash",
+    created: 1789021285,
+    uptime: 100
+  }
+}, {
+  id: 'deepseek/deepseek-v4.1-flash-1017',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4.1 Flash 1017',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'DeepSeek',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.022,
+      output: 0.192,
+      cached: 0.004
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 252,
+    tokensPerSecond: 240
+  },
+  metadata: {
+    description: "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
+    defaultParameters: {},
+    canonicalSlug: "deepseek/deepseek-v4.1-flash-20261017",
+    huggingFaceId: "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    created: 1792225624,
+    uptime: 100
+  }
+}, {
+  id: 'deepseek/deepseek-v4.1-flash:batch',
+  provider: 'openrouter',
+  name: 'DeepSeek: DeepSeek V4.1 Flash (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 384000,
+  tier: 'flagship',
+  tokenizer: 'DeepSeek',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.15,
+      cached: 0.004
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metadata: {
+    description: "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
+    defaultParameters: {},
+    canonicalSlug: "deepseek/deepseek-v4.1-flash-20260910",
+    huggingFaceId: "deepseek-ai/DeepSeek-V4.1-Flash",
+    created: 1789021285
+  }
+}, {
+  id: 'dots-studio/dots-3-note-preview:free',
+  provider: 'openrouter',
+  name: 'Dots Studio: Dots3-Note Preview (free)',
+  contextWindow: 512000,
+  maxOutputTokens: 460800,
+  tier: 'experimental',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  retiresAt: '2026-12-31',
+  metrics: {
+    timeToFirstToken: 1395,
+    tokensPerSecond: 52
+  },
+  metadata: {
+    description: "Dots3-Note Preview is an open-weight mixture-of-experts model from Dots Studio, with 16B active parameters out of 280B total. It is the lightest model in the Dots 3 family and is...",
+    defaultParameters: {},
+    canonicalSlug: "dots-studio/dots-3-note-preview-20260813",
+    created: 1786680361,
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/eleven-flash-v2',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven Flash v2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 40
+    }
+  },
+  metadata: {
+    description: "Eleven Flash v2 is an English-only, ultra-low-latency text-to-speech model from ElevenLabs. It is suited for conversational and real-time English use cases, and has a 30,000-character request limit.",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-flash-v2-20260930",
+    created: 1791386207,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ]
+  }
+}, {
+  id: 'elevenlabs/eleven-flash-v2.5',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven Flash v2.5',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 40
+    }
+  },
+  metadata: {
+    description: "Eleven Flash v2.5 is an ultra-low-latency text-to-speech model from ElevenLabs. It is suited for conversational and real-time use cases, supports 32 languages, and has a 40,000-character request limit.",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-flash-v2.5-20260930",
+    created: 1791386250,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/eleven-multilingual-v2',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven Multilingual v2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 80
+    }
+  },
+  metadata: {
+    description: "Eleven Multilingual v2 is a text-to-speech model from ElevenLabs. It is suited for lifelike, consistent long-form narration such as voice-overs and audiobooks, supports 29 languages, and has a 10,000-character request...",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-multilingual-v2-20260930",
+    created: 1791386232,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/eleven-turbo-v2',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven Turbo v2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 40
+    }
+  },
+  metadata: {
+    description: "Eleven Turbo v2 is an English-only, low-latency text-to-speech model from ElevenLabs. It is suited for developer use cases where speed matters and only English is needed, and has a 30,000-character...",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-turbo-v2-20260930",
+    created: 1791386238,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ]
+  }
+}, {
+  id: 'elevenlabs/eleven-turbo-v2.5',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven Turbo v2.5',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 40
+    }
+  },
+  metadata: {
+    description: "Eleven Turbo v2.5 is a low-latency text-to-speech model from ElevenLabs. It balances quality and speed for developer use cases that need non-English languages, supports 32 languages, and has a 40,000-character...",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-turbo-v2.5-20260930",
+    created: 1791386218,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ]
+  }
+}, {
+  id: 'elevenlabs/eleven-v3',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven v3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 80
+    }
+  },
+  metadata: {
+    description: "Eleven v3 is a text-to-speech model from ElevenLabs. It produces emotionally rich, highly expressive speech with inline audio tags, supports 70+ languages, and has a 5,000-character request limit.",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-v3-20260930",
+    created: 1791386272,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/eleven-v3-conversational',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven v3 Conversational',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 40
+    }
+  },
+  metadata: {
+    description: "Eleven v3 Conversational is a text-to-speech model from ElevenLabs, a variant of Eleven v3 optimized for natural dialogue in conversational agents. It supports 70+ languages and has a 5,000-character request...",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-v3-conversational-20260930",
+    created: 1791386266,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/eleven-v4',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven v4',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 80
+    }
+  },
+  metadata: {
+    description: "Eleven v4 is a text-to-speech model from ElevenLabs. It is ElevenLabs' most expressive model, with inline audio tags for emotional and delivery control, support for 90+ languages, and a 10,000-character...",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-v4-20260930",
+    created: 1791386285,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/eleven-v4-turbo',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Eleven v4 Turbo',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 40
+    }
+  },
+  metadata: {
+    description: "Eleven v4 Turbo is a low-latency text-to-speech model from ElevenLabs. It keeps Eleven v4's expressive delivery and audio tags while being tuned for faster generation, with support for 90+ languages...",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/eleven-v4-turbo-20260930",
+    created: 1791386280,
+    voices: [
+      "george",
+      "sarah",
+      "adam",
+      "alice",
+      "bella",
+      "bill",
+      "brian",
+      "callum",
+      "charlie",
+      "chris",
+      "daniel",
+      "eric",
+      "harry",
+      "jessica",
+      "laura",
+      "liam",
+      "lily",
+      "matilda",
+      "river",
+      "roger",
+      "will"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/scribe-v2',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Scribe v2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 61.111111111099994
+    }
+  },
+  metadata: {
+    description: "ElevenLabs Scribe v2 is a speech-to-text model that transcribes audio in 90+ languages with word-level timestamps, optional speaker diarization, and audio-event tagging.",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/scribe-v2-20260929",
+    created: 1791386190,
+    uptime: 100
+  }
+}, {
+  id: 'elevenlabs/scribe-v2-medical',
+  provider: 'openrouter',
+  name: 'ElevenLabs: Scribe v2 Medical',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 61.111111111099994
+    }
+  },
+  metadata: {
+    description: "ElevenLabs Scribe v2 Medical is a speech-to-text model tuned for clinical and medical terminology, with word-level timestamps, optional speaker diarization, and audio-event tagging.",
+    defaultParameters: {},
+    canonicalSlug: "elevenlabs/scribe-v2-medical-20260929",
+    created: 1791385619
+  }
+}, {
+  id: 'elorian/glimpse',
+  provider: 'openrouter',
+  name: 'Elorian: Glimpse',
+  contextWindow: 262144,
+  maxOutputTokens: 256000,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 3,
+      cached: 0.06
+    }
+  },
+  metrics: {
+    timeToFirstToken: 183.5,
+    tokensPerSecond: 180
+  },
+  metadata: {
+    description: "Glimpse is a multimodal visual reasoning model from Elorian, built for visual understanding and complex visual reasoning in the physical world. It reasons directly over images and video rather than...",
+    defaultParameters: {},
+    canonicalSlug: "elorian/glimpse-20261016",
+    created: 1792206629,
+    uptime: 100
+  }
+}, {
+  id: 'fireworks/ember-1',
+  provider: 'openrouter',
+  name: 'Fireworks: Ember-1',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 3,
+      output: 15,
+      cached: 0.3
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1280,
+    tokensPerSecond: 59
+  },
+  metadata: {
+    description: "Ember-1 is a specialized reasoning model from Fireworks Research, built on [Kimi K3](https://openrouter.ai/moonshotai/kimi-k3). It is designed to make every token go further: it produces shorter reasoning traces, using roughly 40%...",
+    defaultParameters: {},
+    canonicalSlug: "fireworks/ember-1-20260923",
+    created: 1790208461
+  }
+}, {
+  id: 'fish-audio/drama-3',
+  provider: 'openrouter',
+  name: 'Fish Audio: Drama 3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 2
+    }
+  },
+  metadata: {
+    description: "Drama 3 is a text-to-speech model from Fish Audio built for directed voice performances. You write the direction in plain language in square brackets before a line, such as `[nervous,...",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/drama-3-20261013",
+    created: 1791910176,
+    uptime: 100
+  }
+}, {
+  id: 'fish-audio/s1',
+  provider: 'openrouter',
+  name: 'Fish Audio: S1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  metadata: {
+    description: "S1 is a multilingual text-to-speech model from Fish Audio. It is suited for voice applications that need broad emotional expression, using parenthetical controls to guide speaking style across its supported...",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/s1-20260729",
+    created: 1785353734
+  }
+}, {
+  id: 'fish-audio/s2-pro',
+  provider: 'openrouter',
+  name: 'Fish Audio: S2 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  metadata: {
+    description: "S2 Pro is a multilingual text-to-speech model from Fish Audio. It is suited for expressive narration and multi-speaker dialogue, with natural-language controls for speaking style and emotion.",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/s2-pro-20260729",
+    created: 1785353734
+  }
+}, {
+  id: 'fish-audio/s2.1-pro',
+  provider: 'openrouter',
+  name: 'Fish Audio: S2.1 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  metadata: {
+    description: "S2.1 Pro is a production-oriented text-to-speech model from Fish Audio. It is suited for multilingual voice applications, expressive narration, and dialogue synthesis, with open-ended natural-language controls for speaking style and...",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/s2.1-pro-20260729",
+    created: 1785353732,
+    uptime: 100
+  }
+}, {
+  id: 'fish-audio/s2.1-pro-free:free',
+  provider: 'openrouter',
+  name: 'Fish Audio: S2.1 Pro Free (free)',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "S2.1 Pro Free is the no-cost variant of Fish Audio S2.1 Pro, intended for testing, prototyping, and low-volume applications. It provides the same synthesis capabilities without production latency or availability...",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/s2.1-pro-free-20260729",
+    created: 1785353733,
+    uptime: 100
+  }
+}, {
+  id: 'fish-audio/transcribe-1',
+  provider: 'openrouter',
+  name: 'Fish Audio: Transcribe 1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 100
+    }
+  },
+  metadata: {
+    description: "Transcribe 1 is a speech-to-text model from Fish Audio. It is suited for audio transcription with automatic language detection and can return timestamped word-level segments when alignment details are requested.",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/transcribe-1-20260729",
+    created: 1785353735,
+    uptime: 100
+  }
+}, {
+  id: 'fish-audio/transcribe-1-pro',
+  provider: 'openrouter',
+  name: 'Fish Audio: Transcribe 1 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 100
+    }
+  },
+  metadata: {
+    description: "Transcribe 1 Pro is a speech-to-text model from Fish Audio tuned for interviews, meetings, and podcasts. It labels speakers with inline `speaker` markers, preserves emotion and vocal-event cues such as...",
+    defaultParameters: {},
+    canonicalSlug: "fish-audio/transcribe-1-pro-20260924",
+    created: 1790278301,
+    uptime: 100
+  }
+}, {
+  id: 'google/chirp-3',
+  provider: 'openrouter',
+  name: 'Google: Chirp 3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 266.666666667
+    }
+  },
+  metadata: {
+    description: "Chirp 3 is Google's latest multilingual speech-to-text model. It offers enhanced transcription accuracy across 24 GA languages and 77+ preview languages, with support for automatic language detection, automatic punctuation, and...",
+    defaultParameters: {},
+    canonicalSlug: "google/chirp-3",
+    created: 1777997783,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-2.5-flash',
@@ -1672,61 +4414,77 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65535,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'vision', 'hearing', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 2.5
+      output: 2.5,
+      cached: 0.03,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 0.3
+    audio: {
+      input: 1
     },
     reasoning: {
       output: 2.5
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 0.52
+    timeToFirstToken: 436,
+    tokensPerSecond: 164
   },
   metadata: {
     description: "Gemini 2.5 Flash is Google's state-of-the-art workhorse model, specifically designed for advanced reasoning, coding, mathematics, and scientific tasks. It includes built-in \"thinking\" capabilities, enabling it to provide responses with greater...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-2.5-flash",
     huggingFaceId: "",
-    created: 1750172488
+    created: 1750172488,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemini-2.5-flash-image',
   provider: 'openrouter',
   name: 'Google: Nano Banana (Gemini 2.5 Flash Image)',
   contextWindow: 32768,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 8192,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'image', 'vision', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'image', 'chat', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 2.5
+      output: 2.5,
+      cached: 0.03,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 0.3
+    audio: {
+      input: 1
     },
     reasoning: {
       output: 2.5
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 5.3
+    timeToFirstToken: 14556,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "Gemini 2.5 Flash Image, a.k.a. \"Nano Banana,\" is now generally available. It is a state of the art image generation model with contextual understanding. It is capable of image generation,...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-2.5-flash-image",
     huggingFaceId: "",
-    created: 1759870431
+    created: 1759870431,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemini-2.5-flash-lite',
@@ -1736,29 +4494,37 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65535,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.09999999999999999,
-      output: 0.39999999999999997
+      output: 0.39999999999999997,
+      cached: 0.01,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 0.09999999999999999
+    audio: {
+      input: 0.3
     },
     reasoning: {
       output: 0.39999999999999997
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 0.36
+    timeToFirstToken: 343,
+    tokensPerSecond: 181
   },
   metadata: {
     description: "Gemini 2.5 Flash-Lite is a lightweight reasoning model in the Gemini 2.5 family, optimized for ultra-low latency and cost efficiency. It offers improved throughput, faster token generation, and better performance...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-2.5-flash-lite",
     huggingFaceId: "",
-    created: 1753200276
+    created: 1753200276,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemini-2.5-pro',
@@ -1768,29 +4534,37 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.25,
-      output: 10
+      output: 10,
+      cached: 0.125,
+      cacheWrite: 0.375
     },
-    image: {
+    audio: {
       input: 1.25
     },
     reasoning: {
       output: 10
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 1.18
+    timeToFirstToken: 2752,
+    tokensPerSecond: 89
   },
   metadata: {
     description: "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-2.5-pro",
     huggingFaceId: "",
-    created: 1750169544
+    created: 1750169544,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemini-2.5-pro-preview',
@@ -1800,87 +4574,104 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'vision', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.25,
-      output: 10
+      output: 10,
+      cached: 0.125,
+      cacheWrite: 0.375
     },
-    image: {
+    audio: {
       input: 1.25
     },
     reasoning: {
       output: 10
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 1.18
+    timeToFirstToken: 2752,
+    tokensPerSecond: 89
   },
   metadata: {
     description: "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-2.5-pro-preview-06-05",
     huggingFaceId: "",
-    created: 1749137257
-  }
-}, {
-  id: 'google/gemini-2.5-pro-preview-05-06',
-  provider: 'openrouter',
-  name: 'Google: Gemini 2.5 Pro Preview 05-06',
-  contextWindow: 1048576,
-  maxOutputTokens: 65535,
-  tier: 'experimental',
-  tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10
-    },
-    image: {
-      input: 1.25
-    },
-    reasoning: {
-      output: 10
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.18
-  },
-  metadata: {
-    description: "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
-    defaultParameters: {},
-    canonicalSlug: "google/gemini-2.5-pro-preview-03-25",
-    huggingFaceId: "",
-    created: 1746578513
+    created: 1749137257,
+    knowledgeCutoff: "2025-01-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3-flash-preview',
   provider: 'openrouter',
   name: 'Google: Gemini 3 Flash Preview',
   contextWindow: 1048576,
-  maxOutputTokens: 65535,
+  maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.5,
-      output: 3
+      output: 3,
+      cached: 0.049999999999999996,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 0.5
+    audio: {
+      input: 1
     },
     reasoning: {
       output: 3
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1.17
+    timeToFirstToken: 1271,
+    tokensPerSecond: 92
   },
+  metadata: {
+    description: "Gemini 3 Flash Preview is a high speed, high value thinking model designed for agentic workflows, multi turn chat, and coding assistance. It delivers near Pro level reasoning and tool...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3-flash-preview-20251217",
+    huggingFaceId: "",
+    created: 1765987078,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3-flash-preview:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3 Flash Preview (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'experimental',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.25,
+      output: 1.5
+    },
+    audio: {
+      input: 0.5
+    },
+    reasoning: {
+      output: 1.5
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metadata: {
     description: "Gemini 3 Flash Preview is a high speed, high value thinking model designed for agentic workflows, multi turn chat, and coding assistance. It delivers near Pro level reasoning and tool...",
     defaultParameters: {},
@@ -1892,32 +4683,39 @@ export const openrouterModels: ModelInfo[] = [{
   id: 'google/gemini-3-pro-image',
   provider: 'openrouter',
   name: 'Google: Nano Banana Pro (Gemini 3 Pro Image)',
-  contextWindow: 65536,
+  contextWindow: 131072,
   maxOutputTokens: 32768,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'image', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'image', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 12
+      output: 12,
+      cached: 0.19999999999999998,
+      cacheWrite: 0.375
     },
-    image: {
+    audio: {
       input: 2
     },
     reasoning: {
       output: 12
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 3.17
+    timeToFirstToken: 25438,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "Nano Banana Pro is Google’s most advanced image-generation and editing model, built on Gemini 3 Pro. It extends the original Nano Banana with significantly improved multimodal reasoning, real-world grounding, and...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3-pro-image-20260528",
-    created: 1781754054
+    created: 1781754054,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3-pro-image-preview',
@@ -1927,29 +4725,36 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'image', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 12
+      output: 12,
+      cached: 0.19999999999999998,
+      cacheWrite: 0.375
     },
-    image: {
+    audio: {
       input: 2
     },
     reasoning: {
       output: 12
+    },
+    tools: {
+      web_search: 0.014
     }
   },
   metrics: {
-    timeToFirstToken: 3.15
+    timeToFirstToken: 21077,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "Nano Banana Pro is Google’s most advanced image-generation and editing model, built on Gemini 3 Pro. It extends the original Nano Banana with significantly improved multimodal reasoning, real-world grounding, and...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3-pro-image-preview-20251120",
     huggingFaceId: "",
-    created: 1763653797
+    created: 1763653797,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-flash-image',
@@ -1959,48 +4764,60 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'image', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.5,
       output: 3
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 6.43
+    timeToFirstToken: 12854,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "Gemini 3.1 Flash Image, a.k.a. \"Nano Banana 2,\" is Google’s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines advanced...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-flash-image-20260528",
-    created: 1781754065
+    created: 1781754065,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-flash-image-preview',
   provider: 'openrouter',
   name: 'Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)',
-  contextWindow: 131072,
-  maxOutputTokens: 32768,
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'image', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.5,
       output: 3
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 6.56
+    timeToFirstToken: 16503,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "Gemini 3.1 Flash Image Preview, a.k.a. \"Nano Banana 2,\" is Google’s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-flash-image-preview-20260226",
     huggingFaceId: "",
-    created: 1772119558
+    created: 1772119558,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-flash-lite',
@@ -2010,53 +4827,68 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.25,
-      output: 1.5
+      output: 1.5,
+      cached: 0.024999999999999998,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 0.25
+    audio: {
+      input: 0.5
     },
     reasoning: {
       output: 1.5
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.54
+    timeToFirstToken: 552.5,
+    tokensPerSecond: 172
   },
   metadata: {
     description: "Gemini 3.1 Flash Lite is Google’s GA high-efficiency multimodal model optimized for low-latency, high-volume workloads. It supports text, image, video, audio, and PDF inputs, and is designed for lightweight agentic...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-flash-lite-20260507",
-    created: 1778168828
+    created: 1778168828,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-flash-lite-image',
   provider: 'openrouter',
   name: 'Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)',
   contextWindow: 65536,
-  maxOutputTokens: 66000,
+  maxOutputTokens: 58982,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['vision', 'image', 'chat', 'reasoning', 'json', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.25,
       output: 1.5
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 2.44
+    timeToFirstToken: 6185,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image) is Google's fastest, most cost-efficient Gemini image model, built for high-velocity developer pipelines and rapid-fire visual exploration. It delivers text-to-image generation...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-flash-lite-image-20260630",
-    created: 1782837225
+    created: 1782837225,
+    knowledgeCutoff: "2025-01-01",
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-flash-lite-preview',
@@ -2066,29 +4898,124 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.25,
-      output: 1.5
+      output: 1.5,
+      cached: 0.024999999999999998,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 0.25
+    audio: {
+      input: 0.5
     },
     reasoning: {
       output: 1.5
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.58
+    timeToFirstToken: 433,
+    tokensPerSecond: 156
   },
   metadata: {
     description: "Gemini 3.1 Flash Lite Preview is Google's high-efficiency model optimized for high-volume use cases. It outperforms Gemini 2.5 Flash Lite on overall quality and approaches Gemini 2.5 Flash performance across...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-flash-lite-preview-20260303",
     huggingFaceId: "",
-    created: 1772512673
+    created: 1772512673,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.1-flash-lite:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.1 Flash Lite (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.125,
+      output: 0.75,
+      cached: 0.012499999999999999
+    },
+    audio: {
+      input: 0.25
+    },
+    reasoning: {
+      output: 0.75
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.1 Flash Lite is Google’s GA high-efficiency multimodal model optimized for low-latency, high-volume workloads. It supports text, image, video, audio, and PDF inputs, and is designed for lightweight agentic...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.1-flash-lite-20260507",
+    created: 1778168828
+  }
+}, {
+  id: 'google/gemini-3.1-flash-tts-preview',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.1 Flash TTS Preview',
+  contextWindow: 32768,
+  maxOutputTokens: 16384,
+  tier: 'experimental',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 20
+    }
+  },
+  metadata: {
+    description: "Gemini 3.1 Flash TTS Preview is a text-to-speech model from Google, and a substantial generational step up from Gemini 2.5 Flash TTS. It takes text input and produces audio output...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.1-flash-tts-preview",
+    created: 1776999308,
+    voices: [
+      "Zephyr",
+      "Puck",
+      "Charon",
+      "Kore",
+      "Fenrir",
+      "Leda",
+      "Orus",
+      "Aoede",
+      "Callirrhoe",
+      "Autonoe",
+      "Enceladus",
+      "Iapetus",
+      "Umbriel",
+      "Algieba",
+      "Despina",
+      "Erinome",
+      "Algenib",
+      "Rasalgethi",
+      "Laomedeia",
+      "Achernar",
+      "Alnilam",
+      "Schedar",
+      "Gacrux",
+      "Pulcherrima",
+      "Achird",
+      "Zubenelgenubi",
+      "Vindemiatrix",
+      "Sadachbia",
+      "Sadaltager",
+      "Sulafat"
+    ],
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-pro-preview',
@@ -2098,60 +5025,108 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['hearing', 'files', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 12
+      output: 12,
+      cached: 0.19999999999999998,
+      cacheWrite: 0.375
     },
-    image: {
+    audio: {
       input: 2
     },
     reasoning: {
       output: 12
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2.92
+    timeToFirstToken: 1521.5,
+    tokensPerSecond: 224.5
   },
   metadata: {
     description: "Gemini 3.1 Pro Preview is Google’s frontier reasoning model, delivering enhanced software engineering performance, improved agentic reliability, and more efficient token usage across complex workflows. Building on the multimodal foundation...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-pro-preview-20260219",
     huggingFaceId: "",
-    created: 1771509627
+    created: 1771509627,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-3.1-pro-preview-customtools',
   provider: 'openrouter',
   name: 'Google: Gemini 3.1 Pro Preview Custom Tools',
-  contextWindow: 1048756,
+  contextWindow: 1048576,
   maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['hearing', 'vision', 'videoInput', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 12
+      output: 12,
+      cached: 0.19999999999999998,
+      cacheWrite: 0.375
     },
-    image: {
+    audio: {
       input: 2
     },
     reasoning: {
       output: 12
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 3.29
+    timeToFirstToken: 2463.5,
+    tokensPerSecond: 141
   },
   metadata: {
     description: "Gemini 3.1 Pro Preview Custom Tools is a variant of Gemini 3.1 Pro that improves tool selection behavior by preventing overuse of a general bash tool when more efficient third-party...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.1-pro-preview-customtools-20260219",
     created: 1772045923
+  }
+}, {
+  id: 'google/gemini-3.1-pro-preview:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.1 Pro Preview (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'experimental',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['hearing', 'files', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 6
+    },
+    audio: {
+      input: 1
+    },
+    reasoning: {
+      output: 6
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.1 Pro Preview is Google’s frontier reasoning model, delivering enhanced software engineering performance, improved agentic reliability, and more efficient token usage across complex workflows. Building on the multimodal foundation...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.1-pro-preview-20260219",
+    huggingFaceId: "",
+    created: 1771509627
   }
 }, {
   id: 'google/gemini-3.5-flash',
@@ -2161,28 +5136,689 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'efficient',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.5,
-      output: 9
+      output: 9,
+      cached: 0.15,
+      cacheWrite: 0.0833333333333333
     },
-    image: {
-      input: 1.5
+    audio: {
+      input: 3
     },
     reasoning: {
       output: 9
+    },
+    tools: {
+      web_search: 0.014
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1.24
+    timeToFirstToken: 884,
+    tokensPerSecond: 154.5
   },
   metadata: {
     description: "Gemini 3.5 Flash is Google's high-efficiency multimodal model, bringing near-Pro level coding and reasoning at Flash-tier cost and speed. It is highly optimized for coding proficiency and parallel agentic execution...",
     defaultParameters: {},
     canonicalSlug: "google/gemini-3.5-flash-20260519",
-    created: 1779193800
+    created: 1779193800,
+    knowledgeCutoff: "2025-01-01",
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.5-flash-lite',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.5 Flash Lite',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.3,
+      output: 2.5,
+      cached: 0.03,
+      cacheWrite: 0.0833333333333333
+    },
+    audio: {
+      input: 0.3
+    },
+    reasoning: {
+      output: 2.5
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 662,
+    tokensPerSecond: 196
+  },
+  metadata: {
+    description: "Gemini 3.5 Flash Lite is a high-efficiency model from Google with upgraded agentic capabilities. It is suited for subagents that execute focused tasks within complex, multi-agent workflows.",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.5-flash-lite-20260721",
+    created: 1784646726,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.5-flash-lite:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.5 Flash Lite (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 1.25,
+      cached: 0.015
+    },
+    audio: {
+      input: 0.15
+    },
+    reasoning: {
+      output: 1.25
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.5 Flash Lite is a high-efficiency model from Google with upgraded agentic capabilities. It is suited for subagents that execute focused tasks within complex, multi-agent workflows.",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.5-flash-lite-20260721",
+    created: 1784646726
+  }
+}, {
+  id: 'google/gemini-3.5-flash:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.5 Flash (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 4.5,
+      cached: 0.075
+    },
+    audio: {
+      input: 1.5
+    },
+    reasoning: {
+      output: 4.5
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.5 Flash is Google's high-efficiency multimodal model, bringing near-Pro level coding and reasoning at Flash-tier cost and speed. It is highly optimized for coding proficiency and parallel agentic execution...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.5-flash-20260519",
+    created: 1779193800,
+    knowledgeCutoff: "2025-01-01"
+  }
+}, {
+  id: 'google/gemini-3.5-transcribe',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.5 Transcribe',
+  contextWindow: 98304,
+  maxOutputTokens: 32768,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 12
+    }
+  },
+  metadata: {
+    description: "Gemini 3.5 Transcribe is a speech-to-text model from Google. It is suited for synchronous transcription that needs word-level timestamps or speaker diarization, with support for up to eight speakers. Audio...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.5-transcribe-20260827",
+    created: 1790295820,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.6-flash',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.6 Flash',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 3.75,
+      cached: 0.075,
+      cacheWrite: 0.0416666666666667
+    },
+    audio: {
+      input: 0.75
+    },
+    reasoning: {
+      output: 3.75
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 1276,
+    tokensPerSecond: 185
+  },
+  metadata: {
+    description: "Gemini 3.6 Flash is a high-efficiency model from Google for coding, agentic workflows, and web and app development. It is designed to produce polished outputs with fewer unnecessary edits and...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.6-flash-20260721",
+    created: 1784646733,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.6-flash:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.6 Flash (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.375,
+      output: 1.875,
+      cached: 0.0375,
+      cacheWrite: 0.0416666666666667
+    },
+    audio: {
+      input: 0.375
+    },
+    reasoning: {
+      output: 1.875
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.6 Flash is a high-efficiency model from Google for coding, agentic workflows, and web and app development. It is designed to produce polished outputs with fewer unnecessary edits and...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.6-flash-20260721",
+    created: 1784646733
+  }
+}, {
+  id: 'google/gemini-3.7-flash',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.7 Flash',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 3.75,
+      cached: 0.075,
+      cacheWrite: 0.0416666666666667
+    },
+    audio: {
+      input: 0.75
+    },
+    reasoning: {
+      output: 3.75
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 1753,
+    tokensPerSecond: 93.5
+  },
+  metadata: {
+    description: "Gemini 3.7 Flash is a multimodal model from Google for fast agentic workflows, coding, and complex multi-step reasoning. It is designed for tasks that require responsive performance and reliable multi-step...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.7-flash-20260813",
+    created: 1786640581,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.7-flash:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.7 Flash (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.375,
+      output: 1.875,
+      cached: 0.0375,
+      cacheWrite: 0.0416666666666667
+    },
+    audio: {
+      input: 0.375
+    },
+    reasoning: {
+      output: 1.875
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.7 Flash is a multimodal model from Google for fast agentic workflows, coding, and complex multi-step reasoning. It is designed for tasks that require responsive performance and reliable multi-step...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.7-flash-20260813",
+    created: 1786640581
+  }
+}, {
+  id: 'google/gemini-3.8-flash',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.8 Flash',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 3.75,
+      cached: 0.075,
+      cacheWrite: 0.0416666666666667
+    },
+    audio: {
+      input: 0.75
+    },
+    reasoning: {
+      output: 3.75
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 2196,
+    tokensPerSecond: 87
+  },
+  metadata: {
+    description: "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.8-flash-20260902",
+    created: 1788362056,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.8-flash-lite-tts',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.8 Flash Lite TTS',
+  contextWindow: 32768,
+  maxOutputTokens: 16384,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 6
+    }
+  },
+  metadata: {
+    description: "Gemini 3.8 Flash Lite TTS is a text-to-speech model from Google and the fast, high-throughput member of the 3.8 TTS family alongside [Gemini 3.8 Flash TTS](https://openrouter.ai/google/gemini-3.8-flash-tts). It is suited for...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.8-flash-lite-tts-20260922",
+    created: 1790200276,
+    voices: [
+      "Zephyr",
+      "Puck",
+      "Charon",
+      "Kore",
+      "Fenrir",
+      "Leda",
+      "Orus",
+      "Aoede",
+      "Callirrhoe",
+      "Autonoe",
+      "Enceladus",
+      "Iapetus",
+      "Umbriel",
+      "Algieba",
+      "Despina",
+      "Erinome",
+      "Algenib",
+      "Rasalgethi",
+      "Laomedeia",
+      "Achernar",
+      "Alnilam",
+      "Schedar",
+      "Gacrux",
+      "Pulcherrima",
+      "Achird",
+      "Zubenelgenubi",
+      "Vindemiatrix",
+      "Sadachbia",
+      "Sadaltager",
+      "Sulafat"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.8-flash-tts',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.8 Flash TTS',
+  contextWindow: 32768,
+  maxOutputTokens: 16384,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 9
+    }
+  },
+  metadata: {
+    description: "Gemini 3.8 Flash TTS is a text-to-speech model from Google and the successor to [Gemini 3.1 Flash TTS Preview](https://openrouter.ai/google/gemini-3.1-flash-tts-preview). It is the creative tier of the 3.8 TTS family, suited...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.8-flash-tts-20260922",
+    created: 1790200266,
+    voices: [
+      "Zephyr",
+      "Puck",
+      "Charon",
+      "Kore",
+      "Fenrir",
+      "Leda",
+      "Orus",
+      "Aoede",
+      "Callirrhoe",
+      "Autonoe",
+      "Enceladus",
+      "Iapetus",
+      "Umbriel",
+      "Algieba",
+      "Despina",
+      "Erinome",
+      "Algenib",
+      "Rasalgethi",
+      "Laomedeia",
+      "Achernar",
+      "Alnilam",
+      "Schedar",
+      "Gacrux",
+      "Pulcherrima",
+      "Achird",
+      "Zubenelgenubi",
+      "Vindemiatrix",
+      "Sadachbia",
+      "Sadaltager",
+      "Sulafat"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-3.8-flash:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 3.8 Flash (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 65536,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.375,
+      output: 1.875,
+      cached: 0.0375,
+      cacheWrite: 0.0416666666666667
+    },
+    audio: {
+      input: 0.375
+    },
+    reasoning: {
+      output: 1.875
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-3.8-flash-20260902",
+    created: 1788362056
+  }
+}, {
+  id: 'google/gemini-4-argon',
+  provider: 'openrouter',
+  name: 'Google: Gemini 4 Argon',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['hearing', 'files', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 0.1875
+    },
+    audio: {
+      input: 2
+    },
+    reasoning: {
+      output: 10
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 3325.5,
+    tokensPerSecond: 63
+  },
+  metadata: {
+    description: "Gemini 4 Argon is Google's flagship reasoning model, built for complex software engineering, deep mathematical and scientific problem solving, and autonomous multi-step agents. Google trained it to keep context across...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-4-argon-20261013",
+    created: 1791907477,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-4-argon:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini 4 Argon (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['hearing', 'files', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 0.1875
+    },
+    audio: {
+      input: 1
+    },
+    reasoning: {
+      output: 5
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    description: "Gemini 4 Argon is Google's flagship reasoning model, built for complex software engineering, deep mathematical and scientific problem solving, and autonomous multi-step agents. Google trained it to keep context across...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-4-argon-20261013",
+    created: 1791907477
+  }
+}, {
+  id: 'google/gemini-embedding-001',
+  provider: 'openrouter',
+  name: 'Google: Gemini Embedding 001',
+  contextWindow: 20000,
+  maxOutputTokens: 18000,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.15
+    }
+  },
+  metadata: {
+    description: "gemini-embedding-001 provides a unified cutting edge experience across domains, including science, legal, finance, and coding. This embedding model has consistently held a top spot on the Massive Text Embedding Benchmark...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-embedding-001",
+    huggingFaceId: "",
+    created: 1761943410,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-embedding-2',
+  provider: 'openrouter',
+  name: 'Google: Gemini Embedding 2',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'embedding']),
+  pricing: {
+    audio: {
+      input: 6.5
+    },
+    embeddings: {
+      cost: 0.19999999999999998
+    }
+  },
+  metadata: {
+    description: "Gemini Embedding 2 is Google's first multimodal embedding model. We currently support mapping text and images into a unified vector space for semantic search and retrieval-augmented generation (RAG). It supports...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-embedding-2",
+    created: 1779290135,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-embedding-2-preview',
+  provider: 'openrouter',
+  name: 'Google: Gemini Embedding 2 Preview',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'experimental',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'embedding']),
+  pricing: {
+    audio: {
+      input: 6.5
+    },
+    embeddings: {
+      cost: 0.19999999999999998
+    }
+  },
+  metadata: {
+    description: "Gemini Embedding 2 Preview is Google's first multimodal embedding model. We currently support mapping text and images into a unified vector space for semantic search and retrieval-augmented generation (RAG). It...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-embedding-2-preview",
+    created: 1776436465,
+    uptime: 100
+  }
+}, {
+  id: 'google/gemini-embedding-2:batch',
+  provider: 'openrouter',
+  name: 'Google: Gemini Embedding 2 (batch)',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'efficient',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'files', 'hearing', 'videoInput', 'embedding']),
+  pricing: {
+    audio: {
+      input: 3.25
+    },
+    embeddings: {
+      cost: 0.09999999999999999
+    }
+  },
+  metadata: {
+    description: "Gemini Embedding 2 is Google's first multimodal embedding model. We currently support mapping text and images into a unified vector space for semantic search and retrieval-augmented generation (RAG). It supports...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-embedding-2",
+    created: 1779290135
+  }
+}, {
+  id: 'google/gemini-nano-banana-2.1',
+  provider: 'openrouter',
+  name: 'Google: Nano Banana 2.1',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Gemini',
+  capabilities: new Set(['vision', 'image', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1.5,
+      output: 7.5
+    },
+    tools: {
+      web_search: 0.014
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'high'],
+  metrics: {
+    timeToFirstToken: 16474,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Nano Banana 2.1 (Gemini Nano Banana 2.1) is Google's image generation and editing model on the Flash tier, succeeding Nano Banana 2 and Nano Banana Pro. It improves product recontextualization,...",
+    defaultParameters: {},
+    canonicalSlug: "google/gemini-nano-banana-2.1-20261006",
+    created: 1791300825,
+    uptime: 100
   }
 }, {
   id: 'google/gemma-2-27b-it',
@@ -2201,14 +5837,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.87
+    timeToFirstToken: 451,
+    tokensPerSecond: 61.5
   },
   metadata: {
     description: "Gemma 2 27B by Google is an open model built from the same research and technology used to create the [Gemini models](/models?q=gemini). Gemma models are well-suited for a variety of...",
     defaultParameters: {},
     canonicalSlug: "google/gemma-2-27b-it",
     huggingFaceId: "google/gemma-2-27b-it",
-    created: 1720828800
+    created: 1720828800,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'google/gemma-3-12b-it',
@@ -2218,7 +5857,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -2227,40 +5866,47 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.54
+    timeToFirstToken: 788,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
     defaultParameters: {},
     canonicalSlug: "google/gemma-3-12b-it",
     huggingFaceId: "google/gemma-3-12b-it",
-    created: 1741902625
+    created: 1741902625,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemma-3-27b-it',
   provider: 'openrouter',
   name: 'Google: Gemma 3 27B',
   contextWindow: 131072,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.08,
-      output: 0.16
+      output: 0.35,
+      cached: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 0.46
+    timeToFirstToken: 1128,
+    tokensPerSecond: 27
   },
   metadata: {
     description: "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
     defaultParameters: {},
     canonicalSlug: "google/gemma-3-27b-it",
     huggingFaceId: "google/gemma-3-27b-it",
-    created: 1741756359
+    created: 1741756359,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemma-3-4b-it',
@@ -2270,8 +5916,8 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Gemini',
-  capabilities: new Set(['chat', 'vision', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.049999999999999996,
@@ -2279,57 +5925,38 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.47
+    timeToFirstToken: 536,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
     defaultParameters: {},
     canonicalSlug: "google/gemma-3-4b-it",
     huggingFaceId: "google/gemma-3-4b-it",
-    created: 1741905510
-  }
-}, {
-  id: 'google/gemma-3n-e4b-it',
-  provider: 'openrouter',
-  name: 'Google: Gemma 3n 4B',
-  contextWindow: 32768,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 0.06,
-      output: 0.12
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.27
-  },
-  metadata: {
-    description: "Gemma 3n E4B-it is optimized for efficient execution on mobile and low-resource devices, such as phones, laptops, and tablets. It supports multimodal inputs—including text, visual data, and audio—enabling diverse tasks...",
-    defaultParameters: {},
-    canonicalSlug: "google/gemma-3n-e4b-it",
-    huggingFaceId: "google/gemma-3n-E4B-it",
-    created: 1747776824
+    created: 1741905510,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
   id: 'google/gemma-4-26b-a4b-it',
   provider: 'openrouter',
   name: 'Google: Gemma 4 26B A4B ',
   contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Gemma',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.06,
-      output: 0.33
+      input: 0.09,
+      output: 0.3,
+      cached: 0.049999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 0.3
+    timeToFirstToken: 309,
+    tokensPerSecond: 145
   },
   metadata: {
     description: "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
@@ -2340,7 +5967,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "google/gemma-4-26b-a4b-it-20260403",
     huggingFaceId: "google/gemma-4-26B-A4B-it",
-    created: 1775227989
+    created: 1775227989,
+    uptime: 100
   }
 }, {
   id: 'google/gemma-4-26b-a4b-it:free',
@@ -2350,11 +5978,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Gemma',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
   metrics: {
-    timeToFirstToken: 1.12
+    timeToFirstToken: 1070,
+    tokensPerSecond: 41
   },
   metadata: {
     description: "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
@@ -2365,26 +5996,28 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "google/gemma-4-26b-a4b-it-20260403",
     huggingFaceId: "google/gemma-4-26B-A4B-it",
-    created: 1775227989
+    created: 1775227989,
+    uptime: 100
   }
 }, {
   id: 'google/gemma-4-31b-it',
   provider: 'openrouter',
   name: 'Google: Gemma 4 31B',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Gemma',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.12,
-      output: 0.35
+      input: 0.19999999999999998,
+      output: 0.39999999999999997
     }
   },
   metrics: {
-    timeToFirstToken: 0.27
+    timeToFirstToken: 271,
+    tokensPerSecond: 77
   },
   metadata: {
     description: "Gemma 4 31B Instruct is Google DeepMind's 30.7B dense multimodal model supporting text and image input with text output. Features a 256K token context window, configurable thinking/reasoning mode, native function...",
@@ -2395,21 +6028,25 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "google/gemma-4-31b-it-20260402",
     huggingFaceId: "google/gemma-4-31B-it",
-    created: 1775148486
+    created: 1775148486,
+    uptime: 100
   }
 }, {
   id: 'google/gemma-4-31b-it:free',
   provider: 'openrouter',
   name: 'Google: Gemma 4 31B (free)',
   contextWindow: 262144,
-  maxOutputTokens: 8192,
+  maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Gemma',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
   metrics: {
-    timeToFirstToken: 0.91
+    timeToFirstToken: 1131,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "Gemma 4 31B Instruct is Google DeepMind's 30.7B dense multimodal model supporting text and image input with text output. Features a 256K token context window, configurable thinking/reasoning mode, native function...",
@@ -2420,7 +6057,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "google/gemma-4-31b-it-20260402",
     huggingFaceId: "google/gemma-4-31B-it",
-    created: 1775148486
+    created: 1775148486,
+    uptime: 100
   }
 }, {
   id: 'google/lyria-3-clip-preview',
@@ -2430,17 +6068,21 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'json', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'audioOutput', 'json', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
   metrics: {
-    timeToFirstToken: 2.74
+    timeToFirstToken: 2499,
+    tokensPerSecond: 9
   },
   metadata: {
     description: "30 second duration clips are priced at $0.04 per clip. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate...",
     defaultParameters: {},
     canonicalSlug: "google/lyria-3-clip-preview-20260330",
-    created: 1774907255
+    created: 1774907255,
+    uptime: 100
   }
 }, {
   id: 'google/lyria-3-pro-preview',
@@ -2450,93 +6092,372 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'experimental',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'json', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'audioOutput', 'json', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
   metrics: {
-    timeToFirstToken: 6.79
+    timeToFirstToken: 5619,
+    tokensPerSecond: 10
   },
   metadata: {
     description: "Full-length songs are priced at $0.08 per song. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate high-quality, 48kHz...",
     defaultParameters: {},
     canonicalSlug: "google/lyria-3-pro-preview-20260330",
-    created: 1774907286
+    created: 1774907286,
+    uptime: 75
+  }
+}, {
+  id: 'google/veo-3.1',
+  provider: 'openrouter',
+  name: 'Google: Veo 3.1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 93036.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Google's state-of-the-art video generation model, built for maximum visual fidelity in final production cuts. Veo 3.1 generates high-quality 1080p video from text or image prompts with native synchronized audio —...",
+    defaultParameters: {},
+    canonicalSlug: "google/veo-3.1-20260320",
+    created: 1774277148
+  }
+}, {
+  id: 'google/veo-3.1-fast',
+  provider: 'openrouter',
+  name: 'Google: Veo 3.1 Fast',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 68652,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Google's mid-tier video generation model balancing speed and quality. Veo 3.1 Fast generates high-quality video from text or image prompts with native synchronized audio, offering faster turnaround than Veo 3.1...",
+    defaultParameters: {},
+    canonicalSlug: "google/veo-3.1-fast-20260320",
+    created: 1776994666
+  }
+}, {
+  id: 'google/veo-3.1-lite',
+  provider: 'openrouter',
+  name: 'Google: Veo 3.1 Lite',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 52539,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Google's most cost-effective video generation model, designed for high-volume applications and rapid iteration. Veo 3.1 Lite generates 720p and 1080p video from text or image prompts with native synchronized audio...",
+    defaultParameters: {},
+    canonicalSlug: "google/veo-3.1-lite-20260331",
+    created: 1776978818,
+    uptime: 100
   }
 }, {
   id: 'gryphe/mythomax-l2-13b',
   provider: 'openrouter',
   name: 'MythoMax 13B',
-  contextWindow: 4096,
-  maxOutputTokens: 4096,
+  contextWindow: 8192,
+  maxOutputTokens: 3686,
   tier: 'flagship',
   tokenizer: 'Llama2',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
-      input: 0.06,
-      output: 0.06
+      input: 0.08,
+      output: 0.11
     }
   },
   metrics: {
-    timeToFirstToken: 0.28
+    timeToFirstToken: 350,
+    tokensPerSecond: 99
   },
   metadata: {
     description: "One of the highest performing and most popular fine-tunes of Llama 2 13B, with rich descriptions and roleplay. #merge",
     defaultParameters: {},
     canonicalSlug: "gryphe/mythomax-l2-13b",
     huggingFaceId: "Gryphe/MythoMax-L2-13b",
-    created: 1688256000
+    created: 1688256000,
+    knowledgeCutoff: "2023-06-30",
+    uptime: 100
   }
 }, {
-  id: 'ibm-granite/granite-4.0-h-micro',
+  id: 'hexgrad/kokoro-82m',
   provider: 'openrouter',
-  name: 'IBM: Granite 4.0 Micro',
-  contextWindow: 131000,
-  maxOutputTokens: 131000,
+  name: 'hexgrad: Kokoro 82M',
+  contextWindow: 4096,
+  maxOutputTokens: 3686,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'topP']),
+  capabilities: new Set(['audio']),
   pricing: {
     text: {
-      input: 0.017,
-      output: 0.112
+      input: 0.62
     }
+  },
+  metadata: {
+    description: "Kokoro 82M is a lightweight, open-weight text-to-speech model from hexgrad. It converts text to speech across 8 languages (American and British English, Spanish, French, Hindi, Italian, Japanese, Portuguese, and Chinese)...",
+    defaultParameters: {},
+    canonicalSlug: "hexgrad/kokoro-82m",
+    created: 1776983167,
+    voices: [
+      "af_alloy",
+      "af_aoede",
+      "af_bella",
+      "af_heart",
+      "af_jessica",
+      "af_kore",
+      "af_nicole",
+      "af_nova",
+      "af_river",
+      "af_sarah",
+      "af_sky",
+      "am_adam",
+      "am_echo",
+      "am_eric",
+      "am_fenrir",
+      "am_liam",
+      "am_michael",
+      "am_onyx",
+      "am_puck",
+      "am_santa",
+      "bf_alice",
+      "bf_emma",
+      "bf_isabella",
+      "bf_lily",
+      "bm_daniel",
+      "bm_fable",
+      "bm_george",
+      "bm_lewis",
+      "ef_dora",
+      "em_alex",
+      "em_santa",
+      "ff_siwis",
+      "hf_alpha",
+      "hf_beta",
+      "hm_omega",
+      "hm_psi",
+      "if_sara",
+      "im_nicola",
+      "jf_alpha",
+      "jf_gongitsune",
+      "jf_nezumi",
+      "jf_tebukuro",
+      "jm_kumo",
+      "pf_dora",
+      "pm_alex",
+      "pm_santa",
+      "zf_xiaobei",
+      "zf_xiaoni",
+      "zf_xiaoxiao",
+      "zf_xiaoyi",
+      "zm_yunjian",
+      "zm_yunxi",
+      "zm_yunxia",
+      "zm_yunyang"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'heygen/avatar-iv',
+  provider: 'openrouter',
+  name: 'HeyGen: Avatar IV',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'hearing']),
+  pricing: {
+    text: {}
   },
   metrics: {
-    timeToFirstToken: 4.25
+    timeToFirstToken: 78830,
+    tokensPerSecond: 0
   },
   metadata: {
-    description: "Granite-4.0-H-Micro is a 3B parameter from the Granite 4 family of models. These models are the latest in a series of models released by IBM. They are fine-tuned for long...",
+    description: "HeyGen: Avatar IV is an image-to-video model that animates a single photo into an expressive, lip-synced talking-head video. Rather than only matching mouth shapes to words, it interprets the vocal...",
     defaultParameters: {},
-    canonicalSlug: "ibm-granite/granite-4.0-h-micro",
-    huggingFaceId: "ibm-granite/granite-4.0-h-micro",
-    created: 1760927695
+    canonicalSlug: "heygen/avatar-iv-20260625",
+    created: 1787595728
   }
 }, {
-  id: 'ibm-granite/granite-4.1-8b',
+  id: 'heygen/heygen-video-1',
   provider: 'openrouter',
-  name: 'IBM: Granite 4.1 8B',
-  contextWindow: 131072,
-  maxOutputTokens: 131072,
+  name: 'HeyGen: HeyGen Video',
+  contextWindow: 0,
+  maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'hearing']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 24290,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "HeyGen Video is a general-purpose video generation model from HeyGen. It renders short clips with synthesized audio (dialogue, ambience, and sound effects) in a single call, working from a text...",
+    defaultParameters: {},
+    canonicalSlug: "heygen/heygen-video-1-20260930",
+    created: 1790798684,
+    uptime: 100
+  }
+}, {
+  id: 'heygen/heygen-voice-1',
+  provider: 'openrouter',
+  name: 'HeyGen: HeyGen Voice',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
   pricing: {
     text: {
-      input: 0.049999999999999996,
-      output: 0.09999999999999999
+      input: 15
     }
   },
-  metrics: {},
   metadata: {
-    description: "Granite 4.1 8B is a dense, decoder-only 8-billion-parameter language model from IBM, part of the Granite 4.1 family. It supports a 131K-token context window and is designed for enterprise tasks...",
+    description: "HeyGen Voice is a text-to-speech model from HeyGen. It comes with 10 default voices, or bring your own HeyGen key to use voice clones from your own account. It streams...",
     defaultParameters: {},
-    canonicalSlug: "ibm-granite/granite-4.1-8b-20260429",
-    huggingFaceId: "ibm-granite/granite-4.1-8b",
-    created: 1777577071
+    canonicalSlug: "heygen/heygen-voice-1-20261009",
+    created: 1791929559,
+    voices: [
+      "nadine",
+      "tabitha",
+      "bram",
+      "gareth",
+      "noelle",
+      "meredith",
+      "sabrina",
+      "lucian",
+      "weston",
+      "vincent"
+    ]
+  }
+}, {
+  id: 'heygen/heygen-voice-1-turbo',
+  provider: 'openrouter',
+  name: 'HeyGen: HeyGen Voice Turbo',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 4
+    }
+  },
+  metadata: {
+    description: "HeyGen Voice Turbo is a lower-latency version of HeyGen Voice, HeyGen's text-to-speech model. It has the same 10 default voices, or bring your own HeyGen key to use voice clones...",
+    defaultParameters: {},
+    canonicalSlug: "heygen/heygen-voice-1-turbo-20261009",
+    created: 1793030422,
+    voices: [
+      "nadine",
+      "tabitha",
+      "bram",
+      "gareth",
+      "noelle",
+      "meredith",
+      "sabrina",
+      "lucian",
+      "weston",
+      "vincent"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'heygen/heygen-voice-1-turbo:free',
+  provider: 'openrouter',
+  name: 'HeyGen: HeyGen Voice Turbo (free)',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {}
+  },
+  retiresAt: '2026-11-30',
+  metadata: {
+    description: "HeyGen Voice Turbo is a lower-latency version of HeyGen Voice, HeyGen's text-to-speech model. It has the same 10 default voices, or bring your own HeyGen key to use voice clones...",
+    defaultParameters: {},
+    canonicalSlug: "heygen/heygen-voice-1-turbo-20261009",
+    created: 1793030422,
+    voices: [
+      "nadine",
+      "tabitha",
+      "bram",
+      "gareth",
+      "noelle",
+      "meredith",
+      "sabrina",
+      "lucian",
+      "weston",
+      "vincent"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'ibm-granite/granite-4.2-8b',
+  provider: 'openrouter',
+  name: 'IBM: Granite 4.2 8B',
+  contextWindow: 131072,
+  maxOutputTokens: 117964,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.06,
+      output: 0.15,
+      cached: 0.015
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high'],
+  metrics: {
+    timeToFirstToken: 505,
+    tokensPerSecond: 57
+  },
+  metadata: {
+    description: "Granite 4.2 8B is a dense reasoning model from IBM. It is suited for mathematics, code generation, multilingual dialogue, and agentic workflows that need multi-step reasoning. It supports full, low-effort,...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "ibm-granite/granite-4.2-8b-20260831",
+    huggingFaceId: "ibm-granite/granite-4.2-8b",
+    created: 1788206780,
+    uptime: 100
   }
 }, {
   id: 'inception/mercury-2',
@@ -2546,16 +6467,19 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 50000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
   pricing: {
     text: {
       input: 0.25,
-      output: 0.75
+      output: 0.75,
+      cached: 0.024999999999999998
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.64
+    timeToFirstToken: 534,
+    tokensPerSecond: 334
   },
   metadata: {
     description: "Mercury 2 is an extremely fast reasoning LLM, and the first reasoning diffusion LLM (dLLM). Instead of generating tokens sequentially, Mercury 2 produces and refines multiple tokens in parallel, achieving...",
@@ -2563,241 +6487,711 @@ export const openrouterModels: ModelInfo[] = [{
       temperature: 0.75
     },
     canonicalSlug: "inception/mercury-2-20260304",
-    created: 1772636275
+    created: 1772636275,
+    uptime: 100
   }
 }, {
-  id: 'inclusionai/ling-2.6-1t',
+  id: 'inception/mercury-2.5',
   provider: 'openrouter',
-  name: 'inclusionAI: Ling-2.6-1T',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.075,
-      output: 0.625
-    }
-  },
-  metrics: {
-    timeToFirstToken: 2.09
-  },
-  metadata: {
-    description: "Ling-2.6-1T is an instant (instruct) model from inclusionAI and the company’s trillion-parameter flagship, designed for real-world agents that require fast execution and high efficiency at scale. It uses a “fast...",
-    defaultParameters: {},
-    canonicalSlug: "inclusionai/ling-2.6-1t-20260423",
-    created: 1776948238
-  }
-}, {
-  id: 'inclusionai/ling-2.6-flash',
-  provider: 'openrouter',
-  name: 'inclusionAI: Ling-2.6-flash',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.01,
-      output: 0.03
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.64
-  },
-  metadata: {
-    description: "Ling-2.6-flash is an instant (instruct) model from inclusionAI with 104B total parameters and 7.4B active parameters, designed for real-world agents that require fast responses, strong execution, and high token efficiency....",
-    defaultParameters: {},
-    canonicalSlug: "inclusionai/ling-2.6-flash-20260421",
-    huggingFaceId: "",
-    created: 1776795886
-  }
-}, {
-  id: 'inclusionai/ring-2.6-1t',
-  provider: 'openrouter',
-  name: 'inclusionAI: Ring-2.6-1T',
-  contextWindow: 262144,
+  name: 'Inception: Mercury 2.5',
+  contextWindow: 260000,
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.04,
+      output: 0.15,
+      cached: 0.004
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 796,
+    tokensPerSecond: 140
+  },
+  metadata: {
+    description: "Mercury 2.5 is the fastest reasoning LLM, and the latest diffusion LLM (dLLM) from Inception. Instead of generating tokens sequentially, Mercury 2.5 produces and refines multiple tokens in parallel, achieving...",
+    defaultParameters: {},
+    canonicalSlug: "inception/mercury-2.5-20260908",
+    created: 1788892137,
+    uptime: 100
+  }
+}, {
+  id: 'inception/mercury-3',
+  provider: 'openrouter',
+  name: 'Inception: Mercury 3',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.35,
+      cached: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 1218,
+    tokensPerSecond: 281
+  },
+  metadata: {
+    description: "Mercury 3 is a diffusion-based language model from Inception, and the lab's most capable model to date. It is suited for agentic workflows and real-time applications where latency compounds, such...",
+    defaultParameters: {},
+    canonicalSlug: "inception/mercury-3-20261019",
+    created: 1792158337,
+    uptime: 100
+  }
+}, {
+  id: 'inception/mercury-decide',
+  provider: 'openrouter',
+  name: 'Inception: Mercury Decide',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.02
+    }
+  },
+  metrics: {
+    timeToFirstToken: 275,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Mercury Decide is Inception's structured decision model, served as a System One endpoint. Send a state along with typed questions, and it returns a choice, a score, or a yes/no...",
+    defaultParameters: {},
+    canonicalSlug: "inception/mercury-decide-20260930",
+    created: 1790789334,
+    uptime: 100
+  }
+}, {
+  id: 'inclusionai/ling-3.0-flash',
+  provider: 'openrouter',
+  name: 'inclusionAI: Ling 3.0 Flash',
+  contextWindow: 262144,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.020999999999999998,
+      output: 0.063,
+      cached: 0.004200000000000001
+    }
+  },
+  metrics: {
+    timeToFirstToken: 433,
+    tokensPerSecond: 152
+  },
+  metadata: {
+    description: "*Ling-3.0-flash* is a *124B-parameter Mixture-of-Experts (MoE) model*, with approximately *5.1B parameters activated per token*. The model is designed with *token efficiency and production-scale agentic inference* as key priorities, enabling developers...",
+    defaultParameters: {},
+    canonicalSlug: "inclusionai/ling-3.0-flash-20260723",
+    huggingFaceId: "inclusionAI/Ling-3.0-flash",
+    created: 1784818580,
+    uptime: 100
+  }
+}, {
+  id: 'inclusionai/ling-3.0-flash-vl',
+  provider: 'openrouter',
+  name: 'inclusionAI: Ling 3.0 Flash VL',
+  contextWindow: 131072,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.06,
+      output: 0.18,
+      cached: 0.012
+    }
+  },
+  metrics: {
+    timeToFirstToken: 584,
+    tokensPerSecond: 58
+  },
+  metadata: {
+    description: "Ling 3.0 Flash VL builds on Ling 3.0 Flash (124B total / 5.5B active MoE from InclusionAI), further strengthening its language capabilities while adding native visual perception and advanced visual...",
+    defaultParameters: {},
+    canonicalSlug: "inclusionai/ling-3.0-flash-vl-20260910",
+    huggingFaceId: "inclusionAI/Ling-3.0-flash-VL",
+    created: 1789056114,
+    uptime: 100
+  }
+}, {
+  id: 'inclusionai/ling-3.1-flash',
+  provider: 'openrouter',
+  name: 'inclusionAI: Ling 3.1 Flash',
+  contextWindow: 1000000,
+  maxOutputTokens: 262144,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.075,
-      output: 0.625
+      output: 0.22499999999999998,
+      cached: 0.015
     }
   },
   metrics: {
-    timeToFirstToken: 3.03
+    timeToFirstToken: 993.5,
+    tokensPerSecond: 77
   },
   metadata: {
-    description: "Ring-2.6-1T is a 1T-parameter-scale thinking model with 63B active parameters, built for real-world agent workflows that require both strong capability and operational efficiency. It is optimized for coding agents, tool...",
+    description: "Ling 3.1 Flash is a hybrid reasoning mixture-of-experts model from inclusionAI, with 25B active parameters out of 560B total.",
     defaultParameters: {},
-    canonicalSlug: "inclusionai/ring-2.6-1t-20260508",
-    created: 1778247440
+    canonicalSlug: "inclusionai/ling-3.1-flash-20261002",
+    created: 1790950024,
+    uptime: 100
   }
 }, {
-  id: 'inflection/inflection-3-pi',
+  id: 'inference-net/schematron-v2-small',
   provider: 'openrouter',
-  name: 'Inflection: Inflection 3 Pi',
-  contextWindow: 8000,
-  maxOutputTokens: 1024,
-  tier: 'flagship',
+  name: 'Inference.net: Schematron V2 Small',
+  contextWindow: 128000,
+  maxOutputTokens: 4096,
+  tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'stop', 'temperature', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
-      input: 2.5,
-      output: 10
-    }
-  },
-  metrics: {},
-  metadata: {
-    description: "Inflection 3 Pi powers Inflection's [Pi](https://pi.ai) chatbot, including backstory, emotional intelligence, productivity, and safety. It has access to recent news, and excels in scenarios like customer support and roleplay. Pi...",
-    defaultParameters: {},
-    canonicalSlug: "inflection/inflection-3-pi",
-    created: 1728604800
-  }
-}, {
-  id: 'inflection/inflection-3-productivity',
-  provider: 'openrouter',
-  name: 'Inflection: Inflection 3 Productivity',
-  contextWindow: 8000,
-  maxOutputTokens: 1024,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'stop', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 2.5,
-      output: 10
-    }
-  },
-  metrics: {},
-  metadata: {
-    description: "Inflection 3 Productivity is optimized for following instructions. It is better for tasks requiring JSON output or precise adherence to provided guidelines. It has access to recent news. For emotional...",
-    defaultParameters: {},
-    canonicalSlug: "inflection/inflection-3-productivity",
-    created: 1728604800
-  }
-}, {
-  id: 'kwaipilot/kat-coder-pro-v2',
-  provider: 'openrouter',
-  name: 'Kwaipilot: KAT-Coder-Pro V2',
-  contextWindow: 256000,
-  maxOutputTokens: 80000,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.3,
-      output: 1.2
+      input: 0.049999999999999996,
+      output: 0.22999999999999998,
+      cached: 0.049999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 0.7
+    timeToFirstToken: 609,
+    tokensPerSecond: 48
   },
   metadata: {
-    description: "KAT-Coder-Pro V2 is the latest high-performance model in KwaiKAT’s KAT-Coder series, designed for complex enterprise-grade software engineering and SaaS integration. It builds on the agentic coding strengths of earlier versions,...",
+    description: "Schematron V2 Small is a 3B-parameter HTML-to-JSON extraction model from Inference.net. It prioritizes extraction quality for complex schemas and long pages. Extraction instructions must be supplied through a JSON schema...",
     defaultParameters: {},
-    canonicalSlug: "kwaipilot/kat-coder-pro-v2-20260327",
-    huggingFaceId: "",
-    created: 1774649310
+    canonicalSlug: "inference-net/schematron-v2-small-20260902",
+    huggingFaceId: "inference-net/schematron-v2-llama-3.2-3b",
+    created: 1789176933
   }
 }, {
-  id: 'liquid/lfm-2.5-1.2b-instruct:free',
+  id: 'inference-net/schematron-v2-turbo',
   provider: 'openrouter',
-  name: 'LiquidAI: LFM2.5-1.2B-Instruct (free)',
-  contextWindow: 32768,
+  name: 'Inference.net: Schematron V2 Turbo',
+  contextWindow: 128000,
+  maxOutputTokens: 8192,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
-  pricing: {},
-  metrics: {},
+  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  pricing: {
+    text: {
+      input: 0.03,
+      output: 0.15,
+      cached: 0.03
+    }
+  },
+  metrics: {
+    timeToFirstToken: 406,
+    tokensPerSecond: 93
+  },
   metadata: {
-    description: "LFM2.5-1.2B-Instruct is a compact, high-performance instruction-tuned model built for fast on-device AI. It delivers strong chat quality in a 1.2B parameter footprint, with efficient edge inference and broad runtime support.",
+    description: "Schematron V2 Turbo is a 3B-parameter HTML-to-JSON extraction model from Inference.net. It prioritizes throughput for high-volume extraction workloads. Extraction instructions must be supplied through a JSON schema in response_format rather...",
     defaultParameters: {},
-    canonicalSlug: "liquid/lfm-2.5-1.2b-instruct-20260120",
-    huggingFaceId: "LiquidAI/LFM2.5-1.2B-Instruct",
-    created: 1768927521
+    canonicalSlug: "inference-net/schematron-v2-turbo-20260902",
+    huggingFaceId: "inference-net/schematron-v2-granite-4.0-h-micro",
+    created: 1789176949
   }
 }, {
-  id: 'liquid/lfm-2.5-1.2b-thinking:free',
+  id: 'intfloat/e5-base-v2',
   provider: 'openrouter',
-  name: 'LiquidAI: LFM2.5-1.2B-Thinking (free)',
-  contextWindow: 32768,
+  name: 'Intfloat: E5-Base-v2',
+  contextWindow: 512,
+  maxOutputTokens: 460,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {},
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
   metadata: {
-    description: "LFM2.5-1.2B-Thinking is a lightweight reasoning-focused model optimized for agentic tasks, data extraction, and RAG—while still running comfortably on edge devices. It supports long context (up to 32K tokens) and is...",
+    description: "The e5-base-v2 embedding model encodes English sentences and paragraphs into a 768-dimensional dense vector space, producing efficient and high-quality semantic embeddings optimized for tasks such as semantic search, similarity scoring,...",
     defaultParameters: {},
-    canonicalSlug: "liquid/lfm-2.5-1.2b-thinking-20260120",
-    huggingFaceId: "LiquidAI/LFM2.5-1.2B-Thinking",
-    created: 1768927527
+    canonicalSlug: "intfloat/e5-base-v2-20251117",
+    huggingFaceId: "intfloat/e5-base-v2",
+    created: 1763433192
+  }
+}, {
+  id: 'intfloat/e5-large-v2',
+  provider: 'openrouter',
+  name: 'Intfloat: E5-Large-v2',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.01
+    }
+  },
+  metadata: {
+    description: "The e5-large-v2 embedding model maps English sentences, paragraphs, and documents into a 1024-dimensional dense vector space, delivering high-accuracy semantic embeddings optimized for retrieval, semantic search, reranking, and similarity-scoring tasks.",
+    defaultParameters: {},
+    canonicalSlug: "intfloat/e5-large-v2-20251117",
+    huggingFaceId: "intfloat/e5-large-v2",
+    created: 1763433432
+  }
+}, {
+  id: 'intfloat/multilingual-e5-large',
+  provider: 'openrouter',
+  name: 'Intfloat: Multilingual-E5-Large',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.01
+    }
+  },
+  metadata: {
+    description: "The multilingual-e5-large embedding model encodes sentences, paragraphs, and documents across over 90 languages into a 1024-dimensional dense vector space, delivering robust semantic embeddings optimized for multilingual retrieval, cross-language similarity, and...",
+    defaultParameters: {},
+    canonicalSlug: "intfloat/multilingual-e5-large-20251117",
+    huggingFaceId: "intfloat/multilingual-e5-large",
+    created: 1763433047,
+    uptime: 100
+  }
+}, {
+  id: 'jaredpalmer/kev-4b',
+  provider: 'openrouter',
+  name: 'Jared Palmer: Kev 4B',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.041999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 276,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Kev 4B is a small open-weight decision model from Jared Palmer, built as a LoRA adapter and pointer head on Qwen3.5-4B-Base and served over the same /v1/systemone contract as TypeSafe's...",
+    defaultParameters: {},
+    canonicalSlug: "jaredpalmer/kev-4b-20260924",
+    huggingFaceId: "jaredpalmer/kev-4b",
+    created: 1790354233,
+    uptime: 100
+  }
+}, {
+  id: 'krea/k3-edit',
+  provider: 'openrouter',
+  name: 'Krea: K3 Edit',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 14.3712574850299
+    }
+  },
+  metrics: {
+    timeToFirstToken: 10861,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Krea K3 Edit is an image-to-image editing model from Krea. It takes one to eight reference images plus a text prompt and returns a single edited image, following instructions that...",
+    defaultParameters: {},
+    canonicalSlug: "krea/k3-edit-20260914",
+    created: 1792103728,
+    uptime: 100
+  }
+}, {
+  id: 'krea/krea-2-large',
+  provider: 'openrouter',
+  name: 'Krea: Krea 2 Large',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 14.3712574850299
+    }
+  },
+  metrics: {
+    timeToFirstToken: 26716,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Krea 2 Large is Krea's high-capability image generation model, more than twice the size of Krea 2 Medium. Its lighter post-training gives images a rawer, more textured, and flexible character,...",
+    defaultParameters: {},
+    canonicalSlug: "krea/krea-2-large-20260720",
+    created: 1784574931
+  }
+}, {
+  id: 'krea/krea-2-medium',
+  provider: 'openrouter',
+  name: 'Krea: Krea 2 Medium',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 7.185628742514971
+    }
+  },
+  metrics: {
+    timeToFirstToken: 11167,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Krea 2 Medium is Krea's balanced, cost-efficient image generation model and a practical starting point for a broad range of use cases. Its extensive post-training supports stable, consistent generations, with...",
+    defaultParameters: {},
+    canonicalSlug: "krea/krea-2-medium-20260720",
+    created: 1784574928
+  }
+}, {
+  id: 'krea/krea-2-medium-turbo',
+  provider: 'openrouter',
+  name: 'Krea: Krea 2 Medium Turbo',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 3.59281437125749
+    }
+  },
+  metrics: {
+    timeToFirstToken: 16083,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Krea 2 Medium Turbo is a distilled, speed-focused variant of Krea 2 Medium from Krea. It is designed for rapid iteration and graphic design exploration where fast generation is the...",
+    defaultParameters: {},
+    canonicalSlug: "krea/krea-2-medium-turbo-20260720",
+    created: 1784574923
+  }
+}, {
+  id: 'kwaivgi/kling-v3.0-pro',
+  provider: 'openrouter',
+  name: 'Kling: Video v3.0 Pro',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 158688,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Kling v3.0 Pro is Kuaishou's premium video generation model, offering higher visual quality than the Standard tier. It supports text-to-video and image-to-video workflows, with first-frame and last-frame control for precise...",
+    defaultParameters: {},
+    canonicalSlug: "kwaivgi/kling-v3.0-pro-20260429",
+    created: 1777496206
+  }
+}, {
+  id: 'kwaivgi/kling-v3.0-std',
+  provider: 'openrouter',
+  name: 'Kling: Video v3.0 Standard',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 95447,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Kling v3.0 Standard is a video generation model from Kuaishou. It supports text-to-video and image-to-video workflows, with first-frame and last-frame control for guided scene composition. Clips range from 3 to...",
+    defaultParameters: {},
+    canonicalSlug: "kwaivgi/kling-v3.0-std-20260429",
+    created: 1777496205
+  }
+}, {
+  id: 'kwaivgi/kling-video-o1',
+  provider: 'openrouter',
+  name: 'Kling: Video O1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 188361,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Kling Video O1 is a video generation model from Kuaishou. It supports text and image inputs with video output, enabling text-to-video and image-to-video workflows. It is suited for cinematic content...",
+    defaultParameters: {},
+    canonicalSlug: "kwaivgi/kling-video-o1-20260420",
+    created: 1776704777,
+    uptime: 100
+  }
+}, {
+  id: 'liquid/d1',
+  provider: 'openrouter',
+  name: 'LiquidAI: d1',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.02,
+      cached: 0.02
+    }
+  },
+  metrics: {
+    timeToFirstToken: 175,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "d1 is Liquid AI's structured decision model, served as a System One endpoint. Send a state along with typed questions, and it returns a choice, a score, or a yes/no...",
+    defaultParameters: {},
+    canonicalSlug: "liquid/d1-20260930",
+    created: 1790878711,
+    uptime: 100
+  }
+}, {
+  id: 'liquid/d1-ultra',
+  provider: 'openrouter',
+  name: 'LiquidAI: d1-ultra',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.041999999999999996,
+      cached: 0.041999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 226,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "d1-ultra is Liquid AI's largest decision model, served as a System One endpoint. Send a state of text and images along with typed questions, and it returns a choice, a...",
+    defaultParameters: {},
+    canonicalSlug: "liquid/d1-ultra-20261015",
+    created: 1792108354,
+    uptime: 100
+  }
+}, {
+  id: 'liquid/d1.1',
+  provider: 'openrouter',
+  name: 'LiquidAI: d1.1',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.02,
+      cached: 0.02
+    }
+  },
+  metrics: {
+    timeToFirstToken: 224,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "d1.1 is Liquid AI's structured decision model, served as a System One endpoint and the successor to d1. Send a state along with typed questions, and it returns a choice,...",
+    defaultParameters: {},
+    canonicalSlug: "liquid/d1.1-20261027",
+    created: 1793131325,
+    uptime: 100
+  }
+}, {
+  id: 'liquid/lfm-2.5-2.6b:free',
+  provider: 'openrouter',
+  name: 'LiquidAI: LFM2.5-2.6B (free)',
+  contextWindow: 65536,
+  maxOutputTokens: 8192,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 281,
+    tokensPerSecond: 356
+  },
+  metadata: {
+    description: "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding or...",
+    defaultParameters: {
+      temperature: 0.1,
+      top_k: 50,
+      repetition_penalty: 1.1
+    },
+    canonicalSlug: "liquid/lfm-2.5-2.6b-20260811",
+    huggingFaceId: "LiquidAI/LFM2.5-2.6B",
+    created: 1786470519,
+    uptime: 100
+  }
+}, {
+  id: 'liquid/lfm-2.5-24b-a2b',
+  provider: 'openrouter',
+  name: 'LiquidAI: LFM2.5-24B-A2B',
+  contextWindow: 128000,
+  maxOutputTokens: 8192,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.7,
+      cached: 0.024999999999999998
+    }
+  },
+  metrics: {
+    timeToFirstToken: 187,
+    tokensPerSecond: 396
+  },
+  metadata: {
+    description: "LFM2.5-24B-A2B is a mixture-of-experts reasoning model from Liquid AI with 24B total and 2.45B active parameters. It always reasons before answering and is built for agents that call tools. Liquid...",
+    defaultParameters: {
+      temperature: 0.1,
+      top_k: 50,
+      repetition_penalty: 1.05
+    },
+    canonicalSlug: "liquid/lfm-2.5-24b-a2b-20261012",
+    huggingFaceId: "LiquidAI/LFM2.5-24B-A2B",
+    created: 1791912025,
+    uptime: 100
+  }
+}, {
+  id: 'liquid/lfm-2.5-embedding-350m:free',
+  provider: 'openrouter',
+  name: 'LiquidAI: LFM2.5-Embedding-350M (free)',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {}
+  },
+  metadata: {
+    description: "LFM2.5-Embedding-350M is a text embedding model from Liquid AI. It produces 1,024-dimensional embeddings for retrieval and semantic search. Successful OpenRouter requests and embeddings may be retained and used to train...",
+    defaultParameters: {},
+    canonicalSlug: "liquid/lfm-2.5-embedding-350m-20260818",
+    huggingFaceId: "LiquidAI/LFM2.5-Embedding-350M",
+    created: 1787077908,
+    uptime: 100
   }
 }, {
   id: 'mancer/weaver',
   provider: 'openrouter',
   name: 'Mancer: Weaver (alpha)',
   contextWindow: 8000,
-  maxOutputTokens: 2000,
+  maxOutputTokens: 6000,
   tier: 'experimental',
   tokenizer: 'Llama2',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  capabilities: new Set(['chat', 'json', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'topP']),
   pricing: {
     text: {
-      input: 0.75,
-      output: 1
+      input: 0.39999999999999997,
+      output: 0.75
     }
   },
   metrics: {
-    timeToFirstToken: 1.13
+    timeToFirstToken: 839.5,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "An attempt to recreate Claude-style verbosity, but don't expect the same level of coherence or memory. Meant for use in roleplay/narrative situations.",
     defaultParameters: {},
     canonicalSlug: "mancer/weaver",
-    created: 1690934400
+    created: 1690934400,
+    knowledgeCutoff: "2023-06-30",
+    uptime: 100
   }
 }, {
-  id: 'meta-llama/llama-3-8b-instruct',
+  id: 'meituan/longcat-2.0',
   provider: 'openrouter',
-  name: 'Meta: Llama 3 8B Instruct',
-  contextWindow: 8192,
+  name: 'Meituan: LongCat 2.0',
+  contextWindow: 1048756,
+  maxOutputTokens: 262144,
   tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.14,
-      output: 0.14
+      input: 0.3,
+      output: 1.2,
+      cached: 0.006
     }
   },
   metrics: {
-    timeToFirstToken: 0.76
+    timeToFirstToken: 1636.5,
+    tokensPerSecond: 50
   },
   metadata: {
-    description: "Meta's latest class of model (Llama 3) launched with a variety of sizes & flavors. This 8B instruct-tuned version was optimized for high quality dialogue usecases. It has demonstrated strong...",
+    description: "LongCat 2.0 is a sparse mixture-of-experts language model from Meituan, with 48B active parameters out of 1.6T total. It is suited for coding, repository-level changes, long-horizon problem solving, and agentic...",
     defaultParameters: {},
-    canonicalSlug: "meta-llama/llama-3-8b-instruct",
-    huggingFaceId: "meta-llama/Meta-Llama-3-8B-Instruct",
-    created: 1713398400
+    canonicalSlug: "meituan/longcat-2.0-20260720",
+    huggingFaceId: "meituan-longcat/LongCat-2.0",
+    created: 1784554658,
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-3.1-70b-instruct',
@@ -2807,82 +7201,64 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.39999999999999997,
       output: 0.39999999999999997
     }
   },
+  retiresAt: '2026-11-03',
   metrics: {
-    timeToFirstToken: 0.3
+    timeToFirstToken: 354,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Meta's latest class of model (Llama 3.1) launched with a variety of sizes & flavors. This 70B instruct-tuned version is optimized for high quality dialogue usecases. It has demonstrated strong...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-3.1-70b-instruct",
     huggingFaceId: "meta-llama/Meta-Llama-3.1-70B-Instruct",
-    created: 1721692800
+    created: 1721692800,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-3.1-8b-instruct',
   provider: 'openrouter',
   name: 'Meta: Llama 3.1 8B Instruct',
   contextWindow: 131072,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.02,
-      output: 0.03
+      input: 0.049999999999999996,
+      output: 0.08,
+      cached: 0.024999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.22
+    timeToFirstToken: 185,
+    tokensPerSecond: 398
   },
   metadata: {
     description: "Meta's latest class of model (Llama 3.1) launched with a variety of sizes & flavors. This 8B instruct-tuned version is fast and efficient. It has demonstrated strong performance compared to...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-3.1-8b-instruct",
     huggingFaceId: "meta-llama/Meta-Llama-3.1-8B-Instruct",
-    created: 1721692800
-  }
-}, {
-  id: 'meta-llama/llama-3.2-11b-vision-instruct',
-  provider: 'openrouter',
-  name: 'Meta: Llama 3.2 11B Vision Instruct',
-  contextWindow: 131072,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'vision', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 0.345,
-      output: 0.345
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.7
-  },
-  metadata: {
-    description: "Llama 3.2 11B Vision is a multimodal model with 11 billion parameters, designed to handle tasks combining visual and textual data. It excels in tasks such as image captioning and...",
-    defaultParameters: {},
-    canonicalSlug: "meta-llama/llama-3.2-11b-vision-instruct",
-    huggingFaceId: "meta-llama/Llama-3.2-11B-Vision-Instruct",
-    created: 1727222400
+    created: 1721692800,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-3.2-1b-instruct',
   provider: 'openrouter',
   name: 'Meta: Llama 3.2 1B Instruct',
-  contextWindow: 131072,
-  maxOutputTokens: 60000,
+  contextWindow: 60000,
+  maxOutputTokens: 54000,
   tier: 'flagship',
   tokenizer: 'Llama3',
   capabilities: new Set(['chat', 'streaming']),
@@ -2894,21 +7270,24 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.28
+    timeToFirstToken: 219,
+    tokensPerSecond: 80
   },
   metadata: {
     description: "Llama 3.2 1B is a 1-billion-parameter language model focused on efficiently performing natural language tasks, such as summarization, dialogue, and multilingual text analysis. Its smaller size allows it to operate...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-3.2-1b-instruct",
     huggingFaceId: "meta-llama/Llama-3.2-1B-Instruct",
-    created: 1727222400
+    created: 1727222400,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-3.2-3b-instruct',
   provider: 'openrouter',
   name: 'Meta: Llama 3.2 3B Instruct',
   contextWindow: 131072,
-  maxOutputTokens: 131072,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Llama3',
   capabilities: new Set(['chat', 'structured', 'streaming']),
@@ -2920,32 +7299,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.3
+    timeToFirstToken: 205,
+    tokensPerSecond: 148
   },
   metadata: {
     description: "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-3.2-3b-instruct",
     huggingFaceId: "meta-llama/Llama-3.2-3B-Instruct",
-    created: 1727222400
-  }
-}, {
-  id: 'meta-llama/llama-3.2-3b-instruct:free',
-  provider: 'openrouter',
-  name: 'Meta: Llama 3.2 3B Instruct (free)',
-  contextWindow: 131072,
-  tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'topP']),
-  pricing: {},
-  metrics: {},
-  metadata: {
-    description: "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
-    defaultParameters: {},
-    canonicalSlug: "meta-llama/llama-3.2-3b-instruct",
-    huggingFaceId: "meta-llama/Llama-3.2-3B-Instruct",
-    created: 1727222400
+    created: 1727222400,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-3.3-70b-instruct',
@@ -2955,7 +7319,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -2964,71 +7328,58 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.15
+    timeToFirstToken: 194,
+    tokensPerSecond: 209
   },
   metadata: {
     description: "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-3.3-70b-instruct",
     huggingFaceId: "meta-llama/Llama-3.3-70B-Instruct",
-    created: 1733506137
-  }
-}, {
-  id: 'meta-llama/llama-3.3-70b-instruct:free',
-  provider: 'openrouter',
-  name: 'Meta: Llama 3.3 70B Instruct (free)',
-  contextWindow: 131072,
-  tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'tools', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 14.29
-  },
-  metadata: {
-    description: "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
-    defaultParameters: {},
-    canonicalSlug: "meta-llama/llama-3.3-70b-instruct",
-    huggingFaceId: "meta-llama/Llama-3.3-70B-Instruct",
-    created: 1733506137
+    created: 1733506137,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-4-maverick',
   provider: 'openrouter',
   name: 'Meta: Llama 4 Maverick',
-  contextWindow: 1048576,
+  contextWindow: 524288,
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Llama4',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.15,
-      output: 0.6
+      input: 0.1875,
+      output: 0.6525,
+      cached: 0.049999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 0.28
+    timeToFirstToken: 443,
+    tokensPerSecond: 77
   },
   metadata: {
     description: "Llama 4 Maverick 17B Instruct (128E) is a high-capacity multimodal language model from Meta, built on a mixture-of-experts (MoE) architecture with 128 experts and 17 billion active parameters per forward...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-4-maverick-17b-128e-instruct",
     huggingFaceId: "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-    created: 1743881822
+    created: 1743881822,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-4-scout',
   provider: 'openrouter',
   name: 'Meta: Llama 4 Scout',
-  contextWindow: 10000000,
+  contextWindow: 327680,
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Llama4',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.09999999999999999,
@@ -3036,14 +7387,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.31
+    timeToFirstToken: 2919.5,
+    tokensPerSecond: 10
   },
   metadata: {
     description: "Llama 4 Scout 17B Instruct (16E) is a mixture-of-experts (MoE) language model developed by Meta, activating 17 billion parameters out of a total of 109B. It supports native multimodal input...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-4-scout-17b-16e-instruct",
     huggingFaceId: "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    created: 1743881519
+    created: 1743881519,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-guard-4-12b',
@@ -3053,30 +7407,746 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.18,
       output: 0.18
     }
   },
-  metrics: {
-    timeToFirstToken: 0.12
-  },
   metadata: {
     description: "Llama Guard 4 is a Llama 4 Scout-derived multimodal pretrained model, fine-tuned for content safety classification. Similar to previous versions, it can be used to classify content in both LLM...",
     defaultParameters: {},
     canonicalSlug: "meta-llama/llama-guard-4-12b",
     huggingFaceId: "meta-llama/Llama-Guard-4-12B",
-    created: 1745975193
+    created: 1745975193,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-glimmer-30b',
+  provider: 'openrouter',
+  name: 'Meta: Muse Glimmer 30B',
+  contextWindow: 131072,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.3,
+      output: 1.2,
+      cached: 0.04
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 428,
+    tokensPerSecond: 105
+  },
+  metadata: {
+    description: "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      top_k: 64
+    },
+    canonicalSlug: "meta/muse-glimmer-30b-20260810",
+    huggingFaceId: "meta-models/Muse-Glimmer-30B",
+    created: 1786302394,
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-image',
+  provider: 'openrouter',
+  name: 'Meta: Muse Image',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 2.39520958083832
+    }
+  },
+  metrics: {
+    timeToFirstToken: 21118,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Muse Image is an agentic image generation model from Meta that generates and edits images from text and reference images. Unlike single-pass image models, it reasons before it renders, breaking...",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-image-1.0-eval-20260824",
+    created: 1787764532,
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-spark-1.1',
+  provider: 'openrouter',
+  name: 'Meta: Muse Spark 1.1',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 4.25,
+      cached: 0.15
+    },
+    tools: {
+      web_search: 0.0025
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 1749,
+    tokensPerSecond: 150.5
+  },
+  metadata: {
+    description: "Muse Spark 1.1 is a multimodal reasoning model from Meta, built for agentic tasks. It accepts text, images, video, and PDF documents and returns text, with a 1M-token context window....",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-spark-1.1-20260709",
+    created: 1784215741,
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-spark-1.2',
+  provider: 'openrouter',
+  name: 'Meta: Muse Spark 1.2',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 4.25,
+      cached: 0.15
+    },
+    tools: {
+      web_search: 0.0025
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 2563,
+    tokensPerSecond: 256
+  },
+  metadata: {
+    description: "Muse Spark 1.2 is a reasoning model from Meta, designed for complex agentic tasks. It accepts text, images, video, and PDF documents, returns text, and offers a 1M-token context window....",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-spark-1.2-20260805",
+    created: 1785959287,
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-spark-1.3',
+  provider: 'openrouter',
+  name: 'Meta: Muse Spark 1.3',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 4.25,
+      cached: 0.15
+    },
+    tools: {
+      web_search: 0.0025
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 2623,
+    tokensPerSecond: 143
+  },
+  metadata: {
+    description: "Muse Spark 1.3 is a multimodal reasoning model from Meta for long-running agentic, multi-agent, and coding workflows. It is designed to keep track of information across extended tasks, work through...",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-spark-1.3-20260902",
+    created: 1788378359,
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-spark-open',
+  provider: 'openrouter',
+  name: 'Meta: Muse Spark Open',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 4.25,
+      cached: 0.15
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 321,
+    tokensPerSecond: 261
+  },
+  metadata: {
+    description: "Muse Spark Open is a coding-optimized open-weight model. Trained specifically for agentic coding workflows, it delivers higher first-attempt accuracy, reliable tool calling, and deep codebase understanding across the repos developers...",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-spark-open-20261015",
+    huggingFaceId: "meta-models/Muse-Spark-Open-816B-A42B",
+    created: 1792087069,
+    uptime: 100
+  }
+}, {
+  id: 'meta/muse-voice-transcribe-1.0',
+  provider: 'openrouter',
+  name: 'Meta: Muse Voice Transcribe 1.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 50
+    }
+  },
+  metadata: {
+    description: "Muse Voice Transcribe 1.0 is a synchronous speech-to-text model from Meta. It is suited for push-to-talk, endpointing, and speaker-aware transcription, with keyword biasing for domain terms and language biasing through...",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-voice-transcribe-1.0-20260903",
+    created: 1789146931
+  }
+}, {
+  id: 'meta/muse-wonder',
+  provider: 'openrouter',
+  name: 'Meta: Muse Wonder',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'files', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 4,
+      output: 20,
+      cached: 0.19999999999999998
+    },
+    tools: {
+      web_search: 0.0025
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 4260.5,
+    tokensPerSecond: 71
+  },
+  metadata: {
+    description: "Muse Wonder is a frontier reasoning model from Meta, designed for complex personal and professional agentic tasks. It accepts text, images, video, audio, and PDF documents and returns text, with...",
+    defaultParameters: {},
+    canonicalSlug: "meta/muse-wonder-20261012",
+    created: 1791807945,
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-image-2.5',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Image-2.5',
+  contextWindow: 4096,
+  maxOutputTokens: 1024,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['maxTokens', 'temperature']),
+  pricing: {
+    text: {
+      input: 5
+    },
+    image: {
+      input: 47
+    }
+  },
+  metrics: {
+    timeToFirstToken: 26743.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Microsoft AI's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-image-2.5",
+    created: 1780424896
+  }
+}, {
+  id: 'microsoft/mai-image-2.5-pro',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Image-2.5 Pro',
+  contextWindow: 4096,
+  maxOutputTokens: 1024,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['maxTokens', 'temperature']),
+  pricing: {
+    text: {
+      input: 5
+    },
+    image: {
+      input: 108
+    }
+  },
+  metrics: {
+    timeToFirstToken: 37626.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Microsoft AI's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-image-2.5-pro-20260723",
+    created: 1784827701
+  }
+}, {
+  id: 'microsoft/mai-image-2.6',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Image-2.6',
+  contextWindow: 4096,
+  maxOutputTokens: 1024,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['maxTokens', 'temperature']),
+  pricing: {
+    text: {
+      input: 5
+    },
+    image: {
+      input: 38
+    }
+  },
+  metrics: {
+    timeToFirstToken: 25887,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "MAI-Image-2.6 is an image generation and editing model from Microsoft AI, the precision tier of the MAI-Image-2.6 family alongside the faster [MAI-Image-2.6 Flash](/microsoft/mai-image-2.6-flash). It is suited for design-ready visuals and...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-image-2.6-20260904",
+    created: 1788550742,
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-image-2.6-flash',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Image-2.6 Flash',
+  contextWindow: 4096,
+  maxOutputTokens: 1024,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  supportedParameters: new Set(['maxTokens', 'temperature']),
+  pricing: {
+    text: {
+      input: 1.75
+    },
+    image: {
+      input: 19
+    }
+  },
+  metrics: {
+    timeToFirstToken: 18419.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "MAI-Image-2.6 Flash is the lower-latency, lower-cost member of the [MAI-Image-2.6](/microsoft/mai-image-2.6) family from Microsoft AI, built for latency-sensitive, high-throughput production image generation and editing at comparable quality to the precision tier....",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-image-2.6-flash-20260904",
+    created: 1788550735,
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-transcribe-1.5',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Transcribe 1.5',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 360000
+    }
+  },
+  retiresAt: '2026-12-22',
+  metadata: {
+    description: "MAI-Transcribe 1.5 is a multilingual speech-to-text model from Microsoft AI. It is suited for captions, call transcription, subtitling, accessibility, and other voice-enabled applications, with reliable transcription across 43 languages, diverse...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-transcribe-1.5",
+    created: 1780425095,
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-transcribe-2',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Transcribe 2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 100000
+    }
+  },
+  metadata: {
+    description: "MAI-Transcribe 2 is a multilingual speech-to-text model from Microsoft AI, ranked #1 on the FLEURS multilingual benchmark. It supports 60 languages with automatic language identification, code switching for mixed-language speech,...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-transcribe-2-20260903",
+    created: 1788396586,
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-voice-2',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Voice-2',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 22
+    }
+  },
+  retiresAt: '2026-12-31',
+  metadata: {
+    description: "MAI-Voice-2 is an expressive text-to-speech model from Microsoft AI. It is suited for conversational assistants, media narration, accessibility, education, and other long-form voice applications. It supports 15 languages across 18...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-voice-2",
+    created: 1780425097,
+    voices: [
+      "en-US-Harper:MAI-Voice-2",
+      "es-MX-Valeria:MAI-Voice-2",
+      "fr-FR-Soleil:MAI-Voice-2",
+      "de-DE-Klaus:MAI-Voice-2"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-voice-2-flash',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Voice-2-Flash',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  retiresAt: '2026-12-31',
+  metadata: {
+    description: "MAI-Voice-2-Flash is a low-latency text-to-speech model from Microsoft AI for voice agents, assistants, call centers, accessibility, narration, and other interactive applications. It generates expressive 24 kHz mono speech across 15...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-voice-2-flash-20260723",
+    created: 1784822080,
+    voices: [
+      "en-US-Harper:MAI-Voice-2",
+      "es-MX-Valeria:MAI-Voice-2",
+      "fr-FR-Soleil:MAI-Voice-2",
+      "de-DE-Klaus:MAI-Voice-2"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-voice-2.1',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Voice-2.1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 22
+    }
+  },
+  metadata: {
+    description: "MAI-Voice-2.1 is Microsoft AI's highest-fidelity, most expressive text-to-speech model. It produces natural, studio-grade speech across 23 languages, with detailed prosody, nuanced expressiveness, and speaker consistency over long-form content. It is...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-voice-2.1-20261001",
+    created: 1790870467,
+    voices: [
+      "cs-CZ-Grant:MAI-Voice-2.1",
+      "cs-CZ-Harper:MAI-Voice-2.1",
+      "da-DK-Grant:MAI-Voice-2.1",
+      "da-DK-Harper:MAI-Voice-2.1",
+      "de-DE-Grant:MAI-Voice-2.1",
+      "de-DE-Harper:MAI-Voice-2.1",
+      "de-DE-Klaus:MAI-Voice-2.1",
+      "de-DE-Mia:MAI-Voice-2.1",
+      "en-AU-Isla:MAI-Voice-2.1",
+      "en-GB-Emily:MAI-Voice-2.1",
+      "en-GB-Harry:MAI-Voice-2.1",
+      "en-IN-Dhruv:MAI-Voice-2.1",
+      "en-IN-Priya:MAI-Voice-2.1",
+      "en-US-Ethan:MAI-Voice-2.1",
+      "en-US-Grant:MAI-Voice-2.1",
+      "en-US-Harper:MAI-Voice-2.1",
+      "en-US-Iris:MAI-Voice-2.1",
+      "en-US-Jasper:MAI-Voice-2.1",
+      "en-US-Olivia:MAI-Voice-2.1",
+      "en-US-Sage:MAI-Voice-2.1",
+      "es-ES-Marta:MAI-Voice-2.1",
+      "es-MX-Alejo:MAI-Voice-2.1",
+      "es-MX-Grant:MAI-Voice-2.1",
+      "es-MX-Harper:MAI-Voice-2.1",
+      "es-MX-Valeria:MAI-Voice-2.1",
+      "fi-FI-Grant:MAI-Voice-2.1",
+      "fi-FI-Harper:MAI-Voice-2.1",
+      "fr-FR-Grant:MAI-Voice-2.1",
+      "fr-FR-Harper:MAI-Voice-2.1",
+      "fr-FR-Marc:MAI-Voice-2.1",
+      "fr-FR-Soleil:MAI-Voice-2.1",
+      "hi-IN-Arjun:MAI-Voice-2.1",
+      "hi-IN-Dhruv:MAI-Voice-2.1",
+      "hi-IN-Grant:MAI-Voice-2.1",
+      "hi-IN-Harper:MAI-Voice-2.1",
+      "hi-IN-Kavya:MAI-Voice-2.1",
+      "hi-IN-Priya:MAI-Voice-2.1",
+      "hu-HU-Bence:MAI-Voice-2.1",
+      "hu-HU-Grant:MAI-Voice-2.1",
+      "hu-HU-Harper:MAI-Voice-2.1",
+      "hu-HU-Levente:MAI-Voice-2.1",
+      "hu-HU-Lilla:MAI-Voice-2.1",
+      "hu-HU-Reka:MAI-Voice-2.1",
+      "id-ID-Grant:MAI-Voice-2.1",
+      "id-ID-Harper:MAI-Voice-2.1",
+      "it-IT-Grant:MAI-Voice-2.1",
+      "it-IT-Harper:MAI-Voice-2.1",
+      "it-IT-Luca:MAI-Voice-2.1",
+      "it-IT-Rosa:MAI-Voice-2.1",
+      "ko-KR-Grant:MAI-Voice-2.1",
+      "ko-KR-Haena:MAI-Voice-2.1",
+      "ko-KR-Harper:MAI-Voice-2.1",
+      "ko-KR-Junho:MAI-Voice-2.1",
+      "nb-NO-Grant:MAI-Voice-2.1",
+      "nb-NO-Harper:MAI-Voice-2.1",
+      "nl-NL-Grant:MAI-Voice-2.1",
+      "nl-NL-Harper:MAI-Voice-2.1",
+      "nl-NL-Sander:MAI-Voice-2.1",
+      "pl-PL-Grant:MAI-Voice-2.1",
+      "pl-PL-Harper:MAI-Voice-2.1",
+      "pt-BR-Caio:MAI-Voice-2.1",
+      "pt-BR-Grant:MAI-Voice-2.1",
+      "pt-BR-Harper:MAI-Voice-2.1",
+      "pt-BR-Luana:MAI-Voice-2.1",
+      "pt-BR-Pedro:MAI-Voice-2.1",
+      "pt-BR-Rafael:MAI-Voice-2.1",
+      "pt-PT-Grant:MAI-Voice-2.1",
+      "pt-PT-Harper:MAI-Voice-2.1",
+      "pt-PT-Rui:MAI-Voice-2.1",
+      "ro-RO-Andrei:MAI-Voice-2.1",
+      "ro-RO-Elena:MAI-Voice-2.1",
+      "ro-RO-Grant:MAI-Voice-2.1",
+      "ro-RO-Harper:MAI-Voice-2.1",
+      "ro-RO-Ioana:MAI-Voice-2.1",
+      "ro-RO-Radu:MAI-Voice-2.1",
+      "ru-RU-Grant:MAI-Voice-2.1",
+      "ru-RU-Harper:MAI-Voice-2.1",
+      "ru-RU-Lev:MAI-Voice-2.1",
+      "ru-RU-Masha:MAI-Voice-2.1",
+      "sv-SE-Grant:MAI-Voice-2.1",
+      "sv-SE-Harper:MAI-Voice-2.1",
+      "th-TH-Grant:MAI-Voice-2.1",
+      "th-TH-Harper:MAI-Voice-2.1",
+      "th-TH-Krit:MAI-Voice-2.1",
+      "th-TH-Nattapong:MAI-Voice-2.1",
+      "tr-TR-Aydin:MAI-Voice-2.1",
+      "tr-TR-Elif:MAI-Voice-2.1",
+      "tr-TR-Grant:MAI-Voice-2.1",
+      "tr-TR-Harper:MAI-Voice-2.1",
+      "vi-VN-Grant:MAI-Voice-2.1",
+      "vi-VN-Harper:MAI-Voice-2.1",
+      "zh-CN-Bo:MAI-Voice-2.1",
+      "zh-CN-Grant:MAI-Voice-2.1",
+      "zh-CN-Harper:MAI-Voice-2.1",
+      "zh-CN-Lan:MAI-Voice-2.1",
+      "zh-CN-Mei:MAI-Voice-2.1",
+      "zh-CN-Wei:MAI-Voice-2.1"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/mai-voice-2.1-flash',
+  provider: 'openrouter',
+  name: 'Microsoft AI: MAI-Voice-2.1-Flash',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  metadata: {
+    description: "MAI-Voice-2.1-Flash is a low-latency text-to-speech model from Microsoft AI, optimized for real-time responsiveness. It produces natural, expressive speech across 23 languages, with human-like intonation, rhythm, and emotional nuance. It is...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/mai-voice-2.1-flash-20261001",
+    created: 1790870485,
+    voices: [
+      "cs-CZ-Grant:MAI-Voice-2.1-Flash",
+      "cs-CZ-Harper:MAI-Voice-2.1-Flash",
+      "da-DK-Grant:MAI-Voice-2.1-Flash",
+      "da-DK-Harper:MAI-Voice-2.1-Flash",
+      "de-DE-Grant:MAI-Voice-2.1-Flash",
+      "de-DE-Harper:MAI-Voice-2.1-Flash",
+      "de-DE-Klaus:MAI-Voice-2.1-Flash",
+      "de-DE-Mia:MAI-Voice-2.1-Flash",
+      "en-AU-Isla:MAI-Voice-2.1-Flash",
+      "en-GB-Emily:MAI-Voice-2.1-Flash",
+      "en-GB-Harry:MAI-Voice-2.1-Flash",
+      "en-IN-Dhruv:MAI-Voice-2.1-Flash",
+      "en-IN-Priya:MAI-Voice-2.1-Flash",
+      "en-US-Ethan:MAI-Voice-2.1-Flash",
+      "en-US-Grant:MAI-Voice-2.1-Flash",
+      "en-US-Harper:MAI-Voice-2.1-Flash",
+      "en-US-Iris:MAI-Voice-2.1-Flash",
+      "en-US-Jasper:MAI-Voice-2.1-Flash",
+      "en-US-Olivia:MAI-Voice-2.1-Flash",
+      "en-US-Sage:MAI-Voice-2.1-Flash",
+      "es-ES-Marta:MAI-Voice-2.1-Flash",
+      "es-MX-Alejo:MAI-Voice-2.1-Flash",
+      "es-MX-Grant:MAI-Voice-2.1-Flash",
+      "es-MX-Harper:MAI-Voice-2.1-Flash",
+      "es-MX-Valeria:MAI-Voice-2.1-Flash",
+      "fi-FI-Grant:MAI-Voice-2.1-Flash",
+      "fi-FI-Harper:MAI-Voice-2.1-Flash",
+      "fr-FR-Grant:MAI-Voice-2.1-Flash",
+      "fr-FR-Harper:MAI-Voice-2.1-Flash",
+      "fr-FR-Marc:MAI-Voice-2.1-Flash",
+      "fr-FR-Soleil:MAI-Voice-2.1-Flash",
+      "hi-IN-Arjun:MAI-Voice-2.1-Flash",
+      "hi-IN-Dhruv:MAI-Voice-2.1-Flash",
+      "hi-IN-Grant:MAI-Voice-2.1-Flash",
+      "hi-IN-Harper:MAI-Voice-2.1-Flash",
+      "hi-IN-Kavya:MAI-Voice-2.1-Flash",
+      "hi-IN-Priya:MAI-Voice-2.1-Flash",
+      "hu-HU-Bence:MAI-Voice-2.1-Flash",
+      "hu-HU-Grant:MAI-Voice-2.1-Flash",
+      "hu-HU-Harper:MAI-Voice-2.1-Flash",
+      "hu-HU-Levente:MAI-Voice-2.1-Flash",
+      "hu-HU-Lilla:MAI-Voice-2.1-Flash",
+      "hu-HU-Reka:MAI-Voice-2.1-Flash",
+      "id-ID-Grant:MAI-Voice-2.1-Flash",
+      "id-ID-Harper:MAI-Voice-2.1-Flash",
+      "it-IT-Grant:MAI-Voice-2.1-Flash",
+      "it-IT-Harper:MAI-Voice-2.1-Flash",
+      "it-IT-Luca:MAI-Voice-2.1-Flash",
+      "it-IT-Rosa:MAI-Voice-2.1-Flash",
+      "ko-KR-Grant:MAI-Voice-2.1-Flash",
+      "ko-KR-Haena:MAI-Voice-2.1-Flash",
+      "ko-KR-Harper:MAI-Voice-2.1-Flash",
+      "ko-KR-Junho:MAI-Voice-2.1-Flash",
+      "nb-NO-Grant:MAI-Voice-2.1-Flash",
+      "nb-NO-Harper:MAI-Voice-2.1-Flash",
+      "nl-NL-Grant:MAI-Voice-2.1-Flash",
+      "nl-NL-Harper:MAI-Voice-2.1-Flash",
+      "nl-NL-Sander:MAI-Voice-2.1-Flash",
+      "pl-PL-Grant:MAI-Voice-2.1-Flash",
+      "pl-PL-Harper:MAI-Voice-2.1-Flash",
+      "pt-BR-Caio:MAI-Voice-2.1-Flash",
+      "pt-BR-Grant:MAI-Voice-2.1-Flash",
+      "pt-BR-Harper:MAI-Voice-2.1-Flash",
+      "pt-BR-Luana:MAI-Voice-2.1-Flash",
+      "pt-BR-Pedro:MAI-Voice-2.1-Flash",
+      "pt-BR-Rafael:MAI-Voice-2.1-Flash",
+      "pt-PT-Grant:MAI-Voice-2.1-Flash",
+      "pt-PT-Harper:MAI-Voice-2.1-Flash",
+      "pt-PT-Rui:MAI-Voice-2.1-Flash",
+      "ro-RO-Andrei:MAI-Voice-2.1-Flash",
+      "ro-RO-Elena:MAI-Voice-2.1-Flash",
+      "ro-RO-Grant:MAI-Voice-2.1-Flash",
+      "ro-RO-Harper:MAI-Voice-2.1-Flash",
+      "ro-RO-Ioana:MAI-Voice-2.1-Flash",
+      "ro-RO-Radu:MAI-Voice-2.1-Flash",
+      "ru-RU-Grant:MAI-Voice-2.1-Flash",
+      "ru-RU-Harper:MAI-Voice-2.1-Flash",
+      "ru-RU-Lev:MAI-Voice-2.1-Flash",
+      "ru-RU-Masha:MAI-Voice-2.1-Flash",
+      "sv-SE-Grant:MAI-Voice-2.1-Flash",
+      "sv-SE-Harper:MAI-Voice-2.1-Flash",
+      "th-TH-Grant:MAI-Voice-2.1-Flash",
+      "th-TH-Harper:MAI-Voice-2.1-Flash",
+      "th-TH-Krit:MAI-Voice-2.1-Flash",
+      "th-TH-Nattapong:MAI-Voice-2.1-Flash",
+      "tr-TR-Aydin:MAI-Voice-2.1-Flash",
+      "tr-TR-Elif:MAI-Voice-2.1-Flash",
+      "tr-TR-Grant:MAI-Voice-2.1-Flash",
+      "tr-TR-Harper:MAI-Voice-2.1-Flash",
+      "vi-VN-Grant:MAI-Voice-2.1-Flash",
+      "vi-VN-Harper:MAI-Voice-2.1-Flash",
+      "zh-CN-Bo:MAI-Voice-2.1-Flash",
+      "zh-CN-Grant:MAI-Voice-2.1-Flash",
+      "zh-CN-Harper:MAI-Voice-2.1-Flash",
+      "zh-CN-Lan:MAI-Voice-2.1-Flash",
+      "zh-CN-Mei:MAI-Voice-2.1-Flash",
+      "zh-CN-Wei:MAI-Voice-2.1-Flash"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'microsoft/microsoft-decision-1',
+  provider: 'openrouter',
+  name: 'Microsoft: Microsoft-Decision-1',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.041999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 209,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Microsoft-Decision-1 is a small model built for fast decision-making. Instead of generating text, it reads the provided content and returns a calibrated probability for each fixed answer option, so the...",
+    defaultParameters: {},
+    canonicalSlug: "microsoft/microsoft-decision-1-20261009",
+    created: 1791584978,
+    uptime: 100
   }
 }, {
   id: 'microsoft/phi-4',
   provider: 'openrouter',
   name: 'Microsoft: Phi 4',
   contextWindow: 16384,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 14745,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
@@ -3088,50 +8158,97 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.3
+    timeToFirstToken: 433,
+    tokensPerSecond: 83
   },
   metadata: {
     description: "[Microsoft Research](/microsoft) Phi-4 is designed to perform well in complex reasoning tasks and can operate efficiently in situations with limited memory or where quick responses are needed. At 14 billion...",
     defaultParameters: {},
     canonicalSlug: "microsoft/phi-4",
     huggingFaceId: "microsoft/phi-4",
-    created: 1736489872
+    created: 1736489872,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
-  id: 'microsoft/wizardlm-2-8x22b',
+  id: 'minimax/hailuo-2.3',
   provider: 'openrouter',
-  name: 'WizardLM-2 8x22B',
-  contextWindow: 65536,
-  maxOutputTokens: 8000,
-  tier: 'flagship',
-  tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'topP']),
+  name: 'MiniMax: Hailuo 2.3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
   pricing: {
-    text: {
-      input: 0.62,
-      output: 0.62
-    }
+    text: {}
   },
   metrics: {
-    timeToFirstToken: 0.9
+    timeToFirstToken: 163292,
+    tokensPerSecond: 0
   },
   metadata: {
-    description: "WizardLM-2 8x22B is Microsoft AI's most advanced Wizard model. It demonstrates highly competitive performance compared to leading proprietary models, and it consistently outperforms all existing state-of-the-art opensource models. It is...",
+    description: "Hailuo 2.3 is a video generation model from MiniMax. It accepts text prompts and reference images as input and generates video output, supporting both text-to-video and image-to-video workflows. It is...",
     defaultParameters: {},
-    canonicalSlug: "microsoft/wizardlm-2-8x22b",
-    huggingFaceId: "microsoft/WizardLM-2-8x22B",
-    created: 1713225600
+    canonicalSlug: "minimax/hailuo-2.3-20260420",
+    created: 1776702740
+  }
+}, {
+  id: 'minimax/hailuo-3',
+  provider: 'openrouter',
+  name: 'MiniMax: H3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 267740,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "MiniMax H3 is a lightweight, open-weights video generation model from MiniMax. It is designed for precise multimodal editing and controlled content generation, including instruction-guided edits, text and brand rendering, and...",
+    defaultParameters: {},
+    canonicalSlug: "minimax/hailuo-03-20260730",
+    created: 1785366648,
+    uptime: 100
+  }
+}, {
+  id: 'minimax/hailuo-3-max',
+  provider: 'openrouter',
+  name: 'MiniMax: H3 Max',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 17601.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "MiniMax H3 Max is a video-generation model from MiniMax, jointly released with fal.ai. Derived through additional training from MiniMax H3, it is designed for faster text-to-video and image-to-video generation with...",
+    defaultParameters: {},
+    canonicalSlug: "minimax/hailuo-3-max-20260901",
+    created: 1788313310
   }
 }, {
   id: 'minimax/minimax-01',
   provider: 'openrouter',
   name: 'MiniMax: MiniMax-01',
   contextWindow: 1000192,
-  maxOutputTokens: 1000192,
+  maxOutputTokens: 900172,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'temperature', 'topP']),
   pricing: {
     text: {
@@ -3140,14 +8257,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.89
+    timeToFirstToken: 985,
+    tokensPerSecond: 26
   },
   metadata: {
     description: "MiniMax-01 is a combines MiniMax-Text-01 for text generation and MiniMax-VL-01 for image understanding. It has 456 billion parameters, with 45.9 billion parameters activated per inference, and can handle a context...",
     defaultParameters: {},
     canonicalSlug: "minimax/minimax-01",
     huggingFaceId: "MiniMaxAI/MiniMax-Text-01",
-    created: 1736915462
+    created: 1736915462,
+    knowledgeCutoff: "2024-03-31",
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m1',
@@ -3157,23 +8277,25 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 40000,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.39999999999999997,
+      input: 0.55,
       output: 2.2
     }
   },
   metrics: {
-    timeToFirstToken: 0.75
+    timeToFirstToken: 863.5,
+    tokensPerSecond: 89
   },
   metadata: {
     description: "MiniMax-M1 is a large-scale, open-weight reasoning model designed for extended context and high-efficiency inference. It leverages a hybrid Mixture-of-Experts (MoE) architecture paired with a custom \"lightning attention\" mechanism, allowing it...",
     defaultParameters: {},
     canonicalSlug: "minimax/minimax-m1",
     huggingFaceId: "",
-    created: 1750200414
+    created: 1750200414,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
   id: 'minimax/minimax-m2',
@@ -3183,8 +8305,8 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 131072,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.255,
@@ -3192,7 +8314,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.31
+    timeToFirstToken: 1013.5,
+    tokensPerSecond: 44
   },
   metadata: {
     description: "MiniMax-M2 is a compact, high-efficiency large language model optimized for end-to-end coding and agentic workflows. With 10 billion activated parameters (230 billion total), it delivers near-frontier intelligence across general reasoning,...",
@@ -3202,7 +8325,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m2",
     huggingFaceId: "MiniMaxAI/MiniMax-M2",
-    created: 1761252093
+    created: 1761252093,
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m2-her',
@@ -3217,11 +8341,13 @@ export const openrouterModels: ModelInfo[] = [{
   pricing: {
     text: {
       input: 0.3,
-      output: 1.2
+      output: 1.2,
+      cached: 0.03
     }
   },
   metrics: {
-    timeToFirstToken: 0.93
+    timeToFirstToken: 884,
+    tokensPerSecond: 40.5
   },
   metadata: {
     description: "MiniMax M2-her is a dialogue-first large language model built for immersive roleplay, character-driven chat, and expressive multi-turn conversations. Designed to stay consistent in tone and personality, it supports rich message...",
@@ -3231,7 +8357,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m2-her-20260123",
     huggingFaceId: "",
-    created: 1769177239
+    created: 1769177239,
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m2.1',
@@ -3241,16 +8368,18 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 131072,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 1.2
+      output: 1.2,
+      cached: 0.03
     }
   },
   metrics: {
-    timeToFirstToken: 0.67
+    timeToFirstToken: 1157,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "MiniMax-M2.1 is a lightweight, state-of-the-art large language model optimized for coding, agentic workflows, and modern application development. With only 10 billion activated parameters, it delivers a major jump in real-world...",
@@ -3260,26 +8389,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m2.1",
     huggingFaceId: "MiniMaxAI/MiniMax-M2.1",
-    created: 1766454997
+    created: 1766454997,
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m2.5',
   provider: 'openrouter',
   name: 'MiniMax: MiniMax M2.5',
   contextWindow: 204800,
-  maxOutputTokens: 196608,
+  maxOutputTokens: 131072,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.15,
-      output: 0.8999999999999999
+      input: 0.3,
+      output: 1.2,
+      cached: 0.03
     }
   },
   metrics: {
-    timeToFirstToken: 0.42
+    timeToFirstToken: 880.5,
+    tokensPerSecond: 84
   },
   metadata: {
     description: "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
@@ -3289,26 +8421,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m2.5-20260211",
     huggingFaceId: "MiniMaxAI/MiniMax-M2.5",
-    created: 1770908502
+    created: 1770908502,
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m2.7',
   provider: 'openrouter',
   name: 'MiniMax: MiniMax M2.7',
   contextWindow: 204800,
-  maxOutputTokens: 196608,
+  maxOutputTokens: 131072,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.24,
-      output: 0.96
+      input: 0.3,
+      output: 1.2,
+      cached: 0.06
     }
   },
   metrics: {
-    timeToFirstToken: 0.36
+    timeToFirstToken: 278,
+    tokensPerSecond: 285
   },
   metadata: {
     description: "MiniMax-M2.7 is a next-generation large language model designed for autonomous, real-world productivity and continuous improvement. Built to actively participate in its own evolution, M2.7 integrates advanced agentic capabilities through multi-agent...",
@@ -3318,26 +8453,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m2.7-20260318",
     huggingFaceId: "MiniMaxAI/MiniMax-M2.7",
-    created: 1773836697
+    created: 1773836697,
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m3',
   provider: 'openrouter',
   name: 'MiniMax: MiniMax M3',
   contextWindow: 1048576,
-  maxOutputTokens: 131072,
+  maxOutputTokens: 512000,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 1.2
+      output: 1.2,
+      cached: 0.06
     }
   },
   metrics: {
-    timeToFirstToken: 0.72
+    timeToFirstToken: 566,
+    tokensPerSecond: 147
   },
   metadata: {
     description: "MiniMax-M3 is a multimodal foundation model from MiniMax. It supports text, image, and video inputs with text output, a 1M-token context window, and is suited for long-horizon agentic work, coding,...",
@@ -3347,25 +8485,195 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m3-20260531",
     huggingFaceId: "MiniMaxAI/Minimax-M3",
-    created: 1780245374
+    created: 1780245374,
+    uptime: 100
+  }
+}, {
+  id: 'minimax/minimax-m3.1-flash',
+  provider: 'openrouter',
+  name: 'MiniMax: MiniMax M3.1 Flash',
+  contextWindow: 1048576,
+  maxOutputTokens: 524288,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.075,
+      output: 0.3,
+      cached: 0.0075
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 386.5,
+    tokensPerSecond: 168
+  },
+  metadata: {
+    description: "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
+    defaultParameters: {},
+    canonicalSlug: "minimax/minimax-m3.1-flash-20261019",
+    huggingFaceId: "MiniMaxAI/MiniMax-M3.1-Flash",
+    created: 1792379569,
+    uptime: 100
+  }
+}, {
+  id: 'minimax/speech-2.8-hd',
+  provider: 'openrouter',
+  name: 'MiniMax: Speech 2.8 HD',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 100
+    }
+  },
+  metadata: {
+    description: "MiniMax Speech 2.8 HD is a text-to-speech model from MiniMax. It is suited for applications that generate spoken audio from text and accepts arbitrary MiniMax voice IDs.",
+    defaultParameters: {},
+    canonicalSlug: "minimax/speech-2.8-hd-20260716",
+    created: 1784164001,
+    voices: [
+      "English_expressive_narrator",
+      "English_radiant_girl",
+      "English_magnetic_voiced_man",
+      "English_compelling_lady1",
+      "English_Aussie_Bloke",
+      "English_captivating_female1",
+      "English_Upbeat_Woman",
+      "English_Trustworth_Man",
+      "English_CalmWoman",
+      "English_UpsetGirl",
+      "English_Gentle-voiced_man",
+      "English_Whispering_girl",
+      "English_Diligent_Man",
+      "English_Graceful_Lady",
+      "English_ReservedYoungMan",
+      "English_PlayfulGirl",
+      "English_ManWithDeepVoice",
+      "English_MaturePartner",
+      "English_FriendlyPerson",
+      "English_MatureBoss",
+      "English_Debator",
+      "English_LovelyGirl",
+      "English_Steadymentor",
+      "English_Deep-VoicedGentleman",
+      "English_Wiselady",
+      "English_CaptivatingStoryteller",
+      "English_DecentYoungMan",
+      "English_SentimentalLady",
+      "English_ImposingManner",
+      "English_SadTeen",
+      "English_PassionateWarrior",
+      "English_WiseScholar",
+      "English_Soft-spokenGirl",
+      "English_SereneWoman",
+      "English_ConfidentWoman",
+      "English_PatientMan",
+      "English_Comedian",
+      "English_BossyLeader",
+      "English_Strong-WilledBoy",
+      "English_StressedLady",
+      "English_AssertiveQueen",
+      "English_AnimeCharacter",
+      "English_Jovialman",
+      "English_WhimsicalGirl",
+      "English_Kind-heartedGirl"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'minimax/speech-2.8-turbo',
+  provider: 'openrouter',
+  name: 'MiniMax: Speech 2.8 Turbo',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 60
+    }
+  },
+  metadata: {
+    description: "MiniMax Speech 2.8 Turbo is a text-to-speech model from MiniMax. It is suited for applications that generate spoken audio from text and accepts arbitrary MiniMax voice IDs.",
+    defaultParameters: {},
+    canonicalSlug: "minimax/speech-2.8-turbo-20260716",
+    created: 1784164000,
+    voices: [
+      "English_expressive_narrator",
+      "English_radiant_girl",
+      "English_magnetic_voiced_man",
+      "English_compelling_lady1",
+      "English_Aussie_Bloke",
+      "English_captivating_female1",
+      "English_Upbeat_Woman",
+      "English_Trustworth_Man",
+      "English_CalmWoman",
+      "English_UpsetGirl",
+      "English_Gentle-voiced_man",
+      "English_Whispering_girl",
+      "English_Diligent_Man",
+      "English_Graceful_Lady",
+      "English_ReservedYoungMan",
+      "English_PlayfulGirl",
+      "English_ManWithDeepVoice",
+      "English_MaturePartner",
+      "English_FriendlyPerson",
+      "English_MatureBoss",
+      "English_Debator",
+      "English_LovelyGirl",
+      "English_Steadymentor",
+      "English_Deep-VoicedGentleman",
+      "English_Wiselady",
+      "English_CaptivatingStoryteller",
+      "English_DecentYoungMan",
+      "English_SentimentalLady",
+      "English_ImposingManner",
+      "English_SadTeen",
+      "English_PassionateWarrior",
+      "English_WiseScholar",
+      "English_Soft-spokenGirl",
+      "English_SereneWoman",
+      "English_ConfidentWoman",
+      "English_PatientMan",
+      "English_Comedian",
+      "English_BossyLeader",
+      "English_Strong-WilledBoy",
+      "English_StressedLady",
+      "English_AssertiveQueen",
+      "English_AnimeCharacter",
+      "English_Jovialman",
+      "English_WhimsicalGirl",
+      "English_Kind-heartedGirl"
+    ],
+    uptime: 100
   }
 }, {
   id: 'mistralai/codestral-2508',
   provider: 'openrouter',
   name: 'Mistral: Codestral 2508',
   contextWindow: 256000,
+  maxOutputTokens: 204800,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 0.8999999999999999
+      output: 0.8999999999999999,
+      cached: 0.03
     }
   },
   metrics: {
-    timeToFirstToken: 0.24
+    timeToFirstToken: 217,
+    tokensPerSecond: 127.5
   },
   metadata: {
     description: "Mistral's cutting-edge language model for coding released end of July 2025. Codestral specializes in low-latency, high-frequency tasks such as fill-in-the-middle (FIM), code correction and test generation.\n\n[Blog Post](https://mistral.ai/news/codestral-25-08)",
@@ -3374,25 +8682,52 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/codestral-2508",
     huggingFaceId: "",
-    created: 1754079630
+    created: 1754079630,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/codestral-embed-2505',
+  provider: 'openrouter',
+  name: 'Mistral: Codestral Embed 2505',
+  contextWindow: 8192,
+  maxOutputTokens: 6553,
+  tier: 'flagship',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.15
+    }
+  },
+  metadata: {
+    description: "Mistral Codestral Embed is specially designed for code, perfect for embedding code databases, repositories, and powering coding assistants with state-of-the-art retrieval.",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/codestral-embed-2505",
+    huggingFaceId: "",
+    created: 1761864460,
+    uptime: 100
   }
 }, {
   id: 'mistralai/devstral-2512',
   provider: 'openrouter',
   name: 'Mistral: Devstral 2 2512',
   contextWindow: 262144,
+  maxOutputTokens: 209715,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.39999999999999997,
-      output: 2
+      output: 2,
+      cached: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 0.86
+    timeToFirstToken: 2350,
+    tokensPerSecond: 61
   },
   metadata: {
     description: "Devstral 2 is a state-of-the-art open-source model by Mistral AI specializing in agentic coding. It is a 123B-parameter dense transformer model supporting a 256K context window. Devstral 2 supports exploring...",
@@ -3401,25 +8736,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/devstral-2512",
     huggingFaceId: "mistralai/Devstral-2-123B-Instruct-2512",
-    created: 1765285419
+    created: 1765285419,
+    uptime: 100
   }
 }, {
   id: 'mistralai/ministral-14b-2512',
   provider: 'openrouter',
   name: 'Mistral: Ministral 3 14B 2512',
   contextWindow: 262144,
+  maxOutputTokens: 209715,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.19999999999999998,
-      output: 0.19999999999999998
+      output: 0.19999999999999998,
+      cached: 0.02
     }
   },
   metrics: {
-    timeToFirstToken: 0.31
+    timeToFirstToken: 564,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "The largest model in the Ministral 3 family, Ministral 3 14B offers frontier capabilities and performance comparable to its larger Mistral Small 3.2 24B counterpart. A powerful and efficient language...",
@@ -3428,25 +8767,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/ministral-14b-2512",
     huggingFaceId: "mistralai/Ministral-3-14B-Instruct-2512",
-    created: 1764681735
+    created: 1764681735,
+    uptime: 100
   }
 }, {
   id: 'mistralai/ministral-3b-2512',
   provider: 'openrouter',
   name: 'Mistral: Ministral 3 3B 2512',
   contextWindow: 131072,
+  maxOutputTokens: 104857,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.09999999999999999,
-      output: 0.09999999999999999
+      output: 0.09999999999999999,
+      cached: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 0.27
+    timeToFirstToken: 336,
+    tokensPerSecond: 129
   },
   metadata: {
     description: "The smallest model in the Ministral 3 family, Ministral 3 3B is a powerful, efficient tiny language model with vision capabilities.",
@@ -3455,25 +8798,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/ministral-3b-2512",
     huggingFaceId: "mistralai/Ministral-3-3B-Instruct-2512",
-    created: 1764681560
+    created: 1764681560,
+    uptime: 100
   }
 }, {
   id: 'mistralai/ministral-8b-2512',
   provider: 'openrouter',
   name: 'Mistral: Ministral 3 8B 2512',
   contextWindow: 262144,
+  maxOutputTokens: 209715,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.15,
-      output: 0.15
+      output: 0.15,
+      cached: 0.015
     }
   },
   metrics: {
-    timeToFirstToken: 0.32
+    timeToFirstToken: 352,
+    tokensPerSecond: 80
   },
   metadata: {
     description: "A balanced model in the Ministral 3 family, Ministral 3 8B is a powerful, efficient tiny language model with vision capabilities.",
@@ -3482,25 +8829,50 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/ministral-8b-2512",
     huggingFaceId: "mistralai/Ministral-3-8B-Instruct-2512",
-    created: 1764681654
+    created: 1764681654,
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/mistral-embed-2312',
+  provider: 'openrouter',
+  name: 'Mistral: Mistral Embed 2312',
+  contextWindow: 8192,
+  maxOutputTokens: 6553,
+  tier: 'flagship',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.09999999999999999
+    }
+  },
+  metadata: {
+    description: "Mistral Embed is a specialized embedding model for text data, optimized for semantic search and RAG applications. Developed by Mistral AI in late 2023, it produces 1024-dimensional vectors that effectively...",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/mistral-embed-2312",
+    created: 1761944622,
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-large',
   provider: 'openrouter',
   name: 'Mistral Large',
   contextWindow: 128000,
+  maxOutputTokens: 102400,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 6
+      output: 6,
+      cached: 0.19999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.72
+    timeToFirstToken: 753,
+    tokensPerSecond: 39
   },
   metadata: {
     description: "This is Mistral AI's flagship model, Mistral Large 2 (version `mistral-large-2407`). It's a proprietary weights-available model and excels at reasoning, code, JSON, chat, and more. Read the launch announcement [here](https://mistral.ai/news/mistral-large-2407/)....",
@@ -3508,25 +8880,30 @@ export const openrouterModels: ModelInfo[] = [{
       temperature: 0.3
     },
     canonicalSlug: "mistralai/mistral-large",
-    created: 1708905600
+    created: 1708905600,
+    knowledgeCutoff: "2024-11-30",
+    uptime: 75
   }
 }, {
   id: 'mistralai/mistral-large-2407',
   provider: 'openrouter',
   name: 'Mistral Large 2407',
   contextWindow: 131072,
+  maxOutputTokens: 104857,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 6
+      output: 6,
+      cached: 0.19999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.48
+    timeToFirstToken: 545,
+    tokensPerSecond: 45.5
   },
   metadata: {
     description: "This is Mistral AI's flagship model, Mistral Large 2 (version mistral-large-2407). It's a proprietary weights-available model and excels at reasoning, code, JSON, chat, and more. Read the launch announcement [here](https://mistral.ai/news/mistral-large-2407/)....",
@@ -3535,25 +8912,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-large-2407",
     huggingFaceId: "",
-    created: 1731978415
+    created: 1731978415,
+    knowledgeCutoff: "2024-03-31"
   }
 }, {
   id: 'mistralai/mistral-large-2512',
   provider: 'openrouter',
   name: 'Mistral: Mistral Large 3 2512',
   contextWindow: 262144,
+  maxOutputTokens: 209715,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.5,
-      output: 1.5
+      output: 1.5,
+      cached: 0.049999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 0.61
+    timeToFirstToken: 621,
+    tokensPerSecond: 68.5
   },
   metadata: {
     description: "Mistral Large 3 2512 is Mistral’s most capable model to date, featuring a sparse mixture-of-experts architecture with 41B active parameters (675B total), and released under the Apache 2.0 license.",
@@ -3562,25 +8943,59 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-large-2512",
     huggingFaceId: "",
-    created: 1764624472
+    created: 1764624472,
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/mistral-large-4-0',
+  provider: 'openrouter',
+  name: 'Mistral: Mistral Large 4',
+  contextWindow: 1048576,
+  maxOutputTokens: 262144,
+  tier: 'flagship',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.7,
+      output: 2.0999999999999996,
+      cached: 0.07
+    }
+  },
+  reasoningEfforts: ['none', 'high'],
+  metrics: {
+    timeToFirstToken: 678,
+    tokensPerSecond: 142
+  },
+  metadata: {
+    description: "Mistral Large 4 is a frontier multimodal (text and image input) model from Mistral AI built for reasoning, coding, and agentic workloads. It offers a 1M-token context window with up...",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/mistral-large-4-0-20261006",
+    huggingFaceId: "mistralai/Mistral-Large-4-1T-A52B",
+    created: 1791294122,
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-medium-3',
   provider: 'openrouter',
   name: 'Mistral: Mistral Medium 3',
   contextWindow: 131072,
+  maxOutputTokens: 104857,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.39999999999999997,
-      output: 2
+      output: 2,
+      cached: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 0.36
+    timeToFirstToken: 415,
+    tokensPerSecond: 126.5
   },
   metadata: {
     description: "Mistral Medium 3 is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances state-of-the-art reasoning and multimodal performance with 8× lower cost...",
@@ -3589,16 +9004,19 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-medium-3",
     huggingFaceId: "",
-    created: 1746627341
+    created: 1746627341,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-medium-3-5',
   provider: 'openrouter',
   name: 'Mistral: Mistral Medium 3.5',
   contextWindow: 262144,
+  maxOutputTokens: 209715,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -3606,9 +9024,35 @@ export const openrouterModels: ModelInfo[] = [{
       output: 7.5
     }
   },
+  reasoningEfforts: ['none', 'high'],
   metrics: {
-    timeToFirstToken: 0.57
+    timeToFirstToken: 488.5,
+    tokensPerSecond: 112.5
   },
+  metadata: {
+    description: "Mistral Medium 3.5 is a dense 128B instruction-following model from Mistral AI. It supports text and image inputs with text output, and is designed for agentic workflows, coding, and complex...",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/mistral-medium-3.5-20260430",
+    created: 1777570439,
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/mistral-medium-3-5:batch',
+  provider: 'openrouter',
+  name: 'Mistral: Mistral Medium 3.5 (batch)',
+  contextWindow: 262144,
+  maxOutputTokens: 209715,
+  tier: 'flagship',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.75,
+      output: 3.75
+    }
+  },
+  reasoningEfforts: ['none', 'high'],
   metadata: {
     description: "Mistral Medium 3.5 is a dense 128B instruction-following model from Mistral AI. It supports text and image inputs with text output, and is designed for agentic workflows, coding, and complex...",
     defaultParameters: {},
@@ -3620,18 +9064,21 @@ export const openrouterModels: ModelInfo[] = [{
   provider: 'openrouter',
   name: 'Mistral: Mistral Medium 3.1',
   contextWindow: 131072,
+  maxOutputTokens: 104857,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.39999999999999997,
-      output: 2
+      output: 2,
+      cached: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 0.38
+    timeToFirstToken: 1782,
+    tokensPerSecond: 121
   },
   metadata: {
     description: "Mistral Medium 3.1 is an updated version of Mistral Medium 3, which is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances...",
@@ -3640,25 +9087,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-medium-3.1",
     huggingFaceId: "",
-    created: 1755095639
+    created: 1755095639,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-nemo',
   provider: 'openrouter',
   name: 'Mistral: Mistral Nemo',
   contextWindow: 131072,
+  maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.02,
+      input: 0.029,
       output: 0.03
     }
   },
   metrics: {
-    timeToFirstToken: 0.48
+    timeToFirstToken: 325,
+    tokensPerSecond: 88
   },
   metadata: {
     description: "A 12B parameter model with a 128k token context length built by Mistral in collaboration with NVIDIA. The model is multilingual, supporting English, French, German, Spanish, Italian, Portuguese, Chinese, Japanese,...",
@@ -3667,25 +9118,30 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-nemo",
     huggingFaceId: "mistralai/Mistral-Nemo-Instruct-2407",
-    created: 1721347200
+    created: 1721347200,
+    knowledgeCutoff: "2024-04-30",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-saba',
   provider: 'openrouter',
   name: 'Mistral: Saba',
   contextWindow: 32768,
+  maxOutputTokens: 26214,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.19999999999999998,
-      output: 0.6
+      output: 0.6,
+      cached: 0.02
     }
   },
   metrics: {
-    timeToFirstToken: 0.44
+    timeToFirstToken: 376,
+    tokensPerSecond: 101
   },
   metadata: {
     description: "Mistral Saba is a 24B-parameter language model specifically designed for the Middle East and South Asia, delivering accurate and contextually relevant responses while maintaining efficient performance. Trained on curated regional...",
@@ -3694,7 +9150,9 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-saba-2502",
     huggingFaceId: "",
-    created: 1739803239
+    created: 1739803239,
+    knowledgeCutoff: "2024-09-30",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-small-24b-instruct-2501',
@@ -3713,7 +9171,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.33
+    timeToFirstToken: 317,
+    tokensPerSecond: 43
   },
   metadata: {
     description: "Mistral Small 3 is a 24B-parameter language model optimized for low-latency performance across common AI tasks. Released under the Apache 2.0 license, it features both pre-trained and instruction-tuned versions designed...",
@@ -3722,40 +9181,50 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-small-24b-instruct-2501",
     huggingFaceId: "mistralai/Mistral-Small-24B-Instruct-2501",
-    created: 1738255409
+    created: 1738255409,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-small-2603',
   provider: 'openrouter',
   name: 'Mistral: Mistral Small 4',
   contextWindow: 262144,
+  maxOutputTokens: 209715,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.15,
-      output: 0.6
+      output: 0.6,
+      cached: 0.015
     }
+  },
+  reasoningEfforts: ['none', 'high'],
+  metrics: {
+    timeToFirstToken: 492,
+    tokensPerSecond: 173
   },
   metadata: {
     description: "Mistral Small 4 is the next major release in the Mistral Small family, unifying the capabilities of several flagship Mistral models into a single system. It combines strong reasoning from...",
     defaultParameters: {},
     canonicalSlug: "mistralai/mistral-small-2603",
     huggingFaceId: "mistralai/Mistral-Small-4-119B-2603",
-    created: 1773695685
+    created: 1773695685,
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-small-3.1-24b-instruct',
   provider: 'openrouter',
   name: 'Mistral: Mistral Small 3.1 24B',
   contextWindow: 128000,
-  maxOutputTokens: 128000,
+  maxOutputTokens: 102400,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.351,
@@ -3763,7 +9232,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.65
+    timeToFirstToken: 422,
+    tokensPerSecond: 48
   },
   metadata: {
     description: "Mistral Small 3.1 24B Instruct is an upgraded variant of Mistral Small 3 (2501), featuring 24 billion parameters with advanced multimodal capabilities. It provides state-of-the-art performance in text-based reasoning and...",
@@ -3772,17 +9242,19 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-small-3.1-24b-instruct-2503",
     huggingFaceId: "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
-    created: 1742238937
+    created: 1742238937,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mistral-small-3.2-24b-instruct',
   provider: 'openrouter',
   name: 'Mistral: Mistral Small 3.2 24B',
-  contextWindow: 128000,
+  contextWindow: 256000,
   maxOutputTokens: 16384,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -3791,7 +9263,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.34
+    timeToFirstToken: 323,
+    tokensPerSecond: 89
   },
   metadata: {
     description: "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
@@ -3800,25 +9273,30 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mistral-small-3.2-24b-instruct-2506",
     huggingFaceId: "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
-    created: 1750443016
+    created: 1750443016,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'mistralai/mixtral-8x22b-instruct',
   provider: 'openrouter',
   name: 'Mistral: Mixtral 8x22B Instruct',
   contextWindow: 65536,
+  maxOutputTokens: 52428,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 6
+      output: 6,
+      cached: 0.19999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.34
+    timeToFirstToken: 504,
+    tokensPerSecond: 110
   },
   metadata: {
     description: "Mistral's official instruct fine-tuned version of [Mixtral 8x22B](/models/mistralai/mixtral-8x22b). It uses 39B active parameters out of 141B, offering unparalleled cost efficiency for its size. Its strengths include: - strong math, coding,...",
@@ -3827,25 +9305,236 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/mixtral-8x22b-instruct",
     huggingFaceId: "mistralai/Mixtral-8x22B-Instruct-v0.1",
-    created: 1713312000
+    created: 1713312000,
+    knowledgeCutoff: "2024-01-31"
+  }
+}, {
+  id: 'mistralai/voxtral-mini-3b-2507',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral Mini 3B 2507',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 16.666700000000002
+    }
+  },
+  metadata: {
+    description: "Voxtral Mini 3B 2507 is a speech and audio understanding model from Mistral AI. It is suited for transcription, translation, and compact audio processing workloads.",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-mini-3b-2507-20260813",
+    huggingFaceId: "mistralai/Voxtral-Mini-3B-2507",
+    created: 1786653980,
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/voxtral-mini-transcribe',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral Mini Transcribe',
+  contextWindow: 16384,
+  maxOutputTokens: 13107,
+  tier: 'efficient',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 50
+    }
+  },
+  metadata: {
+    description: "Voxtral Mini Transcribe is Mistral's speech-to-text model, derived from the Voxtral Mini family. It accepts audio input and returns transcribed text via the standard transcription API. Suited for transcribing meetings,...",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-mini-transcribe-2602",
+    created: 1778877024,
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/voxtral-mini-transcribe-3-0',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral Mini Transcribe 3',
+  contextWindow: 65536,
+  maxOutputTokens: 52428,
+  tier: 'efficient',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 58.3333
+    }
+  },
+  metadata: {
+    description: "Voxtral Mini Transcribe 3 is Mistral's compact speech-to-text model. It takes audio input and returns a transcript with timestamps and speaker diarization. It also supports context biasing for domain terms....",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-mini-transcribe-3-0-20261020",
+    created: 1792512796
+  }
+}, {
+  id: 'mistralai/voxtral-mini-tts-2603',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral Mini TTS',
+  contextWindow: 4096,
+  maxOutputTokens: 3276,
+  tier: 'efficient',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 16
+    }
+  },
+  metadata: {
+    description: "Voxtral Mini TTS is Mistral's text-to-speech model featuring zero-shot voice cloning and multilingual support. It converts text input into natural-sounding audio output.",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-mini-tts-2603",
+    created: 1776571337,
+    voices: [
+      "en_paul_sad",
+      "en_paul_neutral",
+      "en_paul_happy",
+      "en_paul_frustrated",
+      "en_paul_excited",
+      "en_paul_confident",
+      "en_paul_cheerful",
+      "en_paul_angry",
+      "gb_oliver_neutral",
+      "gb_oliver_sad",
+      "gb_oliver_excited",
+      "gb_oliver_curious",
+      "gb_oliver_confident",
+      "gb_oliver_cheerful",
+      "gb_oliver_angry",
+      "gb_jane_sarcasm",
+      "gb_jane_confused",
+      "gb_jane_shameful",
+      "gb_jane_sad",
+      "gb_jane_neutral",
+      "gb_jane_jealousy",
+      "gb_jane_frustrated",
+      "gb_jane_curious",
+      "gb_jane_confident",
+      "fr_marie_sad",
+      "fr_marie_neutral",
+      "fr_marie_happy",
+      "fr_marie_excited",
+      "fr_marie_curious",
+      "fr_marie_angry"
+    ]
+  }
+}, {
+  id: 'mistralai/voxtral-mini-tts-3-0',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral TTS 3',
+  contextWindow: 4096,
+  maxOutputTokens: 3276,
+  tier: 'flagship',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 13
+    }
+  },
+  metadata: {
+    description: "Voxtral TTS 3 is Mistral's text-to-speech model. It converts text into natural-sounding speech, offers a library of preset voices, supports zero-shot voice cloning, and accepts emotion and pace tags in...",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-mini-tts-3-0-20261020",
+    created: 1792512813,
+    voices: [
+      "voice_3150",
+      "voice_478",
+      "voice_447",
+      "voice_485",
+      "en_paul_sad",
+      "en_paul_neutral",
+      "en_paul_happy",
+      "en_paul_frustrated",
+      "en_paul_excited",
+      "en_paul_confident",
+      "en_paul_cheerful",
+      "en_paul_angry",
+      "voice_3149",
+      "voice_3147",
+      "voice_591",
+      "voice_590",
+      "voice_1788",
+      "voice_1787",
+      "voice_1786",
+      "gb_oliver_neutral",
+      "gb_jane_sarcasm",
+      "gb_jane_confused",
+      "gb_oliver_sad",
+      "gb_oliver_excited",
+      "gb_oliver_curious",
+      "gb_oliver_confident",
+      "gb_oliver_cheerful",
+      "gb_oliver_angry",
+      "gb_jane_shameful",
+      "gb_jane_sad",
+      "gb_jane_neutral",
+      "gb_jane_jealousy",
+      "gb_jane_frustrated",
+      "gb_jane_curious",
+      "gb_jane_confident",
+      "voice_479",
+      "voice_3143",
+      "voice_481",
+      "voice_483",
+      "voice_592",
+      "voice_3137",
+      "voice_589",
+      "voice_3141",
+      "fr_marie_sad",
+      "fr_marie_neutral",
+      "fr_marie_happy",
+      "fr_marie_excited",
+      "fr_marie_curious",
+      "fr_marie_angry",
+      "voice_3153",
+      "voice_3139",
+      "voice_3146",
+      "voice_482",
+      "voice_3133",
+      "voice_3136",
+      "voice_3135",
+      "voice_3145",
+      "voice_3134",
+      "voice_3154",
+      "voice_480",
+      "voice_3155",
+      "voice_3132",
+      "voice_3138",
+      "voice_3140",
+      "voice_3144",
+      "voice_3142"
+    ],
+    uptime: 100
   }
 }, {
   id: 'mistralai/voxtral-small-24b-2507',
   provider: 'openrouter',
   name: 'Mistral: Voxtral Small 24B 2507',
-  contextWindow: 32000,
+  contextWindow: 32768,
+  maxOutputTokens: 26214,
   tier: 'efficient',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'hearing', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['hearing', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.09999999999999999,
-      output: 0.3
+      output: 0.3,
+      cached: 0.01
+    },
+    audio: {
+      input: 100
     }
   },
   metrics: {
-    timeToFirstToken: 0.46
+    timeToFirstToken: 402,
+    tokensPerSecond: 111
   },
   metadata: {
     description: "Voxtral Small is an enhancement of Mistral Small 3, incorporating state-of-the-art audio input capabilities while retaining best-in-class text performance. It excels at speech transcription, translation and audio understanding. Input audio...",
@@ -3855,14 +9544,114 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "mistralai/voxtral-small-24b-2507",
     huggingFaceId: "mistralai/Voxtral-Small-24B-2507",
-    created: 1761835144
+    created: 1761835144,
+    uptime: 100
+  }
+}, {
+  id: 'mistralai/voxtral-small-24b-2507-stt',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral Small 24B 2507 STT',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'efficient',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 50
+    }
+  },
+  metadata: {
+    description: "Voxtral Small 24B 2507 STT is a speech transcription model from Mistral AI. It is suited for transcription, translation, and audio understanding workloads that benefit from its larger model capacity.",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-small-24b-2507-stt-20260813",
+    huggingFaceId: "mistralai/Voxtral-Small-24B-2507",
+    created: 1786654002
+  }
+}, {
+  id: 'mistralai/voxtral-small-transcribe-3-0',
+  provider: 'openrouter',
+  name: 'Mistral: Voxtral Small Transcribe 3',
+  contextWindow: 65536,
+  maxOutputTokens: 52428,
+  tier: 'efficient',
+  tokenizer: 'Mistral',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 66.66669999999999
+    }
+  },
+  metadata: {
+    description: "Voxtral Small Transcribe 3 is Mistral's flagship speech-to-text model. It takes audio input and returns a transcript with timestamps and speaker diarization, and supports context biasing for domain-specific vocabulary. Suited...",
+    defaultParameters: {},
+    canonicalSlug: "mistralai/voxtral-small-transcribe-3-0-20261020",
+    created: 1792512812,
+    uptime: 100
+  }
+}, {
+  id: 'moondream/moondream3-preview',
+  provider: 'openrouter',
+  name: 'Moondream: Moondream 3 Preview',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'experimental',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {
+      input: 0.3,
+      output: 2.5
+    }
+  },
+  metadata: {
+    description: "Moondream 3 Preview is a vision-language model from Moondream with 9B total parameters and 2B active (mixture-of-experts). It handles visual question answering, captioning, OCR, and visual reasoning over images, with...",
+    defaultParameters: {
+      temperature: 0.2,
+      top_p: 0.9
+    },
+    canonicalSlug: "moondream/moondream3-preview-20261013",
+    huggingFaceId: "moondream/moondream3-preview",
+    created: 1792102385
+  }
+}, {
+  id: 'moondream/moondream3.1-9b-a2b',
+  provider: 'openrouter',
+  name: 'Moondream: Moondream 3.1',
+  contextWindow: 32000,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'topP']),
+  pricing: {
+    text: {
+      input: 0.3,
+      output: 2.5
+    }
+  },
+  metrics: {
+    timeToFirstToken: 357.5,
+    tokensPerSecond: 153.5
+  },
+  metadata: {
+    description: "Moondream 3.1 is a vision-language model from Moondream, the successor to Moondream 3 Preview, with 9B total parameters and 2B active (mixture-of-experts). It handles visual question answering, captioning, OCR, and...",
+    defaultParameters: {
+      temperature: 0.2,
+      top_p: 0.9
+    },
+    canonicalSlug: "moondream/moondream3.1-9b-a2b-20261013",
+    huggingFaceId: "moondream/moondream3.1-9B-A2B",
+    created: 1792102373,
+    uptime: 100
   }
 }, {
   id: 'moonshotai/kimi-k2',
   provider: 'openrouter',
   name: 'MoonshotAI: Kimi K2 0711',
   contextWindow: 131072,
-  maxOutputTokens: 100352,
+  maxOutputTokens: 98304,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'tools', 'streaming']),
@@ -3874,24 +9663,27 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.77
+    timeToFirstToken: 1187.5,
+    tokensPerSecond: 36
   },
   metadata: {
     description: "Kimi K2 Instruct is a large-scale Mixture-of-Experts (MoE) language model developed by Moonshot AI, featuring 1 trillion total parameters with 32 billion active per forward pass. It is optimized for...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2",
     huggingFaceId: "moonshotai/Kimi-K2-Instruct",
-    created: 1752263252
+    created: 1752263252,
+    knowledgeCutoff: "2024-12-31",
+    uptime: 100
   }
 }, {
   id: 'moonshotai/kimi-k2-0905',
   provider: 'openrouter',
   name: 'MoonshotAI: Kimi K2 0905',
   contextWindow: 262144,
-  maxOutputTokens: 100352,
+  maxOutputTokens: 98304,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -3900,128 +9692,234 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.36
+    timeToFirstToken: 851,
+    tokensPerSecond: 38
   },
   metadata: {
     description: "Kimi K2 0905 is the September update of [Kimi K2 0711](moonshotai/kimi-k2). It is a large-scale Mixture-of-Experts (MoE) language model developed by Moonshot AI, featuring 1 trillion total parameters with 32...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2-0905",
     huggingFaceId: "moonshotai/Kimi-K2-Instruct-0905",
-    created: 1757021147
+    created: 1757021147,
+    knowledgeCutoff: "2024-12-31",
+    uptime: 100
   }
 }, {
   id: 'moonshotai/kimi-k2-thinking',
   provider: 'openrouter',
   name: 'MoonshotAI: Kimi K2 Thinking',
   contextWindow: 262144,
-  maxOutputTokens: 100352,
+  maxOutputTokens: 98304,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.6,
-      output: 2.5
+      output: 2.5,
+      cached: 0.15
     }
   },
   metrics: {
-    timeToFirstToken: 0.39
+    timeToFirstToken: 1912.5,
+    tokensPerSecond: 46
   },
   metadata: {
     description: "Kimi K2 Thinking is Moonshot AI’s most advanced open reasoning model to date, extending the K2 series into agentic, long-horizon reasoning. Built on the trillion-parameter Mixture-of-Experts (MoE) architecture introduced in...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2-thinking-20251106",
     huggingFaceId: "moonshotai/Kimi-K2-Thinking",
-    created: 1762440622
+    created: 1762440622,
+    uptime: 100
   }
 }, {
   id: 'moonshotai/kimi-k2.5',
   provider: 'openrouter',
   name: 'MoonshotAI: Kimi K2.5',
   contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.375,
-      output: 2.025
+      input: 0.5,
+      output: 2.5,
+      cached: 0.15
     }
   },
   metrics: {
-    timeToFirstToken: 0.38
+    timeToFirstToken: 649,
+    tokensPerSecond: 66
   },
   metadata: {
     description: "Kimi K2.5 is Moonshot AI's native multimodal model, delivering state-of-the-art visual coding capability and a self-directed agent swarm paradigm. Built on Kimi K2 with continued pretraining over approximately 15T mixed...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2.5-0127",
     huggingFaceId: "moonshotai/Kimi-K2.5",
-    created: 1769487076
+    created: 1769487076,
+    uptime: 100
   }
 }, {
   id: 'moonshotai/kimi-k2.6',
   provider: 'openrouter',
   name: 'MoonshotAI: Kimi K2.6',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.66,
-      output: 3.41
+      input: 0.65,
+      output: 3.41,
+      cached: 0.15
     }
   },
   metrics: {
-    timeToFirstToken: 0.34
+    timeToFirstToken: 340,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "Kimi K2.6 is Moonshot AI's next-generation multimodal model, designed for long-horizon coding, coding-driven UI/UX generation, and multi-agent orchestration. It handles complex end-to-end coding tasks across Python, Rust, and Go, and...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2.6-20260420",
     huggingFaceId: "moonshotai/Kimi-K2.6",
-    created: 1776699402
+    created: 1776699402,
+    uptime: 100
   }
 }, {
   id: 'moonshotai/kimi-k2.7-code',
   provider: 'openrouter',
   name: 'MoonshotAI: Kimi K2.7 Code',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.72,
-      output: 3.49
+      input: 0.6,
+      output: 3.5,
+      cached: 0.15
     }
   },
   metrics: {
-    timeToFirstToken: 0.28
+    timeToFirstToken: 1042,
+    tokensPerSecond: 55
   },
   metadata: {
     description: "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2.7-code-20260612",
     huggingFaceId: "moonshotai/Kimi-K2.7-Code",
-    created: 1781266361
+    created: 1781266361,
+    uptime: 100
+  }
+}, {
+  id: 'moonshotai/kimi-k3',
+  provider: 'openrouter',
+  name: 'MoonshotAI: Kimi K3',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.192,
+      output: 15,
+      cached: 0.182
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 435,
+    tokensPerSecond: 85
+  },
+  metadata: {
+    description: "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
+    defaultParameters: {
+      top_p: 0.95
+    },
+    canonicalSlug: "moonshotai/kimi-k3-20260715",
+    huggingFaceId: "moonshotai/Kimi-K3",
+    created: 1784215858,
+    uptime: 100
+  }
+}, {
+  id: 'moonshotai/kimi-k3:batch',
+  provider: 'openrouter',
+  name: 'MoonshotAI: Kimi K3 (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2.2800000000000002,
+      output: 11.399999999999999,
+      cached: 0.228
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metadata: {
+    description: "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
+    defaultParameters: {
+      top_p: 0.95
+    },
+    canonicalSlug: "moonshotai/kimi-k3-20260715",
+    huggingFaceId: "moonshotai/Kimi-K3",
+    created: 1784215858
+  }
+}, {
+  id: 'moonshotai/kimi-k3.1-pro',
+  provider: 'openrouter',
+  name: 'MoonshotAI: Kimi K3.1 Pro',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.19999999999999998
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 4540,
+    tokensPerSecond: 43
+  },
+  metadata: {
+    description: "Kimi K3.1 Pro is Moonshot AI's flagship open-weight multimodal reasoning model and a post-trained successor to Kimi K3, with a 1M-token context window. It is built for long-horizon coding, 3D...",
+    defaultParameters: {
+      top_p: 0.95
+    },
+    canonicalSlug: "moonshotai/kimi-k3.1-pro-20261023",
+    created: 1792778188,
+    uptime: 100
   }
 }, {
   id: 'morph/morph-v3-fast',
   provider: 'openrouter',
   name: 'Morph: Morph V3 Fast',
-  contextWindow: 81920,
-  maxOutputTokens: 38000,
+  contextWindow: 262144,
+  maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'stop', 'temperature']),
+  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature']),
   pricing: {
     text: {
       input: 0.7999999999999999,
@@ -4029,14 +9927,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.43
+    timeToFirstToken: 98.5,
+    tokensPerSecond: 6388
   },
   metadata: {
     description: "Morph's fastest apply model for code edits. ~10,500 tokens/sec with 96% accuracy for rapid code transformations. The model requires the prompt to be in the following format: <instruction>{instruction}</instruction> <code>{initial_code}</code> <update>{edit_snippet}</update>...",
     defaultParameters: {},
     canonicalSlug: "morph/morph-v3-fast",
     huggingFaceId: "",
-    created: 1751910002
+    created: 1751910002,
+    uptime: 100
   }
 }, {
   id: 'morph/morph-v3-large',
@@ -4054,9 +9954,6 @@ export const openrouterModels: ModelInfo[] = [{
       output: 1.9
     }
   },
-  metrics: {
-    timeToFirstToken: 0.31
-  },
   metadata: {
     description: "Morph's high-accuracy apply model for complex code edits. ~4,500 tokens/sec with 98% accuracy for precise code transformations. The model requires the prompt to be in the following format: <instruction>{instruction}</instruction> <code>{initial_code}</code>...",
     defaultParameters: {},
@@ -4065,64 +9962,149 @@ export const openrouterModels: ModelInfo[] = [{
     created: 1751910858
   }
 }, {
-  id: 'nex-agi/nex-n2-mini',
+  id: 'nace-ai/drex-max',
   provider: 'openrouter',
-  name: 'Nex AGI: Nex-N2-Mini',
+  name: 'Nace.AI: Drex Max',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.06,
+      cached: 0.06
+    }
+  },
+  metrics: {
+    timeToFirstToken: 283,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Drex Max is the largest decision model from Nace.AI, the successor to [Drex v2.0](https://openrouter.ai/nace-ai/drex-v2.0). Given a state (text, JSON, or up to four images) and typed questions (yes/no, multiple choice,...",
+    defaultParameters: {},
+    canonicalSlug: "nace-ai/drex-max-20261016",
+    created: 1792607412,
+    uptime: 100
+  }
+}, {
+  id: 'nace-ai/drex-v1.5',
+  provider: 'openrouter',
+  name: 'Nace.AI: Drex v1.5',
+  contextWindow: 131072,
+  maxOutputTokens: 117964,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.04
+    }
+  },
+  metrics: {
+    timeToFirstToken: 200,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Drex v1.5 is a 9B decision model from Nace.AI. Given a state (text or JSON) and typed questions (yes/no, multiple choice, or ordinal score), it returns a calibrated probability for...",
+    defaultParameters: {},
+    canonicalSlug: "nace-ai/drex-v1.5-20261009",
+    huggingFaceId: "nace-ai/drex-v1.5",
+    created: 1791583576,
+    uptime: 100
+  }
+}, {
+  id: 'nace-ai/drex-v2.0',
+  provider: 'openrouter',
+  name: 'Nace.AI: Drex v2.0',
+  contextWindow: 131072,
+  maxOutputTokens: 117964,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.06
+    }
+  },
+  metrics: {
+    timeToFirstToken: 317,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Drex v2.0 is a 35B mixture-of-experts decision model (3B active) from Nace.AI, the larger successor to [Drex v1.5](https://openrouter.ai/nace-ai/drex-v1.5). Given a state (text or JSON) and typed questions (yes/no, multiple choice,...",
+    defaultParameters: {},
+    canonicalSlug: "nace-ai/drex-v2.0-20261009",
+    created: 1791827066,
+    uptime: 100
+  }
+}, {
+  id: 'nex-agi/nex-n2.5-mini',
+  provider: 'openrouter',
+  name: 'Nex AGI: Nex-N2.5-Mini',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'efficient',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'structured', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.024999999999999998,
-      output: 0.09999999999999999
+      output: 0.09999999999999999,
+      cached: 0.0025
     }
   },
+  reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1
+    timeToFirstToken: 1446,
+    tokensPerSecond: 65
   },
   metadata: {
-    description: "Nex-N2-Mini is an open-source agentic mixture-of-experts model from Nex AGI, the smaller sibling in the Nex-N2 series. It accepts text and image input and is built for coding, tool use,...",
+    description: "Nex-N2.5 is an agentic model built to turn goals into working, verified outcomes. Its core strength is agentic coding within a visual feedback loop: it can explore codebases, implement multi-file...",
     defaultParameters: {
       temperature: 0.7,
       top_p: 0.95,
       top_k: 40
     },
-    canonicalSlug: "nex-agi/nex-n2-mini",
-    huggingFaceId: "nex-agi/Nex-N2-Mini",
-    created: 1782312964
+    canonicalSlug: "nex-agi/nex-n2.5-mini-20260908",
+    huggingFaceId: "nex-agi/Nex-N2.5-mini",
+    created: 1788890061,
+    uptime: 100
   }
 }, {
-  id: 'nex-agi/nex-n2-pro',
+  id: 'nex-agi/nex-n2.5-pro',
   provider: 'openrouter',
-  name: 'Nex AGI: Nex-N2-Pro',
+  name: 'Nex AGI: Nex-N2.5-Pro',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.25,
-      output: 1
+      input: 0.075,
+      output: 0.25,
+      cached: 0.015
     }
   },
+  reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.95
+    timeToFirstToken: 2679,
+    tokensPerSecond: 38.5
   },
   metadata: {
-    description: "Nex-N2-Pro is an agentic mixture-of-experts model from Nex AGI, with 17B active parameters out of 397B total. Built on the Qwen3.5 architecture, it accepts text and image input and produces...",
+    description: "Nex-N2.5 is an agentic model built to turn goals into working, verified outcomes. Its core strength is agentic coding within a visual feedback loop: it can explore codebases, implement multi-file...",
     defaultParameters: {
       temperature: 0.7,
       top_p: 0.95,
       top_k: 40
     },
-    canonicalSlug: "nex-agi/nex-n2-pro",
-    huggingFaceId: "nex-agi/Nex-N2-Pro",
-    created: 1780937140
+    canonicalSlug: "nex-agi/nex-n2.5-pro-20260907",
+    huggingFaceId: "nex-agi/Nex-N2.5-Pro",
+    created: 1788890050,
+    uptime: 100
   }
 }, {
   id: 'nousresearch/hermes-3-llama-3.1-405b',
@@ -4140,33 +10122,19 @@ export const openrouterModels: ModelInfo[] = [{
       output: 1
     }
   },
+  retiresAt: '2026-11-02',
   metrics: {
-    timeToFirstToken: 0.6
+    timeToFirstToken: 582,
+    tokensPerSecond: 21
   },
   metadata: {
     description: "Hermes 3 is a generalist language model with many improvements over Hermes 2, including advanced agentic capabilities, much better roleplaying, reasoning, multi-turn conversation, long context coherence, and improvements across the...",
     defaultParameters: {},
     canonicalSlug: "nousresearch/hermes-3-llama-3.1-405b",
     huggingFaceId: "NousResearch/Hermes-3-Llama-3.1-405B",
-    created: 1723766400
-  }
-}, {
-  id: 'nousresearch/hermes-3-llama-3.1-405b:free',
-  provider: 'openrouter',
-  name: 'Nous: Hermes 3 405B Instruct (free)',
-  contextWindow: 131072,
-  tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'topP']),
-  pricing: {},
-  metrics: {},
-  metadata: {
-    description: "Hermes 3 is a generalist language model with many improvements over Hermes 2, including advanced agentic capabilities, much better roleplaying, reasoning, multi-turn conversation, long context coherence, and improvements across the...",
-    defaultParameters: {},
-    canonicalSlug: "nousresearch/hermes-3-llama-3.1-405b",
-    huggingFaceId: "NousResearch/Hermes-3-Llama-3.1-405B",
-    created: 1723766400
+    created: 1723766400,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'nousresearch/hermes-3-llama-3.1-70b',
@@ -4176,148 +10144,144 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  capabilities: new Set(['chat', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.7,
       output: 0.7
     }
   },
+  retiresAt: '2026-11-02',
   metrics: {
-    timeToFirstToken: 0.39
+    timeToFirstToken: 832,
+    tokensPerSecond: 26
   },
   metadata: {
     description: "Hermes 3 is a generalist language model with many improvements over [Hermes 2](/models/nousresearch/nous-hermes-2-mistral-7b-dpo), including advanced agentic capabilities, much better roleplaying, reasoning, multi-turn conversation, long context coherence, and improvements across the...",
     defaultParameters: {},
     canonicalSlug: "nousresearch/hermes-3-llama-3.1-70b",
     huggingFaceId: "NousResearch/Hermes-3-Llama-3.1-70B",
-    created: 1723939200
+    created: 1723939200,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'nousresearch/hermes-4-405b',
   provider: 'openrouter',
   name: 'Nous: Hermes 4 405B',
   contextWindow: 131072,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'temperature', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 1,
-      output: 3
+      output: 3,
+      cached: 0.19999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.37
+    timeToFirstToken: 416.5,
+    tokensPerSecond: 37
   },
   metadata: {
     description: "Hermes 4 is a large-scale reasoning model built on Meta-Llama-3.1-405B and released by Nous Research. It introduces a hybrid reasoning mode, where the model can choose to deliberate internally with...",
     defaultParameters: {},
     canonicalSlug: "nousresearch/hermes-4-405b",
     huggingFaceId: "NousResearch/Hermes-4-405B",
-    created: 1756235463
+    created: 1756235463,
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
-  id: 'nousresearch/hermes-4-70b',
+  id: 'nvidia/llama-nemotron-embed-vl-1b-v2:free',
   provider: 'openrouter',
-  name: 'Nous: Hermes 4 70B',
+  name: 'NVIDIA: Llama Nemotron Embed VL 1B V2 (free)',
   contextWindow: 131072,
+  maxOutputTokens: 117964,
   tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'temperature', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'embedding']),
   pricing: {
-    text: {
-      input: 0.13,
-      output: 0.39999999999999997
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.21
+    embeddings: {}
   },
   metadata: {
-    description: "Hermes 4 70B is a hybrid reasoning model from Nous Research, built on Meta-Llama-3.1-70B. It introduces the same hybrid mode as the larger 405B release, allowing the model to either...",
+    description: "The Llama Nemotron Embed VL 1B V2 embedding model is optimized for multimodal question-answering retrieval. The model can embed 'documents' in the form of image, text, or image and text...",
     defaultParameters: {},
-    canonicalSlug: "nousresearch/hermes-4-70b",
-    huggingFaceId: "NousResearch/Hermes-4-70B",
-    created: 1756236182
+    canonicalSlug: "nvidia/llama-nemotron-embed-vl-1b-v2-20260224",
+    huggingFaceId: "nvidia/llama-nemotron-embed-vl-1b-v2",
+    created: 1772045017,
+    uptime: 100
   }
 }, {
-  id: 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  id: 'nvidia/llama-nemotron-rerank-vl-1b-v2:free',
   provider: 'openrouter',
-  name: 'NVIDIA: Llama 3.3 Nemotron Super 49B V1.5',
-  contextWindow: 131072,
-  maxOutputTokens: 16384,
+  name: 'NVIDIA: Llama Nemotron Rerank VL 1B V2 (free)',
+  contextWindow: 10240,
+  maxOutputTokens: 9216,
   tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
   pricing: {
-    text: {
-      input: 0.39999999999999997,
-      output: 0.39999999999999997
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.14
+    text: {}
   },
   metadata: {
-    description: "Llama-3.3-Nemotron-Super-49B-v1.5 is a 49B-parameter, English-centric reasoning/chat model derived from Meta’s Llama-3.3-70B-Instruct with a 128K context. It’s post-trained for agentic workflows (RAG, tool calling) via SFT across math, code, science, and...",
-    defaultParameters: {
-      temperature: 0.6,
-      top_p: 0.95
-    },
-    canonicalSlug: "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    huggingFaceId: "nvidia/Llama-3_3-Nemotron-Super-49B-v1_5",
-    created: 1760101395
+    description: "Llama Nemotron Rerank VL 1B V2 is a 1.7B multimodal reranking model from NVIDIA. It evaluates the relevance of document images and text against user queries, designed for vision RAG...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/llama-nemotron-rerank-vl-1b-v2",
+    created: 1781036054,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3-embed-1b:free',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3 Embed 1B (free)',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {}
+  },
+  metadata: {
+    description: "NVIDIA Nemotron 3 Embed 1B is an open text embedding model from NVIDIA, optimized for high-throughput, low-latency retrieval. It is suited for enterprise search, RAG, code retrieval, and agentic retrieval...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3-embed-1b-20260716",
+    created: 1784203294,
+    uptime: 100
   }
 }, {
   id: 'nvidia/nemotron-3-nano-30b-a3b',
   provider: 'openrouter',
   name: 'NVIDIA: Nemotron 3 Nano 30B A3B',
   contextWindow: 262144,
-  maxOutputTokens: 228000,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.049999999999999996,
-      output: 0.19999999999999998
+      input: 0.06,
+      output: 0.24,
+      cached: 0.012
     }
   },
   metrics: {
-    timeToFirstToken: 0.4
+    timeToFirstToken: 372,
+    tokensPerSecond: 121
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Nano 30B A3B is a small language MoE model with highest compute efficiency and accuracy for developers to build specialized agentic AI systems. The model is fully...",
     defaultParameters: {},
     canonicalSlug: "nvidia/nemotron-3-nano-30b-a3b",
     huggingFaceId: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
-    created: 1765731275
-  }
-}, {
-  id: 'nvidia/nemotron-3-nano-30b-a3b:free',
-  provider: 'openrouter',
-  name: 'NVIDIA: Nemotron 3 Nano 30B A3B (free)',
-  contextWindow: 256000,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 0.73
-  },
-  metadata: {
-    description: "NVIDIA Nemotron 3 Nano 30B A3B is a small language MoE model with highest compute efficiency and accuracy for developers to build specialized agentic AI systems. The model is fully...",
-    defaultParameters: {},
-    canonicalSlug: "nvidia/nemotron-3-nano-30b-a3b",
-    huggingFaceId: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
-    created: 1765731275
+    created: 1765731275,
+    uptime: 100
   }
 }, {
   id: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
@@ -4327,11 +10291,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['hearing', 'vision', 'videoInput', 'chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
   metrics: {
-    timeToFirstToken: 0.86
+    timeToFirstToken: 583,
+    tokensPerSecond: 47
   },
   metadata: {
     description: "NVIDIA Nemotron™ 3 Nano Omni is a 30B-A3B open multimodal model designed to function as a perception and context sub-agent in enterprise agent systems. It accepts text, image, video, and...",
@@ -4341,49 +10308,30 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning-20260428",
     huggingFaceId: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
-    created: 1777393095
+    created: 1777393095,
+    uptime: 100
   }
 }, {
   id: 'nvidia/nemotron-3-super-120b-a12b',
   provider: 'openrouter',
   name: 'NVIDIA: Nemotron 3 Super',
-  contextWindow: 1000000,
-  tier: 'flagship',
-  tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.08,
-      output: 0.44999999999999996
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.02
-  },
-  metadata: {
-    description: "NVIDIA Nemotron 3 Super is a 120B-parameter open hybrid MoE model, activating just 12B parameters for maximum compute efficiency and accuracy in complex multi-agent applications. Built on a hybrid Mamba-Transformer...",
-    defaultParameters: {
-      temperature: 1,
-      top_p: 0.95
-    },
-    canonicalSlug: "nvidia/nemotron-3-super-120b-a12b-20230311",
-    huggingFaceId: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8",
-    created: 1773245239
-  }
-}, {
-  id: 'nvidia/nemotron-3-super-120b-a12b:free',
-  provider: 'openrouter',
-  name: 'NVIDIA: Nemotron 3 Super (free)',
-  contextWindow: 1000000,
+  contextWindow: 1048576,
   maxOutputTokens: 262144,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.3,
+      output: 2.4,
+      cached: 0.15
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium'],
   metrics: {
-    timeToFirstToken: 1.54
+    timeToFirstToken: 399,
+    tokensPerSecond: 147
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Super is a 120B-parameter open hybrid MoE model, activating just 12B parameters for maximum compute efficiency and accuracy in complex multi-agent applications. Built on a hybrid Mamba-Transformer...",
@@ -4393,26 +10341,30 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "nvidia/nemotron-3-super-120b-a12b-20230311",
     huggingFaceId: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8",
-    created: 1773245239
+    created: 1773245239,
+    uptime: 100
   }
 }, {
   id: 'nvidia/nemotron-3-ultra-550b-a55b',
   provider: 'openrouter',
   name: 'NVIDIA: Nemotron 3 Ultra',
-  contextWindow: 1000000,
-  maxOutputTokens: 16384,
+  contextWindow: 262144,
+  maxOutputTokens: 182520,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.5,
-      output: 2.2
+      input: 0.6,
+      output: 2.4,
+      cached: 0.12
     }
   },
+  reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.54
+    timeToFirstToken: 273,
+    tokensPerSecond: 103
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
@@ -4422,7 +10374,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "nvidia/nemotron-3-ultra-550b-a55b-20260604",
     huggingFaceId: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16",
-    created: 1780551208
+    created: 1780551208,
+    uptime: 100
   }
 }, {
   id: 'nvidia/nemotron-3-ultra-550b-a55b:free',
@@ -4432,11 +10385,15 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
+  reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2.1
+    timeToFirstToken: 1941,
+    tokensPerSecond: 25
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
@@ -4446,7 +10403,58 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "nvidia/nemotron-3-ultra-550b-a55b-20260604",
     huggingFaceId: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16",
-    created: 1780551208
+    created: 1780551208,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 ASR Streaming Multilingual 0.6B',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 3.33
+    }
+  },
+  metadata: {
+    description: "Nemotron 3.5 ASR Streaming Multilingual 0.6B is a speech recognition model from NVIDIA. Its prompt-conditioned, cache-aware FastConformer-RNNT design targets low-latency transcription across more than 40 languages for real-time captioning, voice...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b-20260813",
+    huggingFaceId: "nvidia/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b",
+    created: 1786654371,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-content-safety',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 Content Safety',
+  contextWindow: 131072,
+  maxOutputTokens: 117964,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'topP']),
+  pricing: {
+    text: {
+      input: 0.19999999999999998,
+      output: 0.19999999999999998
+    }
+  },
+  metrics: {
+    timeToFirstToken: 345,
+    tokensPerSecond: 138
+  },
+  metadata: {
+    description: "NVIDIA Nemotron 3.5 Content Safety is a compact 4B-parameter multimodal guardrail model from NVIDIA, fine-tuned from Google Gemma-3-4B. It moderates both inputs to and responses from LLMs and VLMs, accepting...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-content-safety-20260604",
+    huggingFaceId: "nvidia/Nemotron-3.5-Content-Safety",
+    created: 1780581864,
+    uptime: 100
   }
 }, {
   id: 'nvidia/nemotron-3.5-content-safety:free',
@@ -4456,95 +10464,254 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 8192,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 0.28
+  pricing: {
+    text: {}
   },
   metadata: {
     description: "NVIDIA Nemotron 3.5 Content Safety is a compact 4B-parameter multimodal guardrail model from NVIDIA, fine-tuned from Google Gemma-3-4B. It moderates both inputs to and responses from LLMs and VLMs, accepting...",
     defaultParameters: {},
     canonicalSlug: "nvidia/nemotron-3.5-content-safety-20260604",
     huggingFaceId: "nvidia/Nemotron-3.5-Content-Safety",
-    created: 1780581864
+    created: 1780581864,
+    uptime: 0
   }
 }, {
-  id: 'nvidia/nemotron-nano-12b-v2-vl:free',
+  id: 'nvidia/nemotron-3.5-embed-1b:free',
   provider: 'openrouter',
-  name: 'NVIDIA: Nemotron Nano 12B 2 VL (free)',
-  contextWindow: 128000,
-  maxOutputTokens: 128000,
+  name: 'NVIDIA: Nemotron 3.5 Embed 1B (free)',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 1.58
+  capabilities: new Set(['vision', 'embedding']),
+  pricing: {
+    embeddings: {}
   },
   metadata: {
-    description: "NVIDIA Nemotron Nano 2 VL is a 12-billion-parameter open multimodal reasoning model designed for video understanding and document intelligence. It introduces a hybrid Transformer-Mamba architecture, combining transformer-level accuracy with Mamba’s...",
+    description: "Nemotron 3.5 Embed 1B is a multimodal embedding model from NVIDIA for multilingual retrieval over text and document page images (tables, charts, infographics). Queries are text and documents can be...",
     defaultParameters: {},
-    canonicalSlug: "nvidia/nemotron-nano-12b-v2-vl",
-    huggingFaceId: "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16",
-    created: 1761675565
+    canonicalSlug: "nvidia/nemotron-3.5-embed-1b-20261021",
+    created: 1792591670,
+    uptime: 100
   }
 }, {
-  id: 'nvidia/nemotron-nano-9b-v2:free',
+  id: 'nvidia/nemotron-3.5-embed-8b:free',
   provider: 'openrouter',
-  name: 'NVIDIA: Nemotron Nano 9B V2 (free)',
-  contextWindow: 128000,
+  name: 'NVIDIA: Nemotron 3.5 Embed 8B (free)',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 0.97
+  capabilities: new Set(['vision', 'embedding']),
+  pricing: {
+    embeddings: {}
   },
   metadata: {
-    description: "NVIDIA-Nemotron-Nano-9B-v2 is a large language model (LLM) trained from scratch by NVIDIA, and designed as a unified model for both reasoning and non-reasoning tasks. It responds to user queries and...",
+    description: "Nemotron 3.5 Embed 8B is a multimodal embedding model from NVIDIA for multilingual retrieval over text and document page images (tables, charts, infographics). Queries are text and documents can be...",
     defaultParameters: {},
-    canonicalSlug: "nvidia/nemotron-nano-9b-v2",
-    huggingFaceId: "nvidia/NVIDIA-Nemotron-Nano-9B-v2",
-    created: 1757106807
+    canonicalSlug: "nvidia/nemotron-3.5-embed-8b-20261021",
+    created: 1792591666,
+    uptime: 0
   }
 }, {
-  id: 'openai/gpt-3.5-turbo',
+  id: 'nvidia/nemotron-3.5-lightning',
   provider: 'openrouter',
-  name: 'OpenAI: GPT-3.5 Turbo',
-  contextWindow: 16385,
-  maxOutputTokens: 4096,
+  name: 'NVIDIA: Nemotron 3.5 Lightning',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.5,
-      output: 1.5
+      input: 0.07,
+      output: 0.19999999999999998,
+      cached: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 0.94
+    timeToFirstToken: 231,
+    tokensPerSecond: 233
   },
   metadata: {
-    description: "GPT-3.5 Turbo is OpenAI's fastest model. It can understand and generate natural language or code, and is optimized for chat and traditional completion tasks.\n\nTraining data up to Sep 2021.",
+    description: "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
     defaultParameters: {},
-    canonicalSlug: "openai/gpt-3.5-turbo",
-    created: 1685232000
+    canonicalSlug: "nvidia/nemotron-3.5-lightning-20260807",
+    huggingFaceId: "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+    created: 1786452751,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-lightning:free',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 Lightning (free)',
+  contextWindow: 1000000,
+  maxOutputTokens: 65536,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 499,
+    tokensPerSecond: 59
+  },
+  metadata: {
+    description: "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-lightning-20260807",
+    huggingFaceId: "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+    created: 1786452751,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-rerank-8b:free',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 Rerank 8B (free)',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-rerank-8b-20261021",
+    created: 1792591657,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-super-vl',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 Super VL',
+  contextWindow: 1048576,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.5,
+      cached: 0.02
+    }
+  },
+  metrics: {
+    timeToFirstToken: 237,
+    tokensPerSecond: 320.5
+  },
+  metadata: {
+    description: "NVIDIA Nemotron 3.5 Super VL is an open multimodal mixture-of-experts model from NVIDIA, with 12B active parameters out of 120B total. It takes text, images, documents, GUI screenshots, and video...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-super-vl-20261015",
+    huggingFaceId: "nvidia/NVIDIA-Nemotron-3.5-Super-VL",
+    created: 1792076662,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-super-vl:free',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 Super VL (free)',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 1808.5,
+    tokensPerSecond: 60
+  },
+  metadata: {
+    description: "NVIDIA Nemotron 3.5 Super VL is an open multimodal mixture-of-experts model from NVIDIA, with 12B active parameters out of 120B total. It takes text, images, documents, GUI screenshots, and video...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-super-vl-20261015",
+    huggingFaceId: "nvidia/NVIDIA-Nemotron-3.5-Super-VL",
+    created: 1792076662,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/nemotron-3.5-transcribe',
+  provider: 'openrouter',
+  name: 'NVIDIA: Nemotron 3.5 Transcribe',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 33.300000000000004
+    }
+  },
+  metadata: {
+    description: "Nemotron 3.5 Transcribe is an open-weight speech recognition model from NVIDIA, a 30B mixture-of-experts with about 4B active parameters. It transcribes recordings of up to one hour in 40 languages,...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/nemotron-3.5-transcribe-20261028",
+    huggingFaceId: "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+    created: 1793235111,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/parakeet-tdt-0.6b-v3',
+  provider: 'openrouter',
+  name: 'NVIDIA: Parakeet TDT 0.6B v3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 25
+    }
+  },
+  metadata: {
+    description: "Parakeet TDT 0.6B v3 is NVIDIA's 600M-parameter multilingual speech-to-text model built on the FastConformer-TDT architecture. Trained on the Granary dataset (670,000+ hours of audio), it supports automatic language detection across...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/parakeet-tdt-0.6b-v3",
+    created: 1779848335,
+    uptime: 100
+  }
+}, {
+  id: 'nvidia/switchyard',
+  provider: 'openrouter',
+  name: 'NVIDIA: Switchyard',
+  contextWindow: 1000000,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['chat', 'streaming']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "Switchyard is an open-source model routing system that switches between multiple models to optimize the cost of requests. By default it will use OpenRouter market data to select the most...",
+    defaultParameters: {},
+    canonicalSlug: "nvidia/switchyard",
+    created: 1790025947
   }
 }, {
   id: 'openai/gpt-3.5-turbo-0613',
   provider: 'openrouter',
   name: 'OpenAI: GPT-3.5 Turbo (older v0613)',
   contextWindow: 4095,
-  maxOutputTokens: 4096,
+  maxOutputTokens: 3685,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1,
@@ -4552,13 +10719,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.41
+    timeToFirstToken: 613,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "GPT-3.5 Turbo is OpenAI's fastest model. It can understand and generate natural language or code, and is optimized for chat and traditional completion tasks.\n\nTraining data up to Sep 2021.",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-3.5-turbo-0613",
-    created: 1706140800
+    created: 1706140800,
+    knowledgeCutoff: "2021-09-30",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-3.5-turbo-16k',
@@ -4568,7 +10738,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 4096,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -4577,38 +10747,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.42
+    timeToFirstToken: 856,
+    tokensPerSecond: 67
   },
   metadata: {
     description: "This model offers four times the context length of gpt-3.5-turbo, allowing it to support approximately 20 pages of text in a single request at a higher cost. Training data: up...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-3.5-turbo-16k",
-    created: 1693180800
-  }
-}, {
-  id: 'openai/gpt-3.5-turbo-instruct',
-  provider: 'openrouter',
-  name: 'OpenAI: GPT-3.5 Turbo Instruct',
-  contextWindow: 4095,
-  maxOutputTokens: 4096,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 1.5,
-      output: 2
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.4
-  },
-  metadata: {
-    description: "This model is a variant of GPT-3.5 Turbo tuned for instructional prompts and omitting chat-related optimizations. Training data: up to Sep 2021.",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-3.5-turbo-instruct",
-    created: 1695859200
+    created: 1693180800,
+    knowledgeCutoff: "2021-09-30"
   }
 }, {
   id: 'openai/gpt-4',
@@ -4618,8 +10765,8 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 4096,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 30,
@@ -4627,86 +10774,75 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.74
+    timeToFirstToken: 684.5,
+    tokensPerSecond: 65
   },
   metadata: {
     description: "OpenAI's flagship model, GPT-4 is a large-scale multimodal language model capable of solving difficult problems with greater accuracy than previous models due to its broader general knowledge and advanced reasoning...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4",
-    created: 1685232000
+    created: 1685232000,
+    knowledgeCutoff: "2021-09-30",
+    uptime: 100
   }
 }, {
-  id: 'openai/gpt-4-turbo',
+  id: 'openai/gpt-4-turbo:batch',
   provider: 'openrouter',
-  name: 'OpenAI: GPT-4 Turbo',
+  name: 'OpenAI: GPT-4 Turbo (batch)',
   contextWindow: 128000,
   maxOutputTokens: 4096,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 10,
-      output: 30
+      input: 5,
+      output: 15
+    },
+    tools: {
+      web_search: 0.01
     }
-  },
-  metrics: {
-    timeToFirstToken: 1.05
   },
   metadata: {
     description: "The latest GPT-4 Turbo model with vision capabilities. Vision requests can now use JSON mode and function calling.\n\nTraining data: up to December 2023.",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4-turbo",
-    created: 1712620800
-  }
-}, {
-  id: 'openai/gpt-4-turbo-preview',
-  provider: 'openrouter',
-  name: 'OpenAI: GPT-4 Turbo Preview',
-  contextWindow: 128000,
-  maxOutputTokens: 4096,
-  tier: 'experimental',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 10,
-      output: 30
-    }
-  },
-  metrics: {},
-  metadata: {
-    description: "The preview GPT-4 model with improved instruction following, JSON mode, reproducible outputs, parallel function calling, and more. Training data: up to Dec 2023. **Note:** heavily rate limited by OpenAI while...",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-4-turbo-preview",
-    created: 1706140800
+    created: 1712620800,
+    knowledgeCutoff: "2023-12-31"
   }
 }, {
   id: 'openai/gpt-4.1',
   provider: 'openrouter',
   name: 'OpenAI: GPT-4.1',
   contextWindow: 1047576,
+  maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 8
+      output: 8,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 0.63
+    timeToFirstToken: 1040,
+    tokensPerSecond: 76
   },
   metadata: {
     description: "GPT-4.1 is a flagship large language model optimized for advanced instruction following, real-world software engineering, and long-context reasoning. It supports a 1 million token context window and outperforms GPT-4o and...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4.1-2025-04-14",
     huggingFaceId: "",
-    created: 1744651385
+    created: 1744651385,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-4.1-mini',
@@ -4716,49 +10852,147 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.39999999999999997,
-      output: 1.5999999999999999
+      output: 1.5999999999999999,
+      cached: 0.09999999999999999
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 0.73
+    timeToFirstToken: 1070,
+    tokensPerSecond: 85
   },
   metadata: {
     description: "GPT-4.1 Mini is a mid-sized model delivering performance competitive with GPT-4o at substantially lower latency and cost. It retains a 1 million token context window and scores 45.1% on hard...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4.1-mini-2025-04-14",
     huggingFaceId: "",
-    created: 1744651381
+    created: 1744651381,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-4.1-mini:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-4.1 Mini (batch)',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'efficient',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.19999999999999998,
+      output: 0.7999999999999999,
+      cached: 0.049999999999999996
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metadata: {
+    description: "GPT-4.1 Mini is a mid-sized model delivering performance competitive with GPT-4o at substantially lower latency and cost. It retains a 1 million token context window and scores 45.1% on hard...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-4.1-mini-2025-04-14",
+    huggingFaceId: "",
+    created: 1744651381,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
   id: 'openai/gpt-4.1-nano',
   provider: 'openrouter',
   name: 'OpenAI: GPT-4.1 Nano',
   contextWindow: 1047576,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 942818,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.09999999999999999,
-      output: 0.39999999999999997
+      output: 0.39999999999999997,
+      cached: 0.03
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 0.58
+    timeToFirstToken: 957.5,
+    tokensPerSecond: 91
   },
   metadata: {
     description: "For tasks that demand low latency, GPT‑4.1 nano is the fastest and cheapest model in the GPT-4.1 series. It delivers exceptional performance at a small size with its 1 million...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4.1-nano-2025-04-14",
     huggingFaceId: "",
-    created: 1744651369
+    created: 1744651369,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-4.1-nano:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-4.1 Nano (batch)',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.19999999999999998,
+      cached: 0.012499999999999999
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metadata: {
+    description: "For tasks that demand low latency, GPT‑4.1 nano is the fastest and cheapest model in the GPT-4.1 series. It delivers exceptional performance at a small size with its 1 million...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-4.1-nano-2025-04-14",
+    huggingFaceId: "",
+    created: 1744651369,
+    knowledgeCutoff: "2024-06-30"
+  }
+}, {
+  id: 'openai/gpt-4.1:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-4.1 (batch)',
+  contextWindow: 1047576,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 4,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metadata: {
+    description: "GPT-4.1 is a flagship large language model optimized for advanced instruction following, real-world software engineering, and long-context reasoning. It supports a 1 million token context window and outperforms GPT-4o and...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-4.1-2025-04-14",
+    huggingFaceId: "",
+    created: 1744651385,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
   id: 'openai/gpt-4o',
@@ -4768,22 +11002,26 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2.5,
-      output: 10
+      output: 10,
+      cached: 1.25
     }
   },
   metrics: {
-    timeToFirstToken: 0.65
+    timeToFirstToken: 680,
+    tokensPerSecond: 84
   },
   metadata: {
     description: "GPT-4o (\"o\" for \"omni\") is OpenAI's latest AI model, supporting both text and image inputs with text outputs. It maintains the intelligence level of [GPT-4 Turbo](/models/openai/gpt-4-turbo) while being twice as...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4o",
-    created: 1715558400
+    created: 1715558400,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-4o-2024-05-13',
@@ -4793,7 +11031,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 4096,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -4802,13 +11040,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1.85
+    timeToFirstToken: 2418.5,
+    tokensPerSecond: 34
   },
   metadata: {
     description: "GPT-4o (\"o\" for \"omni\") is OpenAI's latest AI model, supporting both text and image inputs with text outputs. It maintains the intelligence level of [GPT-4 Turbo](/models/openai/gpt-4-turbo) while being twice as...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4o-2024-05-13",
-    created: 1715558400
+    created: 1715558400,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-4o-2024-08-06',
@@ -4818,22 +11059,26 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2.5,
-      output: 10
+      output: 10,
+      cached: 1.25
     }
   },
   metrics: {
-    timeToFirstToken: 0.72
+    timeToFirstToken: 794,
+    tokensPerSecond: 93
   },
   metadata: {
     description: "The 2024-08-06 version of GPT-4o offers improved performance in structured outputs, with the ability to supply a JSON schema in the respone_format. Read more [here](https://openai.com/index/introducing-structured-outputs-in-the-api/). GPT-4o (\"o\" for \"omni\") is...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4o-2024-08-06",
-    created: 1722902400
+    created: 1722902400,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-4o-2024-11-20',
@@ -4843,23 +11088,27 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2.5,
-      output: 10
+      output: 10,
+      cached: 1.25
     }
   },
   metrics: {
-    timeToFirstToken: 0.61
+    timeToFirstToken: 617,
+    tokensPerSecond: 104
   },
   metadata: {
     description: "The 2024-11-20 version of GPT-4o offers a leveled-up creative writing ability with more natural, engaging, and tailored writing to improve relevance & readability. It’s also better at working with uploaded...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4o-2024-11-20",
     huggingFaceId: "",
-    created: 1732127594
+    created: 1732127594,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-4o-mini',
@@ -4869,22 +11118,26 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.15,
-      output: 0.6
+      output: 0.6,
+      cached: 0.075
     }
   },
   metrics: {
-    timeToFirstToken: 0.53
+    timeToFirstToken: 624,
+    tokensPerSecond: 60
   },
   metadata: {
     description: "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4o-mini",
-    created: 1721260800
+    created: 1721260800,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-4o-mini-2024-07-18',
@@ -4894,74 +11147,124 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.15,
-      output: 0.6
+      output: 0.6,
+      cached: 0.075
     }
   },
   metrics: {
-    timeToFirstToken: 0.59
+    timeToFirstToken: 711,
+    tokensPerSecond: 56
   },
   metadata: {
     description: "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-4o-mini-2024-07-18",
-    created: 1721260800
+    created: 1721260800,
+    knowledgeCutoff: "2023-10-31",
+    uptime: 100
   }
 }, {
-  id: 'openai/gpt-4o-mini-search-preview',
+  id: 'openai/gpt-4o-mini-transcribe',
   provider: 'openrouter',
-  name: 'OpenAI: GPT-4o-mini Search Preview',
+  name: 'OpenAI: GPT-4o Mini Transcribe',
   contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'experimental',
+  maxOutputTokens: 115200,
+  tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'structuredOutput']),
+  capabilities: new Set(['hearing']),
   pricing: {
     text: {
-      input: 0.15,
-      output: 0.6
+      input: 1.25,
+      output: 5
     }
   },
-  metrics: {
-    timeToFirstToken: 3.65
-  },
   metadata: {
-    description: "GPT-4o mini Search Preview is a specialized model for web search in Chat Completions. It is trained to understand and execute web search queries.",
+    description: "GPT-4o Mini Transcribe is OpenAI's smaller, cost-efficient speech-to-text model built on GPT-4o Mini audio capabilities. It's priced per token (input and output), making it suitable for high-volume transcription workflows that...",
     defaultParameters: {},
-    canonicalSlug: "openai/gpt-4o-mini-search-preview-2025-03-11",
-    huggingFaceId: "",
-    created: 1741818122
+    canonicalSlug: "openai/gpt-4o-mini-transcribe",
+    created: 1777658151,
+    uptime: 100
   }
 }, {
-  id: 'openai/gpt-4o-search-preview',
+  id: 'openai/gpt-4o-mini:batch',
   provider: 'openrouter',
-  name: 'OpenAI: GPT-4o Search Preview',
+  name: 'OpenAI: GPT-4o-mini (batch)',
   contextWindow: 128000,
   maxOutputTokens: 16384,
-  tier: 'experimental',
+  tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'structuredOutput']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.075,
+      output: 0.3,
+      cached: 0.0375
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metadata: {
+    description: "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-4o-mini",
+    created: 1721260800,
+    knowledgeCutoff: "2023-10-31"
+  }
+}, {
+  id: 'openai/gpt-4o-transcribe',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-4o Transcribe',
+  contextWindow: 128000,
+  maxOutputTokens: 115200,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['hearing']),
   pricing: {
     text: {
       input: 2.5,
       output: 10
     }
   },
-  metrics: {
-    timeToFirstToken: 2.15
+  metadata: {
+    description: "GPT-4o Transcribe is OpenAI's high-quality speech-to-text model built on GPT-4o audio capabilities. It's priced per token (input and output), making it suitable for workflows that benefit from token-level billing transparency.",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-4o-transcribe",
+    created: 1777332895,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-4o:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-4o (batch)',
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 5,
+      cached: 0.625
+    },
+    tools: {
+      web_search: 0.01
+    }
   },
   metadata: {
-    description: "GPT-4o Search Previewis a specialized model for web search in Chat Completions. It is trained to understand and execute web search queries.",
+    description: "GPT-4o (\"o\" for \"omni\") is OpenAI's latest AI model, supporting both text and image inputs with text outputs. It maintains the intelligence level of [GPT-4 Turbo](/models/openai/gpt-4-turbo) while being twice as...",
     defaultParameters: {},
-    canonicalSlug: "openai/gpt-4o-search-preview-2025-03-11",
-    huggingFaceId: "",
-    created: 1741817949
+    canonicalSlug: "openai/gpt-4o",
+    created: 1715558400,
+    knowledgeCutoff: "2023-10-31"
   }
 }, {
   id: 'openai/gpt-5',
@@ -4971,75 +11274,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.25,
-      output: 10
+      output: 10,
+      cached: 0.125
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1.4
+    timeToFirstToken: 4601,
+    tokensPerSecond: 88
   },
   metadata: {
     description: "GPT-5 is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and accuracy...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5-2025-08-07",
     huggingFaceId: "",
-    created: 1754587413
-  }
-}, {
-  id: 'openai/gpt-5-chat',
-  provider: 'openrouter',
-  name: 'OpenAI: GPT-5 Chat',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.53
-  },
-  metadata: {
-    description: "GPT-5 Chat is designed for advanced, natural, multimodal, and context-aware conversations for enterprise applications.",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-5-chat-2025-08-07",
-    huggingFaceId: "",
-    created: 1754587837
-  }
-}, {
-  id: 'openai/gpt-5-codex',
-  provider: 'openrouter',
-  name: 'OpenAI: GPT-5 Codex',
-  contextWindow: 400000,
-  maxOutputTokens: 128000,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.13
-  },
-  metadata: {
-    description: "GPT-5-Codex is a specialized version of GPT-5 optimized for software engineering and coding workflows. It is designed for both interactive development sessions and long, independent execution of complex engineering tasks....",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-5-codex",
-    huggingFaceId: "",
-    created: 1758643403
+    created: 1754587413,
+    knowledgeCutoff: "2024-09-30",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5-image',
@@ -5049,16 +11308,21 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  capabilities: new Set(['vision', 'files', 'image', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'topP', 'verbosity']),
   pricing: {
     text: {
       input: 10,
-      output: 10
+      output: 10,
+      cached: 1.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 2.9
+    timeToFirstToken: 32935.5,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "[GPT-5](https://openrouter.ai/openai/gpt-5) Image combines OpenAI's GPT-5 model with state-of-the-art image generation capabilities. It offers major improvements in reasoning, code quality, and user experience while incorporating GPT Image 1's superior instruction following,...",
@@ -5075,23 +11339,29 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  capabilities: new Set(['files', 'vision', 'image', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'topP', 'verbosity']),
   pricing: {
     text: {
       input: 2.5,
-      output: 2
+      output: 2,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 4.13
+    timeToFirstToken: 50982.5,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "GPT-5 Image Mini combines OpenAI's advanced language capabilities, powered by [GPT-5 Mini](https://openrouter.ai/openai/gpt-5-mini), with GPT Image 1 Mini for efficient image generation. This natively multimodal model features superior instruction following, text...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5-image-mini",
     huggingFaceId: "",
-    created: 1760624583
+    created: 1760624583,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5-mini',
@@ -5101,48 +11371,123 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 0.25,
-      output: 2
+      output: 2,
+      cached: 0.024999999999999998
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 3.05
+    timeToFirstToken: 2259.5,
+    tokensPerSecond: 102
   },
   metadata: {
     description: "GPT-5 Mini is a compact version of GPT-5, designed to handle lighter-weight reasoning tasks. It provides the same instruction-following and safety-tuning benefits as GPT-5, but with reduced latency and cost....",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5-mini-2025-08-07",
     huggingFaceId: "",
-    created: 1754587407
+    created: 1754587407,
+    knowledgeCutoff: "2024-05-31",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5-mini:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5 Mini (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.125,
+      output: 1,
+      cached: 0.012499999999999999
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "GPT-5 Mini is a compact version of GPT-5, designed to handle lighter-weight reasoning tasks. It provides the same instruction-following and safety-tuning benefits as GPT-5, but with reduced latency and cost....",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5-mini-2025-08-07",
+    huggingFaceId: "",
+    created: 1754587407,
+    knowledgeCutoff: "2024-05-31"
   }
 }, {
   id: 'openai/gpt-5-nano',
   provider: 'openrouter',
   name: 'OpenAI: GPT-5 Nano',
   contextWindow: 400000,
+  maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 0.049999999999999996,
-      output: 0.39999999999999997
+      output: 0.39999999999999997,
+      cached: 0.005
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2.04
+    timeToFirstToken: 1161,
+    tokensPerSecond: 95
   },
   metadata: {
     description: "GPT-5-Nano is the smallest and fastest variant in the GPT-5 system, optimized for developer tools, rapid interactions, and ultra-low latency environments. While limited in reasoning depth compared to its larger...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5-nano-2025-08-07",
     huggingFaceId: "",
-    created: 1754587402
+    created: 1754587402,
+    knowledgeCutoff: "2024-05-31",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5-nano:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5 Nano (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.024999999999999998,
+      output: 0.19999999999999998,
+      cached: 0.0025
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "GPT-5-Nano is the smallest and fastest variant in the GPT-5 system, optimized for developer tools, rapid interactions, and ultra-low latency environments. While limited in reasoning depth compared to its larger...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5-nano-2025-08-07",
+    huggingFaceId: "",
+    created: 1754587402,
+    knowledgeCutoff: "2024-05-31"
   }
 }, {
   id: 'openai/gpt-5-pro',
@@ -5152,21 +11497,86 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 15,
       output: 120
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {},
+  reasoningEfforts: ['high'],
+  metrics: {
+    timeToFirstToken: 686.5,
+    tokensPerSecond: 4.5
+  },
   metadata: {
     description: "GPT-5 Pro is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5-pro-2025-10-06",
     huggingFaceId: "",
-    created: 1759776663
+    created: 1759776663,
+    knowledgeCutoff: "2024-09-30"
+  }
+}, {
+  id: 'openai/gpt-5-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5 Pro (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 7.5,
+      output: 60
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['high'],
+  metadata: {
+    description: "GPT-5 Pro is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5-pro-2025-10-06",
+    huggingFaceId: "",
+    created: 1759776663,
+    knowledgeCutoff: "2024-09-30"
+  }
+}, {
+  id: 'openai/gpt-5:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5 (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.625,
+      output: 5,
+      cached: 0.0625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
+  metadata: {
+    description: "GPT-5 is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and accuracy...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5-2025-08-07",
+    huggingFaceId: "",
+    created: 1754587413,
+    knowledgeCutoff: "2024-09-30"
   }
 }, {
   id: 'openai/gpt-5.1',
@@ -5176,49 +11586,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.25,
-      output: 10
+      output: 10,
+      cached: 0.125
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.99
+    timeToFirstToken: 1042,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "GPT-5.1 is the latest frontier-grade model in the GPT-5 series, offering stronger general-purpose reasoning, improved instruction adherence, and a more natural conversational style compared to GPT-5. It uses adaptive reasoning...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.1-20251113",
     huggingFaceId: "",
-    created: 1763060305
-  }
-}, {
-  id: 'openai/gpt-5.1-chat',
-  provider: 'openrouter',
-  name: 'OpenAI: GPT-5.1 Chat',
-  contextWindow: 128000,
-  maxOutputTokens: 32000,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
-  pricing: {
-    text: {
-      input: 1.25,
-      output: 10
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.91
-  },
-  metadata: {
-    description: "GPT-5.1 Chat (AKA Instant is the fast, lightweight member of the 5.1 family, optimized for low-latency chat while retaining strong general intelligence. It uses adaptive reasoning to selectively “think” on...",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-5.1-chat-20251113",
-    huggingFaceId: "",
-    created: 1763060302
+    created: 1763060305,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.1-codex',
@@ -5228,16 +11619,22 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.25,
-      output: 10
+      output: 10,
+      cached: 0.13
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2.32
+    timeToFirstToken: 5775,
+    tokensPerSecond: 85
   },
   metadata: {
     description: "GPT-5.1-Codex is a specialized version of GPT-5.1 optimized for software engineering and coding workflows. It is designed for both interactive development sessions and long, independent execution of complex engineering tasks....",
@@ -5254,16 +11651,22 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.25,
-      output: 10
+      output: 10,
+      cached: 0.125
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 4.47
+    timeToFirstToken: 3926,
+    tokensPerSecond: 39
   },
   metadata: {
     description: "GPT-5.1-Codex-Max is OpenAI’s latest agentic coding model, designed for long-running, high-context software development tasks. It is based on an updated version of the 5.1 reasoning stack and trained on agentic...",
@@ -5277,26 +11680,61 @@ export const openrouterModels: ModelInfo[] = [{
   provider: 'openrouter',
   name: 'OpenAI: GPT-5.1-Codex-Mini',
   contextWindow: 400000,
-  maxOutputTokens: 100000,
+  maxOutputTokens: 128000,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 0.25,
-      output: 2
+      output: 2,
+      cached: 0.03
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1.79
+    timeToFirstToken: 2920,
+    tokensPerSecond: 81
   },
   metadata: {
     description: "GPT-5.1-Codex-Mini is a smaller and faster version of GPT-5.1-Codex",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.1-codex-mini-20251113",
     huggingFaceId: "",
-    created: 1763057820
+    created: 1763057820,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5.1:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.1 (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.625,
+      output: 5,
+      cached: 0.0625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  metadata: {
+    description: "GPT-5.1 is the latest frontier-grade model in the GPT-5 series, offering stronger general-purpose reasoning, improved instruction adherence, and a more natural conversational style compared to GPT-5. It uses adaptive reasoning...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.1-20251113",
+    huggingFaceId: "",
+    created: 1763060305
   }
 }, {
   id: 'openai/gpt-5.2',
@@ -5306,49 +11744,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.75,
-      output: 14
+      output: 14,
+      cached: 0.175
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1.17
+    timeToFirstToken: 1516,
+    tokensPerSecond: 48
   },
   metadata: {
     description: "GPT-5.2 is the latest frontier-grade model in the GPT-5 series, offering stronger agentic and long context perfomance compared to GPT-5.1. It uses adaptive reasoning to allocate computation dynamically, responding quickly...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.2-20251211",
     huggingFaceId: "",
-    created: 1765389775
-  }
-}, {
-  id: 'openai/gpt-5.2-chat',
-  provider: 'openrouter',
-  name: 'OpenAI: GPT-5.2 Chat',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
-  pricing: {
-    text: {
-      input: 1.75,
-      output: 14
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.17
-  },
-  metadata: {
-    description: "GPT-5.2 Chat (AKA Instant) is the fast, lightweight member of the 5.2 family, optimized for low-latency chat while retaining strong general intelligence. It uses adaptive reasoning to selectively “think” on...",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-5.2-chat-20251211",
-    huggingFaceId: "",
-    created: 1765389783
+    created: 1765389775,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.2-codex',
@@ -5358,16 +11777,22 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.75,
-      output: 14
+      output: 14,
+      cached: 0.175
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2.53
+    timeToFirstToken: 3711,
+    tokensPerSecond: 29
   },
   metadata: {
     description: "GPT-5.2-Codex is an upgraded version of GPT-5.1-Codex optimized for software engineering and coding workflows. It is designed for both interactive development sessions and long, independent execution of complex engineering tasks....",
@@ -5384,16 +11809,21 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 21,
       output: 168
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 23.89
+    timeToFirstToken: 9358,
+    tokensPerSecond: 5.5
   },
   metadata: {
     description: "GPT-5.2 Pro is OpenAI’s most advanced model, offering major improvements in agentic coding and long context performance over GPT-5 Pro. It is optimized for complex tasks that require step-by-step reasoning,...",
@@ -5403,30 +11833,59 @@ export const openrouterModels: ModelInfo[] = [{
     created: 1765389780
   }
 }, {
-  id: 'openai/gpt-5.3-chat',
+  id: 'openai/gpt-5.2-pro:batch',
   provider: 'openrouter',
-  name: 'OpenAI: GPT-5.3 Chat',
-  contextWindow: 128000,
-  maxOutputTokens: 16384,
+  name: 'OpenAI: GPT-5.2 Pro (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 1.75,
-      output: 14
+      input: 10.5,
+      output: 84
+    },
+    tools: {
+      web_search: 0.01
     }
   },
-  metrics: {
-    timeToFirstToken: 1.6
-  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
   metadata: {
-    description: "GPT-5.3 Chat is an update to ChatGPT's most-used model that makes everyday conversations smoother, more useful, and more directly helpful. It delivers more accurate answers with better contextualization and significantly...",
+    description: "GPT-5.2 Pro is OpenAI’s most advanced model, offering major improvements in agentic coding and long context performance over GPT-5 Pro. It is optimized for complex tasks that require step-by-step reasoning,...",
     defaultParameters: {},
-    canonicalSlug: "openai/gpt-5.3-chat-20260303",
+    canonicalSlug: "openai/gpt-5.2-pro-20251211",
     huggingFaceId: "",
-    created: 1772564061
+    created: 1765389780
+  }
+}, {
+  id: 'openai/gpt-5.2:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.2 (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.875,
+      output: 7,
+      cached: 0.0875
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.2 is the latest frontier-grade model in the GPT-5 series, offering stronger agentic and long context perfomance compared to GPT-5.1. It uses adaptive reasoning to allocate computation dynamically, responding quickly...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.2-20251211",
+    huggingFaceId: "",
+    created: 1765389775
   }
 }, {
   id: 'openai/gpt-5.3-codex',
@@ -5436,23 +11895,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 1.75,
-      output: 14
+      output: 14,
+      cached: 0.175
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2.62
+    timeToFirstToken: 2525,
+    tokensPerSecond: 60
   },
   metadata: {
     description: "GPT-5.3-Codex is OpenAI’s most advanced agentic coding model, combining the frontier software engineering performance of GPT-5.2-Codex with the broader reasoning and professional knowledge capabilities of GPT-5.2. It achieves state-of-the-art results...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.3-codex-20260224",
     huggingFaceId: "",
-    created: 1771959164
+    created: 1771959164,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.4',
@@ -5462,23 +11928,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 2.5,
-      output: 15
+      output: 15,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1
+    timeToFirstToken: 724,
+    tokensPerSecond: 76
   },
   metadata: {
     description: "GPT-5.4 is OpenAI’s latest frontier model, unifying the Codex and GPT lines into a single system. It features a 1M+ token context window (922K input, 128K output) with support for...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.4-20260305",
     huggingFaceId: "",
-    created: 1772734352
+    created: 1772734352,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.4-image-2',
@@ -5488,23 +11961,30 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'image', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput']),
+  capabilities: new Set(['vision', 'files', 'image', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'verbosity']),
   pricing: {
     text: {
       input: 8,
-      output: 15
+      output: 15,
+      cached: 2
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 0.56
+    timeToFirstToken: 83150,
+    tokensPerSecond: 0
   },
   metadata: {
     description: "[GPT-5.4](https://openrouter.ai/openai/gpt-5.4) Image 2 combines OpenAI's GPT-5.4 model with state-of-the-art image generation capabilities from GPT Image 2. It enables rich multimodal workflows, allowing users to seamlessly move between reasoning, coding, and...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.4-image-2-20260421",
     huggingFaceId: "",
-    created: 1776797528
+    created: 1776797528,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.4-mini',
@@ -5514,23 +11994,60 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 0.75,
-      output: 4.5
+      output: 4.5,
+      cached: 0.075
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 0.61
+    timeToFirstToken: 667,
+    tokensPerSecond: 112
   },
   metadata: {
     description: "GPT-5.4 mini brings the core capabilities of GPT-5.4 to a faster, more efficient model optimized for high-throughput workloads. It supports text and image inputs with strong performance across reasoning, coding,...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.4-mini-20260317",
     huggingFaceId: "",
-    created: 1773748178
+    created: 1773748178,
+    knowledgeCutoff: "2025-08-31",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5.4-mini:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.4 Mini (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.375,
+      output: 2.25,
+      cached: 0.0375
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.4 mini brings the core capabilities of GPT-5.4 to a faster, more efficient model optimized for high-throughput workloads. It supports text and image inputs with strong performance across reasoning, coding,...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.4-mini-20260317",
+    huggingFaceId: "",
+    created: 1773748178,
+    knowledgeCutoff: "2025-08-31"
   }
 }, {
   id: 'openai/gpt-5.4-nano',
@@ -5540,23 +12057,60 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 0.19999999999999998,
-      output: 1.25
+      output: 1.25,
+      cached: 0.02
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 0.69
+    timeToFirstToken: 1083,
+    tokensPerSecond: 93.5
   },
   metadata: {
     description: "GPT-5.4 nano is the most lightweight and cost-efficient variant of the GPT-5.4 family, optimized for speed-critical and high-volume tasks. It supports text and image inputs and is designed for low-latency...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.4-nano-20260317",
     huggingFaceId: "",
-    created: 1773748187
+    created: 1773748187,
+    knowledgeCutoff: "2025-08-31",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5.4-nano:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.4 Nano (batch)',
+  contextWindow: 400000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.625,
+      cached: 0.01
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.4 nano is the most lightweight and cost-efficient variant of the GPT-5.4 family, optimized for speed-critical and high-volume tasks. It supports text and image inputs and is designed for low-latency...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.4-nano-20260317",
+    huggingFaceId: "",
+    created: 1773748187,
+    knowledgeCutoff: "2025-08-31"
   }
 }, {
   id: 'openai/gpt-5.4-pro',
@@ -5566,16 +12120,21 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 30,
       output: 180
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 6.35
+    timeToFirstToken: 10059.5,
+    tokensPerSecond: 7.5
   },
   metadata: {
     description: "GPT-5.4 Pro is OpenAI's most advanced model, building on GPT-5.4's unified architecture with enhanced reasoning capabilities for complex, high-stakes tasks. It features a 1M+ token context window (922K input, 128K...",
@@ -5585,6 +12144,61 @@ export const openrouterModels: ModelInfo[] = [{
     created: 1772734366
   }
 }, {
+  id: 'openai/gpt-5.4-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.4 Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 15,
+      output: 90
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.4 Pro is OpenAI's most advanced model, building on GPT-5.4's unified architecture with enhanced reasoning capabilities for complex, high-stakes tasks. It features a 1M+ token context window (922K input, 128K...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.4-pro-20260305",
+    huggingFaceId: "",
+    created: 1772734366
+  }
+}, {
+  id: 'openai/gpt-5.4:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.4 (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1.25,
+      output: 7.5,
+      cached: 0.125
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.4 is OpenAI’s latest frontier model, unifying the Codex and GPT lines into a single system. It features a 1M+ token context window (922K input, 128K output) with support for...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.4-20260305",
+    huggingFaceId: "",
+    created: 1772734352
+  }
+}, {
   id: 'openai/gpt-5.5',
   provider: 'openrouter',
   name: 'OpenAI: GPT-5.5',
@@ -5592,23 +12206,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 5,
-      output: 30
+      output: 30,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2.07
+    timeToFirstToken: 1209.5,
+    tokensPerSecond: 160.5
   },
   metadata: {
     description: "GPT-5.5 is OpenAI’s frontier model designed for complex professional workloads, building on GPT-5.4 with stronger reasoning, higher reliability, and improved token efficiency on hard tasks. It features a 1M+ token...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.5-20260423",
     huggingFaceId: "",
-    created: 1777051893
+    created: 1777051893,
+    knowledgeCutoff: "2025-12-01",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.5-pro',
@@ -5618,23 +12240,86 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
       input: 30,
       output: 180
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 50.05
+    timeToFirstToken: 5472,
+    tokensPerSecond: 19
   },
   metadata: {
     description: "GPT-5.5 Pro is OpenAI’s high-capability model optimized for deep reasoning and accuracy on complex, high-stakes workloads. It features a 1M+ token context window (922K input, 128K output) with support for...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.5-pro-20260423",
     huggingFaceId: "",
-    created: 1777051896
+    created: 1777051896,
+    knowledgeCutoff: "2025-12-01"
+  }
+}, {
+  id: 'openai/gpt-5.5-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.5 Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 15,
+      output: 90
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.5 Pro is OpenAI’s high-capability model optimized for deep reasoning and accuracy on complex, high-stakes workloads. It features a 1M+ token context window (922K input, 128K output) with support for...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.5-pro-20260423",
+    huggingFaceId: "",
+    created: 1777051896,
+    knowledgeCutoff: "2025-12-01"
+  }
+}, {
+  id: 'openai/gpt-5.5:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.5 (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 15,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+  metadata: {
+    description: "GPT-5.5 is OpenAI’s frontier model designed for complex professional workloads, building on GPT-5.4 with stronger reasoning, higher reliability, and improved token efficiency on hard tasks. It features a 1M+ token...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.5-20260423",
+    huggingFaceId: "",
+    created: 1777051893,
+    knowledgeCutoff: "2025-12-01"
   }
 }, {
   id: 'openai/gpt-5.6-luna',
@@ -5644,22 +12329,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 1,
-      output: 6
+      input: 0.19999999999999998,
+      output: 1.2,
+      cached: 0.02,
+      cacheWrite: 0.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2.51
+    timeToFirstToken: 544,
+    tokensPerSecond: 149
   },
   metadata: {
     description: "GPT-5.6 Luna is a fast, cost-efficient model in OpenAI's GPT-5.6 series. It is suited for high-volume, latency-sensitive tasks such as chat, classification, and lightweight agentic workflows, providing capable reasoning for...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.6-luna-20260709",
-    created: 1783590864
+    created: 1783590864,
+    knowledgeCutoff: "2026-02-16",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.6-luna-pro',
@@ -5669,19 +12363,87 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 1,
-      output: 6
+      input: 0.19999999999999998,
+      output: 1.2,
+      cached: 0.02,
+      cacheWrite: 0.25
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 4873,
+    tokensPerSecond: 164
+  },
   metadata: {
-    description: "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    description: "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.6-luna-pro-20260709",
-    created: 1783590867
+    created: 1783590867,
+    knowledgeCutoff: "2026-02-16",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5.6-luna-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.6 Luna Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.6,
+      cached: 0.01
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-luna-pro-20260709",
+    created: 1783590867,
+    knowledgeCutoff: "2026-02-16"
+  }
+}, {
+  id: 'openai/gpt-5.6-luna:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.6 Luna (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.6,
+      cached: 0.01
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-5.6 Luna is a fast, cost-efficient model in OpenAI's GPT-5.6 series. It is suited for high-volume, latency-sensitive tasks such as chat, classification, and lightweight agentic workflows, providing capable reasoning for...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-luna-20260709",
+    created: 1783590864,
+    knowledgeCutoff: "2026-02-16"
   }
 }, {
   id: 'openai/gpt-5.6-sol',
@@ -5691,22 +12453,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 5,
-      output: 30
+      input: 4,
+      output: 20,
+      cached: 0.39999999999999997,
+      cacheWrite: 5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1.69
+    timeToFirstToken: 1142.5,
+    tokensPerSecond: 106
   },
   metadata: {
     description: "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.6-sol-20260709",
-    created: 1783590850
+    created: 1783590850,
+    knowledgeCutoff: "2026-02-16",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.6-sol-pro',
@@ -5716,22 +12487,89 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 5,
-      output: 30
+      input: 4,
+      output: 20,
+      cached: 0.39999999999999997,
+      cacheWrite: 5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 6.67
+    timeToFirstToken: 2611,
+    tokensPerSecond: 102
   },
   metadata: {
-    description: "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    description: "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.6-sol-pro-20260709",
-    created: 1783590854
+    created: 1783590854,
+    knowledgeCutoff: "2026-02-16",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-5.6-sol-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.6 Sol Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-sol-pro-20260709",
+    created: 1783590854,
+    knowledgeCutoff: "2026-02-16"
+  }
+}, {
+  id: 'openai/gpt-5.6-sol:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.6 Sol (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-sol-20260709",
+    created: 1783590850,
+    knowledgeCutoff: "2026-02-16"
   }
 }, {
   id: 'openai/gpt-5.6-terra',
@@ -5741,22 +12579,31 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 2.5,
-      output: 15
+      input: 2,
+      output: 12,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2.65
+    timeToFirstToken: 1078.5,
+    tokensPerSecond: 118.5
   },
   metadata: {
     description: "GPT-5.6 Terra is a balanced model in OpenAI's GPT-5.6 series, positioned between the flagship Sol tier and the cost-efficient Luna tier. It is suited for everyday coding, reasoning, and agentic...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-5.6-terra-20260709",
-    created: 1783590857
+    created: 1783590857,
+    knowledgeCutoff: "2026-02-16",
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-5.6-terra-pro',
@@ -5766,22 +12613,724 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
   pricing: {
     text: {
-      input: 2.5,
-      output: 15
+      input: 2,
+      output: 12,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 2514,
+    tokensPerSecond: 100
+  },
+  metadata: {
+    description: "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-terra-pro-20260709",
+    created: 1783590861,
+    knowledgeCutoff: "2026-02-16"
+  }
+}, {
+  id: 'openai/gpt-5.6-terra-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.6 Terra Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 6,
+      cached: 0.09999999999999999
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-terra-pro-20260709",
+    created: 1783590861,
+    knowledgeCutoff: "2026-02-16"
+  }
+}, {
+  id: 'openai/gpt-5.6-terra:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-5.6 Terra (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 6,
+      cached: 0.09999999999999999
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-5.6 Terra is a balanced model in OpenAI's GPT-5.6 series, positioned between the flagship Sol tier and the cost-efficient Luna tier. It is suited for everyday coding, reasoning, and agentic...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-5.6-terra-20260709",
+    created: 1783590857,
+    knowledgeCutoff: "2026-02-16"
+  }
+}, {
+  id: 'openai/gpt-6-astra',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Astra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 50,
+      cached: 1,
+      cacheWrite: 12.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 1342.5,
+    tokensPerSecond: 111
+  },
+  metadata: {
+    description: "GPT-6 Astra is OpenAI's flagship model for demanding end-to-end work. It is suited for advanced analysis, software engineering, deep research, scientific work, and document creation, with particular strengths in long-horizon...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-astra-20260903",
+    created: 1788552838,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-astra-pro',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Astra Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 50,
+      cached: 1,
+      cacheWrite: 12.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 3317,
+    tokensPerSecond: 60.5
+  },
+  metadata: {
+    description: "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-astra-pro-20260903",
+    created: 1788552835,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-astra-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Astra Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-astra-pro-20260903",
+    created: 1788552835
+  }
+}, {
+  id: 'openai/gpt-6-astra:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Astra (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 25,
+      cached: 0.5,
+      cacheWrite: 6.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6 Astra is OpenAI's flagship model for demanding end-to-end work. It is suited for advanced analysis, software engineering, deep research, scientific work, and document creation, with particular strengths in long-horizon...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-astra-20260903",
+    created: 1788552838
+  }
+}, {
+  id: 'openai/gpt-6-luna',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Luna',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 1154,
+    tokensPerSecond: 86
+  },
+  metadata: {
+    description: "GPT-6 Luna is the fast, cost-efficient model in OpenAI's GPT-6 series, positioned below GPT-6 Sol. It is suited for high-volume and latency-sensitive workloads such as chat, classification, and lightweight agentic...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-luna-20260922",
+    created: 1790100786,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-luna-decisions',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Luna Decisions',
+  contextWindow: 1050000,
+  maxOutputTokens: 945000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 5.94
+    timeToFirstToken: 400,
+    tokensPerSecond: 0
   },
   metadata: {
-    description: "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    description: "GPT-6 Luna Decisions is [GPT-6 Luna](/openai/gpt-6-luna) served through OpenAI's Decisions API. Instead of generating text, it reads the content passed as `state` (text, JSON, or images) and returns typed, probabilistic...",
     defaultParameters: {},
-    canonicalSlug: "openai/gpt-5.6-terra-pro-20260709",
-    created: 1783590861
+    canonicalSlug: "openai/gpt-6-luna-decisions-20261006",
+    created: 1791321558,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-luna-pro',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Luna Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 6280,
+    tokensPerSecond: 194.5
+  },
+  metadata: {
+    description: "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-luna-pro-20260922",
+    created: 1790100791,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-luna-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Luna Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.25,
+      cached: 0.005,
+      cacheWrite: 0.0625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-luna-pro-20260922",
+    created: 1790100791
+  }
+}, {
+  id: 'openai/gpt-6-luna:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Luna (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.25,
+      cached: 0.005,
+      cacheWrite: 0.0625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6 Luna is the fast, cost-efficient model in OpenAI's GPT-6 series, positioned below GPT-6 Sol. It is suited for high-volume and latency-sensitive workloads such as chat, classification, and lightweight agentic...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-luna-20260922",
+    created: 1790100786
+  }
+}, {
+  id: 'openai/gpt-6-sol',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 1565,
+    tokensPerSecond: 79
+  },
+  metadata: {
+    description: "GPT-6 Sol is the cost-efficient high-end model in OpenAI's GPT-6 series, positioned below the flagship GPT-6 Astra and above the fast GPT-6 Luna tier. It is suited for demanding professional...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-sol-20260922",
+    created: 1790100775,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-sol-pro',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Sol Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.19999999999999998,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 3666,
+    tokensPerSecond: 63.5
+  },
+  metadata: {
+    description: "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-sol-pro-20260922",
+    created: 1790100781,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6-sol-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Sol Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.09999999999999999,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-sol-pro-20260922",
+    created: 1790100781
+  }
+}, {
+  id: 'openai/gpt-6-sol:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6 Sol (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.09999999999999999,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6 Sol is the cost-efficient high-end model in OpenAI's GPT-6 series, positioned below the flagship GPT-6 Astra and above the fast GPT-6 Luna tier. It is suited for demanding professional...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6-sol-20260922",
+    created: 1790100775
+  }
+}, {
+  id: 'openai/gpt-6.1-sol',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 2361,
+    tokensPerSecond: 62
+  },
+  metadata: {
+    description: "GPT-6.1 Sol is an upgrade to GPT-6 Sol from OpenAI, positioned below the flagship GPT-6 Astra in the GPT-6 series. It is suited for agentic coding, computer use, document-heavy professional...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-sol-20260929",
+    created: 1790702882,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6.1-sol-pro',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Sol Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.09999999999999999,
+      cacheWrite: 2.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 9684.5,
+    tokensPerSecond: 67
+  },
+  metadata: {
+    description: "GPT-6.1 Sol Pro is the same underlying model as [GPT-6.1 Sol](https://openrouter.ai/openai/gpt-6.1-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-sol-pro-20260929",
+    created: 1790702886,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6.1-sol-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Sol Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6.1 Sol Pro is the same underlying model as [GPT-6.1 Sol](https://openrouter.ai/openai/gpt-6.1-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-sol-pro-20260929",
+    created: 1790702886
+  }
+}, {
+  id: 'openai/gpt-6.1-sol:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Sol (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6.1 Sol is an upgrade to GPT-6 Sol from OpenAI, positioned below the flagship GPT-6 Astra in the GPT-6 series. It is suited for agentic coding, computer use, document-heavy professional...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-sol-20260929",
+    created: 1790702882
+  }
+}, {
+  id: 'openai/gpt-6.1-terra',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Terra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 2167,
+    tokensPerSecond: 74
+  },
+  metadata: {
+    description: "GPT-6.1 Terra is the mid-tier model in OpenAI's GPT-6.1 series, priced below GPT-6.1 Sol. It is suited for everyday agentic, coding, and writing work, is particularly strong at understanding screenshots...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-terra-20261026",
+    created: 1793038409,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6.1-terra-pro',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Terra Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.049999999999999996,
+      cacheWrite: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 5736,
+    tokensPerSecond: 130
+  },
+  metadata: {
+    description: "GPT-6.1 Terra Pro is the same underlying model as [GPT-6.1 Terra](https://openrouter.ai/openai/gpt-6.1-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-terra-pro-20261026",
+    created: 1793038556,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-6.1-terra-pro:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Terra Pro (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 2.5,
+      cached: 0.024999999999999998,
+      cacheWrite: 0.625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6.1 Terra Pro is the same underlying model as [GPT-6.1 Terra](https://openrouter.ai/openai/gpt-6.1-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-terra-pro-20261026",
+    created: 1793038556
+  }
+}, {
+  id: 'openai/gpt-6.1-terra:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT-6.1 Terra (batch)',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools', 'verbosity']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 2.5,
+      cached: 0.024999999999999998,
+      cacheWrite: 0.625
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metadata: {
+    description: "GPT-6.1 Terra is the mid-tier model in OpenAI's GPT-6.1 series, priced below GPT-6.1 Sol. It is suited for everyday agentic, coding, and writing work, is particularly strong at understanding screenshots...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-6.1-terra-20261026",
+    created: 1793038409
   }
 }, {
   id: 'openai/gpt-audio',
@@ -5791,23 +13340,29 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'hearing', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['hearing', 'chat', 'audioOutput', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2.5,
       output: 10
+    },
+    audio: {
+      input: 32,
+      output: 64
     }
   },
   metrics: {
-    timeToFirstToken: 0.49
+    timeToFirstToken: 582,
+    tokensPerSecond: 84
   },
   metadata: {
     description: "The gpt-audio model is OpenAI's first generally available audio model. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Audio is priced...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-audio",
     huggingFaceId: "",
-    created: 1768862569
+    created: 1768862569,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-audio-mini',
@@ -5817,23 +13372,29 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'hearing', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['hearing', 'chat', 'audioOutput', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.6,
       output: 2.4
+    },
+    audio: {
+      input: 0.6,
+      output: 2.4
     }
   },
   metrics: {
-    timeToFirstToken: 0.63
+    timeToFirstToken: 627,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "A cost-efficient version of GPT Audio. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Input is priced at $0.60 per million...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-audio-mini",
     huggingFaceId: "",
-    created: 1768859419
+    created: 1768859419,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-chat-latest',
@@ -5843,114 +13404,289 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['vision', 'files', 'chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
   pricing: {
     text: {
       input: 5,
-      output: 30
+      output: 30,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 1.12
+    timeToFirstToken: 1180,
+    tokensPerSecond: 70
   },
   metadata: {
     description: "GPT Chat Latest points to OpenAI's stable API alias `chat-latest` that always resolves to the latest Instant chat model used in ChatGPT. As OpenAI rolls out new Instant model updates...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-chat-latest-20260505",
-    created: 1778000212
+    created: 1778000212,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-image-1',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Image 1',
+  contextWindow: 400000,
+  maxOutputTokens: 360000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'image', 'json', 'structured']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 10,
+      cached: 1.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metadata: {
+    description: "OpenAI's GPT Image 1 generates and edits images via the dedicated Images API. Features accurate text rendering, transparent backgrounds, and up to 16 reference images for edits.",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-image-1",
+    created: 1782264713
+  }
+}, {
+  id: 'openai/gpt-image-1-mini',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Image 1 Mini',
+  contextWindow: 400000,
+  maxOutputTokens: 360000,
+  tier: 'efficient',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'image', 'json', 'structured']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 2.5,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 10143,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "A cost-efficient variant of GPT Image 1 for high-quality image generation at reduced latency and cost via OpenAI's dedicated Images API.",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-image-1-mini",
+    created: 1782264713
+  }
+}, {
+  id: 'openai/gpt-image-2',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Image 2',
+  contextWindow: 400000,
+  maxOutputTokens: 360000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'image', 'json', 'structured']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
+  pricing: {
+    text: {
+      input: 8,
+      output: 8,
+      cached: 2
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 24060,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "OpenAI's latest image generation model. Supports high-fidelity image generation and editing via the dedicated Images API.",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-image-2",
+    created: 1782264714,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-image-2.5-flare',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Image 2.5 Flare',
+  contextWindow: 400000,
+  maxOutputTokens: 360000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'image', 'json', 'structured']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
+  pricing: {
+    text: {
+      input: 8,
+      output: 8,
+      cached: 2
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 16300.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "GPT Image 2.5 Flare is an image generation and editing model from OpenAI, positioned as the speed-oriented tier of the GPT Image 2.5 series. It is suited to high-volume everyday...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-image-2.5-flare-20260908",
+    created: 1788916350,
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-image-2.5-sunburst',
+  provider: 'openrouter',
+  name: 'OpenAI: GPT Image 2.5 Sunburst',
+  contextWindow: 400000,
+  maxOutputTokens: 360000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'image', 'json', 'structured']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
+  pricing: {
+    text: {
+      input: 8,
+      output: 8,
+      cached: 2
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 28889,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "GPT Image 2.5 Sunburst is an image generation and editing model from OpenAI, positioned as the precision-oriented tier of the GPT Image 2.5 series. It is suited to detailed creative...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-image-2.5-sunburst-20260908",
+    created: 1788916368,
+    uptime: 100
   }
 }, {
   id: 'openai/gpt-oss-120b',
   provider: 'openrouter',
   name: 'OpenAI: gpt-oss-120b',
   contextWindow: 131072,
+  maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.036,
-      output: 0.18
+      input: 0.15,
+      output: 0.6,
+      cached: 0.075
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.24
+    timeToFirstToken: 181,
+    tokensPerSecond: 674
   },
   metadata: {
     description: "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-oss-120b",
     huggingFaceId: "openai/gpt-oss-120b",
-    created: 1754414231
+    created: 1754414231,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
-  id: 'openai/gpt-oss-120b:free',
+  id: 'openai/gpt-oss-120b:batch',
   provider: 'openrouter',
-  name: 'OpenAI: gpt-oss-120b (free)',
+  name: 'OpenAI: gpt-oss-120b (batch)',
   contextWindow: 131072,
-  maxOutputTokens: 131072,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 0.8
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.0296,
+      output: 0.136
+    }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metadata: {
     description: "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-oss-120b",
     huggingFaceId: "openai/gpt-oss-120b",
-    created: 1754414231
+    created: 1754414231,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
   id: 'openai/gpt-oss-20b',
   provider: 'openrouter',
   name: 'OpenAI: gpt-oss-20b',
   contextWindow: 131072,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.029,
-      output: 0.14
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.25
-  },
-  metadata: {
-    description: "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
-    defaultParameters: {},
-    canonicalSlug: "openai/gpt-oss-20b",
-    huggingFaceId: "openai/gpt-oss-20b",
-    created: 1754414229
-  }
-}, {
-  id: 'openai/gpt-oss-20b:free',
-  provider: 'openrouter',
-  name: 'OpenAI: gpt-oss-20b (free)',
-  contextWindow: 131072,
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.018,
+      output: 0.09,
+      cached: 0.009
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.64
+    timeToFirstToken: 261.5,
+    tokensPerSecond: 414
   },
   metadata: {
     description: "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-oss-20b",
     huggingFaceId: "openai/gpt-oss-20b",
-    created: 1754414229
+    created: 1754414229,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
+  }
+}, {
+  id: 'openai/gpt-oss-20b:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: gpt-oss-20b (batch)',
+  contextWindow: 131072,
+  maxOutputTokens: 117964,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.024,
+      output: 0.112
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    description: "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
+    defaultParameters: {},
+    canonicalSlug: "openai/gpt-oss-20b",
+    huggingFaceId: "openai/gpt-oss-20b",
+    created: 1754414229,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
   id: 'openai/gpt-oss-safeguard-20b',
@@ -5960,75 +13696,47 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.075,
-      output: 0.3
+      output: 0.3,
+      cached: 0.0375
     }
   },
   metrics: {
-    timeToFirstToken: 0.25
+    timeToFirstToken: 170,
+    tokensPerSecond: 509
   },
   metadata: {
     description: "gpt-oss-safeguard-20b is a safety reasoning model from OpenAI built upon gpt-oss-20b. This open-weight, 21B-parameter Mixture-of-Experts (MoE) model offers lower latency for safety tasks like content classification, LLM filtering, and trust...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-oss-safeguard-20b",
     huggingFaceId: "openai/gpt-oss-safeguard-20b",
-    created: 1761752836
+    created: 1761752836,
+    uptime: 100
   }
 }, {
-  id: 'openai/o1',
+  id: 'openai/gpt-transcribe',
   provider: 'openrouter',
-  name: 'OpenAI: o1',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
+  name: 'OpenAI: GPT Transcribe',
+  contextWindow: 0,
+  maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  capabilities: new Set(['hearing']),
   pricing: {
     text: {
-      input: 15,
-      output: 60
+      input: 75
     }
   },
-  metrics: {
-    timeToFirstToken: 0.33
-  },
   metadata: {
-    description: "The latest and strongest model family from OpenAI, o1 is designed to spend more time thinking before responding. The o1 model series is trained with large-scale reinforcement learning to reason...",
+    description: "GPT Transcribe is a high-accuracy speech-to-text model from OpenAI. It is suited for recorded audio, streamed file transcription, and committed Realtime turns, with free-form context, keyword hints, and multiple language...",
     defaultParameters: {},
-    canonicalSlug: "openai/o1-2024-12-17",
-    huggingFaceId: "",
-    created: 1734459999
-  }
-}, {
-  id: 'openai/o1-pro',
-  provider: 'openrouter',
-  name: 'OpenAI: o1-pro',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput']),
-  pricing: {
-    text: {
-      input: 150,
-      output: 600
-    }
-  },
-  metrics: {
-    timeToFirstToken: 9.29
-  },
-  metadata: {
-    description: "The o1 series of models are trained with reinforcement learning to think before they answer and perform complex reasoning. The o1-pro model uses more compute to think harder and provide...",
-    defaultParameters: {},
-    canonicalSlug: "openai/o1-pro",
-    huggingFaceId: "",
-    created: 1742423211
+    canonicalSlug: "openai/gpt-transcribe-20260805",
+    created: 1785973897,
+    uptime: 100
   }
 }, {
   id: 'openai/o3',
@@ -6038,101 +13746,58 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 100000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
   pricing: {
     text: {
       input: 2,
-      output: 8
+      output: 8,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 4.04
+    timeToFirstToken: 2572.5,
+    tokensPerSecond: 46
   },
   metadata: {
     description: "o3 is a well-rounded and powerful model across domains. It sets a new standard for math, science, coding, and visual reasoning tasks. It also excels at technical writing and instruction-following....",
     defaultParameters: {},
     canonicalSlug: "openai/o3-2025-04-16",
     huggingFaceId: "",
-    created: 1744823457
+    created: 1744823457,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
-  id: 'openai/o3-deep-research',
+  id: 'openai/o3-mini:batch',
   provider: 'openrouter',
-  name: 'OpenAI: o3 Deep Research',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'flagship',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 10,
-      output: 40
-    }
-  },
-  metrics: {
-    timeToFirstToken: 19.01
-  },
-  metadata: {
-    description: "o3-deep-research is OpenAI's advanced model for deep research, designed to tackle complex, multi-step research tasks.\n\nNote: This model always uses the 'web_search' tool which adds additional cost.",
-    defaultParameters: {},
-    canonicalSlug: "openai/o3-deep-research-2025-06-26",
-    huggingFaceId: "",
-    created: 1760129661
-  }
-}, {
-  id: 'openai/o3-mini',
-  provider: 'openrouter',
-  name: 'OpenAI: o3 Mini',
+  name: 'OpenAI: o3 Mini (batch)',
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
   pricing: {
     text: {
-      input: 1.1,
-      output: 4.4
+      input: 0.55,
+      output: 2.2,
+      cached: 0.275
+    },
+    tools: {
+      web_search: 0.01
     }
-  },
-  metrics: {
-    timeToFirstToken: 6.82
   },
   metadata: {
     description: "OpenAI o3-mini is a cost-efficient language model optimized for STEM reasoning tasks, particularly excelling in science, mathematics, and coding. This model supports the `reasoning_effort` parameter, which can be set to...",
     defaultParameters: {},
     canonicalSlug: "openai/o3-mini-2025-01-31",
     huggingFaceId: "",
-    created: 1738351721
-  }
-}, {
-  id: 'openai/o3-mini-high',
-  provider: 'openrouter',
-  name: 'OpenAI: o3 Mini High',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'efficient',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
-  pricing: {
-    text: {
-      input: 1.1,
-      output: 4.4
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.5
-  },
-  metadata: {
-    description: "OpenAI o3-mini-high is the same model as [o3-mini](/openai/o3-mini) with reasoning_effort set to high. o3-mini is a cost-efficient language model optimized for STEM reasoning tasks, particularly excelling in science, mathematics, and...",
-    defaultParameters: {},
-    canonicalSlug: "openai/o3-mini-high-2025-01-31",
-    huggingFaceId: "",
-    created: 1739372611
+    created: 1738351721,
+    knowledgeCutoff: "2023-10-31"
   }
 }, {
   id: 'openai/o3-pro',
@@ -6142,101 +13807,279 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 100000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['files', 'vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
   pricing: {
     text: {
       input: 20,
       output: 80
+    },
+    tools: {
+      web_search: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 51.43
+    timeToFirstToken: 7125,
+    tokensPerSecond: 15
   },
   metadata: {
     description: "The o-series of models are trained with reinforcement learning to think before they answer and perform complex reasoning. The o3-pro model uses more compute to think harder and provide consistently...",
     defaultParameters: {},
     canonicalSlug: "openai/o3-pro-2025-06-10",
     huggingFaceId: "",
-    created: 1749598352
+    created: 1749598352,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
-  id: 'openai/o4-mini',
+  id: 'openai/o3:batch',
   provider: 'openrouter',
-  name: 'OpenAI: o4 Mini',
+  name: 'OpenAI: o3 (batch)',
+  contextWindow: 200000,
+  maxOutputTokens: 100000,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 4,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  metadata: {
+    description: "o3 is a well-rounded and powerful model across domains. It sets a new standard for math, science, coding, and visual reasoning tasks. It also excels at technical writing and instruction-following....",
+    defaultParameters: {},
+    canonicalSlug: "openai/o3-2025-04-16",
+    huggingFaceId: "",
+    created: 1744823457,
+    knowledgeCutoff: "2024-06-30"
+  }
+}, {
+  id: 'openai/o4-mini:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: o4 Mini (batch)',
   contextWindow: 200000,
   maxOutputTokens: 100000,
   tier: 'efficient',
   tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
   pricing: {
     text: {
-      input: 1.1,
-      output: 4.4
+      input: 0.55,
+      output: 2.2,
+      cached: 0.1375
+    },
+    tools: {
+      web_search: 0.01
     }
-  },
-  metrics: {
-    timeToFirstToken: 5.44
   },
   metadata: {
     description: "OpenAI o4-mini is a compact reasoning model in the o-series, optimized for fast, cost-efficient performance while retaining strong multimodal and agentic capabilities. It supports tool use and demonstrates competitive reasoning...",
     defaultParameters: {},
     canonicalSlug: "openai/o4-mini-2025-04-16",
     huggingFaceId: "",
-    created: 1744820942
+    created: 1744820942,
+    knowledgeCutoff: "2024-06-30"
   }
 }, {
-  id: 'openai/o4-mini-deep-research',
+  id: 'openai/text-embedding-3-large',
   provider: 'openrouter',
-  name: 'OpenAI: o4 Mini Deep Research',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'efficient',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  name: 'OpenAI: Text Embedding 3 Large',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
   pricing: {
-    text: {
-      input: 2,
-      output: 8
+    embeddings: {
+      cost: 0.13
     }
   },
-  metrics: {
-    timeToFirstToken: 39.05
-  },
   metadata: {
-    description: "o4-mini-deep-research is OpenAI's faster, more affordable deep research model—ideal for tackling complex, multi-step research tasks.\n\nNote: This model always uses the 'web_search' tool which adds additional cost.",
+    description: "text-embedding-3-large is OpenAI's most capable embedding model for both english and non-english tasks. Embeddings are a numerical representation of text that can be used to measure the relatedness between two...",
     defaultParameters: {},
-    canonicalSlug: "openai/o4-mini-deep-research-2025-06-26",
+    canonicalSlug: "openai/text-embedding-3-large",
     huggingFaceId: "",
-    created: 1760129642
+    created: 1761862866,
+    uptime: 100
   }
 }, {
-  id: 'openai/o4-mini-high',
+  id: 'openai/text-embedding-3-large:batch',
   provider: 'openrouter',
-  name: 'OpenAI: o4 Mini High',
-  contextWindow: 200000,
-  maxOutputTokens: 100000,
-  tier: 'efficient',
-  tokenizer: 'GPT',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'toolChoice', 'tools']),
+  name: 'OpenAI: Text Embedding 3 Large (batch)',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
   pricing: {
-    text: {
-      input: 1.1,
-      output: 4.4
+    embeddings: {
+      cost: 0.065
     }
   },
-  metrics: {
-    timeToFirstToken: 5.05
+  metadata: {
+    description: "text-embedding-3-large is OpenAI's most capable embedding model for both english and non-english tasks. Embeddings are a numerical representation of text that can be used to measure the relatedness between two...",
+    defaultParameters: {},
+    canonicalSlug: "openai/text-embedding-3-large",
+    huggingFaceId: "",
+    created: 1761862866
+  }
+}, {
+  id: 'openai/text-embedding-3-small',
+  provider: 'openrouter',
+  name: 'OpenAI: Text Embedding 3 Small',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.02
+    }
   },
   metadata: {
-    description: "OpenAI o4-mini-high is the same model as [o4-mini](/openai/o4-mini) with reasoning_effort set to high. OpenAI o4-mini is a compact reasoning model in the o-series, optimized for fast, cost-efficient performance while retaining...",
+    description: "text-embedding-3-small is OpenAI's improved, more performant version of the ada embedding model. Embeddings are a numerical representation of text that can be used to measure the relatedness between two pieces...",
     defaultParameters: {},
-    canonicalSlug: "openai/o4-mini-high-2025-04-16",
+    canonicalSlug: "openai/text-embedding-3-small",
     huggingFaceId: "",
-    created: 1744824212
+    created: 1761857455,
+    uptime: 100
+  }
+}, {
+  id: 'openai/text-embedding-3-small:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: Text Embedding 3 Small (batch)',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.01
+    }
+  },
+  metadata: {
+    description: "text-embedding-3-small is OpenAI's improved, more performant version of the ada embedding model. Embeddings are a numerical representation of text that can be used to measure the relatedness between two pieces...",
+    defaultParameters: {},
+    canonicalSlug: "openai/text-embedding-3-small",
+    huggingFaceId: "",
+    created: 1761857455
+  }
+}, {
+  id: 'openai/text-embedding-ada-002',
+  provider: 'openrouter',
+  name: 'OpenAI: Text Embedding Ada 002',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.09999999999999999
+    }
+  },
+  metadata: {
+    description: "text-embedding-ada-002 is OpenAI's legacy text embedding model.",
+    defaultParameters: {},
+    canonicalSlug: "openai/text-embedding-ada-002",
+    huggingFaceId: "",
+    created: 1761865798,
+    uptime: 100
+  }
+}, {
+  id: 'openai/text-embedding-ada-002:batch',
+  provider: 'openrouter',
+  name: 'OpenAI: Text Embedding Ada 002 (batch)',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.049999999999999996
+    }
+  },
+  metadata: {
+    description: "text-embedding-ada-002 is OpenAI's legacy text embedding model.",
+    defaultParameters: {},
+    canonicalSlug: "openai/text-embedding-ada-002",
+    huggingFaceId: "",
+    created: 1761865798
+  }
+}, {
+  id: 'openai/whisper-1',
+  provider: 'openrouter',
+  name: 'OpenAI: Whisper 1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 100
+    }
+  },
+  metadata: {
+    description: "Whisper is OpenAI's open-source automatic speech recognition model, available via API as `whisper-1`. It supports transcription and translation across 50+ languages from audio files up to 25 MB. Accepts formats...",
+    defaultParameters: {},
+    canonicalSlug: "openai/whisper-1",
+    created: 1777332905,
+    voices: [],
+    uptime: 100
+  }
+}, {
+  id: 'openai/whisper-large-v3',
+  provider: 'openrouter',
+  name: 'OpenAI: Whisper Large V3',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 7.5
+    }
+  },
+  metadata: {
+    description: "Whisper Large V3 is OpenAI's open-source automatic speech recognition model offering both audio transcription and translation. It supports 99+ languages and accepts common audio formats including mp3, mp4, wav, webm,...",
+    defaultParameters: {},
+    canonicalSlug: "openai/whisper-large-v3",
+    huggingFaceId: "openai/whisper-large-v3",
+    created: 1777642266,
+    uptime: 100
+  }
+}, {
+  id: 'openai/whisper-large-v3-turbo',
+  provider: 'openrouter',
+  name: 'OpenAI: Whisper Large V3 Turbo',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'GPT',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 3.33
+    }
+  },
+  metadata: {
+    description: "Whisper Large V3 Turbo is an optimized version of OpenAI's Whisper Large V3 speech recognition model, designed for speed and cost efficiency. It supports transcription across 99+ languages with a...",
+    defaultParameters: {},
+    canonicalSlug: "openai/whisper-large-v3-turbo",
+    huggingFaceId: "openai/whisper-large-v3-turbo",
+    created: 1777642266,
+    uptime: 100
   }
 }, {
   id: 'openrouter/auto',
@@ -6245,20 +14088,35 @@ export const openrouterModels: ModelInfo[] = [{
   contextWindow: 2000000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'image', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'hearing', 'files', 'videoInput', 'chat', 'image', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
-    text: {
-      input: -1000000,
-      output: -1000000
-    }
+    text: {}
   },
-  metrics: {},
   metadata: {
-    description: "Your prompt will be processed by a meta-model and routed to one of dozens of models (see below), optimizing for the best possible output. To see which model was used,...",
+    description: "The Auto Router automatically selects the best model for your prompt, powered by the wisdom of the market. It routes you based on what the OpenRouter community collectively spends on...",
     defaultParameters: {},
     canonicalSlug: "openrouter/auto",
     created: 1699401600
+  }
+}, {
+  id: 'openrouter/auto-beta',
+  provider: 'openrouter',
+  name: 'Auto Router (Beta)',
+  contextWindow: 2000000,
+  maxOutputTokens: 65536,
+  tier: 'experimental',
+  tokenizer: 'Router',
+  capabilities: new Set(['vision', 'hearing', 'files', 'videoInput', 'chat', 'image', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP', 'verbosity']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "The experimental version of our Auto Router where we test new improvements. Use it to get the latest and greatest version of our general purpose auto router, but expect beta...",
+    defaultParameters: {},
+    canonicalSlug: "openrouter/auto-beta",
+    created: 1784311165
   }
 }, {
   id: 'openrouter/bodybuilder',
@@ -6268,14 +14126,9 @@ export const openrouterModels: ModelInfo[] = [{
   tier: 'experimental',
   tokenizer: 'Router',
   capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set([]),
   pricing: {
-    text: {
-      input: -1000000,
-      output: -1000000
-    }
+    text: {}
   },
-  metrics: {},
   metadata: {
     description: "Transform your natural language requests into structured OpenRouter API request objects. Describe what you want to accomplish with AI models, and Body Builder will construct the appropriate API calls. Example:...",
     defaultParameters: {},
@@ -6290,10 +14143,11 @@ export const openrouterModels: ModelInfo[] = [{
   contextWindow: 200000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {},
+  pricing: {
+    text: {}
+  },
   metadata: {
     description: "The simplest way to get free inference. openrouter/free is a router that selects free models at random from the models available on OpenRouter. The router smartly filters for models that...",
     defaultParameters: {},
@@ -6309,14 +14163,9 @@ export const openrouterModels: ModelInfo[] = [{
   tier: 'flagship',
   tokenizer: 'Router',
   capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set([]),
   pricing: {
-    text: {
-      input: -1000000,
-      output: -1000000
-    }
+    text: {}
   },
-  metrics: {},
   metadata: {
     description: "Fusion turns your prompt into a small multi-model deliberation. A panel of expert models (see below) analyzes your prompt in parallel with web search and web fetch enabled, then a...",
     defaultParameters: {},
@@ -6330,21 +14179,46 @@ export const openrouterModels: ModelInfo[] = [{
   contextWindow: 2000000,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set([]),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP', 'verbosity']),
   pricing: {
-    text: {
-      input: -1000000,
-      output: -1000000
-    }
+    text: {}
   },
-  metrics: {},
   metadata: {
     description: "The Pareto Router maintains a tiered shortlist of strong coding models, ranked by [Artificial Analysis](https://artificialanalysis.ai/) coding percentiles. Set min_coding_score between 0 and 1 on the [pareto-router plugin](https://openrouter.ai/docs/guides/routing/routers/pareto-router#the-min_coding_score-parameter) to control how...",
     defaultParameters: {},
     canonicalSlug: "openrouter/pareto-code",
     huggingFaceId: "",
     created: 1776747900
+  }
+}, {
+  id: 'particle-ai/particle-1',
+  provider: 'openrouter',
+  name: 'Particle AI: Particle-1',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.09999999999999999,
+      output: 1,
+      cached: 0.003
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 944,
+    tokensPerSecond: 149
+  },
+  metadata: {
+    description: "Particle-1 is a token-efficient agentic coding model from Particle AI, post-trained on DeepSeek V4.1 Flash. It is suited for software engineering work such as terminal workflows, codebase changes, and data...",
+    defaultParameters: {},
+    canonicalSlug: "particle-ai/particle-1-20261027",
+    created: 1793207893,
+    uptime: 100
   }
 }, {
   id: 'perceptron/perceptron-mk1',
@@ -6354,7 +14228,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 8192,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
@@ -6363,44 +14237,175 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 17.6
+    timeToFirstToken: 1275,
+    tokensPerSecond: 10
   },
   metadata: {
     description: "Perceptron Mk1 (Mark One) is Perceptron's highest-quality vision-language model for video and embodied reasoning.** It accepts image and video inputs paired with natural language queries, and produces detailed visual understanding...",
     defaultParameters: {},
     canonicalSlug: "perceptron/perceptron-mk1-20260512",
-    created: 1778597029
+    created: 1778597029,
+    uptime: 100
+  }
+}, {
+  id: 'perceptron/perceptron-mk1.5',
+  provider: 'openrouter',
+  name: 'Perceptron: Perceptron Mk1.5',
+  contextWindow: 36864,
+  maxOutputTokens: 8192,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing', 'chat', 'reasoning', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 1.5
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 3750,
+    tokensPerSecond: 24
+  },
+  metadata: {
+    description: "Perceptron Mk1.5 is Perceptron's embodied reasoning model for physical agents. It accepts text, image, video, and audio input, and answers with text plus optional structured annotations: points, boxes, polygons, tracks,...",
+    defaultParameters: {},
+    canonicalSlug: "perceptron/perceptron-mk1.5-20260925",
+    created: 1790352661,
+    uptime: 100
+  }
+}, {
+  id: 'perplexity/pplx-decider-flash-v1.2',
+  provider: 'openrouter',
+  name: 'Perplexity: Decider Flash V1.2',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 175,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Decider Flash V1.2 is a 4B-parameter decision model from Perplexity, a smaller, lower-cost sibling of [Decider V1.2](/perplexity/pplx-decider-v1.2) with the same API contract. Instead of generating text, it reads content passed...",
+    defaultParameters: {},
+    canonicalSlug: "perplexity/pplx-decider-flash-v1.2-20261016",
+    created: 1792183496,
+    uptime: 100
+  }
+}, {
+  id: 'perplexity/pplx-decider-v1.2',
+  provider: 'openrouter',
+  name: 'Perplexity: Decider V1.2',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.02
+    }
+  },
+  metrics: {
+    timeToFirstToken: 215,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Decider V1.2 is a new 27B checkpoint of Perplexity's decision model, succeeding [Decider V1.1 27B](/perplexity/pplx-decider-v1.1-27b) with the same API contract. Instead of generating text, it reads content passed as `state`...",
+    defaultParameters: {},
+    canonicalSlug: "perplexity/pplx-decider-v1.2-20261016",
+    created: 1792183495,
+    uptime: 100
+  }
+}, {
+  id: 'perplexity/pplx-embed-v1-0.6b',
+  provider: 'openrouter',
+  name: 'Perplexity: Embed V1 0.6B',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.004
+    }
+  },
+  metadata: {
+    description: "pplx-embed-v1-0.6B is one of Perplexity's state-of-the-art text embedding models built for real-world, web-scale retrieval. pplx-embed-v1 is optimized for standard dense text retrieval with the 0.6B parameter model targeting lightweight, low-latency...",
+    defaultParameters: {},
+    canonicalSlug: "perplexity/pplx-embed-v1-0.6B",
+    huggingFaceId: "",
+    created: 1773624868,
+    uptime: 100
+  }
+}, {
+  id: 'perplexity/pplx-embed-v1-4b',
+  provider: 'openrouter',
+  name: 'Perplexity: Embed V1 4B',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.03
+    }
+  },
+  metadata: {
+    description: "pplx-embed-v1 -4B is one of Perplexity's state-of-the-art text embedding models built for real-world, web-scale retrieval. pplx-embed-v1 is optimized for standard dense text retrieval with the 4B parameter model maximizing retrieval...",
+    defaultParameters: {},
+    canonicalSlug: "perplexity/pplx-embed-v1-4B",
+    huggingFaceId: "",
+    created: 1773625372,
+    uptime: 100
   }
 }, {
   id: 'perplexity/sonar',
   provider: 'openrouter',
   name: 'Perplexity: Sonar',
   contextWindow: 127072,
+  maxOutputTokens: 114364,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 1,
       output: 1
+    },
+    tools: {
+      web_search: 0.005
     }
   },
   metrics: {
-    timeToFirstToken: 1.35
+    timeToFirstToken: 2507,
+    tokensPerSecond: 89
   },
   metadata: {
     description: "Sonar is lightweight, affordable, fast, and simple to use — now featuring citations and the ability to customize sources. It is designed for companies seeking to integrate lightweight question-and-answer features...",
     defaultParameters: {},
     canonicalSlug: "perplexity/sonar",
     huggingFaceId: "",
-    created: 1738013808
+    created: 1738013808,
+    uptime: 100
   }
 }, {
   id: 'perplexity/sonar-deep-research',
   provider: 'openrouter',
   name: 'Perplexity: Sonar Deep Research',
   contextWindow: 128000,
+  maxOutputTokens: 115200,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'reasoning', 'streaming']),
@@ -6412,10 +14417,14 @@ export const openrouterModels: ModelInfo[] = [{
     },
     reasoning: {
       output: 3
+    },
+    tools: {
+      web_search: 0.005
     }
   },
   metrics: {
-    timeToFirstToken: 106.23
+    timeToFirstToken: 115740,
+    tokensPerSecond: 24
   },
   metadata: {
     description: "Sonar Deep Research is a research-focused model designed for multi-step retrieval, synthesis, and reasoning across complex topics. It autonomously searches, reads, and evaluates sources, refining its approach as it gathers...",
@@ -6432,23 +14441,28 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 8000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 3,
       output: 15
+    },
+    tools: {
+      web_search: 0.005
     }
   },
   metrics: {
-    timeToFirstToken: 1.94
+    timeToFirstToken: 5951,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "Note: Sonar Pro pricing includes Perplexity search pricing. See [details here](https://docs.perplexity.ai/guides/pricing#detailed-pricing-breakdown-for-sonar-reasoning-pro-and-sonar-pro) For enterprises seeking more advanced capabilities, the Sonar Pro API can handle in-depth, multi-step queries with added extensibility, like...",
     defaultParameters: {},
     canonicalSlug: "perplexity/sonar-pro",
     huggingFaceId: "",
-    created: 1741312423
+    created: 1741312423,
+    uptime: 100
   }
 }, {
   id: 'perplexity/sonar-pro-search',
@@ -6458,95 +14472,115 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 8000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 3,
       output: 15
+    },
+    tools: {
+      web_search: 0.018
     }
   },
   metrics: {
-    timeToFirstToken: 7.88
+    timeToFirstToken: 14674.5,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "Exclusively available on the OpenRouter API, Sonar Pro's new Pro Search mode is Perplexity's most advanced agentic search system. It is designed for deeper reasoning and analysis. Pricing is based...",
     defaultParameters: {},
     canonicalSlug: "perplexity/sonar-pro-search",
     huggingFaceId: "",
-    created: 1761854366
+    created: 1761854366,
+    uptime: 100
   }
 }, {
   id: 'perplexity/sonar-reasoning-pro',
   provider: 'openrouter',
   name: 'Perplexity: Sonar Reasoning Pro',
   contextWindow: 128000,
+  maxOutputTokens: 115200,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 2,
       output: 8
+    },
+    tools: {
+      web_search: 0.005
     }
   },
   metrics: {
-    timeToFirstToken: 25.94
+    timeToFirstToken: 42578,
+    tokensPerSecond: 10
   },
   metadata: {
     description: "Note: Sonar Pro pricing includes Perplexity search pricing. See [details here](https://docs.perplexity.ai/guides/pricing#detailed-pricing-breakdown-for-sonar-reasoning-pro-and-sonar-pro) Sonar Reasoning Pro is a premier reasoning model powered by DeepSeek R1 with Chain of Thought (CoT). Designed for...",
     defaultParameters: {},
     canonicalSlug: "perplexity/sonar-reasoning-pro",
     huggingFaceId: "",
-    created: 1741313308
+    created: 1741313308,
+    uptime: 100
   }
 }, {
-  id: 'poolside/laguna-m.1',
+  id: 'poolside/laguna-s-2.1',
   provider: 'openrouter',
-  name: 'Poolside: Laguna M.1',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
+  name: 'Poolside: Laguna S 2.1',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'toolChoice', 'tools']),
   pricing: {
     text: {
-      input: 0.19999999999999998,
-      output: 0.39999999999999997
+      input: 0.09,
+      output: 0.18,
+      cached: 0.009
     }
   },
+  retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 0.8
+    timeToFirstToken: 572,
+    tokensPerSecond: 91
   },
   metadata: {
-    description: "Laguna M.1 is the flagship coding agent model from [Poolside](https://poolside.ai/), optimized for complex software engineering tasks. Designed for agentic coding workflows, it supports tool calling and reasoning, with a 256K...",
+    description: "Laguna S 2.1 is the latest coding agent model from [Poolside](<https://poolside.ai/>). Laguna S 2.1 is a 118B total parameter model with 8B active parameters, scoring 70.2% on Terminal-Bench 2.1 and...",
     defaultParameters: {},
-    canonicalSlug: "poolside/laguna-m.1-20260312",
-    huggingFaceId: "poolside/Laguna-M.1",
-    created: 1777388504
+    canonicalSlug: "poolside/laguna-s-2.1-20260720",
+    huggingFaceId: "poolside/Laguna-S-2.1",
+    created: 1784652683,
+    uptime: 100
   }
 }, {
-  id: 'poolside/laguna-m.1:free',
+  id: 'poolside/laguna-s-2.1:free',
   provider: 'openrouter',
-  name: 'Poolside: Laguna M.1 (free)',
+  name: 'Poolside: Laguna S 2.1 (free)',
   contextWindow: 262144,
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'toolChoice', 'tools']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
+  retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 1.98
+    timeToFirstToken: 1688,
+    tokensPerSecond: 38
   },
   metadata: {
-    description: "Laguna M.1 is the flagship coding agent model from [Poolside](https://poolside.ai/), optimized for complex software engineering tasks. Designed for agentic coding workflows, it supports tool calling and reasoning, with a 256K...",
+    description: "Laguna S 2.1 is the latest coding agent model from [Poolside](<https://poolside.ai/>). Laguna S 2.1 is a 118B total parameter model with 8B active parameters, scoring 70.2% on Terminal-Bench 2.1 and...",
     defaultParameters: {},
-    canonicalSlug: "poolside/laguna-m.1-20260312",
-    huggingFaceId: "poolside/Laguna-M.1",
-    created: 1777388504
+    canonicalSlug: "poolside/laguna-s-2.1-20260720",
+    huggingFaceId: "poolside/Laguna-S-2.1",
+    created: 1784652683,
+    uptime: 100
   }
 }, {
   id: 'poolside/laguna-xs-2.1',
@@ -6556,26 +14590,27 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'toolChoice', 'tools']),
   pricing: {
     text: {
       input: 0.06,
-      output: 0.12
+      output: 0.12,
+      cached: 0.03
     }
   },
+  retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 0.36
+    timeToFirstToken: 242,
+    tokensPerSecond: 145
   },
   metadata: {
     description: "Laguna XS 2.1 is the latest coding agent model in the 33B-A3B category from [Poolside](https://poolside.ai/) and a step forward from their Laguna XS.2 model (released in April 2026). It combines...",
-    defaultParameters: {
-      temperature: 0.7,
-      top_p: 0.9
-    },
+    defaultParameters: {},
     canonicalSlug: "poolside/laguna-xs-2.1-20260625",
     huggingFaceId: "poolside/Laguna-XS-2.1",
-    created: 1783002429
+    created: 1783002429,
+    uptime: 100
   }
 }, {
   id: 'poolside/laguna-xs-2.1:free',
@@ -6585,28 +14620,100 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'temperature', 'toolChoice', 'tools']),
-  pricing: {},
+  pricing: {
+    text: {}
+  },
+  retiresAt: '2026-10-31',
+  metrics: {
+    timeToFirstToken: 850,
+    tokensPerSecond: 35
+  },
   metadata: {
     description: "Laguna XS 2.1 is the latest coding agent model in the 33B-A3B category from [Poolside](https://poolside.ai/) and a step forward from their Laguna XS.2 model (released in April 2026). It combines...",
-    defaultParameters: {
-      temperature: 0.7,
-      top_p: 0.9
-    },
+    defaultParameters: {},
     canonicalSlug: "poolside/laguna-xs-2.1-20260625",
     huggingFaceId: "poolside/Laguna-XS-2.1",
-    created: 1783002429
+    created: 1783002429,
+    uptime: 100
+  }
+}, {
+  id: 'prism-ml/ternary-bonsai-2-27b',
+  provider: 'openrouter',
+  name: 'PrismML: Ternary Bonsai 2 27B',
+  contextWindow: 262144,
+  maxOutputTokens: 32768,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.075,
+      output: 0.5,
+      cached: 0.0375
+    }
+  },
+  reasoningEfforts: ['none', 'medium', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 6278,
+    tokensPerSecond: 21
+  },
+  metadata: {
+    description: "Bonsai 2 27B is a 27B-parameter reasoning model from PrismML derived from Qwen3.8-27B. It supports coding, mathematics, tool calling, and image understanding with a 262K-token context window. Ternary compression shrinks...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      top_k: 20
+    },
+    canonicalSlug: "prism-ml/ternary-bonsai-2-27b-20260918",
+    huggingFaceId: "prism-ml/Ternary-Bonsai-2-27B-gguf",
+    created: 1789754046,
+    uptime: 100
+  }
+}, {
+  id: 'prism-ml/ternary-bonsai-2-9b',
+  provider: 'openrouter',
+  name: 'PrismML: Ternary Bonsai 2 9B',
+  contextWindow: 262144,
+  maxOutputTokens: 65536,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.08,
+      output: 0.13,
+      cached: 0.04
+    }
+  },
+  metrics: {
+    timeToFirstToken: 581,
+    tokensPerSecond: 61
+  },
+  metadata: {
+    description: "Ternary Bonsai 2 9B is PrismML’s compact, open-weight language model for conversational AI, reasoning, and tool use. Built on Qwen3.5, it uses ternary weights packed into 2 bits for efficient...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      top_k: 20
+    },
+    canonicalSlug: "prism-ml/ternary-bonsai-2-9b-20261015",
+    huggingFaceId: "prism-ml/Ternary-Bonsai-2-9B-gguf",
+    created: 1792130995,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen-2.5-72b-instruct',
   provider: 'openrouter',
   name: 'Qwen2.5 72B Instruct',
-  contextWindow: 131072,
+  contextWindow: 32768,
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -6615,51 +14722,53 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.52
+    timeToFirstToken: 257,
+    tokensPerSecond: 33
   },
   metadata: {
     description: "Qwen2.5 72B is the latest series of Qwen large language models. Qwen2.5 brings the following improvements upon Qwen2: - Significantly more knowledge and has greatly improved capabilities in coding and...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen-2.5-72b-instruct",
     huggingFaceId: "Qwen/Qwen2.5-72B-Instruct",
-    created: 1726704000
+    created: 1726704000,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen-2.5-7b-instruct',
   provider: 'openrouter',
   name: 'Qwen: Qwen2.5 7B Instruct',
-  contextWindow: 131072,
-  maxOutputTokens: 32768,
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.04,
-      output: 0.09999999999999999
+      input: 0.09999999999999999,
+      output: 0.19999999999999998
     }
-  },
-  metrics: {
-    timeToFirstToken: 0.35
   },
   metadata: {
     description: "Qwen2.5 7B is the latest series of Qwen large language models. Qwen2.5 brings the following improvements upon Qwen2: - Significantly more knowledge and has greatly improved capabilities in coding and...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen-2.5-7b-instruct",
     huggingFaceId: "Qwen/Qwen2.5-7B-Instruct",
-    created: 1729036800
+    created: 1729036800,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 0
   }
 }, {
   id: 'qwen/qwen-2.5-coder-32b-instruct',
   provider: 'openrouter',
   name: 'Qwen2.5 Coder 32B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 32768,
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'topP']),
+  capabilities: new Set(['chat', 'json', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.66,
@@ -6667,14 +14776,172 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.54
+    timeToFirstToken: 1828,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "Qwen2.5-Coder is the latest series of Code-Specific Qwen large language models (formerly known as CodeQwen). Qwen2.5-Coder brings the following improvements upon CodeQwen1.5: - Significantly improvements in **code generation**, **code reasoning**...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen-2.5-coder-32b-instruct",
     huggingFaceId: "Qwen/Qwen2.5-Coder-32B-Instruct",
-    created: 1731368400
+    created: 1731368400,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen-audio-3.0-tts-flash',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen-Audio-3.0-TTS Flash',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  metadata: {
+    description: "Qwen-Audio-3.0-TTS Flash is Alibaba's fast, cost-efficient text-to-speech model, generating spoken audio from text via the DashScope Speech Synthesizer API.",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen-audio-3.0-tts-flash-20260723",
+    created: 1784817207,
+    voices: [
+      "loongjohn",
+      "longanhuan_v3.6"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen-audio-3.0-tts-plus',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen-Audio-3.0-TTS Plus',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 20
+    }
+  },
+  metadata: {
+    description: "Qwen-Audio-3.0-TTS Plus is Alibaba's higher-quality text-to-speech model, generating spoken audio from text via the DashScope Speech Synthesizer API.",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen-audio-3.0-tts-plus-20260723",
+    created: 1784817207,
+    voices: [
+      "longanlingxin",
+      "longanlufeng"
+    ],
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen-image-2.1-pro',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen Image 2.1 Pro',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'image', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 11.0179640718563
+    }
+  },
+  metrics: {
+    timeToFirstToken: 27383,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Qwen Image 2.1 Pro is an image generation and editing model from Qwen, the higher-quality tier of the Qwen Image 2.1 series. Choose it over Qwen Image 2.1 Turbo when...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen-image-2.1-pro-20261016",
+    created: 1792194075
+  }
+}, {
+  id: 'qwen/qwen-image-2.1-turbo',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen Image 2.1 Turbo',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'image', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 4.40718562874251
+    }
+  },
+  metrics: {
+    timeToFirstToken: 24645.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Qwen Image 2.1 Turbo is the fast, lower-cost tier of the Qwen Image 2.1 series from Qwen, for image generation and editing where throughput and price matter more than peak...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen-image-2.1-turbo-20261016",
+    created: 1792194104,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen-image-3',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen Image 3',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'image', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 7.185628742514971
+    }
+  },
+  metrics: {
+    timeToFirstToken: 63793,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Qwen Image 3 is a unified image generation and editing model from Qwen. It supports precise rendering of text and details as small as 10px, along with a richer world...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen-image-3-20260805",
+    created: 1785894548
+  }
+}, {
+  id: 'qwen/qwen-image-3-pro',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen Image 3 Pro',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'image', 'json']),
+  supportedParameters: new Set(['maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 9.580838323353289
+    }
+  },
+  metrics: {
+    timeToFirstToken: 76718.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Qwen Image 3 Pro is an image generation and editing model from Qwen. It supports precise rendering of text and details as small as 10px, along with richer world knowledge...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen-image-3-pro-20260805",
+    created: 1785894548
   }
 }, {
   id: 'qwen/qwen-plus',
@@ -6684,153 +14951,87 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.26,
-      output: 0.78
+      output: 0.78,
+      cached: 0.052000000000000005,
+      cacheWrite: 0.325
     }
   },
   metrics: {
-    timeToFirstToken: 0.49
+    timeToFirstToken: 428.5,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "Qwen-Plus, based on the Qwen2.5 foundation model, is a 131K context model with a balanced performance, speed, and cost combination.",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen-plus-2025-01-25",
     huggingFaceId: "",
-    created: 1738409840
-  }
-}, {
-  id: 'qwen/qwen-plus-2025-07-28',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen Plus 0728',
-  contextWindow: 1000000,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.26,
-      output: 0.78
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.49
-  },
-  metadata: {
-    description: "Qwen Plus 0728, based on the Qwen3 foundation model, is a 1 million context hybrid reasoning model with a balanced performance, speed, and cost combination.",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen-plus-2025-07-28",
-    huggingFaceId: "",
-    created: 1757347599
-  }
-}, {
-  id: 'qwen/qwen-plus-2025-07-28:thinking',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen Plus 0728 (thinking)',
-  contextWindow: 1000000,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.26,
-      output: 0.78
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.45
-  },
-  metadata: {
-    description: "Qwen Plus 0728, based on the Qwen3 foundation model, is a 1 million context hybrid reasoning model with a balanced performance, speed, and cost combination.",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen-plus-2025-07-28",
-    huggingFaceId: "",
-    created: 1757347599
+    created: 1738409840,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 83.33333333333334
   }
 }, {
   id: 'qwen/qwen2.5-vl-72b-instruct',
   provider: 'openrouter',
   name: 'Qwen: Qwen2.5 VL 72B Instruct',
-  contextWindow: 131072,
-  maxOutputTokens: 128000,
+  contextWindow: 128000,
+  maxOutputTokens: 115200,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'vision', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.7999999999999999,
-      output: 1
+      output: 1,
+      cached: 0.39999999999999997
     }
   },
   metrics: {
-    timeToFirstToken: 0.97
+    timeToFirstToken: 1083.5,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "Qwen2.5-VL is proficient in recognizing common objects such as flowers, birds, fish, and insects. It is also highly capable of analyzing texts, charts, icons, graphics, and layouts within images.",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen2.5-vl-72b-instruct",
     huggingFaceId: "Qwen/Qwen2.5-VL-72B-Instruct",
-    created: 1738410311
+    created: 1738410311,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-14b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 14B',
-  contextWindow: 131702,
-  maxOutputTokens: 40960,
+  contextWindow: 40960,
+  maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.09999999999999999,
+      input: 0.12,
       output: 0.24
     }
   },
   metrics: {
-    timeToFirstToken: 0.2
+    timeToFirstToken: 431,
+    tokensPerSecond: 40
   },
   metadata: {
     description: "Qwen3-14B is a dense 14.8B parameter causal language model from the Qwen3 series, designed for both complex reasoning and efficient dialogue. It supports seamless switching between a \"thinking\" mode for...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-14b-04-28",
     huggingFaceId: "Qwen/Qwen3-14B",
-    created: 1745876478
-  }
-}, {
-  id: 'qwen/qwen3-235b-a22b',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 235B A22B',
-  contextWindow: 131072,
-  maxOutputTokens: 8192,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.45499999999999996,
-      output: 1.8199999999999998
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.34
-  },
-  metadata: {
-    description: "Qwen3-235B-A22B is a 235B parameter mixture-of-experts (MoE) model developed by Qwen, activating 22B parameters per forward pass. It supports seamless switching between a \"thinking\" mode for complex reasoning, math, and...",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-235b-a22b-04-28",
-    huggingFaceId: "Qwen/Qwen3-235B-A22B",
-    created: 1745875757
+    created: 1745876478,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-235b-a22b-2507',
@@ -6840,59 +15041,66 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.09,
-      output: 0.09999999999999999
+      output: 0.55
     }
   },
   metrics: {
-    timeToFirstToken: 0.38
+    timeToFirstToken: 629,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-235b-a22b-07-25",
     huggingFaceId: "Qwen/Qwen3-235B-A22B-Instruct-2507",
-    created: 1753119555
+    created: 1753119555,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-235b-a22b-thinking-2507',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 235B A22B Thinking 2507',
-  contextWindow: 262144,
+  contextWindow: 128000,
+  maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.14950000000000002,
-      output: 1.495
+      input: 0.44999999999999996,
+      output: 3.5
     }
   },
   metrics: {
-    timeToFirstToken: 0.71
+    timeToFirstToken: 1387,
+    tokensPerSecond: 8
   },
   metadata: {
     description: "Qwen3-235B-A22B-Thinking-2507 is a high-performance, open-weight Mixture-of-Experts (MoE) language model optimized for complex reasoning tasks. It activates 22B of its 235B parameters per forward pass and natively supports up to 262,144...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-235b-a22b-thinking-2507",
     huggingFaceId: "Qwen/Qwen3-235B-A22B-Thinking-2507",
-    created: 1753449557
+    created: 1753449557,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 87.5
   }
 }, {
   id: 'qwen/qwen3-30b-a3b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 30B A3B',
-  contextWindow: 131072,
+  contextWindow: 40960,
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.12,
@@ -6900,66 +15108,47 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.54
+    timeToFirstToken: 305,
+    tokensPerSecond: 123
   },
   metadata: {
     description: "Qwen3, the latest generation in the Qwen large language model series, features both dense and mixture-of-experts (MoE) architectures to excel in reasoning, multilingual support, and advanced agent tasks. Its unique...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-30b-a3b-04-28",
     huggingFaceId: "Qwen/Qwen3-30B-A3B",
-    created: 1745878604
+    created: 1745878604,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-30b-a3b-instruct-2507',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 30B A3B Instruct 2507',
-  contextWindow: 131072,
-  maxOutputTokens: 32000,
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.04815,
-      output: 0.19305
+      input: 0.09999999999999999,
+      output: 0.3,
+      cached: 0.09999999999999999
     }
   },
   metrics: {
-    timeToFirstToken: 0.24
+    timeToFirstToken: 254,
+    tokensPerSecond: 161
   },
   metadata: {
     description: "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-30b-a3b-instruct-2507",
     huggingFaceId: "Qwen/Qwen3-30B-A3B-Instruct-2507",
-    created: 1753806965
-  }
-}, {
-  id: 'qwen/qwen3-30b-a3b-thinking-2507',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 30B A3B Thinking 2507',
-  contextWindow: 131072,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.13,
-      output: 1.56
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.45
-  },
-  metadata: {
-    description: "Qwen3-30B-A3B-Thinking-2507 is a 30B parameter Mixture-of-Experts reasoning model optimized for complex tasks requiring extended multi-step thinking. The model is designed specifically for “thinking mode,” where internal reasoning traces are separated...",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-30b-a3b-thinking-2507",
-    huggingFaceId: "Qwen/Qwen3-30B-A3B-Thinking-2507",
-    created: 1756399192
+    created: 1753806965,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-32b',
@@ -6969,7 +15158,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -6978,96 +15167,120 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.24
+    timeToFirstToken: 405,
+    tokensPerSecond: 35
   },
   metadata: {
     description: "Qwen3-32B is a dense 32.8B parameter causal language model from the Qwen3 series, optimized for both complex reasoning and efficient dialogue. It supports seamless switching between a \"thinking\" mode for...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-32b-04-28",
     huggingFaceId: "Qwen/Qwen3-32B",
-    created: 1745875945
+    created: 1745875945,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
-  id: 'qwen/qwen3-8b',
+  id: 'qwen/qwen3-asr-0.6b',
   provider: 'openrouter',
-  name: 'Qwen: Qwen3 8B',
-  contextWindow: 131072,
-  maxOutputTokens: 8192,
+  name: 'Qwen: Qwen3 ASR 0.6B',
+  contextWindow: 0,
+  maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['hearing']),
   pricing: {
     text: {
-      input: 0.117,
-      output: 0.45499999999999996
+      input: 3.33
     }
   },
-  metrics: {
-    timeToFirstToken: 0.63
+  metadata: {
+    description: "Qwen3 ASR 0.6B is a compact automatic speech recognition model from Qwen. It supports multilingual language identification and transcription across 30 languages and 22 Chinese dialects, with streaming and offline...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3-asr-0.6b-20260813",
+    huggingFaceId: "Qwen/Qwen3-ASR-0.6B",
+    created: 1786591833,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3-asr-1.7b',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3 ASR 1.7B',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Qwen3',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 7.5
+    }
   },
   metadata: {
-    description: "Qwen3-8B is a dense 8.2B parameter causal language model from the Qwen3 series, designed for both reasoning-heavy tasks and efficient dialogue. It supports seamless switching between \"thinking\" mode for math,...",
-    defaultParameters: {
-      temperature: 0.6,
-      top_p: 0.95,
-      top_k: 20
-    },
-    canonicalSlug: "qwen/qwen3-8b-04-28",
-    huggingFaceId: "Qwen/Qwen3-8B",
-    created: 1745876632
+    description: "Qwen3 ASR 1.7B is an automatic speech recognition model from Qwen. It supports multilingual language identification and transcription across 30 languages and 22 Chinese dialects, with streaming and offline inference...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3-asr-1.7b-20260813",
+    huggingFaceId: "Qwen/Qwen3-ASR-1.7B",
+    created: 1786592646,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-coder',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 Coder 480B A35B',
-  contextWindow: 1048576,
+  contextWindow: 262144,
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.22,
-      output: 1.7999999999999998
+      input: 0.3,
+      output: 1,
+      cached: 0.09999999999999999
     }
   },
   metrics: {
-    timeToFirstToken: 0.42
+    timeToFirstToken: 957.5,
+    tokensPerSecond: 43
   },
   metadata: {
     description: "Qwen3-Coder-480B-A35B-Instruct is a Mixture-of-Experts (MoE) code generation model developed by the Qwen team. It is optimized for agentic coding tasks such as function calling, tool use, and long-context reasoning over...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-coder-480b-a35b-07-25",
     huggingFaceId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-    created: 1753230546
+    created: 1753230546,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-coder-30b-a3b-instruct',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 Coder 30B A3B Instruct',
-  contextWindow: 160000,
-  maxOutputTokens: 32768,
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.07,
-      output: 0.27
+      output: 0.28
     }
   },
   metrics: {
-    timeToFirstToken: 0.8
+    timeToFirstToken: 627,
+    tokensPerSecond: 156.5
   },
   metadata: {
     description: "Qwen3-Coder-30B-A3B-Instruct is a 30.5B parameter Mixture-of-Experts (MoE) model with 128 experts (8 active per forward pass), designed for advanced code generation, repository-scale understanding, and agentic tool use. Built on the...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-coder-30b-a3b-instruct",
     huggingFaceId: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
-    created: 1753972379
+    created: 1753972379,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-coder-flash',
@@ -7077,42 +15290,49 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'streaming']),
-  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.195,
-      output: 0.975
+      output: 0.975,
+      cached: 0.039,
+      cacheWrite: 0.24375
     }
   },
   metrics: {
-    timeToFirstToken: 0.99
+    timeToFirstToken: 883,
+    tokensPerSecond: 68
   },
   metadata: {
     description: "Qwen3 Coder Flash is Alibaba's fast and cost efficient version of their proprietary Qwen3 Coder Plus. It is a powerful coding agent model specializing in autonomous programming via tool calling...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-coder-flash",
     huggingFaceId: "",
-    created: 1758115536
+    created: 1758115536,
+    knowledgeCutoff: "2025-06-30",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-coder-next',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 Coder Next',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.11,
-      output: 0.7999999999999999
+      input: 0.12,
+      output: 0.7999999999999999,
+      cached: 0.07
     }
   },
   metrics: {
-    timeToFirstToken: 0.41
+    timeToFirstToken: 763,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "Qwen3-Coder-Next is an open-weight causal language model optimized for coding agents and local development workflows. It uses a sparse MoE design with 80B total parameters and only 3B activated per...",
@@ -7122,106 +15342,52 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3-coder-next-2025-02-03",
     huggingFaceId: "Qwen/Qwen3-Coder-Next",
-    created: 1770164101
+    created: 1770164101,
+    uptime: 100
   }
 }, {
-  id: 'qwen/qwen3-coder-plus',
+  id: 'qwen/qwen3-embedding-4b',
   provider: 'openrouter',
-  name: 'Qwen: Qwen3 Coder Plus',
-  contextWindow: 1000000,
-  maxOutputTokens: 65536,
+  name: 'Qwen: Qwen3 Embedding 4B',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
   pricing: {
-    text: {
-      input: 0.65,
-      output: 3.25
+    embeddings: {
+      cost: 0.02
     }
   },
-  metrics: {
-    timeToFirstToken: 0.79
-  },
   metadata: {
-    description: "Qwen3 Coder Plus is Alibaba's proprietary version of the Open Source Qwen3 Coder 480B A35B. It is a powerful coding agent model specializing in autonomous programming via tool calling and...",
+    description: "The Qwen3 Embedding model series is the latest proprietary model of the Qwen family, specifically designed for text embedding and ranking tasks. This series inherits the exceptional multilingual capabilities, long-text...",
     defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-coder-plus",
-    huggingFaceId: "",
-    created: 1758662707
+    canonicalSlug: "qwen/qwen3-embedding-4b",
+    huggingFaceId: "Qwen/Qwen3-Embedding-4B",
+    created: 1761662922,
+    uptime: 100
   }
 }, {
-  id: 'qwen/qwen3-coder:free',
+  id: 'qwen/qwen3-embedding-8b',
   provider: 'openrouter',
-  name: 'Qwen: Qwen3 Coder 480B A35B (free)',
-  contextWindow: 1048576,
-  maxOutputTokens: 262000,
+  name: 'Qwen: Qwen3 Embedding 8B',
+  contextWindow: 40960,
+  maxOutputTokens: 32000,
   tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {},
-  metadata: {
-    description: "Qwen3-Coder-480B-A35B-Instruct is a Mixture-of-Experts (MoE) code generation model developed by the Qwen team. It is optimized for agentic coding tasks such as function calling, tool use, and long-context reasoning over...",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-coder-480b-a35b-07-25",
-    huggingFaceId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
-    created: 1753230546
-  }
-}, {
-  id: 'qwen/qwen3-max',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 Max',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
   pricing: {
-    text: {
-      input: 0.78,
-      output: 3.9
+    embeddings: {
+      cost: 0.01
     }
   },
-  metrics: {
-    timeToFirstToken: 1.1
-  },
   metadata: {
-    description: "Qwen3-Max is an updated release built on the Qwen3 series, offering major improvements in reasoning, instruction following, multilingual support, and long-tail knowledge coverage compared to the January 2025 version. It...",
-    defaultParameters: {
-      temperature: 1,
-      top_p: 1
-    },
-    canonicalSlug: "qwen/qwen3-max",
-    huggingFaceId: "",
-    created: 1758662808
-  }
-}, {
-  id: 'qwen/qwen3-max-thinking',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 Max Thinking',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.78,
-      output: 3.9
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.28
-  },
-  metadata: {
-    description: "Qwen3-Max-Thinking is the flagship reasoning model in the Qwen3 series, designed for high-stakes cognitive tasks that require deep, multi-step reasoning. By significantly scaling model capacity and reinforcement learning compute, it...",
+    description: "The Qwen3 Embedding model series is the latest proprietary model of the Qwen family, specifically designed for text embedding and ranking tasks. This series inherits the exceptional multilingual capabilities, long-text...",
     defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-max-thinking-20260123",
-    created: 1770671901
+    canonicalSlug: "qwen/qwen3-embedding-8b",
+    huggingFaceId: "Qwen/Qwen3-Embedding-8B",
+    created: 1761680622,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-next-80b-a3b-instruct',
@@ -7231,7 +15397,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -7240,79 +15406,58 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.46
+    timeToFirstToken: 464.5,
+    tokensPerSecond: 119
   },
   metadata: {
     description: "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3-next-80b-a3b-instruct-2509",
     huggingFaceId: "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    created: 1757612213
+    created: 1757612213,
+    knowledgeCutoff: "2025-09-30",
+    uptime: 100
   }
 }, {
-  id: 'qwen/qwen3-next-80b-a3b-instruct:free',
+  id: 'qwen/qwen3-reranker-8b',
   provider: 'openrouter',
-  name: 'Qwen: Qwen3 Next 80B A3B Instruct (free)',
-  contextWindow: 262144,
+  name: 'Qwen3 Reranker 8B',
+  contextWindow: 40960,
+  maxOutputTokens: 36864,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
-  metrics: {
-    timeToFirstToken: 0.56
-  },
-  metadata: {
-    description: "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-next-80b-a3b-instruct-2509",
-    huggingFaceId: "Qwen/Qwen3-Next-80B-A3B-Instruct",
-    created: 1757612213
-  }
-}, {
-  id: 'qwen/qwen3-next-80b-a3b-thinking',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 Next 80B A3B Thinking',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set([]),
   pricing: {
-    text: {
-      input: 0.0975,
-      output: 0.78
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.51
+    text: {}
   },
   metadata: {
-    description: "Qwen3-Next-80B-A3B-Thinking is a reasoning-first chat model in the Qwen3-Next line that outputs structured “thinking” traces by default. It’s designed for hard multi-step problems; math proofs, code synthesis/debugging, logic, and agentic...",
+    description: "Qwen3 Reranker 8B is a text reranking model from Alibaba Cloud built on the Qwen3 architecture. It evaluates query-document pairs to produce relevance scores for use in retrieval and RAG...",
     defaultParameters: {},
-    canonicalSlug: "qwen/qwen3-next-80b-a3b-thinking-2509",
-    huggingFaceId: "Qwen/Qwen3-Next-80B-A3B-Thinking",
-    created: 1757612284
+    canonicalSlug: "qwen/qwen3-reranker-8b",
+    huggingFaceId: "Qwen/Qwen3-Reranker-8B",
+    created: 1786597684,
+    uptime: 63.33333333333333
   }
 }, {
   id: 'qwen/qwen3-vl-235b-a22b-instruct',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 VL 235B A22B Instruct',
   contextWindow: 262144,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.19999999999999998,
-      output: 0.88
+      input: 0.21,
+      output: 1.9,
+      cached: 0.09999999999999999
     }
   },
   metrics: {
-    timeToFirstToken: 0.92
+    timeToFirstToken: 904,
+    tokensPerSecond: 38
   },
   metadata: {
     description: "Qwen3-VL-235B-A22B Instruct is an open-weight multimodal model that unifies strong text generation with visual understanding across images and video. The Instruct model targets general vision-language use (VQA, document parsing, chart/table...",
@@ -7322,57 +15467,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3-vl-235b-a22b-instruct",
     huggingFaceId: "Qwen/Qwen3-VL-235B-A22B-Instruct",
-    created: 1758668687
-  }
-}, {
-  id: 'qwen/qwen3-vl-235b-a22b-thinking',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 VL 235B A22B Thinking',
-  contextWindow: 131072,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.26,
-      output: 2.6
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.01
-  },
-  metadata: {
-    description: "Qwen3-VL-235B-A22B Thinking is a multimodal model that unifies strong text generation with visual understanding across images and video. The Thinking model is optimized for multimodal reasoning in STEM and math....",
-    defaultParameters: {
-      temperature: 0.8,
-      top_p: 0.95,
-      top_k: 20,
-      repetition_penalty: 1
-    },
-    canonicalSlug: "qwen/qwen3-vl-235b-a22b-thinking",
-    huggingFaceId: "Qwen/Qwen3-VL-235B-A22B-Thinking",
-    created: 1758668690
+    created: 1758668687,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-vl-30b-a3b-instruct',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 VL 30B A3B Instruct',
   contextWindow: 262144,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.13,
-      output: 0.52
+      input: 0.15,
+      output: 0.6
     }
   },
   metrics: {
-    timeToFirstToken: 0.37
+    timeToFirstToken: 608,
+    tokensPerSecond: 28
   },
   metadata: {
     description: "Qwen3-VL-30B-A3B-Instruct is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Instruct variant optimizes instruction-following for general multimodal tasks. It excels in perception...",
@@ -7384,26 +15501,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3-vl-30b-a3b-instruct",
     huggingFaceId: "Qwen/Qwen3-VL-30B-A3B-Instruct",
-    created: 1759794476
+    created: 1759794476,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3-vl-30b-a3b-thinking',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 VL 30B A3B Thinking',
-  contextWindow: 131072,
-  maxOutputTokens: 32768,
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.13,
-      output: 1.56
+      input: 0.29,
+      output: 1
     }
   },
   metrics: {
-    timeToFirstToken: 0.83
+    timeToFirstToken: 941.5,
+    tokensPerSecond: 46.5
   },
   metadata: {
     description: "Qwen3-VL-30B-A3B-Thinking is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Thinking variant enhances reasoning in STEM, math, and complex tasks. It excels...",
@@ -7415,57 +15535,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3-vl-30b-a3b-thinking",
     huggingFaceId: "Qwen/Qwen3-VL-30B-A3B-Thinking",
-    created: 1759794479
-  }
-}, {
-  id: 'qwen/qwen3-vl-32b-instruct',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 VL 32B Instruct',
-  contextWindow: 262144,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.10400000000000001,
-      output: 0.41600000000000004
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.65
-  },
-  metadata: {
-    description: "Qwen3-VL-32B-Instruct is a large-scale multimodal vision-language model designed for high-precision understanding and reasoning across text, images, and video. With 32 billion parameters, it combines deep visual perception with advanced text...",
-    defaultParameters: {
-      temperature: 0.7,
-      top_p: 0.8,
-      top_k: 20,
-      repetition_penalty: 1
-    },
-    canonicalSlug: "qwen/qwen3-vl-32b-instruct",
-    huggingFaceId: "Qwen/Qwen3-VL-32B-Instruct",
-    created: 1761231332
+    created: 1759794479,
+    knowledgeCutoff: "2025-03-31"
   }
 }, {
   id: 'qwen/qwen3-vl-8b-instruct',
   provider: 'openrouter',
   name: 'Qwen: Qwen3 VL 8B Instruct',
-  contextWindow: 256000,
-  maxOutputTokens: 32768,
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.117,
-      output: 0.45499999999999996
+      input: 0.25,
+      output: 0.75,
+      cached: 0.12
     }
   },
   metrics: {
-    timeToFirstToken: 0.45
+    timeToFirstToken: 790,
+    tokensPerSecond: 37
   },
   metadata: {
     description: "Qwen3-VL-8B-Instruct is a multimodal vision-language model from the Qwen3-VL series, built for high-fidelity understanding and reasoning across text, images, and video. It features improved multimodal fusion with Interleaved-MRoPE for long-horizon...",
@@ -7475,46 +15567,18 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3-vl-8b-instruct",
     huggingFaceId: "Qwen/Qwen3-VL-8B-Instruct",
-    created: 1760463308
-  }
-}, {
-  id: 'qwen/qwen3-vl-8b-thinking',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3 VL 8B Thinking',
-  contextWindow: 256000,
-  maxOutputTokens: 32768,
-  tier: 'flagship',
-  tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 0.117,
-      output: 1.365
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.55
-  },
-  metadata: {
-    description: "Qwen3-VL-8B-Thinking is the reasoning-optimized variant of the Qwen3-VL-8B multimodal model, designed for advanced visual and textual reasoning across complex scenes, documents, and temporal sequences. It integrates enhanced multimodal alignment and...",
-    defaultParameters: {
-      temperature: 1,
-      top_p: 0.95
-    },
-    canonicalSlug: "qwen/qwen3-vl-8b-thinking",
-    huggingFaceId: "Qwen/Qwen3-VL-8B-Thinking",
-    created: 1760463746
+    created: 1760463308,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-122b-a10b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.5-122B-A10B',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -7523,7 +15587,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.65
+    timeToFirstToken: 1129,
+    tokensPerSecond: 86
   },
   metadata: {
     description: "The Qwen3.5 122B-A10B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. In terms of...",
@@ -7534,26 +15599,28 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3.5-122b-a10b-20260224",
     huggingFaceId: "Qwen/Qwen3.5-122B-A10B",
-    created: 1772053789
+    created: 1772053789,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-27b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.5-27B',
   contextWindow: 262144,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 81920,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.195,
-      output: 1.56
+      input: 0.26,
+      output: 2.6
     }
   },
   metrics: {
-    timeToFirstToken: 0.34
+    timeToFirstToken: 590,
+    tokensPerSecond: 58
   },
   metadata: {
     description: "The Qwen3.5 27B native vision-language Dense model incorporates a linear attention mechanism, delivering fast response times while balancing inference speed and performance. Its overall capabilities are comparable to those of...",
@@ -7564,7 +15631,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3.5-27b-20260224",
     huggingFaceId: "Qwen/Qwen3.5-27B",
-    created: 1772053810
+    created: 1772053810,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-35b-a3b',
@@ -7574,16 +15642,18 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 81920,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.14,
-      output: 1
+      output: 1,
+      cached: 0.049999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 0.28
+    timeToFirstToken: 636,
+    tokensPerSecond: 148
   },
   metadata: {
     description: "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
@@ -7594,25 +15664,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3.5-35b-a3b-20260224",
     huggingFaceId: "Qwen/Qwen3.5-35B-A3B",
-    created: 1772053822
+    created: 1772053822,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-397b-a17b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.5 397B A17B',
-  contextWindow: 256000,
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.385,
-      output: 2.4499999999999997
+      input: 0.5,
+      output: 3.5999999999999996,
+      cached: 0.3
     }
   },
   metrics: {
-    timeToFirstToken: 0.62
+    timeToFirstToken: 404,
+    tokensPerSecond: 170
   },
   metadata: {
     description: "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
@@ -7623,33 +15697,36 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3.5-397b-a17b-20260216",
     huggingFaceId: "Qwen/Qwen3.5-397B-A17B",
-    created: 1771223018
+    created: 1771223018,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-9b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.5-9B',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.09999999999999999,
-      output: 0.15
+      input: 0.16999999999999998,
+      output: 0.25
     }
   },
   metrics: {
-    timeToFirstToken: 0.32
+    timeToFirstToken: 172,
+    tokensPerSecond: 95
   },
   metadata: {
     description: "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.5-9b-20260310",
     huggingFaceId: "Qwen/Qwen3.5-9B",
-    created: 1773152396
+    created: 1773152396,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-flash-02-23',
@@ -7659,8 +15736,8 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.065,
@@ -7668,13 +15745,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.5
+    timeToFirstToken: 516,
+    tokensPerSecond: 92
   },
   metadata: {
     description: "The Qwen3.5 native vision-language Flash models are built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. Compared to the...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.5-flash-20260224",
-    created: 1772053776
+    created: 1772053776,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-plus-02-15',
@@ -7684,8 +15763,8 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.26,
@@ -7693,14 +15772,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1.2
+    timeToFirstToken: 1496,
+    tokensPerSecond: 61
   },
   metadata: {
     description: "The Qwen3.5 native vision-language series Plus models are built on a hybrid architecture that integrates linear attention mechanisms with sparse mixture-of-experts models, achieving higher inference efficiency. In a variety of...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.5-plus-20260216",
     huggingFaceId: "",
-    created: 1771229416
+    created: 1771229416,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.5-plus-20260420',
@@ -7710,64 +15791,74 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 1.7999999999999998
+      output: 1.7999999999999998,
+      cacheWrite: 0.375
     }
+  },
+  metrics: {
+    timeToFirstToken: 1663,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Qwen3.5 Plus (April 2026) is a large-scale multimodal language model from Alibaba. It accepts text, image, and video input and produces text output, with a 1M token context window. This...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.5-plus-20260420",
-    created: 1777261368
+    created: 1777261368,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.6-27b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.6 27B',
   contextWindow: 262144,
-  maxOutputTokens: 262140,
+  maxOutputTokens: 81920,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.28500000000000003,
-      output: 2.4
+      input: 0.32,
+      output: 3.1999999999999997
     }
   },
   metrics: {
-    timeToFirstToken: 0.52
+    timeToFirstToken: 677,
+    tokensPerSecond: 53
   },
   metadata: {
     description: "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.6-27b-20260422",
     huggingFaceId: "Qwen/Qwen3.6-27B",
-    created: 1777255064
+    created: 1777255064,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.6-35b-a3b',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.6 35B A3B',
   contextWindow: 262144,
-  maxOutputTokens: 262144,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.14,
-      output: 1
+      input: 0.09999999999999999,
+      output: 0.8999999999999999,
+      cached: 0.024999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.5
+    timeToFirstToken: 596.5,
+    tokensPerSecond: 157
   },
   metadata: {
     description: "Qwen3.6-35B-A3B is an open-weight multimodal model from Alibaba Cloud with 35 billion total parameters and 3 billion active parameters per token. It uses a hybrid sparse mixture-of-experts architecture combining Gated...",
@@ -7778,7 +15869,8 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "qwen/qwen3.6-35b-a3b-20260415",
     huggingFaceId: "Qwen/Qwen3.6-35B-A3B",
-    created: 1777260255
+    created: 1777260255,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.6-flash',
@@ -7788,47 +15880,25 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.1875,
-      output: 1.125
+      output: 1.125,
+      cacheWrite: 0.234375
     }
   },
   metrics: {
-    timeToFirstToken: 0.72
+    timeToFirstToken: 687,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "Qwen3.6 Flash is a fast, efficient language model from Alibaba's Qwen 3.6 series. It supports text, image, and video input with a 1M token context window. Tiered pricing kicks in...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.6-flash",
-    created: 1777261362
-  }
-}, {
-  id: 'qwen/qwen3.6-max-preview',
-  provider: 'openrouter',
-  name: 'Qwen: Qwen3.6 Max Preview',
-  contextWindow: 262144,
-  maxOutputTokens: 65536,
-  tier: 'experimental',
-  tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {
-    text: {
-      input: 1.04,
-      output: 6.24
-    }
-  },
-  metrics: {
-    timeToFirstToken: 1.34
-  },
-  metadata: {
-    description: "Qwen3.6-Max-Preview is a proprietary frontier model from Alibaba Cloud built on a sparse mixture-of-experts architecture with approximately 1 trillion total parameters. It is optimized for agentic coding, tool use, and...",
-    defaultParameters: {},
-    canonicalSlug: "qwen/qwen3.6-max-preview-20260420",
-    created: 1777260242
+    created: 1777261362,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.6-plus',
@@ -7838,64 +15908,129 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.325,
-      output: 1.95
+      output: 1.95,
+      cacheWrite: 0.40625
     }
   },
   metrics: {
-    timeToFirstToken: 0.74
+    timeToFirstToken: 1017,
+    tokensPerSecond: 48
   },
   metadata: {
     description: "Qwen 3.6 Plus builds on a hybrid architecture that combines efficient linear attention with sparse mixture-of-experts routing, enabling strong scalability and high-performance inference. Compared to the 3.5 series, it delivers...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.6-plus-04-02",
     huggingFaceId: "",
-    created: 1775133557
+    created: 1775133557,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.7-flash',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.7 Flash',
+  contextWindow: 1000000,
+  maxOutputTokens: 65536,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.03,
+      output: 0.13,
+      cached: 0.006,
+      cacheWrite: 0.038000000000000006
+    }
+  },
+  metrics: {
+    timeToFirstToken: 763,
+    tokensPerSecond: 70
+  },
+  metadata: {
+    description: "Qwen3.7 Flash is a vision-language reasoning model from Alibaba. It is suited for multimodal agents, visual coding, search, and computer interaction, with strengths in object recognition, spatial understanding, and real-world...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3.7-flash-20260727",
+    created: 1785190561,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.7-max',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.7 Max',
   contextWindow: 1000000,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 1.25,
-      output: 3.75
+      input: 1.475,
+      output: 4.425,
+      cached: 0.295,
+      cacheWrite: 1.84375
     }
+  },
+  metrics: {
+    timeToFirstToken: 1190,
+    tokensPerSecond: 74
   },
   metadata: {
     description: "Qwen3.7-Max is the flagship model in Alibaba's Qwen3.7 series. It supports text input and output and is designed for agent-centric workloads, with particular strengths in coding, office and productivity tasks,...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen3.7-max-20260520",
-    created: 1779376861
+    created: 1779376861,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen3.7-plus',
   provider: 'openrouter',
   name: 'Qwen: Qwen3.7 Plus',
   contextWindow: 1000000,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.32,
-      output: 1.28
+      output: 1.28,
+      cached: 0.064,
+      cacheWrite: 0.39999999999999997
     }
   },
   metrics: {
-    timeToFirstToken: 0.83
+    timeToFirstToken: 1650.5,
+    tokensPerSecond: 46
+  },
+  metadata: {
+    description: "Qwen3.7-Plus is a cost-effective model in Alibaba's Qwen3.7 series. It supports text and image input with text output, building on the series' text capabilities with a comprehensive upgrade to its...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3.7-plus-20260602",
+    created: 1780491783,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.7-plus:batch',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.7 Plus (batch)',
+  contextWindow: 262144,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.22999999999999998,
+      output: 0.9199999999999999
+    }
   },
   metadata: {
     description: "Qwen3.7-Plus is a cost-effective model in Alibaba's Qwen3.7 series. It supports text and image input with text output, building on the series' text capabilities with a comprehensive upgrade to its...",
@@ -7904,14 +16039,623 @@ export const openrouterModels: ModelInfo[] = [{
     created: 1780491783
   }
 }, {
+  id: 'qwen/qwen3.8-2.4t-a95b',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.8 2.4T A95B',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6,
+      cached: 0.25
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 747,
+    tokensPerSecond: 145.5
+  },
+  metadata: {
+    description: "Qwen3.8 2.4T A95B is an open-weight sparse mixture-of-experts model from Qwen and the open-weight variant of [Qwen3.8 Max](/qwen/qwen3.8-max), with 95 billion active parameters out of 2.4 trillion total. It is...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      top_k: 20
+    },
+    canonicalSlug: "qwen/qwen3.8-2.4t-a95b-20260812",
+    huggingFaceId: "Qwen/Qwen3.8-2.4T-A95B",
+    created: 1786551702,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.8-27b',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.8 27B',
+  contextWindow: 1000000,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 1.875,
+      cached: 0.0375
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 214,
+    tokensPerSecond: 715.5
+  },
+  metadata: {
+    description: "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      top_k: 20
+    },
+    canonicalSlug: "qwen/qwen3.8-27b-20260814",
+    huggingFaceId: "Qwen/Qwen3.8-27B",
+    created: 1786722910,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.8-flash',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.8 Flash',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.47,
+      cached: 0.016
+    }
+  },
+  metrics: {
+    timeToFirstToken: 1691.5,
+    tokensPerSecond: 51
+  },
+  metadata: {
+    description: "Qwen3.8 Flash is a multimodal reasoning model from Alibaba. It is suited for coding assistance, agentic workflows, visual understanding, document and codebase analysis, desktop interaction, chart analysis, and long-video analysis.",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3.8-flash-20260826",
+    huggingFaceId: "Qwen/Qwen3.8-Flash-Next",
+    created: 1787773060,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.8-max-0902',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.8 Max (0902)',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6,
+      cached: 0.25
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 3028,
+    tokensPerSecond: 32
+  },
+  metadata: {
+    description: "Qwen3.8 Max 0902 is an updated snapshot of Qwen3.8 Max from Alibaba's Qwen team. It is a 2.4-trillion-parameter mixture-of-experts model that accepts text, image, and video input and returns text,...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3.8-max-20260902",
+    created: 1788469704,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.8-max-prime',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.8 Max Prime',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 4,
+      output: 12,
+      cached: 0.5
+    }
+  },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 1174.5,
+    tokensPerSecond: 74
+  },
+  metadata: {
+    description: "Qwen3.8 Max Prime is a higher-throughput variant of Qwen3.8 Max from Alibaba's Qwen team, served as a separate SKU at a higher price point. It accepts text, image, and video...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3.8-max-prime-20260923",
+    created: 1790191228,
+    uptime: 100
+  }
+}, {
+  id: 'qwen/qwen3.8-omni-flash',
+  provider: 'openrouter',
+  name: 'Qwen: Qwen3.8 Omni Flash',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Qwen',
+  capabilities: new Set(['vision', 'hearing', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.47,
+      cached: 0.016
+    }
+  },
+  metrics: {
+    timeToFirstToken: 1432,
+    tokensPerSecond: 76
+  },
+  metadata: {
+    description: "Qwen3.8 Omni Flash is an omni-modal reasoning model from Alibaba, the first Qwen model built around agentic capabilities with native audio-video understanding. It is suited for audio-video analysis and summarization,...",
+    defaultParameters: {},
+    canonicalSlug: "qwen/qwen3.8-omni-flash-20260918",
+    created: 1789959954,
+    uptime: 100
+  }
+}, {
+  id: 'recraft/recraft-v3',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V3',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 9.580838323353289
+    }
+  },
+  metadata: {
+    description: "Recraft V3 is an image generation model from Recraft. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios. Supports the following `image_config` parameters:...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v3-20260413",
+    created: 1778185433
+  }
+}, {
+  id: 'recraft/recraft-v4',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 9.580838323353289
+    }
+  },
+  metadata: {
+    description: "Recraft V4 is an image generation model from Recraft. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios. It delivers stronger compositional judgment,...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-20260413",
+    created: 1778185437
+  }
+}, {
+  id: 'recraft/recraft-v4-pro',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Pro',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 59.8802395209581
+    }
+  },
+  metadata: {
+    description: "Recraft V4 Pro is an image generation model from Recraft. It supports text and image inputs with image output at ~2K resolution across multiple aspect ratios, double the resolution of...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-pro-20260413",
+    created: 1778185441
+  }
+}, {
+  id: 'recraft/recraft-v4-pro-vector',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Pro Vector',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 71.8562874251497
+    }
+  },
+  metadata: {
+    description: "Recraft V4 Pro Vector is the vector (SVG) variant of Recraft V4 Pro. It supports text and image inputs and produces vector image output across multiple aspect ratios at the...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-pro-vector-20260514",
+    created: 1778707334
+  }
+}, {
+  id: 'recraft/recraft-v4-styles',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Styles',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 8.38323353293413
+    }
+  },
+  metrics: {
+    timeToFirstToken: 32591,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4 Styles is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the reference's rendering...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-styles-20260826",
+    created: 1787742458
+  }
+}, {
+  id: 'recraft/recraft-v4-styles-pro',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Styles Pro',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 23.9520958083832
+    }
+  },
+  metadata: {
+    description: "Recraft V4 Styles Pro is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the reference's...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-styles-pro-20260826",
+    created: 1787742640
+  }
+}, {
+  id: 'recraft/recraft-v4-styles-pro-vector',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Styles Pro Vector',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 28.742514970059897
+    }
+  },
+  metadata: {
+    description: "Recraft V4 Styles Pro Vector is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-styles-pro-vector-20260826",
+    created: 1787742628
+  }
+}, {
+  id: 'recraft/recraft-v4-styles-vector',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Styles Vector',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 11.9760479041916
+    }
+  },
+  metadata: {
+    description: "Recraft V4 Styles Vector is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the reference's...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-styles-vector-20260826",
+    created: 1787742635
+  }
+}, {
+  id: 'recraft/recraft-v4-vector',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4 Vector',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 19.1616766467066
+    }
+  },
+  metrics: {
+    timeToFirstToken: 14369.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4 Vector is the vector (SVG) variant of Recraft V4. It supports text and image inputs and produces vector image output across multiple aspect ratios. Compared to the raster...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4-vector-20260514",
+    created: 1778707333
+  }
+}, {
+  id: 'recraft/recraft-v4.1',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 8.38323353293413
+    }
+  },
+  metrics: {
+    timeToFirstToken: 7147,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 is an image generation model from Recraft tuned for high aesthetics. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios, with...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-20260514",
+    created: 1778707381,
+    uptime: 100
+  }
+}, {
+  id: 'recraft/recraft-v4.1-flash',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1 Flash',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 1.67664670658683
+    }
+  },
+  metrics: {
+    timeToFirstToken: 1999.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 Flash is a text-to-image model from Recraft, the speed and cost tier of the V4.1 family. It generates ~1K raster images in about 1.5 seconds end to end,...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-flash-20260923",
+    created: 1790177946,
+    uptime: 100
+  }
+}, {
+  id: 'recraft/recraft-v4.1-pro',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1 Pro',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 50.2994011976048
+    }
+  },
+  metrics: {
+    timeToFirstToken: 9231,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 Pro is an image generation model from Recraft tuned for high aesthetics. It supports text and image inputs with image output at ~2K resolution across multiple aspect ratios...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-pro-20260514",
+    created: 1778707384
+  }
+}, {
+  id: 'recraft/recraft-v4.1-pro-vector',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1 Pro Vector',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 71.8562874251497
+    }
+  },
+  metrics: {
+    timeToFirstToken: 14138,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 Pro Vector is the vector (SVG) variant of Recraft V4.1 Pro, tuned for high aesthetics. It supports text and image inputs and produces higher-resolution SVG image output across...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-pro-vector-20260514",
+    created: 1778707395
+  }
+}, {
+  id: 'recraft/recraft-v4.1-utility',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1 Utility',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 8.38323353293413
+    }
+  },
+  metrics: {
+    timeToFirstToken: 11360,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 Utility is a general-purpose image generation model from Recraft. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios, with typical generation...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-utility-20260514",
+    created: 1778707387
+  }
+}, {
+  id: 'recraft/recraft-v4.1-utility-pro',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1 Utility Pro',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 50.2994011976048
+    }
+  },
+  metrics: {
+    timeToFirstToken: 39558,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 Utility Pro is a general-purpose image generation model from Recraft. It supports text and image inputs with image output at ~2K resolution across multiple aspect ratios — double...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-utility-pro-20260514",
+    created: 1778707389
+  }
+}, {
+  id: 'recraft/recraft-v4.1-vector',
+  provider: 'openrouter',
+  name: 'Recraft: Recraft V4.1 Vector',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 19.1616766467066
+    }
+  },
+  metrics: {
+    timeToFirstToken: 12516,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Recraft V4.1 Vector is the vector (SVG) variant of Recraft V4.1, tuned for high aesthetics. It supports text and image inputs and produces SVG image output across multiple aspect ratios,...",
+    defaultParameters: {},
+    canonicalSlug: "recraft/recraft-v4.1-vector-20260514",
+    created: 1778707392
+  }
+}, {
+  id: 'recursive/flint-v1.0:free',
+  provider: 'openrouter',
+  name: 'Recursive: Flint (free)',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'stop', 'temperature', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "Flint is an open-weight mixture-of-experts model from Recursive, with about 2.5B active parameters out of 40B total, built by Recursive's autoresearch system Eureka Machine for coding agents. It is suited...",
+    defaultParameters: {},
+    canonicalSlug: "recursive/flint-v1.0-20261021",
+    huggingFaceId: "RecursiveSI/flint",
+    created: 1792622765,
+    uptime: 0
+  }
+}, {
+  id: 'reflection/beam-1.0-501b-a23b',
+  provider: 'openrouter',
+  name: 'Reflection: Beam 1.0 501B A23B',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.25,
+      output: 1,
+      cached: 0.049999999999999996
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 216,
+    tokensPerSecond: 339
+  },
+  metadata: {
+    description: "Beam 1.0 is Reflection's open-weight reasoning model for coding and long-horizon agentic workflows. It uses a sparse mixture-of-experts architecture with 501B total and 23B active parameters per token, and a...",
+    defaultParameters: {},
+    canonicalSlug: "reflection/beam-1.0-501b-a23b-20261016",
+    huggingFaceId: "reflection/Beam-1.0-501B-A23B",
+    created: 1792160499,
+    knowledgeCutoff: "2026-06-30",
+    uptime: 100
+  }
+}, {
   id: 'rekaai/reka-edge',
   provider: 'openrouter',
   name: 'Reka Edge',
   contextWindow: 16384,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 14745,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -7920,7 +16664,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1.48
+    timeToFirstToken: 509,
+    tokensPerSecond: 155
   },
   metadata: {
     description: "Reka Edge is an extremely efficient 7B multimodal vision-language model that accepts image/video+text inputs and generates text outputs. This model is optimized specifically to deliver industry-leading performance in image understanding,...",
@@ -7934,7 +16679,7 @@ export const openrouterModels: ModelInfo[] = [{
   provider: 'openrouter',
   name: 'Reka Flash 3',
   contextWindow: 65536,
-  maxOutputTokens: 65536,
+  maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'reasoning', 'structured', 'streaming']),
@@ -7946,14 +16691,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 19.5
+    timeToFirstToken: 550.5,
+    tokensPerSecond: 90
   },
   metadata: {
     description: "Reka Flash 3 is a general-purpose, instruction-tuned large language model with 21 billion parameters, developed by Reka. It excels at general chat, coding tasks, instruction-following, and function calling. Featuring a...",
     defaultParameters: {},
     canonicalSlug: "rekaai/reka-flash-3",
     huggingFaceId: "RekaAI/reka-flash-3",
-    created: 1741812813
+    created: 1741812813,
+    knowledgeCutoff: "2025-01-31"
   }
 }, {
   id: 'relace/relace-apply-3',
@@ -7972,7 +16719,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.63
+    timeToFirstToken: 623,
+    tokensPerSecond: 4879
   },
   metadata: {
     description: "Relace Apply 3 is a specialized code-patching LLM that merges AI-suggested edits straight into your source files. It can apply updates from GPT-4o, Claude, and others into your files at...",
@@ -7989,7 +16737,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'json', 'streaming']),
+  capabilities: new Set(['chat', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['maxTokens', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -7997,14 +16745,178 @@ export const openrouterModels: ModelInfo[] = [{
       output: 3
     }
   },
-  metrics: {
-    timeToFirstToken: 0.92
-  },
   metadata: {
     description: "The relace-search model uses 4-12 `view_file` and `grep` tools in parallel to explore a codebase and return relevant files to the user request. In contrast to RAG, relace-search performs agentic...",
     defaultParameters: {},
     canonicalSlug: "relace/relace-search-20251208",
     created: 1765213560
+  }
+}, {
+  id: 'respan/span-01',
+  provider: 'openrouter',
+  name: 'Respan: Span-01',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.02
+    }
+  },
+  metrics: {
+    timeToFirstToken: 436.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Span-01 is a behavior scoring model from Respan. It reads a conversation span and returns, for each plain-language behavior you define, the probability that the behavior is present. It is...",
+    defaultParameters: {},
+    canonicalSlug: "respan/span-01-20260925",
+    created: 1790387550,
+    uptime: 100
+  }
+}, {
+  id: 'respan/span-01-lite',
+  provider: 'openrouter',
+  name: 'Respan: Span-01 Lite',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 503.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Span-01 Lite is the free, lighter tier of Span-01, a behavior scoring model from Respan. It returns, for each plain-language behavior you define, the probability that the behavior is present...",
+    defaultParameters: {},
+    canonicalSlug: "respan/span-01-lite-20260925",
+    created: 1790387542,
+    uptime: 100
+  }
+}, {
+  id: 'respan/span-01-lite:free',
+  provider: 'openrouter',
+  name: 'Respan: Span-01 Lite (free)',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 596,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Span-01 Lite is the free, lighter tier of Span-01, a behavior scoring model from Respan. It returns, for each plain-language behavior you define, the probability that the behavior is present...",
+    defaultParameters: {},
+    canonicalSlug: "respan/span-01-lite-20260925",
+    created: 1790387542
+  }
+}, {
+  id: 'respan/span-02',
+  provider: 'openrouter',
+  name: 'Respan: Span-02',
+  contextWindow: 131072,
+  maxOutputTokens: 117964,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.01
+    }
+  },
+  metrics: {
+    timeToFirstToken: 299,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Span-02 is an open-weight decision model from Respan. It reads a state of text and images and answers the questions you define about it: picking one of several options, a...",
+    defaultParameters: {},
+    canonicalSlug: "respan/span-02-20261015",
+    created: 1792108973,
+    uptime: 100
+  }
+}, {
+  id: 'runway/aleph-2',
+  provider: 'openrouter',
+  name: 'Runway: Aleph 2.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision', 'videoInput']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 128831,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Runway Aleph 2.0 is an in-context video editing model from Runway. It applies text instructions and keyframe-guided edits across existing footage while preserving details that are not meant to change....",
+    defaultParameters: {},
+    canonicalSlug: "runway/aleph-2-20260729",
+    created: 1785339484
+  }
+}, {
+  id: 'runway/gen-4.5',
+  provider: 'openrouter',
+  name: 'Runway: Gen-4.5',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Media',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "Runway Gen-4.5 is a video generation model from Runway for text-to-video and image-to-video workflows. It is designed for cinematic scene creation with strong motion quality, visual fidelity, and prompt adherence....",
+    defaultParameters: {},
+    canonicalSlug: "runway/gen-4.5-20260729",
+    created: 1785339483
+  }
+}, {
+  id: 'sakana/fugu-max',
+  provider: 'openrouter',
+  name: 'Sakana: Fugu Max',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6,
+      cached: 0.25
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 3706,
+    tokensPerSecond: 163
+  },
+  metadata: {
+    description: "Fugu Max is the cost-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to route...",
+    defaultParameters: {},
+    canonicalSlug: "sakana/fugu-max-20260911",
+    created: 1789104771,
+    uptime: 100
   }
 }, {
   id: 'sakana/fugu-ultra',
@@ -8014,33 +16926,72 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'structuredOutput', 'toolChoice', 'tools']),
   pricing: {
     text: {
       input: 5,
-      output: 30
+      output: 30,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.01
     }
   },
+  reasoningEfforts: ['high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 15.46
+    timeToFirstToken: 19199.5,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "Fugu Ultra is the higher-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to route...",
     defaultParameters: {},
     canonicalSlug: "sakana/fugu-ultra-20260615",
-    created: 1782276303
+    created: 1782276303,
+    uptime: 100
+  }
+}, {
+  id: 'sakana/fugu-ultra-v2',
+  provider: 'openrouter',
+  name: 'Sakana: Fugu Ultra v2',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'structuredOutput', 'toolChoice', 'tools']),
+  pricing: {
+    text: {
+      input: 5,
+      output: 30,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.01
+    }
+  },
+  reasoningEfforts: ['high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 4382.5,
+    tokensPerSecond: 77
+  },
+  metadata: {
+    description: "Fugu Ultra v2 is the higher-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to...",
+    defaultParameters: {},
+    canonicalSlug: "sakana/fugu-ultra-v2-20260911",
+    created: 1789105383,
+    knowledgeCutoff: "2026-08-28"
   }
 }, {
   id: 'sao10k/l3-lunaris-8b',
   provider: 'openrouter',
   name: 'Sao10K: Llama 3 8B Lunaris',
   contextWindow: 8192,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 7372,
   tier: 'flagship',
   tokenizer: 'Llama3',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.04,
@@ -8048,39 +16999,17 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.16
+    timeToFirstToken: 138,
+    tokensPerSecond: 121
   },
   metadata: {
     description: "Lunaris 8B is a versatile generalist and roleplaying model based on Llama 3. It's a strategic merge of multiple models, designed to balance creativity with improved logic and general knowledge....",
     defaultParameters: {},
     canonicalSlug: "sao10k/l3-lunaris-8b",
     huggingFaceId: "Sao10K/L3-8B-Lunaris-v1",
-    created: 1723507200
-  }
-}, {
-  id: 'sao10k/l3.1-70b-hanami-x1',
-  provider: 'openrouter',
-  name: 'Sao10K: Llama 3.1 70B Hanami x1',
-  contextWindow: 16000,
-  tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 3,
-      output: 3
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.66
-  },
-  metadata: {
-    description: "This is [Sao10K](/sao10k)'s experiment over [Euryale v2.2](/sao10k/l3.1-euryale-70b).",
-    defaultParameters: {},
-    canonicalSlug: "sao10k/l3.1-70b-hanami-x1",
-    huggingFaceId: "Sao10K/L3.1-70B-Hanami-x1",
-    created: 1736302854
+    created: 1723507200,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
   id: 'sao10k/l3.1-euryale-70b',
@@ -8090,8 +17019,8 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.85,
@@ -8099,40 +17028,355 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.43
+    timeToFirstToken: 275.5,
+    tokensPerSecond: 40
   },
   metadata: {
     description: "Euryale L3.1 70B v2.2 is a model focused on creative roleplay from [Sao10k](https://ko-fi.com/sao10k). It is the successor of [Euryale L3 70B v2.1](/models/sao10k/l3-euryale-70b).",
     defaultParameters: {},
     canonicalSlug: "sao10k/l3.1-euryale-70b",
     huggingFaceId: "Sao10K/L3.1-70B-Euryale-v2.2",
-    created: 1724803200
+    created: 1724803200,
+    knowledgeCutoff: "2023-12-31",
+    uptime: 100
   }
 }, {
-  id: 'sao10k/l3.3-euryale-70b',
+  id: 'scaledown/classify-1',
   provider: 'openrouter',
-  name: 'Sao10K: Llama 3.3 Euryale 70B',
-  contextWindow: 131072,
-  maxOutputTokens: 16384,
+  name: 'ScaleDown: Classify-1',
+  contextWindow: 1000000,
+  maxOutputTokens: 900000,
   tier: 'flagship',
-  tokenizer: 'Llama3',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'files']),
   pricing: {
     text: {
-      input: 0.65,
-      output: 0.75
+      input: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 2.87
+    timeToFirstToken: 415.5,
+    tokensPerSecond: 0
   },
   metadata: {
-    description: "Euryale L3.3 70B is a model focused on creative roleplay from [Sao10k](https://ko-fi.com/sao10k). It is the successor of [Euryale L3 70B v2.2](/models/sao10k/l3-euryale-70b).",
+    description: "Classify-1 is a structured decision model from ScaleDown, served through OpenRouter's Decisions API. It scores text or a document against caller-defined choice, yes/no, and ordered-scale questions and returns calibrated probabilities...",
     defaultParameters: {},
-    canonicalSlug: "sao10k/l3.3-euryale-70b-v2.3",
-    huggingFaceId: "Sao10K/L3.3-70B-Euryale-v2.3",
-    created: 1734535928
+    canonicalSlug: "scaledown/classify-1-20260928",
+    created: 1791893334,
+    uptime: 100
+  }
+}, {
+  id: 'scaledown/extract',
+  provider: 'openrouter',
+  name: 'ScaleDown: Extract',
+  contextWindow: 1000000,
+  maxOutputTokens: 900000,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'files', 'chat', 'streaming']),
+  supportedParameters: new Set(['maxTokens']),
+  pricing: {
+    text: {
+      input: 0.04
+    }
+  },
+  metrics: {
+    timeToFirstToken: 423,
+    tokensPerSecond: 257
+  },
+  metadata: {
+    description: "Extract is a description-driven entity extraction model from ScaleDown. Instead of a fixed set of entity types, callers describe the fields they want in plain English through `provider.options.scaledown.entities`, and the...",
+    defaultParameters: {},
+    canonicalSlug: "scaledown/extract-20260928",
+    created: 1791893351,
+    uptime: 100
+  }
+}, {
+  id: 'scaledown/summarize',
+  provider: 'openrouter',
+  name: 'ScaleDown: Summarize',
+  contextWindow: 1000000,
+  maxOutputTokens: 4000,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'files', 'chat', 'streaming']),
+  supportedParameters: new Set(['maxTokens']),
+  pricing: {
+    text: {
+      input: 0.04
+    }
+  },
+  metrics: {
+    timeToFirstToken: 497,
+    tokensPerSecond: 130
+  },
+  metadata: {
+    description: "Summarize is an abstractive summarization model from ScaleDown. It condenses long text and documents into a fluent, faithful rewrite rather than lifting sentences from the source, and is suited for...",
+    defaultParameters: {},
+    canonicalSlug: "scaledown/summarize-20260928",
+    created: 1791893360,
+    uptime: 100
+  }
+}, {
+  id: 'sentence-transformers/all-minilm-l12-v2',
+  provider: 'openrouter',
+  name: 'Sentence Transformers: all-MiniLM-L12-v2',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The all-MiniLM-L12-v2 embedding model maps sentences and short paragraphs into a 384-dimensional dense vector space, producing efficient and high-quality semantic embeddings optimized for tasks such as semantic search, clustering, and...",
+    defaultParameters: {},
+    canonicalSlug: "sentence-transformers/all-minilm-l12-v2-20251117",
+    huggingFaceId: "sentence-transformers/all-MiniLM-L12-v2",
+    created: 1763432155
+  }
+}, {
+  id: 'sentence-transformers/all-minilm-l6-v2',
+  provider: 'openrouter',
+  name: 'Sentence Transformers: all-MiniLM-L6-v2',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The all-MiniLM-L6-v2 embedding model maps sentences and short paragraphs into a 384-dimensional dense vector space, enabling high-quality semantic representations that are ideal for downstream tasks such as information retrieval, clustering,...",
+    defaultParameters: {},
+    canonicalSlug: "sentence-transformers/all-minilm-l6-v2-20251117",
+    huggingFaceId: "sentence-transformers/all-MiniLM-L6-v2",
+    created: 1763421176,
+    uptime: 100
+  }
+}, {
+  id: 'sentence-transformers/all-mpnet-base-v2',
+  provider: 'openrouter',
+  name: 'Sentence Transformers: all-mpnet-base-v2',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The all-mpnet-base-v2 embedding model encodes sentences and short paragraphs into a 768-dimensional dense vector space, providing high-fidelity semantic embeddings well suited for tasks like information retrieval, clustering, similarity scoring, and...",
+    defaultParameters: {},
+    canonicalSlug: "sentence-transformers/all-mpnet-base-v2-20251117",
+    huggingFaceId: "sentence-transformers/all-mpnet-base-v2",
+    created: 1763421830,
+    uptime: 100
+  }
+}, {
+  id: 'sentence-transformers/multi-qa-mpnet-base-dot-v1',
+  provider: 'openrouter',
+  name: 'Sentence Transformers: multi-qa-mpnet-base-dot-v1',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The multi-qa-mpnet-base-dot-v1 embedding model transforms sentences and short paragraphs into a 768-dimensional dense vector space, generating high-quality semantic embeddings optimized for question-and-answer retrieval, semantic search, and similarity-scoring across diverse content.",
+    defaultParameters: {},
+    canonicalSlug: "sentence-transformers/multi-qa-mpnet-base-dot-v1-20251117",
+    huggingFaceId: "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+    created: 1763431339
+  }
+}, {
+  id: 'sentence-transformers/paraphrase-minilm-l6-v2',
+  provider: 'openrouter',
+  name: 'Sentence Transformers: paraphrase-MiniLM-L6-v2',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The paraphrase-MiniLM-L6-v2 embedding model converts sentences and short paragraphs into a 384-dimensional dense vector space, producing high-quality semantic embeddings optimized for paraphrase detection, semantic similarity scoring, clustering, and lightweight retrieval...",
+    defaultParameters: {},
+    canonicalSlug: "sentence-transformers/paraphrase-minilm-l6-v2-20251117",
+    huggingFaceId: "sentence-transformers/paraphrase-MiniLM-L6-v2",
+    created: 1763432454
+  }
+}, {
+  id: 'sesame/csm-1b',
+  provider: 'openrouter',
+  name: 'Sesame: CSM 1B',
+  contextWindow: 4096,
+  maxOutputTokens: 3686,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 7
+    }
+  },
+  metadata: {
+    description: "CSM 1B is a conversational speech model from Sesame. It accepts text input and produces English speech output, with voice options spanning conversational and read-speech styles. At 1B parameters, it...",
+    defaultParameters: {},
+    canonicalSlug: "sesame/csm-1b",
+    created: 1776983168,
+    voices: [
+      "conversational_a",
+      "conversational_b",
+      "read_speech_a",
+      "read_speech_b",
+      "read_speech_c",
+      "read_speech_d",
+      "none"
+    ]
+  }
+}, {
+  id: 'sourceful/riverflow-v2-fast',
+  provider: 'openrouter',
+  name: 'Sourceful: Riverflow V2 Fast',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 4.79041916167665
+    }
+  },
+  metadata: {
+    description: "Riverflow V2 Fast is the fastest variant of Sourceful's Riverflow 2.0 lineup, best for production deployments and latency-critical workflows. The Riverflow 2.0 series represents SOTA performance on image generation and...",
+    defaultParameters: {},
+    canonicalSlug: "sourceful/riverflow-v2-fast-20260130",
+    huggingFaceId: "",
+    created: 1770051423
+  }
+}, {
+  id: 'sourceful/riverflow-v2-pro',
+  provider: 'openrouter',
+  name: 'Sourceful: Riverflow V2 Pro',
+  contextWindow: 8192,
+  maxOutputTokens: 7372,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 35.9281437125749
+    }
+  },
+  metadata: {
+    description: "Riverflow V2 Pro is the most powerful variant of Sourceful's Riverflow 2.0 lineup, best for top-tier control and perfect text rendering. The Riverflow 2.0 series represents SOTA performance on image...",
+    defaultParameters: {},
+    canonicalSlug: "sourceful/riverflow-v2-pro-20260130",
+    huggingFaceId: "",
+    created: 1770051427
+  }
+}, {
+  id: 'sourceful/riverflow-v2.5-fast',
+  provider: 'openrouter',
+  name: 'Sourceful: Riverflow V2.5 Fast',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image', 'reasoning']),
+  supportedParameters: new Set(['reason']),
+  pricing: {
+    text: {},
+    image: {
+      input: 4.55089820359281
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 52220,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Riverflow V2.5 Fast is the speed-optimized variant of Sourceful's Riverflow 2.5 lineup, best for production deployments and latency-critical workflows. The Riverflow 2.5 series is a unified text-to-image and image-to-image family...",
+    defaultParameters: {},
+    canonicalSlug: "sourceful/riverflow-v2.5-fast-20260605",
+    created: 1780584983
+  }
+}, {
+  id: 'sourceful/riverflow-v2.5-pro',
+  provider: 'openrouter',
+  name: 'Sourceful: Riverflow V2.5 Pro',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image', 'reasoning']),
+  supportedParameters: new Set(['reason']),
+  pricing: {
+    text: {},
+    image: {
+      input: 31.1377245508982
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 107223.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Riverflow V2.5 Pro is the most powerful variant of Sourceful's Riverflow 2.5 lineup, best for top-tier control and quality-sensitive outputs. The Riverflow 2.5 series is a unified text-to-image and image-to-image...",
+    defaultParameters: {},
+    canonicalSlug: "sourceful/riverflow-v2.5-pro-20260605",
+    created: 1780584991
+  }
+}, {
+  id: 'sourceful/riverflow-v2.6-pro',
+  provider: 'openrouter',
+  name: 'Sourceful: Riverflow V2.6 Pro',
+  contextWindow: 32768,
+  maxOutputTokens: 29491,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image', 'reasoning']),
+  supportedParameters: new Set(['reason']),
+  pricing: {
+    text: {},
+    image: {
+      input: 31.1377245508982
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 134720,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Riverflow 2.6 Pro is the flagship model of Sourceful's Riverflow 2.6 lineup, a unified text-to-image and image-to-image family that treats generation as a production workflow: an integrated reasoning model plans...",
+    defaultParameters: {},
+    canonicalSlug: "sourceful/riverflow-v2.6-pro-20261029",
+    created: 1793289528
   }
 }, {
   id: 'stepfun/step-3.5-flash',
@@ -8142,7 +17386,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
@@ -8150,46 +17394,108 @@ export const openrouterModels: ModelInfo[] = [{
       output: 0.3
     }
   },
-  metrics: {},
+  metrics: {
+    timeToFirstToken: 1072,
+    tokensPerSecond: 69
+  },
   metadata: {
     description: "Step 3.5 Flash is StepFun's most capable open-source foundation model. Built on a sparse Mixture of Experts (MoE) architecture, it selectively activates only 11B of its 196B parameters per token....",
     defaultParameters: {},
     canonicalSlug: "stepfun/step-3.5-flash",
     huggingFaceId: "stepfun-ai/Step-3.5-Flash",
-    created: 1769728337
+    created: 1769728337,
+    uptime: 100
   }
 }, {
   id: 'stepfun/step-3.7-flash',
   provider: 'openrouter',
   name: 'StepFun: Step 3.7 Flash',
-  contextWindow: 256000,
-  maxOutputTokens: 256000,
+  contextWindow: 262144,
+  maxOutputTokens: 230400,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.19999999999999998,
-      output: 1.15
+      output: 1.15,
+      cached: 0.04
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.44
+    timeToFirstToken: 3856,
+    tokensPerSecond: 33
   },
   metadata: {
     description: "Step 3.7 Flash is StepFun's latest high-efficiency multimodal Mixture-of-Experts model. It pairs a 196B-parameter language backbone with a vision encoder for native image and video understanding, activating roughly 11B parameters...",
     defaultParameters: {},
     canonicalSlug: "stepfun/step-3.7-flash-20260528",
     huggingFaceId: "stepfun-ai/Step-3.7-Flash",
-    created: 1779985069
+    created: 1779985069,
+    uptime: 100
+  }
+}, {
+  id: 'stepfun/step-5-preview',
+  provider: 'openrouter',
+  name: 'StepFun: Step 5 Preview',
+  contextWindow: 1048576,
+  maxOutputTokens: 64000,
+  tier: 'experimental',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 2.7,
+      cached: 0.09999999999999999
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metrics: {
+    timeToFirstToken: 1072,
+    tokensPerSecond: 159
+  },
+  metadata: {
+    description: "Step 5 Preview is StepFun's flagship model for agentic work, built on a sparse Mixture-of-Experts architecture (27B active / 600B total parameters). It performs strongly in software engineering and professional...",
+    defaultParameters: {},
+    canonicalSlug: "stepfun/step-5-preview-20261008",
+    huggingFaceId: "stepfun-ai/Step-5-Preview",
+    created: 1791462849,
+    uptime: 100
+  }
+}, {
+  id: 'tbc/mischief-1',
+  provider: 'openrouter',
+  name: 'TBC: Mischief 1',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  supportedParameters: new Set(['maxTokens', 'temperature']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 14665,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "TBC Mischief 1 is the world's first neuron-derived video model from The Biological Computing Co. It supports image to video and is a fast and affordable way to bring ideas...",
+    defaultParameters: {},
+    canonicalSlug: "tbc/mischief-1-20261023",
+    created: 1793319378,
+    uptime: 17.647058823529413
   }
 }, {
   id: 'tencent/hunyuan-a13b-instruct',
   provider: 'openrouter',
   name: 'Tencent: Hunyuan A13B Instruct',
   contextWindow: 131072,
-  maxOutputTokens: 131072,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'streaming']),
@@ -8201,29 +17507,148 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1.27
+    timeToFirstToken: 794,
+    tokensPerSecond: 46
   },
   metadata: {
     description: "Hunyuan-A13B is a 13B active parameter Mixture-of-Experts (MoE) language model developed by Tencent, with a total parameter count of 80B and support for reasoning via Chain-of-Thought. It offers competitive benchmark...",
     defaultParameters: {},
     canonicalSlug: "tencent/hunyuan-a13b-instruct",
     huggingFaceId: "tencent/Hunyuan-A13B-Instruct",
-    created: 1751987664
+    created: 1751987664,
+    knowledgeCutoff: "2025-03-31"
+  }
+}, {
+  id: 'tencent/hy-image-v3.5-preview',
+  provider: 'openrouter',
+  name: 'Tencent: Hy Image 3.5 Preview',
+  contextWindow: 100000,
+  maxOutputTokens: 90000,
+  tier: 'experimental',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'image']),
+  pricing: {
+    text: {},
+    image: {
+      input: 1.5999999999999999
+    }
+  },
+  metrics: {
+    timeToFirstToken: 25150,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Hy Image 3.5 Preview is a unified image generation and editing model from Tencent. It handles text-to-image, image-to-image, and multi-turn editing through one endpoint, taking up to 20 reference images...",
+    defaultParameters: {},
+    canonicalSlug: "tencent/hy-image-v3.5-preview-20260922",
+    created: 1791232017,
+    uptime: 100
+  }
+}, {
+  id: 'tencent/hy-mt2-1.8b',
+  provider: 'openrouter',
+  name: 'Tencent: Hy-MT2-1.8B',
+  contextWindow: 8192,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'stop', 'temperature']),
+  pricing: {
+    text: {
+      input: 0.044,
+      output: 0.17700000000000002
+    }
+  },
+  metrics: {
+    timeToFirstToken: 441,
+    tokensPerSecond: 98
+  },
+  metadata: {
+    description: "Hy-MT2-1.8B is a compact 1.8B-parameter translation model from Tencent. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and style-guided...",
+    defaultParameters: {},
+    canonicalSlug: "tencent/hy-mt2-1.8b-20260521",
+    huggingFaceId: "tencent/Hy-MT2-1.8B",
+    created: 1787231581,
+    uptime: 100
+  }
+}, {
+  id: 'tencent/hy-mt2-30b-a3b',
+  provider: 'openrouter',
+  name: 'Tencent: Hy-MT2-30B-A3B',
+  contextWindow: 8192,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature']),
+  pricing: {
+    text: {
+      input: 0.074,
+      output: 0.295
+    }
+  },
+  metrics: {
+    timeToFirstToken: 809,
+    tokensPerSecond: 70
+  },
+  metadata: {
+    description: "Hy-MT2-30B-A3B is Tencent's flagship translation model in the Hy-MT2 family. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and...",
+    defaultParameters: {},
+    canonicalSlug: "tencent/hy-mt2-30b-a3b-20260521",
+    huggingFaceId: "tencent/Hy-MT2-30B-A3B",
+    created: 1787231561,
+    uptime: 100
+  }
+}, {
+  id: 'tencent/hy-mt2-7b',
+  provider: 'openrouter',
+  name: 'Tencent: Hy-MT2-7B',
+  contextWindow: 8192,
+  maxOutputTokens: 4096,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'stop', 'structuredOutput', 'temperature']),
+  pricing: {
+    text: {
+      input: 0.074,
+      output: 0.295
+    }
+  },
+  metrics: {
+    timeToFirstToken: 802,
+    tokensPerSecond: 75
+  },
+  metadata: {
+    description: "Hy-MT2-7B is a 7B-parameter translation model from Tencent. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and style-guided translation.",
+    defaultParameters: {},
+    canonicalSlug: "tencent/hy-mt2-7b-20260521",
+    huggingFaceId: "tencent/Hy-MT2-7B",
+    created: 1787148797,
+    uptime: 100
   }
 }, {
   id: 'tencent/hy3',
   provider: 'openrouter',
   name: 'Tencent: Hy3',
   contextWindow: 262144,
+  maxOutputTokens: 128000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.14,
-      output: 0.58
+      input: 0.13199999999999998,
+      output: 0.5279999999999999,
+      cached: 0.032999999999999995
     }
+  },
+  reasoningEfforts: ['none', 'low', 'high'],
+  metrics: {
+    timeToFirstToken: 1647.5,
+    tokensPerSecond: 80
   },
   metadata: {
     description: "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
@@ -8233,25 +17658,30 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "tencent/hy3-20260706",
     huggingFaceId: "tencent/Hy3",
-    created: 1783344048
+    created: 1783344048,
+    uptime: 100
   }
 }, {
   id: 'tencent/hy3-preview',
   provider: 'openrouter',
   name: 'Tencent: Hy3 preview',
   contextWindow: 262144,
+  maxOutputTokens: 235929,
   tier: 'experimental',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'seed', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.063,
-      output: 0.21
+      input: 0.18,
+      output: 0.6,
+      cached: 0.06
     }
   },
+  reasoningEfforts: ['none', 'low', 'high'],
   metrics: {
-    timeToFirstToken: 1.67
+    timeToFirstToken: 2292.5,
+    tokensPerSecond: 108
   },
   metadata: {
     description: "Hy3 preview is a high-efficiency Mixture-of-Experts model from Tencent designed for agentic workflows and production use. It supports configurable reasoning levels across disabled, low, and high modes, allowing it to...",
@@ -8261,35 +17691,45 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "tencent/hy3-preview-20260421",
     huggingFaceId: "tencent/Hy3-preview",
-    created: 1776878150
+    created: 1776878150,
+    uptime: 100
   }
 }, {
-  id: 'tencent/hy3:free',
+  id: 'tencent/hy4-preview',
   provider: 'openrouter',
-  name: 'Tencent: Hy3 (free)',
-  contextWindow: 262144,
-  maxOutputTokens: 262144,
-  tier: 'flagship',
+  name: 'Tencent: Hy4 preview',
+  contextWindow: 1048576,
+  maxOutputTokens: 64000,
+  tier: 'experimental',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
-  pricing: {},
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.834,
+      output: 2.501,
+      cached: 0.041999999999999996
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'high'],
+  metrics: {
+    timeToFirstToken: 1354.5,
+    tokensPerSecond: 86
+  },
   metadata: {
-    description: "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
-    defaultParameters: {
-      temperature: 0.9,
-      top_p: 1
-    },
-    canonicalSlug: "tencent/hy3-20260706",
-    huggingFaceId: "tencent/Hy3",
-    created: 1783344048
+    description: "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
+    defaultParameters: {},
+    canonicalSlug: "tencent/hy4-preview-20260827",
+    huggingFaceId: "tencent/Hy4-preview",
+    created: 1787897375,
+    uptime: 100
   }
 }, {
   id: 'thedrummer/cydonia-24b-v4.1',
   provider: 'openrouter',
   name: 'TheDrummer: Cydonia 24B V4.1',
   contextWindow: 131072,
-  maxOutputTokens: 131072,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
@@ -8297,51 +17737,29 @@ export const openrouterModels: ModelInfo[] = [{
   pricing: {
     text: {
       input: 0.3,
-      output: 0.5
+      output: 0.5,
+      cached: 0.15
     }
   },
   metrics: {
-    timeToFirstToken: 0.73
+    timeToFirstToken: 1011,
+    tokensPerSecond: 18
   },
   metadata: {
     description: "Uncensored and creative writing model based on Mistral Small 3.2 24B with good recall, prompt adherence, and intelligence.",
     defaultParameters: {},
     canonicalSlug: "thedrummer/cydonia-24b-v4.1",
     huggingFaceId: "thedrummer/cydonia-24b-v4.1",
-    created: 1758931878
-  }
-}, {
-  id: 'thedrummer/rocinante-12b',
-  provider: 'openrouter',
-  name: 'TheDrummer: Rocinante 12B',
-  contextWindow: 65536,
-  maxOutputTokens: 65536,
-  tier: 'flagship',
-  tokenizer: 'Qwen',
-  capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
-  pricing: {
-    text: {
-      input: 0.25,
-      output: 0.5
-    }
-  },
-  metrics: {
-    timeToFirstToken: 0.27
-  },
-  metadata: {
-    description: "Rocinante 12B is designed for engaging storytelling and rich prose. Early testers have reported: - Expanded vocabulary with unique and expressive word choices - Enhanced creativity for vivid narratives -...",
-    defaultParameters: {},
-    canonicalSlug: "thedrummer/rocinante-12b",
-    huggingFaceId: "TheDrummer/Rocinante-12B-v1.1",
-    created: 1727654400
+    created: 1758931878,
+    knowledgeCutoff: "2024-04-30",
+    uptime: 100
   }
 }, {
   id: 'thedrummer/skyfall-36b-v2',
   provider: 'openrouter',
   name: 'TheDrummer: Skyfall 36B V2',
   contextWindow: 32768,
-  maxOutputTokens: 32768,
+  maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
@@ -8349,29 +17767,33 @@ export const openrouterModels: ModelInfo[] = [{
   pricing: {
     text: {
       input: 0.55,
-      output: 0.7999999999999999
+      output: 0.7999999999999999,
+      cached: 0.25
     }
   },
   metrics: {
-    timeToFirstToken: 0.39
+    timeToFirstToken: 669,
+    tokensPerSecond: 68
   },
   metadata: {
     description: "Skyfall 36B v2 is an enhanced iteration of Mistral Small 2501, specifically fine-tuned for improved creativity, nuanced writing, role-playing, and coherent storytelling.",
     defaultParameters: {},
     canonicalSlug: "thedrummer/skyfall-36b-v2",
     huggingFaceId: "TheDrummer/Skyfall-36B-v2",
-    created: 1741636566
+    created: 1741636566,
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'thedrummer/unslopnemo-12b',
   provider: 'openrouter',
   name: 'TheDrummer: UnslopNemo 12B',
-  contextWindow: 32768,
-  maxOutputTokens: 32768,
+  contextWindow: 1024000,
+  maxOutputTokens: 819200,
   tier: 'flagship',
   tokenizer: 'Mistral',
-  capabilities: new Set(['chat', 'tools', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'structured', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 0.39999999999999997,
@@ -8379,65 +17801,639 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.58
+    timeToFirstToken: 472,
+    tokensPerSecond: 34
   },
   metadata: {
     description: "UnslopNemo v4.1 is the latest addition from the creator of Rocinante, designed for adventure writing and role-play scenarios.",
     defaultParameters: {},
     canonicalSlug: "thedrummer/unslopnemo-12b",
     huggingFaceId: "TheDrummer/UnslopNemo-12B-v4.1",
-    created: 1731103448
+    created: 1731103448,
+    knowledgeCutoff: "2024-04-30",
+    uptime: 100
+  }
+}, {
+  id: 'thenlper/gte-base',
+  provider: 'openrouter',
+  name: 'Thenlper: GTE-Base',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.005
+    }
+  },
+  metadata: {
+    description: "The gte-base embedding model encodes English sentences and paragraphs into a 768-dimensional dense vector space, delivering efficient and effective semantic embeddings optimized for textual similarity, semantic search, and clustering applications.",
+    defaultParameters: {},
+    canonicalSlug: "thenlper/gte-base-20251117",
+    huggingFaceId: "thenlper/gte-base",
+    created: 1763433820,
+    uptime: 100
+  }
+}, {
+  id: 'thenlper/gte-large',
+  provider: 'openrouter',
+  name: 'Thenlper: GTE-Large',
+  contextWindow: 512,
+  maxOutputTokens: 460,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.01
+    }
+  },
+  metadata: {
+    description: "The gte-large embedding model converts English sentences, paragraphs and moderate-length documents into a 1024-dimensional dense vector space, delivering high-quality semantic embeddings optimized for information retrieval, semantic textual similarity, reranking and...",
+    defaultParameters: {},
+    canonicalSlug: "thenlper/gte-large-20251117",
+    huggingFaceId: "thenlper/gte-large",
+    created: 1763433655
+  }
+}, {
+  id: 'thinkingmachines/inkling',
+  provider: 'openrouter',
+  name: 'Thinking Machines: Inkling',
+  contextWindow: 524288,
+  maxOutputTokens: 471859,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'hearing', 'chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 4.05,
+      cached: 0.16999999999999998
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 273,
+    tokensPerSecond: 78
+  },
+  metadata: {
+    description: "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
+    defaultParameters: {},
+    canonicalSlug: "thinkingmachines/inkling-20260715",
+    huggingFaceId: "thinkingmachines/Inkling",
+    created: 1784325956,
+    uptime: 100
+  }
+}, {
+  id: 'thinkingmachines/inkling-small',
+  provider: 'openrouter',
+  name: 'Thinking Machines: Inkling Small',
+  contextWindow: 524288,
+  maxOutputTokens: 262144,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'hearing', 'chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.44999999999999996,
+      output: 1.2,
+      cached: 0.09999999999999999
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 307,
+    tokensPerSecond: 68
+  },
+  metadata: {
+    description: "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
+    defaultParameters: {},
+    canonicalSlug: "thinkingmachines/inkling-small-20260730",
+    huggingFaceId: "thinkingmachines/Inkling-Small",
+    created: 1785443117,
+    uptime: 100
+  }
+}, {
+  id: 'thinkingmachines/inkling-small:free',
+  provider: 'openrouter',
+  name: 'Thinking Machines: Inkling Small (free)',
+  contextWindow: 1048576,
+  maxOutputTokens: 262144,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'hearing', 'chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1396,
+    tokensPerSecond: 93
+  },
+  metadata: {
+    description: "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
+    defaultParameters: {},
+    canonicalSlug: "thinkingmachines/inkling-small-20260730",
+    huggingFaceId: "thinkingmachines/Inkling-Small",
+    created: 1785443117,
+    uptime: 100
+  }
+}, {
+  id: 'thinkingmachines/inkling:free',
+  provider: 'openrouter',
+  name: 'Thinking Machines: Inkling (free)',
+  contextWindow: 1048576,
+  maxOutputTokens: 262144,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'hearing', 'chat', 'reasoning', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 2664,
+    tokensPerSecond: 37
+  },
+  metadata: {
+    description: "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
+    defaultParameters: {},
+    canonicalSlug: "thinkingmachines/inkling-20260715",
+    huggingFaceId: "thinkingmachines/Inkling",
+    created: 1784325956,
+    uptime: 100
+  }
+}, {
+  id: 'togethercomputer/tev1-4b-experimental',
+  provider: 'openrouter',
+  name: 'Together: Tev1 4B Experimental',
+  contextWindow: 32768,
+  maxOutputTokens: 8,
+  tier: 'experimental',
+  tokenizer: 'Qwen3',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.041999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 428.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Tev1 4B Experimental is an experimental decision model from Together AI, a supervised fine-tune of Qwen3.5-4B trained to choose one option from a structured state, question, and list of 2-24...",
+    defaultParameters: {},
+    canonicalSlug: "togethercomputer/tev1-4b-experimental-20260923",
+    huggingFaceId: "togethercomputer/Tev1-4B-experimental",
+    created: 1790795429
+  }
+}, {
+  id: 'typesafe/jev-1.13',
+  provider: 'openrouter',
+  name: 'TypeSafe: Jev 1.13',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.041999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 98,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Jev is a structured decision model from TypeSafe, and the first of its System One models. System One models make fast, structured decisions for software, returning a typed choice rather...",
+    defaultParameters: {},
+    canonicalSlug: "typesafe/jev-1.13-20260917",
+    created: 1789689684,
+    uptime: 100
+  }
+}, {
+  id: 'typesafe/jev-1.14',
+  provider: 'openrouter',
+  name: 'TypeSafe: Jev 1.14',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision']),
+  pricing: {
+    text: {
+      input: 0.041999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 130,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Jev 1.14 is the latest version of Jev, TypeSafe's structured decision model and the first of its System One models. System One models make fast, structured decisions for software, returning...",
+    defaultParameters: {},
+    canonicalSlug: "typesafe/jev-1.14-20261014",
+    created: 1792021417,
+    uptime: 100
+  }
+}, {
+  id: 'typesafe/jev-router',
+  provider: 'openrouter',
+  name: 'TypeSafe: Jev Router',
+  contextWindow: 1000000,
+  maxOutputTokens: 65536,
+  tier: 'flagship',
+  tokenizer: 'Router',
+  capabilities: new Set(['hearing', 'files', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP', 'verbosity']),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "Jev Router picks the best model and reasoning effort for each request, balancing quality, speed, and cost. It runs on [Jev](https://openrouter.ai/~typesafe/jev-latest), TypeSafe's first System One model, and adapts as your...",
+    defaultParameters: {},
+    canonicalSlug: "typesafe/jev-router",
+    created: 1790363560
+  }
+}, {
+  id: 'unbiased/pareto-26.10',
+  provider: 'openrouter',
+  name: 'Pareto 26.10',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.7999999999999999,
+      output: 3.1999999999999997,
+      cached: 0.03
+    }
+  },
+  metrics: {
+    timeToFirstToken: 2482,
+    tokensPerSecond: 48.5
+  },
+  metadata: {
+    description: "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks.",
+    defaultParameters: {},
+    canonicalSlug: "unbiased/pareto-26.10-20261015",
+    created: 1792073620,
+    uptime: 100
+  }
+}, {
+  id: 'unbiased/pareto-26.9',
+  provider: 'openrouter',
+  name: 'Pareto 26.9',
+  contextWindow: 262144,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'chat', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2.5,
+      output: 7.5,
+      cached: 0.25
+    }
+  },
+  metrics: {
+    timeToFirstToken: 1879.5,
+    tokensPerSecond: 25
+  },
+  metadata: {
+    description: "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks.",
+    defaultParameters: {},
+    canonicalSlug: "unbiased/pareto-26.9-20260917",
+    created: 1791930537
   }
 }, {
   id: 'undi95/remm-slerp-l2-13b',
   provider: 'openrouter',
   name: 'ReMM SLERP 13B',
   contextWindow: 6144,
-  maxOutputTokens: 4096,
+  maxOutputTokens: 5529,
   tier: 'flagship',
   tokenizer: 'Llama2',
   capabilities: new Set(['chat', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
-      input: 0.44999999999999996,
+      input: 0.35,
       output: 0.65
     }
   },
   metrics: {
-    timeToFirstToken: 0.64
+    timeToFirstToken: 651,
+    tokensPerSecond: 55
   },
   metadata: {
     description: "A recreation trial of the original MythoMax-L2-B13 but with updated models. #merge",
     defaultParameters: {},
     canonicalSlug: "undi95/remm-slerp-l2-13b",
     huggingFaceId: "Undi95/ReMM-SLERP-L2-13B",
-    created: 1689984000
+    created: 1689984000,
+    knowledgeCutoff: "2023-06-30"
   }
 }, {
-  id: 'upstage/solar-pro-3',
+  id: 'upstage/solar-decide',
   provider: 'openrouter',
-  name: 'Upstage: Solar Pro 3',
-  contextWindow: 128000,
+  name: 'Upstage: Solar Decide',
+  contextWindow: 524288,
+  maxOutputTokens: 471859,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools']),
+  capabilities: new Set([]),
   pricing: {
     text: {
-      input: 0.15,
-      output: 0.6
+      input: 0.049999999999999996,
+      cached: 0.049999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 1.69
+    timeToFirstToken: 12330,
+    tokensPerSecond: 0
   },
   metadata: {
-    description: "Solar Pro 3 is Upstage's powerful Mixture-of-Experts (MoE) language model. With 102B total parameters and 12B active parameters per forward pass, it delivers exceptional performance while maintaining computational efficiency. Optimized...",
+    description: "Solar Decide is Upstage's structured decision model, served as a System One endpoint on Solar Mini 4. Send a state along with typed questions, and it returns a choice, a...",
     defaultParameters: {},
-    canonicalSlug: "upstage/solar-pro-3",
-    huggingFaceId: "",
-    created: 1769481200
+    canonicalSlug: "upstage/solar-decide-20260928",
+    created: 1790592657,
+    uptime: 100
+  }
+}, {
+  id: 'upstage/solar-decide-flash',
+  provider: 'openrouter',
+  name: 'Upstage: Solar Decide Flash',
+  contextWindow: 524288,
+  maxOutputTokens: 471859,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      cached: 0.049999999999999996
+    }
+  },
+  metrics: {
+    timeToFirstToken: 878,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Solar Decide Flash is Upstage's low-latency structured decision model, a faster variant of [Solar Decide](/upstage/solar-decide) built on Solar Mini 4 and served through the System One (`/v1/systemone`) API. Instead of...",
+    defaultParameters: {},
+    canonicalSlug: "upstage/solar-decide-flash-20261008",
+    created: 1791419983
+  }
+}, {
+  id: 'upstage/solar-mini4',
+  provider: 'openrouter',
+  name: 'Upstage: Solar Mini 4',
+  contextWindow: 524288,
+  maxOutputTokens: 131072,
+  tier: 'efficient',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.19999999999999998,
+      cached: 0.005
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 2240,
+    tokensPerSecond: 71
+  },
+  metadata: {
+    description: "Solar Mini 4 is Upstage's compact, cost-efficient language model, a 35B-parameter mixture-of-experts with 3B active parameters and a 524K context window. It is built for agentic use cases where response...",
+    defaultParameters: {},
+    canonicalSlug: "upstage/solar-mini4-20260922",
+    created: 1790160358,
+    uptime: 100
+  }
+}, {
+  id: 'upstage/solar-pro4',
+  provider: 'openrouter',
+  name: 'Upstage: Solar Pro 4',
+  contextWindow: 524288,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.6,
+      cached: 0.03
+    }
+  },
+  reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 693,
+    tokensPerSecond: 79
+  },
+  metadata: {
+    description: "Solar Pro 4 is Upstage's cost-efficient large language model, featuring a 524K context window. It is built for long-horizon tasks and agentic workflows, with strong capabilities in office productivity, document-intensive...",
+    defaultParameters: {},
+    canonicalSlug: "upstage/solar-pro4-20260810",
+    created: 1786371636,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/rerank-2.5',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: rerank-2.5',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "rerank-2.5 is a cutting-edge reranker optimized for quality, delivering a 7.94% improvement in retrieval accuracy over Cohere Rerank v3.5 across 93 datasets. It also outperformed Cohere Rerank v3.5 by 12.70%...",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/rerank-2.5-20260727",
+    created: 1785188630,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/rerank-2.5-lite',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: rerank-2.5-lite',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "rerank-2.5-lite is a reranker optimized for both latency and quality, delivering a 7.16% improvement in retrieval accuracy over Cohere Rerank v3.5 across 93 datasets. It also outperformed Cohere Rerank v3.5...",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/rerank-2.5-lite-20260727",
+    created: 1785188631,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/rerank-3',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: rerank-3',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "rerank-3 is a reranker optimized for quality and a drop-in upgrade to rerank-2.5, improving on it by 0.80% NDCG@10 on average across domain evaluations and by 3.35% on long-document evaluations,...",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/rerank-3-20260930",
+    created: 1790785501,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/rerank-3-lite',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: rerank-3-lite',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set([]),
+  pricing: {
+    text: {}
+  },
+  metadata: {
+    description: "rerank-3-lite is a reranker optimized for both latency and quality and a drop-in upgrade to rerank-2.5-lite, improving on it by 0.94% NDCG@10 on average across domain evaluations and by 1.86%...",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/rerank-3-lite-20260930",
+    created: 1790785569,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/voyage-4',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: voyage-4',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.06
+    }
+  },
+  metadata: {
+    description: "voyage-4 is a general-purpose (including multilingual) embedding model optimized for retrieval/search and AI applications. voyage-4 supports embedd about voyage-4 here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/voyage-4-20260727",
+    created: 1785188626,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/voyage-4-large',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: voyage-4-large',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.12
+    }
+  },
+  metadata: {
+    description: "voyage-4-large is a state-of-the-art general-purpose and multilingual embedding optimized for retrieval quality. Enabled by Matryoshka learning and quantization-aware training, voyage-4-large supports embeddings  voyage-4-large here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/voyage-4-large-20260727",
+    created: 1785188624,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/voyage-4-lite',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: voyage-4-lite',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.02
+    }
+  },
+  metadata: {
+    description: "voyage-4-lite is a lightweight, general-purpose embedding model optimized for low latency and cost. Enabled by Matryoshka learning and quantization-aware training, voyage-4-lite supports embeddings t voyage-4-lite here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/voyage-4-lite-20260727",
+    created: 1785188627,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/voyage-code-4',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: voyage-code-4',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.12
+    }
+  },
+  metadata: {
+    description: "voyage-code-4 is a code embedding model from Voyage AI, a MongoDB company. It is designed for coding agents and code retrieval, with Matryoshka embeddings at 2048t voyage-code-4 here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/voyage-code-4-20260812",
+    created: 1786636912,
+    uptime: 100
+  }
+}, {
+  id: 'voyageai/voyage-multimodal-3.5',
+  provider: 'openrouter',
+  name: 'VoyageAI by MongoDB: voyage-multimodal-3.5',
+  contextWindow: 32000,
+  maxOutputTokens: 28800,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.12
+    }
+  },
+  metadata: {
+    description: "voyage-multimodal-3.5 is a state-of-the-art multimodal embedding model capable of vectorizing not only text, images, and video individually, but also content that interleaves all three modalities. It delivers excellent performance for...",
+    defaultParameters: {},
+    canonicalSlug: "voyageai/voyage-multimodal-3.5-20260727",
+    created: 1785188629,
+    uptime: 100
   }
 }, {
   id: 'writer/palmyra-x5',
@@ -8456,7 +18452,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 0.31
+    timeToFirstToken: 434.5,
+    tokensPerSecond: 73
   },
   metadata: {
     description: "Palmyra X5 is Writer's most advanced model, purpose-built for building and scaling AI agents across the enterprise. It delivers industry-leading speed and efficiency on context windows up to 1 million...",
@@ -8468,73 +18465,124 @@ export const openrouterModels: ModelInfo[] = [{
 }, {
   id: 'x-ai/grok-4.20',
   provider: 'openrouter',
-  name: 'xAI: Grok 4.20',
+  name: 'SpaceXAI: Grok 4.20',
   contextWindow: 2000000,
+  maxOutputTokens: 1800000,
   tier: 'flagship',
   tokenizer: 'Grok',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.25,
-      output: 2.5
+      output: 2.5,
+      cached: 0.19999999999999998
+    },
+    tools: {
+      web_search: 0.005
     }
   },
   metrics: {
-    timeToFirstToken: 0.51
+    timeToFirstToken: 599,
+    tokensPerSecond: 107.5
   },
   metadata: {
-    description: "Grok 4.20 is a reasoning model from xAI with industry-leading speed and agentic tool calling capabilities. It combines the lowest hallucination rate on the market with strict prompt adherance, delivering...",
+    description: "Grok 4.20 is a reasoning model from SpaceXAI with industry-leading speed and agentic tool calling capabilities. It combines the lowest hallucination rate on the market with strict prompt adherance, delivering...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-4.20-20260309",
     huggingFaceId: "",
-    created: 1774979019
+    created: 1774979019,
+    knowledgeCutoff: "2025-09-01",
+    uptime: 100
   }
 }, {
   id: 'x-ai/grok-4.20-multi-agent',
   provider: 'openrouter',
-  name: 'xAI: Grok 4.20 Multi-Agent',
+  name: 'SpaceXAI: Grok 4.20 Multi-Agent',
   contextWindow: 2000000,
+  maxOutputTokens: 1800000,
   tier: 'flagship',
   tokenizer: 'Grok',
-  capabilities: new Set(['chat', 'vision', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'streaming']),
   supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'topP']),
   pricing: {
     text: {
       input: 1.25,
-      output: 2.5
+      output: 2.5,
+      cached: 0.19999999999999998
+    },
+    tools: {
+      web_search: 0.005
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 7.41
+    timeToFirstToken: 3727,
+    tokensPerSecond: 336
   },
   metadata: {
-    description: "Grok 4.20 Multi-Agent is a variant of xAI’s Grok 4.20 designed for collaborative, agent-based workflows. Multiple agents operate in parallel to conduct deep research, coordinate tool use, and synthesize information...",
+    description: "Grok 4.20 Multi-Agent is a variant of SpaceXAI’s Grok 4.20 designed for collaborative, agent-based workflows. Multiple agents operate in parallel to conduct deep research, coordinate tool use, and synthesize information...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-4.20-multi-agent-20260309",
     huggingFaceId: "",
-    created: 1774979158
+    created: 1774979158,
+    knowledgeCutoff: "2025-09-01"
   }
 }, {
   id: 'x-ai/grok-4.3',
   provider: 'openrouter',
-  name: 'xAI: Grok 4.3',
+  name: 'SpaceXAI: Grok 4.3',
   contextWindow: 1000000,
+  maxOutputTokens: 900000,
   tier: 'flagship',
   tokenizer: 'Grok',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.25,
-      output: 2.5
+      output: 2.5,
+      cached: 0.19999999999999998
+    },
+    tools: {
+      web_search: 0.005
     }
   },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 0.57
+    timeToFirstToken: 1242.5,
+    tokensPerSecond: 93
   },
   metadata: {
-    description: "Grok 4.3 is a reasoning model from xAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
+    description: "Grok 4.3 is a reasoning model from SpaceXAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-4.3-20260430",
+    created: 1777591821,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-4.3:batch',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok 4.3 (batch)',
+  contextWindow: 1000000,
+  maxOutputTokens: 900000,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 2,
+      cached: 0.16
+    },
+    tools: {
+      web_search: 0.005
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  metadata: {
+    description: "Grok 4.3 is a reasoning model from SpaceXAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-4.3-20260430",
     created: 1777591821
@@ -8542,68 +18590,326 @@ export const openrouterModels: ModelInfo[] = [{
 }, {
   id: 'x-ai/grok-4.5',
   provider: 'openrouter',
-  name: 'xAI: Grok 4.5',
+  name: 'SpaceXAI: Grok 4.5',
   contextWindow: 500000,
+  maxOutputTokens: 450000,
   tier: 'flagship',
   tokenizer: 'Grok',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 2,
-      output: 6
+      output: 6,
+      cached: 0.3
+    },
+    tools: {
+      web_search: 0.005
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1
+    timeToFirstToken: 1559,
+    tokensPerSecond: 56
   },
   metadata: {
-    description: "Grok 4.5 is SpaceXAI's smartest model with frontier performance on coding, knowledge work, and STEM.",
+    description: "Grok 4.5 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM.",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-4.5-20260708",
-    created: 1783523154
+    created: 1783523154,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-4.6',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok 4.6',
+  contextWindow: 500000,
+  maxOutputTokens: 450000,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.005
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 1954.5,
+    tokensPerSecond: 92
+  },
+  metadata: {
+    description: "Grok 4.6 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-4.6-20260810",
+    created: 1786548957,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-4.7',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok 4.7',
+  contextWindow: 500000,
+  maxOutputTokens: 450000,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6,
+      cached: 0.5
+    },
+    tools: {
+      web_search: 0.005
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+  metrics: {
+    timeToFirstToken: 1579,
+    tokensPerSecond: 82
+  },
+  metadata: {
+    description: "Grok 4.7 is SpaceXAI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
+    defaultParameters: {
+      temperature: 0.7,
+      top_p: 0.95
+    },
+    canonicalSlug: "x-ai/grok-4.7-20260916",
+    created: 1790007541,
+    uptime: 100
   }
 }, {
   id: 'x-ai/grok-build-0.1',
   provider: 'openrouter',
-  name: 'xAI: Grok Build 0.1',
+  name: 'SpaceXAI: Grok Build 0.1',
   contextWindow: 256000,
+  maxOutputTokens: 230400,
   tier: 'flagship',
   tokenizer: 'Grok',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['vision', 'files', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1,
-      output: 2
+      output: 2,
+      cached: 0.19999999999999998
+    },
+    tools: {
+      web_search: 0.005
     }
   },
   metrics: {
-    timeToFirstToken: 0.38
+    timeToFirstToken: 841,
+    tokensPerSecond: 198.5
   },
   metadata: {
-    description: "Grok Build 0.1 is xAI’s fast coding model trained specifically for agentic software engineering workflows. It supports text and image inputs with text output, and is optimized for interactive coding...",
+    description: "Grok Build 0.1 is SpaceXAI’s fast coding model trained specifically for agentic software engineering workflows. It supports text and image inputs with text output, and is optimized for interactive coding...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-build-0.1-20260520",
-    created: 1779298123
+    created: 1779298123,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-imagine-image-2.0',
+  provider: 'openrouter',
+  name: 'xAI: Grok Imagine Image 2.0',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'image', 'json']),
+  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 9.580838323353289
+    }
+  },
+  metrics: {
+    timeToFirstToken: 25188,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Grok Imagine Image 2.0 is an image generation and editing model from xAI. It is suited for creating images from text prompts and editing images from references, with low and...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-imagine-image-2.0-20260811",
+    created: 1786486044,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-imagine-image-quality',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok Imagine Image Quality',
+  contextWindow: 65536,
+  maxOutputTokens: 58982,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'image', 'json']),
+  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {},
+    image: {
+      input: 11.9760479041916
+    }
+  },
+  metrics: {
+    timeToFirstToken: 10463,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Grok Imagine Image Quality is SpaceXAI's fast, high-fidelity image generation and editing model. It accepts text prompts and optional reference images, producing photorealistic outputs at 1K or 2K across a...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-imagine-image-quality-20260512",
+    created: 1779117584,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-imagine-video',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok Imagine Video',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 44843,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Grok Imagine Video is SpaceXAI's fast, text-, image-, and reference-conditioned video generation model. It produces short videos (1–15 seconds, 24 fps) at 480p or 720p across seven aspect ratios -...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-imagine-video-20260512",
+    created: 1779117586
+  }
+}, {
+  id: 'x-ai/grok-imagine-video-1.5',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok Imagine Video 1.5',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 38341,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Grok Imagine Video 1.5 is a video generation model from SpaceXAI. It creates videos from text prompts, with an optional starting image to guide the scene. It can direct subject...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-imagine-video-1.5-20260719",
+    created: 1784548100
+  }
+}, {
+  id: 'x-ai/grok-imagine-video-1.5-lite',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok Imagine Video 1.5 Lite',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['vision', 'json']),
+  supportedParameters: new Set(['logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'temperature', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 33030.5,
+    tokensPerSecond: 0
+  },
+  metadata: {
+    description: "Grok Imagine Video 1.5 Lite is a faster, lower-cost video generation model from SpaceXAI, distilled from [Grok Imagine Video 1.5](/x-ai/grok-imagine-video-1.5). It supports text-to-video and image-to-video, trading some quality for speed...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-imagine-video-1.5-lite-20261001",
+    created: 1791309778,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-stt-1.0',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok STT 1.0',
+  contextWindow: 0,
+  maxOutputTokens: 0,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['hearing']),
+  pricing: {
+    text: {
+      input: 27.777777777799997
+    }
+  },
+  metadata: {
+    description: "Grok STT is SpaceXAI's speech-to-text model, available via the REST /v1/stt endpoint. It supports transcription with word-level timestamps, optional speaker diarization, and multichannel audio.",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-stt-20260723",
+    created: 1784817014,
+    uptime: 100
+  }
+}, {
+  id: 'x-ai/grok-voice-tts-1.0',
+  provider: 'openrouter',
+  name: 'SpaceXAI: Grok Voice TTS 1.0',
+  contextWindow: 15000,
+  maxOutputTokens: 13500,
+  tier: 'flagship',
+  tokenizer: 'Grok',
+  capabilities: new Set(['audio']),
+  pricing: {
+    text: {
+      input: 15
+    }
+  },
+  metadata: {
+    description: "Grok Voice TTS 1.0 is a text-to-speech model from SpaceXAI. It converts text into spoken audio across 20+ languages with automatic language detection, and offers five built-in voices (Eve, Ara,...",
+    defaultParameters: {},
+    canonicalSlug: "x-ai/grok-voice-tts-1.0",
+    created: 1778805456,
+    voices: [
+      "eve",
+      "ara",
+      "rex",
+      "sal",
+      "leo"
+    ],
+    uptime: 100
   }
 }, {
   id: 'xiaomi/mimo-v2.5',
   provider: 'openrouter',
   name: 'Xiaomi: MiMo-V2.5',
-  contextWindow: 1048576,
+  contextWindow: 1050000,
+  maxOutputTokens: 65536,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'hearing', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['hearing', 'vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.105,
-      output: 0.28
+      input: 0.39999999999999997,
+      output: 2,
+      cached: 0.08
     }
   },
   metrics: {
-    timeToFirstToken: 0.53
+    timeToFirstToken: 2102,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "MiMo-V2.5 is a native omnimodal model by Xiaomi. It delivers Pro-level agentic performance at roughly half the inference cost, while surpassing MiMo-V2-Omni in multimodal perception across image and video understanding...",
@@ -8613,26 +18919,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "xiaomi/mimo-v2.5-20260422",
     huggingFaceId: "XiaomiMiMo/MiMo-V2.5",
-    created: 1776874269
+    created: 1776874269,
+    uptime: 100
   }
 }, {
   id: 'xiaomi/mimo-v2.5-pro',
   provider: 'openrouter',
   name: 'Xiaomi: MiMo-V2.5-Pro',
-  contextWindow: 1048576,
-  maxOutputTokens: 131072,
+  contextWindow: 1050000,
+  maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'logProbabilities', 'maxTokens', 'responseFormat', 'seed', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.435,
-      output: 0.87
+      input: 0.48,
+      output: 1.7999999999999998,
+      cached: 0.096
     }
   },
   metrics: {
-    timeToFirstToken: 0.96
+    timeToFirstToken: 2073.5,
+    tokensPerSecond: 9
   },
   metadata: {
     description: "MiMo-V2.5-Pro is Xiaomi’s flagship model, delivering strong performance in general agentic capabilities, complex software engineering, and long-horizon tasks, with top rankings on benchmarks such as ClawEval, GDPVal, and SWE-bench Pro....",
@@ -8642,7 +18951,135 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "xiaomi/mimo-v2.5-pro-20260422",
     huggingFaceId: "XiaomiMiMo/MiMo-V2.5-Pro",
-    created: 1776874273
+    created: 1776874273,
+    uptime: 100
+  }
+}, {
+  id: 'xiaomi/mimo-v2.6-flash',
+  provider: 'openrouter',
+  name: 'Xiaomi: MiMo-V2.6-Flash',
+  contextWindow: 1050000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.14,
+      output: 0.28,
+      cached: 0.0028
+    }
+  },
+  metrics: {
+    timeToFirstToken: 709,
+    tokensPerSecond: 80
+  },
+  metadata: {
+    description: "MiMo-V2.6-Flash is an open-source foundation model developed by Xiaomi. Built on a Mixture-of-Experts architecture with 309B total parameters and 15B activated per token, it employs a hybrid attention mechanism for...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      frequency_penalty: 0
+    },
+    canonicalSlug: "xiaomi/mimo-v2.6-flash-20260921",
+    huggingFaceId: "XiaomiMiMo/MiMo-V2.6-Flash-RL",
+    created: 1790021264,
+    uptime: 100
+  }
+}, {
+  id: 'xiaomi/mimo-v2.6-pro',
+  provider: 'openrouter',
+  name: 'Xiaomi: MiMo-V2.6-Pro',
+  contextWindow: 1050000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.435,
+      output: 0.87,
+      cached: 0.0036
+    }
+  },
+  metrics: {
+    timeToFirstToken: 1109,
+    tokensPerSecond: 40
+  },
+  metadata: {
+    description: "MiMo-V2.6-Pro is the flagship foundation model developed by Xiaomi. Built at a scale of over 1T parameters, it is designed to push the ceiling of capability for the most demanding...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      frequency_penalty: 0
+    },
+    canonicalSlug: "xiaomi/mimo-v2.6-pro-20260921",
+    huggingFaceId: "XiaomiMiMo/MiMo-V2.6-Pro-RL",
+    created: 1790021259,
+    uptime: 100
+  }
+}, {
+  id: 'xiaomi/mimo-v2.6-pro-ultraspeed',
+  provider: 'openrouter',
+  name: 'Xiaomi: MiMo-V2.6-Pro-UltraSpeed',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'hearing', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 4.35,
+      output: 8.7,
+      cached: 0.036
+    }
+  },
+  metrics: {
+    timeToFirstToken: 7172,
+    tokensPerSecond: 43
+  },
+  metadata: {
+    description: "MiMo-V2.6-Pro-UltraSpeed is the fast speed edition of Xiaomi's flagship foundation model, MiMo-V2.6-Pro. Built from the same 1T MiMo-V2.6-Pro checkpoint, it matches the original model in quality while delivering roughly 10x...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      frequency_penalty: 0
+    },
+    canonicalSlug: "xiaomi/mimo-v2.6-pro-ultraspeed-20260921",
+    created: 1790021267,
+    uptime: 100
+  }
+}, {
+  id: 'xingchen-agi/xing4.0-29b-a4b:free',
+  provider: 'openrouter',
+  name: 'XingChen: Xing4.0 29B A4B (free)',
+  contextWindow: 262144,
+  maxOutputTokens: 235929,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {}
+  },
+  metrics: {
+    timeToFirstToken: 439,
+    tokensPerSecond: 46
+  },
+  metadata: {
+    description: "Xing4.0-29B-A4B is an open-weight mixture-of-experts language model from China Telecom's AI team (TeleAI) and the successor to the TeleChat series. It has 29B total parameters with 4B active per token...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95,
+      repetition_penalty: 1.05
+    },
+    canonicalSlug: "xingchen-agi/xing4.0-29b-a4b-20261015",
+    huggingFaceId: "XingChen-AGI/Xing4.0-29B-A4B",
+    created: 1792177496,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-4.5',
@@ -8652,16 +19089,19 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 98304,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.6,
-      output: 2.2
+      output: 2.2,
+      cached: 0.11
     }
   },
+  retiresAt: '2026-12-31',
   metrics: {
-    timeToFirstToken: 2.73
+    timeToFirstToken: 4315.5,
+    tokensPerSecond: 26
   },
   metadata: {
     description: "GLM-4.5 is our latest flagship foundation model, purpose-built for agent-based applications. It leverages a Mixture-of-Experts (MoE) architecture and supports a context length of up to 128k tokens. GLM-4.5 delivers significantly...",
@@ -8670,7 +19110,9 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.5",
     huggingFaceId: "zai-org/GLM-4.5",
-    created: 1753471347
+    created: 1753471347,
+    knowledgeCutoff: "2024-12-31",
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-4.5-air',
@@ -8680,16 +19122,18 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 98304,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.13,
-      output: 0.85
+      output: 0.85,
+      cached: 0.024999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.77
+    timeToFirstToken: 517,
+    tokensPerSecond: 67
   },
   metadata: {
     description: "GLM-4.5-Air is the lightweight variant of our latest flagship model family, also purpose-built for agent-centric applications. Like GLM-4.5, it adopts the Mixture-of-Experts (MoE) architecture but with a more compact parameter...",
@@ -8698,7 +19142,9 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.5-air",
     huggingFaceId: "zai-org/GLM-4.5-Air",
-    created: 1753471258
+    created: 1753471258,
+    knowledgeCutoff: "2024-12-31",
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-4.5v',
@@ -8708,16 +19154,19 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 16384,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['vision', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.6,
-      output: 1.7999999999999998
+      output: 1.7999999999999998,
+      cached: 0.11
     }
   },
+  retiresAt: '2026-12-31',
   metrics: {
-    timeToFirstToken: 4.11
+    timeToFirstToken: 814.5,
+    tokensPerSecond: 44.5
   },
   metadata: {
     description: "GLM-4.5V is a vision-language foundation model for multimodal agent applications. Built on a Mixture-of-Experts (MoE) architecture with 106B parameters and 12B activated parameters, it achieves state-of-the-art results in video understanding,...",
@@ -8726,26 +19175,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.5v",
     huggingFaceId: "zai-org/GLM-4.5V",
-    created: 1754922288
+    created: 1754922288,
+    knowledgeCutoff: "2024-12-31"
   }
 }, {
   id: 'z-ai/glm-4.6',
   provider: 'openrouter',
   name: 'Z.ai: GLM 4.6',
-  contextWindow: 202752,
+  contextWindow: 204800,
   maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.43,
-      output: 1.74
+      input: 0.5,
+      output: 2,
+      cached: 0.09999999999999999
     }
   },
   metrics: {
-    timeToFirstToken: 0.49
+    timeToFirstToken: 1320,
+    tokensPerSecond: 29
   },
   metadata: {
     description: "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
@@ -8754,7 +19206,9 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.6",
     huggingFaceId: "zai-org/GLM-4.6",
-    created: 1759235576
+    created: 1759235576,
+    knowledgeCutoff: "2025-03-31",
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-4.6v',
@@ -8764,16 +19218,18 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 32768,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 0.3,
-      output: 0.8999999999999999
+      output: 0.8999999999999999,
+      cached: 0.055
     }
   },
   metrics: {
-    timeToFirstToken: 1.62
+    timeToFirstToken: 2230,
+    tokensPerSecond: 28
   },
   metadata: {
     description: "GLM-4.6V is a large multimodal model designed for high-fidelity visual understanding and long-context reasoning across images, documents, and mixed media. It supports up to 128K tokens, processes complex page layouts...",
@@ -8783,26 +19239,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.6-20251208",
     huggingFaceId: "zai-org/GLM-4.6V",
-    created: 1765207462
+    created: 1765207462,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-4.7',
   provider: 'openrouter',
   name: 'Z.ai: GLM 4.7',
-  contextWindow: 202752,
+  contextWindow: 204800,
   maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.39999999999999997,
-      output: 1.75
+      input: 0.54,
+      output: 1.9800000000000002,
+      cached: 0.099
     }
   },
   metrics: {
-    timeToFirstToken: 0.29
+    timeToFirstToken: 1312,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "GLM-4.7 is Z.ai’s latest flagship model, featuring upgrades in two key areas: enhanced programming capabilities and more stable multi-step reasoning/execution. It demonstrates significant improvements in executing complex agent tasks while...",
@@ -8812,26 +19271,28 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.7-20251222",
     huggingFaceId: "zai-org/GLM-4.7",
-    created: 1766378014
+    created: 1766378014,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-4.7-flash',
   provider: 'openrouter',
   name: 'Z.ai: GLM 4.7 Flash',
-  contextWindow: 202752,
-  maxOutputTokens: 16384,
+  contextWindow: 200000,
+  maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.06,
+      input: 0.060500000000000005,
       output: 0.39999999999999997
     }
   },
   metrics: {
-    timeToFirstToken: 0.46
+    timeToFirstToken: 370,
+    tokensPerSecond: 48
   },
   metadata: {
     description: "As a 30B-class SOTA model, GLM-4.7-Flash offers a new option that balances performance and efficiency. It is further optimized for agentic coding use cases, strengthening coding capabilities, long-horizon task planning,...",
@@ -8841,25 +19302,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-4.7-flash-20260119",
     huggingFaceId: "zai-org/GLM-4.7-Flash",
-    created: 1768833913
+    created: 1768833913,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-5',
   provider: 'openrouter',
   name: 'Z.ai: GLM 5',
-  contextWindow: 202752,
+  contextWindow: 204800,
+  maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.6,
-      output: 1.92
+      input: 1,
+      output: 3.1999999999999997,
+      cached: 0.19999999999999998
     }
   },
   metrics: {
-    timeToFirstToken: 0.68
+    timeToFirstToken: 618,
+    tokensPerSecond: 119
   },
   metadata: {
     description: "GLM-5 is Z.ai’s flagship open-source foundation model engineered for complex systems design and long-horizon agent workflows. Built for expert developers, it delivers production-grade performance on large-scale programming tasks, rivaling leading...",
@@ -8869,26 +19334,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-5-20260211",
     huggingFaceId: "zai-org/GLM-5",
-    created: 1770829182
+    created: 1770829182,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-5-turbo',
   provider: 'openrouter',
   name: 'Z.ai: GLM 5 Turbo',
-  contextWindow: 262144,
+  contextWindow: 202752,
   maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'streaming']),
-  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.2,
-      output: 4
+      output: 4,
+      cached: 0.24
     }
   },
   metrics: {
-    timeToFirstToken: 1.8
+    timeToFirstToken: 4035,
+    tokensPerSecond: 25
   },
   metadata: {
     description: "GLM-5 Turbo is a new model from Z.ai designed for fast inference and strong performance in agent-driven environments such as OpenClaw scenarios. It is deeply optimized for real-world agent workflows...",
@@ -8898,26 +19366,29 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-5-turbo-20260315",
     huggingFaceId: "",
-    created: 1773583573
+    created: 1773583573,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-5.1',
   provider: 'openrouter',
   name: 'Z.ai: GLM 5.1',
-  contextWindow: 202752,
-  maxOutputTokens: 128000,
+  contextWindow: 204800,
+  maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.966,
-      output: 3.036
+      input: 1.4,
+      output: 4.4,
+      cached: 0.26
     }
   },
   metrics: {
-    timeToFirstToken: 0.3
+    timeToFirstToken: 130,
+    tokensPerSecond: 149
   },
   metadata: {
     description: "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
@@ -8927,26 +19398,30 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-5.1-20260406",
     huggingFaceId: "zai-org/GLM-5.1",
-    created: 1775578025
+    created: 1775578025,
+    uptime: 100
   }
 }, {
   id: 'z-ai/glm-5.2',
   provider: 'openrouter',
   name: 'Z.ai: GLM 5.2',
   contextWindow: 1048576,
-  maxOutputTokens: 101376,
+  maxOutputTokens: 943718,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'tools', 'reasoning', 'json', 'structured', 'streaming']),
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.54,
-      output: 1.76
+      input: 0.006,
+      output: 7,
+      cached: 0.005
     }
   },
+  reasoningEfforts: ['none', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 0.62
+    timeToFirstToken: 383,
+    tokensPerSecond: 244
   },
   metadata: {
     description: "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
@@ -8956,7 +19431,195 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-5.2-20260616",
     huggingFaceId: "zai-org/GLM-5.2",
-    created: 1781631930
+    created: 1781631930,
+    uptime: 100
+  }
+}, {
+  id: 'z-ai/glm-5.3',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM 5.3',
+  contextWindow: 1048576,
+  maxOutputTokens: 943718,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.08,
+      output: 3.5999999999999996,
+      cached: 0.07600000000000001
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 343,
+    tokensPerSecond: 151
+  },
+  metadata: {
+    description: "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "z-ai/glm-5.3-20260816",
+    huggingFaceId: "zai-org/GLM-5.3",
+    created: 1787086655,
+    uptime: 100
+  }
+}, {
+  id: 'z-ai/glm-5.3-flash',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM 5.3 Flash',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.018,
+      output: 0.1402,
+      cached: 0.018
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 409,
+    tokensPerSecond: 122
+  },
+  metadata: {
+    description: "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "z-ai/glm-5.3-flash-20260826",
+    huggingFaceId: "zai-org/GLM-5.3-Flash",
+    created: 1787752741,
+    uptime: 100
+  }
+}, {
+  id: 'z-ai/glm-5.3-flash:batch',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM 5.3 Flash (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.049999999999999996,
+      output: 0.18,
+      cached: 0.01
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metadata: {
+    description: "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "z-ai/glm-5.3-flash-20260826",
+    huggingFaceId: "zai-org/GLM-5.3-Flash",
+    created: 1787752741
+  }
+}, {
+  id: 'z-ai/glm-5.3-flashx',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM 5.3 FlashX',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.37,
+      output: 1.25,
+      cached: 0.09
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1440,
+    tokensPerSecond: 97
+  },
+  metadata: {
+    description: "GLM-5.3-FlashX is the high-speed variant of Z.ai's GLM-5.3-Flash, a native multimodal model delivering inference speeds of up to 200 tokens/s. Built on the same hybrid sparse and linear attention architecture...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "z-ai/glm-5.3-flashx-20260918",
+    huggingFaceId: "",
+    created: 1789744020,
+    uptime: 100
+  }
+}, {
+  id: 'z-ai/glm-5.3-prime',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM 5.3 Prime',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 2.8,
+      output: 8.8,
+      cached: 0.56
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metrics: {
+    timeToFirstToken: 1179,
+    tokensPerSecond: 80
+  },
+  metadata: {
+    description: "GLM-5.3-Prime is the high-speed variant of Z.ai's GLM-5.3, inheriting its full capabilities while delivering 1.5–2× the output throughput through inference acceleration. It supports text input and output with a 1M-token...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "z-ai/glm-5.3-prime-20260921",
+    created: 1790199651,
+    uptime: 100
+  }
+}, {
+  id: 'z-ai/glm-5.3:batch',
+  provider: 'openrouter',
+  name: 'Z.ai: GLM 5.3 (batch)',
+  contextWindow: 1048576,
+  maxOutputTokens: 131072,
+  tier: 'flagship',
+  tokenizer: 'Other',
+  capabilities: new Set(['chat', 'reasoning', 'json', 'structured', 'tools', 'streaming']),
+  supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
+  pricing: {
+    text: {
+      input: 0.44999999999999996,
+      output: 2,
+      cached: 0.09999999999999999
+    }
+  },
+  reasoningEfforts: ['low', 'high', 'max'],
+  metadata: {
+    description: "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
+    defaultParameters: {
+      temperature: 1,
+      top_p: 0.95
+    },
+    canonicalSlug: "z-ai/glm-5.3-20260816",
+    huggingFaceId: "zai-org/GLM-5.3",
+    created: 1787086655
   }
 }, {
   id: 'z-ai/glm-5v-turbo',
@@ -8966,16 +19629,18 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 131072,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['chat', 'vision', 'tools', 'reasoning', 'json', 'streaming']),
+  capabilities: new Set(['vision', 'videoInput', 'chat', 'reasoning', 'json', 'tools', 'streaming']),
   supportedParameters: new Set(['reason', 'maxTokens', 'responseFormat', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
       input: 1.2,
-      output: 4
+      output: 4,
+      cached: 0.24
     }
   },
   metrics: {
-    timeToFirstToken: 3.65
+    timeToFirstToken: 1156.5,
+    tokensPerSecond: 49
   },
   metadata: {
     description: "GLM-5V-Turbo is Z.ai’s first native multimodal agent foundation model, built for vision-based coding and agent-driven tasks. It natively handles image, video, and text inputs, excels at long-horizon planning, complex coding,...",
@@ -8985,6 +19650,7 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "z-ai/glm-5v-turbo-20260401",
     huggingFaceId: "",
-    created: 1775061458
+    created: 1775061458,
+    uptime: 100
   }
 }];

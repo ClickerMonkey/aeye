@@ -27,6 +27,8 @@ export const stringifyModel = (m: ModelInfo) => {
     [m.capabilities, `capabilities: new Set([${Array.from(m.capabilities).map(c => `'${c}'`).join(', ')}])`],
     [m.supportedParameters?.size || (m.supportedParameters as any)?.length, `supportedParameters: new Set([${Array.from(m.supportedParameters || []).map(p => `'${p}'`).join(', ')}])`],
     [m.pricing || {}, `pricing: ${stringify(m.pricing, 2)}`],
+    [m.reasoningEfforts?.length, `reasoningEfforts: [${(m.reasoningEfforts ?? []).map(e => `'${e}'`).join(', ')}]`],
+    [m.retiresAt, `retiresAt: '${m.retiresAt}'`],
     [m.metrics, `metrics: ${stringify(m.metrics, 2)}`],
     [m.metadata, `metadata: ${stringify(m.metadata, 2)}`],
   ];
