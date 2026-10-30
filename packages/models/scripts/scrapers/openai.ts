@@ -7,12 +7,11 @@
  * page (shutdown dates).
  */
 
-import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { detectTier, type ModelCapability, type ModelInfo, type ModelParameter, type ModelPricing } from '@aeye/ai';
-import { REASONING_EFFORTS, type ReasoningEffort } from '@aeye/core';
-import { writeModelTS } from '../codegen';
+import { writeModelJSON, writeModelTS } from '../codegen';
+import { amount, bullets, fetchMarkdown, isoDate, reasoningEfforts, section, subsections, tableRows } from './docs';
 
 const DOCS = 'https://developers.openai.com/api/docs';
 
@@ -26,59 +25,8 @@ const SNAPSHOT = /-(\d{4}-\d{2}-\d{2}|\d{4})$/;
 /**
  * Fetch a docs page as Markdown, or undefined when it doesn't exist.
  */
-async function fetchMarkdown(page: string): Promise<string | undefined> {
-  const response = await fetch(`${DOCS}/${page}.md`);
-  return response.ok ? response.text() : undefined;
-}
-
-/**
- * The body of a `##` or `###` section, up to the next heading of the same or
- * a higher level.
- */
-function section(markdown: string, heading: string): string {
-  const match = new RegExp(`^(#{2,3}) ${heading}\\s*$`, 'm').exec(markdown);
-  if (!match) {
-    return '';
-  }
-  const rest = markdown.slice(match.index + match[0].length);
-  const end = new RegExp(`^#{2,${match[1].length}} `, 'm').exec(rest);
-  return end ? rest.slice(0, end.index) : rest;
-}
-
-/**
- * Every `### heading` in a section, with its body.
- */
-function subsections(markdown: string): Map<string, string> {
-  const parts = markdown.split(/^### /m).slice(1);
-  return new Map(parts.map(part => {
-    const newline = part.indexOf('\n');
-    return [part.slice(0, newline).trim(), part.slice(newline)];
-  }));
-}
-
-/**
- * The text of each `- ` bullet.
- */
-function bullets(markdown: string): string[] {
-  return markdown.split('\n').flatMap(line => line.startsWith('- ') ? [line.slice(2).trim()] : []);
-}
-
-/**
- * The cells of each table body row.
- */
-function tableRows(markdown: string): string[][] {
-  return markdown.split('\n')
-    .filter(line => line.startsWith('|') && !/^\|\s*-/.test(line))
-    .slice(1)
-    .map(line => line.slice(1, -1).split(/(?<!\\)\|/).map(cell => cell.trim()));
-}
-
-/**
- * A `$1.25` price, or a `1,050,000` count, as a number.
- */
-function amount(text: string): number | undefined {
-  const parsed = Number(text.replace(/[$,]/g, ''));
-  return text && Number.isFinite(parsed) ? parsed : undefined;
+function fetchPage(page: string): Promise<string | undefined> {
+  return fetchMarkdown(`${DOCS}/${page}.md`);
 }
 
 /**
@@ -86,11 +34,11 @@ function amount(text: string): number | undefined {
  */
 async function fetchRetirements(): Promise<Map<string, string>> {
   const retirements = new Map<string, string>();
-  for (const [date, models] of tableRows(await fetchMarkdown('deprecations') ?? '')) {
-    const parsed = new Date(`${date} UTC`);
-    if (!Number.isNaN(parsed.getTime())) {
+  for (const [date, models] of tableRows(await fetchPage('deprecations') ?? '')) {
+    const retiresAt = isoDate(date);
+    if (retiresAt) {
       for (const [, id] of models.matchAll(/`([^`/]+)`/g)) {
-        retirements.set(id, parsed.toISOString().slice(0, 10));
+        retirements.set(id, retiresAt);
       }
     }
   }
@@ -102,7 +50,7 @@ async function fetchRetirements(): Promise<Map<string, string>> {
  * since image model pages carry none.
  */
 async function fetchImagePricing(): Promise<Map<string, ModelPricing>> {
-  const markdown = await fetchMarkdown('pricing') ?? '';
+  const markdown = await fetchPage('pricing') ?? '';
   const start = markdown.indexOf('Image generation models');
   const table = markdown.slice(start).split('### Grouped Pricing Table data')[1] ?? '';
   const pricing = new Map<string, ModelPricing>();
@@ -209,9 +157,7 @@ function parseModel(id: string, markdown: string, retirements: Map<string, strin
     contextWindow: amount(detail(/^([\d,]+) context window$/) ?? '') ?? 0,
     maxOutputTokens: amount(detail(/^([\d,]+) max output tokens$/) ?? ''),
     pricing: { ...parsePricing(markdown), ...extraPricing },
-    reasoningEfforts: efforts
-      ? REASONING_EFFORTS.filter((effort: ReasoningEffort) => new RegExp(`\\b${effort}\\b`).test(efforts))
-      : undefined,
+    reasoningEfforts: efforts ? reasoningEfforts(efforts) : undefined,
     retiresAt,
     metadata: {
       knowledgeCutoff: detail(/^(.+) knowledge cutoff$/),
@@ -250,7 +196,7 @@ export async function scrapeOpenAI(
   // A snapshot without its own page shares its base model's page
   const pages = new Map<string, Promise<string | undefined>>();
   const page = (slug: string) => {
-    const markdown = pages.get(slug) ?? fetchMarkdown(`models/${slug}`);
+    const markdown = pages.get(slug) ?? fetchPage(`models/${slug}`);
     pages.set(slug, markdown);
     return markdown;
   };
@@ -271,12 +217,7 @@ export async function scrapeOpenAI(
   models.sort((a, b) => a.id.localeCompare(b.id));
   console.log(`✓ Parsed ${models.length} models${skipped.length ? `, no docs page for: ${skipped.join(', ')}` : ''}`);
 
-  await fs.mkdir(outputDir, { recursive: true });
-  await fs.writeFile(
-    path.join(outputDir, 'openai-modelinfo.json'),
-    JSON.stringify(models, (_key, value) => value instanceof Set ? Array.from(value) : value, 2)
-  );
-
+  await writeModelJSON(models, path.join(outputDir, 'openai-modelinfo.json'));
   await writeModelTS(models, 'openaiModels', path.join(__dirname, '../../src/models/openai.ts'));
   console.log('✓ Generated TypeScript file: src/models/openai.ts\n');
 }

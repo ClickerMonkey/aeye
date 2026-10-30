@@ -75,6 +75,14 @@ export async function writeModelTS(
 }
 
 /**
+ * Write model data as JSON for reference, sets as arrays
+ */
+export async function writeModelJSON(models: ModelInfo[], outputPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, JSON.stringify(models, (_key, value) => value instanceof Set ? Array.from(value) : value, 2));
+}
+
+/**
  * Generate the models/index.ts file that aggregates all provider models
  */
 export function generateModelsIndexTS(): string {
