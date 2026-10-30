@@ -81,10 +81,10 @@ export function responsesUsage(usage: OpenAI.Responses.ResponseUsage): Usage {
 
 /**
  * Usage reported by transcription: tokens for token-billed models, seconds
- * for duration-billed ones.
+ * for duration-billed ones (OpenAI-compatible routers may omit `type`).
  */
 export function transcriptionUsage(usage: OpenAI.Audio.Transcription.Tokens | OpenAI.Audio.Transcription.Duration): Usage {
-  return usage.type === 'duration'
+  return 'seconds' in usage
     ? { audio: { seconds: usage.seconds } }
     : toUsage({ input: usage.input_tokens, output: usage.output_tokens, audioInput: usage.input_token_details?.audio_tokens });
 }

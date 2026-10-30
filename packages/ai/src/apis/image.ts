@@ -234,7 +234,7 @@ class ImageEditAPI<T extends AIBaseTypes> extends BaseAPI<
   }
 
   protected estimateRequestUsage(request: ImageEditRequest, selected: SelectedModelFor<T>): Usage {
-    return estimateImageUsage(request, selected.model, Array.isArray(request.image) ? request.image.length : 1);
+    return estimateImageUsage(request, selected.model, 1 + (request.references?.length ?? 0));
   }
 
   protected async executeRequest(

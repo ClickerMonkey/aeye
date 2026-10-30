@@ -35,7 +35,7 @@ describe('images', () => {
       }
     }
 
-    await new Tagging({ apiKey: 'test' }).editImage!({ prompt: 'Combine', image: [png, png], inputFidelity: 'high' }, ctx);
+    await new Tagging({ apiKey: 'test' }).editImage!({ prompt: 'Combine', image: png, references: [png], inputFidelity: 'high' }, ctx);
 
     expect(edited).toHaveLength(1);
     expect(lastCall(mockEdit)).toMatchObject({ user: 'edit-hook', input_fidelity: 'high', model: 'gpt-image-2' });

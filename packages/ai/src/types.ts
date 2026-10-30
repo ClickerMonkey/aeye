@@ -675,9 +675,11 @@ export interface ImageGenerationRequest extends ImageOutputOptions {
  * Request for editing existing images with text prompts.
  */
 export interface ImageEditRequest extends ImageOutputOptions {
-  // Source image(s) to edit or combine
-  image: Resource | Resource[];
-  // Optional mask indicating the edit region of the first image
+  // Source image to edit
+  image: Resource;
+  // More images to combine with or take reference from
+  references?: Resource[];
+  // Optional mask indicating the edit region of the source image
   mask?: Resource;
   // How closely to preserve details of the input images
   inputFidelity?: 'low' | 'high';

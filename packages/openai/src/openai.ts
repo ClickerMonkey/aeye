@@ -210,9 +210,14 @@ export interface OpenAIConfig {
 }
 
 /**
+ * Default model for each operation.
+ */
+export type DefaultModels = NonNullable<OpenAIConfig['defaultModels']>;
+
+/**
  * Models used when neither the request, the context, nor the config names one.
  */
-const DEFAULT_MODELS: NonNullable<OpenAIConfig['defaultModels']> = {
+const DEFAULT_MODELS: DefaultModels = {
   imageGenerate: 'gpt-image-2',
   imageEdit: 'gpt-image-2',
   imageAnalyze: 'gpt-5.4-mini',
@@ -333,6 +338,9 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
 
   // Default metadata to apply to all requests
   defaultMetadata?: Provider['defaultMetadata'];
+
+  // Models used when neither the request, the context, nor the config names one
+  protected readonly defaults: DefaultModels = DEFAULT_MODELS;
 
   constructor(config: TConfig) {
     this.config = config;
@@ -777,18 +785,15 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    *
    * @param request @aeye request (mutated: each tool's `descriptor` field is
    *                pinned for the validation roundtrip)
-   * @param model   the resolved model the request is targeting
    * @param budget  shared allocator (also fed by `convertResponseFormat`)
    */
   protected convertTools(
     request: Request,
-    model?: ModelInfo,
-    budget?: SchemaBudget,
+    budget: SchemaBudget,
   ): OpenAI.Chat.ChatCompletionFunctionTool[] | undefined {
     if (!request.tools || request.tools.length === 0) return undefined;
 
-    const localBudget = budget ?? this.buildSchemaBudget(model);
-    const descriptors = this.allocateToolDescriptors(request, localBudget);
+    const descriptors = this.allocateToolDescriptors(request, budget);
 
     return request.tools.map((tool, i) => {
       const descriptor = descriptors[i];
@@ -828,16 +833,30 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * Strict mode engages only when the model's resolved family is in
    * `supportedStrictFamilies` AND the model has the corresponding
    * capability (`'toolsStrict'` for tools, `'structured'` for output).
-   * Mismatched families fall back to LENIENT silently — protects the
-   * wire from receiving a dialect the API doesn't understand.
+   * Otherwise the family's non-strict descriptor applies, which keeps the
+   * dialect's own constraints (Gemini rejects LENIENT's recursive `$defs/Any`)
+   * even when only the model id is known. Families the API doesn't speak
+   * fall back to LENIENT — protects the wire from receiving a dialect the API
+   * doesn't understand.
+   *
+   * @param model The full model, or just its id and provider when selection
+   *   didn't supply one
    */
-  protected buildSchemaBudget(model?: ModelInfo): SchemaBudget {
-    const family = model ? resolveStrictFormat(model) : undefined;
-    const strictFor = (capability: 'toolsStrict' | 'structured') =>
-      family !== undefined && this.supportedStrictFamilies.has(family) && model?.capabilities.has(capability)
-        ? getDescriptor(family, true)
+  protected buildSchemaBudget(model: Pick<ModelInfo, 'id' | 'provider' | 'strictFormat'> & { capabilities?: ModelInfo['capabilities'] }): SchemaBudget {
+    const family = resolveStrictFormat(model);
+    const descriptorFor = (capability: 'toolsStrict' | 'structured') =>
+      family !== undefined && this.supportedStrictFamilies.has(family)
+        ? getDescriptor(family, model.capabilities?.has(capability) ?? false)
         : LENIENT;
-    return new SchemaBudget(strictestOf(strictFor('toolsStrict'), strictFor('structured')));
+    return new SchemaBudget(strictestOf(descriptorFor('toolsStrict'), descriptorFor('structured')));
+  }
+
+  /**
+   * The schema budget for a call: from the selected model, or from the model
+   * id alone.
+   */
+  private schemaBudget(run: OperationRun<TConfig>): SchemaBudget {
+    return this.buildSchemaBudget(run.modelInfo ?? { id: run.model.id, provider: this.name });
   }
 
   /**
@@ -887,20 +906,19 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * matching strictify before parsing model output.
    *
    * @param request @aeye request object (mutated to record descriptor)
-   * @param model the resolved model the request is targeting
+   * @param budget shared allocator (also fed by `convertTools`)
    * @returns OpenAI-formatted response format or undefined
    */
   protected convertResponseFormat(
     request: Request,
-    model?: ModelInfo,
-    budget?: SchemaBudget,
+    budget: SchemaBudget,
   ): OpenAI.ResponseFormatText | OpenAI.ResponseFormatJSONObject | OpenAI.ResponseFormatJSONSchema | undefined {
     const format = request.responseFormat;
     if (!format) return undefined;
     if (format === 'text') return { type: 'text' };
     if (format === 'json') return { type: 'json_object' };
 
-    const descriptor = (budget ?? this.buildSchemaBudget(model)).allocateOutput(format.type, format.strict ?? 1);
+    const descriptor = budget.allocateOutput(format.type, format.strict ?? 1);
     format.descriptor = descriptor.id;
 
     return {
@@ -970,12 +988,12 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     metadata: AIMetadataAny | undefined,
     config: TConfig | undefined,
     signal: AbortSignal | undefined,
-    defaultModel: keyof NonNullable<OpenAIConfig['defaultModels']>,
+    defaultModel: keyof DefaultModels,
   ): OperationRun<TConfig> {
     const effectiveConfig = { ...this.config, ...config };
     const model = getModel(
       request.model || ctx.metadata?.model || metadata?.model ||
-      effectiveConfig.defaultModels?.[defaultModel] || DEFAULT_MODELS[defaultModel]
+      effectiveConfig.defaultModels?.[defaultModel] || this.defaults[defaultModel]
     );
     if (!model) {
       throw new ProviderError(this.name, `Model is required for ${this.name} requests`);
@@ -1125,8 +1143,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    *   streams only as PCM)
    */
   protected async buildChatParams(request: Request, run: OperationRun<TConfig>, streaming: boolean): Promise<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming> {
-    const budget = this.buildSchemaBudget(run.modelInfo);
-    const tools = this.convertTools(request, run.modelInfo, budget);
+    const budget = this.schemaBudget(run);
+    const tools = this.convertTools(request, budget);
     const audio = request.modalities?.includes('audio') ? request.audio : undefined;
 
     return {
@@ -1144,7 +1162,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       tools,
       tool_choice: tools?.length ? this.convertToolChoice(request) : undefined,
       parallel_tool_calls: tools?.length ? !request.toolsOneAtATime : undefined,
-      response_format: this.convertResponseFormat(request, run.modelInfo, budget),
+      response_format: this.convertResponseFormat(request, budget),
       reasoning_effort: request.reason?.effort && clampReasoningEffort(request.reason.effort, run.modelInfo?.reasoningEfforts),
       verbosity: request.verbosity,
       service_tier: request.serviceTier,
@@ -1168,11 +1186,11 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * @param run - The resolved call
    */
   protected async buildResponsesParams(request: Request, run: OperationRun<TConfig>): Promise<OpenAI.Responses.ResponseCreateParamsNonStreaming> {
-    const budget = this.buildSchemaBudget(run.modelInfo);
+    const budget = this.schemaBudget(run);
     const store = run.config.store ?? false;
-    const format = this.convertResponseFormat(request, run.modelInfo, budget);
+    const format = this.convertResponseFormat(request, budget);
     const tools: OpenAI.Responses.Tool[] = [
-      ...(this.convertTools(request, run.modelInfo, budget) ?? []).map(({ function: fn }): OpenAI.Responses.FunctionTool => ({
+      ...(this.convertTools(request, budget) ?? []).map(({ function: fn }): OpenAI.Responses.FunctionTool => ({
         type: 'function',
         name: fn.name,
         description: fn.description,
@@ -1526,7 +1544,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   private async editParams(request: ImageEditRequest, run: OperationRun<TConfig>) {
     return {
       ...imageParams(request, run.model.id, run.modelInfo),
-      image: await Promise.all([request.image].flat().map((image) => toFile(image))),
+      image: await Promise.all([request.image, ...request.references ?? []].map((image) => toFile(image))),
       mask: request.mask ? await toFile(request.mask) : undefined,
       input_fidelity: request.inputFidelity,
       ...request.extra,
@@ -1763,7 +1781,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       temperature: request.temperature,
       maxTokens: request.maxTokens,
     };
-    const model = config?.defaultModels?.imageAnalyze ?? this.config.defaultModels?.imageAnalyze ?? DEFAULT_MODELS.imageAnalyze;
+    const model = config?.defaultModels?.imageAnalyze ?? this.config.defaultModels?.imageAnalyze ?? this.defaults.imageAnalyze;
     return [chat, { model }];
   }
 

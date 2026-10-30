@@ -222,7 +222,8 @@ describe('OpenAIProvider', () => {
         rateLimitError.status = 429;
         mockOpenAI.chat.completions.create.mockRejectedValue(rateLimitError);
 
-        const executor = provider.createExecutor();
+        // No retries: a 429 is retried with jittered backoff, racing the test timeout
+        const executor = new OpenAIProvider({ apiKey: 'test-api-key', retry: { maxRetries: 0 } }).createExecutor();
         const request: Request = {
           messages: [{ role: 'user', content: 'Hello' }]
         };
