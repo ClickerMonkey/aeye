@@ -12,6 +12,7 @@ jest.mock('openai', () => jest.fn().mockImplementation(() => ({
 
 const ctx: AIContextAny = { ai: AI.with().providers({}).create({}), metadata: {} };
 const provider = new OpenAIProvider({ apiKey: 'test' });
+const hiRequest: Request = { messages: [{ role: 'user', content: 'Hi' }] };
 
 const completion = (message: object, extra: object = {}) => ({
   choices: [{ message: { content: 'ok', ...message }, finish_reason: 'stop' }],
@@ -52,7 +53,7 @@ describe('chat params', () => {
   it('maps the newer request fields', async () => {
     mockCreate.mockResolvedValue(completion({}));
 
-    await provider.createExecutor()({
+    await new OpenAIProvider({ apiKey: 'test', store: true }).createExecutor()({
       messages: [{ role: 'user', content: 'Hi' }],
       seed: 7,
       verbosity: 'low',
@@ -72,6 +73,14 @@ describe('chat params', () => {
       modalities: ['text', 'audio'],
       audio: { voice: 'marin', format: 'pcm16' },
     });
+  });
+
+  it('only sends metadata on stored completions', async () => {
+    mockCreate.mockResolvedValue(completion({}));
+
+    await provider.createExecutor()({ messages: [{ role: 'user', content: 'Hi' }], metadata: { run: 'a' } }, ctx, { model: 'gpt-5.4' });
+
+    expect(sentParams().metadata).toBeUndefined();
   });
 
   it('marks cache breakpoints, image detail, and file names on content', async () => {
@@ -110,7 +119,7 @@ describe('chat response', () => {
       },
     }));
 
-    const response = await provider.createExecutor()({ messages: [{ role: 'user', content: 'Hi' }], audio: { voice: 'marin', format: 'wav' } }, ctx, { model: 'gpt-5.4' });
+    const response = await provider.createExecutor()({ messages: [{ role: 'user', content: 'Hi' }], modalities: ['text', 'audio'], audio: { voice: 'marin', format: 'wav' } }, ctx, { model: 'gpt-5.4' });
 
     expect(response.refusal).toBe('Cannot help with that');
     expect(response.citations).toEqual([{ url: 'https://a.example', title: 'A', start: 0, end: 2 }]);
@@ -136,5 +145,41 @@ describe('chat response', () => {
       text: { input: 50, output: 10, cached: 30, cacheWrite: 20 },
       reasoning: { output: 40 },
     });
+  });
+});
+
+describe('chat stream tool calls', () => {
+  const call = (index: number, id: string, args: string) => ({ index, id, type: 'function', function: { name: 'save', arguments: args } });
+
+  it('finishes every tool call that ends on the same chunk', async () => {
+    mockCreate.mockResolvedValue(streamOf(
+      { choices: [{ delta: { tool_calls: [call(0, 'a', '{"n":1}'), call(1, 'b', '{"n":2}')] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    ));
+
+    const finished: string[] = [];
+    for await (const chunk of provider.createStreamer()(hiRequest, ctx, { model: 'gpt-5.4' })) {
+      if (chunk.toolCall) finished.push(chunk.toolCall.id);
+    }
+
+    expect(finished).toEqual(['a', 'b']);
+  });
+
+  it('does not finish a tool call when the stream fails', async () => {
+    async function* failing() {
+      yield { choices: [{ delta: { tool_calls: [call(0, 'a', '{"n":')] }, finish_reason: null }] };
+      throw new Error('connection reset');
+    }
+    mockCreate.mockResolvedValue(failing());
+
+    const finished: string[] = [];
+    const drain = async () => {
+      for await (const chunk of provider.createStreamer()(hiRequest, ctx, { model: 'gpt-5.4' })) {
+        if (chunk.toolCall) finished.push(chunk.toolCall.id);
+      }
+    };
+
+    await expect(drain()).rejects.toThrow('connection reset');
+    expect(finished).toEqual([]);
   });
 });

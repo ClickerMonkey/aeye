@@ -1,5 +1,23 @@
-import { ModelInput, REASONING_EFFORTS, ReasoningEffort } from "@aeye/core";
-import { ModelInfo } from "./types";
+import { MessageContentType, ModelInput, OutputModality, REASONING_EFFORTS, ReasoningEffort } from "@aeye/core";
+import { ModelCapability, ModelInfo } from "./types";
+
+/**
+ * The capability a model needs to read each kind of message content.
+ */
+export const INPUT_CAPABILITIES: Partial<Record<MessageContentType, ModelCapability>> = {
+  image: 'vision',
+  file: 'files',
+  audio: 'hearing',
+  video: 'videoInput',
+};
+
+/**
+ * The capability a chat model needs to produce each output modality beyond text.
+ */
+export const OUTPUT_CAPABILITIES: Partial<Record<OutputModality, ModelCapability>> = {
+  image: 'image',
+  audio: 'audioOutput',
+};
 
 /**
 * Type guard to check if a ModelInput is a ModelInfo object.

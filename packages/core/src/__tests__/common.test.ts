@@ -503,14 +503,15 @@ describe('Common Utilities', () => {
   describe('getResponseFromChunks', () => {
     it('should collect citations, images, audio, and moderation', () => {
       const chunks: Chunk[] = [
-        { citations: [{ url: 'https://a.example' }], audio: { id: 'au_1', data: 'QUJD', transcript: 'Hi' } },
-        { citations: [{ url: 'https://b.example', title: 'B' }], audio: { data: 'REVG', transcript: ' there' } },
+        { citations: [{ url: 'https://a.example' }], audio: { id: 'au_1', data: 'QUI=', transcript: 'Hi' } },
+        { citations: [{ url: 'https://b.example', title: 'B' }], audio: { data: 'Q0Q=', transcript: ' there' } },
         { images: [{ b64_json: 'aW1n' }], moderation: { output: { flagged: false, categories: [] } }, serviceTier: 'flex' },
       ];
 
       const response = getResponseFromChunks(chunks);
       expect(response.citations?.map(c => c.url)).toEqual(['https://a.example', 'https://b.example']);
-      expect(response.audio).toEqual({ id: 'au_1', format: undefined, data: 'QUJDREVG', transcript: 'Hi there' });
+      // "AB" and "CD" encoded apart join as the encoding of "ABCD"
+      expect(response.audio).toEqual({ id: 'au_1', format: undefined, data: 'QUJDRA==', transcript: 'Hi there' });
       expect(response.images).toEqual([{ b64_json: 'aW1n' }]);
       expect(response.moderation?.output?.flagged).toBe(false);
       expect(response.serviceTier).toBe('flex');

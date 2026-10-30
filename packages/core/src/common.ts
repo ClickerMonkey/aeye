@@ -360,7 +360,7 @@ export function getResponseFromChunks(chunks: Chunk[], model: ModelInput = 'unkn
       resp.model = chunk.model;
     }
     if (chunk.refusal) {
-      resp.refusal = chunk.refusal;
+      resp.refusal = (resp.refusal ?? '') + chunk.refusal;
     }
     if (chunk.toolCall) {
       resp.toolCalls = resp.toolCalls || [];
@@ -391,6 +391,15 @@ export function getResponseFromChunks(chunks: Chunk[], model: ModelInput = 'unkn
 }
 
 /**
+ * The base64 encoding of two base64 strings' bytes joined. Each streamed part
+ * is encoded on its own, so a padded last block of the first is re-encoded
+ * with the bytes that follow.
+ */
+function joinBase64(x: string, y: string): string {
+  return x.endsWith('=') ? x.slice(0, -4) + btoa(atob(x.slice(-4)) + atob(y)) : x + y;
+}
+
+/**
  * Appends a partial audio chunk onto accumulated audio.
  *
  * @param target - The audio accumulated so far.
@@ -398,12 +407,13 @@ export function getResponseFromChunks(chunks: Chunk[], model: ModelInput = 'unkn
  * @returns The combined audio.
  */
 export function accumulateAudio(target: GeneratedAudio | undefined, add: GeneratedAudio): GeneratedAudio {
-  const concat = (x?: string, y?: string) => x === undefined ? y : x + (y ?? '');
+  const join = (x: string | undefined, y: string | undefined, by: (x: string, y: string) => string) =>
+    x === undefined || y === undefined ? x ?? y : by(x, y);
   return {
     id: add.id ?? target?.id,
     format: add.format ?? target?.format,
-    data: concat(target?.data, add.data),
-    transcript: concat(target?.transcript, add.transcript),
+    data: join(target?.data, add.data, joinBase64),
+    transcript: join(target?.transcript, add.transcript, (x, y) => x + y),
   };
 }
 

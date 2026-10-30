@@ -16,22 +16,21 @@ export interface TokenCounts {
   cached?: number;
   cacheWrite?: number;
   audioInput?: number;
-  imageInput?: number;
   reasoning?: number;
   audioOutput?: number;
 }
 
 /**
  * Splits token totals into Usage categories so each token is counted once:
- * cache reads and writes, audio, and image input come out of the input
- * total; reasoning and audio output come out of the output total.
+ * cache reads and writes and audio come out of the input total; reasoning
+ * and audio output come out of the output total.
  */
 export function toUsage(counts: TokenCounts): Usage {
   const nonZero = (n = 0) => n > 0 ? n : undefined;
   const usage: Usage = {};
 
   const text = {
-    input: nonZero((counts.input ?? 0) - (counts.cached ?? 0) - (counts.cacheWrite ?? 0) - (counts.audioInput ?? 0) - (counts.imageInput ?? 0)),
+    input: nonZero((counts.input ?? 0) - (counts.cached ?? 0) - (counts.cacheWrite ?? 0) - (counts.audioInput ?? 0)),
     output: nonZero((counts.output ?? 0) - (counts.reasoning ?? 0) - (counts.audioOutput ?? 0)),
     cached: nonZero(counts.cached),
     cacheWrite: nonZero(counts.cacheWrite),
@@ -44,9 +43,6 @@ export function toUsage(counts: TokenCounts): Usage {
   }
   if (counts.audioInput || counts.audioOutput) {
     usage.audio = { input: nonZero(counts.audioInput), output: nonZero(counts.audioOutput) };
-  }
-  if (counts.imageInput) {
-    usage.image = { input: counts.imageInput };
   }
   return usage;
 }

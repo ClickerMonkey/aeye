@@ -7,7 +7,7 @@
 
 import type { ModelInfo, ModelSource } from '@aeye/ai';
 import { convertOpenRouterModel } from './openrouter';
-import type { OpenRouterEndpoint, OpenRouterModel } from './types';
+import type { OpenRouterEndpoint, OpenRouterMetrics, OpenRouterModel } from './types';
 
 const API = 'https://openrouter.ai/api/v1';
 
@@ -17,18 +17,6 @@ const API = 'https://openrouter.ai/api/v1';
 export interface OpenRouterSourceConfig {
   apiKey?: string;
   includeZDR?: boolean;
-}
-
-/**
- * Live performance of a model across the providers serving it.
- */
-export interface OpenRouterMetrics {
-  // Best median latency to first token, in milliseconds
-  latency?: number;
-  // Best median throughput, in tokens per second
-  throughput?: number;
-  // Best uptime over the last 30 minutes, as a percentage
-  uptime?: number;
 }
 
 /**

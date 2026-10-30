@@ -16,6 +16,7 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResponse,
   ImageOutputOptions,
+  ImageQuality,
   ModelCapability,
   ModelInfo,
   ModelHandlerFor,
@@ -28,10 +29,24 @@ import type {
 import { BaseAPI } from './base';
 
 /**
+ * Output tokens for one 1024×1024 image by quality, from OpenAI's published
+ * GPT Image table; newer models vary, so estimates scale these by area.
+ */
+const IMAGE_TOKENS: Record<ImageQuality, number> = {
+  auto: 1056,
+  low: 272,
+  medium: 1056,
+  high: 4160,
+  xhigh: 4160,
+  max: 4160,
+};
+
+/**
  * Estimates the usage of producing images: prompt tokens, a rough count per
- * input image, and one priced output per image. Without a requested quality
- * the model's first priced quality stands in, so the estimate hits a real
- * price entry.
+ * input image, and one priced output per image — as output tokens for models
+ * priced per token, and by quality and size otherwise. Without a requested
+ * quality the model's first priced quality stands in, so the estimate hits a
+ * real price entry.
  *
  * @param request - The generation or edit request.
  * @param model - The model producing the images.
@@ -39,14 +54,18 @@ import { BaseAPI } from './base';
  */
 function estimateImageUsage(request: ImageOutputOptions, model: ModelInfo, inputImages: number): Usage {
   const [width, height] = (request.size || '1024x1024').split('x').map(Number);
+  const count = request.n || 1;
   return {
     text: { input: Math.ceil(request.prompt.length / 4) },
     image: {
       input: inputImages ? inputImages * 1000 : undefined,
+      tokens: model.pricing.image?.tokens
+        ? Math.round(IMAGE_TOKENS[request.quality ?? 'auto'] * (width * height) / (1024 * 1024) * count)
+        : undefined,
       output: [{
         quality: request.quality ?? model.pricing.image?.output?.[0]?.quality ?? 'medium',
         size: { width, height },
-        count: request.n || 1,
+        count,
       }],
     },
   };

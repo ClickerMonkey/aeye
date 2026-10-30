@@ -152,6 +152,18 @@ export interface OpenRouterEndpoint {
 export type ZDRModel = OpenRouterEndpoint;
 
 /**
+ * Live performance of a model across the providers serving it.
+ */
+export interface OpenRouterMetrics {
+  // Best median latency to first token, in milliseconds
+  latency?: number;
+  // Best median throughput, in tokens per second
+  throughput?: number;
+  // Best uptime over the last 30 minutes, as a percentage
+  uptime?: number;
+}
+
+/**
  * Model quantizations OpenRouter can route by.
  */
 export type OpenRouterQuantization = 'int4' | 'int8' | 'fp4' | 'mxfp4' | 'nvfp4' | 'fp6' | 'fp8' | 'mxfp8' | 'fp16' | 'bf16' | 'fp32' | 'unknown';

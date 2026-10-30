@@ -16,17 +16,18 @@
  */
 
 import type { AIContextAny, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
-import { detectTier } from '@aeye/ai';
+import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
 import { accumulateReasoning, REASONING_EFFORTS, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
 import { type DefaultModels, OpenAIConfig, OpenAIProvider, ProviderError } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
-import type { OpenRouterChatChunk, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterModel, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterServerTool, OpenRouterUsage } from './types';
+import type { OpenRouterChatChunk, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterServerTool, OpenRouterUsage } from './types';
 
 /**
- * OpenRouter provider configuration
+ * OpenRouter provider configuration. Requests always go through chat
+ * completions, where OpenRouter serves routing, plugins, and server tools.
  */
-export interface OpenRouterConfig extends OpenAIConfig {
+export interface OpenRouterConfig extends Omit<OpenAIConfig, 'api'> {
   defaultParams?: {
     siteUrl?: string;
     appName?: string;
@@ -97,18 +98,12 @@ const PARAMETERS: Partial<Record<string, ModelParameter>> = {
 };
 
 /**
- * Capabilities a model has for each modality it reads or produces.
+ * Capabilities a model has for each modality it produces: chat output, plus
+ * OpenRouter's dedicated media and embedding endpoints.
  */
-const INPUT_CAPABILITIES: Partial<Record<OpenRouterModel['architecture']['input_modalities'][number], ModelCapability>> = {
-  image: 'vision',
-  file: 'files',
-  audio: 'hearing',
-  video: 'videoInput',
-};
-const OUTPUT_CAPABILITIES: Partial<Record<OpenRouterModel['architecture']['output_modalities'][number], ModelCapability>> = {
+const PRODUCES: Partial<Record<OpenRouterOutput, ModelCapability>> = {
+  ...OUTPUT_CAPABILITIES,
   text: 'chat',
-  image: 'image',
-  audio: 'audioOutput',
   speech: 'audio',
   transcription: 'hearing',
   embeddings: 'embedding',
@@ -159,7 +154,7 @@ function detectCapabilities(model: OpenRouterModel): Set<ModelCapability> {
   const add = (capability: ModelCapability | undefined) => capability && capabilities.add(capability);
 
   model.architecture.input_modalities.forEach(modality => add(INPUT_CAPABILITIES[modality]));
-  model.architecture.output_modalities.forEach(modality => add(OUTPUT_CAPABILITIES[modality]));
+  model.architecture.output_modalities.forEach(modality => add(PRODUCES[modality]));
   model.supported_parameters.forEach(param => add(PARAMETER_CAPABILITIES[param]));
   if (capabilities.has('chat')) {
     capabilities.add('streaming');
@@ -189,7 +184,7 @@ function perMillion(value: string | undefined): number | undefined {
 export function convertOpenRouterModel(
   model: OpenRouterModel,
   zdrModelIds: Set<string>,
-  metrics?: { latency?: number; throughput?: number; uptime?: number } | null
+  metrics?: OpenRouterMetrics | null
 ): ModelInfo {
   const capabilities = detectCapabilities(model);
   if (zdrModelIds.has(model.id)) {
@@ -212,7 +207,9 @@ export function convertOpenRouterModel(
         cached: perMillion(pricing.input_cache_read),
         cacheWrite: perMillion(pricing.input_cache_write),
       },
-      image: price(pricing.image_token) ? { input: perMillion(pricing.image_token) } : undefined,
+      image: price(pricing.image_token) || price(pricing.image_output)
+        ? { input: perMillion(pricing.image_token), tokens: perMillion(pricing.image_output) }
+        : undefined,
       audio: price(pricing.audio) || price(pricing.audio_output)
         ? { input: perMillion(pricing.audio), output: perMillion(pricing.audio_output) }
         : undefined,
@@ -362,10 +359,10 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
 
   /**
    * OpenRouter serves hosted tools and reasoning options through chat
-   * completions, so the Responses API is used only when configured.
+   * completions, so the Responses API is never needed.
    */
-  protected override usesResponses(request: Request, modelId: string, config: OpenRouterConfig): boolean {
-    return config.api === 'responses';
+  protected override usesResponses(): boolean {
+    return false;
   }
 
   /**
@@ -499,17 +496,20 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   }
 
   /**
-   * Assistant messages carry their reasoning back. OpenRouter doesn't
-   * transform reasoning on a message that also has content, so that
-   * reasoning goes in its own assistant message just before.
+   * Assistant messages carry their reasoning back, once even when a message
+   * was split into parts. OpenRouter doesn't transform reasoning on a message
+   * that also has content, so that reasoning goes in its own assistant
+   * message just before.
    */
   protected override async convertMessages(request: Request, config: OpenRouterConfig): Promise<OpenRouterRequestMessage[]> {
     const messages = await super.convertMessages(request, config);
+    const replayed = new Set<Reasoning>();
     return messages.flatMap((message): OpenRouterRequestMessage[] => {
       const reasoning = this.reasoningOf.get(message);
-      if (!reasoning) {
+      if (!reasoning || replayed.has(reasoning)) {
         return [message];
       }
+      replayed.add(reasoning);
       const replay = { reasoning: reasoning.content ?? undefined, reasoning_details: reasoning.details };
       return message.role === 'assistant' && message.content?.length
         ? [{ role: 'assistant', name: message.name, ...replay }, message]

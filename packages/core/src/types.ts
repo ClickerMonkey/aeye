@@ -524,8 +524,8 @@ export interface GeneratedImage
 }
 
 /**
- * Audio produced by a chat model. Streaming chunks carry partial data that
- * concatenates into the whole.
+ * Audio produced by a chat model. Streaming chunks each carry the next part,
+ * which `accumulateAudio` joins.
  */
 export interface GeneratedAudio
 {

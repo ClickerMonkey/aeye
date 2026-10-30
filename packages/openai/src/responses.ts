@@ -73,6 +73,9 @@ export function toReasoningItems(reasoning: Reasoning | undefined): OpenAI.Respo
 export function toHostedTool(tool: HostedTool, provider: string): OpenAI.Responses.Tool {
   switch (tool.type) {
     case 'web_search':
+      if (tool.blockedDomains?.length) {
+        throw new ProviderError(provider, 'OpenAI web search can only allow domains, not block them');
+      }
       return { type: 'web_search', filters: tool.allowedDomains && { allowed_domains: tool.allowedDomains } };
     case 'file_search':
       return { type: 'file_search', vector_store_ids: tool.vectorStoreIds, max_num_results: tool.maxResults };

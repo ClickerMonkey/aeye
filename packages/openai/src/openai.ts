@@ -27,7 +27,7 @@ import type {
   TranscriptionSegment
 } from '@aeye/ai';
 import { clampReasoningEffort, detectTier, isModelInfo, resolveStrictFormat } from '@aeye/ai';
-import { BaseRequest, type Chunk, type DescriptorFamily, type Executor, type FormatDescriptor, type GeneratedImage, getDescriptor, getModel, getResponseFromChunks, LENIENT, type MessageContent, type Model, ModelInput, type Request, type Response, SchemaBudget, strictestOf, strictify, strictPriority, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
+import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type FormatDescriptor, type GeneratedImage, getDescriptor, getModel, getResponseFromChunks, LENIENT, type MessageContent, type Model, ModelInput, type Request, type Response, SchemaBudget, strictestOf, strictify, strictPriority, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
 import { imageParams, imageUsage, partialImages } from './images';
@@ -1124,14 +1124,17 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * @param request - The request
    * @param modelId - The model it targets
    * @param config - Provider configuration
+   * @param model - The full model, whose registry entry says whether it is
+   *   Responses-only; the model id decides otherwise
    */
-  protected usesResponses(request: Request, modelId: string, config: TConfig): boolean {
+  protected usesResponses(request: Request, modelId: string, config: TConfig, model?: ModelInfo): boolean {
     const api = config.api ?? 'auto';
     if (api !== 'auto') {
       return api === 'responses';
     }
+    const responsesOnly = model?.metadata?.responsesOnly ?? isResponsesOnly(modelId);
     const { mode, summary, context } = request.reason ?? {};
-    return isResponsesOnly(modelId) || !!request.hostedTools?.length || !!(mode || summary || context);
+    return responsesOnly === true || !!request.hostedTools?.length || !!(mode || summary || context);
   }
 
   /**
@@ -1146,6 +1149,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     const budget = this.schemaBudget(run);
     const tools = this.convertTools(request, budget);
     const audio = request.modalities?.includes('audio') ? request.audio : undefined;
+    const audioFormat = outputAudioFormat(request, streaming);
+    const store = run.config.store ?? false;
 
     return {
       model: run.model.id,
@@ -1166,13 +1171,14 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       reasoning_effort: request.reason?.effort && clampReasoningEffort(request.reason.effort, run.modelInfo?.reasoningEfforts),
       verbosity: request.verbosity,
       service_tier: request.serviceTier,
-      metadata: request.metadata,
+      // Chat Completions only takes metadata on stored completions
+      metadata: store ? request.metadata : undefined,
       modalities: audio ? ['text', 'audio'] : undefined,
-      audio: audio && { voice: audio.voice, format: toChatAudioFormat(audio.format ?? (streaming ? 'pcm' : 'mp3')) },
+      audio: audio && audioFormat && { voice: audio.voice, format: toChatAudioFormat(audioFormat) },
       moderation: request.moderate ? { model: MODERATION_MODEL } : undefined,
       prompt_cache_key: request.cacheKey,
       safety_identifier: request.userKey,
-      store: run.config.store ?? false,
+      store,
       ...request.extra,
     };
   }
@@ -1248,7 +1254,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       finishReason: toolCalls?.length ? 'tool_calls' : finish_reason === 'function_call' /* deprecated */ ? 'stop' : finish_reason,
       refusal: message.refusal ?? (finish_reason === 'content_filter' ? message.content ?? undefined : undefined),
       citations: citations?.length ? citations : undefined,
-      audio: message.audio ? { id: message.audio.id, data: message.audio.data, transcript: message.audio.transcript, format: request.audio?.format } : undefined,
+      audio: message.audio ? { id: message.audio.id, data: message.audio.data, transcript: message.audio.transcript, format: outputAudioFormat(request, false) } : undefined,
       moderation: completion.moderation ? toModeration(completion.moderation) : undefined,
       serviceTier: toServiceTier(completion.service_tier),
       model: run.model,
@@ -1263,7 +1269,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * finish reason on the chunk (the whole response is done), or a higher
    * tool-call index (tool calls arrive in index order). Providers interleave
    * usage-only and keep-alive chunks, so "not updated this chunk" is not
-   * evidence. Anything unfinished when the stream ends is finalized then.
+   * evidence. Anything unfinished when the stream completes is finalized
+   * then; a stream that fails leaves its calls unfinished.
    */
   private async *chatChunks(
     stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
@@ -1274,69 +1281,62 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     const toolCalls = new Map<number, ToolCallItem>();
     let maxIndexSeen = -1;
 
-    // Emits a tool call as finished, and as named first if it never was
-    const finalize = (toolCall: ToolCallItem, chunk: Chunk) => {
-      toolCall.finished = true;
-      chunk.toolCall = toolCall;
-      if (!toolCall.named) {
-        chunk.toolCallNamed = chunk.toolCallArguments = toolCall;
-        toolCall.named = true;
-      }
+    const audioFormat = outputAudioFormat(request, true);
+
+    // A tool call's own finished chunk, also naming it if it never was
+    const finished = (toolCall: ToolCallItem): Chunk => {
+      const named = toolCall.named;
+      toolCall.finished = toolCall.named = true;
+      return named ? { toolCall } : { toolCall, toolCallNamed: toolCall, toolCallArguments: toolCall };
     };
 
-    try {
-      for await (const raw of stream) {
-        const choice = raw?.choices[0];
-        const delta = choice?.delta;
-        const finish = choice?.finish_reason;
+    for await (const raw of stream) {
+      const choice = raw?.choices[0];
+      const delta = choice?.delta;
+      const finish = choice?.finish_reason;
 
-        // OpenAI streams `finish_reason: null` on every intermediate chunk
-        const chunk: Chunk = {
-          content: delta?.content || undefined,
-          finishReason: finish === 'function_call' /* deprecated */ ? 'stop' : finish ?? undefined,
-          refusal: delta?.refusal ?? undefined,
-          audio: delta?.audio && { id: delta.audio.id, data: delta.audio.data, transcript: delta.audio.transcript, format: request.audio?.format },
-          moderation: raw.moderation ? toModeration(raw.moderation) : undefined,
-          serviceTier: toServiceTier(raw.service_tier),
-          usage: raw.usage ? chatUsage(raw.usage) : undefined,
-        };
+      // OpenAI streams `finish_reason: null` on every intermediate chunk
+      const chunk: Chunk = {
+        content: delta?.content || undefined,
+        finishReason: finish === 'function_call' /* deprecated */ ? 'stop' : finish ?? undefined,
+        refusal: delta?.refusal ?? undefined,
+        audio: delta?.audio && { id: delta.audio.id, data: delta.audio.data, transcript: delta.audio.transcript, format: audioFormat },
+        moderation: raw.moderation ? toModeration(raw.moderation) : undefined,
+        serviceTier: toServiceTier(raw.service_tier),
+        usage: raw.usage ? chatUsage(raw.usage) : undefined,
+      };
 
-        for (const tc of delta?.tool_calls ?? []) {
-          const toolCall = toolCalls.get(tc.index) ?? { id: '', name: '', arguments: '', named: false, finished: false, index: tc.index };
-          toolCalls.set(tc.index, toolCall);
-          toolCall.id = tc.id || toolCall.id;
-          toolCall.name = tc.function?.name || toolCall.name;
-          toolCall.arguments += tc.function?.arguments ?? '';
-          maxIndexSeen = Math.max(maxIndexSeen, tc.index);
+      for (const tc of delta?.tool_calls ?? []) {
+        const toolCall = toolCalls.get(tc.index) ?? { id: '', name: '', arguments: '', named: false, finished: false, index: tc.index };
+        toolCalls.set(tc.index, toolCall);
+        toolCall.id = tc.id || toolCall.id;
+        toolCall.name = tc.function?.name || toolCall.name;
+        toolCall.arguments += tc.function?.arguments ?? '';
+        maxIndexSeen = Math.max(maxIndexSeen, tc.index);
 
-          if (toolCall.arguments) {
-            if (toolCall.named) {
-              chunk.toolCallArguments = toolCall;
-            } else {
-              chunk.toolCallNamed = toolCall;
-              toolCall.named = true;
-            }
+        if (toolCall.arguments) {
+          if (toolCall.named) {
+            chunk.toolCallArguments = toolCall;
+          } else {
+            chunk.toolCallNamed = toolCall;
+            toolCall.named = true;
           }
         }
-
-        for (const toolCall of toolCalls.values()) {
-          if (!toolCall.finished && (chunk.finishReason !== undefined || toolCall.index < maxIndexSeen)) {
-            finalize(toolCall, chunk);
-          }
-        }
-
-        this.augmentChatChunk(raw, chunk, config);
-        yield chunk;
       }
-    } finally {
-      const empty: OpenAI.Chat.Completions.ChatCompletionChunk = { choices: [], created: 0, id: '', model: '', object: 'chat.completion.chunk' };
+
+      this.augmentChatChunk(raw, chunk, config);
+      yield chunk;
+
       for (const toolCall of toolCalls.values()) {
-        if (!toolCall.finished) {
-          const chunk: Chunk = {};
-          finalize(toolCall, chunk);
-          this.augmentChatChunk(empty, chunk, config);
-          yield chunk;
+        if (!toolCall.finished && (chunk.finishReason !== undefined || toolCall.index < maxIndexSeen)) {
+          yield finished(toolCall);
         }
+      }
+    }
+
+    for (const toolCall of toolCalls.values()) {
+      if (!toolCall.finished) {
+        yield finished(toolCall);
       }
     }
   }
@@ -1418,9 +1418,9 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * @throws {ProviderError} If request fails
    */
   createExecutor(config?: TConfig): Executor<AIContextAny, AIMetadataAny> {
-    return (request, ctx, metadata, signal) => {
+    return async (request, ctx, metadata, signal) => {
       const run = this.prepare('chat', request, ctx, metadata, config, signal, 'chat');
-      return this.usesResponses(request, run.model.id, run.config)
+      return this.usesResponses(request, run.model.id, run.config, run.modelInfo)
         ? this.respond(request, run)
         : this.complete(request, run);
     };
@@ -1434,11 +1434,12 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * @throws {ProviderError} If request fails
    */
   createStreamer(config?: TConfig): Streamer<AIContextAny, AIMetadataAny> {
-    return (request, ctx, metadata, signal) => {
-      const run = this.prepare('streaming chat', request, ctx, metadata, config, signal, 'chat');
-      return this.usesResponses(request, run.model.id, run.config)
-        ? this.respondStream(request, run)
-        : this.completeStream(request, run);
+    const provider = this;
+    return async function* (request, ctx, metadata, signal) {
+      const run = provider.prepare('streaming chat', request, ctx, metadata, config, signal, 'chat');
+      return yield* provider.usesResponses(request, run.model.id, run.config, run.modelInfo)
+        ? provider.respondStream(request, run)
+        : provider.completeStream(request, run);
     };
   }
 
@@ -1470,7 +1471,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         images.push(image);
       }
       yield {
-        progress: ++received / (partials + 1),
+        progress: ++received / ((partials + 1) * (request.n ?? 1)),
         done,
         image,
         model: run.model,
@@ -1802,6 +1803,14 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     const [chat, metadata] = this.analysisChat(request, config);
     return this.createStreamer(config)(chat, ctx, metadata);
   }
+}
+
+/**
+ * The encoding of audio a chat request asks for: as requested, or the
+ * default for how it is delivered (audio streams only as PCM).
+ */
+function outputAudioFormat(request: Request, streaming: boolean): AudioFormat | undefined {
+  return request.modalities?.includes('audio') ? request.audio?.format ?? (streaming ? 'pcm' : 'mp3') : undefined;
 }
 
 /**

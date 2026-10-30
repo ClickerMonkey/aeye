@@ -35,7 +35,8 @@
  * ```
  */
 
-import { getChunksFromResponse, getResponseFromChunks, type Executor, type MessageContentType, type OutputModality, type Streamer, type Usage } from '@aeye/core';
+import { getChunksFromResponse, getResponseFromChunks, type Executor, type MessageContentType, type Streamer, type Usage } from '@aeye/core';
+import { INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '../common';
 import type { AI } from '../ai';
 import type {
   AIBaseTypes,
@@ -54,25 +55,10 @@ import { BaseAPI } from './base';
 import { applySchemaDeliveryFallback } from './schema-fallback';
 
 /**
- * Capabilities a model needs to read each kind of message content. File
- * input is only preferred: most registries don't record document support.
+ * Content whose capability is only preferred: most registries don't record
+ * document support.
  */
-const CONTENT_REQUIRED: Partial<Record<MessageContentType, ModelCapability>> = {
-  image: 'vision',
-  audio: 'hearing',
-  video: 'videoInput',
-};
-const CONTENT_PREFERRED: Partial<Record<MessageContentType, ModelCapability>> = {
-  file: 'files',
-};
-
-/**
- * Capabilities a model needs to produce each output modality.
- */
-const OUTPUT_REQUIRED: Partial<Record<OutputModality, ModelCapability>> = {
-  image: 'image',
-  audio: 'audioOutput',
-};
+const PREFERRED_CONTENT: MessageContentType[] = ['file'];
 
 /**
  * Adds the capability mapped to each key present in the request.
@@ -129,8 +115,8 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
     const capabilities = new Set<ModelCapability>(['chat', ...provided]);
 
     if (request) {
-      addMapped(capabilities, CONTENT_REQUIRED, contentTypes(request));
-      addMapped(capabilities, OUTPUT_REQUIRED, request.modalities ?? []);
+      addMapped(capabilities, INPUT_CAPABILITIES, contentTypes(request).filter(type => !PREFERRED_CONTENT.includes(type)));
+      addMapped(capabilities, OUTPUT_CAPABILITIES, request.modalities ?? []);
 
       // Check if request uses reasoning
       if (request.reason !== undefined) {
@@ -223,7 +209,7 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
   protected getOptionalCapabilities(provided: ModelCapability[], request: Request, forStreaming: boolean): ModelCapability[] {
     const optional = new Set<ModelCapability>(provided);
 
-    addMapped(optional, CONTENT_PREFERRED, contentTypes(request));
+    addMapped(optional, INPUT_CAPABILITIES, contentTypes(request).filter(type => PREFERRED_CONTENT.includes(type)));
 
     if ((request.tools?.length ?? 0) > 0) {
       const wantsStrictPreference = request.tools!.some(t => isNumericStrictPreference(t.strict));
