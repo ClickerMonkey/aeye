@@ -661,6 +661,7 @@ export class AI<T extends AIBaseTypes> {
       perMillion(usage.audio?.output, audio.output) +
       (usage.audio?.seconds ?? 0) * (audio.perSecond ?? 0) +
       perMillion(usage.image?.input, image.input) +
+      perMillion(usage.image?.tokens, image.tokens) +
       perMillion(usage.reasoning?.input, reasoning.input ?? text.input) +
       perMillion(usage.reasoning?.output, reasoning.output ?? text.output) +
       perMillion(usage.reasoning?.cached, reasoning.cached ?? text.cached ?? text.input) +

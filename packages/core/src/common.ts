@@ -246,6 +246,9 @@ export function accumulateUsage(target: Usage, add?: Usage) {
     if (add.image.input !== undefined) {
       image.input = (image.input ?? 0) + add.image.input;
     }
+    if (add.image.tokens !== undefined) {
+      image.tokens = (image.tokens ?? 0) + add.image.tokens;
+    }
     for (const addOutput of add.image.output ?? []) {
       const outputs = image.output ?? (image.output = []);
       const existing = outputs.find(

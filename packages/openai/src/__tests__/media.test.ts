@@ -55,7 +55,7 @@ describe('images', () => {
     expect(lastCall(mockGenerate)).toMatchObject({ size: '1536x1024', n: 2, quality: 'high', output_format: 'webp', output_compression: 80 });
     expect(response.usage).toEqual({
       text: { input: 30 },
-      image: { input: 0, output: [{ quality: 'high', size: { width: 1536, height: 1024 }, count: 2 }] },
+      image: { input: 0, tokens: 4000, output: [{ quality: 'high', size: { width: 1536, height: 1024 }, count: 2 }] },
     });
   });
 

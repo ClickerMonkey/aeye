@@ -166,6 +166,9 @@ export interface ModelPricing {
   };
   image?: {
     input?: number;
+    // Output image tokens, for models that bill image output per token
+    tokens?: number;
+    // Per-image output prices, for models that bill per image
     output?: {
       quality: string; // e.g., low, medium, high
       sizes: {
@@ -273,7 +276,7 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
 /**
  * Tokenizer type used by the model.
  */
-export type ModelTokenizer = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'Gemma' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router';
+export type ModelTokenizer = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'Gemma' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router' | 'Media';
 
 /**
  * Parameter names supported by models.

@@ -695,6 +695,8 @@ export interface Usage
   image?: {
     /** Input tokens/images used (for image analysis) */
     input?: number;
+    /** Output image tokens, for models that bill image output per token */
+    tokens?: number;
     /** Output images generated */
     output?: {
       /** Quality level (e.g., 'low', 'medium', 'high', 'hd', 'standard') */

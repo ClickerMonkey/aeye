@@ -80,14 +80,15 @@ export function partialImages(request: ImageOutputOptions): number {
  * What image responses and completed stream events report about the image.
  */
 interface ImageResult {
-  usage?: { input_tokens_details: { image_tokens: number; text_tokens: number } };
+  usage?: { output_tokens: number; input_tokens_details: { image_tokens: number; text_tokens: number } };
   quality?: string;
   size?: string;
 }
 
 /**
- * Usage of an image response: input tokens as reported, plus one output
- * entry per image priced by the quality and size actually produced.
+ * Usage of an image response: tokens as reported, plus one output entry per
+ * image with the quality and size actually produced, for models priced per
+ * image.
  */
 export function imageUsage(response: ImageResult, count: number): Usage {
   const [width, height] = (response.size ?? '').split('x').map(Number);
@@ -96,6 +97,7 @@ export function imageUsage(response: ImageResult, count: number): Usage {
     text: details && { input: details.text_tokens },
     image: {
       input: details?.image_tokens,
+      tokens: response.usage?.output_tokens,
       output: response.quality && width && height
         ? [{ quality: response.quality, size: { width, height }, count }]
         : undefined,

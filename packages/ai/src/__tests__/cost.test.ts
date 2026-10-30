@@ -56,6 +56,12 @@ describe('calculateCost', () => {
     expect(cost).toBeCloseTo(0.03);
   });
 
+  it('prices image output tokens', () => {
+    const cost = ai.calculateCost(model({ image: { input: 8, tokens: 30 } }), { image: { input: 1_000_000, tokens: 1_000_000 } });
+
+    expect(cost).toBeCloseTo(38);
+  });
+
   it('prices generated images by quality and size', () => {
     const priced = model({
       image: { output: [{ quality: 'medium', sizes: [{ width: 1024, height: 1024, cost: 0.04 }] }] },
