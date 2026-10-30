@@ -53,12 +53,12 @@ export function toInputContent(part: OpenAI.Chat.ChatCompletionContentPart): Ope
  * without the response being stored.
  */
 export function toReasoningItems(reasoning: Reasoning | undefined): OpenAI.Responses.ResponseReasoningItem[] {
-  return (reasoning?.details ?? []).flatMap(detail =>
+  return (reasoning?.details ?? []).flatMap((detail): OpenAI.Responses.ResponseReasoningItem[] =>
     detail.format === RESPONSES_REASONING_FORMAT && detail.id
       ? [{
-          type: 'reasoning' as const,
+          type: 'reasoning',
           id: detail.id,
-          summary: detail.summary ? [{ type: 'summary_text' as const, text: detail.summary }] : [],
+          summary: detail.summary ? [{ type: 'summary_text', text: detail.summary }] : [],
           encrypted_content: detail.data,
         }]
       : []

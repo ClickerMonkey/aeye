@@ -227,7 +227,7 @@ async function fetchModelIds(): Promise<string[]> {
   const response = await fetch('https://api.openai.com/v1/models', {
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
   });
-  const data = await response.json() as { data?: { id: string }[] };
+  const data: { data?: { id: string }[] } = JSON.parse(await response.text());
   if (!data.data) {
     throw new Error('Invalid response from OpenAI API');
   }

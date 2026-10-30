@@ -759,11 +759,11 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
           return [{ type: 'function_call_output', call_id: msg.toolCallId ?? '', output: await content(msg) }];
         case 'assistant': {
           const text = this.convertContentText(msg.content, msg.name || 'assistant', config).map(part => part.text).join('');
-          return [
-            ...toReasoningItems(msg.reasoning),
-            ...(text ? [{ role: 'assistant' as const, content: text }] : []),
-            ...(msg.toolCalls ?? []).map(tc => ({ type: 'function_call' as const, call_id: tc.id, name: tc.name, arguments: tc.arguments })),
-          ];
+          const message: OpenAI.Responses.ResponseInputItem[] = text ? [{ role: 'assistant', content: text }] : [];
+          const calls = (msg.toolCalls ?? []).map((tc): OpenAI.Responses.ResponseInputItem => (
+            { type: 'function_call', call_id: tc.id, name: tc.name, arguments: tc.arguments }
+          ));
+          return [...toReasoningItems(msg.reasoning), ...message, ...calls];
         }
       }
     }))).flat();
@@ -1606,7 +1606,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * Transcription parameters shared by the streaming and non-streaming
    * paths. Diarization needs chunking, and known speakers go as data URLs.
    */
-  private async transcriptionParams(request: TranscriptionRequest, run: OperationRun<TConfig>) {
+  private async transcriptionParams(request: TranscriptionRequest, run: OperationRun<TConfig>): Promise<Omit<OpenAI.Audio.TranscriptionCreateParamsNonStreaming, 'stream'>> {
     const speakers = request.knownSpeakers;
     return {
       model: run.model.id,
@@ -1616,7 +1616,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       temperature: request.temperature,
       response_format: request.responseFormat,
       timestamp_granularities: request.timestampGranularities,
-      chunking_strategy: request.responseFormat === 'diarized_json' ? 'auto' as const : undefined,
+      chunking_strategy: request.responseFormat === 'diarized_json' ? 'auto' : undefined,
       known_speaker_names: speakers?.map((speaker) => speaker.name),
       known_speaker_references: speakers && await Promise.all(speakers.map((speaker) => toURL(speaker.audio))),
       ...request.extra,

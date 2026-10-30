@@ -17,7 +17,7 @@
 
 import type { AIContextAny, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier } from '@aeye/ai';
-import { accumulateReasoning, REASONING_EFFORTS, type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
+import { accumulateReasoning, REASONING_EFFORTS, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
 import { type DefaultModels, OpenAIConfig, OpenAIProvider, ProviderError } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
@@ -424,10 +424,10 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
       params.provider = { ...params.provider, require_parameters: true };
     }
 
-    const plugins = [
-      ...dp?.plugins ?? [],
-      ...dp?.transforms?.includes('middle-out') ? [{ id: 'context-compression' as const, engine: 'middle-out' as const }] : [],
-    ];
+    const plugins: OpenRouterPlugin[] = [...dp?.plugins ?? []];
+    if (dp?.transforms?.includes('middle-out')) {
+      plugins.push({ id: 'context-compression', engine: 'middle-out' });
+    }
     if (plugins.length) {
       params.plugins = plugins;
     }
@@ -528,7 +528,7 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
         role: 'user',
         content: [
           { type: 'text', content: request.prompt },
-          ...images.map(image => ({ type: 'image' as const, content: image })),
+          ...images.map((image): MessageContent => ({ type: 'image', content: image })),
         ],
       }],
       modalities: ['image', 'text'],
