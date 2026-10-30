@@ -23,6 +23,9 @@ See [AI Instance](/concepts/ai-instance) for detailed configuration.
 | `speech` | `SpeechAPI` | Text-to-speech API |
 | `transcribe` | `TranscribeAPI` | Speech-to-text API |
 | `embed` | `EmbedAPI` | Embeddings API |
+| `rerank` | `RerankAPI` | Document reranking API |
+| `decide` | `DecideAPI` | Decisions API (probabilities, choices, scores) |
+| `batch` | `BatchAPI` | Provider batches of chat requests |
 | `models` | `ModelsAPI` | Model search and selection |
 | `providers` | `AIProviders` | Provider instances |
 | `components` | `Component[]` | Registered components |

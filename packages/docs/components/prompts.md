@@ -480,16 +480,16 @@ for await (const text of textStream) {
 for await (const event of summarizer.run(input, ctx)) {
   switch (event.type) {
     case 'textPartial':
-      process.stdout.write(event.value);
+      process.stdout.write(event.content);
       break;
     case 'toolStart':
-      console.log(`Calling tool: ${event.value.name}`);
+      console.log(`Calling tool: ${event.tool.name}`);
       break;
     case 'toolOutput':
-      console.log(`Tool result:`, event.value.result);
+      console.log(`Tool result:`, event.result);
       break;
     case 'complete':
-      console.log('Final output:', event.value);
+      console.log('Final output:', event.output);
       break;
   }
 }

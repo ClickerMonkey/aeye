@@ -13,7 +13,9 @@ OpenAI provider for the @aeye (AI TypeScript) framework. This package provides a
 - **Text-to-Speech**: TTS models with built-in or custom voices
 - **Audio Output**: Spoken answers from audio-capable chat models
 - **Embeddings**: Text embeddings for semantic search and similarity
-- **Function Calling**: Tool/function calling with automatic schema conversion
+- **Decisions**: Probabilities, choices, and scores from `/v1/decisions` (`gpt-6-luna`)
+- **Batches**: Chat requests as one batch at about half the price
+- **Function Calling**: Tool/function calling with automatic schema conversion, free-text and grammar tools, tool search, async tools, and allowed tools
 - **Structured Outputs**: JSON mode and schema-based structured outputs
 - **Streaming**: Real-time streaming responses for chat completions
 - **Multi-modal**: Support for text, images, audio, and files in conversations
@@ -78,7 +80,7 @@ const provider = new OpenAIProvider({
 });
 ```
 
-With `'auto'`, chat uses Chat Completions unless the model is Responses-only (codex, pre-5.6 pro models, deep-research, computer-use), the request has `hostedTools`, or `reason` sets `mode`, `summary`, or `context`. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns.
+With `'auto'`, chat uses Chat Completions unless the model is Responses-only (codex, pre-5.6 pro models, deep-research, computer-use), the request has `hostedTools`, a tool sets `format`, `defer`, or `async`, or `reason` sets `mode`, `summary`, or `context`. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns.
 
 ### Custom Base URL (for Azure OpenAI or compatible APIs)
 
@@ -230,7 +232,7 @@ const response = await executor(
         }),
       }
     ],
-    toolChoice: 'auto', // Can be 'auto', 'required', 'none', or { tool: 'tool_name' }
+    toolChoice: 'auto', // 'auto', 'required', 'none', { tool: 'tool_name' }, or { allowed: ['tool_name'], required? }
   },
   {},
   { model: 'gpt-5.4-mini' }
@@ -651,6 +653,67 @@ console.log(response.audio?.transcript); // response.audio.data is base64
 - Content parts take `cacheBreakpoint` (a prompt cache breakpoint), `detail` for images, and `name` for files.
 - `response.serviceTier` reports the tier used (`priority` reads as `fast`).
 
+### Tool Features
+
+- `toolChoice: { allowed: [...], required? }` is sent as `allowed_tools` on both APIs: every tool is still sent (keeping the prompt cacheable), but only the allowed ones may be called.
+- A tool with `format: { type: 'text' }` or `format: { type: 'grammar', syntax: 'lark' | 'regex', definition }` is a Responses custom tool: the model writes free text, constrained by the grammar, and it arrives as `{ input }` arguments (`TEXT_TOOL_SCHEMA` from `@aeye/core`). With `api: 'chat'` it is a one-field function whose description carries the grammar.
+- `defer: true` sends the tool with `defer_loading` and adds the hosted `tool_search` tool, so it is loaded only when the model searches for it.
+- `async: true` marks an async tool; the model keeps working while it runs.
+
+```typescript
+import { TEXT_TOOL_SCHEMA } from '@aeye/core';
+
+const response = await executor(
+  {
+    messages: [{ role: 'user', content: 'How many orders did customer 42 place?' }],
+    tools: [{
+      name: 'sql',
+      description: 'Run a read-only SQL query',
+      parameters: TEXT_TOOL_SCHEMA,
+      format: { type: 'grammar', syntax: 'regex', definition: 'SELECT [^;]+;' },
+    }],
+  },
+  {},
+  { model: 'gpt-5.4-mini' }
+);
+
+console.log(response.toolCalls?.[0]?.arguments); // {"input":"SELECT COUNT(*) FROM orders WHERE customer_id = 42;"}
+```
+
+### Decisions
+
+Typed answers from `/v1/decisions` (default model `gpt-6-luna`, or `defaultModels.decision`), through `ai.decide`:
+
+```typescript
+import { AI } from '@aeye/ai';
+
+const ai = AI.with().providers({ openai: provider }).create({});
+
+const { answers } = await ai.decide.get({
+  input: 'I was charged twice for my order.',
+  questions: {
+    billing: { type: 'predicate', instructions: 'Is this a billing problem?' },
+    urgency: { type: 'score', instructions: 'How urgent is it?', levels: ['Can wait', 'This week', 'Now'] },
+  },
+});
+```
+
+Decisions report through the `decide` hooks.
+
+### Batches
+
+`ai.batch` uploads chat requests as a JSONL file and runs them as one batch with a 24 hour window, at about half the price. Results come back in request order; a failed request has `error`.
+
+```typescript
+const job = await ai.batch.submit(
+  questions.map(question => ({ messages: [{ role: 'user', content: question }] })),
+  { metadata: { model: 'gpt-5.4-mini' } },
+);
+
+const done = await ai.batch.wait(job, {});
+done.results?.forEach(result => console.log(result.response?.content ?? result.error));
+```
+
 ### Advanced Features
 
 #### Abort Requests
@@ -718,6 +781,7 @@ The `OpenAIProvider` class can be extended to support OpenAI-compatible APIs lik
 ### Example: Custom Provider
 
 ```typescript
+import type { Request } from '@aeye/core';
 import { OpenAIProvider, OpenAIConfig } from '@aeye/openai';
 import OpenAI from 'openai';
 
@@ -738,12 +802,13 @@ class CustomProvider extends OpenAIProvider<CustomConfig> {
     });
   }
 
-  protected customizeChatParams(params: any, config: CustomConfig, request: any) {
-    // Add custom parameters
-    return {
-      ...params,
-      custom_param: config.customOption,
-    };
+  protected augmentChatRequest<TParams extends OpenAI.Chat.ChatCompletionCreateParams>(
+    params: TParams,
+    request: Request,
+    config: CustomConfig,
+  ) {
+    // Add custom parameters (mutate in place)
+    Object.assign(params, { custom_param: config.customOption });
   }
 }
 
@@ -789,7 +854,7 @@ const azureProvider = new AzureOpenAIProvider({
 | `api` | `'auto' \| 'chat' \| 'responses'` | No | Which API chat uses (default `'auto'`) |
 | `retry` / `retryEvents` | `RetryConfig` / `RetryEvents` | No | Retry behavior and events |
 | `hooks` | `OpenAIHooks` | No | `beforeRequest` / `afterRequest` / `onError` for `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed` |
-| `defaultModels` | `object` | No | Per-operation defaults; built in: `gpt-image-2` (generate, edit), `gpt-5.4-mini` (image analysis), `gpt-transcribe`, `gpt-4o-mini-tts`, `text-embedding-3-small` |
+| `defaultModels` | `object` | No | Per-operation defaults; built in: `gpt-image-2` (generate, edit), `gpt-5.4-mini` (image analysis), `gpt-transcribe`, `gpt-4o-mini-tts`, `text-embedding-3-small`, `gpt-6-luna` (decision); `rerank` has no OpenAI default |
 
 ### Request Parameters
 
@@ -803,7 +868,7 @@ const azureProvider = new AzureOpenAIProvider({
 | `maxTokens` | `number` | Maximum tokens to generate |
 | `stop` | `string \| string[]` | Stop sequences |
 | `tools` | `Tool[]` | Function definitions for tool calling |
-| `toolChoice` | `'auto' \| 'required' \| 'none' \| { tool: string }` | Tool selection mode |
+| `toolChoice` | `'auto' \| 'required' \| 'none' \| { tool: string } \| { allowed: string[]; required?: boolean }` | Tool selection mode |
 | `responseFormat` | `'text' \| 'json' \| ZodSchema` | Response format constraint |
 | `reason` | `Reason` | `{ effort, summary, mode, context }` |
 | `seed` / `verbosity` / `serviceTier` / `metadata` | | Passed through |
@@ -912,8 +977,10 @@ Main provider class implementing the @aeye Provider interface.
 - `generateImage<TContext>(request, ctx, config?): Promise<ImageGenerationResponse>` - Generate images
 - `editImage<TContext>(request, ctx, config?): Promise<ImageGenerationResponse>` - Edit images
 - `transcribe<TContext>(request, ctx, config?): Promise<TranscriptionResponse>` - Transcribe audio
-- `generateSpeech<TContext>(request, ctx, config?): Promise<SpeechResponse>` - Generate speech
+- `speech(request, ctx, config?): Promise<SpeechResponse>` - Generate speech
 - `embed<TContext>(request, ctx, config?): Promise<EmbeddingResponse>` - Generate embeddings
+- `decide(request, ctx, config?): Promise<DecisionResponse>` - Answer decision questions
+- `submitBatch(requests, ctx, config?): Promise<BatchJob>` / `getBatch(job, ctx, config?): Promise<BatchJob>` - Run and read batches
 
 **Protected Methods** (for extending):
 - `createClient(config): OpenAI` - Create OpenAI client
@@ -922,11 +989,12 @@ Main provider class implementing the @aeye Provider interface.
 - `convertTools(request): OpenAI.ChatCompletionTool[]` - Convert tools
 - `convertToolChoice(request): OpenAI.ChatCompletionToolChoiceOption` - Convert tool choice
 - `convertResponseFormat(request): ResponseFormat` - Convert response format
-- `customizeChatParams(params, config, request)` - Customize chat params
-- `customizeImageParams(params, config)` - Customize image params
-- `customizeTranscriptionParams(params, config)` - Customize transcription params
-- `customizeSpeechParams(params, config)` - Customize speech params
-- `customizeEmbeddingParams(params, config)` - Customize embedding params
+- `augmentChatRequest(params, request, config)` - Add to Chat Completions params (mutate in place)
+- `augmentChatMessage(chatMessage, message, config)` / `augmentChatContent(...)` - Add to converted messages and content parts
+- `augmentChatResponse(completion, response, config)` / `augmentChatChunk(chunk, ...)` - Read extra fields from responses and chunks
+- `augmentImageGenerateRequest?` / `augmentImageEditRequest?` / `augmentTranscriptionRequest?` / `augmentSpeechRequest?` / `augmentEmbeddingRequest?` `(params, request, config)` - Optional hooks to add to those params
+- `usesResponses(request, modelId, config, model?)` - Whether a chat request goes to the Responses API
+- `createBatch(batch, run)` / `retrieveBatch(job, run)` - Submit and read batches (OpenRouter overrides these for inline batches)
 
 ## Model Support
 
