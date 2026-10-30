@@ -98,9 +98,8 @@ export type Providers = Record<string, Provider<any>>;
  * - streaming: Streaming responses
  * - reasoning: Extended reasoning (like OpenAI o1)
  * - image: Image generation
- * - audio: Text-to-speech
- * - audioOutput: Audio produced by a chat model
- * - hearing: Speech-to-text
+ * - audio: Audio output (text-to-speech, or a chat model that speaks)
+ * - hearing: Audio input (speech-to-text, or a chat model that listens)
  * - embedding: Text embeddings
  * - zdr: Zero data retention
  */
@@ -116,7 +115,6 @@ export type ModelCapability =
   | 'reasoning'
   | 'image'
   | 'audio'
-  | 'audioOutput'
   | 'hearing'
   | 'embedding'
   | 'zdr'

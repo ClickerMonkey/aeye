@@ -1689,7 +1689,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audioOutput']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audio']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
@@ -1713,7 +1713,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audioOutput']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audio']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
@@ -1736,7 +1736,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audioOutput']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'hearing', 'audio']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
@@ -1760,7 +1760,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'tools', 'hearing', 'audioOutput']),
+  capabilities: new Set(['chat', 'tools', 'hearing', 'audio']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
@@ -1780,7 +1780,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'tools', 'hearing', 'audioOutput']),
+  capabilities: new Set(['chat', 'tools', 'hearing', 'audio']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {
@@ -1800,7 +1800,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 128000,
   maxOutputTokens: 16384,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'tools', 'hearing', 'audioOutput']),
+  capabilities: new Set(['chat', 'tools', 'hearing', 'audio']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities']),
   pricing: {
     text: {

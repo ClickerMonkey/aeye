@@ -52,4 +52,4 @@ const response = await ai.speech.get(
 );
 ```
 
-Chat models with the `audioOutput` capability can also speak their answer; see `modalities` and `audio` on chat requests.
+Chat models with the `audio` capability can also speak their answer; see `modalities` and `audio` on chat requests.

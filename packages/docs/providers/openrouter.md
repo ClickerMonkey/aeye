@@ -153,7 +153,7 @@ const ai = AI.with()
 await ai.models.refresh();
 ```
 
-The source lists every output modality (chat, image, speech, transcription, and embedding models), reads capabilities from each modality (`files`, `videoInput`, `audioOutput`, ...), cache read/write, audio, image-token, and web-search pricing, accepted reasoning efforts, and `expiration_date` as `retiresAt`.
+The source lists every output modality (chat, image, speech, transcription, and embedding models), reads capabilities from each modality (`files`, `videoInput`, `audio`, `hearing`, ...), cache read/write, audio, image-token, and web-search pricing, accepted reasoning efforts, and `expiration_date` as `retiresAt`.
 
 ## Capabilities
 

@@ -16,7 +16,7 @@ export const INPUT_CAPABILITIES: Partial<Record<MessageContentType, ModelCapabil
  */
 export const OUTPUT_CAPABILITIES: Partial<Record<OutputModality, ModelCapability>> = {
   image: 'image',
-  audio: 'audioOutput',
+  audio: 'audio',
 };
 
 /**

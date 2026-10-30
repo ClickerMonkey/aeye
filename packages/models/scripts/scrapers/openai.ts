@@ -189,7 +189,7 @@ function parseModel(id: string, markdown: string, retirements: Map<string, strin
   add(chat && inputs.includes('image'), 'vision');
   add(chat && inputs.includes('audio'), 'hearing');
   add(chat && features.has('file_uploads'), 'files');
-  add(chat && outputs.includes('audio'), 'audioOutput');
+  add(chat && outputs.includes('audio'), 'audio');
   add(chat && reasons, 'reasoning', 'reason', 'verbosity');
   // Sampling controls are rejected by reasoning models
   allow(chat && !reasons, 'temperature', 'topP', 'frequencyPenalty', 'presencePenalty', 'stop', 'seed', 'logitBias', 'logProbabilities');

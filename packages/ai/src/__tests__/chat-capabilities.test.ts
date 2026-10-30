@@ -50,7 +50,7 @@ describe('ChatAPI capability inference', () => {
   it('requires the capability for each output modality', () => {
     const required = probe.required({ messages: [], modalities: ['text', 'image', 'audio'] });
 
-    expect(required).toEqual(expect.arrayContaining(['image', 'audioOutput']));
+    expect(required).toEqual(expect.arrayContaining(['image', 'audio']));
   });
 
   it('prefers models that take the newer sampling parameters', () => {

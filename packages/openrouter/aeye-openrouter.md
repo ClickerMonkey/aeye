@@ -126,7 +126,7 @@ If a request sets `request.reason`, the provider emits OpenRouter's `reasoning` 
 
 ## Dynamic model registry (`OpenRouterModelSource`)
 
-Use OpenRouter as a `ModelSource` to populate the registry with live pricing, capabilities, context windows, and ZDR flags. It lists every output modality (chat, image, speech, transcription, and embedding models); capabilities come from each modality (`vision`, `files`, `videoInput`, `hearing`, `image`, `audioOutput`, `audio`, `embedding`); pricing covers cache read/write, audio, image tokens, and web search per call; `reasoningEfforts` and `retiresAt` (from `expiration_date`) are filled in:
+Use OpenRouter as a `ModelSource` to populate the registry with live pricing, capabilities, context windows, and ZDR flags. It lists every output modality (chat, image, speech, transcription, and embedding models); capabilities come from each modality (`vision`, `files`, `videoInput`, `hearing`, `image`, `audio`, `embedding`); pricing covers cache read/write, audio, image tokens, and web search per call; `reasoningEfforts` and `retiresAt` (from `expiration_date`) are filled in:
 
 ```typescript
 import { OpenRouterModelSource } from '@aeye/openrouter';

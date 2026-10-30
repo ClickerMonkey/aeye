@@ -22,8 +22,9 @@ it departed from the plan.
 
 - **D1** openai v7, Node ≥ 22: done.
 - **D2** `fetch` over `@openrouter/sdk`: done; OpenRouter's media endpoints mostly need no new client at all.
-- **D3** Instead of splitting `audio`, a separate `audioOutput` capability marks chat models that
-  produce audio; `audio` keeps meaning text-to-speech, so no deprecation was needed.
+- **D3** No split: `hearing` is audio input and `audio` is audio output, for chat models and the
+  transcription and speech endpoints alike, so no deprecation was needed. (An interim `audioOutput`
+  capability was dropped as asymmetric: chat audio input already shared `hearing` with transcription.)
 - **D4** `gpt-realtime-2.1-mini` returns 404 on `/v1/audio/speech`, so the TTS default stays
   `gpt-4o-mini-tts` until it retires (2027-01-06).
 - **D5** `auto` stays Chat Completions by default.

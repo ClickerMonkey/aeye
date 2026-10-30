@@ -32,7 +32,7 @@ interface ModelInfo<TProvider = string> {
 type ModelCapability =
   | 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'hearing'
   | 'json' | 'structured' | 'streaming' | 'reasoning'
-  | 'image' | 'audio' | 'audioOutput' | 'embedding' | 'zdr'
+  | 'image' | 'audio' | 'embedding' | 'zdr'
   | 'toolsStrict';
 ```
 

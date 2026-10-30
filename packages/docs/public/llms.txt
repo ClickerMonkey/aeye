@@ -503,7 +503,7 @@ function isAsyncGenerator(value: any): value is AsyncGenerator;
 ### Model Types
 
 ```typescript
-type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'audioOutput' | 'hearing' | 'embedding' | 'zdr' | 'toolsStrict';
+type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'zdr' | 'toolsStrict';
 type ModelTier = 'flagship' | 'efficient' | 'experimental';
 type ModelTokenizer = 'gpt3' | 'gpt35turbo' | 'gpt4' | 'cl100k' | 'claude' | 'llama2' | 'mistral' | 'other';
 

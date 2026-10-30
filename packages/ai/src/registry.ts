@@ -351,10 +351,9 @@ export function getProviderCapabilities(provider: Provider): Set<ModelCapability
   // It cannot be detected from provider methods alone
   capabilities.add('vision');
 
-  // files, videoInput, audioOutput - Like vision, carried by chat messages
+  // files, videoInput - Like vision, carried by chat messages
   capabilities.add('files');
   capabilities.add('videoInput');
-  capabilities.add('audioOutput');
 
   // audio - Text-to-speech synthesis
   if (provider.speech !== undefined) {

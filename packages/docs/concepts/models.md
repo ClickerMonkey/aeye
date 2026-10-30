@@ -43,13 +43,12 @@ Models declare their capabilities:
 | `streaming` | Streaming responses |
 | `reasoning` | Extended thinking |
 | `image` | Image generation |
-| `audio` | Text-to-speech |
-| `audioOutput` | Audio produced by a chat model |
+| `audio` | Audio output: text-to-speech, or a chat model that speaks |
 | `embedding` | Text embeddings |
 | `zdr` | Zero Data Retention |
 | `toolsStrict` | Strict tool inputs (derived from `strictFormat`) |
 
-Chat infers what a request needs from its content and output: image parts require `vision`, audio `hearing`, video `videoInput`, and `modalities` of image or audio require `image` or `audioOutput`. File parts only prefer `files`, since registries rarely record document support. `seed`, `verbosity`, and `serviceTier` are preferred parameters, never filters.
+Chat infers what a request needs from its content and output: image parts require `vision`, audio `hearing`, video `videoInput`, and `modalities` of image or audio require `image` or `audio`. File parts only prefer `files`, since registries rarely record document support. `seed`, `verbosity`, and `serviceTier` are preferred parameters, never filters.
 
 ## Model Selection
 
