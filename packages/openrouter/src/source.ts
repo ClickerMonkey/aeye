@@ -45,12 +45,12 @@ export async function fetchZDRModels(apiKey?: string): Promise<Set<string>> {
 }
 
 /**
- * Fetch all OpenRouter models
- * @returns 
+ * Fetch all OpenRouter models: chat, and also image, speech, transcription,
+ * and embedding models, which the default listing leaves out.
  */
 export async function fetchModels(apiKey?: string): Promise<OpenRouterModel[]> {
   const effectiveKey = apiKey ?? process.env.OPENROUTER_API_KEY;
-  const response = await fetch('https://openrouter.ai/api/v1/models', {
+  const response = await fetch('https://openrouter.ai/api/v1/models?output_modalities=all', {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': effectiveKey ? `Bearer ${effectiveKey}` : undefined,

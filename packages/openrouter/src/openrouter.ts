@@ -15,13 +15,13 @@
  *   forces regardless of strictness). See {@link OpenRouterConfig.defaultParams}.
  */
 
-import type { Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
+import type { AIContextAny, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier } from '@aeye/ai';
-import { accumulateReasoning, type Chunk, type DescriptorFamily, type Request, type Response } from '@aeye/core';
-import { OpenAIConfig, OpenAIProvider } from '@aeye/openai';
+import { accumulateReasoning, REASONING_EFFORTS, type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
+import { type DefaultModels, OpenAIConfig, OpenAIProvider, ProviderError } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
-import { OpenRouterChatChunk, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterMessage, OpenRouterModel, OpenRouterReasoningDetails, OpenRouterRequestMessage } from './types';
+import type { OpenRouterChatChunk, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterModel, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterServerTool, OpenRouterUsage } from './types';
 
 /**
  * OpenRouter provider configuration
@@ -46,114 +46,142 @@ export interface OpenRouterConfig extends OpenAIConfig {
        * Non-strict requests are unaffected unless this is explicitly set.
        */
       requireParameters?: boolean;
-      dataCollection?: 'deny' | 'allow';
+      dataCollection?: OpenRouterProviderPreferences['data_collection'];
       zdr?: boolean;
+      // Only route to providers that allow training on outputs
+      enforceDistillableText?: boolean;
       only?: string[];
       ignore?: string[];
-      quantizations?: ('int4' | 'int8' | 'fp4' | 'fp6' | 'fp8' | 'fp16' | 'bf16' | 'fp32' | 'unknown')[];
-      sort?: 'price' | 'throughput' | 'latency';
-      maxPrice?: {
-        prompt?: number; // dollars per million tokens
-        completion?: number; // dollars per million tokens
-        image?: number; // dollars per image
-      };
+      quantizations?: OpenRouterProviderPreferences['quantizations'];
+      sort?: OpenRouterProviderPreferences['sort'];
+      // Preferred median throughput floor (tokens/second) and latency ceiling (seconds)
+      preferredMinThroughput?: number;
+      preferredMaxLatency?: number;
+      maxPrice?: OpenRouterProviderPreferences['max_price'];
     };
+    // Models to fall back to, in order, when the requested one fails
+    fallbackModels?: string[];
+    // Plugins applied to every request
+    plugins?: OpenRouterPlugin[];
+    /**
+     * @deprecated OpenRouter replaced transforms with plugins; `middle-out`
+     * is sent as the `context-compression` plugin.
+     */
     transforms?: string[];
   };
 }
 
+/**
+ * OpenRouter parameter names to our ModelParameter names
+ */
+const PARAMETERS: Partial<Record<string, ModelParameter>> = {
+  max_tokens: 'maxTokens',
+  max_completion_tokens: 'maxTokens',
+  temperature: 'temperature',
+  top_p: 'topP',
+  frequency_penalty: 'frequencyPenalty',
+  presence_penalty: 'presencePenalty',
+  stop: 'stop',
+  seed: 'seed',
+  response_format: 'responseFormat',
+  structured_outputs: 'structuredOutput',
+  tools: 'tools',
+  tool_choice: 'toolChoice',
+  logit_bias: 'logitBias',
+  logprobs: 'logProbabilities',
+  top_logprobs: 'logProbabilities',
+  reasoning: 'reason',
+  reasoning_effort: 'reason',
+  include_reasoning: 'reason',
+  verbosity: 'verbosity',
+};
 
 /**
- * Convert OpenRouter parameter names to our ModelParameter format
+ * Capabilities a model has for each modality it reads or produces.
  */
-function convertSupportedParameters(openRouterParams: string[]): ModelParameter[] {
-  const paramMap: Record<string, ModelParameter> = {
-    'max_tokens': 'maxTokens',
-    'temperature': 'temperature',
-    'top_p': 'topP',
-    'frequency_penalty': 'frequencyPenalty',
-    'presence_penalty': 'presencePenalty',
-    'stop': 'stop',
-    'seed': 'seed',
-    'response_format': 'responseFormat',
-    'structured_outputs': 'structuredOutput',
-    'tools': 'tools',
-    'tool_choice': 'toolChoice',
-    'logit_bias': 'logitBias',
-    'logprobs': 'logProbabilities',
-    'top_logprobs': 'logProbabilities',
-    'reasoning': 'reason',
-    'include_reasoning': 'reason',
-  };
-
-  const converted = new Set<ModelParameter>();
-  for (const param of openRouterParams) {
-    const mapped = paramMap[param];
-    if (mapped) {
-      converted.add(mapped);
-    }
-  }
-
-  return Array.from(converted);
-}
+const INPUT_CAPABILITIES: Partial<Record<OpenRouterModel['architecture']['input_modalities'][number], ModelCapability>> = {
+  image: 'vision',
+  file: 'files',
+  audio: 'hearing',
+  video: 'videoInput',
+};
+const OUTPUT_CAPABILITIES: Partial<Record<OpenRouterModel['architecture']['output_modalities'][number], ModelCapability>> = {
+  text: 'chat',
+  image: 'image',
+  audio: 'audioOutput',
+  speech: 'audio',
+  transcription: 'hearing',
+  embeddings: 'embedding',
+};
 
 /**
- * Detect capabilities from input/output modalities
+ * Capabilities a model has for each parameter it accepts.
  */
-function detectCapabilities(model: OpenRouterModel): ModelCapability[] {
+const PARAMETER_CAPABILITIES: Partial<Record<string, ModelCapability>> = {
+  tools: 'tools',
+  tool_choice: 'tools',
+  reasoning: 'reasoning',
+  include_reasoning: 'reasoning',
+  response_format: 'json',
+  structured_outputs: 'structured',
+};
+
+/**
+ * Server tool call counts in usage, by the hosted tool they belong to.
+ */
+const SERVER_TOOL_USAGE: Partial<Record<string, HostedTool['type']>> = {
+  web_search_requests: 'web_search',
+  web_fetch_requests: 'web_fetch',
+  image_generation_requests: 'image_generation',
+};
+
+/**
+ * Aspect ratios image models accept.
+ */
+const ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+
+/**
+ * Models used when neither the request, the context, nor the config names one.
+ */
+const DEFAULT_MODELS: DefaultModels = {
+  imageGenerate: 'google/gemini-2.5-flash-image',
+  imageEdit: 'google/gemini-2.5-flash-image',
+  imageAnalyze: 'openai/gpt-5.4-mini',
+  transcription: 'openai/gpt-transcribe',
+  embedding: 'openai/text-embedding-3-small',
+};
+
+/**
+ * Detect capabilities from modalities and supported parameters
+ */
+function detectCapabilities(model: OpenRouterModel): Set<ModelCapability> {
   const capabilities = new Set<ModelCapability>();
+  const add = (capability: ModelCapability | undefined) => capability && capabilities.add(capability);
 
-  // Chat capability - if model outputs text
-  if (model.architecture.output_modalities.includes('text')) {
-    capabilities.add('chat');
+  model.architecture.input_modalities.forEach(modality => add(INPUT_CAPABILITIES[modality]));
+  model.architecture.output_modalities.forEach(modality => add(OUTPUT_CAPABILITIES[modality]));
+  model.supported_parameters.forEach(param => add(PARAMETER_CAPABILITIES[param]));
+  if (capabilities.has('chat')) {
+    capabilities.add('streaming');
   }
-
-  // Image generation - if model outputs images
-  if (model.architecture.output_modalities.includes('image')) {
-    capabilities.add('image');
-  }
-
-  // Vision capability - if model accepts images as input
-  if (model.architecture.input_modalities.includes('image')) {
-    capabilities.add('vision');
-  }
-
-  // Audio/hearing capability - if model accepts audio as input
-  if (model.architecture.input_modalities.includes('audio')) {
-    capabilities.add('hearing');
-  }
-
-  // File handling capability
-  if (model.architecture.input_modalities.includes('file')) {
-    capabilities.add('vision'); // Files often imply document/vision capabilities
-  }
-
-  // Tools/function calling
-  if (model.supported_parameters.includes('tools') || model.supported_parameters.includes('tool_choice')) {
-    capabilities.add('tools');
-  }
-
-  // Reasoning capability
-  if (model.supported_parameters.includes('reasoning') || model.supported_parameters.includes('include_reasoning')) {
-    capabilities.add('reasoning');
-  }
-
-  // JSON output capability
-  if (model.supported_parameters.includes('response_format')) {
-    capabilities.add('json');
-  }
-
-  // Structured output capability
-  if (model.supported_parameters.includes('structured_outputs')) {
-    capabilities.add('structured');
-  }
-
-  // Streaming capability (most models support this)
-  capabilities.add('streaming');
-
-  return Array.from(capabilities);
+  return capabilities;
 }
 
+/**
+ * A price string as a number, or undefined when free or absent.
+ */
+function price(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * A per-token price string as dollars per million tokens.
+ */
+function perMillion(value: string | undefined): number | undefined {
+  const parsed = price(value);
+  return parsed && parsed * 1_000_000;
+}
 
 /**
  * Convert OpenRouter model to ModelInfo with full details
@@ -164,50 +192,47 @@ export function convertOpenRouterModel(
   metrics?: { latency?: number; throughput?: number; uptime?: number } | null
 ): ModelInfo {
   const capabilities = detectCapabilities(model);
-  const supportedParameters = convertSupportedParameters(model.supported_parameters);
-  const tier = detectTier(model.name);
-
-  // Update ZDR support from ZDR endpoint
   if (zdrModelIds.has(model.id)) {
-    capabilities.push('zdr');
+    capabilities.add('zdr');
   }
-
-  const hasValue = (x: string | undefined): x is string => {
-    return x !== undefined && x !== null && x !== '' && x !== '0';
-  }
+  const { pricing } = model;
+  const embeds = capabilities.has('embedding');
+  const supportedEfforts = model.reasoning?.supported_efforts;
 
   return {
     provider: 'openrouter',
     id: model.id,
     name: model.name,
-    capabilities: new Set(capabilities), // Will be serialized as array
-    tier,
+    capabilities,
+    tier: detectTier(model.name),
     pricing: {
-      text: hasValue(model.pricing.prompt) || hasValue(model.pricing.completion) ? {
-        input: hasValue(model.pricing.prompt) ? parseFloat(model.pricing.prompt) * 1_000_000 : undefined,
-        output: hasValue(model.pricing.completion) ? parseFloat(model.pricing.completion) * 1_000_000 : undefined,
-      } : undefined,
-      image: hasValue(model.pricing.image) ? {
-        input: parseFloat(model.pricing.image) * 1_000_000,
-      } : undefined,
-      reasoning: hasValue(model.pricing.internal_reasoning) ? {
-        output: parseFloat(model.pricing.internal_reasoning) * 1_000_000,
-      } : undefined,
-      perRequest: hasValue(model.pricing.request) 
-        ? parseFloat(model.pricing.request) 
+      text: embeds ? undefined : {
+        input: perMillion(pricing.prompt),
+        output: perMillion(pricing.completion),
+        cached: perMillion(pricing.input_cache_read),
+        cacheWrite: perMillion(pricing.input_cache_write),
+      },
+      image: price(pricing.image_token) ? { input: perMillion(pricing.image_token) } : undefined,
+      audio: price(pricing.audio) || price(pricing.audio_output)
+        ? { input: perMillion(pricing.audio), output: perMillion(pricing.audio_output) }
         : undefined,
+      reasoning: price(pricing.internal_reasoning) ? { output: perMillion(pricing.internal_reasoning) } : undefined,
+      embeddings: embeds ? { cost: perMillion(pricing.prompt) } : undefined,
+      tools: price(pricing.web_search) ? { web_search: price(pricing.web_search) } : undefined,
+      perRequest: price(pricing.request),
     },
     contextWindow: model.context_length,
     maxOutputTokens: model.top_provider.max_completion_tokens ?? undefined,
-    tokenizer: model.architecture.tokenizer as ModelTokenizer,
-    supportedParameters: new Set(supportedParameters), // Will be serialized as array
+    tokenizer: model.architecture.tokenizer,
+    supportedParameters: new Set(model.supported_parameters.flatMap(param => PARAMETERS[param] ?? [])),
+    reasoningEfforts: supportedEfforts && REASONING_EFFORTS.filter(effort => supportedEfforts.includes(effort)),
+    retiresAt: model.expiration_date?.slice(0, 10),
     // Only emit metrics for FINITE values. A scraped page value that fails to
     // parse yields NaN, which `JSON.stringify` turns into `null` — poisoning the
     // generated `ModelInfo` (whose metric fields are `number | undefined`).
     metrics: metrics && (Number.isFinite(metrics.latency) || Number.isFinite(metrics.throughput)) ? {
       timeToFirstToken: Number.isFinite(metrics.latency) ? metrics.latency : undefined,
       tokensPerSecond: Number.isFinite(metrics.throughput) ? metrics.throughput : undefined,
-      // Store uptime in metadata since it's not a standard metric
     } : undefined,
     metadata: {
       description: model.description,
@@ -215,9 +240,64 @@ export function convertOpenRouterModel(
       canonicalSlug: model.canonical_slug,
       huggingFaceId: model.hugging_face_id,
       created: model.created,
+      knowledgeCutoff: model.knowledge_cutoff ?? undefined,
+      voices: model.supported_voices ?? undefined,
       uptime: Number.isFinite(metrics?.uptime) ? metrics?.uptime : undefined,
     },
   };
+}
+
+/**
+ * A hosted tool as an OpenRouter server tool.
+ */
+function toServerTool(tool: HostedTool): OpenRouterServerTool {
+  switch (tool.type) {
+    case 'web_search':
+      return {
+        type: 'openrouter:web_search',
+        parameters: { max_results: tool.maxResults, allowed_domains: tool.allowedDomains, excluded_domains: tool.blockedDomains },
+      };
+    case 'web_fetch':
+      return { type: 'openrouter:web_fetch' };
+    case 'image_generation':
+      return { type: 'openrouter:image_generation' };
+    default:
+      throw new ProviderError('openrouter', `The ${tool.type} hosted tool is not available on OpenRouter`);
+  }
+}
+
+/**
+ * The supported aspect ratio closest to a WIDTHxHEIGHT size.
+ */
+function aspectRatio(size: string): string {
+  const [width, height] = size.split('x').map(Number);
+  const ratio = (r: string) => { const [w, h] = r.split(':').map(Number); return w / h; };
+  return ASPECT_RATIOS.reduce((best, r) =>
+    Math.abs(ratio(r) - width / height) < Math.abs(ratio(best) - width / height) ? r : best
+  );
+}
+
+/**
+ * Images a chat model produced.
+ */
+function toImages(images: OpenRouterImage[] | undefined): GeneratedImage[] | undefined {
+  return images?.length ? images.map(image => ({ url: image.image_url.url })) : undefined;
+}
+
+/**
+ * Usage beyond what the OpenAI shape carries: server tool calls, and the
+ * full cost, which with BYOK is OpenRouter's fee plus the provider's bill.
+ */
+function augmentUsage(target: Usage, usage: OpenRouterUsage) {
+  for (const [key, calls] of Object.entries(usage.server_tool_use_details ?? {})) {
+    const tool = SERVER_TOOL_USAGE[key];
+    if (tool && calls) {
+      target.tools = { ...target.tools, [tool]: calls };
+    }
+  }
+  if (usage.cost !== undefined) {
+    target.cost = usage.cost + (usage.is_byok ? usage.cost_details?.upstream_inference_cost ?? 0 : 0);
+  }
 }
 
 /**
@@ -225,6 +305,8 @@ export function convertOpenRouterModel(
  */
 export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> implements Provider<OpenRouterConfig> {
   readonly name = 'openrouter';
+
+  protected override readonly defaults = DEFAULT_MODELS;
 
   /**
    * OpenRouter is a router, not a model host: it speaks an OpenAI-shaped API
@@ -244,7 +326,11 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    * why structured output looked family-aware while tools were not.
    */
   protected override supportedStrictFamilies: ReadonlySet<DescriptorFamily> =
-    new Set<DescriptorFamily>(['openai', 'anthropic', 'google']);
+    new Set<DescriptorFamily>(['openai', 'anthropic', 'google', 'xai']);
+
+  // Reasoning of each converted assistant message, re-attached when the
+  // messages are assembled
+  private readonly reasoningOf = new WeakMap<OpenAI.Chat.ChatCompletionMessageParam, Reasoning>();
 
   protected createClient(config: OpenRouterConfig): OpenAI {
     return new OpenAI({
@@ -275,6 +361,14 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   }
 
   /**
+   * OpenRouter serves hosted tools and reasoning options through chat
+   * completions, so the Responses API is used only when configured.
+   */
+  protected override usesResponses(request: Request, modelId: string, config: OpenRouterConfig): boolean {
+    return config.api === 'responses';
+  }
+
+  /**
    * Augment chat request with OpenRouter-specific parameters
    */
   protected override augmentChatRequest(
@@ -282,26 +376,30 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
     request: Request,
     config: OpenRouterConfig
   ) {
-    // Add reasoning if specified
-    if (request.reason) {
-      params.reasoning = {
-        enabled: true,
-        effort: request.reason.effort,
-        max_tokens: request.reason.maxTokens,
-      };
-    }
-
     const dp = config.defaultParams;
 
-    // Merge provider parameters from config defaults (preserve any existing
-    // params.provider already set upstream).
+    // OpenRouter takes reasoning as one object with either a token budget or
+    // an effort, not both; the effort arrives already clamped to what the
+    // model accepts
+    if (request.reason) {
+      const { maxTokens, exclude, summary, mode, context } = request.reason;
+      const budget = maxTokens ? { max_tokens: maxTokens } : { effort: params.reasoning_effort ?? undefined };
+      params.reasoning = { enabled: true, ...budget, exclude, summary, mode, context };
+    }
+    delete params.reasoning_effort;
+    // OpenRouter ignores OpenAI's inline moderation
+    delete params.moderation;
+
     if (dp?.providers) {
-      const { allowFallbacks, requireParameters, dataCollection, maxPrice, ...provider } = dp.providers;
+      const { allowFallbacks, requireParameters, dataCollection, enforceDistillableText, preferredMinThroughput, preferredMaxLatency, maxPrice, ...provider } = dp.providers;
       params.provider = {
         ...params.provider,
         allow_fallbacks: allowFallbacks,
         require_parameters: requireParameters,
         data_collection: dataCollection,
+        enforce_distillable_text: enforceDistillableText,
+        preferred_min_throughput: preferredMinThroughput,
+        preferred_max_latency: preferredMaxLatency,
         max_price: maxPrice,
         ...provider,
       };
@@ -323,59 +421,40 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
       params.response_format.json_schema?.strict === true;
 
     if (isStrictStructured && dp?.providers?.requireParameters === undefined) {
-      params.provider = {
-        ...params.provider,
-        require_parameters: true,
-      };
+      params.provider = { ...params.provider, require_parameters: true };
     }
 
-    if (dp?.transforms) {
-      params.transforms = dp.transforms;
+    const plugins = [
+      ...dp?.plugins ?? [],
+      ...dp?.transforms?.includes('middle-out') ? [{ id: 'context-compression' as const, engine: 'middle-out' as const }] : [],
+    ];
+    if (plugins.length) {
+      params.plugins = plugins;
     }
+    if (dp?.fallbackModels?.length) {
+      params.models = dp.fallbackModels;
+    }
+    if (request.hostedTools?.length) {
+      params.tools = [...params.tools ?? [], ...request.hostedTools.map(toServerTool)];
+    }
+    if (request.modalities?.includes('image')) {
+      params.modalities = request.modalities;
+    }
+    params.user = request.userKey;
   }
 
-  /**
-   * 
-   * @param expected 
-   * @param response 
-   */
   protected override augmentChatResponse(
-    expected: OpenRouterChatResponse, 
+    expected: OpenRouterChatResponse,
     response: Response,
     config: OpenRouterConfig
   ) {
     const message = expected.choices?.[0]?.message;
-    if (message) {
-      if (message.reasoning) {
-        if (!response.reasoning) {
-          response.reasoning = {};
-        }
-        response.reasoning.content = message.reasoning;
-      }
-      if (message.reasoning_details) {
-        if (!response.reasoning) {
-          response.reasoning = {};
-        }
-        response.reasoning.details = message.reasoning_details;
-      }
+    if (message?.reasoning || message?.reasoning_details) {
+      response.reasoning = { content: message.reasoning, details: message.reasoning_details };
     }
-    const usage = expected.usage;
-    if (usage) {
-      if (!response.usage) {
-        response.usage = {};
-      }
-      if (!response.usage.text) {
-        response.usage.text = {};
-      }
-      if (usage.completion_tokens) {
-        response.usage.text.output = usage.completion_tokens;
-      }
-      if (usage.prompt_tokens) {
-        response.usage.text.input = usage.prompt_tokens;
-      }
-      if (usage.cost) {
-        response.usage.cost = usage.cost;
-      }
+    response.images = toImages(message?.images);
+    if (expected.usage) {
+      augmentUsage(response.usage ??= {}, expected.usage);
     }
   }
 
@@ -384,24 +463,6 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
     chunk: Chunk,
     config: OpenRouterConfig
   ) {
-    const usage = expected.usage;
-    if (usage) {
-      if (!chunk.usage) {
-        chunk.usage = {};
-      }
-      if (!chunk.usage.text) {
-        chunk.usage.text = {};
-      }
-      if (usage.completion_tokens) {
-        chunk.usage.text.output = usage.completion_tokens;
-      }
-      if (usage.prompt_tokens) {
-        chunk.usage.text.input = usage.prompt_tokens;
-      }
-      if (usage.cost) {
-        chunk.usage.cost = usage.cost;
-      }
-    }
     const delta = expected.choices[0]?.delta;
     if (delta?.reasoning || delta?.reasoning_details?.length) {
       chunk.reasoning = accumulateReasoning(chunk.reasoning, {
@@ -409,94 +470,101 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
         details: delta.reasoning_details,
       });
     }
-  }
-
-  protected augmentChatMessage(
-      chatMessage: OpenRouterRequestMessage,
-      message: Message,
-      config: OpenRouterConfig,
-  ) {
-    if (message.reasoning?.content) {
-      chatMessage.reasoning = message.reasoning.content;
+    chunk.images = toImages(delta?.images);
+    if (expected.usage) {
+      augmentUsage(chunk.usage ??= {}, expected.usage);
     }
-    if (message.reasoning?.details) {
-      chatMessage.reasoning_details = message.reasoning.details as OpenRouterReasoningDetails[];
-    }
-  }
-
-  protected async convertMessages(request: Request, config: OpenRouterConfig): Promise<OpenRouterRequestMessage[]> {
-    const messages = await super.convertMessages(request, config) as OpenRouterRequestMessage[];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i];
-      // If the message has content & reasoning, move details into a separate field
-      // Annoying OpenRouter doesn't transform it correctly for us
-      if (message.role === 'assistant' && 
-        (message.content?.length) && 
-        (message.reasoning?.length || message.reasoning_details?.length)
-      ) {
-        // Remove reasoning details from content
-        const { reasoning, reasoning_details } = message;
-        delete message.reasoning;
-        delete message.reasoning_details;
-
-        // Insert a new message before this one with the reasoning info
-        messages.splice(i, 0, {
-          role: 'assistant',
-          name: message.name,
-          reasoning,
-          reasoning_details,
-        });
-      }
-    }
-    return messages;
   }
 
   /**
-   * OpenRouter does not support image generation
+   * OpenRouter marks cache breakpoints Anthropic-style and translates them
+   * for each upstream provider.
    */
-  override generateImage = undefined;
+  protected override augmentChatContent(
+    chatContent: OpenRouterContentPart,
+  ) {
+    if (chatContent.prompt_cache_breakpoint) {
+      delete chatContent.prompt_cache_breakpoint;
+      chatContent.cache_control = { type: 'ephemeral' };
+    }
+  }
+
+  protected override augmentChatMessage(
+    chatMessage: OpenAI.Chat.ChatCompletionMessageParam,
+    message: Message,
+  ) {
+    if (message.reasoning && chatMessage.role === 'assistant') {
+      this.reasoningOf.set(chatMessage, message.reasoning);
+    }
+  }
 
   /**
-   * OpenRouter does not support image generation streaming
+   * Assistant messages carry their reasoning back. OpenRouter doesn't
+   * transform reasoning on a message that also has content, so that
+   * reasoning goes in its own assistant message just before.
+   */
+  protected override async convertMessages(request: Request, config: OpenRouterConfig): Promise<OpenRouterRequestMessage[]> {
+    const messages = await super.convertMessages(request, config);
+    return messages.flatMap((message): OpenRouterRequestMessage[] => {
+      const reasoning = this.reasoningOf.get(message);
+      if (!reasoning) {
+        return [message];
+      }
+      const replay = { reasoning: reasoning.content ?? undefined, reasoning_details: reasoning.details };
+      return message.role === 'assistant' && message.content?.length
+        ? [{ role: 'assistant', name: message.name, ...replay }, message]
+        : [{ ...message, ...replay }];
+    });
+  }
+
+  /**
+   * Produce images through chat: image models on OpenRouter answer with
+   * images when asked for the image modality. Runs through the chat hooks.
+   */
+  private async chatImages(request: ImageOutputOptions, images: Resource[], ctx: AIContextAny, defaultModel: keyof DefaultModels, config?: OpenRouterConfig): Promise<ImageGenerationResponse> {
+    const response = await this.createExecutor(config)({
+      model: request.model,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', content: request.prompt },
+          ...images.map(image => ({ type: 'image' as const, content: image })),
+        ],
+      }],
+      modalities: ['image', 'text'],
+      extra: {
+        image_config: request.size && request.size !== 'auto' ? { aspect_ratio: aspectRatio(request.size) } : undefined,
+        ...request.extra,
+      },
+    }, ctx, { model: config?.defaultModels?.[defaultModel] ?? this.config.defaultModels?.[defaultModel] ?? this.defaults[defaultModel] });
+
+    return { images: response.images ?? [], model: response.model, usage: response.usage };
+  }
+
+  override generateImage: Provider['generateImage'] = (request: ImageGenerationRequest, ctx: AIContextAny, config?: OpenRouterConfig) =>
+    this.chatImages(request, [], ctx, 'imageGenerate', config);
+
+  override editImage: Provider['editImage'] = (request: ImageEditRequest, ctx: AIContextAny, config?: OpenRouterConfig) =>
+    this.chatImages(request, [request.image, ...request.references ?? []], ctx, 'imageEdit', config);
+
+  /**
+   * Image streaming is not offered; image requests fall back to the
+   * non-streaming methods.
    */
   override generateImageStream = undefined;
-
-  /**
-   * OpenRouter does not support image editing
-   */
-  override editImage = undefined;
-
-  /**
-   * OpenRouter does not support image editing
-   */
   override editImageStream = undefined;
 
   /**
-   * OpenRouter does not support audio transcription
-   */
-  override transcribe = undefined;
-
-  /**
-   * OpenRouter does not support audio transcription streaming
+   * Transcription streaming is not offered; transcription falls back to
+   * the non-streaming method.
    */
   override transcribeStream = undefined;
-
-  /**
-   * OpenRouter does not support speech synthesis
-   */
-  override speech = undefined;
-
-  /**
-   * OpenRouter does not support embeddings
-   */
-  override embed = undefined;
 
   /**
    * Override listModels to use OpenRouter's model API with ZDR support
    */
   async listModels(config: OpenRouterConfig): Promise<ModelInfo[]> {
     try {
-      // Fetch both models and ZDR models in parallel
       const [models, zdrModels] = await Promise.all([
         fetchModels(config.apiKey),
         fetchZDRModels(config.apiKey),
@@ -508,4 +576,3 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
     }
   }
 }
-
