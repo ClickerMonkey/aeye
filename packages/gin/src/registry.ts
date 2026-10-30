@@ -1,6 +1,6 @@
 import type { ExprDef, TypeDef } from './schema';
 import { Call, GetSet, Init, Prop, type PropSpec, Type, slotAccepts } from './type';
-import { Extension, type ExtensionLocal } from './extension';
+import { Extension, type ExtensionLocal, sameOptions } from './extension';
 import {
   type BoolOptions,
   type ColorOptions,
@@ -690,6 +690,74 @@ export class Registry implements TypeBuilder, TypeScope {
     return result;
   }
 
+  /** True if `def` is a use-site reference: a name with `generic`
+   *  arguments and/or `options`, and no other structural peer. */
+  private isUseSiteDef(def: TypeDef): boolean {
+    if (def.generic === undefined && def.options === undefined) return false;
+    const others: ReadonlyArray<keyof TypeDef> = [
+      'extends', 'satisfies', 'init', 'props', 'get', 'call', 'constraint',
+    ];
+    return others.every((k) => (def as unknown as Record<string, unknown>)[k] === undefined);
+  }
+
+  /** Is `name` bound in a LocalScope between `scope` and this registry? */
+  private boundAboveRegistry(name: string, scope: TypeScope): boolean {
+    for (let s: TypeScope | undefined = scope; s && s !== this; s = s.parent) {
+      if (s.localLookup(name) !== undefined) return true;
+    }
+    return false;
+  }
+
+  private parseGenericArgs(def: TypeDef, scope: TypeScope): Record<string, Type> {
+    return Object.fromEntries(
+      Object.entries(def.generic ?? {}).map(([k, v]) => [k, this.parse(v, scope)]),
+    );
+  }
+
+  /** A lazy use-site reference — see {@link AliasType} "Use-site arguments". */
+  private useSiteAlias(def: TypeDef, scope: TypeScope): AliasType {
+    return new AliasType(
+      scope,
+      def.options !== undefined ? { name: def.name, options: def.options as Record<string, unknown> } : { name: def.name },
+      this.parseGenericArgs(def, scope),
+    );
+  }
+
+  /**
+   * `target` as written at a use site: specialized with `generic` (when it
+   * is a generic Extension), then narrowed by `options`. The narrowing is an
+   * Extension under the target's own name marked `useSite`, so it prints
+   * and serializes as `PlayerText{maxLength=40}` rather than as a new type.
+   */
+  applyUse(
+    target: Type,
+    generic: Record<string, Type>,
+    options?: Record<string, unknown>,
+    scope?: TypeScope,
+  ): Type {
+    let t = target;
+    if (Object.keys(generic).length > 0 && t instanceof Extension) t = t.specialize(generic);
+    // Options that narrow nothing (`{name:'Email', options:{pattern:'@'}}`
+    // restating Email's own) are no narrowing: the target keeps its identity.
+    if (options !== undefined && Object.keys(options).length > 0
+      && !sameOptions(t.narrow(options), t.options)) {
+      t = new Extension(this, t, {
+        name: t.name,
+        docs: t.docs,
+        options,
+        generic: t instanceof Extension ? t.local.generic : undefined,
+        useSite: true,
+      }, t instanceof Extension && t.bindings ? t.scope : undefined, scope);
+    }
+    return t;
+  }
+
+  /** A lowercase name within typo distance of a built-in class name. */
+  private nearBuiltin(name: string): boolean {
+    if (name[0] !== name[0]?.toLowerCase()) return false;
+    return didYouMean(name, this.typeClasses().map((c) => c.NAME)) !== '';
+  }
+
   /** True if `def` is a bare-name shape: only `name` (and optionally
    *  `docs`), no structural peers. Bare-name defs route through scope
    *  lookup → AliasType / registered named type / canonical class. */
@@ -793,6 +861,19 @@ export class Registry implements TypeBuilder, TypeScope {
       return new AliasType(scope, { name: def.name });
     }
 
+    // A USE-SITE reference: a name plus generic arguments and/or narrowing
+    // options and nothing else (`Node<T>`, `PlayerText{maxLength=40}`).
+    // Resolved like a bare name — LocalScope first, then the registry, then
+    // lazily — so a name bound in a scope overlay, a self reference inside
+    // its own definition, and a forward reference all parse. Before this a
+    // non-bare reference consulted `namedTypes` only: anything not yet
+    // registered threw "unknown type", and use-site options on a registered
+    // name were silently DROPPED (`PlayerText{maxLength=4}` accepted 8 chars).
+    const useSite = this.isUseSiteDef(def);
+    if (useSite && this.boundAboveRegistry(def.name, scope)) {
+      return this.useSiteAlias(def, scope);
+    }
+
     // Previously-registered named type (Extension or programmatically defined).
     // A reference that carries `generic` is a SPECIALIZATION of that type —
     // `{name:'QueryResult', generic:{Row:{…}}}`. Before this the bindings
@@ -801,17 +882,22 @@ export class Registry implements TypeBuilder, TypeScope {
     // printed, as a bare `QueryResult`.
     if (this.namedTypes.has(def.name)) {
       const named = this.namedTypes.get(def.name)!;
+      if (useSite) return this.applyUse(named, this.parseGenericArgs(def, scope), def.options, scope);
       if (def.generic && named instanceof Extension) {
-        const bindings = Object.fromEntries(
-          Object.entries(def.generic).map(([k, v]) => [k, this.parse(v, scope)]),
-        );
-        return named.specialize(bindings);
+        return named.specialize(this.parseGenericArgs(def, scope));
       }
       return named;
     }
 
     const cls = this.classes.get(def.name);
     if (!cls) {
+      // Not bound anywhere YET: a self reference (`next?: Node<T>` inside
+      // `Node<T>`) or a forward one (`When<A>` ↔ `Condition<A>`). Lazy, as
+      // a bare forward name already is; the arguments apply on resolve.
+      // One carve-out keeps the typo guard: a lowercase name one edit from a
+      // built-in class (`tex{…}`, `lst<…>`) is a misspelled built-in, not a
+      // type declared later — named types are written in PascalCase.
+      if (useSite && !this.nearBuiltin(def.name)) return this.useSiteAlias(def, scope);
       throw new Error(
         `registry.parse: unknown type '${def.name}'${didYouMean(def.name, this.typeNameCandidates())}`,
       );

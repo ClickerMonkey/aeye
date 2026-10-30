@@ -3,6 +3,8 @@ import { LocalScope, type TypeScope } from './type-scope';
 import type { PropDef, TypeDef } from './schema';
 import { Value, val } from './value';
 import {
+  definitionRefs,
+  optionsCode,
   Call,
   type CompatOptions,
   GetSet,
@@ -59,6 +61,13 @@ export interface ExtensionLocal<T = any, O = any> {
    * LLMs see the constraint as part of the type's description.
    */
   constraint?: Expr;
+  /**
+   * This Extension is a USE-SITE narrowing of a named type
+   * (`PlayerText{maxLength=40}`), built by `Registry.applyUse`, rather than a
+   * declaration. It keeps the target's name, prints as `Name<args>{options}`
+   * and serializes as the reference `{name, generic?, options}`.
+   */
+  useSite?: boolean;
 }
 
 /**
@@ -82,7 +91,7 @@ export interface ExtensionLocal<T = any, O = any> {
  *  values are scalars or (for `not` / `tuple` / `or` / `and`) the very objects
  *  the base already holds, so identity per key is the right comparison and
  *  costs nothing. */
-function sameOptions(narrowed: unknown, base: unknown): boolean {
+export function sameOptions(narrowed: unknown, base: unknown): boolean {
   if (narrowed === base) return true;
   if (typeof narrowed !== 'object' || narrowed === null || typeof base !== 'object' || base === null) return false;
   const a = narrowed as Record<string, unknown>;
@@ -100,11 +109,21 @@ function sameOptions(narrowed: unknown, base: unknown): boolean {
 function mergeJSONProps(
   basePropsFromRef: Record<string, Prop | PropSpec>,
   local: Record<string, Prop | PropSpec> | undefined,
+  baseWireProps?: Record<string, PropDef>,
 ): Record<string, PropDef> | undefined {
   const baseKeys = Object.keys(basePropsFromRef);
   if (baseKeys.length === 0) return local ? Prop.toJSONMap(local) : undefined;
+  // The base's own `toJSON` has already serialized exactly these members
+  // (an anonymous `obj` / `interface` writes its `refProps` as `props`).
+  // Serializing them a second time doubled the work at EVERY level of
+  // nesting, so a chain of types sharing references cost 4^depth instead
+  // of 2^depth. Reused only when the key sets agree, so a base whose wire
+  // `props` differs from its `refProps` still takes the long way.
+  const reuse = baseWireProps
+    && Object.keys(baseWireProps).length === baseKeys.length
+    && baseKeys.every((k) => k in baseWireProps);
   return {
-    ...Prop.toJSONMap(basePropsFromRef),
+    ...(reuse ? baseWireProps : Prop.toJSONMap(basePropsFromRef)),
     ...(local ? Prop.toJSONMap(local) : {}),
   };
 }
@@ -155,6 +174,12 @@ export class Extension<T = any, O = any> extends Type<T, O> {
      * than merely print like one.
      */
     scope?: TypeScope,
+    /**
+     * Scope the narrowed base is rebuilt in. A use-site narrowing of a type
+     * bound in a scope overlay must see that overlay, or a base it
+     * `extends` by a scope-only name would be unknown.
+     */
+    parseScope?: TypeScope,
   ) {
     const narrowedOptions = local.options
       ? original.narrow(local.options)
@@ -173,7 +198,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     // happen; a real narrowing (`num`, `text`, `list`, …) returns a fresh
     // merged options object and rebuilds exactly as before.
     const effectiveBase = local.options && !sameOptions(narrowedOptions, original.options)
-      ? (registry.parse({ ...original.toJSON(), options: narrowedOptions as any }) as Type<T>)
+      ? (registry.parse({ ...original.toJSON(), options: narrowedOptions as any }, parseScope) as Type<T>)
       : original;
 
     // Thread local generic declarations up to the base Type so `this.generic`
@@ -451,6 +476,32 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   // ─── SCHEMA ROUND-TRIP ─────────────────────────────────────────────────
 
   toJSON(): TypeDef {
+    // Inside `toDefinitionJSON`, a NESTED registered type is a reference.
+    if (definitionRefs.active > 0 && definitionRefs.depth > 0 && !this.local.useSite
+      && this.registry.lookup(this.name) !== undefined
+      && (this.registry.lookup(this.name) === this || this.bindings)) {
+      const generic = Object.entries(this.bindings ?? {});
+      return generic.length > 0
+        ? { name: this.name, generic: Object.fromEntries(generic.map(([k, t]) => [k, t.toJSON()])) }
+        : { name: this.name };
+    }
+    definitionRefs.depth++;
+    try {
+      return this.toJSONInner();
+    } finally {
+      definitionRefs.depth--;
+    }
+  }
+
+  private toJSONInner(): TypeDef {
+    if (this.local.useSite) {
+      const generic = Object.entries(this.bindings ?? {});
+      return {
+        name: this.name,
+        ...(generic.length > 0 ? { generic: Object.fromEntries(generic.map(([k, t]) => [k, t.toJSON()])) } : {}),
+        options: { ...(this.local.options as Record<string, unknown>) },
+      } as TypeDef;
+    }
     const baseDef = this.original.toJSON();
     const crossExtend = this.original.name !== this.name;
     // Always merge base options with local — even on cross-extend. For
@@ -495,6 +546,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       props: mergeJSONProps(
         crossExtend ? this.original.refProps() : {},
         this.local.props,
+        baseDef.props,
       ),
       get: (this.local.get ?? (crossExtend ? this.original.refGet() : undefined))?.toJSON(),
       call: (this.local.call ?? (crossExtend ? this.original.refCall() : undefined))?.toJSON(),
@@ -519,6 +571,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       call: this.local.call,
       init: this.local.init,
       constraint: this.local.constraint?.clone(),
+      useSite: this.local.useSite,
     // A specialized clone must keep resolving its bindings, so the
     // resolution scope travels with the copy.
     }, this.bindings ? this.scope : undefined);
@@ -535,7 +588,8 @@ export class Extension<T = any, O = any> extends Type<T, O> {
    * envelope. See {@link specialize} for how a bound instance is made.
    */
   toCode(_registry?: Registry, options?: CodeOptions): string {
-    return this.docsPrefix(options) + this.name + Type.renderGenericArgs(this.generic, options);
+    return this.docsPrefix(options) + this.name + Type.renderGenericArgs(this.generic, options)
+      + (this.local.useSite ? optionsCode(this.local.options) : '');
   }
 
   /**

@@ -19,6 +19,26 @@ export interface TupleOptions {
 }
 
 /**
+ * The wire `elements` of a tuple's options, serialized on first READ rather
+ * than at construction. Every other composite (`list`, `map`, `or`) holds
+ * its children as Types and only serializes in `toJSON`; the tuple used to
+ * call `toJSON()` on each element in its constructor, and a registered
+ * Extension's `toJSON` writes out every named type it reaches. Over a model
+ * whose types share references (Entity ↔ World and everything between),
+ * merely PARSING `tuple<Entity, Entity>` built that whole tree and never
+ * finished. Memoized, so a caller that does read the options pays once.
+ */
+function lazyElementDefs(elements: Type[]): TupleOptions {
+  let defs: TypeDef[] | undefined;
+  const options = {} as TupleOptions;
+  Object.defineProperty(options, 'elements', {
+    enumerable: true,
+    get: () => (defs ??= elements.map((e) => e.toJSON())),
+  });
+  return options;
+}
+
+/**
  * TupleType — fixed-length, heterogeneous sequence. Each position has
  * its own Type. follow() is overridden so that a literal numeric key
  * returns the exact positional type (rather than a union over positions).
@@ -55,7 +75,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
   }
 
   constructor(scope: TypeScope, elements: Type[]) {
-    super(scope, { elements: elements.map((e) => e.toJSON()) });
+    super(scope, lazyElementDefs(elements));
     this.elements = elements;
   }
 
