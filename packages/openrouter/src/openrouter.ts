@@ -17,7 +17,7 @@
 
 import type { AIContextAny, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { accumulateReasoning, REASONING_EFFORTS, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
+import { REASONING_EFFORTS, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
 import { type DefaultModels, OpenAIConfig, OpenAIProvider, ProviderError } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
@@ -462,10 +462,7 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   ) {
     const delta = expected.choices[0]?.delta;
     if (delta?.reasoning || delta?.reasoning_details?.length) {
-      chunk.reasoning = accumulateReasoning(chunk.reasoning, {
-        content: delta.reasoning,
-        details: delta.reasoning_details,
-      });
+      chunk.reasoning = { content: delta.reasoning, details: delta.reasoning_details };
     }
     chunk.images = toImages(delta?.images);
     if (expected.usage) {

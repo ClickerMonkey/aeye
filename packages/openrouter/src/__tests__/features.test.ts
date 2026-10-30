@@ -3,6 +3,7 @@
  */
 
 import { AI, type AIContextAny, type Request } from '@aeye/ai';
+import { accumulateReasoning, type Reasoning } from '@aeye/core';
 import { convertOpenRouterModel, OpenRouterProvider } from '../openrouter';
 import type { OpenRouterModel } from '../types';
 
@@ -117,6 +118,37 @@ describe('response', () => {
       tools: { web_search: 2 },
       cost: 0.021,
     });
+  });
+
+  it('streams reasoning deltas from both reasoning and reasoning_details', async () => {
+    // As measured from anthropic/claude-haiku-4.5 and google/gemini-3.5-flash:
+    // each delta once in both fields, the signature or encrypted payload last
+    const format = 'anthropic-claude-v1';
+    const deltas = ['Is 391', ' prime', '?', ' Try', ' the', ' primes', '.', '\n', '\n', ' 17', ' times', ' the', ' 23', '.'];
+    const chunk = (delta: object, finish_reason: string | null = null) => ({ id: 'gen-1', choices: [{ index: 0, delta, finish_reason }] });
+    mockCreate.mockResolvedValue((async function* () {
+      for (const text of deltas) {
+        yield chunk({ reasoning: text, reasoning_details: [{ type: 'reasoning.text', text, format, index: 0 }] });
+      }
+      yield chunk({ reasoning_details: [{ type: 'reasoning.text', signature: 'sig', format, index: 0 }] });
+      yield chunk({ reasoning: null, reasoning_details: [{ type: 'reasoning.encrypted', data: 'ENC', format, index: 0 }] });
+      yield chunk({ content: 'No.' }, 'stop');
+    })());
+
+    const stream = new OpenRouterProvider({ apiKey: 'k' }).createStreamer()(hi, ctx, { model: 'anthropic/claude-haiku-4.5' });
+    let partial: Reasoning | undefined;
+    let next = await stream.next();
+    for (; !next.done; next = await stream.next()) {
+      partial = accumulateReasoning(partial, next.value.reasoning);
+    }
+
+    const text = deltas.join('');
+    const reasoning = {
+      content: text,
+      details: [{ type: 'reasoning.text', text, signature: 'sig', format, index: 0 }, { type: 'reasoning.encrypted', data: 'ENC', format, index: 0 }],
+    };
+    expect(partial).toEqual(reasoning);
+    expect(next.value.reasoning).toEqual(reasoning);
   });
 
   it('generates images through chat', async () => {
