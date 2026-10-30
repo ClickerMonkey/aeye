@@ -11,7 +11,7 @@ import z from 'zod';
  * Use this type wherever you need to talk about a descriptor family —
  * registry functions, model declarations, etc.
  */
-export type DescriptorFamily = 'openai' | 'anthropic' | 'google' | (string & {});
+export type DescriptorFamily = 'openai' | 'anthropic' | 'google' | 'xai' | (string & {});
 
 /**
  * Documented ceilings on how BIG one strict schema may be, as opposed to which
@@ -352,8 +352,15 @@ export const LENIENT: FormatDescriptor = Object.freeze({
 });
 
 /**
- * OpenAI strict — current behavior verbatim. Records→pairs,
- * tuples→numeric-keys, optional→nullable.
+ * OpenAI strict. Records→pairs, tuples→numeric-keys, optional→nullable.
+ *
+ * Numeric bounds (`minimum`/`maximum`/`exclusive*`/`multipleOf`) and array
+ * sizes (`minItems`/`maxItems`) are in the documented supported list
+ * (developers.openai.com/api/docs/guides/structured-outputs, "Supported
+ * properties", read 2026-10-30). `minLength`/`maxLength` are listed as
+ * unsupported only for fine-tuned models; a strict `json_schema` carrying them
+ * was accepted and honored by gpt-5.4-mini on 2026-10-30, as were the
+ * numeric and array bounds, so all three are emitted.
  *
  * No documented per-request slot limit (max strict tools / optional params /
  * union types) — the SchemaBudget treats those caps as `undefined` for OpenAI.
@@ -396,9 +403,9 @@ export const OPENAI_STRICT: FormatDescriptor = Object.freeze({
   supportedStringFormats: OPENAI_STRICT_FORMATS,
   allowPattern: true,
   allowMultiplePatterns: false,
-  allowMinMaxLength: false,
-  allowMinMaxItems: false,
-  allowMinimumMaximum: false,
+  allowMinMaxLength: true,
+  allowMinMaxItems: true,
+  allowMinimumMaximum: true,
   optionalAsNullable: true,
   anyEncoding: 'recursive-strict',
   supportsRecursion: true,
@@ -423,8 +430,10 @@ export const OPENAI_NON_STRICT: FormatDescriptor = Object.freeze({
 });
 
 /**
- * Anthropic strict — Claude 4.5+ only (Opus 4.7/4.6/4.5, Sonnet 4.6/4.5,
- * Haiku 4.5). Per Anthropic's structured-outputs docs:
+ * Anthropic strict — Claude 4.5 and later (Opus 4.5–4.8, Sonnet 4.5/4.6,
+ * Haiku 4.5, and the 5.x Opus, Sonnet, Haiku, Fable, and Mythos models). Strict
+ * tools and `output_config.format` are GA with no beta header (re-read
+ * 2026-10-30). Per Anthropic's structured-outputs docs:
  *
  * - `additionalProperties` may **only** be `false` (no schema-valued open
  *   records), so `z.record(...)` falls back to the OpenAI-style
@@ -437,7 +446,9 @@ export const OPENAI_NON_STRICT: FormatDescriptor = Object.freeze({
  *   leaves shared non-cyclic `$ref`s alone. Root self-reference (`$ref: '#'`)
  *   is always cyclic by definition, so `allowRootRef` stays `false`.
  * - Numerical (`minimum`/`maximum`/`multipleOf`) and string-length
- *   (`minLength`/`maxLength`) constraints are not supported and are dropped.
+ *   (`minLength`/`maxLength`) constraints are not supported and are dropped,
+ *   as are array sizes (only `minItems` of 0 or 1 is accepted).
+ * - `allOf` is supported except around a `$ref`.
  * - `prefixItems` and other positional tuple keywords are not in the
  *   supported list, so tuples collapse to a homogeneous `items: anyOf`.
  * - Supported formats include `uri` (unlike OpenAI strict). We pass all
@@ -487,40 +498,31 @@ export const ANTHROPIC_NON_STRICT: FormatDescriptor = Object.freeze({
 });
 
 /**
- * Google Gemini strict — per `ai.google.dev/gemini-api/docs/structured-output`:
+ * Google Gemini strict — per `ai.google.dev/gemini-api/docs/structured-output`
+ * (re-read 2026-10-30, after Google's November 2025 JSON Schema expansion):
  *
- * - Supported keywords: types, `properties`, `required`, `additionalProperties`,
- *   `enum`, `format` (date-time/date/time only), `minimum`, `maximum`, `items`,
- *   `prefixItems`, `minItems`, `maxItems`, `title`, `description`,
- *   `propertyOrdering`. Recursion via `$ref: "#"` (root self-ref).
- * - Combinators (`allOf`, `anyOf`, `oneOf`) are NOT in the supported list;
- *   we conservatively flag them off so unions degrade to a representable form
- *   rather than emit something Gemini ignores.
- * - String constraints (`minLength`, `maxLength`, `pattern` formats beyond the
- *   three documented) are not supported.
- * - `propertyOrdering` is REQUIRED for Gemini 2.0 strict; we always emit it
- *   on object schemas under this descriptor.
- * - `z.any()` / `z.unknown()` uses the `unconstrained` encoding. Every other
- *   "any" encoding needs `anyOf` and/or a named `$defs/Any` — both of which
- *   this descriptor forbids two lines below — so the recursive `$defs/Any`
- *   this descriptor used to declare was a schema it says it cannot emit.
- *   Gemini compiles the tool schemas into a decoding grammar whenever the
- *   caller forces a tool call (`toolChoice: 'required'` → Google's function
- *   calling mode `ANY`), and a self-referencing `$defs/Any` failed that
- *   compile with `400 INVALID_ARGUMENT` — the same request succeeded under
- *   `toolChoice: 'auto'`, where no grammar is built. Reported against
- *   `google/gemini-3-flash-preview` via OpenRouter as 100% reproducible.
- *
- *   **That 400 no longer reproduces (re-measured 2026-08-23)** and the
- *   encoding stays anyway. Same model, same route, upstream pinned to Google
- *   AI Studio with fallbacks off, `tool_choice` forced to one named tool: the
- *   hand-built recursive `$defs/Any` tool, and the product's real 32 KB gin
- *   `api_set` schema carrying nine `#/$defs/Any` references, both answered
- *   HTTP 200 with a valid tool call. So the upstream either fixed or now
- *   sanitizes it. The descriptor still declares what this dialect's own
- *   documented keyword list supports; depending on a provider's current
- *   leniency for a shape we say it cannot express is how the first version of
- *   this descriptor shipped a guaranteed 400 in the first place.
+ * - Supported keywords: types (including `["T", "null"]` arrays),
+ *   `properties`, `required`, `additionalProperties`, `enum`, `format`
+ *   (date-time/date/time), `minimum`, `maximum`, `items`, `prefixItems`,
+ *   `minItems`, `maxItems`, `anyOf` (`oneOf` is read as `anyOf`), `$defs`,
+ *   `$ref`, `title`, `description`, `propertyOrdering`.
+ * - `allOf` is not supported and `pattern` is not listed; both stay off.
+ *   Live on `google/gemini-3-flash-preview` via OpenRouter (2026-10-30) an
+ *   `allOf` tool was accepted but not enforced and a `pattern` tool timed out,
+ *   while `anyOf`, shared `$defs`, `prefixItems`, nullable type arrays, closed
+ *   objects, and recursion through array items or optional properties all
+ *   answered with valid tool calls.
+ * - `minLength`/`maxLength` are stripped by the API, so they are not emitted.
+ * - Key order is preserved from the schema on Gemini 2.5+, so
+ *   `propertyOrdering` is only needed by older models; it is still emitted.
+ * - `z.any()` / `z.unknown()` uses the `unconstrained` encoding. Gemini
+ *   rejects ref loops through REQUIRED values: a self-referencing `$defs/Any`
+ *   that recurses through `additionalProperties` fails with "ref loops are
+ *   only supported if they include optional or nullable property values, or
+ *   a potentially-zero-length array items" (reproduced 2026-10-30 after an
+ *   interval in August 2026 when it was accepted), so the empty schema stays.
+ *   Ordinary recursive models recurse through optional fields or arrays,
+ *   which Gemini accepts.
  */
 export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   id: 'google-strict',
@@ -531,10 +533,10 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   recordEncoding: 'open-record',
   tupleEncoding: 'prefix-items',
   allowAllOf: false,
-  allowAnyOf: false,
+  allowAnyOf: true,
   allowOneOf: false,
   allowRootRef: true,
-  allowDefsRef: false,
+  allowDefsRef: true,
   emitPropertyOrdering: true,
   supportedStringFormats: new Set(['date-time', 'date', 'time']),
   allowPattern: false,
@@ -543,8 +545,8 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   allowMinMaxItems: true,
   allowMinimumMaximum: true,
   optionalAsNullable: false,
-  // The ONLY encoding expressible under `allowAnyOf: false` +
-  // `allowDefsRef: false` — see the descriptor doc above.
+  // Not a recursive $defs/Any: Gemini rejects ref loops through required
+  // values — see the descriptor doc above.
   anyEncoding: 'unconstrained',
   // No documented per-request slot limits. `maxEnumValues: 40` IS a measured
   // response to a real `400 INVALID_ARGUMENT` on this exact product's live
@@ -552,9 +554,9 @@ export const GOOGLE_STRICT: FormatDescriptor = Object.freeze({
   // the bisection, and why 40 is conservative rather than the measured edge.
   maxEnumValues: 40,
   supportsRecursion: true,
-  // Gemini's structured-output endpoint rejects `anyOf`/`$defs` schemas
-  // (HTTP 400). When a schema can't be expressed here it's delivered as
-  // prompt text instead; this hint keeps the reply a single raw JSON object.
+  // When a schema can't be expressed here (e.g. it needs `allOf`) it's
+  // delivered as prompt text instead; this hint keeps the reply a single raw
+  // JSON object.
   jsonFallbackInstruction:
     'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
 });
@@ -586,6 +588,57 @@ export const GOOGLE_NON_STRICT: FormatDescriptor = Object.freeze({
   maxEnumValues: 40,
   jsonFallbackInstruction:
     'Return ONLY a single raw JSON object that conforms to the schema above. Do NOT wrap it in markdown code fences, do NOT add any prose before or after it, and do NOT echo the schema itself — emit only the JSON instance.',
+});
+
+const XAI_STRICT_FORMATS = new Set([
+  'date', 'time', 'date-time', 'email', 'uuid', 'ipv4', 'ipv6', 'uri',
+]);
+
+/**
+ * xAI (Grok) strict — per `docs.x.ai/docs/guides/structured-outputs`
+ * (read 2026-10-30). Tool calls are always strict on Grok 4 models.
+ *
+ * - Supported: `anyOf` (`oneOf` behaves the same), non-circular `$ref` /
+ *   `$defs`, `prefixItems` for tuples (array-form `items` is rejected),
+ *   `enum`, `const`, string formats (below), `pattern` without
+ *   backreferences or lookaround, and length / item / numeric bounds.
+ * - `allOf` takes a single subschema only, so it stays off.
+ * - Optional properties stay optional; `additionalProperties` defaults to
+ *   `false`, and schema-valued records were accepted live.
+ * - Circular references are documented as unsupported, so recursion goes
+ *   through the cycle breaker. Every other keyword above was accepted live
+ *   on `x-ai/grok-4.3` via OpenRouter on 2026-10-30.
+ */
+export const XAI_STRICT: FormatDescriptor = Object.freeze({
+  id: 'xai-strict',
+  family: 'xai',
+  strict: true,
+  objectAllFieldsRequired: false,
+  objectClosedByDefault: true,
+  recordEncoding: 'open-record',
+  tupleEncoding: 'prefix-items',
+  allowAllOf: false,
+  allowAnyOf: true,
+  allowOneOf: false,
+  allowRootRef: false,
+  allowDefsRef: true,
+  emitPropertyOrdering: false,
+  supportedStringFormats: XAI_STRICT_FORMATS,
+  allowPattern: true,
+  allowMultiplePatterns: false,
+  allowMinMaxLength: true,
+  allowMinMaxItems: true,
+  allowMinimumMaximum: true,
+  optionalAsNullable: false,
+  anyEncoding: 'flat',
+  supportsRecursion: false,
+});
+
+/** xAI non-strict — alias of LENIENT but tagged with the xai family. */
+export const XAI_NON_STRICT: FormatDescriptor = Object.freeze({
+  ...LENIENT,
+  id: 'xai-non-strict',
+  family: 'xai',
 });
 
 // ============================================================================
@@ -730,6 +783,7 @@ for (const d of [
   OPENAI_STRICT, OPENAI_NON_STRICT,
   ANTHROPIC_STRICT, ANTHROPIC_NON_STRICT,
   GOOGLE_STRICT, GOOGLE_NON_STRICT,
+  XAI_STRICT, XAI_NON_STRICT,
 ]) {
   indexDescriptor(d);
 }

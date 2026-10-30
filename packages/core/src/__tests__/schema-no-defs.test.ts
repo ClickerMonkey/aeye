@@ -1,6 +1,6 @@
 /**
- * `GOOGLE_STRICT` declares `allowDefsRef: false` — Gemini's structured-output
- * dialect has no `$defs` and no named `$ref`. The emitter used to consult only
+ * A descriptor declaring `allowDefsRef: false` (Gemini's dialect before its
+ * November 2025 expansion) has no `$defs` and no named `$ref`. The emitter used to consult only
  * `supportsRecursion` when deciding how to spell a re-encountered schema, so it
  * shipped `$defs`/`$ref` under that descriptor anyway, by two routes:
  *
@@ -19,8 +19,9 @@
 
 import { z } from 'zod';
 import { GOOGLE_STRICT, LENIENT, OPENAI_STRICT, strictify, toJSONSchema } from '../index';
+import { NO_COMBINATORS_STRICT } from './mocks/descriptors';
 
-function render(schema: z.ZodType, descriptor = GOOGLE_STRICT): string {
+function render(schema: z.ZodType, descriptor = NO_COMBINATORS_STRICT): string {
   return JSON.stringify(toJSONSchema(strictify(schema, descriptor), descriptor));
 }
 
@@ -30,7 +31,7 @@ const RecursiveNode: z.ZodType<NodeShape> = z.object({
   children: z.array(z.lazy(() => RecursiveNode)),
 });
 
-describe('GOOGLE_STRICT emits no $defs and no named $ref', () => {
+describe('allowDefsRef: false emits no $defs and no named $ref', () => {
   it('a root cycle', () => {
     const json = render(RecursiveNode);
     expect(json).not.toContain('"$defs"');
@@ -73,10 +74,10 @@ describe('GOOGLE_STRICT emits no $defs and no named $ref', () => {
 });
 
 describe('descriptors that DO allow $defs are unchanged', () => {
-  it('OPENAI_STRICT and LENIENT still share a named sub-schema through $defs', () => {
+  it('OPENAI_STRICT, GOOGLE_STRICT, and LENIENT share a named sub-schema through $defs', () => {
     const Named = z.object({ a: z.string() }).meta({ aid: 'RefNamed' });
     const schema = z.object({ one: Named, two: Named });
-    for (const descriptor of [OPENAI_STRICT, LENIENT]) {
+    for (const descriptor of [OPENAI_STRICT, GOOGLE_STRICT, LENIENT]) {
       const json = render(schema, descriptor);
       expect(json).toContain('"$defs"');
       expect(json).toContain('#/$defs/RefNamed');
