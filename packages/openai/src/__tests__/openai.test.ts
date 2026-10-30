@@ -354,7 +354,9 @@ describe('OpenAIProvider', () => {
     });
 
     it('should handle image generation errors', async () => {
-      mockOpenAI.images.generate.mockRejectedValue(new Error('Generation failed'));
+      // A 400 is not retryable; a status-less Error reads as a network failure
+      // (status 0) and is retried with jittered backoff, racing the test timeout.
+      mockOpenAI.images.generate.mockRejectedValue(Object.assign(new Error('Generation failed'), { status: 400 }));
 
       const request: ImageGenerationRequest = {
         prompt: 'Test'
