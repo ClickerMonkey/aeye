@@ -36,6 +36,7 @@ describe('batch', () => {
     const body = (content: string) => ({ object: 'chat.completion', choices: [{ message: { content }, finish_reason: 'stop' }], usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5, cost: 0.0001 } });
     mockGet.mockResolvedValue({
       id: 'batch_1', status: 'completed', request_counts: counts, error: null,
+      usage: { prompt_tokens: 8, completion_tokens: 2, total_tokens: 10, cost: 0, is_byok: true, cost_details: { upstream_inference_cost: 0.00004 } },
       results: [{ custom_id: '1', response: { status_code: 200, body: body('second') } }, { custom_id: '0', response: { status_code: 200, body: body('first') } }],
     });
 
@@ -44,5 +45,6 @@ describe('batch', () => {
     expect(mockGet.mock.calls[0][0]).toBe('/batches/batch_1');
     expect(job.results?.map(r => r.response?.content)).toEqual(['first', 'second']);
     expect(job.results?.[0].response?.usage?.cost).toBe(0.0001);
+    expect(job.cost).toBe(0.00004);
   });
 });

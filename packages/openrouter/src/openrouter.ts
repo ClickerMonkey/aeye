@@ -672,7 +672,11 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    * A batch as @aeye reports it.
    */
   private toBatchJob(batch: OpenRouterBatch, run: OperationRun<OpenRouterConfig>): BatchJob {
-    return { id: batch.id, provider: this.name, model: run.model.id, status: batch.status, counts: batch.request_counts, error: batch.error?.message };
+    const usage: Usage = {};
+    if (batch.usage) {
+      augmentUsage(usage, batch.usage);
+    }
+    return { id: batch.id, provider: this.name, model: run.model.id, status: batch.status, counts: batch.request_counts, error: batch.error?.message, cost: usage.cost };
   }
 
   /**

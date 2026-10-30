@@ -340,6 +340,8 @@ export interface OpenRouterBatch {
   status: BatchStatus;
   request_counts: { total: number; completed: number; failed: number };
   error: { message: string } | null;
+  // Totals for the batch; results carry token counts but no cost
+  usage: OpenRouterUsage | null;
   results: BatchOutputLine[] | null;
 }
 

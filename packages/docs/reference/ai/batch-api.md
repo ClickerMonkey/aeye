@@ -50,6 +50,7 @@ interface BatchJob {
   status: BatchStatus;
   counts?: { total: number; completed: number; failed: number };
   error?: string;              // why the batch failed, when it did
+  cost?: number;               // dollars billed, where the provider reports it (OpenRouter)
   results?: BatchResult[];     // one per request, in request order, once complete
 }
 ```

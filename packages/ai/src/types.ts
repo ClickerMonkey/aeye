@@ -917,6 +917,8 @@ export interface BatchJob {
   counts?: { total: number; completed: number; failed: number };
   // Why the batch failed, when it did
   error?: string;
+  // Dollars billed so far, where the provider reports it for the batch
+  cost?: number;
   // One per request, in request order, once the batch completes
   results?: BatchResult[];
 }
