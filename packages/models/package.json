@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "scrape": "tsx scripts/scrape.ts",
+    "scrape:auto": "tsx scripts/scrape.ts --sources=openrouter,openai,aws --metrics",
     "scrape:openrouter": "tsx scripts/scrapers/openrouter.ts",
     "scrape:openrouter:full": "tsx scripts/scrapers/openrouter.ts --metrics",
     "scrape:openai": "tsx scripts/scrapers/openai.ts",

@@ -46,7 +46,7 @@ There is a **single entry point** — `@aeye/models`. There are no subpath expor
 Each provider array is a `ModelInfo[]` (type defined in `@aeye/ai`). The aggregate `models`
 array is simply `[...openaiModels, ...openrouterModels, ...replicateModels, ...awsModels]`.
 
-Approximate counts at last scrape: OpenAI ~97, OpenRouter ~344, Replicate ~304, AWS ~56.
+Approximate counts at last scrape: OpenAI ~136, OpenRouter ~677, Replicate ~304, AWS ~126.
 
 `ModelInfo` shape (from `@aeye/ai`, abbreviated to the fields populated here):
 
@@ -208,7 +208,8 @@ in `scripts/codegen.ts` (serializes `ModelInfo[]` back into TypeScript source, i
 | Script | What it does |
 |---|---|
 | `npm run scrape` | Scrape **all** sources and regenerate `src/index.ts` + `src/models/index.ts` |
-| `npm run scrape:openai` | OpenAI only (Puppeteer-scrapes OpenAI docs pages) |
+| `npm run scrape:auto` | The unattended set the weekly workflow runs: OpenRouter with metrics, OpenAI, AWS |
+| `npm run scrape:openai` | OpenAI only (reads the Markdown versions of OpenAI's docs pages) |
 | `npm run scrape:openrouter` | OpenRouter only (API via `@aeye/openrouter`) |
 | `npm run scrape:openrouter:full` | OpenRouter + performance metrics (`--metrics`, slower) |
 | `npm run scrape:replicate` | Replicate models via the `replicate` npm SDK |
@@ -221,8 +222,8 @@ in `scripts/codegen.ts` (serializes `ModelInfo[]` back into TypeScript source, i
 
 Source-specific notes:
 
-- **OpenAI** & **OpenRouter metrics**: use **Puppeteer** to scrape doc/model pages (needs a headless
-  Chromium; may break if the page layout changes).
+- **OpenAI**: lists models through the API, then reads each model's docs page as Markdown.
+- **OpenRouter metrics**: from the endpoints API (`--metrics`, one request per model).
 - **OpenRouter**: pulls from OpenRouter API endpoints via `@aeye/openrouter` (`fetchModels`,
   `fetchZDRModels`, `convertOpenRouterModel`).
 - **Replicate**: uses the `replicate` SDK + `openapi-typescript` to turn each model's OpenAPI schema
@@ -250,7 +251,8 @@ Dependencies it pulls in: `@aeye/ai` (types), `@aeye/aws`, `@aeye/openrouter`, `
 ## Gotchas
 
 - **The data is a static snapshot and goes stale.** Pricing, context windows, new model ids, and
-  deprecations only update when someone re-runs the scrapers and re-publishes. Treat it as a starting
+  deprecations only update when the scrapers re-run (the weekly workflow proposes OpenRouter,
+  OpenAI, and AWS refreshes as a draft PR) and the package is re-published. Treat it as a starting
   catalog, not a source of truth for live pricing/availability.
 - **`capabilities` and `supportedParameters` are `Set`s**, not arrays — use `.has(...)`, and remember
   `JSON.stringify` will not serialize them as arrays.
