@@ -6,8 +6,11 @@
  */
 
 import { accumulateUsage, Agent, Events, Extend, Fn, FnResolved, MessageContentType, Prompt, resolveFn, RetoolResult, Tool, ToolCompatible, Tuple } from '@aeye/core';
+import { BatchAPI } from './apis/batch';
 import { ChatAPI } from './apis/chat';
 import { EmbedAPI } from './apis/embed';
+import { RerankAPI } from './apis/rerank';
+import { DecideAPI } from './apis/decide';
 import { ImageAPI } from './apis/image';
 import { ModelsAPI } from './apis/models';
 import { SpeechAPI } from './apis/speech';
@@ -141,6 +144,9 @@ export class AI<T extends AIBaseTypes> {
   public readonly speech: SpeechAPI<T>;
   public readonly transcribe: TranscribeAPI<T>;
   public readonly embed: EmbedAPI<T>;
+  public readonly rerank: RerankAPI<T>;
+  public readonly decide: DecideAPI<T>;
+  public readonly batch: BatchAPI<T>;
   public readonly models: ModelsAPI<AIProviders<T>>;
 
   // Direct Access
@@ -224,6 +230,9 @@ export class AI<T extends AIBaseTypes> {
     this.speech = new SpeechAPI(this);
     this.transcribe = new TranscribeAPI(this);
     this.embed = new EmbedAPI(this);
+    this.rerank = new RerankAPI(this);
+    this.decide = new DecideAPI(this);
+    this.batch = new BatchAPI(this);
     this.models = new ModelsAPI(this.registry);
 
     // Direct access to providers

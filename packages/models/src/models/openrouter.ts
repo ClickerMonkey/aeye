@@ -185,9 +185,9 @@ export const openrouterModels: ModelInfo[] = [{
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.0341,
-      output: 0.18869999999999998,
-      cached: 0.028
+      input: 0.038799999999999994,
+      output: 0.3,
+      cached: 0.0378
     }
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
@@ -274,7 +274,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.02,
@@ -295,7 +295,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.041999999999999996,
@@ -320,9 +320,9 @@ export const openrouterModels: ModelInfo[] = [{
   supportedParameters: new Set(['frequencyPenalty', 'reason', 'logitBias', 'logProbabilities', 'maxTokens', 'presencePenalty', 'responseFormat', 'seed', 'stop', 'structuredOutput', 'temperature', 'toolChoice', 'tools', 'topP']),
   pricing: {
     text: {
-      input: 0.171,
-      output: 10.5572,
-      cached: 0.16999999999999998
+      input: 0.1529,
+      output: 9.75,
+      cached: 0.15
     }
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
@@ -482,7 +482,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.01
@@ -502,7 +502,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.02
@@ -522,7 +522,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Router',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.041999999999999996
@@ -659,7 +659,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 845,
+    timeToFirstToken: 825.5,
     tokensPerSecond: 54
   },
   metadata: {
@@ -687,8 +687,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1780,
-    tokensPerSecond: 37
+    timeToFirstToken: 1631.5,
+    tokensPerSecond: 42
   },
   metadata: {
     description: "Aion-3.0 is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It uses a collaborative generation process in which multiple specialized models each contribute...",
@@ -715,8 +715,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 832,
-    tokensPerSecond: 53
+    timeToFirstToken: 770,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "Aion-3.0 Mini is a multi-model roleplaying and storytelling system from AionLabs, built on the DeepSeek family of models. It uses a collaborative generation process in which multiple specialized models each...",
@@ -744,8 +744,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1699,
-    tokensPerSecond: 53
+    timeToFirstToken: 1830,
+    tokensPerSecond: 51
   },
   metadata: {
     description: "Aion 3.5 is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It uses a collaborative generation process in which multiple specialized models each...",
@@ -773,8 +773,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1522.5,
-    tokensPerSecond: 56
+    timeToFirstToken: 1582,
+    tokensPerSecond: 57
   },
   metadata: {
     description: "Aion 3.5 Mini is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It is the smaller, lower-cost sibling of Aion 3.5 and uses...",
@@ -800,8 +800,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1146,
-    tokensPerSecond: 30
+    timeToFirstToken: 1169,
+    tokensPerSecond: 33
   },
   metadata: {
     description: "Aion-RP-Llama-3.1-8B ranks the highest in the character evaluation portion of the RPBench-Auto benchmark, a roleplaying-specific variant of Arena-Hard-Auto, where LLMs evaluate each other’s responses. It is a fine-tuned base model...",
@@ -844,7 +844,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 107527,
+    timeToFirstToken: 103860,
     tokensPerSecond: 0
   },
   metadata: {
@@ -867,7 +867,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 94198,
+    timeToFirstToken: 63882,
     tokensPerSecond: 0
   },
   metadata: {
@@ -890,7 +890,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 93743,
+    timeToFirstToken: 63038,
     tokensPerSecond: 0
   },
   metadata: {
@@ -913,7 +913,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 135150,
+    timeToFirstToken: 131796.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -937,7 +937,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 192730,
+    timeToFirstToken: 164316,
     tokensPerSecond: 0
   },
   metadata: {
@@ -963,8 +963,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 564,
-    tokensPerSecond: 124.5
+    timeToFirstToken: 624,
+    tokensPerSecond: 107.5
   },
   metadata: {
     description: "Nova 2 Lite is a fast, cost-effective reasoning model for everyday workloads that can process text, images, and videos to generate text. Nova 2 Lite demonstrates standout capabilities in processing...",
@@ -991,8 +991,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 586,
-    tokensPerSecond: 108
+    timeToFirstToken: 626.5,
+    tokensPerSecond: 102.5
   },
   metadata: {
     description: "Amazon Nova Lite 1.0 is a very low-cost multimodal model from Amazon that focused on fast processing of image, video, and text inputs to generate text output. Amazon Nova Lite...",
@@ -1020,7 +1020,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 341,
+    timeToFirstToken: 347,
     tokensPerSecond: 171
   },
   metadata: {
@@ -1074,8 +1074,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 786,
-    tokensPerSecond: 65
+    timeToFirstToken: 629,
+    tokensPerSecond: 66.5
   },
   metadata: {
     description: "Amazon Nova Pro 1.0 is a capable multimodal model from Amazon focused on providing a combination of accuracy, speed, and cost for a wide range of tasks. As of December...",
@@ -1083,8 +1083,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "amazon/nova-pro-v1",
     huggingFaceId: "",
     created: 1733436303,
-    knowledgeCutoff: "2024-10-31",
-    uptime: 100
+    knowledgeCutoff: "2024-10-31"
   }
 }, {
   id: 'amazon/titan-embed-image-v1',
@@ -1165,7 +1164,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1018,
+    timeToFirstToken: 1017.5,
     tokensPerSecond: 16
   },
   metadata: {
@@ -1200,8 +1199,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1833,
-    tokensPerSecond: 69
+    timeToFirstToken: 1164,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Claude Fable 5 is a Mythos-class model from Anthropic, built for autonomous knowledge work and coding. It supports text, image, and file inputs with text output, with reasoning support and...",
@@ -1233,8 +1232,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2432,
-    tokensPerSecond: 61
+    timeToFirstToken: 3290,
+    tokensPerSecond: 72
   },
   metadata: {
     description: "Claude Fable 5.1 improves on Claude Fable 5 across the board, with the biggest gains in agentic coding, long-running agentic workflows, and knowledge work: long code refactors, front-end and visual...",
@@ -1293,8 +1292,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 308,
-    tokensPerSecond: 192.5
+    timeToFirstToken: 296,
+    tokensPerSecond: 190
   },
   metadata: {
     description: "Claude Haiku 4.5 is Anthropic’s fastest and most efficient model, delivering near-frontier intelligence at a fraction of the cost and latency of larger Claude models. Matching Claude Sonnet 4’s performance...",
@@ -1327,8 +1326,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 408,
-    tokensPerSecond: 165
+    timeToFirstToken: 397,
+    tokensPerSecond: 175
   },
   metadata: {
     description: "Claude Haiku 5.5 is Anthropic's small, fast model for high-volume, cost-sensitive work such as summarization, subagents, and browser use. It succeeds Claude Haiku 4.5 with stronger coding, computer use, and...",
@@ -1387,8 +1386,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 3793,
-    tokensPerSecond: 10
+    timeToFirstToken: 3619,
+    tokensPerSecond: 16
   },
   metadata: {
     description: "Claude Opus 4.1 is an updated version of Anthropic’s flagship model, offering improved performance in coding, reasoning, and agentic tasks. It achieves 74.5% on SWE-bench Verified and shows notable gains...",
@@ -1421,8 +1420,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1121,
-    tokensPerSecond: 57
+    timeToFirstToken: 930,
+    tokensPerSecond: 47.5
   },
   metadata: {
     description: "Claude Opus 4.5 is Anthropic’s frontier reasoning model optimized for complex software engineering, agentic workflows, and long-horizon computer use. It offers strong multimodal capabilities, competitive performance across real-world coding and...",
@@ -1455,8 +1454,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1170,
-    tokensPerSecond: 45
+    timeToFirstToken: 1114,
+    tokensPerSecond: 41
   },
   metadata: {
     description: "Opus 4.6 is Anthropic’s strongest model for coding and long-running professional tasks. It is built for agents that operate across entire workflows rather than single prompts, making it especially effective...",
@@ -1489,8 +1488,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 461,
-    tokensPerSecond: 78.5
+    timeToFirstToken: 536.5,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Opus 4.7 is the next generation of Anthropic's Opus family, built for long-running, asynchronous agents. Building on the coding and agentic strengths of Opus 4.6, it delivers stronger performance on...",
@@ -1522,8 +1521,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 735.5,
-    tokensPerSecond: 168
+    timeToFirstToken: 462,
+    tokensPerSecond: 186
   },
   metadata: {
     description: "Claude Opus 4.8 is Anthropic's most capable generally available model in the Opus family. It supports text, image, and file inputs with text output, with reasoning support and a 1M-token...",
@@ -1555,8 +1554,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1028,
-    tokensPerSecond: 260
+    timeToFirstToken: 1297,
+    tokensPerSecond: 157
   },
   metadata: {
     description: "Claude Opus 5 is Anthropic’s flagship model for demanding reasoning, coding, and long-horizon agentic work. It is particularly strong at end-to-end software tasks, code review and bug finding, visual analysis...",
@@ -1616,8 +1615,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1217,
-    tokensPerSecond: 154
+    timeToFirstToken: 1707.5,
+    tokensPerSecond: 200
   },
   metadata: {
     description: "Claude Opus 5.5 is Anthropic's flagship model for demanding reasoning, coding, and long-horizon agentic work, succeeding Claude Opus 5. It is particularly strong at multi-step changes in large codebases, code...",
@@ -1676,8 +1675,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1052,
-    tokensPerSecond: 51
+    timeToFirstToken: 1030,
+    tokensPerSecond: 40
   },
   metadata: {
     description: "Claude Sonnet 4.5 is Anthropic’s most advanced Sonnet model to date, optimized for real-world agents and coding workflows. It delivers state-of-the-art performance on coding benchmarks such as SWE-bench Verified, with...",
@@ -1714,8 +1713,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 594,
-    tokensPerSecond: 95
+    timeToFirstToken: 619,
+    tokensPerSecond: 78
   },
   metadata: {
     description: "Sonnet 4.6 is Anthropic's most capable Sonnet-class model yet, with frontier performance across coding, agents, and professional work. It excels at iterative development, complex codebase navigation, end-to-end project management with...",
@@ -1748,8 +1747,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 785,
-    tokensPerSecond: 106
+    timeToFirstToken: 604,
+    tokensPerSecond: 111
   },
   metadata: {
     description: "Sonnet 5 is Anthropic's most capable Sonnet-class model, with frontier performance across coding, agents, and professional work. It supports adaptive thinking with selectable reasoning effort levels (low, medium, high, max,...",
@@ -1781,8 +1780,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1099.5,
-    tokensPerSecond: 111
+    timeToFirstToken: 824,
+    tokensPerSecond: 140
   },
   metadata: {
     description: "Claude Sonnet 5.5 is Anthropic's Sonnet-class model for well-scoped everyday work, succeeding Claude Sonnet 5 as a direct upgrade. It is especially strong at building features, fixing bugs, and producing...",
@@ -1850,7 +1849,8 @@ export const openrouterModels: ModelInfo[] = [{
       "aai-michael",
       "aai-paul",
       "aai-vera"
-    ]
+    ],
+    uptime: 100
   }
 }, {
   id: 'assemblyai/universal-3-5-pro',
@@ -1891,7 +1891,8 @@ export const openrouterModels: ModelInfo[] = [{
     description: "Universal-3.6 Pro is AssemblyAI's speech-to-text model and the successor to Universal-3.5 Pro, served here through AssemblyAI's Sync API. Compared with Universal-3.5 Pro, AssemblyAI reports 30% fewer errors on short conversational...",
     defaultParameters: {},
     canonicalSlug: "assemblyai/universal-3-6-pro-20261014",
-    created: 1792013919
+    created: 1792013919,
+    uptime: 100
   }
 }, {
   id: 'baai/bge-base-en-v1.5',
@@ -1967,14 +1968,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 14745,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.035
     }
   },
   metrics: {
-    timeToFirstToken: 76,
+    timeToFirstToken: 75,
     tokensPerSecond: 0
   },
   metadata: {
@@ -1993,14 +1994,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 14745,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 74,
+    timeToFirstToken: 75,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2019,14 +2020,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 14745,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.09999999999999999
     }
   },
   metrics: {
-    timeToFirstToken: 88,
+    timeToFirstToken: 89,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2055,7 +2056,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 33132,
+    timeToFirstToken: 35904,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2082,7 +2083,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 10548,
+    timeToFirstToken: 7084,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2103,10 +2104,6 @@ export const openrouterModels: ModelInfo[] = [{
   capabilities: new Set(['vision', 'videoInput']),
   pricing: {
     text: {}
-  },
-  metrics: {
-    timeToFirstToken: 178942.5,
-    tokensPerSecond: 0
   },
   metadata: {
     description: "FLUX.3 Video is a video generation model from Black Forest Labs. It supports text-to-video, image-guided generation with opening and closing keyframes, and video continuation workflows, making it suited for controlled...",
@@ -2144,10 +2141,6 @@ export const openrouterModels: ModelInfo[] = [{
   pricing: {
     text: {}
   },
-  metrics: {
-    timeToFirstToken: 62641.5,
-    tokensPerSecond: 0
-  },
   metadata: {
     description: "FLUX Video Upscale is a video upscaling model from Black Forest Labs. It enlarges a single source video by 1.5× to 3× while preserving its duration, with an optional prompt...",
     defaultParameters: {},
@@ -2172,7 +2165,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 14007,
+    timeToFirstToken: 14752,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2199,7 +2192,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 4876,
+    timeToFirstToken: 4412,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2227,7 +2220,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 27751,
+    timeToFirstToken: 24325,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2254,7 +2247,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 12578.5,
+    timeToFirstToken: 13269.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2283,15 +2276,16 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-11-11',
   metrics: {
-    timeToFirstToken: 866,
-    tokensPerSecond: 40
+    timeToFirstToken: 755.5,
+    tokensPerSecond: 35
   },
   metadata: {
     description: "Seed 1.6 is a general-purpose model released by the ByteDance Seed team. It incorporates multimodal capabilities and adaptive deep thinking with a 256K context window.",
     defaultParameters: {},
     canonicalSlug: "bytedance-seed/seed-1.6-20250625",
     huggingFaceId: "",
-    created: 1766504997
+    created: 1766504997,
+    uptime: 100
   }
 }, {
   id: 'bytedance-seed/seed-1.6-flash',
@@ -2311,7 +2305,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-11-11',
   metrics: {
-    timeToFirstToken: 766,
+    timeToFirstToken: 742.5,
     tokensPerSecond: 54
   },
   metadata: {
@@ -2339,8 +2333,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1464,
-    tokensPerSecond: 31
+    timeToFirstToken: 1463.5,
+    tokensPerSecond: 40.5
   },
   metadata: {
     description: "Seed 2.1 Turbo is a multimodal model from ByteDance Seed for coding and long-horizon agent workflows. It is suited for end-to-end software delivery, multi-step task execution, and understanding visual and...",
@@ -2368,8 +2362,8 @@ export const openrouterModels: ModelInfo[] = [{
   reasoningEfforts: ['none', 'low', 'medium', 'high'],
   retiresAt: '2026-11-11',
   metrics: {
-    timeToFirstToken: 791,
-    tokensPerSecond: 46
+    timeToFirstToken: 513,
+    tokensPerSecond: 45
   },
   metadata: {
     description: "Seed 2.0 Code is a model from ByteDance Seed optimized for agentic coding. It is suited for frontend development, multilingual programming tasks, and coding-agent workflows in tools such as Claude...",
@@ -2396,8 +2390,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1390,
-    tokensPerSecond: 63
+    timeToFirstToken: 1261,
+    tokensPerSecond: 69
   },
   metadata: {
     description: "Seed-2.0-Lite is a versatile, cost‑efficient enterprise workhorse that delivers strong multimodal and agent capabilities while offering noticeably lower latency, making it a practical default choice for most production workloads across...",
@@ -2424,8 +2418,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 250,
-    tokensPerSecond: 88
+    timeToFirstToken: 294,
+    tokensPerSecond: 72
   },
   metadata: {
     description: "Seed-2.0-mini targets latency-sensitive, high-concurrency, and cost-sensitive scenarios, emphasizing fast response and flexible inference deployment. It delivers performance comparable to ByteDance-Seed-1.6, supports 256k context, four reasoning effort modes (minimal/low/medium/high), multimodal understanding,...",
@@ -2453,8 +2447,7 @@ export const openrouterModels: ModelInfo[] = [{
     description: "Seed Audio 1.0 is ByteDance Seed's non-streaming audio generation model. It produces speech and other audio from a natural-language text prompt that can describe the desired voice, tone, and sound...",
     defaultParameters: {},
     canonicalSlug: "bytedance-seed/seed-audio-1-0-20260630",
-    created: 1790372476,
-    uptime: 100
+    created: 1790372476
   }
 }, {
   id: 'bytedance-seed/seedream-4.5',
@@ -2474,7 +2467,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 18027.5,
+    timeToFirstToken: 14690,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2503,7 +2496,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 16321,
+    timeToFirstToken: 14315.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2531,7 +2524,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 52240,
+    timeToFirstToken: 42703.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2559,7 +2552,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 67964,
+    timeToFirstToken: 89222,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2584,14 +2577,15 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-11-11',
   metrics: {
-    timeToFirstToken: 48684,
+    timeToFirstToken: 54871,
     tokensPerSecond: 0
   },
   metadata: {
     description: "ByteDance's next-generation audio-visual generation model with a 4.5B parameter Dual-Branch Diffusion Transformer architecture. Seedance 1.5 Pro generates video and audio simultaneously in a single unified pass — eliminating the timing...",
     defaultParameters: {},
     canonicalSlug: "bytedance/seedance-1-5-pro-20260320",
-    created: 1774277608
+    created: 1774277608,
+    uptime: 100
   }
 }, {
   id: 'bytedance/seedance-2.0',
@@ -2607,7 +2601,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 159745,
+    timeToFirstToken: 180284,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2630,7 +2624,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 125492,
+    timeToFirstToken: 119905,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2653,7 +2647,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 88519,
+    timeToFirstToken: 99644,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2676,7 +2670,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 160049.5,
+    timeToFirstToken: 181521,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2684,7 +2678,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "bytedance/seedance-2.5-20260807",
     created: 1786141253,
-    uptime: 80
+    uptime: 100
   }
 }, {
   id: 'bytedance/ui-tars-1.5-7b',
@@ -2704,8 +2698,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1339.5,
-    tokensPerSecond: 44
+    timeToFirstToken: 1034.5,
+    tokensPerSecond: 40
   },
   metadata: {
     description: "UI-TARS-1.5 is a multimodal vision-language agent optimized for GUI-based environments, including desktop interfaces, web browsers, mobile systems, and games. Built by ByteDance, it builds upon the UI-TARS framework with reinforcement...",
@@ -2743,7 +2737,8 @@ export const openrouterModels: ModelInfo[] = [{
       "dan",
       "mia",
       "zac"
-    ]
+    ],
+    uptime: 100
   }
 }, {
   id: 'cloudflare/clef',
@@ -2753,14 +2748,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.24
     }
   },
   metrics: {
-    timeToFirstToken: 368,
+    timeToFirstToken: 225,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2779,14 +2774,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 22118,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.038000000000000006
     }
   },
   metrics: {
-    timeToFirstToken: 256,
+    timeToFirstToken: 172,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2805,14 +2800,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Qwen',
-  capabilities: new Set(['vision', 'hearing', 'videoInput']),
+  capabilities: new Set(['vision', 'hearing', 'videoInput', 'decision']),
   pricing: {
     text: {
       input: 0.15
     }
   },
   metrics: {
-    timeToFirstToken: 223.5,
+    timeToFirstToken: 262,
     tokensPerSecond: 0
   },
   metadata: {
@@ -2840,8 +2835,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 769,
-    tokensPerSecond: 69
+    timeToFirstToken: 751,
+    tokensPerSecond: 70
   },
   metadata: {
     description: "Venice Uncensored Dolphin Mistral 24B Venice Edition is a fine-tuned variant of Mistral-Small-24B-Instruct-2501, developed by dphn.ai in collaboration with Venice.ai. This model is designed as an “uncensored” instruct-tuned LLM, preserving...",
@@ -2869,8 +2864,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 603,
-    tokensPerSecond: 21
+    timeToFirstToken: 849.5,
+    tokensPerSecond: 11
   },
   metadata: {
     description: "Command A is an open-weights 111B parameter model with a 256k context window focused on delivering great performance across agentic, multilingual, and coding use cases. Compared to other leading proprietary...",
@@ -2898,8 +2893,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 347,
-    tokensPerSecond: 119
+    timeToFirstToken: 262,
+    tokensPerSecond: 111.5
   },
   metadata: {
     description: "Command A+ is Cohere's flagship model for enterprise agentic workflows. It accepts text and image inputs with a 192K context window, supports native tool calling with strict tool schemas, structured...",
@@ -2925,8 +2920,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 429,
-    tokensPerSecond: 18.5
+    timeToFirstToken: 374,
+    tokensPerSecond: 12
   },
   metadata: {
     description: "command-r-08-2024 is an update of the [Command R](/models/cohere/command-r) with improved performance for multilingual retrieval-augmented generation (RAG) and tool use. More broadly, it is better at math, code and reasoning and...",
@@ -2953,8 +2948,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 469,
-    tokensPerSecond: 13.5
+    timeToFirstToken: 646.5,
+    tokensPerSecond: 12
   },
   metadata: {
     description: "command-r-plus-08-2024 is an update of the [Command R+](/models/cohere/command-r-plus) with roughly 50% higher throughput and 25% lower latencies as compared to the previous Command R+ version, while keeping the hardware footprint...",
@@ -2980,8 +2975,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 158,
-    tokensPerSecond: 74
+    timeToFirstToken: 150,
+    tokensPerSecond: 76
   },
   metadata: {
     description: "Command R7B (12-2024) is a small, fast update of the Command R+ model, delivered in December 2024. It excels at RAG, tool use, agents, and similar tasks requiring complex reasoning...",
@@ -2989,7 +2984,8 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "cohere/command-r7b-12-2024",
     huggingFaceId: "",
     created: 1734158152,
-    knowledgeCutoff: "2024-08-31"
+    knowledgeCutoff: "2024-08-31",
+    uptime: 100
   }
 }, {
   id: 'cohere/north-mini-code:free',
@@ -3005,8 +3001,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 609,
-    tokensPerSecond: 74
+    timeToFirstToken: 570,
+    tokensPerSecond: 88
   },
   metadata: {
     description: "North Mini Code is Cohere's first agentic coding model and the debut of its North family. A sparse mixture-of-experts model with 30B total parameters and 3B active, it is optimized...",
@@ -3024,7 +3020,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Cohere',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -3043,7 +3039,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Cohere',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -3062,7 +3058,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 3686,
   tier: 'flagship',
   tokenizer: 'Cohere',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -3282,8 +3278,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 709,
-    tokensPerSecond: 33
+    timeToFirstToken: 570,
+    tokensPerSecond: 34
   },
   metadata: {
     description: "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
@@ -3312,8 +3308,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1982,
-    tokensPerSecond: 29
+    timeToFirstToken: 1997,
+    tokensPerSecond: 25
   },
   metadata: {
     description: "DeepSeek V3, a 685B-parameter, mixture-of-experts model, is the latest iteration of the flagship chat model family from the DeepSeek team. It succeeds the [DeepSeek V3](/deepseek/deepseek-chat-v3) model and performs really well...",
@@ -3342,8 +3338,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 326,
-    tokensPerSecond: 94
+    timeToFirstToken: 251,
+    tokensPerSecond: 86
   },
   metadata: {
     description: "DeepSeek-V3.1 is a large hybrid reasoning model (671B parameters, 37B active) that supports both thinking and non-thinking modes via prompt templates. It extends the DeepSeek-V3 base with a two-phase long-context...",
@@ -3372,8 +3368,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 808,
-    tokensPerSecond: 43
+    timeToFirstToken: 873,
+    tokensPerSecond: 45
   },
   metadata: {
     description: "May 28th update to the [original DeepSeek R1](/deepseek/deepseek-r1) Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active...",
@@ -3401,8 +3397,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1951,
-    tokensPerSecond: 18
+    timeToFirstToken: 2107,
+    tokensPerSecond: 20
   },
   metadata: {
     description: "DeepSeek-V3.1 Terminus is an update to [DeepSeek V3.1](/deepseek/deepseek-chat-v3.1) that maintains the model's original capabilities while addressing issues reported by users, including language consistency and agent capabilities, further optimizing the model's...",
@@ -3431,8 +3427,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 963.5,
-    tokensPerSecond: 57
+    timeToFirstToken: 782,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "DeepSeek-V3.2 is a large language model designed to harmonize high computational efficiency with strong reasoning and agentic tool-use performance. It introduces DeepSeek Sparse Attention (DSA), a fine-grained sparse attention mechanism...",
@@ -3462,8 +3458,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2553,
-    tokensPerSecond: 14
+    timeToFirstToken: 2124,
+    tokensPerSecond: 17
   },
   metadata: {
     description: "DeepSeek-V3.2-Exp is an experimental large language model released by DeepSeek as an intermediate step between V3.1 and future architectures. It introduces DeepSeek Sparse Attention (DSA), a fine-grained sparse attention mechanism...",
@@ -3475,7 +3471,7 @@ export const openrouterModels: ModelInfo[] = [{
     huggingFaceId: "deepseek-ai/DeepSeek-V3.2-Exp",
     created: 1759150481,
     knowledgeCutoff: "2025-07-31",
-    uptime: 96.66666666666667
+    uptime: 100
   }
 }, {
   id: 'deepseek/deepseek-v4-flash',
@@ -3496,8 +3492,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 547.5,
-    tokensPerSecond: 90
+    timeToFirstToken: 497,
+    tokensPerSecond: 103
   },
   metadata: {
     description: "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
@@ -3526,8 +3522,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 339,
-    tokensPerSecond: 137
+    timeToFirstToken: 324,
+    tokensPerSecond: 161
   },
   metadata: {
     description: "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
@@ -3557,8 +3553,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1305,
-    tokensPerSecond: 122
+    timeToFirstToken: 1657,
+    tokensPerSecond: 124
   },
   metadata: {
     description: "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
@@ -3587,8 +3583,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 917,
-    tokensPerSecond: 80
+    timeToFirstToken: 684,
+    tokensPerSecond: 82.5
   },
   metadata: {
     description: "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
@@ -3620,8 +3616,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 456,
-    tokensPerSecond: 115
+    timeToFirstToken: 461,
+    tokensPerSecond: 126
   },
   metadata: {
     description: "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
@@ -3653,8 +3649,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 212,
-    tokensPerSecond: 243
+    timeToFirstToken: 198,
+    tokensPerSecond: 235
   },
   metadata: {
     description: "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
@@ -3683,8 +3679,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 245,
-    tokensPerSecond: 236
+    timeToFirstToken: 286,
+    tokensPerSecond: 174.5
   },
   metadata: {
     description: "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
@@ -3734,8 +3730,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-12-31',
   metrics: {
-    timeToFirstToken: 1557.5,
-    tokensPerSecond: 51
+    timeToFirstToken: 1245,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "Dots3-Note Preview is an open-weight mixture-of-experts model from Dots Studio, with 16B active parameters out of 280B total. It is the lightest model in the Dots 3 family and is...",
@@ -3959,8 +3955,7 @@ export const openrouterModels: ModelInfo[] = [{
       "river",
       "roger",
       "will"
-    ],
-    uptime: 100
+    ]
   }
 }, {
   id: 'elevenlabs/eleven-v3',
@@ -4047,7 +4042,8 @@ export const openrouterModels: ModelInfo[] = [{
       "river",
       "roger",
       "will"
-    ]
+    ],
+    uptime: 100
   }
 }, {
   id: 'elevenlabs/eleven-v4',
@@ -4197,15 +4193,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 175.5,
-    tokensPerSecond: 196.5
+    timeToFirstToken: 585,
+    tokensPerSecond: 237.5
   },
   metadata: {
     description: "Glimpse is a multimodal visual reasoning model from Elorian, built for visual understanding and complex visual reasoning in the physical world. It reasons directly over images and video rather than...",
     defaultParameters: {},
     canonicalSlug: "elorian/glimpse-20261016",
-    created: 1792206629,
-    uptime: 100
+    created: 1792206629
   }
 }, {
   id: 'fireworks/ember-1',
@@ -4226,15 +4221,14 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1483.5,
-    tokensPerSecond: 56
+    timeToFirstToken: 736,
+    tokensPerSecond: 52
   },
   metadata: {
     description: "Ember-1 is a specialized reasoning model from Fireworks Research, built on [Kimi K3](https://openrouter.ai/moonshotai/kimi-k3). It is designed to make every token go further: it produces shorter reasoning traces, using roughly 40%...",
     defaultParameters: {},
     canonicalSlug: "fireworks/ember-1-20260923",
-    created: 1790208461,
-    uptime: 100
+    created: 1790208461
   }
 }, {
   id: 'fish-audio/drama-3',
@@ -4376,8 +4370,7 @@ export const openrouterModels: ModelInfo[] = [{
     description: "Transcribe 1 Pro is a speech-to-text model from Fish Audio tuned for interviews, meetings, and podcasts. It labels speakers with inline `speaker` markers, preserves emotion and vocal-event cues such as...",
     defaultParameters: {},
     canonicalSlug: "fish-audio/transcribe-1-pro-20260924",
-    created: 1790278301,
-    uptime: 100
+    created: 1790278301
   }
 }, {
   id: 'google/chirp-3',
@@ -4397,7 +4390,8 @@ export const openrouterModels: ModelInfo[] = [{
     description: "Chirp 3 is Google's latest multilingual speech-to-text model. It offers enhanced transcription accuracy across 24 GA languages and 77+ preview languages, with support for automatic language detection, automatic punctuation, and...",
     defaultParameters: {},
     canonicalSlug: "google/chirp-3",
-    created: 1777997783
+    created: 1777997783,
+    uptime: 100
   }
 }, {
   id: 'google/gemini-2.5-flash',
@@ -4427,8 +4421,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 523.5,
-    tokensPerSecond: 176.5
+    timeToFirstToken: 609,
+    tokensPerSecond: 142
   },
   metadata: {
     description: "Gemini 2.5 Flash is Google's state-of-the-art workhorse model, specifically designed for advanced reasoning, coding, mathematics, and scientific tasks. It includes built-in \"thinking\" capabilities, enabling it to provide responses with greater...",
@@ -4470,7 +4464,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 15560,
+    timeToFirstToken: 12066,
     tokensPerSecond: 0
   },
   metadata: {
@@ -4510,8 +4504,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 324,
-    tokensPerSecond: 308
+    timeToFirstToken: 348,
+    tokensPerSecond: 279
   },
   metadata: {
     description: "Gemini 2.5 Flash-Lite is a lightweight reasoning model in the Gemini 2.5 family, optimized for ultra-low latency and cost efficiency. It offers improved throughput, faster token generation, and better performance...",
@@ -4550,8 +4544,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 3052,
-    tokensPerSecond: 94
+    timeToFirstToken: 3280,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
@@ -4590,8 +4584,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 3052,
-    tokensPerSecond: 94
+    timeToFirstToken: 3280,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
@@ -4631,8 +4625,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1246,
-    tokensPerSecond: 110
+    timeToFirstToken: 1294,
+    tokensPerSecond: 102
   },
   metadata: {
     description: "Gemini 3 Flash Preview is a high speed, high value thinking model designed for agentic workflows, multi turn chat, and coding assistance. It delivers near Pro level reasoning and tool...",
@@ -4706,7 +4700,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 23037.5,
+    timeToFirstToken: 32490,
     tokensPerSecond: 0
   },
   metadata: {
@@ -4747,7 +4741,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 20119,
+    timeToFirstToken: 19711,
     tokensPerSecond: 0
   },
   metadata: {
@@ -4782,7 +4776,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 10823.5,
+    timeToFirstToken: 11479,
     tokensPerSecond: 0
   },
   metadata: {
@@ -4816,7 +4810,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 15640,
+    timeToFirstToken: 15661,
     tokensPerSecond: 0
   },
   metadata: {
@@ -4856,8 +4850,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 544,
-    tokensPerSecond: 206
+    timeToFirstToken: 518,
+    tokensPerSecond: 236
   },
   metadata: {
     description: "Gemini 3.1 Flash Lite is Google’s GA high-efficiency multimodal model optimized for low-latency, high-volume workloads. It supports text, image, video, audio, and PDF inputs, and is designed for lightweight agentic...",
@@ -4890,7 +4884,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 6245.5,
+    timeToFirstToken: 7106,
     tokensPerSecond: 0
   },
   metadata: {
@@ -4930,8 +4924,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 439.5,
-    tokensPerSecond: 185
+    timeToFirstToken: 447,
+    tokensPerSecond: 169
   },
   metadata: {
     description: "Gemini 3.1 Flash Lite Preview is Google's high-efficiency model optimized for high-volume use cases. It outperforms Gemini 2.5 Flash Lite on overall quality and approaches Gemini 2.5 Flash performance across...",
@@ -5057,8 +5051,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2431,
-    tokensPerSecond: 123.5
+    timeToFirstToken: 2803.5,
+    tokensPerSecond: 102
   },
   metadata: {
     description: "Gemini 3.1 Pro Preview is Google’s frontier reasoning model, delivering enhanced software engineering performance, improved agentic reliability, and more efficient token usage across complex workflows. Building on the multimodal foundation...",
@@ -5097,8 +5091,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 3224,
-    tokensPerSecond: 124
+    timeToFirstToken: 2814.5,
+    tokensPerSecond: 83.5
   },
   metadata: {
     description: "Gemini 3.1 Pro Preview Custom Tools is a variant of Gemini 3.1 Pro that improves tool selection behavior by preventing overuse of a general bash tool when more efficient third-party...",
@@ -5168,8 +5162,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 927,
-    tokensPerSecond: 172
+    timeToFirstToken: 1441,
+    tokensPerSecond: 182
   },
   metadata: {
     description: "Gemini 3.5 Flash is Google's high-efficiency multimodal model, bringing near-Pro level coding and reasoning at Flash-tier cost and speed. It is highly optimized for coding proficiency and parallel agentic execution...",
@@ -5208,8 +5202,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 644,
-    tokensPerSecond: 201
+    timeToFirstToken: 562,
+    tokensPerSecond: 203
   },
   metadata: {
     description: "Gemini 3.5 Flash Lite is a high-efficiency model from Google with upgraded agentic capabilities. It is suited for subagents that execute focused tasks within complex, multi-agent workflows.",
@@ -5336,8 +5330,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1233,
-    tokensPerSecond: 183
+    timeToFirstToken: 1299,
+    tokensPerSecond: 185
   },
   metadata: {
     description: "Gemini 3.6 Flash is a high-efficiency model from Google for coding, agentic workflows, and web and app development. It is designed to produce polished outputs with fewer unnecessary edits and...",
@@ -5409,8 +5403,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1477.5,
-    tokensPerSecond: 77
+    timeToFirstToken: 1721.5,
+    tokensPerSecond: 102
   },
   metadata: {
     description: "Gemini 3.7 Flash is a multimodal model from Google for fast agentic workflows, coding, and complex multi-step reasoning. It is designed for tasks that require responsive performance and reliable multi-step...",
@@ -5482,8 +5476,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2272,
-    tokensPerSecond: 80
+    timeToFirstToken: 2277.5,
+    tokensPerSecond: 79
   },
   metadata: {
     description: "Gemini 3.8 Flash is Google's most intelligent Flash model with significant gains from 3.7 Flash across software engineering, agentic tasks, and multi-step reasoning.",
@@ -5663,8 +5657,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 3586,
-    tokensPerSecond: 61
+    timeToFirstToken: 3344,
+    tokensPerSecond: 77
   },
   metadata: {
     description: "Gemini 4 Argon is Google's flagship reasoning model, built for complex software engineering, deep mathematical and scientific problem solving, and autonomous multi-step agents. Google trained it to keep context across...",
@@ -5824,7 +5818,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'high'],
   metrics: {
-    timeToFirstToken: 17771,
+    timeToFirstToken: 15832,
     tokensPerSecond: 0
   },
   metadata: {
@@ -5851,8 +5845,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2787,
-    tokensPerSecond: 35
+    timeToFirstToken: 871.5,
+    tokensPerSecond: 60
   },
   metadata: {
     description: "Gemma 2 27B by Google is an open model built from the same research and technology used to create the [Gemini models](/models?q=gemini). Gemma models are well-suited for a variety of...",
@@ -5880,8 +5874,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 902,
-    tokensPerSecond: 55
+    timeToFirstToken: 913,
+    tokensPerSecond: 58
   },
   metadata: {
     description: "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
@@ -5910,8 +5904,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1214,
-    tokensPerSecond: 28
+    timeToFirstToken: 488,
+    tokensPerSecond: 46
   },
   metadata: {
     description: "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
@@ -5939,8 +5933,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 373,
-    tokensPerSecond: 57
+    timeToFirstToken: 374,
+    tokensPerSecond: 49
   },
   metadata: {
     description: "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
@@ -5969,8 +5963,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 302,
-    tokensPerSecond: 147
+    timeToFirstToken: 290,
+    tokensPerSecond: 145
   },
   metadata: {
     description: "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
@@ -5998,8 +5992,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 1163,
-    tokensPerSecond: 41
+    timeToFirstToken: 989,
+    tokensPerSecond: 42
   },
   metadata: {
     description: "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
@@ -6010,8 +6004,7 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "google/gemma-4-26b-a4b-it-20260403",
     huggingFaceId: "google/gemma-4-26B-A4B-it",
-    created: 1775227989,
-    uptime: 100
+    created: 1775227989
   }
 }, {
   id: 'google/gemma-4-31b-it',
@@ -6030,8 +6023,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 200,
-    tokensPerSecond: 171
+    timeToFirstToken: 180,
+    tokensPerSecond: 181
   },
   metadata: {
     description: "Gemma 4 31B Instruct is Google DeepMind's 30.7B dense multimodal model supporting text and image input with text output. Features a 256K token context window, configurable thinking/reasoning mode, native function...",
@@ -6059,8 +6052,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 1114.5,
-    tokensPerSecond: 31
+    timeToFirstToken: 1225,
+    tokensPerSecond: 32
   },
   metadata: {
     description: "Gemma 4 31B Instruct is Google DeepMind's 30.7B dense multimodal model supporting text and image input with text output. Features a 256K token context window, configurable thinking/reasoning mode, native function...",
@@ -6071,8 +6064,7 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "google/gemma-4-31b-it-20260402",
     huggingFaceId: "google/gemma-4-31B-it",
-    created: 1775148486,
-    uptime: 100
+    created: 1775148486
   }
 }, {
   id: 'google/lyria-3-clip-preview',
@@ -6088,7 +6080,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 2484.5,
+    timeToFirstToken: 2663,
     tokensPerSecond: 9
   },
   metadata: {
@@ -6111,15 +6103,15 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 4062,
-    tokensPerSecond: 10
+    timeToFirstToken: 5595,
+    tokensPerSecond: 12
   },
   metadata: {
     description: "Full-length songs are priced at $0.08 per song. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate high-quality, 48kHz...",
     defaultParameters: {},
     canonicalSlug: "google/lyria-3-pro-preview-20260330",
     created: 1774907286,
-    uptime: 100
+    uptime: 33.33333333333333
   }
 }, {
   id: 'google/veo-3.1',
@@ -6135,7 +6127,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 107837.5,
+    timeToFirstToken: 99985,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6158,7 +6150,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 84013,
+    timeToFirstToken: 63169,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6166,7 +6158,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "google/veo-3.1-fast-20260320",
     created: 1776994666,
-    uptime: 50
+    uptime: 100
   }
 }, {
   id: 'google/veo-3.1-lite',
@@ -6182,7 +6174,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 54759,
+    timeToFirstToken: 53505,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6209,8 +6201,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 338,
-    tokensPerSecond: 98
+    timeToFirstToken: 340,
+    tokensPerSecond: 97
   },
   metadata: {
     description: "One of the highest performing and most popular fine-tunes of Llama 2 13B, with rich descriptions and roleplay. #merge",
@@ -6311,7 +6303,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 101256,
+    timeToFirstToken: 101095,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6333,7 +6325,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 23503,
+    timeToFirstToken: 22825,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6373,7 +6365,8 @@ export const openrouterModels: ModelInfo[] = [{
       "lucian",
       "weston",
       "vincent"
-    ]
+    ],
+    uptime: 100
   }
 }, {
   id: 'heygen/heygen-voice-1-turbo',
@@ -6459,8 +6452,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high'],
   metrics: {
-    timeToFirstToken: 542.5,
-    tokensPerSecond: 68.5
+    timeToFirstToken: 625,
+    tokensPerSecond: 49
   },
   metadata: {
     description: "Granite 4.2 8B is a dense reasoning model from IBM. It is suited for mathematics, code generation, multilingual dialogue, and agentic workflows that need multi-step reasoning. It supports full, low-effort,...",
@@ -6492,8 +6485,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1041,
-    tokensPerSecond: 270
+    timeToFirstToken: 618,
+    tokensPerSecond: 308
   },
   metadata: {
     description: "Mercury 2 is an extremely fast reasoning LLM, and the first reasoning diffusion LLM (dLLM). Instead of generating tokens sequentially, Mercury 2 produces and refines multiple tokens in parallel, achieving...",
@@ -6523,8 +6516,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 859.5,
-    tokensPerSecond: 123
+    timeToFirstToken: 941.5,
+    tokensPerSecond: 171
   },
   metadata: {
     description: "Mercury 2.5 is the fastest reasoning LLM, and the latest diffusion LLM (dLLM) from Inception. Instead of generating tokens sequentially, Mercury 2.5 produces and refines multiple tokens in parallel, achieving...",
@@ -6552,15 +6545,15 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1610,
-    tokensPerSecond: 297
+    timeToFirstToken: 1137,
+    tokensPerSecond: 315
   },
   metadata: {
     description: "Mercury 3 is a diffusion-based language model from Inception, and the lab's most capable model to date. It is suited for agentic workflows and real-time applications where latency compounds, such...",
     defaultParameters: {},
     canonicalSlug: "inception/mercury-3-20261019",
     created: 1792158337,
-    uptime: 86.66666666666667
+    uptime: 100
   }
 }, {
   id: 'inception/mercury-decide',
@@ -6570,14 +6563,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.02
     }
   },
   metrics: {
-    timeToFirstToken: 287,
+    timeToFirstToken: 257,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6605,8 +6598,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 412,
-    tokensPerSecond: 157
+    timeToFirstToken: 423,
+    tokensPerSecond: 155
   },
   metadata: {
     description: "*Ling-3.0-flash* is a *124B-parameter Mixture-of-Experts (MoE) model*, with approximately *5.1B parameters activated per token*. The model is designed with *token efficiency and production-scale agentic inference* as key priorities, enabling developers...",
@@ -6634,8 +6627,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 540,
-    tokensPerSecond: 46
+    timeToFirstToken: 529.5,
+    tokensPerSecond: 66
   },
   metadata: {
     description: "Ling 3.0 Flash VL builds on Ling 3.0 Flash (124B total / 5.5B active MoE from InclusionAI), further strengthening its language capabilities while adding native visual perception and advanced visual...",
@@ -6663,8 +6656,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1135.5,
-    tokensPerSecond: 73
+    timeToFirstToken: 1025.5,
+    tokensPerSecond: 78
   },
   metadata: {
     description: "Ling 3.1 Flash is a hybrid reasoning mixture-of-experts model from inclusionAI, with 25B active parameters out of 560B total.",
@@ -6689,6 +6682,10 @@ export const openrouterModels: ModelInfo[] = [{
       output: 0.22999999999999998,
       cached: 0.049999999999999996
     }
+  },
+  metrics: {
+    timeToFirstToken: 653,
+    tokensPerSecond: 262
   },
   metadata: {
     description: "Schematron V2 Small is a 3B-parameter HTML-to-JSON extraction model from Inference.net. It prioritizes extraction quality for complex schemas and long pages. Extraction instructions must be supplied through a JSON schema...",
@@ -6715,16 +6712,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 655,
-    tokensPerSecond: 69
+    timeToFirstToken: 738,
+    tokensPerSecond: 65
   },
   metadata: {
     description: "Schematron V2 Turbo is a 3B-parameter HTML-to-JSON extraction model from Inference.net. It prioritizes throughput for high-volume extraction workloads. Extraction instructions must be supplied through a JSON schema in response_format rather...",
     defaultParameters: {},
     canonicalSlug: "inference-net/schematron-v2-turbo-20260902",
     huggingFaceId: "inference-net/schematron-v2-granite-4.0-h-micro",
-    created: 1789176949,
-    uptime: 100
+    created: 1789176949
   }
 }, {
   id: 'intfloat/e5-base-v2',
@@ -6745,8 +6741,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "intfloat/e5-base-v2-20251117",
     huggingFaceId: "intfloat/e5-base-v2",
-    created: 1763433192,
-    uptime: 100
+    created: 1763433192
   }
 }, {
   id: 'intfloat/e5-large-v2',
@@ -6799,14 +6794,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 7372,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.041999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 651.5,
+    timeToFirstToken: 407.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6834,7 +6829,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 11599,
+    timeToFirstToken: 11259,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6861,7 +6856,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 44380,
+    timeToFirstToken: 33164,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6887,7 +6882,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 20939,
+    timeToFirstToken: 30160,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6913,7 +6908,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 17330.5,
+    timeToFirstToken: 21556,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6937,7 +6932,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 127698.5,
+    timeToFirstToken: 159545,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6961,7 +6956,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 126940,
+    timeToFirstToken: 98814,
     tokensPerSecond: 0
   },
   metadata: {
@@ -6983,10 +6978,6 @@ export const openrouterModels: ModelInfo[] = [{
   pricing: {
     text: {}
   },
-  metrics: {
-    timeToFirstToken: 298931,
-    tokensPerSecond: 0
-  },
   metadata: {
     description: "Kling Video O1 is a video generation model from Kuaishou. It supports text and image inputs with video output, enabling text-to-video and image-to-video workflows. It is suited for cinematic content...",
     defaultParameters: {},
@@ -7001,7 +6992,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.02,
@@ -7009,7 +7000,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 189,
+    timeToFirstToken: 217,
     tokensPerSecond: 0
   },
   metadata: {
@@ -7027,7 +7018,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.041999999999999996,
@@ -7035,7 +7026,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 186,
+    timeToFirstToken: 184,
     tokensPerSecond: 0
   },
   metadata: {
@@ -7053,7 +7044,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 58982,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.02,
@@ -7061,7 +7052,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 176,
+    timeToFirstToken: 173,
     tokensPerSecond: 0
   },
   metadata: {
@@ -7085,8 +7076,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 272,
-    tokensPerSecond: 368
+    timeToFirstToken: 261,
+    tokensPerSecond: 371
   },
   metadata: {
     description: "LFM2.5-2.6B is a compact reasoning model from Liquid AI. It is suited for agent workflows, data extraction, RAG, and long-context processing. Liquid advises against using it for agentic coding or...",
@@ -7118,8 +7109,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 159,
-    tokensPerSecond: 443
+    timeToFirstToken: 229.5,
+    tokensPerSecond: 395
   },
   metadata: {
     description: "LFM2.5-24B-A2B is a mixture-of-experts reasoning model from Liquid AI with 24B total and 2.45B active parameters. It always reasons before answering and is built for agents that call tools. Liquid...",
@@ -7170,8 +7161,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 856,
-    tokensPerSecond: 51
+    timeToFirstToken: 1474.5,
+    tokensPerSecond: 61
   },
   metadata: {
     description: "An attempt to recreate Claude-style verbosity, but don't expect the same level of coherence or memory. Meant for use in roleplay/narrative situations.",
@@ -7198,7 +7189,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1621,
+    timeToFirstToken: 1527.5,
     tokensPerSecond: 50
   },
   metadata: {
@@ -7227,7 +7218,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-11-03',
   metrics: {
-    timeToFirstToken: 374,
+    timeToFirstToken: 393,
     tokensPerSecond: 65
   },
   metadata: {
@@ -7257,8 +7248,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 66,
-    tokensPerSecond: 359
+    timeToFirstToken: 67,
+    tokensPerSecond: 352
   },
   metadata: {
     description: "Meta's latest class of model (Llama 3.1) launched with a variety of sizes & flavors. This 8B instruct-tuned version is fast and efficient. It has demonstrated strong performance compared to...",
@@ -7286,8 +7277,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 221,
-    tokensPerSecond: 86
+    timeToFirstToken: 233,
+    tokensPerSecond: 90
   },
   metadata: {
     description: "Llama 3.2 1B is a 1-billion-parameter language model focused on efficiently performing natural language tasks, such as summarization, dialogue, and multilingual text analysis. Its smaller size allows it to operate...",
@@ -7315,8 +7306,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 256,
-    tokensPerSecond: 162.5
+    timeToFirstToken: 225.5,
+    tokensPerSecond: 143
   },
   metadata: {
     description: "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
@@ -7344,8 +7335,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 155.5,
-    tokensPerSecond: 197
+    timeToFirstToken: 159,
+    tokensPerSecond: 195
   },
   metadata: {
     description: "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
@@ -7374,7 +7365,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 506,
+    timeToFirstToken: 500,
     tokensPerSecond: 75
   },
   metadata: {
@@ -7403,8 +7394,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 4415,
-    tokensPerSecond: 9
+    timeToFirstToken: 599,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "Llama 4 Scout 17B Instruct (16E) is a mixture-of-experts (MoE) language model developed by Meta, activating 17 billion parameters out of a total of 109B. It supports native multimodal input...",
@@ -7413,7 +7404,7 @@ export const openrouterModels: ModelInfo[] = [{
     huggingFaceId: "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     created: 1743881519,
     knowledgeCutoff: "2024-08-31",
-    uptime: 86.66666666666667
+    uptime: 100
   }
 }, {
   id: 'meta-llama/llama-guard-4-12b',
@@ -7459,8 +7450,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 736,
-    tokensPerSecond: 110
+    timeToFirstToken: 1589,
+    tokensPerSecond: 38
   },
   metadata: {
     description: "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
@@ -7492,7 +7483,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 20908,
+    timeToFirstToken: 19725,
     tokensPerSecond: 0
   },
   metadata: {
@@ -7524,8 +7515,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2230,
-    tokensPerSecond: 153
+    timeToFirstToken: 2145.5,
+    tokensPerSecond: 194
   },
   metadata: {
     description: "Muse Spark 1.1 is a multimodal reasoning model from Meta, built for agentic tasks. It accepts text, images, video, and PDF documents and returns text, with a 1M-token context window....",
@@ -7556,8 +7547,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2528,
-    tokensPerSecond: 257.5
+    timeToFirstToken: 1815.5,
+    tokensPerSecond: 226
   },
   metadata: {
     description: "Muse Spark 1.2 is a reasoning model from Meta, designed for complex agentic tasks. It accepts text, images, video, and PDF documents, returns text, and offers a 1M-token context window....",
@@ -7588,7 +7579,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2569,
+    timeToFirstToken: 2771,
     tokensPerSecond: 124
   },
   metadata: {
@@ -7617,8 +7608,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 295.5,
-    tokensPerSecond: 209
+    timeToFirstToken: 327,
+    tokensPerSecond: 252
   },
   metadata: {
     description: "Muse Spark Open is a coding-optimized open-weight model. Trained specifically for agentic coding workflows, it delivers higher first-attempt accuracy, reliable tool calling, and deep codebase understanding across the repos developers...",
@@ -7670,8 +7661,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 3008,
-    tokensPerSecond: 81
+    timeToFirstToken: 3284.5,
+    tokensPerSecond: 77
   },
   metadata: {
     description: "Muse Wonder is a frontier reasoning model from Meta, designed for complex personal and professional agentic tasks. It accepts text, images, video, audio, and PDF documents and returns text, with...",
@@ -7700,7 +7691,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 24391,
+    timeToFirstToken: 23596,
     tokensPerSecond: 0
   },
   metadata: {
@@ -7728,6 +7719,10 @@ export const openrouterModels: ModelInfo[] = [{
       tokens: 108
     }
   },
+  metrics: {
+    timeToFirstToken: 34113,
+    tokensPerSecond: 0
+  },
   metadata: {
     description: "Microsoft AI's MAI-Image-2.5 is a high-quality image generation model available via Azure AI Foundry. It produces photorealistic and artistic images from text prompts with support for various aspect ratios.",
     defaultParameters: {},
@@ -7754,15 +7749,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 24624.5,
+    timeToFirstToken: 24576,
     tokensPerSecond: 0
   },
   metadata: {
     description: "MAI-Image-2.6 is an image generation and editing model from Microsoft AI, the precision tier of the MAI-Image-2.6 family alongside the faster [MAI-Image-2.6 Flash](/microsoft/mai-image-2.6-flash). It is suited for design-ready visuals and...",
     defaultParameters: {},
     canonicalSlug: "microsoft/mai-image-2.6-20260904",
-    created: 1788550742,
-    uptime: 100
+    created: 1788550742
   }
 }, {
   id: 'microsoft/mai-image-2.6-flash',
@@ -7784,7 +7778,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 16888,
+    timeToFirstToken: 11023.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -7889,8 +7883,7 @@ export const openrouterModels: ModelInfo[] = [{
       "es-MX-Valeria:MAI-Voice-2",
       "fr-FR-Soleil:MAI-Voice-2",
       "de-DE-Klaus:MAI-Voice-2"
-    ],
-    uptime: 100
+    ]
   }
 }, {
   id: 'microsoft/mai-voice-2.1',
@@ -8129,7 +8122,8 @@ export const openrouterModels: ModelInfo[] = [{
       "zh-CN-Lan:MAI-Voice-2.1-Flash",
       "zh-CN-Mei:MAI-Voice-2.1-Flash",
       "zh-CN-Wei:MAI-Voice-2.1-Flash"
-    ]
+    ],
+    uptime: 100
   }
 }, {
   id: 'microsoft/microsoft-decision-1',
@@ -8139,14 +8133,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.041999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 206,
+    timeToFirstToken: 207,
     tokensPerSecond: 0
   },
   metadata: {
@@ -8173,8 +8167,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 432,
-    tokensPerSecond: 88
+    timeToFirstToken: 430,
+    tokensPerSecond: 81
   },
   metadata: {
     description: "[Microsoft Research](/microsoft) Phi-4 is designed to perform well in complex reasoning tasks and can operate efficiently in situations with limited memory or where quick responses are needed. At 14 billion...",
@@ -8199,7 +8193,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 150153.5,
+    timeToFirstToken: 132805,
     tokensPerSecond: 0
   },
   metadata: {
@@ -8222,15 +8216,14 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 336203,
+    timeToFirstToken: 345457.5,
     tokensPerSecond: 0
   },
   metadata: {
     description: "MiniMax H3 is a lightweight, open-weights video generation model from MiniMax. It is designed for precise multimodal editing and controlled content generation, including instruction-guided edits, text and brand rendering, and...",
     defaultParameters: {},
     canonicalSlug: "minimax/hailuo-03-20260730",
-    created: 1785366648,
-    uptime: 100
+    created: 1785366648
   }
 }, {
   id: 'minimax/hailuo-3-max',
@@ -8246,15 +8239,14 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 21786,
+    timeToFirstToken: 16391.5,
     tokensPerSecond: 0
   },
   metadata: {
     description: "MiniMax H3 Max is a video-generation model from MiniMax, jointly released with fal.ai. Derived through additional training from MiniMax H3, it is designed for faster text-to-video and image-to-video generation with...",
     defaultParameters: {},
     canonicalSlug: "minimax/hailuo-3-max-20260901",
-    created: 1788313310,
-    uptime: 100
+    created: 1788313310
   }
 }, {
   id: 'minimax/minimax-01',
@@ -8273,8 +8265,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 872,
-    tokensPerSecond: 25
+    timeToFirstToken: 812,
+    tokensPerSecond: 23
   },
   metadata: {
     description: "MiniMax-01 is a combines MiniMax-Text-01 for text generation and MiniMax-VL-01 for image understanding. It has 456 billion parameters, with 45.9 billion parameters activated per inference, and can handle a context...",
@@ -8302,8 +8294,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 802.5,
-    tokensPerSecond: 95
+    timeToFirstToken: 1696,
+    tokensPerSecond: 83
   },
   metadata: {
     description: "MiniMax-M1 is a large-scale, open-weight reasoning model designed for extended context and high-efficiency inference. It leverages a hybrid Mixture-of-Experts (MoE) architecture paired with a custom \"lightning attention\" mechanism, allowing it...",
@@ -8311,7 +8303,8 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "minimax/minimax-m1",
     huggingFaceId: "",
     created: 1750200414,
-    knowledgeCutoff: "2024-06-30"
+    knowledgeCutoff: "2024-06-30",
+    uptime: 100
   }
 }, {
   id: 'minimax/minimax-m2',
@@ -8330,8 +8323,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 870,
-    tokensPerSecond: 40
+    timeToFirstToken: 1315,
+    tokensPerSecond: 35
   },
   metadata: {
     description: "MiniMax-M2 is a compact, high-efficiency large language model optimized for end-to-end coding and agentic workflows. With 10 billion activated parameters (230 billion total), it delivers near-frontier intelligence across general reasoning,...",
@@ -8362,8 +8355,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 851,
-    tokensPerSecond: 45
+    timeToFirstToken: 827,
+    tokensPerSecond: 43.5
   },
   metadata: {
     description: "MiniMax M2-her is a dialogue-first large language model built for immersive roleplay, character-driven chat, and expressive multi-turn conversations. Designed to stay consistent in tone and personality, it supports rich message...",
@@ -8394,7 +8387,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1207,
+    timeToFirstToken: 1213,
     tokensPerSecond: 30
   },
   metadata: {
@@ -8405,8 +8398,7 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "minimax/minimax-m2.1",
     huggingFaceId: "MiniMaxAI/MiniMax-M2.1",
-    created: 1766454997,
-    uptime: 100
+    created: 1766454997
   }
 }, {
   id: 'minimax/minimax-m2.5',
@@ -8426,8 +8418,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 745.5,
-    tokensPerSecond: 98
+    timeToFirstToken: 725,
+    tokensPerSecond: 97
   },
   metadata: {
     description: "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
@@ -8458,8 +8450,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 322.5,
-    tokensPerSecond: 274
+    timeToFirstToken: 315,
+    tokensPerSecond: 286
   },
   metadata: {
     description: "MiniMax-M2.7 is a next-generation large language model designed for autonomous, real-world productivity and continuous improvement. Built to actively participate in its own evolution, M2.7 integrates advanced agentic capabilities through multi-agent...",
@@ -8490,8 +8482,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 460,
-    tokensPerSecond: 146
+    timeToFirstToken: 502,
+    tokensPerSecond: 177
   },
   metadata: {
     description: "MiniMax-M3 is a multimodal foundation model from MiniMax. It supports text, image, and video inputs with text output, a 1M-token context window, and is suited for long-horizon agentic work, coding,...",
@@ -8523,8 +8515,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 479.5,
-    tokensPerSecond: 193
+    timeToFirstToken: 362,
+    tokensPerSecond: 202
   },
   metadata: {
     description: "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
@@ -8688,8 +8680,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 243,
-    tokensPerSecond: 104.5
+    timeToFirstToken: 375,
+    tokensPerSecond: 120
   },
   metadata: {
     description: "Mistral's cutting-edge language model for coding released end of July 2025. Codestral specializes in low-latency, high-frequency tasks such as fill-in-the-middle (FIM), code correction and test generation.\n\n[Blog Post](https://mistral.ai/news/codestral-25-08)",
@@ -8741,8 +8733,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1601,
-    tokensPerSecond: 68
+    timeToFirstToken: 1107,
+    tokensPerSecond: 152.5
   },
   metadata: {
     description: "Devstral 2 is a state-of-the-art open-source model by Mistral AI specializing in agentic coding. It is a 123B-parameter dense transformer model supporting a 256K context window. Devstral 2 supports exploring...",
@@ -8772,8 +8764,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 259,
-    tokensPerSecond: 75
+    timeToFirstToken: 334.5,
+    tokensPerSecond: 93
   },
   metadata: {
     description: "The largest model in the Ministral 3 family, Ministral 3 14B offers frontier capabilities and performance comparable to its larger Mistral Small 3.2 24B counterpart. A powerful and efficient language...",
@@ -8803,8 +8795,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 339,
-    tokensPerSecond: 152
+    timeToFirstToken: 225,
+    tokensPerSecond: 114
   },
   metadata: {
     description: "The smallest model in the Ministral 3 family, Ministral 3 3B is a powerful, efficient tiny language model with vision capabilities.",
@@ -8834,8 +8826,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 239.5,
-    tokensPerSecond: 88
+    timeToFirstToken: 342,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "A balanced model in the Ministral 3 family, Ministral 3 8B is a powerful, efficient tiny language model with vision capabilities.",
@@ -8886,8 +8878,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 748,
-    tokensPerSecond: 63
+    timeToFirstToken: 612,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "This is Mistral AI's flagship model, Mistral Large 2 (version `mistral-large-2407`). It's a proprietary weights-available model and excels at reasoning, code, JSON, chat, and more. Read the launch announcement [here](https://mistral.ai/news/mistral-large-2407/)....",
@@ -8917,8 +8909,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 598.5,
-    tokensPerSecond: 40
+    timeToFirstToken: 571,
+    tokensPerSecond: 58
   },
   metadata: {
     description: "This is Mistral AI's flagship model, Mistral Large 2 (version mistral-large-2407). It's a proprietary weights-available model and excels at reasoning, code, JSON, chat, and more. Read the launch announcement [here](https://mistral.ai/news/mistral-large-2407/)....",
@@ -8948,8 +8940,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 553,
-    tokensPerSecond: 69
+    timeToFirstToken: 692,
+    tokensPerSecond: 51
   },
   metadata: {
     description: "Mistral Large 3 2512 is Mistral’s most capable model to date, featuring a sparse mixture-of-experts architecture with 41B active parameters (675B total), and released under the Apache 2.0 license.",
@@ -8980,8 +8972,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'high'],
   metrics: {
-    timeToFirstToken: 910,
-    tokensPerSecond: 91
+    timeToFirstToken: 819,
+    tokensPerSecond: 133
   },
   metadata: {
     description: "Mistral Large 4 is a frontier multimodal (text and image input) model from Mistral AI built for reasoning, coding, and agentic workloads. It offers a 1M-token context window with up...",
@@ -8989,7 +8981,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "mistralai/mistral-large-4-0-20261006",
     huggingFaceId: "mistralai/Mistral-Large-4-1T-A52B",
     created: 1791294122,
-    uptime: 100
+    uptime: 96.66666666666667
   }
 }, {
   id: 'mistralai/mistral-medium-3',
@@ -9009,8 +9001,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 398,
-    tokensPerSecond: 105
+    timeToFirstToken: 362,
+    tokensPerSecond: 92
   },
   metadata: {
     description: "Mistral Medium 3 is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances state-of-the-art reasoning and multimodal performance with 8× lower cost...",
@@ -9041,8 +9033,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'high'],
   metrics: {
-    timeToFirstToken: 407,
-    tokensPerSecond: 122
+    timeToFirstToken: 260,
+    tokensPerSecond: 101
   },
   metadata: {
     description: "Mistral Medium 3.5 is a dense 128B instruction-following model from Mistral AI. It supports text and image inputs with text output, and is designed for agentic workflows, coding, and complex...",
@@ -9092,8 +9084,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 508,
-    tokensPerSecond: 133
+    timeToFirstToken: 806,
+    tokensPerSecond: 147
   },
   metadata: {
     description: "Mistral Medium 3.1 is an updated version of Mistral Medium 3, which is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances...",
@@ -9123,8 +9115,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 250,
-    tokensPerSecond: 148
+    timeToFirstToken: 327,
+    tokensPerSecond: 100
   },
   metadata: {
     description: "A 12B parameter model with a 128k token context length built by Mistral in collaboration with NVIDIA. The model is multilingual, supporting English, French, German, Spanish, Italian, Portuguese, Chinese, Japanese,...",
@@ -9155,8 +9147,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 337.5,
-    tokensPerSecond: 103
+    timeToFirstToken: 444,
+    tokensPerSecond: 108
   },
   metadata: {
     description: "Mistral Saba is a 24B-parameter language model specifically designed for the Middle East and South Asia, delivering accurate and contextually relevant responses while maintaining efficient performance. Trained on curated regional...",
@@ -9185,7 +9177,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 285,
+    timeToFirstToken: 308,
     tokensPerSecond: 51
   },
   metadata: {
@@ -9218,8 +9210,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'high'],
   metrics: {
-    timeToFirstToken: 270,
-    tokensPerSecond: 148
+    timeToFirstToken: 275,
+    tokensPerSecond: 131
   },
   metadata: {
     description: "Mistral Small 4 is the next major release in the Mistral Small family, unifying the capabilities of several flagship Mistral models into a single system. It combines strong reasoning from...",
@@ -9246,8 +9238,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 393,
-    tokensPerSecond: 48
+    timeToFirstToken: 385.5,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "Mistral Small 3.1 24B Instruct is an upgraded variant of Mistral Small 3 (2501), featuring 24 billion parameters with advanced multimodal capabilities. It provides state-of-the-art performance in text-based reasoning and...",
@@ -9277,8 +9269,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 371,
-    tokensPerSecond: 86
+    timeToFirstToken: 424,
+    tokensPerSecond: 91
   },
   metadata: {
     description: "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
@@ -9309,8 +9301,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 510,
-    tokensPerSecond: 92
+    timeToFirstToken: 465,
+    tokensPerSecond: 120
   },
   metadata: {
     description: "Mistral's official instruct fine-tuned version of [Mixtral 8x22B](/models/mistralai/mixtral-8x22b). It uses 39B active parameters out of 141B, offering unparalleled cost efficiency for its size. Its strengths include: - strong math, coding,...",
@@ -9341,8 +9333,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "mistralai/voxtral-mini-3b-2507-20260813",
     huggingFaceId: "mistralai/Voxtral-Mini-3B-2507",
-    created: 1786653980,
-    uptime: 100
+    created: 1786653980
   }
 }, {
   id: 'mistralai/voxtral-mini-transcribe',
@@ -9548,8 +9539,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 220.5,
-    tokensPerSecond: 82.5
+    timeToFirstToken: 401,
+    tokensPerSecond: 120
   },
   metadata: {
     description: "Voxtral Small is an enhancement of Mistral Small 3, incorporating state-of-the-art audio input capabilities while retaining best-in-class text performance. It excels at speech transcription, translation and audio understanding. Input audio...",
@@ -9621,8 +9612,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 297,
-    tokensPerSecond: 244
+    timeToFirstToken: 205,
+    tokensPerSecond: 48
   },
   metadata: {
     description: "Moondream 3 Preview is a vision-language model from Moondream with 9B total parameters and 2B active (mixture-of-experts). It handles visual question answering, captioning, OCR, and visual reasoning over images, with...",
@@ -9651,8 +9642,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 912,
-    tokensPerSecond: 105
+    timeToFirstToken: 320.5,
+    tokensPerSecond: 151
   },
   metadata: {
     description: "Moondream 3.1 is a vision-language model from Moondream, the successor to Moondream 3 Preview, with 9B total parameters and 2B active (mixture-of-experts). It handles visual question answering, captioning, OCR, and...",
@@ -9662,8 +9653,7 @@ export const openrouterModels: ModelInfo[] = [{
     },
     canonicalSlug: "moondream/moondream3.1-9b-a2b-20261013",
     huggingFaceId: "moondream/moondream3.1-9B-A2B",
-    created: 1792102373,
-    uptime: 100
+    created: 1792102373
   }
 }, {
   id: 'moonshotai/kimi-k2',
@@ -9682,8 +9672,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1074,
-    tokensPerSecond: 38
+    timeToFirstToken: 1875.5,
+    tokensPerSecond: 38.5
   },
   metadata: {
     description: "Kimi K2 Instruct is a large-scale Mixture-of-Experts (MoE) language model developed by Moonshot AI, featuring 1 trillion total parameters with 32 billion active per forward pass. It is optimized for...",
@@ -9711,8 +9701,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 783,
-    tokensPerSecond: 38
+    timeToFirstToken: 892,
+    tokensPerSecond: 41
   },
   metadata: {
     description: "Kimi K2 0905 is the September update of [Kimi K2 0711](moonshotai/kimi-k2). It is a large-scale Mixture-of-Experts (MoE) language model developed by Moonshot AI, featuring 1 trillion total parameters with 32...",
@@ -9741,16 +9731,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1691.5,
-    tokensPerSecond: 46
+    timeToFirstToken: 1824,
+    tokensPerSecond: 45.5
   },
   metadata: {
     description: "Kimi K2 Thinking is Moonshot AI’s most advanced open reasoning model to date, extending the K2 series into agentic, long-horizon reasoning. Built on the trillion-parameter Mixture-of-Experts (MoE) architecture introduced in...",
     defaultParameters: {},
     canonicalSlug: "moonshotai/kimi-k2-thinking-20251106",
     huggingFaceId: "moonshotai/Kimi-K2-Thinking",
-    created: 1762440622,
-    uptime: 100
+    created: 1762440622
   }
 }, {
   id: 'moonshotai/kimi-k2.5',
@@ -9770,8 +9759,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 840,
-    tokensPerSecond: 64
+    timeToFirstToken: 769.5,
+    tokensPerSecond: 61
   },
   metadata: {
     description: "Kimi K2.5 is Moonshot AI's native multimodal model, delivering state-of-the-art visual coding capability and a self-directed agent swarm paradigm. Built on Kimi K2 with continued pretraining over approximately 15T mixed...",
@@ -9799,8 +9788,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 361,
-    tokensPerSecond: 80
+    timeToFirstToken: 445,
+    tokensPerSecond: 77
   },
   metadata: {
     description: "Kimi K2.6 is Moonshot AI's next-generation multimodal model, designed for long-horizon coding, coding-driven UI/UX generation, and multi-agent orchestration. It handles complex end-to-end coding tasks across Python, Rust, and Go, and...",
@@ -9828,8 +9817,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 846,
-    tokensPerSecond: 71
+    timeToFirstToken: 816,
+    tokensPerSecond: 94
   },
   metadata: {
     description: "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
@@ -9858,8 +9847,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 569,
-    tokensPerSecond: 87
+    timeToFirstToken: 639,
+    tokensPerSecond: 72
   },
   metadata: {
     description: "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
@@ -9917,8 +9906,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 4567,
-    tokensPerSecond: 42
+    timeToFirstToken: 4142,
+    tokensPerSecond: 52
   },
   metadata: {
     description: "Kimi K3.1 Pro is Moonshot AI's flagship open-weight multimodal reasoning model and a post-trained successor to Kimi K3, with a 1M-token context window. It is built for long-horizon coding, 3D...",
@@ -9946,8 +9935,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 126,
-    tokensPerSecond: 3413.5
+    timeToFirstToken: 96,
+    tokensPerSecond: 6615
   },
   metadata: {
     description: "Morph's fastest apply model for code edits. ~10,500 tokens/sec with 96% accuracy for rapid code transformations. The model requires the prompt to be in the following format: <instruction>{instruction}</instruction> <code>{initial_code}</code> <update>{edit_snippet}</update>...",
@@ -9974,16 +9963,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 172,
-    tokensPerSecond: 3119
+    timeToFirstToken: 197,
+    tokensPerSecond: 3551
   },
   metadata: {
     description: "Morph's high-accuracy apply model for complex code edits. ~4,500 tokens/sec with 98% accuracy for precise code transformations. The model requires the prompt to be in the following format: <instruction>{instruction}</instruction> <code>{initial_code}</code>...",
     defaultParameters: {},
     canonicalSlug: "morph/morph-v3-large",
     huggingFaceId: "",
-    created: 1751910858,
-    uptime: 100
+    created: 1751910858
   }
 }, {
   id: 'nace-ai/drex-max',
@@ -9993,7 +9981,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.06,
@@ -10001,7 +9989,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 299,
+    timeToFirstToken: 294,
     tokensPerSecond: 0
   },
   metadata: {
@@ -10019,14 +10007,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 214.5,
+    timeToFirstToken: 225,
     tokensPerSecond: 0
   },
   metadata: {
@@ -10045,14 +10033,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.06
     }
   },
   metrics: {
-    timeToFirstToken: 320,
+    timeToFirstToken: 295,
     tokensPerSecond: 0
   },
   metadata: {
@@ -10081,8 +10069,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 980,
-    tokensPerSecond: 109
+    timeToFirstToken: 560,
+    tokensPerSecond: 125
   },
   metadata: {
     description: "Nex-N2.5 is an agentic model built to turn goals into working, verified outcomes. Its core strength is agentic coding within a visual feedback loop: it can explore codebases, implement multi-file...",
@@ -10094,7 +10082,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "nex-agi/nex-n2.5-mini-20260908",
     huggingFaceId: "nex-agi/Nex-N2.5-mini",
     created: 1788890061,
-    uptime: 100
+    uptime: 89.65517241379311
   }
 }, {
   id: 'nex-agi/nex-n2.5-pro',
@@ -10115,8 +10103,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1361,
-    tokensPerSecond: 39
+    timeToFirstToken: 1928,
+    tokensPerSecond: 37
   },
   metadata: {
     description: "Nex-N2.5 is an agentic model built to turn goals into working, verified outcomes. Its core strength is agentic coding within a visual feedback loop: it can explore codebases, implement multi-file...",
@@ -10148,8 +10136,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-11-02',
   metrics: {
-    timeToFirstToken: 681,
-    tokensPerSecond: 17
+    timeToFirstToken: 475.5,
+    tokensPerSecond: 22
   },
   metadata: {
     description: "Hermes 3 is a generalist language model with many improvements over Hermes 2, including advanced agentic capabilities, much better roleplaying, reasoning, multi-turn conversation, long context coherence, and improvements across the...",
@@ -10178,8 +10166,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-11-02',
   metrics: {
-    timeToFirstToken: 963,
-    tokensPerSecond: 27
+    timeToFirstToken: 790,
+    tokensPerSecond: 28
   },
   metadata: {
     description: "Hermes 3 is a generalist language model with many improvements over [Hermes 2](/models/nousresearch/nous-hermes-2-mistral-7b-dpo), including advanced agentic capabilities, much better roleplaying, reasoning, multi-turn conversation, long context coherence, and improvements across the...",
@@ -10208,7 +10196,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 314,
+    timeToFirstToken: 272.5,
     tokensPerSecond: 39
   },
   metadata: {
@@ -10248,7 +10236,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 9216,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'rerank']),
   pricing: {
     text: {}
   },
@@ -10276,7 +10264,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "nvidia/nemotron-3-embed-1b-20260716",
     created: 1784203294,
-    uptime: 100
+    uptime: 92.3076923076923
   }
 }, {
   id: 'nvidia/nemotron-3-nano-30b-a3b',
@@ -10296,8 +10284,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 354,
-    tokensPerSecond: 120
+    timeToFirstToken: 552,
+    tokensPerSecond: 100
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Nano 30B A3B is a small language MoE model with highest compute efficiency and accuracy for developers to build specialized agentic AI systems. The model is fully...",
@@ -10321,8 +10309,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 390,
-    tokensPerSecond: 54
+    timeToFirstToken: 430,
+    tokensPerSecond: 97
   },
   metadata: {
     description: "NVIDIA Nemotron™ 3 Nano Omni is a 30B-A3B open multimodal model designed to function as a perception and context sub-agent in enterprise agent systems. It accepts text, image, video, and...",
@@ -10354,8 +10342,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium'],
   metrics: {
-    timeToFirstToken: 342.5,
-    tokensPerSecond: 80
+    timeToFirstToken: 312,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Super is a 120B-parameter open hybrid MoE model, activating just 12B parameters for maximum compute efficiency and accuracy in complex multi-agent applications. Built on a hybrid Mamba-Transformer...",
@@ -10387,8 +10375,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 279,
-    tokensPerSecond: 101
+    timeToFirstToken: 270,
+    tokensPerSecond: 98
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
@@ -10416,8 +10404,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1914,
-    tokensPerSecond: 27
+    timeToFirstToken: 1895.5,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
@@ -10449,8 +10437,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b-20260813",
     huggingFaceId: "nvidia/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b",
-    created: 1786654371,
-    uptime: 100
+    created: 1786654371
   }
 }, {
   id: 'nvidia/nemotron-3.5-content-safety',
@@ -10469,8 +10456,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 109,
-    tokensPerSecond: 212.5
+    timeToFirstToken: 260,
+    tokensPerSecond: 130
   },
   metadata: {
     description: "NVIDIA Nemotron 3.5 Content Safety is a compact 4B-parameter multimodal guardrail model from NVIDIA, fine-tuned from Google Gemma-3-4B. It moderates both inputs to and responses from LLMs and VLMs, accepting...",
@@ -10537,7 +10524,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "nvidia/nemotron-3.5-embed-8b-20261021",
     created: 1792591666,
-    uptime: 0
+    uptime: 90
   }
 }, {
   id: 'nvidia/nemotron-3.5-lightning',
@@ -10557,8 +10544,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 260,
-    tokensPerSecond: 233.5
+    timeToFirstToken: 232,
+    tokensPerSecond: 238
   },
   metadata: {
     description: "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
@@ -10582,8 +10569,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 479,
-    tokensPerSecond: 70
+    timeToFirstToken: 444.5,
+    tokensPerSecond: 82
   },
   metadata: {
     description: "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
@@ -10601,7 +10588,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 29491,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'rerank']),
   pricing: {
     text: {}
   },
@@ -10630,8 +10617,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 237,
-    tokensPerSecond: 377
+    timeToFirstToken: 303.5,
+    tokensPerSecond: 506.5
   },
   metadata: {
     description: "NVIDIA Nemotron 3.5 Super VL is an open multimodal mixture-of-experts model from NVIDIA, with 12B active parameters out of 120B total. It takes text, images, documents, GUI screenshots, and video...",
@@ -10655,8 +10642,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 1825,
-    tokensPerSecond: 65
+    timeToFirstToken: 1754,
+    tokensPerSecond: 72
   },
   metadata: {
     description: "NVIDIA Nemotron 3.5 Super VL is an open multimodal mixture-of-experts model from NVIDIA, with 12B active parameters out of 120B total. It takes text, images, documents, GUI screenshots, and video...",
@@ -10743,16 +10730,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 612,
-    tokensPerSecond: 96
+    timeToFirstToken: 646,
+    tokensPerSecond: 115
   },
   metadata: {
     description: "GPT-3.5 Turbo is OpenAI's fastest model. It can understand and generate natural language or code, and is optimized for chat and traditional completion tasks.\n\nTraining data up to Sep 2021.",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-3.5-turbo-0613",
     created: 1706140800,
-    knowledgeCutoff: "2021-09-30",
-    uptime: 100
+    knowledgeCutoff: "2021-09-30"
   }
 }, {
   id: 'openai/gpt-3.5-turbo-16k',
@@ -10771,8 +10757,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 761.5,
-    tokensPerSecond: 71
+    timeToFirstToken: 495,
+    tokensPerSecond: 86
   },
   metadata: {
     description: "This model offers four times the context length of gpt-3.5-turbo, allowing it to support approximately 20 pages of text in a single request at a higher cost. Training data: up...",
@@ -10798,8 +10784,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 623.5,
-    tokensPerSecond: 106
+    timeToFirstToken: 519,
+    tokensPerSecond: 98.5
   },
   metadata: {
     description: "OpenAI's flagship model, GPT-4 is a large-scale multimodal language model capable of solving difficult problems with greater accuracy than previous models due to its broader general knowledge and advanced reasoning...",
@@ -10855,8 +10841,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1041,
-    tokensPerSecond: 80
+    timeToFirstToken: 1015,
+    tokensPerSecond: 87
   },
   metadata: {
     description: "GPT-4.1 is a flagship large language model optimized for advanced instruction following, real-world software engineering, and long-context reasoning. It supports a 1 million token context window and outperforms GPT-4o and...",
@@ -10888,8 +10874,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 733.5,
-    tokensPerSecond: 91
+    timeToFirstToken: 761,
+    tokensPerSecond: 86
   },
   metadata: {
     description: "GPT-4.1 Mini is a mid-sized model delivering performance competitive with GPT-4o at substantially lower latency and cost. It retains a 1 million token context window and scores 45.1% on hard...",
@@ -10949,8 +10935,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1040,
-    tokensPerSecond: 84
+    timeToFirstToken: 961,
+    tokensPerSecond: 85
   },
   metadata: {
     description: "For tasks that demand low latency, GPT‑4.1 nano is the fastest and cheapest model in the GPT-4.1 series. It delivers exceptional performance at a small size with its 1 million...",
@@ -11035,8 +11021,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 692,
-    tokensPerSecond: 87
+    timeToFirstToken: 693,
+    tokensPerSecond: 85
   },
   metadata: {
     description: "GPT-4o (\"o\" for \"omni\") is OpenAI's latest AI model, supporting both text and image inputs with text outputs. It maintains the intelligence level of [GPT-4 Turbo](/models/openai/gpt-4-turbo) while being twice as...",
@@ -11061,6 +11047,10 @@ export const openrouterModels: ModelInfo[] = [{
       input: 5,
       output: 15
     }
+  },
+  metrics: {
+    timeToFirstToken: 2100.5,
+    tokensPerSecond: 18
   },
   metadata: {
     description: "GPT-4o (\"o\" for \"omni\") is OpenAI's latest AI model, supporting both text and image inputs with text outputs. It maintains the intelligence level of [GPT-4 Turbo](/models/openai/gpt-4-turbo) while being twice as...",
@@ -11087,8 +11077,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1063,
-    tokensPerSecond: 86
+    timeToFirstToken: 836,
+    tokensPerSecond: 96
   },
   metadata: {
     description: "The 2024-08-06 version of GPT-4o offers improved performance in structured outputs, with the ability to supply a JSON schema in the respone_format. Read more [here](https://openai.com/index/introducing-structured-outputs-in-the-api/). GPT-4o (\"o\" for \"omni\") is...",
@@ -11116,8 +11106,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 675,
-    tokensPerSecond: 68
+    timeToFirstToken: 617,
+    tokensPerSecond: 94
   },
   metadata: {
     description: "The 2024-11-20 version of GPT-4o offers a leveled-up creative writing ability with more natural, engaging, and tailored writing to improve relevance & readability. It’s also better at working with uploaded...",
@@ -11146,8 +11136,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 666,
-    tokensPerSecond: 62
+    timeToFirstToken: 638,
+    tokensPerSecond: 82
   },
   metadata: {
     description: "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
@@ -11175,8 +11165,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 721,
-    tokensPerSecond: 58
+    timeToFirstToken: 702,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "GPT-4o mini is OpenAI's newest model after [GPT-4 Omni](/models/openai/gpt-4o), supporting both text and image inputs with text outputs. As their most advanced small model, it is many multiples more affordable...",
@@ -11306,8 +11296,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 3253,
-    tokensPerSecond: 57
+    timeToFirstToken: 4803,
+    tokensPerSecond: 75.5
   },
   metadata: {
     description: "GPT-5 is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and accuracy...",
@@ -11342,7 +11332,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 65209,
+    timeToFirstToken: 22555,
     tokensPerSecond: 0
   },
   metadata: {
@@ -11376,7 +11366,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 8446,
+    timeToFirstToken: 47660,
     tokensPerSecond: 0
   },
   metadata: {
@@ -11409,8 +11399,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1383,
-    tokensPerSecond: 108
+    timeToFirstToken: 1600,
+    tokensPerSecond: 117
   },
   metadata: {
     description: "GPT-5 Mini is a compact version of GPT-5, designed to handle lighter-weight reasoning tasks. It provides the same instruction-following and safety-tuning benefits as GPT-5, but with reduced latency and cost....",
@@ -11472,8 +11462,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1190,
-    tokensPerSecond: 83
+    timeToFirstToken: 1085,
+    tokensPerSecond: 131
   },
   metadata: {
     description: "GPT-5-Nano is the smallest and fastest variant in the GPT-5 system, optimized for developer tools, rapid interactions, and ultra-low latency environments. While limited in reasoning depth compared to its larger...",
@@ -11534,8 +11524,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['high'],
   metrics: {
-    timeToFirstToken: 13506,
-    tokensPerSecond: 10
+    timeToFirstToken: 795,
+    tokensPerSecond: 4
   },
   metadata: {
     description: "GPT-5 Pro is OpenAI’s most advanced model, offering major improvements in reasoning, code quality, and user experience. It is optimized for complex tasks that require step-by-step reasoning, instruction following, and...",
@@ -11624,8 +11614,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1073,
-    tokensPerSecond: 53
+    timeToFirstToken: 1033.5,
+    tokensPerSecond: 56
   },
   metadata: {
     description: "GPT-5.1 is the latest frontier-grade model in the GPT-5 series, offering stronger general-purpose reasoning, improved instruction adherence, and a more natural conversational style compared to GPT-5. It uses adaptive reasoning...",
@@ -11657,8 +11647,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 4850,
-    tokensPerSecond: 81.5
+    timeToFirstToken: 3961,
+    tokensPerSecond: 57.5
   },
   metadata: {
     description: "GPT-5.1-Codex is a specialized version of GPT-5.1 optimized for software engineering and coding workflows. It is designed for both interactive development sessions and long, independent execution of complex engineering tasks....",
@@ -11690,8 +11680,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 4090.5,
-    tokensPerSecond: 49
+    timeToFirstToken: 4975,
+    tokensPerSecond: 58.5
   },
   metadata: {
     description: "GPT-5.1-Codex-Max is OpenAI’s latest agentic coding model, designed for long-running, high-context software development tasks. It is based on an updated version of the 5.1 reasoning stack and trained on agentic...",
@@ -11722,8 +11712,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 2544,
-    tokensPerSecond: 34
+    timeToFirstToken: 1843,
+    tokensPerSecond: 53
   },
   metadata: {
     description: "GPT-5.1-Codex-Mini is a smaller and faster version of GPT-5.1-Codex",
@@ -11783,8 +11773,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1554.5,
-    tokensPerSecond: 113
+    timeToFirstToken: 1424,
+    tokensPerSecond: 53
   },
   metadata: {
     description: "GPT-5.2 is the latest frontier-grade model in the GPT-5 series, offering stronger agentic and long context perfomance compared to GPT-5.1. It uses adaptive reasoning to allocate computation dynamically, responding quickly...",
@@ -11816,8 +11806,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2536,
-    tokensPerSecond: 24
+    timeToFirstToken: 3245,
+    tokensPerSecond: 38
   },
   metadata: {
     description: "GPT-5.2-Codex is an upgraded version of GPT-5.1-Codex optimized for software engineering and coding workflows. It is designed for both interactive development sessions and long, independent execution of complex engineering tasks....",
@@ -11847,8 +11837,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 8585,
-    tokensPerSecond: 7
+    timeToFirstToken: 10128,
+    tokensPerSecond: 8.5
   },
   metadata: {
     description: "GPT-5.2 Pro is OpenAI’s most advanced model, offering major improvements in agentic coding and long context performance over GPT-5 Pro. It is optimized for complex tasks that require step-by-step reasoning,...",
@@ -11934,8 +11924,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2500,
-    tokensPerSecond: 63
+    timeToFirstToken: 2437.5,
+    tokensPerSecond: 67
   },
   metadata: {
     description: "GPT-5.3-Codex is OpenAI’s most advanced agentic coding model, combining the frontier software engineering performance of GPT-5.2-Codex with the broader reasoning and professional knowledge capabilities of GPT-5.2. It achieves state-of-the-art results...",
@@ -11967,8 +11957,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 778,
-    tokensPerSecond: 78.5
+    timeToFirstToken: 651.5,
+    tokensPerSecond: 78
   },
   metadata: {
     description: "GPT-5.4 is OpenAI’s latest frontier model, unifying the Codex and GPT lines into a single system. It features a 1M+ token context window (922K input, 128K output) with support for...",
@@ -12003,7 +11993,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 37454,
+    timeToFirstToken: 83324,
     tokensPerSecond: 0
   },
   metadata: {
@@ -12036,8 +12026,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1006,
-    tokensPerSecond: 105
+    timeToFirstToken: 768,
+    tokensPerSecond: 123
   },
   metadata: {
     description: "GPT-5.4 mini brings the core capabilities of GPT-5.4 to a faster, more efficient model optimized for high-throughput workloads. It supports text and image inputs with strong performance across reasoning, coding,...",
@@ -12099,8 +12089,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1059.5,
-    tokensPerSecond: 74
+    timeToFirstToken: 1028,
+    tokensPerSecond: 114
   },
   metadata: {
     description: "GPT-5.4 nano is the most lightweight and cost-efficient variant of the GPT-5.4 family, optimized for speed-critical and high-volume tasks. It supports text and image inputs and is designed for low-latency...",
@@ -12161,8 +12151,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 8621,
-    tokensPerSecond: 12
+    timeToFirstToken: 10661.5,
+    tokensPerSecond: 7
   },
   metadata: {
     description: "GPT-5.4 Pro is OpenAI's most advanced model, building on GPT-5.4's unified architecture with enhanced reasoning capabilities for complex, high-stakes tasks. It features a 1M+ token context window (922K input, 128K...",
@@ -12248,8 +12238,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2583,
-    tokensPerSecond: 90.5
+    timeToFirstToken: 1163,
+    tokensPerSecond: 136
   },
   metadata: {
     description: "GPT-5.5 is OpenAI’s frontier model designed for complex professional workloads, building on GPT-5.4 with stronger reasoning, higher reliability, and improved token efficiency on hard tasks. It features a 1M+ token...",
@@ -12281,8 +12271,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 5700.5,
-    tokensPerSecond: 21
+    timeToFirstToken: 4790,
+    tokensPerSecond: 15.5
   },
   metadata: {
     description: "GPT-5.5 Pro is OpenAI’s high-capability model optimized for deep reasoning and accuracy on complex, high-stakes workloads. It features a 1M+ token context window (922K input, 128K output) with support for...",
@@ -12372,8 +12362,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 625,
-    tokensPerSecond: 102
+    timeToFirstToken: 700.5,
+    tokensPerSecond: 120
   },
   metadata: {
     description: "GPT-5.6 Luna is a fast, cost-efficient model in OpenAI's GPT-5.6 series. It is suited for high-volume, latency-sensitive tasks such as chat, classification, and lightweight agentic workflows, providing capable reasoning for...",
@@ -12406,8 +12396,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 4181,
-    tokensPerSecond: 176
+    timeToFirstToken: 8809.5,
+    tokensPerSecond: 313
   },
   metadata: {
     description: "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -12496,8 +12486,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1496,
-    tokensPerSecond: 101
+    timeToFirstToken: 1642.5,
+    tokensPerSecond: 138
   },
   metadata: {
     description: "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
@@ -12530,8 +12520,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2737,
-    tokensPerSecond: 113
+    timeToFirstToken: 2163.5,
+    tokensPerSecond: 140
   },
   metadata: {
     description: "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -12622,8 +12612,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 924.5,
-    tokensPerSecond: 101
+    timeToFirstToken: 1162,
+    tokensPerSecond: 110.5
   },
   metadata: {
     description: "GPT-5.6 Terra is a balanced model in OpenAI's GPT-5.6 series, positioned between the flagship Sol tier and the cost-efficient Luna tier. It is suited for everyday coding, reasoning, and agentic...",
@@ -12656,8 +12646,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2205,
-    tokensPerSecond: 90.5
+    timeToFirstToken: 2160,
+    tokensPerSecond: 107
   },
   metadata: {
     description: "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -12746,8 +12736,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2693,
-    tokensPerSecond: 118
+    timeToFirstToken: 1729,
+    tokensPerSecond: 72.5
   },
   metadata: {
     description: "GPT-6 Astra is OpenAI's flagship model for demanding end-to-end work. It is suited for advanced analysis, software engineering, deep research, scientific work, and document creation, with particular strengths in long-horizon...",
@@ -12779,8 +12769,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 3018,
-    tokensPerSecond: 57
+    timeToFirstToken: 3307,
+    tokensPerSecond: 59
   },
   metadata: {
     description: "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -12868,8 +12858,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1114,
-    tokensPerSecond: 93
+    timeToFirstToken: 1101,
+    tokensPerSecond: 98
   },
   metadata: {
     description: "GPT-6 Luna is the fast, cost-efficient model in OpenAI's GPT-6 series, positioned below GPT-6 Sol. It is suited for high-volume and latency-sensitive workloads such as chat, classification, and lightweight agentic...",
@@ -12886,7 +12876,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 945000,
   tier: 'flagship',
   tokenizer: 'GPT',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.09999999999999999
@@ -12896,7 +12886,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 397,
+    timeToFirstToken: 379,
     tokensPerSecond: 0
   },
   metadata: {
@@ -12929,8 +12919,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 5277,
-    tokensPerSecond: 204
+    timeToFirstToken: 6204,
+    tokensPerSecond: 225
   },
   metadata: {
     description: "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -13018,8 +13008,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1199.5,
-    tokensPerSecond: 114
+    timeToFirstToken: 1750,
+    tokensPerSecond: 87
   },
   metadata: {
     description: "GPT-6 Sol is the cost-efficient high-end model in OpenAI's GPT-6 series, positioned below the flagship GPT-6 Astra and above the fast GPT-6 Luna tier. It is suited for demanding professional...",
@@ -13051,15 +13041,14 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 3925.5,
-    tokensPerSecond: 75
+    timeToFirstToken: 3063.5,
+    tokensPerSecond: 70
   },
   metadata: {
     description: "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-6-sol-pro-20260922",
-    created: 1790100781,
-    uptime: 100
+    created: 1790100781
   }
 }, {
   id: 'openai/gpt-6-sol-pro:batch',
@@ -13140,8 +13129,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2027.5,
-    tokensPerSecond: 83
+    timeToFirstToken: 1685,
+    tokensPerSecond: 105.5
   },
   metadata: {
     description: "GPT-6.1 Sol is an upgrade to GPT-6 Sol from OpenAI, positioned below the flagship GPT-6 Astra in the GPT-6 series. It is suited for agentic coding, computer use, document-heavy professional...",
@@ -13173,8 +13162,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 11080,
-    tokensPerSecond: 78
+    timeToFirstToken: 4437,
+    tokensPerSecond: 93
   },
   metadata: {
     description: "GPT-6.1 Sol Pro is the same underlying model as [GPT-6.1 Sol](https://openrouter.ai/openai/gpt-6.1-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -13262,8 +13251,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 1896,
-    tokensPerSecond: 68
+    timeToFirstToken: 1774,
+    tokensPerSecond: 67.5
   },
   metadata: {
     description: "GPT-6.1 Terra is the mid-tier model in OpenAI's GPT-6.1 series, priced below GPT-6.1 Sol. It is suited for everyday agentic, coding, and writing work, is particularly strong at understanding screenshots...",
@@ -13295,8 +13284,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 6443,
-    tokensPerSecond: 88
+    timeToFirstToken: 8903,
+    tokensPerSecond: 252
   },
   metadata: {
     description: "GPT-6.1 Terra Pro is the same underlying model as [GPT-6.1 Terra](https://openrouter.ai/openai/gpt-6.1-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
@@ -13382,8 +13371,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 618,
-    tokensPerSecond: 81
+    timeToFirstToken: 681,
+    tokensPerSecond: 71.5
   },
   metadata: {
     description: "The gpt-audio model is OpenAI's first generally available audio model. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Audio is priced...",
@@ -13414,8 +13403,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 555,
-    tokensPerSecond: 147
+    timeToFirstToken: 639,
+    tokensPerSecond: 100
   },
   metadata: {
     description: "A cost-efficient version of GPT Audio. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Input is priced at $0.60 per million...",
@@ -13446,8 +13435,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1435.5,
-    tokensPerSecond: 89
+    timeToFirstToken: 1190,
+    tokensPerSecond: 82
   },
   metadata: {
     description: "GPT Chat Latest points to OpenAI's stable API alias `chat-latest` that always resolves to the latest Instant chat model used in ChatGPT. As OpenAI rolls out new Instant model updates...",
@@ -13509,15 +13498,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 8580,
+    timeToFirstToken: 11650,
     tokensPerSecond: 0
   },
   metadata: {
     description: "A cost-efficient variant of GPT Image 1 for high-quality image generation at reduced latency and cost via OpenAI's dedicated Images API.",
     defaultParameters: {},
     canonicalSlug: "openai/gpt-image-1-mini",
-    created: 1782264713,
-    uptime: 100
+    created: 1782264713
   }
 }, {
   id: 'openai/gpt-image-2',
@@ -13543,7 +13531,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 24806.5,
+    timeToFirstToken: 22650,
     tokensPerSecond: 0
   },
   metadata: {
@@ -13577,7 +13565,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 13584,
+    timeToFirstToken: 15959,
     tokensPerSecond: 0
   },
   metadata: {
@@ -13611,7 +13599,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 26402,
+    timeToFirstToken: 21969,
     tokensPerSecond: 0
   },
   metadata: {
@@ -13640,8 +13628,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 164,
-    tokensPerSecond: 800
+    timeToFirstToken: 165,
+    tokensPerSecond: 709.5
   },
   metadata: {
     description: "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
@@ -13696,8 +13684,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 269,
-    tokensPerSecond: 454
+    timeToFirstToken: 222,
+    tokensPerSecond: 420
   },
   metadata: {
     description: "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
@@ -13751,8 +13739,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 156,
-    tokensPerSecond: 537
+    timeToFirstToken: 174,
+    tokensPerSecond: 510
   },
   metadata: {
     description: "gpt-oss-safeguard-20b is a safety reasoning model from OpenAI built upon gpt-oss-20b. This open-weight, 21B-parameter Mixture-of-Experts (MoE) model offers lower latency for safety tasks like content classification, LLM filtering, and trust...",
@@ -13804,8 +13792,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2858,
-    tokensPerSecond: 45
+    timeToFirstToken: 2549,
+    tokensPerSecond: 41
   },
   metadata: {
     description: "o3 is a well-rounded and powerful model across domains. It sets a new standard for math, science, coding, and visual reasoning tasks. It also excels at technical writing and instruction-following....",
@@ -13864,8 +13852,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 7093.5,
-    tokensPerSecond: 8
+    timeToFirstToken: 19116,
+    tokensPerSecond: 12
   },
   metadata: {
     description: "The o-series of models are trained with reinforcement learning to think before they answer and perform complex reasoning. The o3-pro model uses more compute to think harder and provide consistently...",
@@ -14255,8 +14243,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 750.5,
-    tokensPerSecond: 167
+    timeToFirstToken: 1029.5,
+    tokensPerSecond: 144
   },
   metadata: {
     description: "Particle-1 is a token-efficient agentic coding model from Particle AI, post-trained on DeepSeek V4.1 Flash. It is suited for software engineering work such as terminal workflows, codebase changes, and data...",
@@ -14282,8 +14270,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1114.5,
-    tokensPerSecond: 11
+    timeToFirstToken: 1498,
+    tokensPerSecond: 9
   },
   metadata: {
     description: "Perceptron Mk1 (Mark One) is Perceptron's highest-quality vision-language model for video and embodied reasoning.** It accepts image and video inputs paired with natural language queries, and produces detailed visual understanding...",
@@ -14310,8 +14298,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 569,
-    tokensPerSecond: 109.5
+    timeToFirstToken: 1196.5,
+    tokensPerSecond: 56
   },
   metadata: {
     description: "Perceptron Mk1.5 is Perceptron's embodied reasoning model for physical agents. It accepts text, image, video, and audio input, and answers with text plus optional structured annotations: points, boxes, polygons, tracks,...",
@@ -14328,14 +14316,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 200,
+    timeToFirstToken: 122,
     tokensPerSecond: 0
   },
   metadata: {
@@ -14353,14 +14341,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.02
     }
   },
   metrics: {
-    timeToFirstToken: 213,
+    timeToFirstToken: 209,
     tokensPerSecond: 0
   },
   metadata: {
@@ -14434,8 +14422,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2476,
-    tokensPerSecond: 92
+    timeToFirstToken: 2548,
+    tokensPerSecond: 65
   },
   metadata: {
     description: "Sonar is lightweight, affordable, fast, and simple to use — now featuring citations and the ability to customize sources. It is designed for companies seeking to integrate lightweight question-and-answer features...",
@@ -14468,8 +14456,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 73178,
-    tokensPerSecond: 18
+    timeToFirstToken: 110240,
+    tokensPerSecond: 6
   },
   metadata: {
     description: "Sonar Deep Research is a research-focused model designed for multi-step retrieval, synthesis, and reasoning across complex topics. It autonomously searches, reads, and evaluates sources, refining its approach as it gathers...",
@@ -14498,8 +14486,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2895,
-    tokensPerSecond: 73.5
+    timeToFirstToken: 4999,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "Note: Sonar Pro pricing includes Perplexity search pricing. See [details here](https://docs.perplexity.ai/guides/pricing#detailed-pricing-breakdown-for-sonar-reasoning-pro-and-sonar-pro) For enterprises seeking more advanced capabilities, the Sonar Pro API can handle in-depth, multi-step queries with added extensibility, like...",
@@ -14529,8 +14517,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 19521,
-    tokensPerSecond: 40
+    timeToFirstToken: 21025,
+    tokensPerSecond: 38
   },
   metadata: {
     description: "Exclusively available on the OpenRouter API, Sonar Pro's new Pro Search mode is Perplexity's most advanced agentic search system. It is designed for deeper reasoning and analysis. Pricing is based...",
@@ -14560,8 +14548,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 15052.5,
-    tokensPerSecond: 26
+    timeToFirstToken: 13320,
+    tokensPerSecond: 24
   },
   metadata: {
     description: "Note: Sonar Pro pricing includes Perplexity search pricing. See [details here](https://docs.perplexity.ai/guides/pricing#detailed-pricing-breakdown-for-sonar-reasoning-pro-and-sonar-pro) Sonar Reasoning Pro is a premier reasoning model powered by DeepSeek R1 with Chain of Thought (CoT). Designed for...",
@@ -14590,8 +14578,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 448,
-    tokensPerSecond: 76
+    timeToFirstToken: 433,
+    tokensPerSecond: 80
   },
   metadata: {
     description: "Laguna S 2.1 is the latest coding agent model from [Poolside](<https://poolside.ai/>). Laguna S 2.1 is a 118B total parameter model with 8B active parameters, scoring 70.2% on Terminal-Bench 2.1 and...",
@@ -14616,8 +14604,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 1851,
-    tokensPerSecond: 36
+    timeToFirstToken: 1594,
+    tokensPerSecond: 40
   },
   metadata: {
     description: "Laguna S 2.1 is the latest coding agent model from [Poolside](<https://poolside.ai/>). Laguna S 2.1 is a 118B total parameter model with 8B active parameters, scoring 70.2% on Terminal-Bench 2.1 and...",
@@ -14646,8 +14634,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 212.5,
-    tokensPerSecond: 158
+    timeToFirstToken: 208,
+    tokensPerSecond: 146.5
   },
   metadata: {
     description: "Laguna XS 2.1 is the latest coding agent model in the 33B-A3B category from [Poolside](https://poolside.ai/) and a step forward from their Laguna XS.2 model (released in April 2026). It combines...",
@@ -14672,8 +14660,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-10-31',
   metrics: {
-    timeToFirstToken: 800.5,
-    tokensPerSecond: 39
+    timeToFirstToken: 688,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "Laguna XS 2.1 is the latest coding agent model in the 33B-A3B category from [Poolside](https://poolside.ai/) and a step forward from their Laguna XS.2 model (released in April 2026). It combines...",
@@ -14702,8 +14690,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'medium', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1255,
-    tokensPerSecond: 20
+    timeToFirstToken: 4084.5,
+    tokensPerSecond: 18
   },
   metadata: {
     description: "Bonsai 2 27B is a 27B-parameter reasoning model from PrismML derived from Qwen3.8-27B. It supports coding, mathematics, tool calling, and image understanding with a 262K-token context window. Ternary compression shrinks...",
@@ -14735,8 +14723,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 430,
-    tokensPerSecond: 62
+    timeToFirstToken: 2893,
+    tokensPerSecond: 72
   },
   metadata: {
     description: "Ternary Bonsai 2 9B is PrismML’s compact, open-weight language model for conversational AI, reasoning, and tool use. Built on Qwen3.5, it uses ternary weights packed into 2 bits for efficient...",
@@ -14766,8 +14754,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 443,
-    tokensPerSecond: 23
+    timeToFirstToken: 834,
+    tokensPerSecond: 19
   },
   metadata: {
     description: "Qwen2.5 72B is the latest series of Qwen large language models. Qwen2.5 brings the following improvements upon Qwen2: - Significantly more knowledge and has greatly improved capabilities in coding and...",
@@ -14820,8 +14808,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1519,
-    tokensPerSecond: 33
+    timeToFirstToken: 943,
+    tokensPerSecond: 30
   },
   metadata: {
     description: "Qwen2.5-Coder is the latest series of Code-Specific Qwen large language models (formerly known as CodeQwen). Qwen2.5-Coder brings the following improvements upon CodeQwen1.5: - Significantly improvements in **code generation**, **code reasoning**...",
@@ -14878,7 +14866,8 @@ export const openrouterModels: ModelInfo[] = [{
     voices: [
       "longanlingxin",
       "longanlufeng"
-    ]
+    ],
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen-image-2.1-pro',
@@ -14898,14 +14887,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 37956,
+    timeToFirstToken: 38759,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Qwen Image 2.1 Pro is an image generation and editing model from Qwen, the higher-quality tier of the Qwen Image 2.1 series. Choose it over Qwen Image 2.1 Turbo when...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen-image-2.1-pro-20261016",
-    created: 1792194075
+    created: 1792194075,
+    uptime: 100
   }
 }, {
   id: 'qwen/qwen-image-2.1-turbo',
@@ -14925,7 +14915,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 20608,
+    timeToFirstToken: 29756,
     tokensPerSecond: 0
   },
   metadata: {
@@ -14952,15 +14942,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 67852,
+    timeToFirstToken: 63638,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Qwen Image 3 is a unified image generation and editing model from Qwen. It supports precise rendering of text and details as small as 10px, along with a richer world...",
     defaultParameters: {},
     canonicalSlug: "qwen/qwen-image-3-20260805",
-    created: 1785894548,
-    uptime: 100
+    created: 1785894548
   }
 }, {
   id: 'qwen/qwen-image-3-pro',
@@ -14980,7 +14969,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 67696,
+    timeToFirstToken: 68332,
     tokensPerSecond: 0
   },
   metadata: {
@@ -15008,8 +14997,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 372,
-    tokensPerSecond: 52
+    timeToFirstToken: 569,
+    tokensPerSecond: 49
   },
   metadata: {
     description: "Qwen-Plus, based on the Qwen2.5 foundation model, is a 131K context model with a balanced performance, speed, and cost combination.",
@@ -15018,7 +15007,7 @@ export const openrouterModels: ModelInfo[] = [{
     huggingFaceId: "",
     created: 1738409840,
     knowledgeCutoff: "2025-03-31",
-    uptime: 94.11764705882352
+    uptime: 88.88888888888889
   }
 }, {
   id: 'qwen/qwen2.5-vl-72b-instruct',
@@ -15038,8 +15027,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 881,
-    tokensPerSecond: 29
+    timeToFirstToken: 669,
+    tokensPerSecond: 26
   },
   metadata: {
     description: "Qwen2.5-VL is proficient in recognizing common objects such as flowers, birds, fish, and insects. It is also highly capable of analyzing texts, charts, icons, graphics, and layouts within images.",
@@ -15067,8 +15056,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 737,
-    tokensPerSecond: 77
+    timeToFirstToken: 456,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Qwen3-14B is a dense 14.8B parameter causal language model from the Qwen3 series, designed for both complex reasoning and efficient dialogue. It supports seamless switching between a \"thinking\" mode for...",
@@ -15096,8 +15085,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 563,
-    tokensPerSecond: 32
+    timeToFirstToken: 495,
+    tokensPerSecond: 34
   },
   metadata: {
     description: "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
@@ -15125,8 +15114,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1470.5,
-    tokensPerSecond: 7.5
+    timeToFirstToken: 1182,
+    tokensPerSecond: 13
   },
   metadata: {
     description: "Qwen3-235B-A22B-Thinking-2507 is a high-performance, open-weight Mixture-of-Experts (MoE) language model optimized for complex reasoning tasks. It activates 22B of its 235B parameters per forward pass and natively supports up to 262,144...",
@@ -15134,7 +15123,8 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "qwen/qwen3-235b-a22b-thinking-2507",
     huggingFaceId: "Qwen/Qwen3-235B-A22B-Thinking-2507",
     created: 1753449557,
-    knowledgeCutoff: "2025-06-30"
+    knowledgeCutoff: "2025-06-30",
+    uptime: 85.71428571428571
   }
 }, {
   id: 'qwen/qwen3-30b-a3b',
@@ -15153,8 +15143,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 482,
-    tokensPerSecond: 92
+    timeToFirstToken: 535,
+    tokensPerSecond: 99
   },
   metadata: {
     description: "Qwen3, the latest generation in the Qwen large language model series, features both dense and mixture-of-experts (MoE) architectures to excel in reasoning, multilingual support, and advanced agent tasks. Its unique...",
@@ -15183,8 +15173,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 242,
-    tokensPerSecond: 168
+    timeToFirstToken: 222.5,
+    tokensPerSecond: 172
   },
   metadata: {
     description: "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
@@ -15212,7 +15202,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 321,
+    timeToFirstToken: 519.5,
     tokensPerSecond: 37
   },
   metadata: {
@@ -15286,8 +15276,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 818,
-    tokensPerSecond: 59
+    timeToFirstToken: 1342,
+    tokensPerSecond: 36
   },
   metadata: {
     description: "Qwen3-Coder-480B-A35B-Instruct is a Mixture-of-Experts (MoE) code generation model developed by the Qwen team. It is optimized for agentic coding tasks such as function calling, tool use, and long-context reasoning over...",
@@ -15296,7 +15286,7 @@ export const openrouterModels: ModelInfo[] = [{
     huggingFaceId: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
     created: 1753230546,
     knowledgeCutoff: "2025-06-30",
-    uptime: 95.23809523809523
+    uptime: 96
   }
 }, {
   id: 'qwen/qwen3-coder-30b-a3b-instruct',
@@ -15315,8 +15305,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 651,
-    tokensPerSecond: 158.5
+    timeToFirstToken: 658,
+    tokensPerSecond: 143.5
   },
   metadata: {
     description: "Qwen3-Coder-30B-A3B-Instruct is a 30.5B parameter Mixture-of-Experts (MoE) model with 128 experts (8 active per forward pass), designed for advanced code generation, repository-scale understanding, and agentic tool use. Built on the...",
@@ -15346,8 +15336,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 812,
-    tokensPerSecond: 76
+    timeToFirstToken: 721.5,
+    tokensPerSecond: 47
   },
   metadata: {
     description: "Qwen3 Coder Flash is Alibaba's fast and cost efficient version of their proprietary Qwen3 Coder Plus. It is a powerful coding agent model specializing in autonomous programming via tool calling...",
@@ -15376,8 +15366,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 732,
-    tokensPerSecond: 57
+    timeToFirstToken: 781.5,
+    tokensPerSecond: 61
   },
   metadata: {
     description: "Qwen3-Coder-Next is an open-weight causal language model optimized for coding agents and local development workflows. It uses a sparse MoE design with 80B total parameters and only 3B activated per...",
@@ -15451,8 +15441,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 485,
-    tokensPerSecond: 132
+    timeToFirstToken: 335,
+    tokensPerSecond: 131
   },
   metadata: {
     description: "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
@@ -15471,7 +15461,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 36864,
   tier: 'flagship',
   tokenizer: 'Qwen3',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -15481,7 +15471,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "qwen/qwen3-reranker-8b",
     huggingFaceId: "Qwen/Qwen3-Reranker-8B",
     created: 1786597684,
-    uptime: 86.66666666666667
+    uptime: 73.33333333333333
   }
 }, {
   id: 'qwen/qwen3-vl-235b-a22b-instruct',
@@ -15501,8 +15491,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 850,
-    tokensPerSecond: 46
+    timeToFirstToken: 1039,
+    tokensPerSecond: 38
   },
   metadata: {
     description: "Qwen3-VL-235B-A22B Instruct is an open-weight multimodal model that unifies strong text generation with visual understanding across images and video. The Instruct model targets general vision-language use (VQA, document parsing, chart/table...",
@@ -15533,8 +15523,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 713,
-    tokensPerSecond: 33
+    timeToFirstToken: 764,
+    tokensPerSecond: 26
   },
   metadata: {
     description: "Qwen3-VL-30B-A3B-Instruct is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Instruct variant optimizes instruction-following for general multimodal tasks. It excels in perception...",
@@ -15567,8 +15557,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 965,
-    tokensPerSecond: 60
+    timeToFirstToken: 969,
+    tokensPerSecond: 51
   },
   metadata: {
     description: "Qwen3-VL-30B-A3B-Thinking is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Thinking variant enhances reasoning in STEM, math, and complex tasks. It excels...",
@@ -15601,8 +15591,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 893,
-    tokensPerSecond: 37
+    timeToFirstToken: 1175.5,
+    tokensPerSecond: 22
   },
   metadata: {
     description: "Qwen3-VL-8B-Instruct is a multimodal vision-language model from the Qwen3-VL series, built for high-fidelity understanding and reasoning across text, images, and video. It features improved multimodal fusion with Interleaved-MRoPE for long-horizon...",
@@ -15613,7 +15603,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "qwen/qwen3-vl-8b-instruct",
     huggingFaceId: "Qwen/Qwen3-VL-8B-Instruct",
     created: 1760463308,
-    uptime: 100
+    uptime: 95.83333333333334
   }
 }, {
   id: 'qwen/qwen3.5-122b-a10b',
@@ -15632,8 +15622,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 634.5,
-    tokensPerSecond: 110
+    timeToFirstToken: 611,
+    tokensPerSecond: 109
   },
   metadata: {
     description: "The Qwen3.5 122B-A10B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. In terms of...",
@@ -15664,8 +15654,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 728,
-    tokensPerSecond: 75
+    timeToFirstToken: 1075,
+    tokensPerSecond: 69
   },
   metadata: {
     description: "The Qwen3.5 27B native vision-language Dense model incorporates a linear attention mechanism, delivering fast response times while balancing inference speed and performance. Its overall capabilities are comparable to those of...",
@@ -15697,8 +15687,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 542,
-    tokensPerSecond: 162
+    timeToFirstToken: 465,
+    tokensPerSecond: 172
   },
   metadata: {
     description: "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
@@ -15730,8 +15720,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 371,
-    tokensPerSecond: 108.5
+    timeToFirstToken: 898.5,
+    tokensPerSecond: 153.5
   },
   metadata: {
     description: "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
@@ -15762,8 +15752,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 180,
-    tokensPerSecond: 74
+    timeToFirstToken: 285,
+    tokensPerSecond: 69
   },
   metadata: {
     description: "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
@@ -15790,8 +15780,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 469,
-    tokensPerSecond: 88
+    timeToFirstToken: 459,
+    tokensPerSecond: 103
   },
   metadata: {
     description: "The Qwen3.5 native vision-language Flash models are built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. Compared to the...",
@@ -15817,8 +15807,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1552,
-    tokensPerSecond: 60
+    timeToFirstToken: 1041,
+    tokensPerSecond: 61
   },
   metadata: {
     description: "The Qwen3.5 native vision-language series Plus models are built on a hybrid architecture that integrates linear attention mechanisms with sparse mixture-of-experts models, achieving higher inference efficiency. In a variety of...",
@@ -15846,8 +15836,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1017,
-    tokensPerSecond: 79
+    timeToFirstToken: 1419,
+    tokensPerSecond: 66
   },
   metadata: {
     description: "Qwen3.5 Plus (April 2026) is a large-scale multimodal language model from Alibaba. It accepts text, image, and video input and produces text output, with a 1M token context window. This...",
@@ -15873,8 +15863,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 441,
-    tokensPerSecond: 71
+    timeToFirstToken: 413,
+    tokensPerSecond: 64
   },
   metadata: {
     description: "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
@@ -15902,8 +15892,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 528,
-    tokensPerSecond: 104
+    timeToFirstToken: 473,
+    tokensPerSecond: 122
   },
   metadata: {
     description: "Qwen3.6-35B-A3B is an open-weight multimodal model from Alibaba Cloud with 35 billion total parameters and 3 billion active parameters per token. It uses a hybrid sparse mixture-of-experts architecture combining Gated...",
@@ -15935,8 +15925,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 676,
-    tokensPerSecond: 64
+    timeToFirstToken: 643,
+    tokensPerSecond: 62
   },
   metadata: {
     description: "Qwen3.6 Flash is a fast, efficient language model from Alibaba's Qwen 3.6 series. It supports text, image, and video input with a 1M token context window. Tiered pricing kicks in...",
@@ -15963,8 +15953,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 889,
-    tokensPerSecond: 41
+    timeToFirstToken: 900,
+    tokensPerSecond: 50
   },
   metadata: {
     description: "Qwen 3.6 Plus builds on a hybrid architecture that combines efficient linear attention with sparse mixture-of-experts routing, enabling strong scalability and high-performance inference. Compared to the 3.5 series, it delivers...",
@@ -15993,7 +15983,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 792.5,
+    timeToFirstToken: 667.5,
     tokensPerSecond: 71
   },
   metadata: {
@@ -16022,8 +16012,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1197,
-    tokensPerSecond: 84
+    timeToFirstToken: 1124,
+    tokensPerSecond: 68
   },
   metadata: {
     description: "Qwen3.7-Max is the flagship model in Alibaba's Qwen3.7 series. It supports text input and output and is designed for agent-centric workloads, with particular strengths in coding, office and productivity tasks,...",
@@ -16051,7 +16041,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1578.5,
+    timeToFirstToken: 1412,
     tokensPerSecond: 53
   },
   metadata: {
@@ -16102,8 +16092,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'xhigh'],
   metrics: {
-    timeToFirstToken: 922,
-    tokensPerSecond: 80
+    timeToFirstToken: 731.5,
+    tokensPerSecond: 73.5
   },
   metadata: {
     description: "Qwen3.8 2.4T A95B is an open-weight sparse mixture-of-experts model from Qwen and the open-weight variant of [Qwen3.8 Max](/qwen/qwen3.8-max), with 95 billion active parameters out of 2.4 trillion total. It is...",
@@ -16136,8 +16126,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'xhigh'],
   metrics: {
-    timeToFirstToken: 319,
-    tokensPerSecond: 632
+    timeToFirstToken: 251,
+    tokensPerSecond: 546
   },
   metadata: {
     description: "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
@@ -16169,8 +16159,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1555,
-    tokensPerSecond: 55
+    timeToFirstToken: 1032.5,
+    tokensPerSecond: 51
   },
   metadata: {
     description: "Qwen3.8 Flash is a multimodal reasoning model from Alibaba. It is suited for coding assistance, agentic workflows, visual understanding, document and codebase analysis, desktop interaction, chart analysis, and long-video analysis.",
@@ -16199,8 +16189,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 2618.5,
-    tokensPerSecond: 33
+    timeToFirstToken: 2669,
+    tokensPerSecond: 36
   },
   metadata: {
     description: "Qwen3.8 Max 0902 is an updated snapshot of Qwen3.8 Max from Alibaba's Qwen team. It is a 2.4-trillion-parameter mixture-of-experts model that accepts text, image, and video input and returns text,...",
@@ -16228,8 +16218,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['minimal', 'low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1837,
-    tokensPerSecond: 80
+    timeToFirstToken: 1760,
+    tokensPerSecond: 72
   },
   metadata: {
     description: "Qwen3.8 Max Prime is a higher-throughput variant of Qwen3.8 Max from Alibaba's Qwen team, served as a separate SKU at a higher price point. It accepts text, image, and video...",
@@ -16256,8 +16246,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1382,
-    tokensPerSecond: 72
+    timeToFirstToken: 1644,
+    tokensPerSecond: 71
   },
   metadata: {
     description: "Qwen3.8 Omni Flash is an omni-modal reasoning model from Alibaba, the first Qwen model built around agentic capabilities with native audio-video understanding. It is suited for audio-video analysis and summarization,...",
@@ -16283,7 +16273,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 7480.5,
+    timeToFirstToken: 5992,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16308,6 +16298,10 @@ export const openrouterModels: ModelInfo[] = [{
       tokens: 9.580838323353289
     }
   },
+  metrics: {
+    timeToFirstToken: 9773,
+    tokensPerSecond: 0
+  },
   metadata: {
     description: "Recraft V4 is an image generation model from Recraft. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios. It delivers stronger compositional judgment,...",
     defaultParameters: {},
@@ -16331,7 +16325,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 12637.5,
+    timeToFirstToken: 13929,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16357,7 +16351,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 14611,
+    timeToFirstToken: 20131,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16382,10 +16376,6 @@ export const openrouterModels: ModelInfo[] = [{
       tokens: 8.38323353293413
     }
   },
-  metrics: {
-    timeToFirstToken: 28001.5,
-    tokensPerSecond: 0
-  },
   metadata: {
     description: "Recraft V4 Styles is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the reference's rendering...",
     defaultParameters: {},
@@ -16407,10 +16397,6 @@ export const openrouterModels: ModelInfo[] = [{
       input: 23.9520958083832,
       tokens: 23.9520958083832
     }
-  },
-  metrics: {
-    timeToFirstToken: 24699.5,
-    tokensPerSecond: 0
   },
   metadata: {
     description: "Recraft V4 Styles Pro is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the reference's...",
@@ -16456,6 +16442,10 @@ export const openrouterModels: ModelInfo[] = [{
       tokens: 11.9760479041916
     }
   },
+  metrics: {
+    timeToFirstToken: 17774,
+    tokensPerSecond: 0
+  },
   metadata: {
     description: "Recraft V4 Styles Vector is a style-consistent image generation model from Recraft. Every request requires at least one style reference image and generates a new image that reproduces the reference's...",
     defaultParameters: {},
@@ -16477,10 +16467,6 @@ export const openrouterModels: ModelInfo[] = [{
       input: 19.1616766467066,
       tokens: 19.1616766467066
     }
-  },
-  metrics: {
-    timeToFirstToken: 12417,
-    tokensPerSecond: 0
   },
   metadata: {
     description: "Recraft V4 Vector is the vector (SVG) variant of Recraft V4. It supports text and image inputs and produces vector image output across multiple aspect ratios. Compared to the raster...",
@@ -16505,15 +16491,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 6519,
+    timeToFirstToken: 5817,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Recraft V4.1 is an image generation model from Recraft tuned for high aesthetics. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios, with...",
     defaultParameters: {},
     canonicalSlug: "recraft/recraft-v4.1-20260514",
-    created: 1778707381,
-    uptime: 100
+    created: 1778707381
   }
 }, {
   id: 'recraft/recraft-v4.1-flash',
@@ -16532,7 +16517,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1938,
+    timeToFirstToken: 1929,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16557,10 +16542,6 @@ export const openrouterModels: ModelInfo[] = [{
       input: 50.2994011976048,
       tokens: 50.2994011976048
     }
-  },
-  metrics: {
-    timeToFirstToken: 11348,
-    tokensPerSecond: 0
   },
   metadata: {
     description: "Recraft V4.1 Pro is an image generation model from Recraft tuned for high aesthetics. It supports text and image inputs with image output at ~2K resolution across multiple aspect ratios...",
@@ -16605,10 +16586,6 @@ export const openrouterModels: ModelInfo[] = [{
       input: 8.38323353293413,
       tokens: 8.38323353293413
     }
-  },
-  metrics: {
-    timeToFirstToken: 12489.5,
-    tokensPerSecond: 0
   },
   metadata: {
     description: "Recraft V4.1 Utility is a general-purpose image generation model from Recraft. It supports text and image inputs with image output at ~1K resolution across multiple aspect ratios, with typical generation...",
@@ -16655,7 +16632,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 12921,
+    timeToFirstToken: 13962,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16704,8 +16681,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 145.5,
-    tokensPerSecond: 484
+    timeToFirstToken: 164,
+    tokensPerSecond: 290
   },
   metadata: {
     description: "Beam 1.0 is Reflection's open-weight reasoning model for coding and long-horizon agentic workflows. It uses a sparse mixture-of-experts architecture with 501B total and 23B active parameters per token, and a...",
@@ -16733,15 +16710,16 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 384,
-    tokensPerSecond: 120
+    timeToFirstToken: 496,
+    tokensPerSecond: 123.5
   },
   metadata: {
     description: "Reka Edge is an extremely efficient 7B multimodal vision-language model that accepts image/video+text inputs and generates text outputs. This model is optimized specifically to deliver industry-leading performance in image understanding,...",
     defaultParameters: {},
     canonicalSlug: "rekaai/reka-edge-2603",
     huggingFaceId: "RekaAI/reka-edge-2603",
-    created: 1774026965
+    created: 1774026965,
+    uptime: 100
   }
 }, {
   id: 'rekaai/reka-flash-3',
@@ -16760,8 +16738,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 542.5,
-    tokensPerSecond: 92
+    timeToFirstToken: 1382,
+    tokensPerSecond: 83.5
   },
   metadata: {
     description: "Reka Flash 3 is a general-purpose, instruction-tuned large language model with 21 billion parameters, developed by Reka. It excels at general chat, coding tasks, instruction-following, and function calling. Featuring a...",
@@ -16787,17 +16765,12 @@ export const openrouterModels: ModelInfo[] = [{
       output: 1.25
     }
   },
-  metrics: {
-    timeToFirstToken: 626,
-    tokensPerSecond: 536
-  },
   metadata: {
     description: "Relace Apply 3 is a specialized code-patching LLM that merges AI-suggested edits straight into your source files. It can apply updates from GPT-4o, Claude, and others into your files at...",
     defaultParameters: {},
     canonicalSlug: "relace/relace-apply-3",
     huggingFaceId: "",
-    created: 1758891572,
-    uptime: 100
+    created: 1758891572
   }
 }, {
   id: 'relace/relace-search',
@@ -16829,14 +16802,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.02
     }
   },
   metrics: {
-    timeToFirstToken: 407,
+    timeToFirstToken: 419,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16854,12 +16827,12 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {}
   },
   metrics: {
-    timeToFirstToken: 469.5,
+    timeToFirstToken: 545,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16877,20 +16850,19 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 0,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {}
   },
   metrics: {
-    timeToFirstToken: 409,
+    timeToFirstToken: 551,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Span-01 Lite is the free, lighter tier of Span-01, a behavior scoring model from Respan. It returns, for each plain-language behavior you define, the probability that the behavior is present...",
     defaultParameters: {},
     canonicalSlug: "respan/span-01-lite-20260925",
-    created: 1790387542,
-    uptime: 100
+    created: 1790387542
   }
 }, {
   id: 'respan/span-02',
@@ -16900,14 +16872,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 117964,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.01
     }
   },
   metrics: {
-    timeToFirstToken: 252,
+    timeToFirstToken: 448.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16915,7 +16887,7 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "respan/span-02-20261015",
     created: 1792108973,
-    uptime: 93.33333333333333
+    uptime: 100
   }
 }, {
   id: 'runway/aleph-2',
@@ -16928,10 +16900,6 @@ export const openrouterModels: ModelInfo[] = [{
   capabilities: new Set(['vision', 'videoInput']),
   pricing: {
     text: {}
-  },
-  metrics: {
-    timeToFirstToken: 259575.5,
-    tokensPerSecond: 0
   },
   metadata: {
     description: "Runway Aleph 2.0 is an in-context video editing model from Runway. It applies text instructions and keyframe-guided edits across existing footage while preserving details that are not meant to change....",
@@ -16952,7 +16920,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 202112,
+    timeToFirstToken: 281481,
     tokensPerSecond: 0
   },
   metadata: {
@@ -16983,8 +16951,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 4263,
-    tokensPerSecond: 33
+    timeToFirstToken: 3602,
+    tokensPerSecond: 102
   },
   metadata: {
     description: "Fugu Max is the cost-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to route...",
@@ -17014,8 +16982,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 7171,
-    tokensPerSecond: 9
+    timeToFirstToken: 7926,
+    tokensPerSecond: 18
   },
   metadata: {
     description: "Fugu Ultra is the higher-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to route...",
@@ -17044,6 +17012,10 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   reasoningEfforts: ['high', 'xhigh', 'max'],
+  metrics: {
+    timeToFirstToken: 4702,
+    tokensPerSecond: 32.5
+  },
   metadata: {
     description: "Fugu Ultra v2 is the higher-performance model in Sakana AI's Fugu family. Rather than a single monolithic model, Fugu is a learned multi-agent orchestration system: a language model trained to...",
     defaultParameters: {},
@@ -17068,8 +17040,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 148,
-    tokensPerSecond: 123
+    timeToFirstToken: 149,
+    tokensPerSecond: 93
   },
   metadata: {
     description: "Lunaris 8B is a versatile generalist and roleplaying model based on Llama 3. It's a strategic merge of multiple models, designed to balance creativity with improved logic and general knowledge....",
@@ -17097,7 +17069,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 262,
+    timeToFirstToken: 357,
     tokensPerSecond: 40
   },
   metadata: {
@@ -17117,14 +17089,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 900000,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision', 'files']),
+  capabilities: new Set(['vision', 'files', 'decision']),
   pricing: {
     text: {
       input: 0.04
     }
   },
   metrics: {
-    timeToFirstToken: 554.5,
+    timeToFirstToken: 513,
     tokensPerSecond: 0
   },
   metadata: {
@@ -17150,8 +17122,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1135.5,
-    tokensPerSecond: 108
+    timeToFirstToken: 752,
+    tokensPerSecond: 141
   },
   metadata: {
     description: "Extract is a description-driven entity extraction model from ScaleDown. Instead of a fixed set of entity types, callers describe the fields they want in plain English through `provider.options.scaledown.entities`, and the...",
@@ -17176,8 +17148,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 468,
-    tokensPerSecond: 138
+    timeToFirstToken: 520,
+    tokensPerSecond: 129
   },
   metadata: {
     description: "Summarize is an abstractive summarization model from ScaleDown. It condenses long text and documents into a fluent, faithful rewrite rather than lifting sentences from the source, and is suited for...",
@@ -17291,7 +17263,8 @@ export const openrouterModels: ModelInfo[] = [{
     defaultParameters: {},
     canonicalSlug: "sentence-transformers/paraphrase-minilm-l6-v2-20251117",
     huggingFaceId: "sentence-transformers/paraphrase-MiniLM-L6-v2",
-    created: 1763432454
+    created: 1763432454,
+    uptime: 100
   }
 }, {
   id: 'sesame/csm-1b',
@@ -17339,7 +17312,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 183870,
+    timeToFirstToken: 84523,
     tokensPerSecond: 0
   },
   metadata: {
@@ -17391,7 +17364,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 55510.5,
+    timeToFirstToken: 27555,
     tokensPerSecond: 0
   },
   metadata: {
@@ -17419,7 +17392,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 118118.5,
+    timeToFirstToken: 133269,
     tokensPerSecond: 0
   },
   metadata: {
@@ -17447,7 +17420,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 127787,
+    timeToFirstToken: 127365,
     tokensPerSecond: 0
   },
   metadata: {
@@ -17473,8 +17446,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1087,
-    tokensPerSecond: 48
+    timeToFirstToken: 1089.5,
+    tokensPerSecond: 76
   },
   metadata: {
     description: "Step 3.5 Flash is StepFun's most capable open-source foundation model. Built on a sparse Mixture of Experts (MoE) architecture, it selectively activates only 11B of its 196B parameters per token....",
@@ -17482,7 +17455,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "stepfun/step-3.5-flash",
     huggingFaceId: "stepfun-ai/Step-3.5-Flash",
     created: 1769728337,
-    uptime: 95.23809523809523
+    uptime: 100
   }
 }, {
   id: 'stepfun/step-3.7-flash',
@@ -17503,8 +17476,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 4920,
-    tokensPerSecond: 34
+    timeToFirstToken: 4829,
+    tokensPerSecond: 39
   },
   metadata: {
     description: "Step 3.7 Flash is StepFun's latest high-efficiency multimodal Mixture-of-Experts model. It pairs a 196B-parameter language backbone with a vision encoder for native image and video understanding, activating roughly 11B parameters...",
@@ -17533,8 +17506,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1105.5,
-    tokensPerSecond: 159
+    timeToFirstToken: 962,
+    tokensPerSecond: 150
   },
   metadata: {
     description: "Step 5 Preview is StepFun's flagship model for agentic work, built on a sparse Mixture-of-Experts architecture (27B active / 600B total parameters). It performs strongly in software engineering and professional...",
@@ -17547,7 +17520,7 @@ export const openrouterModels: ModelInfo[] = [{
 }, {
   id: 'tbc/mischief-1',
   provider: 'openrouter',
-  name: 'TBC: Mischief 1',
+  name: 'TBC: mischief 1',
   contextWindow: 0,
   maxOutputTokens: 0,
   tier: 'flagship',
@@ -17558,14 +17531,15 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 13846,
+    timeToFirstToken: 13825,
     tokensPerSecond: 0
   },
   metadata: {
-    description: "TBC Mischief 1 is the world's first neuron-derived video model from The Biological Computing Co. It supports image to video and is a fast and affordable way to bring ideas...",
+    description: "TBC mischief 1 is the world's first neuron-derived video model from The Biological Computing Co. It supports image to video and is a fast and affordable way to bring ideas...",
     defaultParameters: {},
     canonicalSlug: "tbc/mischief-1-20261023",
-    created: 1793319378
+    created: 1793319378,
+    uptime: 100
   }
 }, {
   id: 'tencent/hunyuan-a13b-instruct',
@@ -17584,8 +17558,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2316,
-    tokensPerSecond: 29
+    timeToFirstToken: 889,
+    tokensPerSecond: 33
   },
   metadata: {
     description: "Hunyuan-A13B is a 13B active parameter Mixture-of-Experts (MoE) language model developed by Tencent, with a total parameter count of 80B and support for reasoning via Chain-of-Thought. It offers competitive benchmark...",
@@ -17612,7 +17586,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 18729,
+    timeToFirstToken: 19288,
     tokensPerSecond: 0
   },
   metadata: {
@@ -17639,8 +17613,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 444,
-    tokensPerSecond: 90
+    timeToFirstToken: 640.5,
+    tokensPerSecond: 86.5
   },
   metadata: {
     description: "Hy-MT2-1.8B is a compact 1.8B-parameter translation model from Tencent. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and style-guided...",
@@ -17667,8 +17641,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 533,
-    tokensPerSecond: 110
+    timeToFirstToken: 662,
+    tokensPerSecond: 106
   },
   metadata: {
     description: "Hy-MT2-30B-A3B is Tencent's flagship translation model in the Hy-MT2 family. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and...",
@@ -17693,10 +17667,6 @@ export const openrouterModels: ModelInfo[] = [{
       input: 0.074,
       output: 0.295
     }
-  },
-  metrics: {
-    timeToFirstToken: 656,
-    tokensPerSecond: 56.5
   },
   metadata: {
     description: "Hy-MT2-7B is a 7B-parameter translation model from Tencent. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and style-guided translation.",
@@ -17725,8 +17695,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high'],
   metrics: {
-    timeToFirstToken: 1518.5,
-    tokensPerSecond: 92
+    timeToFirstToken: 1443.5,
+    tokensPerSecond: 108
   },
   metadata: {
     description: "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
@@ -17758,8 +17728,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high'],
   metrics: {
-    timeToFirstToken: 2272,
-    tokensPerSecond: 101
+    timeToFirstToken: 2238,
+    tokensPerSecond: 109
   },
   metadata: {
     description: "Hy3 preview is a high-efficiency Mixture-of-Experts model from Tencent designed for agentic workflows and production use. It supports configurable reasoning levels across disabled, low, and high modes, allowing it to...",
@@ -17770,7 +17740,7 @@ export const openrouterModels: ModelInfo[] = [{
     canonicalSlug: "tencent/hy3-preview-20260421",
     huggingFaceId: "tencent/Hy3-preview",
     created: 1776878150,
-    uptime: 93.33333333333333
+    uptime: 100
   }
 }, {
   id: 'tencent/hy4-preview',
@@ -17791,8 +17761,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'high'],
   metrics: {
-    timeToFirstToken: 1257,
-    tokensPerSecond: 74
+    timeToFirstToken: 341,
+    tokensPerSecond: 120.5
   },
   metadata: {
     description: "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
@@ -17820,8 +17790,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 665.5,
-    tokensPerSecond: 22
+    timeToFirstToken: 935,
+    tokensPerSecond: 18
   },
   metadata: {
     description: "Uncensored and creative writing model based on Mistral Small 3.2 24B with good recall, prompt adherence, and intelligence.",
@@ -17850,8 +17820,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 641,
-    tokensPerSecond: 68
+    timeToFirstToken: 593,
+    tokensPerSecond: 69
   },
   metadata: {
     description: "Skyfall 36B v2 is an enhanced iteration of Mistral Small 2501, specifically fine-tuned for improved creativity, nuanced writing, role-playing, and coherent storytelling.",
@@ -17879,8 +17849,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 413,
-    tokensPerSecond: 38
+    timeToFirstToken: 551,
+    tokensPerSecond: 35
   },
   metadata: {
     description: "UnslopNemo v4.1 is the latest addition from the creator of Rocinante, designed for adventure writing and role-play scenarios.",
@@ -17952,7 +17922,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 325,
+    timeToFirstToken: 184.5,
     tokensPerSecond: 80
   },
   metadata: {
@@ -17982,8 +17952,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 910,
-    tokensPerSecond: 95
+    timeToFirstToken: 354.5,
+    tokensPerSecond: 185
   },
   metadata: {
     description: "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
@@ -18008,8 +17978,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1560,
-    tokensPerSecond: 86
+    timeToFirstToken: 1356,
+    tokensPerSecond: 93
   },
   metadata: {
     description: "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
@@ -18034,8 +18004,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 2772,
-    tokensPerSecond: 30
+    timeToFirstToken: 2412,
+    tokensPerSecond: 27
   },
   metadata: {
     description: "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
@@ -18053,14 +18023,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 8,
   tier: 'experimental',
   tokenizer: 'Qwen3',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.041999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 215,
+    timeToFirstToken: 338.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18079,14 +18049,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.041999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 90,
+    timeToFirstToken: 80,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18104,14 +18074,14 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 235929,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['vision', 'decision']),
   pricing: {
     text: {
       input: 0.041999999999999996
     }
   },
   metrics: {
-    timeToFirstToken: 106,
+    timeToFirstToken: 81,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18158,8 +18128,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2734,
-    tokensPerSecond: 38
+    timeToFirstToken: 3102,
+    tokensPerSecond: 54
   },
   metadata: {
     description: "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks.",
@@ -18186,15 +18156,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 2384,
-    tokensPerSecond: 28
+    timeToFirstToken: 1839,
+    tokensPerSecond: 63
   },
   metadata: {
     description: "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks.",
     defaultParameters: {},
     canonicalSlug: "unbiased/pareto-26.9-20260917",
-    created: 1791930537,
-    uptime: 100
+    created: 1791930537
   }
 }, {
   id: 'undi95/remm-slerp-l2-13b',
@@ -18213,8 +18182,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 937,
-    tokensPerSecond: 53
+    timeToFirstToken: 1131.5,
+    tokensPerSecond: 47
   },
   metadata: {
     description: "A recreation trial of the original MythoMax-L2-B13 but with updated models. #merge",
@@ -18233,7 +18202,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 471859,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.049999999999999996,
@@ -18241,7 +18210,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 806,
+    timeToFirstToken: 1060,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18259,7 +18228,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 471859,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['decision']),
   pricing: {
     text: {
       input: 0.049999999999999996,
@@ -18267,14 +18236,15 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1296.5,
+    timeToFirstToken: 912,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Solar Decide Flash is Upstage's low-latency structured decision model, a faster variant of [Solar Decide](/upstage/solar-decide) built on Solar Mini 4 and served through the System One (`/v1/systemone`) API. Instead of...",
     defaultParameters: {},
     canonicalSlug: "upstage/solar-decide-flash-20261008",
-    created: 1791419983
+    created: 1791419983,
+    uptime: 100
   }
 }, {
   id: 'upstage/solar-mini4',
@@ -18295,8 +18265,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 2257,
-    tokensPerSecond: 70
+    timeToFirstToken: 2225,
+    tokensPerSecond: 75
   },
   metadata: {
     description: "Solar Mini 4 is Upstage's compact, cost-efficient language model, a 35B-parameter mixture-of-experts with 3B active parameters and a 524K context window. It is built for agentic use cases where response...",
@@ -18324,8 +18294,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   metrics: {
-    timeToFirstToken: 681,
-    tokensPerSecond: 79.5
+    timeToFirstToken: 655,
+    tokensPerSecond: 86
   },
   metadata: {
     description: "Solar Pro 4 is Upstage's cost-efficient large language model, featuring a 524K context window. It is built for long-horizon tasks and agentic workflows, with strong capabilities in office productivity, document-intensive...",
@@ -18342,7 +18312,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 28800,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -18361,7 +18331,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 28800,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -18380,7 +18350,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 28800,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -18399,7 +18369,7 @@ export const openrouterModels: ModelInfo[] = [{
   maxOutputTokens: 28800,
   tier: 'flagship',
   tokenizer: 'Other',
-  capabilities: new Set([]),
+  capabilities: new Set(['rerank']),
   pricing: {
     text: {}
   },
@@ -18532,8 +18502,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 454,
-    tokensPerSecond: 74
+    timeToFirstToken: 345,
+    tokensPerSecond: 57.5
   },
   metadata: {
     description: "Palmyra X5 is Writer's most advanced model, purpose-built for building and scaling AI agents across the enterprise. It delivers industry-leading speed and efficiency on context windows up to 1 million...",
@@ -18563,8 +18533,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 563,
-    tokensPerSecond: 96.5
+    timeToFirstToken: 590,
+    tokensPerSecond: 117
   },
   metadata: {
     description: "Grok 4.20 is a reasoning model from SpaceXAI with industry-leading speed and agentic tool calling capabilities. It combines the lowest hallucination rate on the market with strict prompt adherance, delivering...",
@@ -18597,8 +18567,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 6477,
-    tokensPerSecond: 295.5
+    timeToFirstToken: 3320.5,
+    tokensPerSecond: 383.5
   },
   metadata: {
     description: "Grok 4.20 Multi-Agent is a variant of SpaceXAI’s Grok 4.20 designed for collaborative, agent-based workflows. Multiple agents operate in parallel to conduct deep research, coordinate tool use, and synthesize information...",
@@ -18630,8 +18600,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1204,
-    tokensPerSecond: 83
+    timeToFirstToken: 745,
+    tokensPerSecond: 70
   },
   metadata: {
     description: "Grok 4.3 is a reasoning model from SpaceXAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
@@ -18689,7 +18659,7 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high'],
   metrics: {
-    timeToFirstToken: 1269,
+    timeToFirstToken: 1428,
     tokensPerSecond: 58
   },
   metadata: {
@@ -18721,8 +18691,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1947,
-    tokensPerSecond: 117
+    timeToFirstToken: 1898.5,
+    tokensPerSecond: 56
   },
   metadata: {
     description: "Grok 4.6 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
@@ -18753,8 +18723,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 1778,
-    tokensPerSecond: 70
+    timeToFirstToken: 1565,
+    tokensPerSecond: 88
   },
   metadata: {
     description: "Grok 4.7 is SpaceXAI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
@@ -18787,15 +18757,14 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1033.5,
-    tokensPerSecond: 177
+    timeToFirstToken: 1006,
+    tokensPerSecond: 122
   },
   metadata: {
     description: "Grok Build 0.1 is SpaceXAI’s fast coding model trained specifically for agentic software engineering workflows. It supports text and image inputs with text output, and is optimized for interactive coding...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-build-0.1-20260520",
-    created: 1779298123,
-    uptime: 100
+    created: 1779298123
   }
 }, {
   id: 'x-ai/grok-imagine-image-2.0',
@@ -18815,7 +18784,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 22416.5,
+    timeToFirstToken: 21416,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18842,16 +18811,16 @@ export const openrouterModels: ModelInfo[] = [{
       tokens: 11.9760479041916
     }
   },
+  retiresAt: '2026-11-02',
   metrics: {
-    timeToFirstToken: 6533.5,
+    timeToFirstToken: 9149,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Grok Imagine Image Quality is SpaceXAI's fast, high-fidelity image generation and editing model. It accepts text prompts and optional reference images, producing photorealistic outputs at 1K or 2K across a...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-imagine-image-quality-20260512",
-    created: 1779117584,
-    uptime: 100
+    created: 1779117584
   }
 }, {
   id: 'x-ai/grok-imagine-video',
@@ -18867,14 +18836,15 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 33057,
+    timeToFirstToken: 44104,
     tokensPerSecond: 0
   },
   metadata: {
     description: "Grok Imagine Video is SpaceXAI's fast, text-, image-, and reference-conditioned video generation model. It produces short videos (1–15 seconds, 24 fps) at 480p or 720p across seven aspect ratios -...",
     defaultParameters: {},
     canonicalSlug: "x-ai/grok-imagine-video-20260512",
-    created: 1779117586
+    created: 1779117586,
+    uptime: 100
   }
 }, {
   id: 'x-ai/grok-imagine-video-1.5',
@@ -18890,7 +18860,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 43070,
+    timeToFirstToken: 33523.5,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18913,7 +18883,7 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 33181,
+    timeToFirstToken: 23273,
     tokensPerSecond: 0
   },
   metadata: {
@@ -18990,7 +18960,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1786,
+    timeToFirstToken: 1754,
     tokensPerSecond: 44
   },
   metadata: {
@@ -19022,8 +18992,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1970,
-    tokensPerSecond: 10
+    timeToFirstToken: 2000.5,
+    tokensPerSecond: 98
   },
   metadata: {
     description: "MiMo-V2.5-Pro is Xiaomi’s flagship model, delivering strong performance in general agentic capabilities, complex software engineering, and long-horizon tasks, with top rankings on benchmarks such as ClawEval, GDPVal, and SWE-bench Pro....",
@@ -19054,8 +19024,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 844.5,
-    tokensPerSecond: 94
+    timeToFirstToken: 677,
+    tokensPerSecond: 116
   },
   metadata: {
     description: "MiMo-V2.6-Flash is an open-source foundation model developed by Xiaomi. Built on a Mixture-of-Experts architecture with 309B total parameters and 15B activated per token, it employs a hybrid attention mechanism for...",
@@ -19087,8 +19057,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1132.5,
-    tokensPerSecond: 43
+    timeToFirstToken: 1020,
+    tokensPerSecond: 49
   },
   metadata: {
     description: "MiMo-V2.6-Pro is the flagship foundation model developed by Xiaomi. Built at a scale of over 1T parameters, it is designed to push the ceiling of capability for the most demanding...",
@@ -19120,8 +19090,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 5930,
-    tokensPerSecond: 70
+    timeToFirstToken: 2918,
+    tokensPerSecond: 115
   },
   metadata: {
     description: "MiMo-V2.6-Pro-UltraSpeed is the fast speed edition of Xiaomi's flagship foundation model, MiMo-V2.6-Pro. Built from the same 1T MiMo-V2.6-Pro checkpoint, it matches the original model in quality while delivering roughly 10x...",
@@ -19148,8 +19118,8 @@ export const openrouterModels: ModelInfo[] = [{
     text: {}
   },
   metrics: {
-    timeToFirstToken: 442,
-    tokensPerSecond: 46
+    timeToFirstToken: 329,
+    tokensPerSecond: 56
   },
   metadata: {
     description: "Xing4.0-29B-A4B is an open-weight mixture-of-experts language model from China Telecom's AI team (TeleAI) and the successor to the TeleChat series. It has 29B total parameters with 4B active per token...",
@@ -19182,8 +19152,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-12-31',
   metrics: {
-    timeToFirstToken: 4309,
-    tokensPerSecond: 30
+    timeToFirstToken: 4757.5,
+    tokensPerSecond: 25
   },
   metadata: {
     description: "GLM-4.5 is our latest flagship foundation model, purpose-built for agent-based applications. It leverages a Mixture-of-Experts (MoE) architecture and supports a context length of up to 128k tokens. GLM-4.5 delivers significantly...",
@@ -19214,8 +19184,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 565,
-    tokensPerSecond: 69
+    timeToFirstToken: 531,
+    tokensPerSecond: 48
   },
   metadata: {
     description: "GLM-4.5-Air is the lightweight variant of our latest flagship model family, also purpose-built for agent-centric applications. Like GLM-4.5, it adopts the Mixture-of-Experts (MoE) architecture but with a more compact parameter...",
@@ -19247,8 +19217,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   retiresAt: '2026-12-31',
   metrics: {
-    timeToFirstToken: 1256,
-    tokensPerSecond: 28
+    timeToFirstToken: 1294.5,
+    tokensPerSecond: 59
   },
   metadata: {
     description: "GLM-4.5V is a vision-language foundation model for multimodal agent applications. Built on a Mixture-of-Experts (MoE) architecture with 106B parameters and 12B activated parameters, it achieves state-of-the-art results in video understanding,...",
@@ -19278,8 +19248,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1567,
-    tokensPerSecond: 30
+    timeToFirstToken: 1373,
+    tokensPerSecond: 28
   },
   metadata: {
     description: "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
@@ -19310,7 +19280,7 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1756,
+    timeToFirstToken: 2026.5,
     tokensPerSecond: 32
   },
   metadata: {
@@ -19342,8 +19312,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 1425,
-    tokensPerSecond: 25
+    timeToFirstToken: 1264,
+    tokensPerSecond: 32.5
   },
   metadata: {
     description: "GLM-4.7 is Z.ai’s latest flagship model, featuring upgrades in two key areas: enhanced programming capabilities and more stable multi-step reasoning/execution. It demonstrates significant improvements in executing complex agent tasks while...",
@@ -19373,8 +19343,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 357,
-    tokensPerSecond: 51
+    timeToFirstToken: 358,
+    tokensPerSecond: 55.5
   },
   metadata: {
     description: "As a 30B-class SOTA model, GLM-4.7-Flash offers a new option that balances performance and efficiency. It is further optimized for agentic coding use cases, strengthening coding capabilities, long-horizon task planning,...",
@@ -19405,8 +19375,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 703,
-    tokensPerSecond: 113
+    timeToFirstToken: 710,
+    tokensPerSecond: 106.5
   },
   metadata: {
     description: "GLM-5 is Z.ai’s flagship open-source foundation model engineered for complex systems design and long-horizon agent workflows. Built for expert developers, it delivers production-grade performance on large-scale programming tasks, rivaling leading...",
@@ -19437,8 +19407,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 4420,
-    tokensPerSecond: 22
+    timeToFirstToken: 4452.5,
+    tokensPerSecond: 25
   },
   metadata: {
     description: "GLM-5 Turbo is a new model from Z.ai designed for fast inference and strong performance in agent-driven environments such as OpenClaw scenarios. It is deeply optimized for real-world agent workflows...",
@@ -19469,8 +19439,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 281,
-    tokensPerSecond: 131
+    timeToFirstToken: 144,
+    tokensPerSecond: 145
   },
   metadata: {
     description: "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
@@ -19502,8 +19472,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['none', 'high', 'xhigh'],
   metrics: {
-    timeToFirstToken: 391,
-    tokensPerSecond: 212
+    timeToFirstToken: 380,
+    tokensPerSecond: 205
   },
   metadata: {
     description: "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
@@ -19535,8 +19505,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 299,
-    tokensPerSecond: 145
+    timeToFirstToken: 126,
+    tokensPerSecond: 190
   },
   metadata: {
     description: "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
@@ -19568,8 +19538,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 312,
-    tokensPerSecond: 139
+    timeToFirstToken: 291,
+    tokensPerSecond: 120.5
   },
   metadata: {
     description: "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
@@ -19629,8 +19599,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 1590,
-    tokensPerSecond: 92
+    timeToFirstToken: 1483,
+    tokensPerSecond: 97
   },
   metadata: {
     description: "GLM-5.3-FlashX is the high-speed variant of Z.ai's GLM-5.3-Flash, a native multimodal model delivering inference speeds of up to 200 tokens/s. Built on the same hybrid sparse and linear attention architecture...",
@@ -19662,8 +19632,8 @@ export const openrouterModels: ModelInfo[] = [{
   },
   reasoningEfforts: ['low', 'high', 'max'],
   metrics: {
-    timeToFirstToken: 718,
-    tokensPerSecond: 105
+    timeToFirstToken: 823,
+    tokensPerSecond: 102
   },
   metadata: {
     description: "GLM-5.3-Prime is the high-speed variant of Z.ai's GLM-5.3, inheriting its full capabilities while delivering 1.5–2× the output throughput through inference acceleration. It supports text input and output with a 1M-token...",
@@ -19721,8 +19691,8 @@ export const openrouterModels: ModelInfo[] = [{
     }
   },
   metrics: {
-    timeToFirstToken: 840,
-    tokensPerSecond: 34
+    timeToFirstToken: 831,
+    tokensPerSecond: 66
   },
   metadata: {
     description: "GLM-5V-Turbo is Z.ai’s first native multimodal agent foundation model, built for vision-based coding and agent-driven tasks. It natively handles image, video, and text inputs, excels at long-horizon planning, complex coding,...",

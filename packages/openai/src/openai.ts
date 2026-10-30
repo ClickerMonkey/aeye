@@ -9,6 +9,10 @@
 import type {
   AIContextAny,
   AIMetadataAny,
+  BatchJob,
+  BatchResult,
+  DecisionRequest,
+  DecisionResponse,
   EmbeddingRequest,
   EmbeddingResponse,
   ImageAnalyzeRequest,
@@ -29,7 +33,8 @@ import type {
 import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detectTier, isModelInfo } from '@aeye/ai';
 import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, strictify, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
-import { chatUsage, MODERATION_MODEL, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
+import { chatUsage, MODERATION_MODEL, responsesUsage, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
+import { type OpenAIDecision, type OpenAIDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
 import { imageParams, imageUsage, partialImages } from './images';
 import { isResponsesOnly, outputItemChunk, responseChunks, responseEndChunk, textInput, toHostedTool, toInputContent, toReasoningItems } from './responses';
 import { isContextWindowError, parseContextWindowError, type RetryConfig, RetryContext, type RetryEvents, withRetry } from './retry';
@@ -125,6 +130,7 @@ export interface OpenAIOperations {
   transcribe: { request: TranscriptionRequest; params: OpenAI.Audio.TranscriptionCreateParams; response: TranscriptionResponse };
   speech: { request: SpeechRequest; params: OpenAI.Audio.SpeechCreateParams; response: SpeechResponse };
   embed: { request: EmbeddingRequest; params: OpenAI.EmbeddingCreateParams; response: EmbeddingResponse };
+  decide: { request: DecisionRequest; params: OpenAIDecisionParams; response: DecisionResponse };
 }
 
 /**
@@ -206,6 +212,8 @@ export interface OpenAIConfig {
     transcription?: ModelInput;
     speech?: ModelInput;
     embedding?: ModelInput;
+    decision?: ModelInput;
+    rerank?: ModelInput;
   }
 }
 
@@ -224,6 +232,7 @@ const DEFAULT_MODELS: DefaultModels = {
   transcription: 'gpt-transcribe',
   speech: 'gpt-4o-mini-tts',
   embedding: 'text-embedding-3-small',
+  decision: 'gpt-6-luna',
 };
 
 /**
@@ -240,6 +249,32 @@ export interface OperationRun<TConfig> {
   modelInfo?: ModelInfo;
   signal?: AbortSignal;
   retry<R>(call: (signal?: AbortSignal) => Promise<R>): Promise<R>;
+}
+
+/**
+ * The requests of a batch, as OpenAI and OpenRouter both take them: one
+ * endpoint and model, and each request's call parameters by id.
+ */
+export interface BatchSubmission {
+  endpoint: '/v1/chat/completions' | '/v1/responses';
+  model: string;
+  lines: Array<{
+    custom_id: string;
+    body: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming | OpenAI.Responses.ResponseCreateParamsNonStreaming;
+  }>;
+}
+
+/**
+ * One result of a batch, as OpenAI's output files and OpenRouter's results
+ * both carry it. A failed request has an error, or an error body.
+ */
+export interface BatchOutputLine {
+  custom_id: string;
+  response?: {
+    status_code: number;
+    body: OpenAI.Chat.ChatCompletion | OpenAI.Responses.Response | { error: { message: string } };
+  } | null;
+  error?: { message: string } | null;
 }
 
 /**
@@ -1217,7 +1252,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   /**
    * Map a Chat Completions result to a @aeye response.
    */
-  private chatResponse(completion: OpenAI.Chat.Completions.ChatCompletion, request: Request, run: OperationRun<TConfig>): Response {
+  private chatResponse(completion: OpenAI.Chat.Completions.ChatCompletion, run: OperationRun<TConfig>, audioFormat?: AudioFormat): Response {
     const { message, finish_reason } = completion.choices[0];
     const toolCalls = message.tool_calls?.flatMap((tc) => tc.type === 'function'
       ? [{ id: tc.id, name: tc.function.name, arguments: tc.function.arguments }]
@@ -1230,7 +1265,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       finishReason: toolCalls?.length ? 'tool_calls' : finish_reason === 'function_call' /* deprecated */ ? 'stop' : finish_reason,
       refusal: message.refusal ?? (finish_reason === 'content_filter' ? message.content ?? undefined : undefined),
       citations: citations?.length ? citations : undefined,
-      audio: message.audio ? { id: message.audio.id, data: message.audio.data, transcript: message.audio.transcript, format: outputAudioFormat(request, false) } : undefined,
+      audio: message.audio ? { id: message.audio.id, data: message.audio.data, transcript: message.audio.transcript, format: audioFormat } : undefined,
       moderation: completion.moderation ? toModeration(completion.moderation) : undefined,
       serviceTier: toServiceTier(completion.service_tier),
       model: run.model,
@@ -1335,7 +1370,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return sent.overflow;
     }
 
-    const response = this.chatResponse(sent.result, request, run);
+    const response = this.chatResponse(sent.result, run, outputAudioFormat(request, false));
     this.augmentChatResponse(sent.result, response, run.config);
     return this.finish('chat', run, request, params, response);
   }
@@ -1735,6 +1770,154 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       model: run.model,
       usage: { embeddings: { count: result.data.length, tokens: result.usage.prompt_tokens } },
     });
+  }
+
+  // ============================================================================
+  // Decisions
+  // ============================================================================
+
+  /**
+   * Typed answers about an input. A conversation goes in as Responses input.
+   *
+   * @param request Decision request parameters
+   * @param ctx Context object
+   * @param config Optional configuration override
+   * @returns Answers by question name
+   */
+  decide: Provider['decide'] = async (request, ctx, config?: TConfig) => {
+    const run = this.prepare('decide', request, ctx, undefined, config, undefined, 'decision');
+    const params: OpenAIDecisionParams = {
+      model: run.model.id,
+      input: typeof request.input === 'string' ? request.input : await this.convertResponsesInput({ messages: request.input }, run.config),
+      questions: Object.entries(request.questions).map(([name, question]) => toDecisionQuestion(name, question)),
+      ...request.extra,
+    };
+
+    const result = await this.send('decide', run, request, params, (signal) => run.client.post<OpenAIDecision>('/decisions', { body: params, signal }));
+    return this.finish('decide', run, request, params, {
+      answers: Object.fromEntries(result.answers.map(answer => [answer.name, toDecisionAnswer(answer)])),
+      model: run.model,
+      usage: responsesUsage(result.usage),
+    });
+  }
+
+  // ============================================================================
+  // Batch
+  // ============================================================================
+
+  /**
+   * Run chat requests as one batch on one model. Each request becomes the
+   * same call a direct request would make, through Responses when any of
+   * them needs it.
+   *
+   * @param requests Chat requests, whose results come back in this order
+   * @param ctx Context object
+   * @param config Optional configuration override
+   * @returns The submitted batch
+   */
+  submitBatch: Provider['submitBatch'] = async (requests, ctx, config?: TConfig) => {
+    const [first] = requests;
+    if (!first) {
+      throw new ProviderError(this.name, 'A batch needs at least one request');
+    }
+    const run = this.prepare('submit batch', first, ctx, undefined, config, undefined, 'chat');
+    const responses = requests.some(request => this.usesResponses(request, run.model.id, run.config, run.modelInfo));
+    const lines = await Promise.all(requests.map(async (request, index) => {
+      if (responses) {
+        return { custom_id: String(index), body: await this.buildResponsesParams(request, run) };
+      }
+      const params = await this.buildChatParams(request, run, false);
+      this.augmentChatRequest(params, request, run.config);
+      return { custom_id: String(index), body: params };
+    }));
+    return this.createBatch({ endpoint: responses ? '/v1/responses' : '/v1/chat/completions', model: run.model.id, lines }, run);
+  }
+
+  /**
+   * A batch as it stands now, with its results once it completes.
+   *
+   * @param job The batch from submitBatch
+   * @param ctx Context object
+   * @param config Optional configuration override
+   */
+  getBatch: Provider['getBatch'] = (job, ctx, config?: TConfig) =>
+    this.retrieveBatch(job, this.prepare('get batch', { model: job.model }, ctx, undefined, config, undefined, 'chat'));
+
+  /**
+   * Start a batch: OpenAI takes the requests as an uploaded JSONL file.
+   *
+   * @param batch The requests
+   * @param run The resolved call
+   */
+  protected async createBatch(batch: BatchSubmission, run: OperationRun<TConfig>): Promise<BatchJob> {
+    const jsonl = batch.lines.map(line => JSON.stringify({ ...line, method: 'POST', url: batch.endpoint })).join('\n');
+    const file = await toFile(new TextEncoder().encode(jsonl), 'application/jsonl', 'batch.jsonl');
+    const input = await run.retry((signal) => run.client.files.create({ file, purpose: 'batch' }, { signal }));
+    const created = await run.retry((signal) => run.client.batches.create({ input_file_id: input.id, endpoint: batch.endpoint, completion_window: '24h' }, { signal }));
+    return this.batchJob(created, run);
+  }
+
+  /**
+   * Read a batch: OpenAI writes results, and failed requests, to files.
+   *
+   * @param job The batch
+   * @param run The resolved call
+   */
+  protected async retrieveBatch(job: BatchJob, run: OperationRun<TConfig>): Promise<BatchJob> {
+    const batch = await run.retry((signal) => run.client.batches.retrieve(job.id, { signal }));
+    if (batch.status !== 'completed') {
+      return this.batchJob(batch, run);
+    }
+    const files = [batch.output_file_id, batch.error_file_id].filter((id): id is string => !!id);
+    const lines = await Promise.all(files.map(async (id) => {
+      const content = await run.retry(async (signal) => (await run.client.files.content(id, { signal })).text());
+      return content.split('\n').filter(Boolean).map((line): BatchOutputLine => JSON.parse(line));
+    }));
+    return { ...this.batchJob(batch, run), results: this.batchResults(lines.flat(), batch.request_counts?.total ?? 0, run) };
+  }
+
+  /**
+   * A batch as @aeye reports it.
+   */
+  private batchJob(batch: OpenAI.Batch, run: OperationRun<TConfig>): BatchJob {
+    return {
+      id: batch.id,
+      provider: this.name,
+      model: run.model.id,
+      status: batch.status,
+      counts: batch.request_counts,
+      error: batch.errors?.data?.[0]?.message,
+    };
+  }
+
+  /**
+   * Results in request order, each mapped as its direct call would be.
+   *
+   * @param lines The results, in any order
+   * @param total How many requests the batch had
+   * @param run The resolved call
+   */
+  protected batchResults(lines: BatchOutputLine[], total: number, run: OperationRun<TConfig>): BatchResult[] {
+    const results = Array.from({ length: Math.max(total, lines.length) }, (): BatchResult => ({ error: 'No result' }));
+    for (const line of lines) {
+      const body = line.response?.body;
+      results[Number(line.custom_id)] = body && 'object' in body && !line.error
+        ? { response: this.batchResponse(body, run) }
+        : { error: line.error?.message ?? (body && !('object' in body) ? body.error.message : `Request failed with status ${line.response?.status_code}`) };
+    }
+    return results;
+  }
+
+  /**
+   * One batch result body as a @aeye response.
+   */
+  private batchResponse(body: OpenAI.Chat.Completions.ChatCompletion | OpenAI.Responses.Response, run: OperationRun<TConfig>): Response {
+    if (body.object === 'response') {
+      return getResponseFromChunks([...body.output.map(item => outputItemChunk(item, false)), responseEndChunk(body)], run.model);
+    }
+    const response = this.chatResponse(body, run);
+    this.augmentChatResponse(body, response, run.config);
+    return response;
   }
 
   // ============================================================================
