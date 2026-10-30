@@ -57,9 +57,6 @@ Recognized variables (from `.env.example`; each provider key is
 | `UNIT_TESTS_ONLY`    | Flag in `.env.example` (`true`/`false`)     |
 | `RUN_INTEGRATION_TESTS` | Flag in `.env.example` (`true`/`false`)  |
 
-`setup.ts` treats `openai`, `openrouter`, and `replicate` as the canonical
-provider set for `getAvailableProviders()`.
-
 ### Conditional execution (how tests skip)
 
 `src/setup.ts` exports helpers used to gate suites so missing keys don't fail
@@ -67,11 +64,7 @@ the run:
 
 - `hasAPIKey(provider)` / `getAPIKey(provider)` — check / fetch
   `<PROVIDER>_API_KEY` (the getter throws if missing).
-- `getAvailableProviders()` — returns the subset of
-  `['openai','openrouter','replicate']` that have keys.
 - `skipIfNoAPIKey(provider)` — returns `describe` or `describe.skip`.
-- `requireMinimumProviders(n)` — returns `describe.skip` unless at least `n`
-  providers have keys.
 
 If no keys are present, the relevant suites are skipped rather than failing.
 
@@ -119,23 +112,23 @@ Test files live in `packages/test-integration/src/__tests__/`.
 
 ### `multi-provider.test.ts`
 
-Gated by `requireMinimumProviders(2)` — runs only when **two or more**
-providers have keys. Constructs an `AI` instance from whichever of
-OpenAI / OpenRouter are available, calls `ai.models.refresh()`, then covers:
+Runs only when both OpenAI and OpenRouter have keys. Constructs an `AI`
+instance over both with the `@aeye/models` registry, calls
+`ai.models.refresh()`, then covers:
 
-- **Model Discovery** — `ai.models.listModels()` returns models for every
-  configured provider; `ai.models.searchModels({ required: ['chat'] })` finds
+- **Model Discovery** — `ai.models.list()` returns models for every
+  configured provider; `ai.models.search({ required: ['chat'] })` finds
   chat-capable models spanning more than one provider.
-- **Model Selection** — `ai.models.selectModel(...)` picks the cheapest model
+- **Model Selection** — `ai.models.select(...)` picks the cheapest model
   (cost-weighted), the most accurate (`tier === 'flagship'`, accuracy-weighted),
   and honors provider `allow` / `deny` lists.
-- **Cross-Provider Chat Execution** — `ai.chat.get(...)` runs a prompt on each
-  available provider (120s timeout); `ai.chat.stream(...)` verifies streaming
+- **Cross-Provider Chat Execution** — `ai.chat.get(...)` runs a prompt on a cheap
+  chat model of each provider (120s timeout); `ai.chat.stream(...)` verifies streaming
   chunks from each provider (120s timeout).
 - **Cost Comparison** — derives the cheapest chat model per provider from
-  `searchModels` pricing.
-- **Provider Health** — calls each provider's `checkHealth()` and asserts at
-  least one is healthy (60s timeout).
+  `search` pricing.
+- **Provider Health** — calls each provider's `checkHealth()` and asserts
+  each is healthy (60s timeout).
 
 ### `ginny-24game.test.ts`
 
@@ -177,22 +170,26 @@ What it does:
    cleanly when keys are absent:
 
    ```ts
+   import { beforeAll } from '@jest/globals';
    import { skipIfNoAPIKey, getAPIKey } from '../setup';
 
    const describeOpenAI = skipIfNoAPIKey('openai');
 
+   const createAI = () => AI.with()
+     .providers({ openai: new OpenAIProvider({ apiKey: getAPIKey('openai') }) })
+     .create({});
+
    describeOpenAI('My new integration', () => {
-     let ai: AI;
+     let ai: ReturnType<typeof createAI>;
      beforeAll(() => {
-       ai = new AI({
-         providers: { openai: new OpenAIProvider({ apiKey: getAPIKey('openai') }) },
-       });
+       ai = createAI();
      });
      // ... tests ...
    });
    ```
 
-   For multi-provider scenarios use `requireMinimumProviders(2)` instead.
+   Jest's globals come from `@jest/globals`; the package's TypeScript config
+   doesn't load jest's ambient types.
 4. Set realistic per-test timeouts on network calls (pass a 3rd arg to `it`,
    e.g. `}, 120000)`); the global default is only 60s.
 5. Prefer **free/cheap models** to keep costs low (per the package README the

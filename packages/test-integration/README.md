@@ -59,7 +59,7 @@ Tests that verify multiple AI providers work together:
 ## Test Behavior
 
 - Tests automatically **skip** if API keys are not provided
-- Tests require at least **2 providers** with API keys for multi-provider scenarios
+- Multi-provider tests require both OpenAI and OpenRouter API keys
 - Tests use **free/cheap models** when possible to minimize costs
 - Default timeout is **60 seconds** per test (API calls can be slow)
 
@@ -105,7 +105,7 @@ Multi-Provider Integration
 ### Tests are skipped
 - Make sure `.env.test` exists in the project root
 - Verify your API keys are valid and have sufficient credits
-- Check that at least 2 providers have API keys for multi-provider tests
+- Check that OpenAI and OpenRouter both have API keys for multi-provider tests
 
 ### Tests timeout
 - Increase timeout in `jest.config.js` (default is 60s)
