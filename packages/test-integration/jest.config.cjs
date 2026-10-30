@@ -16,5 +16,10 @@ module.exports = {
     '^@aeye/(.*)$': '<rootDir>/../$1/src'
   },
   testTimeout: 60000, // 60s timeout for integration tests
-  setupFilesAfterEnv: ['<rootDir>/src/setup.ts']
+  setupFilesAfterEnv: ['<rootDir>/src/setup.ts'],
+  globals: {
+    'ts-jest': {
+      isolatedModules: true
+    }
+  }
 };

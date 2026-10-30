@@ -75,6 +75,14 @@ export async function writeModelTS(
 }
 
 /**
+ * Write model data as JSON for reference, sets as arrays
+ */
+export async function writeModelJSON(models: ModelInfo[], outputPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, JSON.stringify(models, (_key, value) => value instanceof Set ? Array.from(value) : value, 2));
+}
+
+/**
  * Generate the models/index.ts file that aggregates all provider models
  */
 export function generateModelsIndexTS(): string {
@@ -119,5 +127,7 @@ export function generateMainIndexTS(): string {
 
 export { models, openaiModels, openrouterModels, replicateModels, awsModels } from './models';
 export { transformers } from './transformers';
+export { replicateTransformers } from './transformers/replicate';
+export { strictSupport } from './strict-support';
 `;
 }
