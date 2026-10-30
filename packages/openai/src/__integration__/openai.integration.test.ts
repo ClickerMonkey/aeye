@@ -5,6 +5,7 @@
  * Requires OPENAI_API_KEY environment variable.
  */
 
+import { getModel } from '@aeye/core';
 import { OpenAIProvider } from '../openai';
 import type { Request, ImageGenerationRequest, TranscriptionRequest, SpeechRequest, EmbeddingRequest } from '@aeye/ai';
 import { getAPIKey, skipIfNoAPIKey } from './setup';
@@ -62,7 +63,7 @@ describeIntegration('OpenAI Integration', () => {
         ]
       };
 
-      const response = await executor(request, {}, { model: 'gpt-3.5-turbo' });
+      const response = await executor(request, {}, { model: 'gpt-5.4-mini' });
 
       expect(response.content).toBeTruthy();
       expect(typeof response.content).toBe('string');
@@ -89,7 +90,7 @@ describeIntegration('OpenAI Integration', () => {
       const chunks: string[] = [];
       let finalUsage: any = null;
 
-      for await (const chunk of streamer(request, {}, { model: 'gpt-3.5-turbo' })) {
+      for await (const chunk of streamer(request, {}, { model: 'gpt-5.4-mini' })) {
         if (chunk.content) {
           chunks.push(chunk.content as string);
         }
@@ -120,14 +121,14 @@ describeIntegration('OpenAI Integration', () => {
 
       const ctx = {
         metadata: {
-          model: 'gpt-4'
+          model: 'gpt-5.4-nano'
         }
       };
 
       const response = await executor(request, ctx as any, {});
 
       expect(response.content).toBeTruthy();
-      console.log(`  Used model from context: gpt-4`);
+      console.log(`  Used model from context: gpt-5.4-nano`);
       console.log(`  Response: ${response.content}`);
     }, 30000);
   });
@@ -137,35 +138,36 @@ describeIntegration('OpenAI Integration', () => {
       const request: ImageGenerationRequest = {
         prompt: 'A simple red circle on white background',
         n: 1,
-        size: '256x256'
+        size: '1024x1024',
+        quality: 'low'
       };
 
       const response = await provider.generateImage!(request, {});
 
       expect(response.images).toHaveLength(1);
-      expect(response.images[0].url).toBeTruthy();
+      expect(response.images[0].b64_json).toBeTruthy();
       expect(response.model).toBeTruthy();
 
-      console.log(`  Generated image URL: ${response.images[0].url}`);
       console.log(`  Model: ${response.model}`);
     }, 60000); // Image generation can be slow
 
     it('should use model from context for image generation', async () => {
       const request: ImageGenerationRequest = {
         prompt: 'A blue square',
-        size: '256x256'
+        size: '1024x1024',
+        quality: 'low'
       };
 
       const ctx = {
         metadata: {
-          model: 'dall-e-2'
+          model: 'gpt-image-2.5-flare'
         }
       };
 
       const response = await provider.generateImage!(request, ctx as any);
 
       expect(response.images).toHaveLength(1);
-      expect(response.model).toMatch(/dall-e/);
+      expect(getModel(response.model).id).toBe('gpt-image-2.5-flare');
 
       console.log(`  Model: ${response.model}`);
     }, 60000);
@@ -233,7 +235,7 @@ describeIntegration('OpenAI Integration', () => {
 
       // Make multiple rapid requests
       const promises = Array(5).fill(null).map(() =>
-        executor(request, {}, { model: 'gpt-3.5-turbo' })
+        executor(request, {}, { model: 'gpt-5.4-mini' })
       );
 
       // At least some should succeed
@@ -259,7 +261,7 @@ describeIntegration('OpenAI Integration', () => {
       const response = await executor(
         { messages: [{ role: 'user', content: 'Hi' }] },
         {},
-        { model: 'gpt-3.5-turbo' }
+        { model: 'gpt-5.4-mini' }
       );
 
       expect(response.content).toBeTruthy();

@@ -207,7 +207,7 @@ describe('OpenAIProvider', () => {
       });
 
       it('should handle API errors', async () => {
-        mockOpenAI.chat.completions.create.mockRejectedValue(new Error('API Error'));
+        mockOpenAI.chat.completions.create.mockRejectedValue(Object.assign(new Error('API Error'), { status: 400 }));
 
         const executor = provider.createExecutor();
         const request: Request = {
@@ -240,9 +240,6 @@ describe('OpenAIProvider', () => {
       });
 
       it('should stream chat completion', async () => {
-        // Streaming path uses `.create(...).withResponse()` to get both the
-        // HTTP response (for ok-check) and the async-iterable stream. Mock
-        // both layers.
         const mockStream = {
           [Symbol.asyncIterator]: async function* () {
             yield {
@@ -274,12 +271,7 @@ describe('OpenAIProvider', () => {
           }
         };
 
-        mockOpenAI.chat.completions.create.mockReturnValue({
-          withResponse: jest.fn().mockResolvedValue({
-            response: { ok: true, headers: new Map(), status: 200, statusText: 'OK' },
-            data: mockStream,
-          }),
-        });
+        mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
 
         const streamer = provider.createStreamer();
         const request: Request = {
@@ -867,14 +859,7 @@ describe('OpenAIProvider', () => {
         }
       };
 
-      // Streaming uses `.create(...).withResponse()` to get the HTTP
-      // response + the iterable stream.
-      mockOpenAI.chat.completions.create.mockReturnValue({
-        withResponse: jest.fn().mockResolvedValue({
-          response: { ok: true, headers: new Map(), status: 200, statusText: 'OK' },
-          data: mockStream,
-        }),
-      });
+      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
 
       const streamer = provider.createStreamer();
       const request: Request = {
