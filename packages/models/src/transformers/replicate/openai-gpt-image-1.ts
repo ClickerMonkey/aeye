@@ -33,7 +33,7 @@ export default {
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => ({
           prompt: request.prompt,
           number_of_images: request.n,
-          quality: request.quality,
+          quality: request.quality === 'xhigh' || request.quality === 'max' ? 'high' : request.quality,
           user_id: request.userIdentifier,
           ...request.extra,
           openai_api_key: request.extra?.openai_api_key,

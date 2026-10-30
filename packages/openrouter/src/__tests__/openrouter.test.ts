@@ -248,7 +248,7 @@ describe('OpenRouterProvider tool schema dialects', () => {
     expect(request.tools![0].descriptor).toBe('google-strict');
   });
 
-  it('REGRESSION: the emitted google tool schema carries no anyOf / oneOf / allOf / $defs / $ref', async () => {
+  it('REGRESSION: an any-typed google tool argument is an empty schema, not a recursive $defs/Any', async () => {
     const request: Request = {
       messages: [{ role: 'user', content: 'Declare it' }],
       tools: [{ ...signatureTool }],
@@ -268,6 +268,24 @@ describe('OpenRouterProvider tool schema dialects', () => {
     // The open-value tail is still open, and the named field survives.
     expect(parameters.properties.signature.additionalProperties).toEqual({});
     expect(parameters.properties.signature.properties.name.type).toBe('string');
+  });
+
+  it('REGRESSION: a bare google/* model id still gets the google dialect', async () => {
+    // Without a full ModelInfo there is no strict capability to go on, but the
+    // dialect still applies: LENIENT's recursive $defs/Any is a ref loop
+    // through required values, which Gemini rejects with a 400.
+    const request: Request = {
+      messages: [{ role: 'user', content: 'Declare it' }],
+      tools: [{ ...signatureTool }],
+      toolChoice: 'required',
+    };
+    const provider = new OpenRouterProvider({ apiKey: 'test-key' });
+    await provider.createExecutor()(request, { ai: AI.with().providers({}).create({}), metadata: {} }, { model: gemini3.id });
+    const calls = mockOpenAI.chat.completions.create.mock.calls;
+    const parameters = calls[calls.length - 1][0].tools[0].function.parameters;
+
+    expect(request.tools![0].descriptor).toBe('google-non-strict');
+    expect(keywordsIn(parameters).has('$defs')).toBe(false);
   });
 
   it('still resolves the OpenAI dialect for an openai/* model', async () => {

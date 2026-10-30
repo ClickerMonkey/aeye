@@ -26,6 +26,7 @@ import {
   registerDescriptor,
   type FormatDescriptor,
 } from '../schema';
+import { NO_COMBINATORS_STRICT } from './mocks/descriptors';
 
 const BUILT_INS: ReadonlyArray<readonly [string, FormatDescriptor]> = [
   ['LENIENT', LENIENT],
@@ -48,7 +49,7 @@ describe('FormatDescriptor self-consistency', () => {
     it('flags a recursive encoding under allowDefsRef: false', () => {
       // This is verbatim the bug that shipped.
       const problems = checkDescriptorConsistency({
-        ...GOOGLE_STRICT,
+        ...NO_COMBINATORS_STRICT,
         anyEncoding: 'recursive-open',
       });
       expect(problems).toEqual([
@@ -58,9 +59,9 @@ describe('FormatDescriptor self-consistency', () => {
     });
 
     it('flags a flat encoding under allowAnyOf: false', () => {
-      // The other tempting "fix" for Google — flat needs no `$defs` but still
-      // emits `anyOf`, so it is equally unavailable there.
-      const problems = checkDescriptorConsistency({ ...GOOGLE_STRICT, anyEncoding: 'flat' });
+      // The other tempting "fix" for a dialect without combinators — flat needs
+      // no `$defs` but still emits `anyOf`, so it is equally unavailable there.
+      const problems = checkDescriptorConsistency({ ...NO_COMBINATORS_STRICT, anyEncoding: 'flat' });
       expect(problems).toEqual([expect.stringContaining('allowAnyOf is false')]);
     });
 
@@ -117,7 +118,7 @@ describe('FormatDescriptor self-consistency', () => {
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       try {
         registerDescriptor({
-          ...GOOGLE_STRICT,
+          ...NO_COMBINATORS_STRICT,
           id: 'consistency-test-broken',
           family: 'consistency-test-broken',
           anyEncoding: 'recursive-open',

@@ -203,7 +203,7 @@ Create an extended AI instance with additional context and metadata types. The n
 ```typescript
 const chatAi = ai.extend<{ chat: Chat }>({
   defaultContext: { chat: currentChat },
-  modelOverrides: [{ modelPattern: /gpt-4/, overrides: { tier: 'flagship' } }],
+  modelOverrides: [{ modelPattern: /gpt-5\.5/, overrides: { tier: 'flagship' } }],
 });
 
 // chatAi has all original providers + new context type

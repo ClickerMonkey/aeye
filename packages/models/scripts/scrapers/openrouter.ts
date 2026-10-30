@@ -1,119 +1,36 @@
 /**
  * OpenRouter Model Scraper
  *
- * Fetches model information from OpenRouter API endpoints and scrapes performance metrics
+ * Fetches model information and performance metrics from the OpenRouter API
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import * as puppeteer from 'puppeteer';
 import * as url from 'url';
-import { fetchModels, fetchZDRModels, convertOpenRouterModel } from '@aeye/openrouter';
+import { convertOpenRouterModel, fetchEndpointMetrics, fetchModels, fetchZDRModels, type OpenRouterMetrics } from '@aeye/openrouter';
 import { writeModelTS } from '../codegen';
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Scrape performance metrics from OpenRouter model page
+ * Fetch live metrics for many models, a few at a time.
  */
-async function scrapeModelMetrics(modelId: string, browser: puppeteer.Browser): Promise<{
-  modelId: string;
-  metrics: {
-    latency?: number;
-    throughput?: number;
-    uptime?: number;
-  } | null;
-}> {
-  const page = await browser.newPage();
-
-  try {
-    // OpenRouter model URLs use the canonical slug format
-    const url = `https://openrouter.ai/${modelId}`;
-    const response = await page.goto(url, {
-      waitUntil: ['domcontentloaded', 'networkidle2'],
-      timeout: 30000,
-    });
-
-    if (!response || response.status() === 404) {
-      return { modelId, metrics: null };
-    }
-
-    const bodyText = await page.$eval('body', el => el.textContent || '');
-    const metrics: { latency?: number; throughput?: number; uptime?: number } = {};
-
-    // Latency0.62sThroughput47.46tpsUptime100.0%Uptime 100.0
-
-    // Look for latency (in ms)
-    const latencyMatch = bodyText.match(/latency[:\s]*([0-9.]+)\s*s/i);
-    if (latencyMatch) {
-      metrics.latency = parseFloat(latencyMatch[1]);
-    }
-
-    // Look for throughput (tokens/second)
-    const throughputMatch = bodyText.match(/throughput[:\s]*([0-9.]+)\s*tps/i);
-    if (throughputMatch) {
-      metrics.throughput = parseFloat(throughputMatch[1]);
-    }
-
-    // Look for uptime (percentage)
-    const uptimeMatch = bodyText.match(/uptime[:\s]*([0-9.]+)%/i);
-    if (uptimeMatch) {
-      metrics.uptime = parseFloat(uptimeMatch[1]);
-    }
-
-    if (!latencyMatch || !throughputMatch || !uptimeMatch) {
-      console.log(`⚠ No metrics found on page ${modelId}`);
-      await fs.writeFile(`./data/pages/openrouter-${modelId.replace(/[^a-z]/gi, '')}.html`, bodyText);
-    }
-
-    return { modelId, metrics };
-  } catch (error) {
-    console.log(`  ✗ Error scraping metrics for ${modelId}:`, error instanceof Error ? error.message : error);
-    return { modelId, metrics: null };
-  } finally {
-    await page.close();
-  }
-}
-
-/**
- * Scrape metrics for multiple models in parallel with concurrency control
- */
-async function scrapeMetricsParallel(
-  modelIds: string[],
-  concurrency: number = 5
-): Promise<Map<string, { latency?: number; throughput?: number; uptime?: number }>> {
-  console.log(`\nScraping performance metrics from OpenRouter model pages (concurrency: ${concurrency})...`);
-
-  const browser = await puppeteer.launch({ headless: true });
-  const results = new Map<string, { latency?: number; throughput?: number; uptime?: number }>();
-
-  try {
-    // Process in batches with concurrency control
-    for (let i = 0; i < modelIds.length; i += concurrency) {
-      const batch = modelIds.slice(i, i + concurrency);
-      console.log(`  Processing batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(modelIds.length / concurrency)} (${batch.length} models)...`);
-
-      const batchResults = await Promise.all(
-        batch.map((modelId) => scrapeModelMetrics(modelId, browser))
-      );
-
-      // Store results
-      for (const { modelId, metrics } of batchResults) {
-        if (metrics) {
-          results.set(modelId, metrics);
-        }
+async function fetchMetrics(modelIds: string[], concurrency: number): Promise<Map<string, OpenRouterMetrics>> {
+  console.log(`
+Fetching endpoint metrics (concurrency: ${concurrency})...`);
+  const metrics = new Map<string, OpenRouterMetrics>();
+  for (let i = 0; i < modelIds.length; i += concurrency) {
+    await Promise.all(modelIds.slice(i, i + concurrency).map(async (id) => {
+      const found = await fetchEndpointMetrics(id, process.env.OPENROUTER_API_KEY).catch(() => null);
+      if (found) {
+        metrics.set(id, found);
       }
-
-      console.log(`    ✓ Scraped ${batchResults.filter((r) => r.metrics).length}/${batch.length} models`);
-    }
-
-    console.log(`✓ Scraped metrics for ${results.size}/${modelIds.length} models\n`);
-  } finally {
-    await browser.close();
+    }));
   }
-
-  return results;
+  console.log(`✓ Metrics for ${metrics.size}/${modelIds.length} models
+`);
+  return metrics;
 }
 
 /**
@@ -163,13 +80,10 @@ export async function scrapeOpenRouter(
     console.log(`✓ Saved ZDR model IDs to openrouter-zdr.json`);
   }
 
-  // Scrape performance metrics if requested
-  let metricsMap = new Map<string, { latency?: number; throughput?: number; uptime?: number }>();
-
-  if (scrapeMetrics) {
-    const modelIds = models.map((m) => m.id);
-    metricsMap = await scrapeMetricsParallel(modelIds, concurrency);
-  }
+  // Fetch performance metrics if requested
+  const metricsMap = scrapeMetrics
+    ? await fetchMetrics(models.map((m) => m.id), concurrency)
+    : new Map<string, OpenRouterMetrics>();
 
   // Convert to ModelInfo format
   const modelInfos = models.map((model) =>

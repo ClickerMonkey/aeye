@@ -19,6 +19,9 @@ interface ModelInfo<TProvider = string> {
   pricing: ModelPricing;
   metrics?: ModelMetrics;
   tokenizer?: ModelTokenizer;
+  strictFormat?: DescriptorFamily | 'none';
+  reasoningEfforts?: ReasoningEffort[]; // accepted efforts, lowest to highest (all when omitted)
+  retiresAt?: string;                   // YYYY-MM-DD; retired models are never selected
   metadata?: Record<string, any>;
 }
 ```
@@ -27,9 +30,10 @@ interface ModelInfo<TProvider = string> {
 
 ```typescript
 type ModelCapability =
-  | 'chat' | 'tools' | 'vision' | 'hearing'
+  | 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'hearing'
   | 'json' | 'structured' | 'streaming' | 'reasoning'
-  | 'image' | 'audio' | 'embedding' | 'zdr';
+  | 'image' | 'audio' | 'embedding' | 'zdr'
+  | 'toolsStrict';
 ```
 
 ### `ModelTier`
@@ -42,16 +46,21 @@ type ModelTier = 'flagship' | 'efficient' | 'legacy' | 'experimental';
 
 ```typescript
 interface ModelPricing {
-  text?: { input: number; output: number; cached?: number };
+  text?: { input?: number; output?: number; cached?: number; cacheWrite?: number };
   audio?: { input?: number; output?: number; perSecond?: number };
-  image?: { input?: number; output?: Array<{ quality: string; sizes: Array<{ cost: number }> }> };
-  reasoning?: { input: number; output: number; cached?: number };
-  embeddings?: { cost: number };
+  image?: {
+    input?: number;
+    tokens?: number; // per 1M output image tokens (GPT Image 2 and later)
+    output?: Array<{ quality: string; sizes: Array<{ width: number; height: number; cost: number }> }>; // per image
+  };
+  reasoning?: { input?: number; output?: number; cached?: number };
+  embeddings?: { cost?: number };
+  tools?: Partial<Record<HostedToolType, number>>; // per hosted tool call
   perRequest?: number;
 }
 ```
 
-Prices are in **dollars per million tokens** (text, reasoning, embeddings).
+Prices are in **dollars per million tokens** (text, reasoning, embeddings, image tokens). `tools` is per call and `perRequest` per request. When a model has no reasoning price, reasoning tokens bill as output; unpriced cache reads and writes bill as input.
 
 ### `ModelMetrics`
 

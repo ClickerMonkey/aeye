@@ -52,7 +52,7 @@
   "dependencies": {
     "@aeye/ai": "0.3.9",
     "@aeye/aws": "0.3.9",
-    "@aeye/openrouter": "0.3.9",
+    "@aeye/openrouter": "0.4.1",
     "@aeye/replicate": "0.3.9"
   },
   "devDependencies": {
@@ -60,7 +60,6 @@
     "@types/node": "^20.12.7",
     "axios": "^1.7.2",
     "openapi-typescript": "^7.10.1",
-    "puppeteer": "^24.31.0",
     "replicate": "^0.34.1",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.7.0",

@@ -7,6 +7,8 @@ class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig>
   implements Provider<TConfig>
 ```
 
+Requires Node >= 22 and the `openai` SDK v7.
+
 ### Constructor
 
 ```typescript
@@ -22,20 +24,25 @@ interface OpenAIConfig {
   organization?: string;
   project?: string;
   store?: boolean;
+  api?: 'auto' | 'chat' | 'responses'; // default 'auto'
   retry?: RetryConfig;
+  retryEvents?: RetryEvents;
   defaultModels?: {
-    chat?: string;
-    imageGenerate?: string;
-    imageEdit?: string;
-    imageAnalyze?: string;
-    transcription?: string;
-    speech?: string;
-    embedding?: string;
-    edit?: string;
+    chat?: ModelInput;
+    imageGenerate?: ModelInput;   // default 'gpt-image-2'
+    imageEdit?: ModelInput;       // default 'gpt-image-2'
+    imageAnalyze?: ModelInput;    // default 'gpt-5.4-mini'
+    transcription?: ModelInput;   // default 'gpt-transcribe'
+    speech?: ModelInput;          // default 'gpt-4o-mini-tts'
+    embedding?: ModelInput;       // default 'text-embedding-3-small'
   };
   hooks?: OpenAIHooks;
 }
 ```
+
+With `api: 'auto'`, chat uses Chat Completions unless the model is Responses-only (`metadata.responsesOnly` in its registry entry, or by id: codex, pre-5.6 pro, deep-research, computer-use), the request has `hostedTools`, or `reason` sets `mode`, `summary`, or `context`; then it uses the Responses API.
+
+Subclasses can override the protected `defaults` property to supply their own default model ids.
 
 ### `RetryConfig`
 
@@ -54,15 +61,17 @@ interface RetryConfig {
 ### `OpenAIHooks`
 
 ```typescript
-interface OpenAIHooks {
-  chat?: {
+type OpenAIHooks = {
+  [K in keyof OpenAIOperations]?: {
     beforeRequest?: (request, params, ctx, metadata) => void;
-    afterRequest?: (request, response, responseComplete, ctx, metadata) => void;
+    afterRequest?: (request, params, response, ctx, metadata) => void;
     onError?: (request, params, error, ctx, metadata) => void;
   };
-  // Similar hooks for imageGenerate, imageEdit, speech, transcribe, embed
-}
+};
+// Operations: chat, responses, imageGenerate, imageEdit, transcribe, speech, embed
 ```
+
+Image analysis runs as chat, so it reports through the `chat` (or `responses`) hooks.
 
 ## Error Types
 

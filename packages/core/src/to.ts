@@ -276,7 +276,7 @@ export async function toReadableStream(input: Resource, fallback?: ReadableStrea
 export async function toFile(input: Resource, mimeType?: string, filename?: string): Promise<File> {
   if (typeof input === 'string') {
     if (input.startsWith('data:')) {
-      const [, type, base64Part] = input.substring(5).split(';base64,', 2);
+      const [type, base64Part] = input.substring(5).split(';base64,', 2);
       mimeType = type || mimeType;
       input = Buffer.from(base64Part, 'base64')
     } else if (input.startsWith('http://') || input.startsWith('https://')) {

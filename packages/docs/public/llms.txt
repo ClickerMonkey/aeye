@@ -61,9 +61,12 @@ type Resource =
   | { read(): Promise<ReadableStream> | ReadableStream };
 
 interface MessageContent {
-  type: MessageContentType;
+  type: MessageContentType; // 'text' | 'image' | 'file' | 'audio' | 'video'
   content: Resource;
   format?: string;
+  name?: string;               // file name shown to the model
+  detail?: 'auto' | 'low' | 'high' | 'original';
+  cacheBreakpoint?: boolean;   // end of a reusable prefix to cache
 }
 
 interface Message {
@@ -101,7 +104,29 @@ type ToolChoice = 'auto' | 'none' | 'required' | { tool: string };
 ### Request / Response
 
 ```typescript
-type ReasoningEffort = 'low' | 'medium' | 'high';
+const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+type ReasoningEffort = typeof REASONING_EFFORTS[number];
+type Verbosity = 'low' | 'medium' | 'high';
+type ServiceTier = 'auto' | 'default' | 'flex' | 'fast' | 'scale';
+type OutputModality = 'text' | 'image' | 'audio';
+type AudioFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+
+interface Reason {
+  effort?: ReasoningEffort;
+  maxTokens?: number;
+  mode?: 'pro';
+  context?: 'auto' | 'all_turns' | 'current_turn';
+  summary?: 'auto' | 'concise' | 'detailed';
+  exclude?: boolean;
+}
+
+type HostedTool =
+  | { type: 'web_search'; maxResults?: number; allowedDomains?: string[]; blockedDomains?: string[] }
+  | { type: 'web_fetch' }
+  | { type: 'file_search'; vectorStoreIds: string[]; maxResults?: number }
+  | { type: 'code_interpreter' }
+  | { type: 'image_generation' }
+  | { type: 'mcp'; label: string; url: string; headers?: Record<string, string>; allowedTools?: string[] };
 type FinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'refusal';
 type ResponseFormat = 'text' | 'json' | { type: z.ZodType<object, object>; strict: boolean };
 type ModelInput = string | Model;
@@ -128,9 +153,17 @@ interface Request {
   toolsOneAtATime?: boolean;
   toolChoice?: ToolChoice;
   responseFormat?: ResponseFormat;
-  reason?: { effort?: ReasoningEffort; maxTokens?: number };
+  reason?: Reason;
   cacheKey?: string;
   userKey?: string;
+  seed?: number;
+  verbosity?: Verbosity;
+  serviceTier?: ServiceTier;
+  metadata?: Record<string, string>;
+  modalities?: OutputModality[];
+  audio?: { voice: string; format?: AudioFormat };
+  hostedTools?: HostedTool[];
+  moderate?: boolean;
   extra?: Record<string, any>;
 }
 
@@ -140,6 +173,11 @@ interface Response {
   finishReason: FinishReason;
   refusal?: string;
   reasoning?: Reasoning;
+  citations?: Array<{ url: string; title?: string; start?: number; end?: number }>;
+  images?: Array<{ url?: string; b64_json?: string; revisedPrompt?: string }>;
+  audio?: { id?: string; data?: string; transcript?: string; format?: AudioFormat };
+  moderation?: { input?: { flagged: boolean; categories: string[] }; output?: { flagged: boolean; categories: string[] } };
+  serviceTier?: ServiceTier;
   usage?: Usage;
   model: ModelInput;
 }
@@ -152,6 +190,11 @@ interface Chunk {
   finishReason?: FinishReason;
   refusal?: string;
   reasoning?: Reasoning;
+  citations?: Response['citations'];
+  images?: Response['images'];
+  audio?: Response['audio'];   // partial; parts are joined in order
+  moderation?: Response['moderation'];
+  serviceTier?: ServiceTier;
   usage?: Usage;
   model?: ModelInput;
 }
@@ -161,11 +204,12 @@ interface Chunk {
 
 ```typescript
 interface Usage {
-  text?: { input?: number; output?: number; cached?: number };
+  text?: { input?: number; output?: number; cached?: number; cacheWrite?: number };
   audio?: { input?: number; output?: number; seconds?: number };
-  image?: { input?: number; output?: Array<{ quality: string; size: { width: number; height: number }; count: number }> };
+  image?: { input?: number; tokens?: number; output?: Array<{ quality: string; size: { width: number; height: number }; count: number }> };
   reasoning?: { input?: number; output?: number; cached?: number };
   embeddings?: { count?: number; tokens?: number };
+  tools?: Partial<Record<HostedTool['type'], number>>; // hosted tool calls
   cost?: number;
 }
 ```
@@ -459,21 +503,24 @@ function isAsyncGenerator(value: any): value is AsyncGenerator;
 ### Model Types
 
 ```typescript
-type ModelCapability = 'chat' | 'tools' | 'vision' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'zdr';
+type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'zdr' | 'toolsStrict';
 type ModelTier = 'flagship' | 'efficient' | 'experimental';
 type ModelTokenizer = 'gpt3' | 'gpt35turbo' | 'gpt4' | 'cl100k' | 'claude' | 'llama2' | 'mistral' | 'other';
 
 type ModelParameter =
   | 'maxTokens' | 'temperature' | 'topP' | 'frequencyPenalty' | 'presencePenalty'
   | 'stop' | 'seed' | 'responseFormat' | 'structuredOutput' | 'tools' | 'toolChoice'
-  | 'logitBias' | 'logProbabilities' | 'reason';
+  | 'logitBias' | 'logProbabilities' | 'reason' | 'verbosity' | 'serviceTier'
+  | 'imageBackground' | 'imageMultiple' | 'imageFormat' | 'imageStream' | 'imageStyle'
+  | 'embeddingDimensions' | 'transcribeStream' | 'transcribePrompt' | 'speechInstructions' | 'toolsStrict';
 
 interface ModelPricing {
-  text?: { input: number; output: number; cached?: number };
+  text?: { input?: number; output?: number; cached?: number; cacheWrite?: number };
   audio?: { input?: number; output?: number; perSecond?: number };
-  image?: { input?: number; output?: Array<{ quality: string; sizes: Array<{ width: number; height: number; cost: number }> }> };
-  reasoning?: { input: number; output: number; cached?: number };
-  embeddings?: { cost: number };
+  image?: { input?: number; tokens?: number; output?: Array<{ quality: string; sizes: Array<{ width: number; height: number; cost: number }> }> };
+  reasoning?: { input?: number; output?: number; cached?: number };
+  embeddings?: { cost?: number };
+  tools?: Partial<Record<HostedTool['type'], number>>; // $ per call
   perRequest?: number;
 }
 
@@ -489,6 +536,9 @@ interface ModelInfo<TProvider extends string = string> {
   tokenizer: ModelTokenizer;
   supportedParameters: Set<ModelParameter>;
   metrics?: { timeToFirstToken?: number; tokensPerSecond?: number };
+  strictFormat?: 'openai' | 'anthropic' | 'google' | 'xai' | 'none' | (string & {});
+  reasoningEfforts?: ReasoningEffort[]; // accepted, lowest to highest; requests are clamped to them
+  retiresAt?: string;                   // YYYY-MM-DD; retired models are never selected
   metadata?: Record<string, any>;
 }
 
@@ -557,15 +607,26 @@ interface Provider<TConfig = any> {
 ### API Request/Response Types
 
 ```typescript
-interface ImageGenerationRequest {
+type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+interface ImageOutputOptions {
   model?: ModelInput;
   prompt: string;
   n?: number;
-  size?: string;
-  quality?: 'low' | 'medium' | 'high';
-  style?: 'vivid' | 'natural';
+  size?: string;            // WIDTHxHEIGHT or 'auto'; nearest supported size is used
+  quality?: ImageQuality;
+  background?: 'transparent' | 'opaque' | 'auto';
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  outputCompression?: number; // 0-100
   responseFormat?: 'url' | 'b64_json';
+  streamCount?: number;
   seed?: number;
+  userIdentifier?: string;
+}
+
+interface ImageGenerationRequest extends ImageOutputOptions {
+  style?: 'vivid' | 'natural';
+  moderation?: 'auto' | 'low';
 }
 
 interface ImageGenerationResponse {
@@ -574,13 +635,11 @@ interface ImageGenerationResponse {
   model: ModelInput;
 }
 
-interface ImageEditRequest {
-  model?: ModelInput;
-  prompt: string;
+interface ImageEditRequest extends ImageOutputOptions {
   image: Resource;
+  references?: Resource[];  // more input images
   mask?: Resource;
-  n?: number;
-  size?: string;
+  inputFidelity?: 'low' | 'high';
 }
 
 interface ImageAnalyzeRequest {
@@ -597,11 +656,14 @@ interface TranscriptionRequest {
   language?: string;
   prompt?: string;
   temperature?: number;
-  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json';
+  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json' | 'diarized_json';
+  timestampGranularities?: Array<'word' | 'segment'>;
+  knownSpeakers?: Array<{ name: string; audio: Resource }>;
 }
 
 interface TranscriptionResponse {
   text: string;
+  segments?: Array<{ id: string; start: number; end: number; text: string; speaker?: string }>;
   usage?: Usage;
   model: ModelInput;
 }
@@ -610,7 +672,7 @@ interface SpeechRequest {
   model?: ModelInput;
   text: string;
   instructions?: string;
-  voice?: string;
+  voice?: string;  // built-in name or custom voice id
   speed?: number;
   responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
 }
@@ -794,6 +856,7 @@ interface OpenAIConfig {
   organization?: string;
   project?: string;
   store?: boolean;
+  api?: 'auto' | 'chat' | 'responses'; // auto: Responses for Responses-only models, hostedTools, or reason.mode/summary/context
   retry?: {
     maxRetries?: number;
     initialDelay?: number;
@@ -806,6 +869,7 @@ interface OpenAIConfig {
   retryEvents?: RetryEvents;
   hooks?: {
     chat?: { beforeRequest?; afterRequest?; onError? };
+    responses?: { beforeRequest?; afterRequest?; onError? };
     imageGenerate?: { beforeRequest?; afterRequest?; onError? };
     imageEdit?: { beforeRequest?; afterRequest?; onError? };
     speech?: { beforeRequest?; afterRequest?; onError? };
@@ -814,12 +878,12 @@ interface OpenAIConfig {
   };
   defaultModels?: {
     chat?: ModelInput;
-    imageGenerate?: ModelInput;
-    imageEdit?: ModelInput;
-    imageAnalyze?: ModelInput;
-    transcription?: ModelInput;
-    speech?: ModelInput;
-    embedding?: ModelInput;
+    imageGenerate?: ModelInput;   // default 'gpt-image-2'
+    imageEdit?: ModelInput;       // default 'gpt-image-2'
+    imageAnalyze?: ModelInput;    // default 'gpt-5.4-mini'
+    transcription?: ModelInput;   // default 'gpt-transcribe'
+    speech?: ModelInput;          // default 'gpt-4o-mini-tts'
+    embedding?: ModelInput;       // default 'text-embedding-3-small'
   };
 }
 ```
@@ -829,7 +893,8 @@ interface OpenAIConfig {
 ## @aeye/openrouter — Config
 
 ```typescript
-interface OpenRouterConfig extends OpenAIConfig {
+// Always Chat Completions (no `api` option)
+interface OpenRouterConfig extends Omit<OpenAIConfig, 'api'> {
   defaultParams?: {
     siteUrl?: string;
     appName?: string;
@@ -839,12 +904,21 @@ interface OpenRouterConfig extends OpenAIConfig {
       requireParameters?: boolean;
       dataCollection?: 'deny' | 'allow';
       zdr?: boolean;
+      enforceDistillableText?: boolean;
       only?: string[];
       ignore?: string[];
-      quantizations?: ('int4' | 'int8' | 'fp4' | 'fp6' | 'fp8' | 'fp16' | 'bf16' | 'fp32' | 'unknown')[];
-      sort?: 'price' | 'throughput' | 'latency';
-      maxPrice?: { prompt?: number; completion?: number; image?: number };
+      quantizations?: ('int4' | 'int8' | 'fp4' | 'mxfp4' | 'nvfp4' | 'fp6' | 'fp8' | 'mxfp8' | 'fp16' | 'bf16' | 'fp32' | 'unknown')[];
+      sort?: OpenRouterSort | { by: OpenRouterSort; partition?: 'model' | 'none' }; // 'price' | 'throughput' | 'latency' | 'exacto'
+      preferredMinThroughput?: number; // tokens/s
+      preferredMaxLatency?: number;    // seconds
+      maxPrice?: { prompt?: number; completion?: number; image?: number; audio?: number; request?: number };
     };
+    fallbackModels?: string[];
+    plugins?: Array<
+      | { id: 'file-parser'; pdf?: { engine?: string } }
+      | { id: 'response-healing' }
+      | { id: 'context-compression'; engine?: 'middle-out' }>;
+    /** @deprecated middle-out is sent as the context-compression plugin */
     transforms?: string[];
   };
 }

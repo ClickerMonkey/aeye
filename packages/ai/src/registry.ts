@@ -351,6 +351,10 @@ export function getProviderCapabilities(provider: Provider): Set<ModelCapability
   // It cannot be detected from provider methods alone
   capabilities.add('vision');
 
+  // files, videoInput - Like vision, carried by chat messages
+  capabilities.add('files');
+  capabilities.add('videoInput');
+
   // audio - Text-to-speech synthesis
   if (provider.speech !== undefined) {
     capabilities.add('audio');
@@ -765,6 +769,11 @@ export class ModelRegistry<
     model: ModelInfo<TProviderKey>,
     criteria: AIBaseMetadata<TProviders>
   ): ModelApplicability | null {
+    // Retired models can no longer serve requests (ISO dates compare as strings)
+    if (model.retiresAt && model.retiresAt <= new Date().toISOString().slice(0, 10)) {
+      return null;
+    }
+
     // Check provider allowlist/blocklist
     if (criteria.providers) {
       if (criteria.providers.deny?.includes(model.provider)) {
@@ -1135,6 +1144,8 @@ export class ModelRegistry<
       supportedParameters: source.supportedParameters ?? base.supportedParameters,
       tokenizer: source.tokenizer ?? base.tokenizer,
       strictFormat: source.strictFormat ?? base.strictFormat,
+      reasoningEfforts: source.reasoningEfforts ?? base.reasoningEfforts,
+      retiresAt: source.retiresAt ?? base.retiresAt,
     };
   }
 
