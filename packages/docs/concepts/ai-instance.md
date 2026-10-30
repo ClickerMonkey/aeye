@@ -72,9 +72,12 @@ Creates the AI instance with optional configuration:
 | `ai.speech` | [`SpeechAPI`](/reference/ai/speech-api) | Text-to-speech |
 | `ai.transcribe` | [`TranscribeAPI`](/reference/ai/transcribe-api) | Speech-to-text |
 | `ai.embed` | [`EmbedAPI`](/reference/ai/embed-api) | Text embeddings |
+| `ai.rerank` | [`RerankAPI`](/reference/ai/rerank-api) | Order documents by relevance |
+| `ai.decide` | [`DecideAPI`](/reference/ai/decide-api) | Typed answers from decision models |
+| `ai.batch` | [`BatchAPI`](/reference/ai/batch-api) | Provider batches of chat requests |
 | `ai.models` | [`ModelsAPI`](/reference/ai/models-api) | Model registry and search |
 
-Each API has `.get()` and `.stream()` methods (except `embed` which only has `.get()`).
+Each API has `.get()` and `.stream()` methods, except `embed`, `rerank`, and `decide`, which only have `.get()`. `batch` has `submit()`, `get()`, and `wait()`.
 
 ### Infrastructure
 

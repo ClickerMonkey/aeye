@@ -41,6 +41,10 @@ const openrouter = new OpenRouterProvider({
     fallbackModels: ['openai/gpt-5.4-mini'], // tried in order if the requested model fails
     plugins: [{ id: 'response-healing' }],   // 'file-parser' | 'response-healing' | 'context-compression'
   },
+  defaultModels: {
+    rerank: 'cohere/rerank-v3.5',            // default
+    decision: 'typesafe/jev-1.14',           // default
+  },
 });
 ```
 
@@ -126,11 +130,33 @@ const openrouter = new OpenRouterProvider({
 - `moderate` is not sent (OpenRouter ignores OpenAI's inline moderation).
 - Requests always go through Chat Completions (`OpenRouterConfig` has no `api` option); routing, plugins, server tools, and reasoning options all work there.
 
+### Tools
+
+- `toolChoice: { allowed, required? }` is emulated: only the allowed tools are sent, with `tool_choice` `required` or `auto`. OpenRouter ignores `allowed_tools` (models still call the other tools, and some upstreams reject it), so the cache benefit of sending every tool is lost.
+- Free-text tools (`format`) are sent as a function with one `input` field; a grammar is appended to the description, so the model is asked, not forced, to follow it.
+- `defer` and `async` are not offered; those tools are sent as ordinary tools.
+
 ### Images, Speech, Transcription, Embeddings
 
 - Images generate and edit through chat with the image modality (default `google/gemini-2.5-flash-image`); `size` becomes an aspect ratio, and edit `image` + `references` are sent as input images. No image streaming.
 - Embeddings (default `openai/text-embedding-3-small`), speech, and transcription (default `openai/gpt-transcribe`) use OpenRouter's OpenAI-compatible endpoints. Speech has no default model. No transcription streaming.
 - Image analysis defaults to `openai/gpt-5.4-mini`.
+
+### Reranking
+
+`ai.rerank` calls OpenRouter's `/rerank` endpoint, which serves Cohere, Voyage, Qwen, and NVIDIA Nemotron rerankers (default `cohere/rerank-v3.5`). The cost OpenRouter reports comes back as `usage.cost`. See [Reranking](/guides/rerank).
+
+```typescript
+const { results } = await ai.rerank.get({ query: 'refund policy', documents, topN: 3 });
+```
+
+### Decisions
+
+`ai.decide` calls OpenRouter's alpha decisions endpoint (outside the versioned API). It serves System One models such as `typesafe/jev-1.14` (the default) and `jaredpalmer/kev-4b`, plus `openai/gpt-6-luna-decisions`, `liquid/d1`, the Perplexity deciders, and others. A conversation `input` is sent as chat messages, and the cost OpenRouter reports comes back as `usage.cost`. See [Decisions](/guides/decisions).
+
+### Batches
+
+`ai.batch.submit` posts the requests inline to `/batches` as Chat Completions calls; `ai.batch.get` returns the results inline once the batch completes, in request order. See [Batches](/guides/batch).
 
 ### Model Source
 
@@ -153,7 +179,7 @@ const ai = AI.with()
 await ai.models.refresh();
 ```
 
-The source lists every output modality (chat, image, speech, transcription, and embedding models), reads capabilities from each modality (`files`, `videoInput`, `audio`, `hearing`, ...), cache read/write, audio, image-token, and web-search pricing, accepted reasoning efforts, and `expiration_date` as `retiresAt`.
+The source lists every output modality (chat, image, speech, transcription, embedding, rerank, and decision models; the `rerank` and `decisions` modalities map to the `rerank` and `decision` capabilities), reads capabilities from each modality (`files`, `videoInput`, `audio`, `hearing`, ...), cache read/write, audio, image-token, and web-search pricing, accepted reasoning efforts, and `expiration_date` as `retiresAt`.
 
 ## Capabilities
 
@@ -162,6 +188,7 @@ All capabilities are available depending on the underlying model:
 - Structured Output, JSON mode
 - Image generation and editing, Audio output
 - Speech, Transcription, Embeddings
+- Reranking, Decisions, Batches
 - Zero Data Retention
 
 ## Cost Tracking

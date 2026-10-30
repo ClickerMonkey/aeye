@@ -1,9 +1,39 @@
 import Handlebars from 'handlebars';
-import { ZodType } from 'zod';
+import z, { ZodType } from 'zod';
 import { Fn, repairStringEncodedFields, resolveFn } from './common';
 import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
-import { Component, ComponentCompatible, Context, OptionalParams, SchemaDelivery, ToolDefinition, Tuple } from './types';
+import { Component, ComponentCompatible, Context, OptionalParams, Request, SchemaDelivery, ToolChoice, ToolDefinition, ToolTextFormat, Tuple } from './types';
     
+/**
+ * The schema of a free-text tool (`ToolDefinition.format`): the text arrives
+ * as `input`.
+ */
+export const TEXT_TOOL_SCHEMA = z.object({ input: z.string() });
+
+/**
+ * Whether a tool choice makes the model call a tool.
+ */
+export function forcesTool(choice: ToolChoice | undefined): boolean {
+  return choice === 'required' || (typeof choice === 'object' && ('tool' in choice || !!choice.required));
+}
+
+/**
+ * The request with only its allowed tools, for providers that can't limit
+ * the tools a model may call while sending them all. The tools keep their
+ * identity, so descriptors pinned on them still reach the Prompt.
+ */
+export function withAllowedTools(request: Request): Request {
+  const choice = request.toolChoice;
+  if (typeof choice !== 'object' || !('allowed' in choice)) {
+    return request;
+  }
+  return {
+    ...request,
+    tools: request.tools?.filter(tool => choice.allowed.includes(tool.name)),
+    toolChoice: choice.required ? 'required' : 'auto',
+  };
+}
+
 /**
  * Configuration for creating a Tool component.
  * Tools extend AI capabilities by allowing interaction with external systems, APIs, or custom logic.
@@ -113,6 +143,12 @@ export interface ToolInput<
    * payload. Unset = no cap.
    */
   maxArgsLength?: number;
+  /** Takes free text as `input` instead of JSON; see `ToolDefinition.format` */
+  format?: ToolTextFormat;
+  /** Loaded only when the model searches for it; see `ToolDefinition.defer` */
+  defer?: boolean;
+  /** The model keeps working while the tool runs; see `ToolDefinition.async` */
+  async?: boolean;
   /** Optional function to determine if the component is applicable in the given context */
   applicable?: <
     TRuntimeContext extends TContext, 
@@ -455,6 +491,9 @@ export class Tool<
         description,
         parameters,
         strict,
+        format: this.input.format,
+        defer: this.input.defer,
+        async: this.input.async,
       },
     ] as const;
   }

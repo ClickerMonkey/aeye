@@ -5,7 +5,6 @@
  */
 
 import type { Usage } from '@aeye/core';
-import type { AI } from '../ai';
 import type {
   AIBaseTypes,
   AIContext,
@@ -16,32 +15,15 @@ import type {
   ModelHandlerFor,
   SelectedModelFor
 } from '../types';
-import { BaseAPI } from './base';
+import { GetAPI } from './get';
 
-export class EmbedAPI<T extends AIBaseTypes> extends BaseAPI<
-  T,
-  EmbeddingRequest,
-  EmbeddingResponse,
-  never
-> {
-  constructor(ai: AI<T>) {
-    super(ai);
-  }
-
-  // ============================================================================
-  // REQUIRED ABSTRACT METHOD IMPLEMENTATIONS
-  // ============================================================================
-
-  protected getRequiredCapabilities(provided: ModelCapability[], request: EmbeddingRequest, forStreaming: boolean): ModelCapability[] {
+export class EmbedAPI<T extends AIBaseTypes> extends GetAPI<T, EmbeddingRequest, EmbeddingResponse> {
+  protected getRequiredCapabilities(provided: ModelCapability[]): ModelCapability[] {
     return ['embedding', ...provided];
   }
 
-  protected getRequiredParameters(provided: ModelParameter[], request: EmbeddingRequest, forStreaming: boolean): ModelParameter[] {
-    const params = new Set<ModelParameter>([...provided]);
-
-    if (request.dimensions !== undefined) params.add('embeddingDimensions');
-
-    return Array.from(params);
+  protected getRequiredParameters(provided: ModelParameter[], request: EmbeddingRequest): ModelParameter[] {
+    return request.dimensions !== undefined ? [...new Set<ModelParameter>([...provided, 'embeddingDimensions'])] : provided;
   }
 
   protected getNoModelFoundError(): string {
@@ -68,18 +50,6 @@ export class EmbedAPI<T extends AIBaseTypes> extends BaseAPI<
     );
   }
 
-  protected async *executeStreamRequest(
-    request: EmbeddingRequest,
-    selected: SelectedModelFor<T>,
-    ctx: AIContext<T>
-  ): AsyncIterable<never> {
-    throw new Error('Streaming not supported for embeddings');
-  }
-
-  // ============================================================================
-  // OPTIONAL OVERRIDES
-  // ============================================================================
-
   protected estimateRequestUsage(request: EmbeddingRequest): Usage {
     const totalTextLength = request.texts.reduce((sum, text) => sum + text.length, 0);
     const tokens = Math.ceil(totalTextLength / 4);
@@ -91,31 +61,13 @@ export class EmbedAPI<T extends AIBaseTypes> extends BaseAPI<
     };
   }
 
-  protected responseToChunks(response: EmbeddingResponse): never {
-    throw new Error('Embeddings do not support chunking');
-  }
-
-  protected chunksToResponse(chunks: never[]): EmbeddingResponse {
-    throw new Error('Embeddings do not support chunking');
-  }
-
   protected getHandlerGetMethod(
     handler?: ModelHandlerFor<T>
   ): ((request: EmbeddingRequest, ctx: AIContext<T>) => Promise<EmbeddingResponse>) | undefined {
     return handler?.embed?.get;
   }
 
-  protected getHandlerStreamMethod(
-    handler?: ModelHandlerFor<T>
-  ): ((request: EmbeddingRequest, ctx: AIContext<T>) => AsyncIterable<never>) | undefined {
-    return undefined;
-  }
-
   protected hasProviderExecutor(selected: SelectedModelFor<T>): boolean {
     return !!selected.provider.embed;
-  }
-
-  protected hasProviderStreamer(selected: SelectedModelFor<T>): boolean {
-    return false; // Embed API doesn't support streaming
   }
 }

@@ -56,7 +56,7 @@ const getWeather = ai.tool({
 | `call` | `(input, refs, ctx) => output` | The function that runs when the tool is called |
 | `instructions` | `string` | Handlebars template with usage guidance |
 | `input` | `(ctx) => object` | Template variables for instructions |
-| `strict` | `boolean` | Enforce strict JSON schema (default: `true`) |
+| `strict` | `boolean \| number` | Strict tool inputs: `true` requires, `false` disables, a number is a preference priority (default: `1`) |
 | `refs` | `Component[]` | Other components this tool can use |
 | `validate` | `(input, ctx) => void` | Custom validation after schema parsing |
 | `applicable` | `(ctx) => boolean` | Context-based availability |
@@ -64,6 +64,11 @@ const getWeather = ai.tool({
 | `metadataFn` | `(input, ctx) => object` | Dynamic metadata |
 | `descriptionFn` | `(ctx) => string` | Dynamic description |
 | `instructionsFn` | `(ctx) => string` | Dynamic instructions |
+| `format` | `ToolTextFormat` | Free-text input, optionally grammar-constrained; use `TEXT_TOOL_SCHEMA` as the schema |
+| `defer` | `boolean` | Load only when the model searches for it (OpenAI tool search) |
+| `async` | `boolean` | The model keeps working while the tool runs (OpenAI Responses) |
+
+See [Tool Calling](/guides/tool-calling#free-text-and-grammar-tools) for free-text, deferred, and async tools.
 
 ## Instructions with Templates
 

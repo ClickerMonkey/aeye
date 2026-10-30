@@ -186,10 +186,28 @@ Schema sent to AI models:
 ```typescript
 interface ToolDefinition {
   name: string;
-  description: string;
-  parameters: z.ZodType;
-  strict?: boolean;
+  description?: string;
+  parameters: z.ZodType<object>;
+  strict?: boolean | number;
+  descriptor?: string;       // set by the provider while building the request
+  format?: ToolTextFormat;   // free-text input, arriving as `input`
+  defer?: boolean;           // loaded only when the model searches for it
+  async?: boolean;           // the model keeps working while the tool runs
 }
+```
+
+- `format`: the tool takes free text instead of JSON, so `parameters` is `{ input: string }` (`TEXT_TOOL_SCHEMA`). OpenAI sends it as a Responses custom tool; other providers send a one-field function, and Chat Completions appends the grammar to the description.
+- `defer`: OpenAI sends it with `defer_loading` and adds the hosted `tool_search` tool. Other providers send it as an ordinary tool.
+- `async`: an OpenAI Responses async tool. Other providers send it as an ordinary tool.
+
+Any of `format`, `defer`, or `async` makes the OpenAI provider use the Responses API (with `api: 'auto'`).
+
+### `ToolTextFormat`
+
+```typescript
+type ToolTextFormat =
+  | { type: 'text' }
+  | { type: 'grammar'; syntax: 'lark' | 'regex'; definition: string };
 ```
 
 ### `ToolCall`
@@ -207,8 +225,15 @@ interface ToolCall {
 ### `ToolChoice`
 
 ```typescript
-type ToolChoice = 'auto' | 'none' | 'required' | { tool: string };
+type ToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { tool: string }                          // call this tool
+  | { allowed: string[]; required?: boolean }; // only these tools; with `required`, one of them
 ```
+
+`{ allowed }` sends every tool but lets the model call only the named ones, which keeps the prompt cacheable. OpenAI sends it as `allowed_tools`; OpenRouter and AWS Bedrock send only the allowed tools instead (see `withAllowedTools`).
 
 ## Usage
 
@@ -357,3 +382,21 @@ interface Events<TRoot, TNodes> {
   onPromptEvent?: (instance: Instance<AnyPrompt>, event: PromptEvent) => void;
 }
 ```
+
+### `PromptEvent`
+
+Every event has a `type` and the `request` it belongs to; the other fields depend on the type (there is no `value` field):
+
+| Events | Fields |
+|--------|--------|
+| `textPartial`, `text`, `textComplete`, `refusal` | `content: string` |
+| `reason`, `reasonPartial` | `reasoning: Reasoning` |
+| `toolStart`, `toolInterrupt`, `toolSuspend` | `tool`, `args` |
+| `toolOutput` | `tool`, `args`, `result` (raw output), `toModel` (what the model sees) |
+| `toolError` | `tool`, `args`, `error: string`, `rawArgs?` |
+| `message` | `message: Message` |
+| `complete` | `output` |
+| `usage`, `requestUsage` | `usage: Usage` |
+| `request` | `iterations: number` |
+
+See [Prompt Events](/components/prompts#prompt-events) for the full list.

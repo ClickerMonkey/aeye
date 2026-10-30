@@ -48,9 +48,32 @@ const prompt = ai.prompt({
     // toolChoice: 'required',       // must call at least one tool
     // toolChoice: 'none',           // don't call any tools
     // toolChoice: { tool: 'tool1' }, // must call this specific tool
+    // toolChoice: { allowed: ['tool1'] },                 // may only call these tools
+    // toolChoice: { allowed: ['tool1'], required: true }, // must call one of these tools
   },
 });
 ```
+
+### Allowed Tools
+
+`{ allowed: [...] }` limits which tools the model may call while still sending every tool. Because the tool list doesn't change from one request to the next, the prompt stays cacheable, which matters when an agent narrows its tools step by step:
+
+```typescript
+const agent = ai.prompt({
+  name: 'support',
+  description: 'Answers customer questions',
+  content: 'Help the customer.',
+  tools: [lookupOrder, refund, escalate],
+  config: {
+    // Only let the model look the order up for now
+    toolChoice: { allowed: ['lookupOrder'], required: true },
+  },
+});
+```
+
+With `required: true` the model must call one of the allowed tools; without it, it may also answer in text.
+
+OpenAI sends this as `allowed_tools` (Chat Completions and Responses). OpenRouter and AWS Bedrock emulate it by sending only the allowed tools, because OpenRouter ignores `allowed_tools` and Bedrock has no equivalent. Emulation gives the same behavior but loses the caching benefit.
 
 ## Execution Modes
 
@@ -145,6 +168,100 @@ const critical = ai.tool({
 ```
 
 `@aeye` reconciles each provider's strict-mode dialect (OpenAI / Anthropic / Google) and handles per-request budgets so a request with many strict tools degrades gracefully. See the [Strict Mode guide](./strict-mode.md) for the full picture, including the curated `strictSupport` overrides you'll want to wire into your `AI` config.
+
+## Free-Text and Grammar Tools
+
+Some tools are easier for a model to call with plain text than with JSON: a SQL query, a shell command, a patch. Set `format` to take the input as free text, optionally constrained by a grammar:
+
+```typescript
+import { TEXT_TOOL_SCHEMA } from '@aeye/core';
+
+// Any text
+const runShell = ai.tool({
+  name: 'runShell',
+  description: 'Run a shell command and return its output',
+  schema: TEXT_TOOL_SCHEMA,
+  format: { type: 'text' },
+  call: async ({ input }) => exec(input),
+});
+
+// Text that matches a Lark grammar
+const query = ai.tool({
+  name: 'query',
+  description: 'Run a read-only SQL query',
+  schema: TEXT_TOOL_SCHEMA,
+  format: {
+    type: 'grammar',
+    syntax: 'lark',
+    definition: `
+      start: "SELECT " columns " FROM " TABLE (" WHERE " condition)? ";"
+      columns: "*" | COLUMN (", " COLUMN)*
+      condition: COLUMN " = " VALUE
+      TABLE: /orders|customers/
+      COLUMN: /[a-z_]+/
+      VALUE: /'[^']*'|[0-9]+/
+    `,
+  },
+  call: async ({ input }) => db.query(input),
+});
+
+// Text that matches a regular expression
+const setDate = ai.tool({
+  name: 'setDate',
+  description: 'Set the due date',
+  schema: TEXT_TOOL_SCHEMA,
+  format: { type: 'grammar', syntax: 'regex', definition: '\\d{4}-\\d{2}-\\d{2}' },
+  call: async ({ input }) => ({ due: input }),
+});
+```
+
+The text arrives as the `input` field, so a free-text tool's schema is always `{ input: string }`: use `TEXT_TOOL_SCHEMA`. Parsing, validation, and the prompt loop work as for any other tool.
+
+On OpenAI these are Responses API custom tools, which constrain the model's output to the grammar. Elsewhere a free-text tool is sent as an ordinary function with one `input` field; on Chat Completions (OpenAI with `api: 'chat'`, and OpenRouter) the grammar is appended to the tool's description, so the model is asked, not forced, to follow it.
+
+## Deferred Tools (Tool Search)
+
+An agent with many tools pays for every tool's definition on every request. Mark rarely used tools `defer: true` and they are loaded only when the model searches for them:
+
+```typescript
+const exportReport = ai.tool({
+  name: 'exportReport',
+  description: 'Export a report as CSV, PDF, or XLSX',
+  schema: z.object({ reportId: z.string(), format: z.enum(['csv', 'pdf', 'xlsx']) }),
+  defer: true,
+  call: async ({ reportId, format }) => reports.export(reportId, format),
+});
+```
+
+On OpenAI, deferred tools are sent with `defer_loading` and @aeye adds the hosted `tool_search` tool, through the Responses API. Other providers send deferred tools as ordinary tools.
+
+## Async Tools
+
+Mark a slow tool `async: true` to let the model keep working while it runs; its result can arrive on a later turn:
+
+```typescript
+const renderVideo = ai.tool({
+  name: 'renderVideo',
+  description: 'Render the storyboard to a video file',
+  schema: z.object({ storyboardId: z.string() }),
+  async: true,
+  call: async ({ storyboardId }) => renderer.render(storyboardId),
+});
+```
+
+Async tools are an OpenAI Responses API feature. Other providers send them as ordinary tools.
+
+## Provider Support
+
+| Feature | OpenAI | OpenRouter | AWS Bedrock |
+|---------|--------|------------|-------------|
+| `toolChoice: { allowed }` | `allowed_tools` | Emulated (only the allowed tools are sent) | Emulated (only the allowed tools are sent) |
+| `format: { type: 'text' }` | Custom tool (Responses) | One-field function | One-field function |
+| `format: { type: 'grammar' }` | Custom tool with grammar (Responses) | One-field function, grammar in the description | One-field function |
+| `defer` | Tool search (Responses) | Ordinary tool | Ordinary tool |
+| `async` | Async tool (Responses) | Ordinary tool | Ordinary tool |
+
+With the default `api: 'auto'`, any tool with `format`, `defer`, or `async` makes the OpenAI provider use the Responses API for that request.
 
 ## Error Handling
 

@@ -101,6 +101,8 @@ export type Providers = Record<string, Provider<any>>;
  * - audio: Audio output (text-to-speech, or a chat model that speaks)
  * - hearing: Audio input (speech-to-text, or a chat model that listens)
  * - embedding: Text embeddings
+ * - rerank: Ordering documents by relevance to a query
+ * - decision: Typed answers (probabilities, choices, scores) about an input
  * - zdr: Zero data retention
  */
 export type ModelCapability =
@@ -117,6 +119,8 @@ export type ModelCapability =
   | 'audio'
   | 'hearing'
   | 'embedding'
+  | 'rerank'
+  | 'decision'
   | 'zdr'
   // Strict tool-input enforcement. Auto-derived from `resolveStrictFormat(model)` returning a family.
   // Selection treats this as an *optional preference* when a request has any
@@ -816,6 +820,70 @@ export interface EmbeddingResponse extends BaseResponse {
 }
 
 /**
+ * Request to order documents by how relevant they are to a query.
+ */
+export interface RerankRequest extends BaseRequest {
+  query: string;
+  documents: string[];
+  // How many of the most relevant documents to return. Default all.
+  topN?: number;
+}
+
+/**
+ * Documents by relevance, most relevant first.
+ */
+export interface RerankResponse extends BaseResponse {
+  results: Array<{
+    // Position of the document in the request
+    index: number;
+    // Relevance to the query, from 0 to 1
+    score: number;
+  }>;
+}
+
+/**
+ * A question a decision model answers about the input.
+ *
+ * - predicate: how likely a condition is true
+ * - choice: which one of the choices applies, keyed by value with a
+ *   description of when it applies
+ * - score: where the input falls on ordered levels, lowest first
+ */
+export type DecisionQuestion =
+  | { type: 'predicate'; instructions: string }
+  | { type: 'choice'; instructions: string; choices: Record<string, string> }
+  | { type: 'score'; instructions: string; levels: string[] };
+
+/**
+ * A decision model's answer to one question. Probabilities run from 0 to 1;
+ * a score is the probability-weighted average of the level indices, so it
+ * can fall between levels.
+ */
+export type DecisionAnswer =
+  | { type: 'predicate'; probability: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  | { type: 'score'; score: number; probabilities: number[]; confidence: number }
+  | { type: 'refusal' };
+
+/**
+ * Request for typed answers about an input, from a decision model.
+ */
+export interface DecisionRequest extends BaseRequest {
+  // The evidence: text, or a conversation
+  input: string | Message[];
+  // Questions by name
+  questions: Record<string, DecisionQuestion>;
+}
+
+/**
+ * Answers to a decision request.
+ */
+export interface DecisionResponse extends BaseResponse {
+  // Answers by question name
+  answers: Record<string, DecisionAnswer>;
+}
+
+/**
  * Request for analyzing images with vision models.
  */
 export interface ImageAnalyzeRequest extends BaseRequest{
@@ -827,6 +895,40 @@ export interface ImageAnalyzeRequest extends BaseRequest{
   maxTokens?: number;
   // Sampling temperature
   temperature?: number;
+}
+
+/**
+ * Where a batch is in its run.
+ */
+export type BatchStatus = 'validating' | 'in_progress' | 'finalizing' | 'completed' | 'failed' | 'expired' | 'cancelling' | 'cancelled';
+
+/**
+ * A batch of chat requests running at a provider: cheaper than running
+ * them one by one, with results within about a day.
+ */
+export interface BatchJob {
+  id: string;
+  // Provider running the batch
+  provider: string;
+  // Model every request runs on
+  model: string;
+  status: BatchStatus;
+  // How many requests there are, and how many finished or failed so far
+  counts?: { total: number; completed: number; failed: number };
+  // Why the batch failed, when it did
+  error?: string;
+  // Dollars billed so far, where the provider reports it for the batch
+  cost?: number;
+  // One per request, in request order, once the batch completes
+  results?: BatchResult[];
+}
+
+/**
+ * The outcome of one request in a batch.
+ */
+export interface BatchResult {
+  response?: Response;
+  error?: string;
 }
 
 // ============================================================================
@@ -889,6 +991,14 @@ export interface ModelHandler<TContext extends AIContextAny = AIContextAny> {
 
   embed?: {
     get?: <TRuntimeContext extends TContext>(request: EmbeddingRequest, ctx: TRuntimeContext) => Promise<EmbeddingResponse>;
+  };
+
+  rerank?: {
+    get?: <TRuntimeContext extends TContext>(request: RerankRequest, ctx: TRuntimeContext) => Promise<RerankResponse>;
+  };
+
+  decide?: {
+    get?: <TRuntimeContext extends TContext>(request: DecisionRequest, ctx: TRuntimeContext) => Promise<DecisionResponse>;
   };
 }
 
@@ -1094,6 +1204,18 @@ export interface Provider<TConfig = any> {
     config?: TConfig
   ): Promise<EmbeddingResponse>;
 
+  rerank?(
+    request: RerankRequest,
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<RerankResponse>;
+
+  decide?(
+    request: DecisionRequest,
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<DecisionResponse>;
+
   analyzeImage?(
     request: ImageAnalyzeRequest,
     ctx: AIContextAny,
@@ -1105,6 +1227,18 @@ export interface Provider<TConfig = any> {
     ctx: AIContextAny,
     config?: TConfig
   ): AsyncIterable<Chunk>;
+
+  submitBatch?(
+    requests: Request[],
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<BatchJob>;
+
+  getBatch?(
+    job: BatchJob,
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<BatchJob>;
 }
 
 // ============================================================================

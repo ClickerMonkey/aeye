@@ -2,7 +2,7 @@ import Handlebars from "handlebars";
 import { ZodString, ZodType } from 'zod';
 
 import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
-import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
+import { AnyTool, forcesTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify, decodeWire } from "./schema";
 
@@ -791,7 +791,7 @@ export class Prompt<
       responseFormat,
     };
 
-    const fixedToolChoice = request.toolChoice && (request.toolChoice === 'required' || typeof request.toolChoice === 'object');
+    const fixedToolChoice = forcesTool(request.toolChoice);
 
     if (fixedToolChoice && (!tools || tools.length === 0)) {
       throw new Error(`Prompt ${this.input.name} is configured to require tools, but no tools are available.`);

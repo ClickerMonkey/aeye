@@ -2,6 +2,10 @@
 
 @aeye can enforce that AI responses conform to a Zod schema, giving you type-safe structured data instead of free-form text.
 
+::: tip
+For classification, routing, and scoring (picking from a known set of answers), [Decisions](/guides/decisions) are about 10x faster and cheaper than structured output, and return probabilities.
+:::
+
 ## Basic Usage
 
 ```typescript
