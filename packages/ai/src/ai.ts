@@ -174,8 +174,8 @@ export class AI<T extends AIBaseTypes> {
     return {
       providers: <TProviders extends Providers>(providers: TProviders) => {
         return {
-          create: <TConfig extends Omit<AIConfig<TContext, TMetadata, TProviders>, 'providers'>>(
-            config: TConfig
+          create: <TConfig extends Omit<AIConfig<TContext, TMetadata, TProviders>, 'providers'> = {}>(
+            config?: TConfig
           ) => {
             return new AI<AITypesInfer<TContext, TMetadata, TProviders, TConfig>>({
               providers,
