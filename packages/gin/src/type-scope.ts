@@ -80,6 +80,32 @@ export interface TypeScope {
  * one overlay on another (`new LocalScope(session, { T: … })`), where the
  * inner binding wins.
  */
+const scopeIds = new WeakMap<object, number>();
+let scopeNext = 0;
+const idOf = (o: object): number => {
+  let id = scopeIds.get(o);
+  if (id === undefined) scopeIds.set(o, id = ++scopeNext);
+  return id;
+};
+const scopeKeys = new WeakMap<TypeScope, string>();
+
+/**
+ * A key that is EQUAL for two scopes that resolve every name the same way:
+ * the same parent chain over the same binding records. Identity would not
+ * do — `Extension.bindScope` builds a fresh `LocalScope` over the same
+ * bindings on every call, so no two calls would ever share a key.
+ */
+export function scopeKey(scope: TypeScope): string {
+  let key = scopeKeys.get(scope);
+  if (key === undefined) {
+    key = scope instanceof LocalScope
+      ? `${scopeKey(scope.parent)}/${idOf(scope.bindingsRecord)}`
+      : String(idOf(scope));
+    scopeKeys.set(scope, key);
+  }
+  return key;
+}
+
 export class LocalScope implements TypeScope {
   readonly parent: TypeScope;
   readonly registry: Registry;
@@ -97,6 +123,11 @@ export class LocalScope implements TypeScope {
 
   localLookup(name: string): Type | undefined {
     return this.local[name];
+  }
+
+  /** The binding record itself — its identity is what `scopeKey` reads. */
+  get bindingsRecord(): Record<string, Type> {
+    return this.local;
   }
 
   parse(def: unknown): Type {

@@ -1,5 +1,5 @@
 import type { Registry } from './registry';
-import { LocalScope, type TypeScope } from './type-scope';
+import { LocalScope, scopeKey, type TypeScope } from './type-scope';
 import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
 import { Expr } from './expr';
 import { Value, val } from './value';
@@ -900,6 +900,26 @@ export abstract class Type<T = any, O = any> implements Node {
     return { ...def, generic };
   }
 
+  /**
+   * This type's own DEFINITION, with every OTHER registered named type it
+   * reaches written as a reference — `{name}`, plus generic arguments for a
+   * specialization — instead of inlined. `toJSON()` writes everything out,
+   * which keeps a def self-contained but grows exponentially over types
+   * that share references (a model where Entity, World and their parts all
+   * reach each other). Re-parses in any registry that holds those names.
+   */
+  toDefinitionJSON(): TypeDef {
+    const saved = definitionRefs.depth;
+    definitionRefs.active++;
+    definitionRefs.depth = 0;
+    try {
+      return this.toJSON();
+    } finally {
+      definitionRefs.active--;
+      definitionRefs.depth = saved;
+    }
+  }
+
   /** Default / zero raw value — used by { kind: 'new' } with no args. */
   abstract create(): RuntimeOf<T>;
 
@@ -933,9 +953,67 @@ export abstract class Type<T = any, O = any> implements Node {
    * Concrete types implement {@link compatibleType}, never this.
    */
   compatible(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
-    const variants = orVariants(other);
-    if (variants) return variants.every((v) => this.compatible(v, opts, scope));
-    return this.compatibleType(other, opts, scope);
+    // A RESOLVABLE alias on the right is the type it names. Without this a
+    // concrete left side compared against the AliasType object itself and
+    // refused it, so a lazy reference (a forward `Rng<num>`, a name bound in
+    // a scope overlay) was not compatible even with ITSELF — `list<Rng<num>>`
+    // refused `list<Rng<num>>`. An unresolved alias stays as it is: it is a
+    // placeholder, and each class already decides what a placeholder means.
+    for (let i = 0; other.name === 'alias' && i < 8; i++) {
+      const resolved = other.simplify(scope);
+      if (resolved === other) break;
+      other = resolved;
+    }
+    // Recursive types (`Node` → `optional<Node>`, Entity ↔ World) reach the
+    // same pair again. Assume it holds while it is being decided — the
+    // coinductive reading, and the only one that terminates.
+    // Every type accepts itself, in every mode.
+    if (other === this) return true;
+    const c = compatState;
+    const key = compatKey(opts, scope);
+    const inProgress = c.active.get(this)?.get(other);
+    if (inProgress !== undefined && inProgress.key === key) {
+      c.lowWater = Math.min(c.lowWater, inProgress.depth);
+      return true;
+    }
+    // Over types that share references the same pair recurs along many
+    // paths, and deciding each afresh is exponential. Memoized for the
+    // length of ONE outermost call only, so a lazy reference that resolves
+    // later can never meet a stale answer. A `true` that leaned on an
+    // assumption is kept only once the frame that made the assumption is
+    // done; a `false` holds whatever was assumed.
+    const memo = c.memo.get(this)?.get(other)?.get(key);
+    if (memo !== undefined) return memo;
+
+    const depth = c.depth++;
+    let row = c.active.get(this);
+    if (!row) c.active.set(this, row = new Map());
+    row.set(other, { depth, key });
+    const outerLow = c.lowWater;
+    c.lowWater = Infinity;
+    let result = false;
+    try {
+      const variants = orVariants(other);
+      result = variants
+        ? variants.every((v) => this.compatible(v, opts, scope))
+        : this.compatibleType(other, opts, scope);
+      if (!result || c.lowWater >= depth) {
+        let byOther = c.memo.get(this);
+        if (!byOther) c.memo.set(this, byOther = new Map());
+        let byKey = byOther.get(other);
+        if (!byKey) byOther.set(other, byKey = new Map());
+        byKey.set(key, result);
+      }
+      return result;
+    } finally {
+      row.delete(other);
+      c.lowWater = Math.min(outerLow, c.lowWater);
+      if (--c.depth === 0) {
+        c.memo = new Map();
+        c.active = new Map();
+        c.lowWater = Infinity;
+      }
+    }
   }
 
   /**
@@ -1988,7 +2066,11 @@ export abstract class Type<T = any, O = any> implements Node {
   validate(engine: Engine): Problems {
     const p = new Problems();
     try {
-      this.registry.parse(this.toJSON());
+      // The DEFINITION form: every other registered type this one reaches is
+      // validated on its own, so here it is a name. The fully inlined
+      // `toJSON()` grows exponentially over types that share references,
+      // and ran a 3,500-type model out of memory.
+      this.registry.parse(this.toDefinitionJSON());
     } catch (err) {
       p.error('type.invalid', (err as Error).message);
     }
@@ -2005,6 +2087,31 @@ export abstract class Type<T = any, O = any> implements Node {
    */
   describe?(data: unknown, cache?: Map<unknown, Type>): Type | undefined;
 }
+
+/**
+ * Bookkeeping for one outermost {@link Type.compatible} call: the pairs being
+ * decided (with their stack depth, for the cycle assumption), the answers
+ * already settled, and the shallowest assumption the current frame leaned on.
+ */
+const compatState = {
+  depth: 0,
+  lowWater: Infinity,
+  active: new Map<Type, Map<Type, { depth: number; key: string }>>(),
+  memo: new Map<Type, Map<Type, Map<string, boolean>>>(),
+};
+
+function compatKey(opts: CompatOptions | undefined, scope: TypeScope | undefined): string {
+  return `${opts?.strict ? 1 : 0}${opts?.value ? 1 : 0}${opts?.exact ? 1 : 0}:${scope ? scopeKey(scope) : ''}`;
+}
+
+/**
+ * State for {@link Type.toDefinitionJSON}: `active` while a definition is
+ * being written, `depth` counting the Extensions entered inside it.
+ * Module-level because `toJSON()` takes no options and is called from
+ * every composite; the counter is what tells the outermost type (written in
+ * full) from a nested registered one (written as a reference).
+ */
+export const definitionRefs = { active: 0, depth: 0 };
 
 /**
  * Serialize a type's `options` as gin's `{key=value, …}` suffix. Empty

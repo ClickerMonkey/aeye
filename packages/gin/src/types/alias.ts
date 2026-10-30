@@ -2,6 +2,7 @@ import type { PathStepDef, TypeDef } from '../schema';
 import type { Registry } from '../registry';
 import { Value } from '../value';
 import {
+  optionsCode,
   type Call,
   type CompatOptions,
   type GetSet,
@@ -22,6 +23,12 @@ import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 
 export interface AliasOptions {
   name: string;
+  /**
+   * Use-site OPTIONS narrowing the named type (`PlayerText{maxLength=40}`).
+   * Present only on a reference the registry could not apply eagerly — see
+   * {@link AliasType} "Use-site arguments".
+   */
+  options?: Record<string, unknown>;
 }
 
 /**
@@ -47,14 +54,32 @@ export interface AliasOptions {
  *     class instance).
  *   - Miss → AliasType behaves as an unbound placeholder (compatible
  *     with everything, validates anything, no props).
+ *
+ *   Use-site arguments: a reference may also carry generic ARGUMENTS
+ *   (`Node<T>`, kept in `this.generic`) and narrowing OPTIONS
+ *   (`PlayerText{maxLength=40}`, kept in `options.options`). The registry
+ *   applies those eagerly when the name is already registered; it builds an
+ *   AliasType carrying them when the name is bound in a LocalScope (a scope
+ *   overlay or a generic placeholder), or not bound yet at all (a self or
+ *   forward reference — `next?: Node<T>` inside `Node<T>`, or
+ *   `When<A>` ↔ `Condition<A>`). On resolve the target is specialized
+ *   and narrowed via `Registry.applyUse`, once per target.
  */
 export class AliasType extends Type<any, AliasOptions> {
   static readonly NAME = 'alias';
   readonly name = AliasType.NAME;
 
-  constructor(scope: TypeScope, options: AliasOptions) {
-    super(scope, options);
+  constructor(scope: TypeScope, options: AliasOptions, generic: Record<string, Type> = {}) {
+    super(scope, options, generic);
   }
+
+  /** True when this reference carries use-site arguments or options. */
+  get hasUse(): boolean {
+    return Object.keys(this.generic).length > 0 || this.options.options !== undefined;
+  }
+
+  /** Target → its specialized / narrowed form, so each target builds once. */
+  private applied?: WeakMap<Type, Type>;
 
   static from(json: TypeDef, scope: TypeScope): AliasType {
     return new AliasType(scope, { name: json.name });
@@ -77,11 +102,16 @@ export class AliasType extends Type<any, AliasOptions> {
    *  the captured `this.scope`. Returns undefined when unresolved (so
    *  callers can fall back to placeholder behavior). */
   private resolve(extra?: TypeScope): Type | undefined {
-    if (extra) {
-      const t = extra.lookup(this.options.name);
-      if (t) return t;
+    const t = (extra ? extra.lookup(this.options.name) : undefined)
+      ?? this.scope.lookup(this.options.name);
+    if (!t || !this.hasUse) return t;
+    this.applied ??= new WeakMap();
+    let use = this.applied.get(t);
+    if (!use) {
+      use = this.registry.applyUse(t, this.generic, this.options.options);
+      this.applied.set(t, use);
     }
-    return this.scope.lookup(this.options.name);
+    return use;
   }
 
   // ─── delegating ops ─────────────────────────────────────────────────────
@@ -159,7 +189,7 @@ export class AliasType extends Type<any, AliasOptions> {
   }
 
   narrow(local: Partial<AliasOptions>): AliasOptions {
-    return { name: local.name ?? this.options.name };
+    return { ...this.options, name: local.name ?? this.options.name };
   }
 
   props(scope?: TypeScope): Record<string, Prop | PropSpec> {
@@ -199,15 +229,23 @@ export class AliasType extends Type<any, AliasOptions> {
    *  no `options` wrapper. Round-trip relies on the parse-side scope to
    *  rebuild the AliasType. */
   toJSON(): TypeDef {
-    return { name: this.options.name };
+    if (!this.hasUse) return { name: this.options.name };
+    const generic = Object.entries(this.generic);
+    return {
+      name: this.options.name,
+      ...(generic.length > 0 ? { generic: Object.fromEntries(generic.map(([k, t]) => [k, t.toJSON()])) } : {}),
+      ...(this.options.options !== undefined ? { options: { ...this.options.options } } : {}),
+    } as TypeDef;
   }
 
   clone(): AliasType {
-    return new AliasType(this.scope, { ...this.options });
+    return new AliasType(this.scope, { ...this.options }, { ...this.generic });
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {
-    return this.docsPrefix(options) + this.options.name;
+    return this.docsPrefix(options) + this.options.name
+      + Type.renderGenericArgs(this.generic, options)
+      + optionsCode(this.options.options);
   }
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {

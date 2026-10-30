@@ -3,6 +3,52 @@
 Releases before `0.4.0` are recorded in the git log (`chore(release): @aeye/gin <version>`
 commits); this file starts here and is the place to look from now on.
 
+## Unreleased
+
+References with arguments resolve like bare names, and types that share
+references stay linear. Found loading the dg-engine model (3,534 types) into a
+registry: it hung as written, and parsed 1,873 types in a scope overlay. It now
+parses all 3,534 either way and `registry.validate` sweeps it in under a second.
+
+### Self, forward and scoped references with arguments (`Node<T>`, `PlayerText{maxLength=40}`)
+
+A bare name (`{name: 'Node'}`) resolves through the scope chain and, when nothing
+binds it yet, becomes a lazy `AliasType`. A reference carrying `generic` or
+`options` consulted registered names ONLY, so:
+
+```ts
+next?: Node<T>          // inside Node<T>        → threw "unknown type 'Node'"
+c: Cond<A>              // Cond declared later   → threw
+c: Cond<text>           // Cond bound in r.scope → threw, even when bound first
+PlayerText{maxLength=4} // PlayerText registered → options silently DROPPED: 8 chars valid
+```
+
+A use-site reference (a name plus `generic` and/or `options`, nothing else) now
+resolves LocalScope → registry → lazily. A lazy one is an `AliasType` carrying its
+arguments, applied on resolve. Options build an Extension marked `useSite` that
+prints and serializes as `PlayerText{maxLength=4}`; options that narrow nothing
+keep the registered identity, and widening still throws. A lowercase name one edit
+from a built-in (`lst<num>`) still throws with its suggestion.
+
+### `compatible` saw an alias on the right as a foreign type
+
+`list<Cond<num>>` was not compatible with itself when `Cond<num>` was lazy: the
+left resolved, the right stayed an `AliasType`, and no class accepts one. A
+resolvable alias on the right is now the type it names. Following aliases reaches
+cycles, so `compatible` assumes a pair it is already deciding (coinductive), and
+memoizes within one outermost call (keyed by options and by scope content, via the
+new `scopeKey`). A type is compatible with itself without a walk.
+
+### Shared references were serialized exponentially
+
+- `tuple<…>` serialized its elements in its CONSTRUCTOR; a registered element's
+  `toJSON` writes out everything it reaches. Now lazy and memoized, as `list` is.
+- `Extension.toJSON` serialized an anonymous base's props twice (4^depth). Once now.
+- New `Type.toDefinitionJSON()`: the type's own definition with every OTHER
+  registered type as `{name}` (plus arguments for a specialization).
+  `Type.validate`'s round-trip uses it; the fully inlined form ran a large model out
+  of memory. `toJSON()` is unchanged and still self-contained.
+
 ## 0.4.4
 
 One relation fix. `compatible` opens an `or` on the **right**, for every type —
