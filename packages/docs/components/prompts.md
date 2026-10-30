@@ -507,6 +507,10 @@ for await (const event of summarizer.run(input, ctx)) {
 | `refusal` | Model refused to respond |
 | `reason` | Reasoning trace (for reasoning models) |
 | `reasonPartial` | Partial reasoning chunk |
+| `citations` | Sources the model cited |
+| `images` | Images produced alongside the text |
+| `audioPartial` | Partial audio output |
+| `moderation` | Moderation verdicts (when `moderate` is set) |
 | `toolParseName` | Tool name parsed from response |
 | `toolParseArguments` | Tool arguments being parsed |
 | `toolStart` | Tool execution starting |

@@ -1,6 +1,6 @@
 # @aeye/openrouter
 
-One-line purpose: OpenRouter provider for `@aeye/ai` — one API key, hundreds of models from many upstream providers (OpenAI, Anthropic, Google, Meta, Mistral, …) with provider routing, fallbacks, ZDR, reasoning, and real cost reporting. Built as a subclass of `@aeye/openai`'s `OpenAIProvider`.
+One-line purpose: OpenRouter provider for `@aeye/ai` — one API key, hundreds of models from many upstream providers (OpenAI, Anthropic, Google, xAI, Meta, Mistral, …) with provider routing, fallback models, plugins, server tools, ZDR, reasoning, media endpoints, and real cost reporting. Built as a subclass of `@aeye/openai`'s `OpenAIProvider`.
 
 ## When to use
 
@@ -8,7 +8,7 @@ One-line purpose: OpenRouter provider for `@aeye/ai` — one API key, hundreds o
 - You need routing control (preferred providers, fallbacks, price/throughput/latency sorting) or Zero Data Retention.
 - You want a dynamic model registry with pricing/capabilities pulled from OpenRouter.
 
-Do **not** use it for image generation, image editing, transcription, speech, or embeddings — those operations are explicitly disabled (see Gotchas).
+It also serves image generation/editing (through chat with the image modality), speech, transcription, and embeddings (through OpenRouter's OpenAI-compatible endpoints). Image and transcription streaming are not offered; those fall back to the non-streaming methods.
 
 ## Install / import
 
@@ -16,7 +16,7 @@ Do **not** use it for image generation, image editing, transcription, speech, or
 npm install @aeye/openrouter
 ```
 
-`@aeye/openai`, `@aeye/ai`, `@aeye/core`, and `openai` ship as dependencies.
+`@aeye/openai`, `@aeye/ai`, `@aeye/core`, and `openai` (v7) ship as dependencies. Requires Node >= 22.
 
 ```typescript
 import {
@@ -27,6 +27,7 @@ import {
   type OpenRouterSourceConfig,
   fetchModels,
   fetchZDRModels,
+  fetchEndpointMetrics,
   convertOpenRouterModel,
 } from '@aeye/openrouter';
 ```
@@ -48,12 +49,12 @@ const ai = AI.with().providers({ openrouter }).create({ /* ... */ });
 // Model ids use provider/model form
 await ai.chat.get(
   { messages: [{ role: 'user', content: 'Hi' }] },
-  { metadata: { model: 'anthropic/claude-3.5-sonnet' } }
+  { metadata: { model: 'anthropic/claude-sonnet-4.5' } }
 );
 
 await ai.chat.get(
   { messages: [{ role: 'user', content: 'Hi' }] },
-  { metadata: { model: 'google/gemini-2.0-flash' } }
+  { metadata: { model: 'google/gemini-2.5-flash' } }
 );
 ```
 
@@ -66,7 +67,7 @@ await ai.chat.get(
 
 ## Configuration (`OpenRouterConfig`)
 
-`OpenRouterConfig extends OpenAIConfig`, so all OpenAI fields apply (`apiKey`, `baseURL`, `organization`, `project`, `store`, `retry`, `retryEvents`, `hooks`, `defaultModels`). It adds `defaultParams`:
+`OpenRouterConfig extends Omit<OpenAIConfig, 'api'>`, so the OpenAI fields apply (`apiKey`, `baseURL`, `organization`, `project`, `store`, `retry`, `retryEvents`, `hooks`, `defaultModels`) except `api`: requests always go through Chat Completions. It adds `defaultParams`:
 
 ```typescript
 const openrouter = new OpenRouterProvider({
@@ -80,18 +81,22 @@ const openrouter = new OpenRouterProvider({
       requireParameters: false,           // -> require_parameters
       dataCollection: 'deny',             // 'deny' | 'allow' -> data_collection
       zdr: true,                          // zero data retention
+      enforceDistillableText: false,      // -> enforce_distillable_text
       only: ['Anthropic'],                // whitelist upstreams
       ignore: ['Together'],               // blacklist upstreams
-      quantizations: ['bf16', 'fp16'],    // int4|int8|fp4|fp6|fp8|fp16|bf16|fp32|unknown
-      sort: 'price',                      // 'price' | 'throughput' | 'latency'
-      maxPrice: { prompt: 10, completion: 30, image: 0 }, // $/M tokens (image: $/image)
+      quantizations: ['bf16', 'fp16'],    // int4|int8|fp4|mxfp4|nvfp4|fp6|fp8|mxfp8|fp16|bf16|fp32|unknown
+      sort: 'price',                      // 'price' | 'throughput' | 'latency' | 'exacto', or { by, partition: 'model' | 'none' }
+      preferredMinThroughput: 50,         // -> preferred_min_throughput (tokens/s, median)
+      preferredMaxLatency: 2,             // -> preferred_max_latency (seconds, median)
+      maxPrice: { prompt: 10, completion: 30, image: 0 }, // $/M tokens (image: $/image); also audio, request
     },
-    transforms: ['middle-out'],           // context transforms
+    fallbackModels: ['openai/gpt-5.4-mini'], // -> models
+    plugins: [{ id: 'response-healing' }],   // file-parser | response-healing | context-compression
   },
 });
 ```
 
-`defaultParams.providers` is mapped onto OpenRouter's `provider` request object (camelCase → snake_case is handled internally).
+`defaultParams.providers` is mapped onto OpenRouter's `provider` request object (camelCase → snake_case is handled internally). `transforms` is deprecated: `transforms: ['middle-out']` is sent as the `context-compression` plugin. `requireParameters` left undefined is switched on automatically for strict `json_schema` requests.
 
 ## Provider routing
 
@@ -110,11 +115,18 @@ const openrouter = new OpenRouterProvider({
 
 ## Reasoning
 
-If a request sets `request.reason`, the provider emits OpenRouter's `reasoning` object (`enabled: true`, plus `effort` and `max_tokens`). Reasoning text and `reasoning_details` are parsed back onto `response.reasoning` (and streamed via chunks).
+If a request sets `request.reason`, the provider emits OpenRouter's `reasoning` object: `enabled: true`, either `max_tokens` (from `maxTokens`) or `effort` (clamped to the model's `reasoningEfforts`), never both, plus `exclude`, `summary`, `mode`, and `context`. No separate `reasoning_effort` is sent. Reasoning text and `reasoning_details` are parsed back onto `response.reasoning` (and streamed via chunks), and replayed from assistant messages on later turns.
+
+## Server tools and other request features
+
+- `hostedTools` run as OpenRouter server tools through chat: `web_search` → `openrouter:web_search` (`maxResults`, `allowedDomains`, `blockedDomains` → `excluded_domains`), `web_fetch` → `openrouter:web_fetch`, `image_generation` → `openrouter:image_generation`. `file_search`, `code_interpreter`, and `mcp` throw `ProviderError`. Calls are counted in `usage.tools`.
+- `cacheBreakpoint` on content goes as `cache_control: { type: 'ephemeral' }`.
+- `modalities` with `'image'` is passed through; images come back on `response.images` (streamed or not).
+- `userKey` goes as `user`. `moderate` is not sent (OpenRouter ignores OpenAI's inline moderation).
 
 ## Dynamic model registry (`OpenRouterModelSource`)
 
-Use OpenRouter as a `ModelSource` to populate the registry with live pricing, capabilities, context windows, and ZDR flags:
+Use OpenRouter as a `ModelSource` to populate the registry with live pricing, capabilities, context windows, and ZDR flags. It lists every output modality (chat, image, speech, transcription, and embedding models); capabilities come from each modality (`vision`, `files`, `videoInput`, `hearing`, `image`, `audioOutput`, `audio`, `embedding`); pricing covers cache read/write, audio, image tokens, and web search per call; `reasoningEfforts` and `retiresAt` (from `expiration_date`) are filled in:
 
 ```typescript
 import { OpenRouterModelSource } from '@aeye/openrouter';
@@ -133,13 +145,15 @@ const ai = AI.with()
 await ai.models.refresh();
 ```
 
-`fetchModels(apiKey?)` and `fetchZDRModels(apiKey?)` are exported for direct use.
+`fetchModels(apiKey?)`, `fetchZDRModels(apiKey?)`, and `fetchEndpointMetrics(modelId, apiKey?)` (best median latency in ms, throughput in tokens/s, and uptime across a model's providers) are exported for direct use.
 
 ## Supported capabilities
 
-Capabilities depend on the selected model, but the provider class supports: **chat, streaming, tools, structured output / JSON mode, reasoning, vision** (per model). Capabilities are auto-detected from each model's input/output modalities and `supported_parameters` during model conversion.
+Capabilities depend on the selected model, but the provider class supports: **chat, streaming, tools, hosted (server) tools, structured output / JSON mode, reasoning, vision, files, video input, image generation and editing, audio output, speech, transcription, embeddings** (per model). Capabilities are auto-detected from each model's input/output modalities and `supported_parameters` during model conversion.
 
-Explicitly **unsupported** (overridden to `undefined`): image generation, image generation streaming, image editing, transcription, transcription streaming, speech, embeddings.
+Default models: `google/gemini-2.5-flash-image` (image generate/edit), `openai/gpt-5.4-mini` (image analysis), `openai/gpt-transcribe`, `openai/text-embedding-3-small`; speech and chat have none.
+
+Not offered (overridden to `undefined`, so the non-streaming method is used): image generation streaming, image edit streaming, transcription streaming.
 
 ## Cost tracking
 
@@ -147,15 +161,15 @@ OpenRouter returns actual spend, surfaced on usage:
 
 ```typescript
 const response = await ai.chat.get({ messages });
-console.log(response.usage?.cost); // real cost reported by OpenRouter
+console.log(response.usage?.cost); // real cost reported by OpenRouter, including the upstream bill for BYOK requests
 ```
 
 (Available on both non-streaming responses and streamed usage chunks.)
 
 ## Gotchas
 
-- **Chat-only provider.** `generateImage`, `editImage`, `transcribe`, `speech`, and `embed` are set to `undefined` — calling those operations on this provider will not work; use OpenAI/AWS/Replicate for them.
-- Model ids are `provider/model` slugs (e.g. `anthropic/claude-3.5-sonnet`), not raw OpenAI ids.
-- Strict/structured output behavior is inherited from `OpenAIProvider` (best-effort, silent lenient fallback), but the accepted dialects are widened here: `supportedStrictFamilies = {'openai', 'anthropic', 'google'}`, because the model id's `family/…` prefix names the upstream that actually serves the request. This applies to **tool** schemas as well as `response_format`; before 0.4.x the inherited `{'openai'}` quietly forced every non-OpenAI model's tools through LENIENT.
+- **Images go through chat.** `generateImage` / `editImage` send a chat request with `modalities: ['image', 'text']` (running through the chat hooks); `size` becomes an `image_config.aspect_ratio`, and an edit's `image` + `references` are sent as input images. GPT Image options such as `quality` and `outputFormat` are not sent.
+- Model ids are `provider/model` slugs (e.g. `anthropic/claude-sonnet-4.5`), not raw OpenAI ids.
+- Strict/structured output behavior is inherited from `OpenAIProvider` (best-effort, silent fallback to the family's non-strict descriptor), but the accepted dialects are widened here: `supportedStrictFamilies = {'openai', 'anthropic', 'google', 'xai'}`, because the model id's `family/…` prefix names the upstream that actually serves the request. This applies to **tool** schemas as well as `response_format`; before 0.4.x the inherited `{'openai'}` quietly forced every non-OpenAI model's tools through LENIENT.
 - Assistant reasoning is split into a separate preceding message during conversion to work around OpenRouter not round-tripping reasoning attached to content — expect an extra assistant message in transformed payloads.
 - ZDR (`zdr: true` / `dataCollection: 'deny'`) only constrains upstreams that honor it; combine with `only`/`ignore` for strict guarantees.

@@ -8,7 +8,7 @@ Every model is described by a `ModelInfo` object:
 
 ```typescript
 interface ModelInfo {
-  id: string;                          // e.g., 'gpt-4o', 'claude-3-sonnet'
+  id: string;                          // e.g., 'gpt-5.4-mini', 'anthropic/claude-sonnet-4.5'
   provider: string;                    // e.g., 'openai', 'aws'
   name: string;                        // Human-readable name
   contextWindow: number;               // Max input tokens
@@ -18,9 +18,13 @@ interface ModelInfo {
   supportedParameters: Set<ModelParameter>;
   pricing: ModelPricing;               // Cost per million tokens
   metrics?: ModelMetrics;              // Performance benchmarks
+  reasoningEfforts?: ReasoningEffort[]; // Efforts the model accepts, lowest to highest (all when omitted)
+  retiresAt?: string;                  // YYYY-MM-DD the provider stops serving it
   metadata?: Record<string, any>;      // Provider-specific data
 }
 ```
+
+Models whose `retiresAt` date has arrived are never selected. A requested reasoning effort the model doesn't list in `reasoningEfforts` is clamped to the nearest one it does.
 
 ## Capabilities
 
@@ -31,15 +35,21 @@ Models declare their capabilities:
 | `chat` | Text chat completions |
 | `tools` | Function/tool calling |
 | `vision` | Image understanding |
-| `hearing` | Audio input |
+| `files` | Document (e.g. PDF) understanding |
+| `videoInput` | Video understanding |
+| `hearing` | Audio input / speech-to-text |
 | `json` | JSON output mode |
 | `structured` | Schema-enforced output |
 | `streaming` | Streaming responses |
-| `reasoning` | Extended thinking (o1, etc.) |
+| `reasoning` | Extended thinking |
 | `image` | Image generation |
-| `audio` | Audio output |
+| `audio` | Text-to-speech |
+| `audioOutput` | Audio produced by a chat model |
 | `embedding` | Text embeddings |
 | `zdr` | Zero Data Retention |
+| `toolsStrict` | Strict tool inputs (derived from `strictFormat`) |
+
+Chat infers what a request needs from its content and output: image parts require `vision`, audio `hearing`, video `videoInput`, and `modalities` of image or audio require `image` or `audioOutput`. File parts only prefer `files`, since registries rarely record document support. `seed`, `verbosity`, and `serviceTier` are preferred parameters, never filters.
 
 ## Model Selection
 
@@ -117,8 +127,8 @@ Interact with the model registry directly:
 const all = ai.models.list();
 
 // Get a specific model
-const model = ai.models.get('gpt-4o');
-const model2 = ai.models.get('openai/gpt-4o'); // with provider prefix
+const model = ai.models.get('gpt-5.4-mini');
+const model2 = ai.models.get('openai/gpt-5.4-mini'); // with provider prefix
 
 // Search with scoring
 const results = ai.models.search({
@@ -145,14 +155,14 @@ const ai = AI.with()
   .create({
     modelOverrides: [
       {
-        modelPattern: /gpt-4/,
+        modelPattern: /gpt-5\.5/,
         overrides: {
-          pricing: { text: { input: 30, output: 60 } },
+          pricing: { text: { input: 5, output: 30 } },
         },
       },
       {
         provider: 'openai',
-        modelId: 'gpt-4o-mini',
+        modelId: 'gpt-5.4-mini',
         overrides: {
           tier: 'efficient',
         },
@@ -192,7 +202,7 @@ const ai = AI.with()
   .create({
     models,
     // Curated strict-mode dialect declarations. Opts strict-capable model
-    // families (gpt-4o+, claude 4.5+, gemini 2.0+) into the `'toolsStrict'`
+    // families (gpt-4o+, claude 4.5+, gemini 2+, grok 4+) into the `'toolsStrict'`
     // capability and pins their JSON-Schema dialect. Without this, every
     // model defaults to lenient even when the underlying API supports strict.
     modelOverrides: [...strictSupport],
@@ -207,6 +217,6 @@ safe to combine with arbitrary overrides:
 ```typescript
 modelOverrides: [
   ...strictSupport,
-  { modelPattern: /gpt-4/, overrides: { tier: 'flagship' } },
+  { modelPattern: /gpt-5\.5/, overrides: { tier: 'flagship' } },
 ],
 ```

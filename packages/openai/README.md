@@ -4,12 +4,14 @@ OpenAI provider for the @aeye (AI TypeScript) framework. This package provides a
 
 ## Features
 
-- **Chat Completions**: Support for GPT-4, GPT-4 Turbo, GPT-3.5 Turbo, and other chat models
-- **Vision**: GPT-4 Vision (GPT-4V) for image understanding
-- **Reasoning Models**: o1, o1-mini, o3-mini for advanced reasoning tasks
-- **Image Generation**: DALL-E 2 and DALL-E 3 for creating images from text
-- **Speech-to-Text**: Whisper models for audio transcription
-- **Text-to-Speech**: TTS models for voice synthesis
+- **Chat**: GPT-5.x, GPT-6, GPT-4.1 and other chat models, through Chat Completions or the Responses API
+- **Vision**: Image and file (PDF) understanding
+- **Reasoning**: Efforts `none` through `max`, reasoning summaries, and encrypted reasoning carried across turns
+- **Hosted Tools**: Web search, file search, code interpreter, image generation, and remote MCP servers run by OpenAI
+- **Image Generation**: GPT Image (`gpt-image-2` by default) for generating and editing images
+- **Speech-to-Text**: `gpt-transcribe`, diarization with known speakers, and Whisper
+- **Text-to-Speech**: TTS models with built-in or custom voices
+- **Audio Output**: Spoken answers from audio-capable chat models
 - **Embeddings**: Text embeddings for semantic search and similarity
 - **Function Calling**: Tool/function calling with automatic schema conversion
 - **Structured Outputs**: JSON mode and schema-based structured outputs
@@ -22,6 +24,8 @@ OpenAI provider for the @aeye (AI TypeScript) framework. This package provides a
 ```bash
 npm install @aeye/openai @aeye/ai @aeye/core openai zod
 ```
+
+Requires Node >= 22 and the `openai` SDK v7.
 
 ## Quick Start
 
@@ -44,7 +48,7 @@ const response = await executor(
     ]
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 
 console.log(response.content);
@@ -64,6 +68,17 @@ const config: OpenAIConfig = {
 
 const provider = new OpenAIProvider(config);
 ```
+
+### Chat Completions or Responses API
+
+```typescript
+const provider = new OpenAIProvider({
+  apiKey: process.env.OPENAI_API_KEY!,
+  api: 'auto', // 'auto' (default) | 'chat' | 'responses'
+});
+```
+
+With `'auto'`, chat uses Chat Completions unless the model is Responses-only (codex, pre-5.6 pro models, deep-research, computer-use), the request has `hostedTools`, or `reason` sets `mode`, `summary`, or `context`. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns.
 
 ### Custom Base URL (for Azure OpenAI or compatible APIs)
 
@@ -93,7 +108,7 @@ const response = await executor(
     maxTokens: 150,
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 
 console.log(response.content);
@@ -112,7 +127,7 @@ for await (const chunk of streamer(
     ]
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 )) {
   if (chunk.content) {
     process.stdout.write(chunk.content);
@@ -132,7 +147,7 @@ const conversation = [
 let response = await executor(
   { messages: conversation },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 
 conversation.push({ role: 'assistant', content: response.content });
@@ -142,11 +157,11 @@ conversation.push({ role: 'user', content: 'Can you give me an example?' });
 response = await executor(
   { messages: conversation },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 ```
 
-### Vision (GPT-4V)
+### Vision
 
 #### Analyze an Image
 
@@ -168,7 +183,7 @@ const response = await executor(
     ]
   },
   {},
-  { model: 'gpt-4-vision-preview' }
+  { model: 'gpt-5.4-mini' }
 );
 ```
 
@@ -189,7 +204,7 @@ const response = await executor(
     ]
   },
   {},
-  { model: 'gpt-4-vision-preview' }
+  { model: 'gpt-5.4-mini' }
 );
 ```
 
@@ -218,7 +233,7 @@ const response = await executor(
     toolChoice: 'auto', // Can be 'auto', 'required', 'none', or { tool: 'tool_name' }
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 
 if (response.toolCalls) {
@@ -242,7 +257,7 @@ if (response.toolCalls) {
         ]
       },
       {},
-      { model: 'gpt-4' }
+      { model: 'gpt-5.4-mini' }
     );
   }
 }
@@ -268,7 +283,7 @@ const response = await executor(
     toolChoice: { tool: 'get_weather' }, // Force this specific tool
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 ```
 
@@ -288,7 +303,7 @@ const response = await executor(
     responseFormat: 'json', // Ensures valid JSON output
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 
 const scientists = JSON.parse(response.content);
@@ -317,7 +332,7 @@ const response = await executor(
     responseFormat: PersonSchema, // Strict schema enforcement
   },
   {},
-  { model: 'gpt-4' }
+  { model: 'gpt-5.4-mini' }
 );
 
 // Response is guaranteed to match the schema
@@ -325,60 +340,44 @@ const person = JSON.parse(response.content);
 console.log(person.name, person.age); // Type-safe
 ```
 
-### Image Generation (DALL-E)
+### Image Generation (GPT Image)
 
-#### Generate with DALL-E 3
+#### Generate an Image
 
 ```typescript
 const imageResponse = await provider.generateImage(
   {
     prompt: 'A serene landscape with mountains and a lake at sunset',
-    model: 'dall-e-3',
-    size: '1024x1024',
-    quality: 'hd', // 'standard' or 'hd'
-    style: 'vivid', // 'vivid' or 'natural'
+    model: 'gpt-image-2', // the default
+    size: '1024x1024',    // or 'auto'; other sizes snap to the nearest the model supports
+    quality: 'high',      // 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' (per model)
+    outputFormat: 'webp', // 'png' | 'jpeg' | 'webp'
+    outputCompression: 80, // 0-100, for jpeg and webp
+    background: 'transparent',
     n: 1,
   },
   {}
 );
 
-console.log('Generated image URL:', imageResponse.images[0].url);
-console.log('Revised prompt:', imageResponse.images[0].revisedPrompt);
-```
-
-#### Generate Multiple Images with DALL-E 2
-
-```typescript
-const imageResponse = await provider.generateImage(
-  {
-    prompt: 'A cute robot playing with a puppy',
-    model: 'dall-e-2',
-    size: '512x512',
-    n: 3, // Generate 3 variations
-  },
-  {}
-);
-
-imageResponse.images.forEach((img, i) => {
-  console.log(`Image ${i + 1}:`, img.url);
-});
-```
-
-#### Get Base64 Image Data
-
-```typescript
-const imageResponse = await provider.generateImage(
-  {
-    prompt: 'A futuristic city skyline',
-    model: 'dall-e-3',
-    responseFormat: 'b64_json', // Get base64 instead of URL
-  },
-  {}
-);
-
 const base64Image = imageResponse.images[0].b64_json;
-// Save or process the base64 data
 ```
+
+#### Edit with Reference Images
+
+```typescript
+const edited = await provider.editImage(
+  {
+    prompt: 'Put the product from the second image on the table in the first',
+    image: fs.readFileSync('room.png'),        // source image
+    references: [fs.readFileSync('product.png')], // more input images
+    mask: fs.readFileSync('mask.png'),         // optional, over the source image
+    inputFidelity: 'high',                     // keep input details closely
+  },
+  {}
+);
+```
+
+Usage reports the quality and size actually produced, so per-image pricing applies; GPT Image 2 and later report output image tokens in `usage.image.tokens`.
 
 ### Speech Synthesis (TTS)
 
@@ -386,12 +385,14 @@ const base64Image = imageResponse.images[0].b64_json;
 
 ```typescript
 import fs from 'fs';
+import { Readable } from 'stream';
 
 const speechResponse = await provider.generateSpeech(
   {
     text: 'Hello! This is a text-to-speech example using OpenAI.',
-    model: 'tts-1', // or 'tts-1-hd' for higher quality
-    voice: 'alloy', // alloy, echo, fable, onyx, nova, shimmer
+    model: 'gpt-4o-mini-tts', // the default
+    voice: 'alloy', // any built-in voice name or a custom voice id
+    instructions: 'Speak warmly and a little slowly.',
     speed: 1.0, // 0.25 to 4.0
     responseFormat: 'mp3', // mp3, opus, aac, flac, wav, pcm
   },
@@ -399,7 +400,7 @@ const speechResponse = await provider.generateSpeech(
 );
 
 // Save to file
-fs.writeFileSync('output.mp3', speechResponse.audioBuffer);
+Readable.fromWeb(speechResponse.audio).pipe(fs.createWriteStream('output.mp3'));
 console.log('Audio saved to output.mp3');
 ```
 
@@ -413,16 +414,16 @@ for (const voice of voices) {
     {
       text: `This is the ${voice} voice speaking.`,
       voice,
-      model: 'tts-1',
+      model: 'gpt-4o-mini-tts',
     },
     {}
   );
 
-  fs.writeFileSync(`voice_${voice}.mp3`, response.audioBuffer);
+  Readable.fromWeb(response.audio).pipe(fs.createWriteStream(`voice_${voice}.mp3`));
 }
 ```
 
-### Transcription (Whisper)
+### Transcription
 
 #### Transcribe Audio File
 
@@ -434,7 +435,7 @@ const audioBuffer = fs.readFileSync('audio.mp3');
 const transcription = await provider.transcribe(
   {
     audio: audioBuffer,
-    model: 'whisper-1',
+    model: 'gpt-transcribe', // the default
     language: 'en', // Optional: ISO-639-1 language code
     prompt: 'This is a podcast about AI and technology', // Optional: context
   },
@@ -458,17 +459,31 @@ const transcription = await provider.transcribe(
 );
 
 console.log('Full text:', transcription.text);
-console.log('Language:', transcription.language);
-console.log('Duration:', transcription.duration);
-
-// Word-level timestamps
-transcription.words?.forEach(word => {
-  console.log(`${word.word}: ${word.start}s - ${word.end}s`);
-});
 
 // Segment-level timestamps
 transcription.segments?.forEach(segment => {
   console.log(`${segment.text}: ${segment.start}s - ${segment.end}s`);
+});
+```
+
+#### Speaker Diarization
+
+```typescript
+const transcription = await provider.transcribe(
+  {
+    audio: fs.readFileSync('meeting.mp3'),
+    model: 'gpt-4o-transcribe-diarize',
+    responseFormat: 'diarized_json',
+    knownSpeakers: [
+      { name: 'Alice', audio: fs.readFileSync('alice.wav') },
+      { name: 'Bob', audio: fs.readFileSync('bob.wav') },
+    ],
+  },
+  {}
+);
+
+transcription.segments?.forEach(segment => {
+  console.log(`${segment.speaker}: ${segment.text}`);
 });
 ```
 
@@ -559,11 +574,7 @@ console.log('Similarity 1-2:', cosineSimilarity(emb1, emb2)); // High similarity
 console.log('Similarity 1-3:', cosineSimilarity(emb1, emb3)); // Low similarity
 ```
 
-### Reasoning Models (o1, o3-mini)
-
-#### Using o1 Models
-
-The o1 and o3-mini models use extended thinking to solve complex problems.
+### Reasoning
 
 ```typescript
 const response = await executor(
@@ -574,21 +585,71 @@ const response = await executor(
         content: 'Solve this logic puzzle: There are 100 doors, all closed. You make 100 passes. On pass 1, toggle all doors. On pass 2, toggle every 2nd door. On pass 3, toggle every 3rd door, etc. Which doors are open after 100 passes?'
       }
     ],
-    // Note: o1 models don't support temperature or system messages
+    reason: {
+      effort: 'high',     // 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+      summary: 'auto',    // a readable summary (uses the Responses API)
+    },
   },
   {},
-  { model: 'o1-preview' } // or 'o1-mini', 'o3-mini'
+  { model: 'gpt-5.5' }
 );
 
-console.log('Reasoning:', response.reasoning); // Internal reasoning process
+console.log('Reasoning:', response.reasoning?.content);
 console.log('Answer:', response.content);
 ```
 
-**Important**: o1 models have different capabilities:
-- No system messages support (use user messages instead)
-- No temperature control (model uses internal reasoning)
-- No streaming support
-- Extended processing time for complex problems
+- The effort is clamped to the model's accepted efforts when its `ModelInfo.reasoningEfforts` lists them.
+- `mode`, `summary`, or `context` send the request to the Responses API. There, reasoning comes back encrypted (`openai-responses-v1` details) unless `store` is on; keep the assistant message's `reasoning` in the conversation and it is replayed on the next turn.
+- `reason.maxTokens` and `reason.exclude` are not used by OpenAI.
+
+### Hosted Tools
+
+Tools OpenAI runs itself go in `hostedTools` and use the Responses API:
+
+```typescript
+const response = await executor(
+  {
+    messages: [{ role: 'user', content: 'Summarize this week\'s TypeScript news.' }],
+    hostedTools: [
+      { type: 'web_search', allowedDomains: ['devblogs.microsoft.com'] },
+      { type: 'code_interpreter' },
+      { type: 'file_search', vectorStoreIds: ['vs_123'], maxResults: 5 },
+      { type: 'mcp', label: 'docs', url: 'https://example.com/mcp', allowedTools: ['search'] },
+      { type: 'image_generation' },
+    ],
+  },
+  {},
+  { model: 'gpt-5.4-mini' }
+);
+
+console.log(response.citations); // [{ url, title, start, end }]
+console.log(response.usage?.tools); // { web_search: 1, ... }
+```
+
+`web_fetch` is not available on OpenAI (web search fetches pages itself), and web search can only allow domains, not block them (`blockedDomains` is rejected). Images from `image_generation` come back on `response.images`.
+
+### Audio Output
+
+```typescript
+const response = await executor(
+  {
+    messages: [{ role: 'user', content: 'Say hello in French.' }],
+    modalities: ['text', 'audio'],
+    audio: { voice: 'alloy', format: 'mp3' }, // streaming defaults to pcm
+  },
+  {},
+  { model: 'gpt-audio-1.5' }
+);
+
+console.log(response.audio?.transcript); // response.audio.data is base64
+```
+
+### Other Request Options
+
+- `seed`, `verbosity` (`'low' | 'medium' | 'high'`), `serviceTier` (`'auto' | 'default' | 'flex' | 'fast' | 'scale'`), and `metadata` are passed through. Chat Completions sends `metadata` only when `store` is on.
+- `moderate: true` runs inline moderation (`omni-moderation-latest`); verdicts come back on `response.moderation`.
+- Content parts take `cacheBreakpoint` (a prompt cache breakpoint), `detail` for images, and `name` for files.
+- `response.serviceTier` reports the tier used (`priority` reads as `fast`).
 
 ### Advanced Features
 
@@ -604,7 +665,7 @@ try {
   const response = await executor(
     { messages: [{ role: 'user', content: 'Tell me a long story' }] },
     {},
-    { model: 'gpt-4' },
+    { model: 'gpt-5.4-mini' },
     controller.signal
   );
 } catch (error) {
@@ -638,7 +699,7 @@ console.log('OpenAI API is', isHealthy ? 'accessible' : 'not accessible');
 ```typescript
 // Set default metadata for all requests
 provider.defaultMetadata = {
-  model: 'gpt-4',
+  model: 'gpt-5.4-mini',
   user: 'user-123',
 };
 
@@ -646,7 +707,7 @@ provider.defaultMetadata = {
 const response = await executor(
   { messages: [{ role: 'user', content: 'Hello' }] },
   {}
-  // No need to pass { model: 'gpt-4' }
+  // No need to pass { model: 'gpt-5.4-mini' }
 );
 ```
 
@@ -723,6 +784,12 @@ const azureProvider = new AzureOpenAIProvider({
 | `apiKey` | `string` | Yes | OpenAI API key |
 | `baseURL` | `string` | No | Custom base URL for API endpoint |
 | `organization` | `string` | No | OpenAI organization ID |
+| `project` | `string` | No | OpenAI project ID |
+| `store` | `boolean` | No | Let OpenAI store requests (default `false`) |
+| `api` | `'auto' \| 'chat' \| 'responses'` | No | Which API chat uses (default `'auto'`) |
+| `retry` / `retryEvents` | `RetryConfig` / `RetryEvents` | No | Retry behavior and events |
+| `hooks` | `OpenAIHooks` | No | `beforeRequest` / `afterRequest` / `onError` for `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed` |
+| `defaultModels` | `object` | No | Per-operation defaults; built in: `gpt-image-2` (generate, edit), `gpt-5.4-mini` (image analysis), `gpt-transcribe`, `gpt-4o-mini-tts`, `text-embedding-3-small` |
 
 ### Request Parameters
 
@@ -738,28 +805,38 @@ const azureProvider = new AzureOpenAIProvider({
 | `tools` | `Tool[]` | Function definitions for tool calling |
 | `toolChoice` | `'auto' \| 'required' \| 'none' \| { tool: string }` | Tool selection mode |
 | `responseFormat` | `'text' \| 'json' \| ZodSchema` | Response format constraint |
+| `reason` | `Reason` | `{ effort, summary, mode, context }` |
+| `seed` / `verbosity` / `serviceTier` / `metadata` | | Passed through |
+| `modalities` / `audio` | | Audio output |
+| `hostedTools` | `HostedTool[]` | Tools OpenAI runs (Responses API) |
+| `moderate` | `boolean` | Inline moderation |
 
 #### Image Generation Request
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `prompt` | `string` | Text description of desired image |
-| `model` | `string` | Model to use (dall-e-2, dall-e-3) |
-| `size` | `string` | Image size (512x512, 1024x1024, etc.) |
-| `quality` | `'standard' \| 'hd'` | Image quality (DALL-E 3 only) |
-| `style` | `'vivid' \| 'natural'` | Image style (DALL-E 3 only) |
+| `model` | `string` | GPT Image model (default gpt-image-2) |
+| `size` | `string` | `WIDTHxHEIGHT` or `'auto'`; snaps to the model's sizes |
+| `quality` | `'auto' \| 'low' \| 'medium' \| 'high' \| 'xhigh' \| 'max'` | Image quality (models accept subsets) |
+| `background` | `'transparent' \| 'opaque' \| 'auto'` | Background |
+| `outputFormat` | `'png' \| 'jpeg' \| 'webp'` | Encoding |
+| `outputCompression` | `number` | 0-100, for jpeg and webp |
+| `moderation` | `'auto' \| 'low'` | Moderation strictness (generate) |
+| `references` / `mask` / `inputFidelity` | | Extra input images, mask, and detail preservation (edit) |
 | `n` | `number` | Number of images to generate |
-| `responseFormat` | `'url' \| 'b64_json'` | Response format |
+| `streamCount` | `number` | Partial images to stream |
 
 #### Transcription Request
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `audio` | `Buffer \| string \| Blob` | Audio file to transcribe |
-| `model` | `string` | Model to use (whisper-1) |
+| `model` | `string` | Model to use (default gpt-transcribe) |
 | `language` | `string` | ISO-639-1 language code |
 | `prompt` | `string` | Context for better accuracy |
-| `responseFormat` | `'json' \| 'text' \| 'srt' \| 'vtt' \| 'verbose_json'` | Output format |
+| `responseFormat` | `'json' \| 'text' \| 'srt' \| 'vtt' \| 'verbose_json' \| 'diarized_json'` | Output format |
+| `knownSpeakers` | `{ name, audio }[]` | Reference clips for diarization |
 | `timestampGranularities` | `('word' \| 'segment')[]` | Timestamp detail level |
 | `temperature` | `number` | Sampling temperature |
 
@@ -768,8 +845,9 @@ const azureProvider = new AzureOpenAIProvider({
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `text` | `string` | Text to convert to speech |
-| `model` | `string` | Model to use (tts-1, tts-1-hd) |
-| `voice` | `string` | Voice ID (alloy, echo, fable, onyx, nova, shimmer) |
+| `model` | `string` | Model to use (default gpt-4o-mini-tts) |
+| `voice` | `string` | Built-in voice name or custom voice id (default alloy) |
+| `instructions` | `string` | Style instructions |
 | `speed` | `number` | Playback speed (0.25-4.0) |
 | `responseFormat` | `'mp3' \| 'opus' \| 'aac' \| 'flac' \| 'wav' \| 'pcm'` | Audio format |
 
@@ -793,7 +871,7 @@ try {
   const response = await executor(
     { messages: [{ role: 'user', content: 'Hello' }] },
     {},
-    { model: 'gpt-4' }
+    { model: 'gpt-5.4-mini' }
   );
 } catch (error) {
   if (error instanceof RateLimitError) {
@@ -832,6 +910,7 @@ Main provider class implementing the @aeye Provider interface.
 - `createExecutor<TContext, TMetadata>(config?: TConfig): Executor` - Create chat executor
 - `createStreamer<TContext, TMetadata>(config?: TConfig): Streamer` - Create streaming executor
 - `generateImage<TContext>(request, ctx, config?): Promise<ImageGenerationResponse>` - Generate images
+- `editImage<TContext>(request, ctx, config?): Promise<ImageGenerationResponse>` - Edit images
 - `transcribe<TContext>(request, ctx, config?): Promise<TranscriptionResponse>` - Transcribe audio
 - `generateSpeech<TContext>(request, ctx, config?): Promise<SpeechResponse>` - Generate speech
 - `embed<TContext>(request, ctx, config?): Promise<EmbeddingResponse>` - Generate embeddings
@@ -853,21 +932,22 @@ Main provider class implementing the @aeye Provider interface.
 
 ### Chat Models
 
-- **GPT-4 Turbo**: `gpt-4-turbo`, `gpt-4-turbo-preview`
-- **GPT-4**: `gpt-4`, `gpt-4-0613`, `gpt-4-32k`
-- **GPT-4 Vision**: `gpt-4-vision-preview`, `gpt-4-turbo-2024-04-09`
-- **GPT-3.5 Turbo**: `gpt-3.5-turbo`, `gpt-3.5-turbo-16k`
-- **Reasoning**: `o1-preview`, `o1-mini`, `o3-mini`
+- **GPT-6**: `gpt-6-luna`, `gpt-6-sol`, `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra`
+- **GPT-5.x**: `gpt-5.6-*`, `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `chat-latest`
+- **Pro and codex** (Responses API): `gpt-5.5-pro`, `gpt-5.4-pro`, `gpt-5.3-codex`
+- **GPT-4.1 / GPT-4o** (retiring): `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o`, `gpt-4o-mini`
+- **Audio**: `gpt-audio-1.5`
 
 ### Image Models
 
-- **DALL-E 3**: `dall-e-3`
-- **DALL-E 2**: `dall-e-2`
+- **GPT Image**: `gpt-image-2`, `gpt-image-2.5-*`
 
 ### Audio Models
 
-- **Whisper**: `whisper-1`
-- **TTS**: `tts-1`, `tts-1-hd`
+- **Transcription**: `gpt-transcribe`, `gpt-4o-transcribe`, `gpt-4o-transcribe-diarize`, `whisper-1`
+- **TTS**: `gpt-4o-mini-tts`, `tts-1`, `tts-1-hd`
+
+The `@aeye/models` registry records each model's `retiresAt` date; retired models are never selected.
 
 ### Embedding Models
 
@@ -885,9 +965,9 @@ Main provider class implementing the @aeye Provider interface.
 4. **Token Management**: Monitor token usage to control costs. Use `maxTokens` to limit response length.
 
 5. **Model Selection**: Choose the appropriate model for your use case:
-   - GPT-4 for complex tasks requiring high accuracy
-   - GPT-3.5 Turbo for simpler tasks and faster responses
-   - o1/o3-mini for reasoning-heavy problems
+   - GPT-6 or GPT-5.5 for complex tasks requiring high accuracy
+   - `gpt-5.4-mini` / `gpt-5.4-nano` for simpler tasks and faster responses
+   - A higher `reason.effort` for reasoning-heavy problems
 
 6. **Function Calling**: Use structured schemas with Zod for type-safe function definitions.
 

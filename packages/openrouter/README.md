@@ -4,13 +4,16 @@ OpenRouter provider for the @aeye (AI TypeScript) framework. OpenRouter provides
 
 ## Features
 
-- **Multi-Provider Access**: Access models from OpenAI, Anthropic, Google, Meta, and more through one API
+- **Multi-Provider Access**: Access models from OpenAI, Anthropic, Google, xAI, Meta, and more through one API
 - **Automatic Fallbacks**: Seamless failover to alternative providers if primary fails
 - **Intelligent Routing**: Automatic selection of best provider for each request
 - **Cost Tracking**: Built-in cost information in responses
 - **ZDR Support**: Zero Data Retention mode for privacy-sensitive applications
 - **Provider Preferences**: Control which providers to use, prefer, or avoid
-- **Reasoning Models**: Support for advanced reasoning with o1, Claude, and others
+- **Reasoning Models**: Effort or token-budget reasoning for GPT, Claude, Gemini, Grok, and others
+- **Server Tools**: Web search, web fetch, and image generation run by OpenRouter
+- **Media**: Image generation/editing, speech, transcription, and embeddings
+- **Plugins & Fallback Models**: PDF parsing, response healing, context compression, and model fallbacks
 - **Streaming**: Full streaming support across compatible models
 - **Extends OpenAI**: Built on the OpenAI provider for compatibility
 
@@ -19,6 +22,8 @@ OpenRouter provider for the @aeye (AI TypeScript) framework. OpenRouter provides
 ```bash
 npm install @aeye/openrouter @aeye/openai @aeye/ai @aeye/core openai zod
 ```
+
+Requires Node >= 22 and the `openai` SDK v7.
 
 ## Quick Start
 
@@ -44,7 +49,7 @@ const ai = AI.with()
 const response = await ai.chat.get([
   { role: 'user', content: 'Explain TypeScript generics' }
 ], {
-  metadata: { model: 'openai/gpt-4-turbo' }
+  metadata: { model: 'openai/gpt-5.4-mini' }
 });
 
 console.log(response.content);
@@ -78,29 +83,37 @@ const provider = new OpenRouterProvider({
     siteUrl: 'https://yourapp.com',
     appName: 'My AI App',
 
-    // Automatic fallbacks
-    allowFallbacks: true, // Enable fallback to alternative providers
-
-    // Provider preferences
+    // Provider routing (sent as OpenRouter's `provider` object)
     providers: {
-      prefer: ['openai', 'anthropic'], // Prefer these providers
-      allow: ['openai', 'anthropic', 'google'], // Only use these providers
-      deny: ['provider-x'], // Never use these providers
-      ignore: ['low-quality-provider'], // Exclude from consideration
-      order: ['openai', 'anthropic'], // Preferred order
-      quantizations: ['int8', 'fp16'], // Preferred quantization levels
-      dataCollection: 'deny', // or 'allow' - control data collection
+      order: ['openai', 'anthropic'],        // Preferred order
+      allowFallbacks: true,                  // Fall back to other providers
+      only: ['openai', 'anthropic', 'google'], // Only use these providers
+      ignore: ['low-quality-provider'],      // Never use these providers
+      quantizations: ['int8', 'fp16'],       // Allowed quantization levels
+      sort: { by: 'throughput', partition: 'none' }, // or 'price' | 'latency' | 'exacto'
+      preferredMinThroughput: 50,            // tokens/s, median
+      preferredMaxLatency: 2,                // seconds, median
+      dataCollection: 'deny',                // or 'allow'
+      zdr: true,                             // Zero data retention endpoints only
+      enforceDistillableText: false,         // Only providers that allow training on outputs
+      requireParameters: true,               // Only providers that support every parameter
+      maxPrice: { prompt: 10, completion: 30 },
     },
 
-    // Privacy & security
-    requireParameters: true, // Require all providers to support parameters
-    dataCollection: 'deny', // Global data collection setting
+    // Models to try, in order, when the requested one fails
+    fallbackModels: ['openai/gpt-5.4-mini', 'anthropic/claude-sonnet-4.5'],
 
-    // Model transformations
-    transforms: ['middle-out'], // Apply transformations to requests
+    // Plugins
+    plugins: [
+      { id: 'file-parser', pdf: { engine: 'cloudflare-ai' } },
+      { id: 'response-healing' },
+      { id: 'context-compression', engine: 'middle-out' },
+    ],
   },
 });
 ```
+
+`transforms` is deprecated: OpenRouter replaced transforms with plugins, and `transforms: ['middle-out']` is sent as the `context-compression` plugin. `OpenRouterConfig` has no `api` option; requests always go through Chat Completions.
 
 ## Usage Examples
 
@@ -110,7 +123,7 @@ const provider = new OpenRouterProvider({
 const response = await ai.chat.get([
   { role: 'user', content: 'What is the capital of France?' }
 ], {
-  metadata: { model: 'openai/gpt-3.5-turbo' }
+  metadata: { model: 'openai/gpt-5.4-nano' }
 });
 
 console.log(response.content);
@@ -125,12 +138,12 @@ OpenRouter allows you to access models from different providers using the format
 ```typescript
 // OpenAI GPT-4
 const gpt4 = await ai.chat.get(messages, {
-  metadata: { model: 'openai/gpt-4-turbo' }
+  metadata: { model: 'openai/gpt-5.4-mini' }
 });
 
 // Anthropic Claude
 const claude = await ai.chat.get(messages, {
-  metadata: { model: 'anthropic/claude-3-opus' }
+  metadata: { model: 'anthropic/claude-opus-4.5' }
 });
 
 // Google Gemini
@@ -184,7 +197,7 @@ const provider = new OpenRouterProvider({
 
 // If OpenAI is down, automatically tries Anthropic, then Google
 const response = await ai.chat.get(messages, {
-  metadata: { model: 'openai/gpt-4-turbo' }
+  metadata: { model: 'openai/gpt-5.4-mini' }
 });
 ```
 
@@ -217,7 +230,7 @@ let totalCost = 0;
 for await (const chunk of ai.chat.stream([
   { role: 'user', content: 'Write a story about a robot' }
 ], {
-  metadata: { model: 'anthropic/claude-3-sonnet' }
+  metadata: { model: 'anthropic/claude-sonnet-4.5' }
 })) {
   if (chunk.content) {
     process.stdout.write(chunk.content);
@@ -235,20 +248,53 @@ console.log(`\n\nTotal cost: $${totalCost}`);
 ### Reasoning Models
 
 ```typescript
-// Use OpenAI o1 through OpenRouter
-const response = await ai.chat.get([
-  {
+// Reason with an effort, or a token budget via reason.maxTokens (never both)
+const response = await ai.chat.get({
+  messages: [{
     role: 'user',
     content: 'Solve: If a train leaves NYC at 3pm going 60mph, and another leaves Boston at 4pm going 80mph, when do they meet?'
-  }
-], {
-  metadata: { model: 'openai/o1-preview' }
+  }],
+  reason: { effort: 'high', exclude: false },
+}, {
+  metadata: { model: 'openai/gpt-5.5' }
 });
 
 console.log('Reasoning:', response.reasoning);
 console.log('Answer:', response.content);
 console.log('Cost:', response.usage.cost);
 ```
+
+### Server Tools
+
+```typescript
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'What did the TypeScript team ship this month?' }],
+  hostedTools: [
+    { type: 'web_search', maxResults: 5, allowedDomains: ['devblogs.microsoft.com'], blockedDomains: ['example.com'] },
+    { type: 'web_fetch' },
+  ],
+}, {
+  metadata: { model: 'openai/gpt-5.4-mini' }
+});
+
+console.log(response.citations);
+console.log(response.usage?.tools); // { web_search: 1 }
+```
+
+`web_search`, `web_fetch`, and `image_generation` run as `openrouter:*` server tools; `file_search`, `code_interpreter`, and `mcp` are rejected.
+
+### Images, Speech, Transcription, Embeddings
+
+```typescript
+// Images go through chat with the image modality; size becomes an aspect ratio
+const image = await ai.image.generate.get({ prompt: 'A lighthouse at dusk', size: '1536x1024' });
+
+// Embeddings, speech, and transcription use OpenRouter's OpenAI-compatible endpoints
+const { embeddings } = await ai.embed.get({ texts: ['hello'] });
+const transcript = await ai.transcribe.get({ audio: fs.readFileSync('note.mp3') });
+```
+
+Defaults: `google/gemini-2.5-flash-image` for images, `openai/gpt-transcribe`, `openai/text-embedding-3-small`, and `openai/gpt-5.4-mini` for image analysis; speech has no default model. Image and transcription streaming fall back to the non-streaming methods.
 
 ### Function Calling
 
@@ -258,7 +304,7 @@ import z from 'zod';
 const response = await ai.chat.get([
   { role: 'user', content: 'What is the weather in Paris?' }
 ], {
-  metadata: { model: 'openai/gpt-4-turbo' },
+  metadata: { model: 'openai/gpt-5.4-mini' },
   tools: [
     {
       name: 'get_weather',
@@ -313,7 +359,7 @@ const response = await ai.chat.get(messages);
 
 ### OpenRouterConfig
 
-Extends `OpenAIConfig` from `@aeye/openai`.
+Extends `OpenAIConfig` from `@aeye/openai`, minus its `api` option.
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -325,26 +371,30 @@ Extends `OpenAIConfig` from `@aeye/openai`.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `siteUrl` | `string` | Your app URL (helps with rankings on OpenRouter) |
-| `appName` | `string` | Your app name (shown in OpenRouter dashboard) |
-| `allowFallbacks` | `boolean` | Enable automatic provider fallbacks |
-| `requireParameters` | `boolean` | Require all providers support parameters |
-| `dataCollection` | `'deny' \| 'allow'` | Control data collection |
-| `order` | `string[]` | Preferred provider order |
-| `providers` | `object` | Provider preferences (see below) |
-| `transforms` | `string[]` | Request transformations to apply |
+| `siteUrl` | `string` | Your app URL, sent as `HTTP-Referer` |
+| `appName` | `string` | Your app name, sent as `X-Title` |
+| `providers` | `object` | Provider routing (see below) |
+| `fallbackModels` | `string[]` | Models to fall back to, in order (sent as `models`) |
+| `plugins` | `OpenRouterPlugin[]` | `file-parser`, `response-healing`, `context-compression` |
+| `transforms` | `string[]` | Deprecated; `middle-out` is sent as the `context-compression` plugin |
 
 ### providers Options
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `allow` | `string[]` | Whitelist of allowed providers |
-| `deny` | `string[]` | Blacklist of denied providers |
-| `prefer` | `string[]` | Preferred providers (given priority) |
-| `ignore` | `string[]` | Providers to ignore |
 | `order` | `string[]` | Explicit provider order |
-| `quantizations` | `string[]` | Preferred quantization levels |
-| `dataCollection` | `'deny' \| 'allow'` | Provider-level data collection |
+| `allowFallbacks` | `boolean` | Fall back to other providers |
+| `requireParameters` | `boolean` | Only providers that support every parameter; auto-on for strict `json_schema` when unset |
+| `dataCollection` | `'deny' \| 'allow'` | Provider data collection |
+| `zdr` | `boolean` | Zero data retention endpoints only |
+| `enforceDistillableText` | `boolean` | Only providers that allow training on outputs |
+| `only` | `string[]` | Whitelist of providers |
+| `ignore` | `string[]` | Providers to skip |
+| `quantizations` | `OpenRouterQuantization[]` | Allowed quantization levels |
+| `sort` | `'price' \| 'throughput' \| 'latency' \| 'exacto' \| { by, partition? }` | Sort providers; `exacto` prefers the best tool-calling accuracy, `partition: 'none'` sorts across fallback models together |
+| `preferredMinThroughput` | `number` | Preferred median throughput floor (tokens/s) |
+| `preferredMaxLatency` | `number` | Preferred median latency ceiling (seconds) |
+| `maxPrice` | `{ prompt?, completion?, image?, audio?, request? }` | Price ceilings |
 
 ## Cost Information
 
@@ -352,7 +402,7 @@ OpenRouter includes actual cost information in every response:
 
 ```typescript
 const response = await ai.chat.get(messages, {
-  metadata: { model: 'openai/gpt-4-turbo' }
+  metadata: { model: 'openai/gpt-5.4-mini' }
 });
 
 // Cost is automatically included
@@ -370,9 +420,10 @@ The cost is provided by OpenRouter's API in the `total_cost` field and automatic
 
 OpenRouter uses the format `provider/model-name`:
 
-- `openai/gpt-4-turbo`
-- `anthropic/claude-3-opus`
-- `google/gemini-pro`
+- `openai/gpt-5.4-mini`
+- `anthropic/claude-opus-4.5`
+- `google/gemini-2.5-flash`
+- `x-ai/grok-4.3`
 - `meta-llama/llama-3-70b-instruct`
 - `mistralai/mistral-large`
 - `cohere/command-r-plus`
@@ -418,7 +469,7 @@ import { ProviderError, RateLimitError } from '@aeye/openrouter';
 
 try {
   const response = await ai.chat.get(messages, {
-    metadata: { model: 'openai/gpt-4-turbo' }
+    metadata: { model: 'openai/gpt-5.4-mini' }
   });
 } catch (error) {
   if (error instanceof RateLimitError) {
@@ -448,25 +499,26 @@ try {
 3. **Enable Fallbacks**: Use automatic fallbacks for reliability
    ```typescript
    defaultParams: {
-     allowFallbacks: true,
      providers: {
+       allowFallbacks: true,
        order: ['openai', 'anthropic', 'google'],
      },
+     fallbackModels: ['openai/gpt-5.4-mini'],
    }
    ```
 
 4. **Specify Provider Preferences**: Control which providers are used
    ```typescript
    providers: {
-     prefer: ['openai', 'anthropic'],
-     deny: ['low-quality-provider'],
+     only: ['openai', 'anthropic'],
+     ignore: ['low-quality-provider'],
    }
    ```
 
 5. **Use ZDR for Sensitive Data**: Enable Zero Data Retention for privacy
    ```typescript
    defaultParams: {
-     dataCollection: 'deny',
+     providers: { dataCollection: 'deny', zdr: true },
    }
    ```
 
@@ -518,12 +570,12 @@ Model source for fetching OpenRouter models.
 - ✅ Provider routing
 - ✅ ZDR mode
 - ✅ Multi-modal (for supported models)
-- ❌ Image generation (not supported by OpenRouter)
-- ❌ Speech synthesis (not supported by OpenRouter)
-- ❌ Transcription (not supported by OpenRouter)
-- ❌ Embeddings (not supported by OpenRouter)
-
-For image generation, speech, transcription, and embeddings, use provider-specific packages like `@aeye/openai`, `@aeye/anthropic`, etc.
+- ✅ Server tools (web search, web fetch, image generation)
+- ✅ Prompt caching (`cacheBreakpoint` → `cache_control`)
+- ✅ Image generation and editing (through chat; no streaming)
+- ✅ Speech synthesis
+- ✅ Transcription (no streaming)
+- ✅ Embeddings
 
 ## Related Packages
 

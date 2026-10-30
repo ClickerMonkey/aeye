@@ -1,6 +1,42 @@
 # Provider Refresh 2026: OpenAI and OpenRouter
 
-Status: **plan** (written 2026-10-30). Nothing in here is implemented yet.
+Status: **implemented** on branch `provider-refresh-2026` (2026-10-30), except the deferred items
+below. The rest of this document is the original plan; this section records what landed and where
+it departed from the plan.
+
+### Outcome
+
+| Phase | Result |
+|---|---|
+| 0 Bug fixes | Done: B1–B12. Live testing found more: core `toFile` dropped every data URL's payload; transcription lost text/srt/vtt (bare-string) results; OpenRouter now rejects `reasoning.effort` and `max_tokens` together (both were sent); BYOK requests cost $0; internal `@aeye/core` ranges (`^0.3.9` vs workspace 0.5.4) made packages run against stale nested copies. |
+| 1 Core types | Done, additive. Request: seed, verbosity, serviceTier, metadata, modalities and audio output, hostedTools, moderate. Response/Chunk: citations, images, audio, moderation, serviceTier. Usage: cacheWrite, per-tool calls, image output tokens. ModelInfo: reasoningEfforts, retiresAt (retired models are never selected). |
+| 2 OpenAI Responses | Done. `api: 'auto' \| 'chat' \| 'responses'`; auto uses Responses for Responses-only models, hosted tools, and reasoning summary/mode/context. Encrypted reasoning round-trips statelessly (verified live). |
+| 3 Hosted tools | Done for web_search, web_fetch, file_search, code_interpreter, image_generation, and mcp (OpenAI Responses tools; OpenRouter `openrouter:*` server tools). Custom grammar tools, `allowed_tools`, tool search/defer, and async tools are deferred. |
+| 4 OpenAI media | Done. GPT Image only (DALL·E retired), transcription diarization with known speakers, any speech voice. |
+| 5 OpenRouter | Done except rerank and video (deferred). Images go through chat with the image modality rather than `/images`, whose shape is not OpenAI-compatible. Embeddings, speech, and transcription use the OpenAI-compatible endpoints. |
+| 6 Registry | OpenAI scraper rewritten against the docs' Markdown pages (no puppeteer); OpenRouter metrics from the endpoints API. OpenAI (136 models) and OpenRouter (677) registries regenerated. Replicate and AWS not rescraped. |
+| 7 Deferred | Unchanged, plus rerank, video generation, custom/async tools, and tool search. |
+| 8 Docs | Provider docs, READMEs, and guides updated. |
+
+### Decisions as taken
+
+- **D1** openai v7, Node ≥ 22: done.
+- **D2** `fetch` over `@openrouter/sdk`: done; OpenRouter's media endpoints mostly need no new client at all.
+- **D3** Instead of splitting `audio`, a separate `audioOutput` capability marks chat models that
+  produce audio; `audio` keeps meaning text-to-speech, so no deprecation was needed.
+- **D4** `gpt-realtime-2.1-mini` returns 404 on `/v1/audio/speech`, so the TTS default stays
+  `gpt-4o-mini-tts` until it retires (2027-01-06).
+- **D5** `auto` stays Chat Completions by default.
+- **D6** Video generation deferred with rerank: each needs a new AI-layer API.
+
+### Schema dialects (`core/src/schema.ts`)
+
+Re-read and live-probed 2026-10-30: OpenAI strict now emits numeric, item, and length bounds;
+Google strict takes `anyOf` and `$defs` (Google's November 2025 JSON Schema expansion) but not
+`allOf` or `pattern`, and `any` stays the empty schema because Gemini rejects ref loops through
+required values; a new `xai` family covers Grok. Without a full `ModelInfo`, providers now use the
+model family's non-strict dialect instead of LENIENT. The curated strict-support table matches
+current model ids (and no longer matches Claude 4/4.1, which have no strict mode).
 
 aeye was built in October 2025 against the OpenAI Chat Completions API and OpenRouter's
 OpenAI-compatible endpoint. Both platforms have moved a long way in the year since. This
