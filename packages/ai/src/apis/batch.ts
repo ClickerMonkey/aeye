@@ -91,6 +91,8 @@ export class BatchAPI<T extends AIBaseTypes> {
 
   /**
    * Check the batch until it finishes, then return it with its results.
+   * A running batch is first checked after one interval: a batch just
+   * submitted can take a moment to become visible at the provider.
    *
    * @param job - A batch from `submit`.
    * @param ctx - The context.
@@ -98,7 +100,7 @@ export class BatchAPI<T extends AIBaseTypes> {
    */
   async wait(job: BatchJob, ctx: AIContextRequired<T>, options: BatchWaitOptions = {}): Promise<BatchJob> {
     const { interval = 30_000, signal } = options;
-    let current = await this.get(job, ctx);
+    let current = FINAL.has(job.status) ? await this.get(job, ctx) : job;
     while (!FINAL.has(current.status)) {
       await new Promise((resolve) => setTimeout(resolve, interval));
       signal?.throwIfAborted();
