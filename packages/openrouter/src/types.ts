@@ -1,3 +1,4 @@
+import type { ModelTokenizer } from '@aeye/ai';
 import type { ReasoningDetail, ReasoningEffort } from '@aeye/core';
 import OpenAI from "openai";
 
@@ -14,7 +15,7 @@ export type OpenRouterOutput = 'audio' | 'decisions' | 'embeddings' | 'image' | 
 /**
 * OpenRouter tokenizer types
 */
-export type OpenRouterTokenize = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router';
+export type OpenRouterTokenize = ModelTokenizer;
 
 /**
 * OpenRouter supported parameters
@@ -108,9 +109,20 @@ export interface OpenRouterModel {
 }
 
 /**
-* ZDR model info from OpenRouter ZDR endpoint
+ * Percentiles of a performance measure.
+ */
+export interface OpenRouterPercentiles {
+  p50: number;
+  p75: number;
+  p90: number;
+  p99: number;
+}
+
+/**
+* One provider's endpoint for a model, as `/models/{id}/endpoints` and
+* `/endpoints/zdr` report it.
 */
-export interface ZDRModel {
+export interface OpenRouterEndpoint {
   name: string;
   model_name: string;
   context_length: number;
@@ -128,8 +140,16 @@ export interface ZDRModel {
   supported_parameters: OpenRouterSupportedParameter[];
   status: number;
   uptime_last_30m: number | null;
+  // Latency to first token in milliseconds, and throughput in tokens per second
+  latency_last_30m?: OpenRouterPercentiles | null;
+  throughput_last_30m?: OpenRouterPercentiles | null;
   supports_implicit_caching: boolean;
 }
+
+/**
+ * @deprecated Use OpenRouterEndpoint.
+ */
+export type ZDRModel = OpenRouterEndpoint;
 
 /**
  * Model quantizations OpenRouter can route by.
