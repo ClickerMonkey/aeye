@@ -31,7 +31,7 @@ import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type 
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
 import { imageParams, imageUsage, partialImages } from './images';
-import { isResponsesOnly, outputItemChunk, responseChunks, responseEndChunk, toHostedTool, toInputContent, toReasoningItems } from './responses';
+import { isResponsesOnly, outputItemChunk, responseChunks, responseEndChunk, textInput, toHostedTool, toInputContent, toReasoningItems } from './responses';
 import { isContextWindowError, parseContextWindowError, type RetryConfig, RetryContext, type RetryEvents, withRetry } from './retry';
 import { ContextWindowError, ProviderError } from './types';
 
@@ -230,7 +230,7 @@ const DEFAULT_MODELS: DefaultModels = {
  * Everything one API call needs, resolved once from the request, context,
  * and config.
  */
-interface OperationRun<TConfig> {
+export interface OperationRun<TConfig> {
   config: TConfig;
   client: OpenAI;
   ctx: AIContextAny;
@@ -748,6 +748,9 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   protected async convertResponsesInput(request: Request, config: TConfig): Promise<OpenAI.Responses.ResponseInputItem[]> {
     const content = async (msg: Message) =>
       (await this.convertContent(msg.content, msg.name || msg.role, config)).map(toInputContent);
+    // Calls to free-text tools replay as custom tool calls
+    const textTools = new Set((request.tools ?? []).flatMap(tool => tool.format ? [tool.name] : []));
+    const textCalls = new Set(request.messages.flatMap(msg => msg.toolCalls ?? []).flatMap(tc => textTools.has(tc.name) ? [tc.id] : []));
 
     return (await Promise.all(request.messages.map(async (msg): Promise<OpenAI.Responses.ResponseInputItem[]> => {
       switch (msg.role) {
@@ -755,14 +758,17 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
           return [{ role: 'developer', content: await content(msg) }];
         case 'user':
           return [{ role: 'user', content: await content(msg) }];
-        case 'tool':
-          return [{ type: 'function_call_output', call_id: msg.toolCallId ?? '', output: await content(msg) }];
+        case 'tool': {
+          const call_id = msg.toolCallId ?? '';
+          return [{ type: textCalls.has(call_id) ? 'custom_tool_call_output' : 'function_call_output', call_id, output: await content(msg) }];
+        }
         case 'assistant': {
           const text = this.convertContentText(msg.content, msg.name || 'assistant', config).map(part => part.text).join('');
           const message: OpenAI.Responses.ResponseInputItem[] = text ? [{ role: 'assistant', content: text }] : [];
-          const calls = (msg.toolCalls ?? []).map((tc): OpenAI.Responses.ResponseInputItem => (
-            { type: 'function_call', call_id: tc.id, name: tc.name, arguments: tc.arguments }
-          ));
+          const calls = (msg.toolCalls ?? []).map((tc): OpenAI.Responses.ResponseInputItem => textCalls.has(tc.id)
+            ? { type: 'custom_tool_call', call_id: tc.id, name: tc.name, input: textInput(tc.arguments) }
+            : { type: 'function_call', call_id: tc.id, name: tc.name, arguments: tc.arguments }
+          );
           return [...toReasoningItems(msg.reasoning), ...message, ...calls];
         }
       }
@@ -807,7 +813,9 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         type: 'function',
         function: {
           name: tool.name,
-          description: tool.description,
+          description: tool.format?.type === 'grammar'
+            ? `${tool.description ?? ''}\n\nThe input must match this ${tool.format.syntax} grammar:\n${tool.format.definition}`
+            : tool.description,
           parameters: toJSONSchema(strictifiedSchema, descriptor),
           ...(descriptor.strict ? { strict: true } : {}),
         },
@@ -842,9 +850,15 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     request: Request
   ): OpenAI.Chat.ChatCompletionToolChoiceOption | undefined {
     const choice = request.toolChoice;
-    return typeof choice === 'object'
+    if (typeof choice !== 'object') {
+      return choice;
+    }
+    return 'tool' in choice
       ? { type: 'function', function: { name: choice.tool } }
-      : choice;
+      : {
+          type: 'allowed_tools',
+          allowed_tools: { mode: choice.required ? 'required' : 'auto', tools: choice.allowed.map(name => ({ type: 'function', function: { name } })) },
+        };
   }
 
   /**
@@ -1087,7 +1101,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     }
     const responsesOnly = model?.metadata?.responsesOnly ?? isResponsesOnly(modelId);
     const { mode, summary, context } = request.reason ?? {};
-    return responsesOnly === true || !!request.hostedTools?.length || !!(mode || summary || context);
+    const responsesTools = request.tools?.some(tool => tool.format || tool.defer || tool.async);
+    return responsesOnly === true || !!request.hostedTools?.length || !!responsesTools || !!(mode || summary || context);
   }
 
   /**
@@ -1148,16 +1163,21 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     const budget = this.schemaBudget(run);
     const store = run.config.store ?? false;
     const format = this.convertResponseFormat(request, budget);
+    const functions = this.convertTools(request, budget) ?? [];
+    const definitions = request.tools ?? [];
+    // Deferred tools load through hosted tool search
+    const search: OpenAI.Responses.Tool[] = definitions.some(tool => tool.defer) ? [{ type: 'tool_search' }] : [];
     const tools: OpenAI.Responses.Tool[] = [
-      ...(this.convertTools(request, budget) ?? []).map(({ function: fn }): OpenAI.Responses.FunctionTool => ({
-        type: 'function',
-        name: fn.name,
-        description: fn.description,
-        parameters: fn.parameters ?? null,
-        strict: fn.strict ?? false,
-      })),
+      ...definitions.map((tool, i): OpenAI.Responses.Tool => {
+        const shared = { name: tool.name, description: tool.description, defer_loading: tool.defer, async: tool.async };
+        return tool.format
+          ? { type: 'custom', ...shared, format: tool.format }
+          : { type: 'function', ...shared, parameters: functions[i].function.parameters ?? null, strict: functions[i].function.strict ?? false };
+      }),
+      ...search,
       ...(request.hostedTools ?? []).map(tool => toHostedTool(tool, this.name)),
     ];
+    const kind = (name: string) => definitions.find(tool => tool.name === name)?.format ? 'custom' : 'function';
     const choice = request.toolChoice;
     const reason = request.reason;
 
@@ -1165,7 +1185,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       model: run.model.id,
       input: await this.convertResponsesInput(request, run.config),
       tools: tools.length ? tools : undefined,
-      tool_choice: tools.length ? (typeof choice === 'object' ? { type: 'function', name: choice.tool } : choice) : undefined,
+      tool_choice: !tools.length ? undefined
+        : typeof choice !== 'object' ? choice
+        : 'tool' in choice ? { type: kind(choice.tool), name: choice.tool }
+        : { type: 'allowed_tools', mode: choice.required ? 'required' : 'auto', tools: choice.allowed.map(name => ({ type: kind(name), name })) },
       parallel_tool_calls: tools.length ? !request.toolsOneAtATime : undefined,
       text: {
         format: format?.type === 'json_schema' ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {} } : format,

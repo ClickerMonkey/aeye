@@ -17,8 +17,8 @@
 
 import type { AIContextAny, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { REASONING_EFFORTS, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
-import { type DefaultModels, OpenAIConfig, OpenAIProvider, ProviderError } from '@aeye/openai';
+import { REASONING_EFFORTS, withAllowedTools, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
+import { type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
 import type { OpenRouterChatChunk, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterServerTool, OpenRouterUsage } from './types';
@@ -363,6 +363,14 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   protected override usesResponses(): boolean {
     return false;
+  }
+
+  /**
+   * OpenRouter doesn't honor `allowed_tools` (models still call the others,
+   * and some upstreams reject it), so only the allowed tools are sent.
+   */
+  protected override buildChatParams(request: Request, run: OperationRun<OpenRouterConfig>, streaming: boolean) {
+    return super.buildChatParams(withAllowedTools(request), run, streaming);
   }
 
   /**
