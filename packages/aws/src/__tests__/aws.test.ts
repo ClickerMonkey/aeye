@@ -7,6 +7,7 @@
 
 import z from 'zod';
 import type { Chunk, ModelInfo } from '@aeye/core';
+import { buildSchemaBudget } from '@aeye/ai';
 import { AWSBedrockProvider, type AWSBedrockConfig } from '../aws';
 import { AWSError, AWSAuthError, AWSRateLimitError } from '../types';
 import { detectAWSCapabilities, detectAWSFamily, detectAWSTier } from '../common';
@@ -339,7 +340,7 @@ describe('AWSBedrockProvider — streaming tool-call assembly', () => {
  *
  * The AWS provider feeds tool schemas through the same
  * `strictify` + `toJSONSchema` pipeline that OpenAI does, with the
- * descriptor picked by `resolveStrictFormat(model)` against
+ * descriptor picked by the shared `buildSchemaBudget` against
  * `supportedStrictFamilies` and gated by the model's `toolsStrict` capability.
  * These tests verify:
  *
@@ -347,8 +348,8 @@ describe('AWSBedrockProvider — streaming tool-call assembly', () => {
  *    cycle-broken inline (no `$ref` back-edges that would trigger Anthropic's
  *    "Circular reference detected" rejection).
  * 2. The same recursive schema emitted for a model WITHOUT `toolsStrict`
- *    capability degrades to LENIENT (which preserves the recursive `$ref` —
- *    not strict-shape-bound).
+ *    capability degrades to the family's non-strict descriptor (LENIENT
+ *    shaped, so it preserves the recursive `$ref` — not strict-shape-bound).
  * 3. Each emitted tool has its `descriptor` pinned for the Prompt loop's
  *    parse-time strictify roundtrip.
  */
@@ -370,6 +371,11 @@ describe('AWSBedrockProvider — tool schema emission', () => {
       contextWindow: 200_000,
       metadata: {},
     };
+  }
+
+  /** Convert a request's tools with the budget the provider builds for `model`. */
+  function convertTools(provider: AWSBedrockProvider, request: any, model: ModelInfo) {
+    return (provider as any).convertToolsToConverse(request, buildSchemaBudget(model, (provider as any).supportedStrictFamilies));
   }
 
   /** Walk a JSON Schema and collect every `$ref` string. */
@@ -408,7 +414,7 @@ describe('AWSBedrockProvider — tool schema emission', () => {
       run: () => '',
     };
     const request = { messages: [], tools: [tool] };
-    const toolConfig = (provider as any).convertToolsToConverse(request, anthropicModel(true));
+    const toolConfig = convertTools(provider, request, anthropicModel(true));
 
     expect(toolConfig).toBeDefined();
     expect(toolConfig.tools).toHaveLength(1);
@@ -431,7 +437,7 @@ describe('AWSBedrockProvider — tool schema emission', () => {
     expect((tool as any).descriptor).toBe('anthropic-strict');
   });
 
-  it('falls back to LENIENT (keeps $ref) when the Claude model lacks toolsStrict capability', () => {
+  it('falls back to the non-strict dialect (keeps $ref) when the Claude model lacks toolsStrict capability', () => {
     type Node = { value: string; children?: Node[] };
     const NodeSchema: z.ZodType<Node> = z.lazy(() =>
       z.object({ value: z.string(), children: z.array(NodeSchema).optional() }),
@@ -446,15 +452,15 @@ describe('AWSBedrockProvider — tool schema emission', () => {
       run: () => '',
     };
     const request = { messages: [], tools: [tool] };
-    const toolConfig = (provider as any).convertToolsToConverse(request, anthropicModel(false));
+    const toolConfig = convertTools(provider, request, anthropicModel(false));
 
-    // No toolsStrict → LENIENT, which is recursion-supporting. We expect a
-    // $ref (Lenient retains recursive shapes) and the descriptor pinned to
-    // 'lenient' for the parse roundtrip.
+    // No toolsStrict → the family's non-strict descriptor, which is LENIENT
+    // with a family tag and so recursion-supporting. We expect a $ref and the
+    // descriptor pinned to 'anthropic-non-strict' for the parse roundtrip.
     expect(toolConfig.tools).toHaveLength(1);
     const inputSchema = toolConfig.tools[0].toolSpec.inputSchema.json;
     expect(collectRefs(inputSchema).length).toBeGreaterThan(0);
-    expect((tool as any).descriptor).toBe('lenient');
+    expect((tool as any).descriptor).toBe('anthropic-non-strict');
   });
 
   it('non-recursive shared refs survive under ANTHROPIC_STRICT (only cycles are broken)', () => {
@@ -475,7 +481,7 @@ describe('AWSBedrockProvider — tool schema emission', () => {
       run: () => '',
     };
     const request = { messages: [], tools: [tool] };
-    const toolConfig = (provider as any).convertToolsToConverse(request, anthropicModel(true));
+    const toolConfig = convertTools(provider, request, anthropicModel(true));
 
     const inputSchema = toolConfig.tools[0].toolSpec.inputSchema.json;
     // Shared Person is promoted to $defs and referenced — non-cyclic, so the

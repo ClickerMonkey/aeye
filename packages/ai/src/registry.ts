@@ -5,7 +5,7 @@
  * Provider order ensures deterministic model resolution: first provider to return a model ID wins.
  */
 
-import { type DescriptorFamily, type FormatDescriptor, getDescriptor, getModel, hasDescriptorFamily, LENIENT } from '@aeye/core';
+import { type DescriptorFamily, type FormatDescriptor, getDescriptor, getModel, hasDescriptorFamily, LENIENT, SchemaBudget, strictestOf, strictPriority, type ToolDefinition } from '@aeye/core';
 import { detectTier } from './modelDetection';
 import type {
   AIBaseMetadata,
@@ -60,6 +60,54 @@ export function resolveStrictFormat(model: {
     if (hasDescriptorFamily(prefix)) return prefix;
   }
   return undefined;
+}
+
+/**
+ * Build a SchemaBudget tuned to the strictest of the model's tool /
+ * structured-output dialects. Anthropic-style per-request limits apply
+ * across BOTH tool schemas and the output schema, so a provider shares one
+ * budget between them.
+ *
+ * Strict mode engages only when the model's resolved family is one the
+ * provider speaks (`families`) AND the model has the corresponding capability
+ * (`'toolsStrict'` for tools, `'structured'` for output). Otherwise the
+ * family's non-strict descriptor applies, which keeps the dialect's own
+ * constraints (Gemini rejects LENIENT's recursive `$defs/Any`) even when only
+ * the model id is known. Families the provider doesn't speak fall back to
+ * LENIENT, so the wire never receives a dialect the API doesn't understand.
+ *
+ * @param model The full model, or just its id and provider when selection
+ *   didn't supply one
+ * @param families The strict descriptor families the provider speaks
+ */
+export function buildSchemaBudget(
+  model: Pick<ModelInfo, 'id' | 'provider' | 'strictFormat'> & { capabilities?: ModelInfo['capabilities'] },
+  families: ReadonlySet<DescriptorFamily>,
+): SchemaBudget {
+  const family = resolveStrictFormat(model);
+  const descriptorFor = (capability: 'toolsStrict' | 'structured') =>
+    family !== undefined && families.has(family)
+      ? getDescriptor(family, model.capabilities?.has(capability) ?? false)
+      : LENIENT;
+  return new SchemaBudget(strictestOf(descriptorFor('toolsStrict'), descriptorFor('structured')));
+}
+
+/**
+ * Allocate per-tool descriptors in descending-priority order, so the
+ * most-wanted strict tools consume the budget first, then return them in
+ * declaration order. Records each chosen id on `tools[i].descriptor` for the
+ * Prompt's validation roundtrip.
+ */
+export function allocateToolDescriptors(tools: ToolDefinition[], budget: SchemaBudget): FormatDescriptor[] {
+  const descriptors: FormatDescriptor[] = new Array(tools.length);
+  tools
+    .map((tool, i) => ({ i, p: strictPriority(tool.strict) }))
+    .sort((a, b) => b.p - a.p)
+    .forEach(({ i }) => {
+      descriptors[i] = budget.allocateTool(tools[i].parameters, tools[i].strict);
+      tools[i].descriptor = descriptors[i].id;
+    });
+  return descriptors;
 }
 
 // ============================================================================

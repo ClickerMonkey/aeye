@@ -26,8 +26,8 @@ import type {
   TranscriptionResponse,
   TranscriptionSegment
 } from '@aeye/ai';
-import { clampReasoningEffort, detectTier, isModelInfo, resolveStrictFormat } from '@aeye/ai';
-import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type FormatDescriptor, type GeneratedImage, getDescriptor, getModel, getResponseFromChunks, LENIENT, type MessageContent, type Model, ModelInput, type Request, type Response, SchemaBudget, strictestOf, strictify, strictPriority, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
+import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detectTier, isModelInfo } from '@aeye/ai';
+import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, strictify, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
 import { imageParams, imageUsage, partialImages } from './images';
@@ -793,7 +793,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   ): OpenAI.Chat.ChatCompletionFunctionTool[] | undefined {
     if (!request.tools || request.tools.length === 0) return undefined;
 
-    const descriptors = this.allocateToolDescriptors(request, budget);
+    const descriptors = allocateToolDescriptors(request.tools, budget);
 
     return request.tools.map((tool, i) => {
       const descriptor = descriptors[i];
@@ -825,58 +825,11 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   protected supportedStrictFamilies: ReadonlySet<DescriptorFamily> = new Set<DescriptorFamily>(['openai']);
 
   /**
-   * Build a SchemaBudget tuned to the strictest of the model's tool /
-   * structured-output families. Anthropic-style per-request limits apply
-   * across BOTH tool schemas and the response_format schema, so the budget
-   * is shared between `convertTools` and `convertResponseFormat`.
-   *
-   * Strict mode engages only when the model's resolved family is in
-   * `supportedStrictFamilies` AND the model has the corresponding
-   * capability (`'toolsStrict'` for tools, `'structured'` for output).
-   * Otherwise the family's non-strict descriptor applies, which keeps the
-   * dialect's own constraints (Gemini rejects LENIENT's recursive `$defs/Any`)
-   * even when only the model id is known. Families the API doesn't speak
-   * fall back to LENIENT — protects the wire from receiving a dialect the API
-   * doesn't understand.
-   *
-   * @param model The full model, or just its id and provider when selection
-   *   didn't supply one
-   */
-  protected buildSchemaBudget(model: Pick<ModelInfo, 'id' | 'provider' | 'strictFormat'> & { capabilities?: ModelInfo['capabilities'] }): SchemaBudget {
-    const family = resolveStrictFormat(model);
-    const descriptorFor = (capability: 'toolsStrict' | 'structured') =>
-      family !== undefined && this.supportedStrictFamilies.has(family)
-        ? getDescriptor(family, model.capabilities?.has(capability) ?? false)
-        : LENIENT;
-    return new SchemaBudget(strictestOf(descriptorFor('toolsStrict'), descriptorFor('structured')));
-  }
-
-  /**
    * The schema budget for a call: from the selected model, or from the model
    * id alone.
    */
   private schemaBudget(run: OperationRun<TConfig>): SchemaBudget {
-    return this.buildSchemaBudget(run.modelInfo ?? { id: run.model.id, provider: this.name });
-  }
-
-  /**
-   * Allocate per-tool descriptors in descending-priority order, then return
-   * them in original declaration order. Mutates `request.tools[i].descriptor`
-   * to record the chosen id for the Prompt's validation roundtrip.
-   */
-  private allocateToolDescriptors(request: Request, budget: SchemaBudget): FormatDescriptor[] {
-    const tools = request.tools ?? [];
-    const order = tools
-      .map((t, i) => ({ i, p: strictPriority(t.strict) }))
-      .sort((a, b) => b.p - a.p);
-
-    const descriptors: FormatDescriptor[] = new Array(tools.length);
-    for (const { i } of order) {
-      const tool = tools[i];
-      descriptors[i] = budget.allocateTool(tool.parameters, tool.strict);
-      tool.descriptor = descriptors[i].id;
-    }
-    return descriptors;
+    return buildSchemaBudget(run.modelInfo ?? { id: run.model.id, provider: this.name }, this.supportedStrictFamilies);
   }
 
   /**
