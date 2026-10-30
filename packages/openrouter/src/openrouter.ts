@@ -560,11 +560,12 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   /**
    * Override listModels to use OpenRouter's model API with ZDR support
    */
-  async listModels(config: OpenRouterConfig): Promise<ModelInfo[]> {
+  override async listModels(config?: OpenRouterConfig): Promise<ModelInfo[]> {
+    const { apiKey } = { ...this.config, ...config };
     try {
       const [models, zdrModels] = await Promise.all([
-        fetchModels(config.apiKey),
-        fetchZDRModels(config.apiKey),
+        fetchModels(apiKey),
+        fetchZDRModels(apiKey),
       ]);
 
       return models.map((model) => convertOpenRouterModel(model, zdrModels));
