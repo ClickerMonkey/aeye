@@ -199,6 +199,29 @@ describe('response', () => {
     expect(response.finishReason).toBe('tool_calls');
   });
 
+  it('streams every reasoning delta and joins summary parts as the finished item does', async () => {
+    const item = { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: '**Plan**\n\nCheck the root.' }, { type: 'summary_text', text: '**Check**\n\nCheck the root.' }], encrypted_content: 'ENC' };
+    const summary = (summary_index: number, ...deltas: string[]) => [
+      { type: 'response.reasoning_summary_part.added', item_id: 'rs_1', summary_index },
+      ...deltas.map(delta => ({ type: 'response.reasoning_summary_text.delta', item_id: 'rs_1', summary_index, delta })),
+    ];
+    mockResponsesCreate.mockResolvedValue(events(
+      ...summary(0, '**Plan**', '\n\n', 'Check', ' the', ' root', '.'),
+      ...summary(1, '**Check**', '\n\n', 'Check', ' the', ' root', '.'),
+      { type: 'response.output_item.done', item },
+      { type: 'response.completed', response: result([item]) },
+    ));
+
+    const chunks: Chunk[] = [];
+    for await (const chunk of provider.createStreamer()({ ...hi, reason: { summary: 'detailed' } }, ctx, { model: 'gpt-5.4' })) {
+      chunks.push(chunk);
+    }
+
+    const { reasoning } = getResponseFromChunks(chunks);
+    expect(reasoning?.content).toBe('**Plan**\n\nCheck the root.\n\n**Check**\n\nCheck the root.');
+    expect(reasoning?.details).toEqual([{ id: 'rs_1', type: 'reasoning.encrypted', format: 'openai-responses-v1', summary: reasoning?.content, data: 'ENC' }]);
+  });
+
   it('fails the stream when the response fails', async () => {
     mockResponsesCreate.mockResolvedValue(events(
       { type: 'response.failed', response: { error: { code: 'server_error', message: 'Upstream broke' } } },

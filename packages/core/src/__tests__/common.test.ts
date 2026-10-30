@@ -13,12 +13,13 @@ import {
   resolve,
   consumeAll,
   accumulateUsage,
+  accumulateReasoning,
   getModel,
   getResponseFromChunks,
   getChunksFromResponse,
   withEvents,
 } from '../common';
-import { Usage, Chunk, Response, Component, Context, Events } from '../types';
+import { Usage, Chunk, Reasoning, Response, Component, Context, Events } from '../types';
 
 describe('Common Utilities', () => {
   describe('resolveFn', () => {
@@ -470,6 +471,63 @@ describe('Common Utilities', () => {
     });
   });
 
+  describe('accumulateReasoning', () => {
+    const accumulate = (parts: Reasoning[]) => parts.reduce<Reasoning | undefined>(accumulateReasoning, undefined);
+
+    it('concatenates every delta, even ones the text already contains', () => {
+      // Streamed deltas are short and recur: " the", "\n", " prime"
+      const deltas = ['Is 391', ' prime', '?', ' Check', ' the', ' primes', ' up', ' to', ' the', ' root', '.', '\n', '\n', ' prime'];
+      expect(accumulate(deltas.map(content => ({ content })))?.content).toBe(deltas.join(''));
+    });
+
+    it('accumulates OpenRouter Anthropic text and its later signature in one detail', () => {
+      const format = 'anthropic-claude-v1';
+      const reasoning = accumulate([
+        { content: 'To check', details: [{ type: 'reasoning.text', text: 'To check', format, index: 0 }] },
+        { content: ' 391,', details: [{ type: 'reasoning.text', text: ' 391,', format, index: 0 }] },
+        { content: ' check', details: [{ type: 'reasoning.text', text: ' check', format, index: 0 }] },
+        { details: [{ type: 'reasoning.text', signature: 'sig', format, index: 0 }] },
+      ]);
+      expect(reasoning?.content).toBe('To check 391, check');
+      expect(reasoning?.details).toEqual([{ type: 'reasoning.text', text: 'To check 391, check', signature: 'sig', format, index: 0 }]);
+    });
+
+    it('keeps Gemini text and encrypted reasoning at the same index apart', () => {
+      const format = 'google-gemini-v1';
+      const reasoning = accumulate([
+        { content: 'Thinking', details: [{ type: 'reasoning.text', text: 'Thinking', format, index: 0 }] },
+        { content: null, details: [{ type: 'reasoning.encrypted', data: 'abc', format, index: 0 }] },
+      ]);
+      expect(reasoning?.details).toEqual([
+        { type: 'reasoning.text', text: 'Thinking', format, index: 0 },
+        { type: 'reasoning.encrypted', data: 'abc', format, index: 0 },
+      ]);
+    });
+
+    it('keeps OpenAI summaries apart from encrypted items with ids', () => {
+      const format = 'openai-responses-v1';
+      const reasoning = accumulate([
+        { content: 'Checking', details: [{ type: 'reasoning.summary', summary: 'Checking', format, index: 0 }] },
+        { content: ' 17', details: [{ type: 'reasoning.summary', summary: ' 17', format, index: 0 }] },
+        { details: [{ type: 'reasoning.encrypted', data: 'a', format, id: 'rs_1', index: 1 }] },
+        { details: [{ type: 'reasoning.encrypted', data: 'b', format, id: 'rs_2' }] },
+      ]);
+      expect(reasoning?.details?.map(d => [d.type, d.summary ?? d.data])).toEqual([
+        ['reasoning.summary', 'Checking 17'],
+        ['reasoning.encrypted', 'a'],
+        ['reasoning.encrypted', 'b'],
+      ]);
+    });
+
+    it('leaves its inputs unchanged', () => {
+      const first: Reasoning = { content: 'A', details: [{ type: 'reasoning.text', text: 'A', format: 'f', index: 0 }] };
+      const second: Reasoning = { content: 'B', details: [{ type: 'reasoning.text', text: 'B', format: 'f', index: 0 }] };
+      accumulate([first, second]);
+      expect(first).toEqual({ content: 'A', details: [{ type: 'reasoning.text', text: 'A', format: 'f', index: 0 }] });
+      expect(second.content).toBe('B');
+    });
+  });
+
   describe('getModel', () => {
     it('should convert string to Model object', () => {
       const result = getModel('gpt-4');
@@ -537,9 +595,6 @@ describe('Common Utilities', () => {
     });
 
     it('should aggregate reasoning from chunks', () => {
-      // `Chunk.reasoning` is the `Reasoning` object type (`{ content?: string, details?: ... }`),
-      // not a string. Reasoning text concatenates through `accumulateReasoning` →
-      // `appendMaybe` on the `content` field.
       const chunks: Chunk[] = [
         { reasoning: { content: 'First thought' } },
         { reasoning: { content: ', second thought' } },
@@ -548,6 +603,15 @@ describe('Common Utilities', () => {
 
       const response = getResponseFromChunks(chunks);
       expect(response.reasoning?.content).toBe('First thought, second thought');
+    });
+
+    it('should aggregate chunks whose reasoning was already accumulated elsewhere', () => {
+      // A provider relays the chunks the Prompt loop accumulates, then
+      // assembles its own response from the same chunks
+      const chunks: Chunk[] = [{ reasoning: { content: 'Is' } }, { reasoning: { content: ' it' } }, { reasoning: { content: ' it' } }];
+      chunks.reduce<Reasoning | undefined>((acc, chunk) => accumulateReasoning(acc, chunk.reasoning), undefined);
+
+      expect(getResponseFromChunks(chunks).reasoning?.content).toBe('Is it it');
     });
 
     it('should handle finishReason', () => {
@@ -634,7 +698,7 @@ describe('Common Utilities', () => {
       const chunks: Chunk[] = [
         {
           content: 'Hello',
-          reasoning: 'Thinking...',
+          reasoning: { content: 'Thinking...' },
           model: 'gpt-4',
           usage: { text: { input: 10, output: 5 } }
         },
@@ -647,7 +711,7 @@ describe('Common Utilities', () => {
 
       const response = getResponseFromChunks(chunks);
       expect(response.content).toBe('Hello world');
-      expect(response.reasoning).toBe('Thinking...');
+      expect(response.reasoning?.content).toBe('Thinking...');
       expect(response.finishReason).toBe('stop');
       expect(response.model).toBe('gpt-4');
       expect(response.usage).toEqual({

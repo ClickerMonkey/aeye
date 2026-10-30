@@ -174,6 +174,12 @@ export async function* responseChunks(events: AsyncIterable<OpenAI.Responses.Res
       case 'response.refusal.delta':
         yield { refusal: event.delta };
         break;
+      case 'response.reasoning_summary_part.added':
+        // Parts stream back to back; join them as the finished item does
+        if (event.summary_index > 0) {
+          yield { reasoning: { content: '\n\n' } };
+        }
+        break;
       case 'response.reasoning_text.delta':
       case 'response.reasoning_summary_text.delta':
         yield { reasoning: { content: event.delta } };
