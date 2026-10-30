@@ -255,6 +255,12 @@ export class AI<T extends AIBaseTypes> {
         fallback: this.config.tokens?.audioFallback || 200,
         max: this.config.tokens?.audioMax,
       },
+      video: {
+        divisor: this.config.tokens?.videoDivisor || 600,
+        base64Divisor: this.config.tokens?.videoBase64Divisor || 800,
+        fallback: this.config.tokens?.videoFallback || 15000,
+        max: this.config.tokens?.videoMax,
+      },
     };
   }
 
@@ -632,93 +638,44 @@ export class AI<T extends AIBaseTypes> {
       }
     }
     
-    let cost = 0;
+    // Hosted tools are priced per call
+    const perCall = <K extends string>(calls: Partial<Record<K, number>>, prices: Partial<Record<K, number>>) => {
+      let total = 0;
+      for (const type in calls) {
+        total += (calls[type] ?? 0) * (prices[type] ?? 0);
+      }
+      return total;
+    };
+    const perMillion = (tokens: number | undefined, price: number | undefined) =>
+      tokens && price ? (tokens * price) / 1_000_000 : 0;
 
-    // Text usage costs
-    if (usage.text && pricing.text) {
-      if (usage.text.input && pricing.text.input) {
-        cost += (usage.text.input * pricing.text.input) / 1_000_000;
-      }
-      if (usage.text.output && pricing.text.output) {
-        cost += (usage.text.output * pricing.text.output) / 1_000_000;
-      }
-      if (usage.text.cached) {
-        // Use cached pricing if available, otherwise fall back to input pricing
-        const cachedPrice = pricing.text.cached ?? pricing.text.input;
-        if (cachedPrice) {
-          cost += (usage.text.cached * cachedPrice) / 1_000_000;
-        }
-      }
+    // Unpriced cache reads and writes cost what input does, and unpriced
+    // reasoning bills as the output it is.
+    const { text = {}, audio = {}, image = {}, reasoning = {}, embeddings = {}, tools = {} } = pricing;
+    let cost =
+      perMillion(usage.text?.input, text.input) +
+      perMillion(usage.text?.output, text.output) +
+      perMillion(usage.text?.cached, text.cached ?? text.input) +
+      perMillion(usage.text?.cacheWrite, text.cacheWrite ?? text.input) +
+      perMillion(usage.audio?.input, audio.input) +
+      perMillion(usage.audio?.output, audio.output) +
+      (usage.audio?.seconds ?? 0) * (audio.perSecond ?? 0) +
+      perMillion(usage.image?.input, image.input) +
+      perMillion(usage.reasoning?.input, reasoning.input ?? text.input) +
+      perMillion(usage.reasoning?.output, reasoning.output ?? text.output) +
+      perMillion(usage.reasoning?.cached, reasoning.cached ?? text.cached ?? text.input) +
+      perMillion(usage.embeddings?.tokens, embeddings.cost) +
+      (pricing.perRequest ?? 0);
+
+    // Generated images are priced per image by quality and size
+    for (const output of usage.image?.output ?? []) {
+      const size = image.output
+        ?.find(p => p.quality === output.quality)
+        ?.sizes.find(s => s.width === output.size.width && s.height === output.size.height);
+      cost += (size?.cost ?? 0) * output.count;
     }
 
-    // Audio usage costs
-    if (usage.audio && pricing.audio) {
-      // Time-based pricing (per second)
-      if (usage.audio.seconds && pricing.audio.perSecond) {
-        cost += usage.audio.seconds * pricing.audio.perSecond;
-      }
-      // Token-based pricing
-      if (usage.audio.input && pricing.audio.input) {
-        cost += (usage.audio.input * pricing.audio.input) / 1_000_000;
-      }
-      if (usage.audio.output && pricing.audio.output) {
-        cost += (usage.audio.output * pricing.audio.output) / 1_000_000;
-      }
-    }
-
-    // Image usage costs
-    if (usage.image && pricing.image) {
-      // Input image tokens (for image analysis)
-      if (usage.image.input && pricing.image.input) {
-        cost += (usage.image.input * pricing.image.input) / 1_000_000;
-      }
-      // Output image costs (for image generation)
-      if (usage.image.output && pricing.image.output) {
-        for (const usageOutput of usage.image.output) {
-          // Find matching price for this quality/size
-          const priceEntry = pricing.image.output.find(p => p.quality === usageOutput.quality);
-          if (priceEntry) {
-            const sizeEntry = priceEntry.sizes.find(
-              s => s.width === usageOutput.size.width && s.height === usageOutput.size.height
-            );
-            if (sizeEntry) {
-              cost += sizeEntry.cost * usageOutput.count;
-            }
-          }
-        }
-      }
-    }
-
-    // Reasoning usage costs
-    if (usage.reasoning && pricing.reasoning) {
-      if (usage.reasoning.input && pricing.reasoning.input) {
-        cost += (usage.reasoning.input * pricing.reasoning.input) / 1_000_000;
-      }
-      if (usage.reasoning.output && pricing.reasoning.output) {
-        cost += (usage.reasoning.output * pricing.reasoning.output) / 1_000_000;
-      }
-      if (usage.reasoning.cached) {
-        // Use cached pricing if available, otherwise fall back to input pricing
-        const cachedPrice = pricing.reasoning.cached ?? pricing.reasoning.input;
-        if (cachedPrice) {
-          cost += (usage.reasoning.cached * cachedPrice) / 1_000_000;
-        }
-      }
-    }
-
-    // Embeddings usage costs
-    if (usage.embeddings && pricing.embeddings) {
-      if (usage.embeddings.tokens && pricing.embeddings.cost) {
-        cost += (usage.embeddings.tokens * pricing.embeddings.cost) / 1_000_000;
-      }
-    }
-
-    // Fixed cost per request
-    if (pricing.perRequest) {
-      cost += pricing.perRequest;
-    }
-
-    return cost;
+    return cost + perCall(usage.tools ?? {}, tools);
   }
 
   /**

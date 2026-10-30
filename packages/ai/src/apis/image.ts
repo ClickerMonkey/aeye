@@ -15,7 +15,9 @@ import type {
   ImageGenerationChunk,
   ImageGenerationRequest,
   ImageGenerationResponse,
+  ImageOutputOptions,
   ModelCapability,
+  ModelInfo,
   ModelHandlerFor,
   ModelParameter,
   Request,
@@ -24,6 +26,31 @@ import type {
   Usage
 } from '../types';
 import { BaseAPI } from './base';
+
+/**
+ * Estimates the usage of producing images: prompt tokens, a rough count per
+ * input image, and one priced output per image. Without a requested quality
+ * the model's first priced quality stands in, so the estimate hits a real
+ * price entry.
+ *
+ * @param request - The generation or edit request.
+ * @param model - The model producing the images.
+ * @param inputImages - How many images the request sends.
+ */
+function estimateImageUsage(request: ImageOutputOptions, model: ModelInfo, inputImages: number): Usage {
+  const [width, height] = (request.size || '1024x1024').split('x').map(Number);
+  return {
+    text: { input: Math.ceil(request.prompt.length / 4) },
+    image: {
+      input: inputImages ? inputImages * 1000 : undefined,
+      output: [{
+        quality: request.quality ?? model.pricing.image?.output?.[0]?.quality ?? 'medium',
+        size: { width, height },
+        count: request.n || 1,
+      }],
+    },
+  };
+}
 
 // ============================================================================
 // Image Generate API
@@ -81,27 +108,8 @@ class ImageGenerateAPI<T extends AIBaseTypes> extends BaseAPI<
       : 'Image generation streaming failed';
   }
 
-  protected estimateRequestUsage(request: ImageGenerationRequest): Usage {
-    // Parse size from request (e.g., "1024x1024", "1536x1024")
-    const [width, height] = (request.size || '1024x1024').split('x').map(Number);
-    const quality = request.quality || 'standard';
-    const count = request.n || 1;
-
-    // Prompt tokens (text input)
-    const promptTokens = Math.ceil(request.prompt.length / 4);
-
-    return {
-      text: {
-        input: promptTokens
-      },
-      image: {
-        output: [{
-          quality,
-          size: { width, height },
-          count
-        }]
-      }
-    };
+  protected estimateRequestUsage(request: ImageGenerationRequest, selected: SelectedModelFor<T>): Usage {
+    return estimateImageUsage(request, selected.model, 0);
   }
 
   protected async executeRequest(
@@ -225,30 +233,8 @@ class ImageEditAPI<T extends AIBaseTypes> extends BaseAPI<
       : 'Image editing streaming failed';
   }
 
-  protected estimateRequestUsage(request: ImageEditRequest): Usage {
-    // Parse size from request
-    const [width, height] = (request.size || '1024x1024').split('x').map(Number);
-    const count = request.n || 1;
-    
-    // Prompt tokens (text input)
-    const promptTokens = Math.ceil(request.prompt.length / 4);
-
-    // Estimate input image tokens (assuming standard quality)
-    const imageInputTokens = 1000; // Rough estimate for input image processing
-
-    return {
-      text: {
-        input: promptTokens
-      },
-      image: {
-        input: imageInputTokens,
-        output: [{
-          quality: 'standard',
-          size: { width, height },
-          count
-        }]
-      }
-    };
+  protected estimateRequestUsage(request: ImageEditRequest, selected: SelectedModelFor<T>): Usage {
+    return estimateImageUsage(request, selected.model, Array.isArray(request.image) ? request.image.length : 1);
   }
 
   protected async executeRequest(

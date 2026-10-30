@@ -3,7 +3,7 @@ import { ZodString, ZodType } from 'zod';
 
 import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
-import { Component, Context, Events, Executor, FinishReason, Message, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
+import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify, decodeWire } from "./schema";
 
 /** Default cap (chars) for validation error messages surfaced back to the
@@ -415,6 +415,10 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'refusal', content: string, request: Request } |
   { type: 'reason', reasoning: Reasoning, request: Request } |
   { type: 'reasonPartial', reasoning: Reasoning, request: Request } |
+  { type: 'citations', citations: Citation[], request: Request } |
+  { type: 'images', images: GeneratedImage[], request: Request } |
+  { type: 'audioPartial', audio: GeneratedAudio, request: Request } |
+  { type: 'moderation', moderation: Moderation, request: Request } |
   { type: 'toolParseName', tool: PromptTools<TTools>, request: Request } |
   { type: 'toolParseArguments', tool: PromptTools<TTools>, args: string, request: Request } |
   { type: 'toolArgRepairAttempt', tool: PromptTools<TTools>, fields: ReadonlyArray<string>, success: boolean, request: Request } |
@@ -919,6 +923,19 @@ export class Prompt<
         if (chunk.reasoning) {
           reasoning = accumulateReasoning(reasoning, chunk.reasoning)!;
           yield emit({ type: 'reasonPartial', reasoning, request });
+        }
+
+        if (chunk.citations) {
+          yield emit({ type: 'citations', citations: chunk.citations, request });
+        }
+        if (chunk.images) {
+          yield emit({ type: 'images', images: chunk.images, request });
+        }
+        if (chunk.audio) {
+          yield emit({ type: 'audioPartial', audio: chunk.audio, request });
+        }
+        if (chunk.moderation) {
+          yield emit({ type: 'moderation', moderation: chunk.moderation, request });
         }
 
         // Handle tool calls

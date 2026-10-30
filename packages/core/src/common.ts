@@ -1,4 +1,4 @@
-import { Chunk, ComponentOutput, Events, Instance, Model, ModelInput, Reasoning, Resource, Response, Runner, Usage } from "./types";
+import { Chunk, ComponentOutput, Events, GeneratedAudio, Instance, Model, ModelInput, Reasoning, Resource, Response, Runner, Usage } from "./types";
 
 /**
  * A flexible function type that can be:
@@ -205,6 +205,23 @@ export type Resolved<T> = T extends Promise<infer U>
 ;
 
 /**
+ * Adds every count in `add` onto `target`, treating a missing count as zero.
+ *
+ * @param target - The counts to add into (mutated).
+ * @param add - The counts to add.
+ * @returns The target.
+ */
+function sumCounts<K extends string>(target: Partial<Record<K, number>>, add: Partial<Record<K, number>>): Partial<Record<K, number>> {
+  for (const key in add) {
+    const value = add[key];
+    if (value !== undefined) {
+      target[key] = (target[key] ?? 0) + value;
+    }
+  }
+  return target;
+}
+
+/**
  * Accumulates usage statistics by adding values from one Usage object to another.
  * Handles the nested structure matching ModelPricing.
  * 
@@ -217,98 +234,35 @@ export function accumulateUsage(target: Usage, add?: Usage) {
     return;
   }
 
-  // Accumulate text usage
-  if (add.text) {
-    if (!target.text) {
-      target.text = {};
-    }
-    if (add.text.input !== undefined) {
-      target.text.input = (target.text.input || 0) + add.text.input;
-    }
-    if (add.text.output !== undefined) {
-      target.text.output = (target.text.output || 0) + add.text.output;
-    }
-    if (add.text.cached !== undefined) {
-      target.text.cached = (target.text.cached || 0) + add.text.cached;
-    }
-  }
+  if (add.text) target.text = sumCounts(target.text ?? {}, add.text);
+  if (add.audio) target.audio = sumCounts(target.audio ?? {}, add.audio);
+  if (add.reasoning) target.reasoning = sumCounts(target.reasoning ?? {}, add.reasoning);
+  if (add.embeddings) target.embeddings = sumCounts(target.embeddings ?? {}, add.embeddings);
+  if (add.tools) target.tools = sumCounts(target.tools ?? {}, add.tools);
 
-  // Accumulate audio usage
-  if (add.audio) {
-    if (!target.audio) {
-      target.audio = {};
-    }
-    if (add.audio.input !== undefined) {
-      target.audio.input = (target.audio.input || 0) + add.audio.input;
-    }
-    if (add.audio.output !== undefined) {
-      target.audio.output = (target.audio.output || 0) + add.audio.output;
-    }
-    if (add.audio.seconds !== undefined) {
-      target.audio.seconds = (target.audio.seconds || 0) + add.audio.seconds;
-    }
-  }
-
-  // Accumulate image usage
+  // Image input is a count; image output merges by quality and size
   if (add.image) {
-    if (!target.image) {
-      target.image = { output: [] };
-    }
+    const image = target.image ?? (target.image = {});
     if (add.image.input !== undefined) {
-      target.image.input = (target.image.input || 0) + add.image.input;
+      image.input = (image.input ?? 0) + add.image.input;
     }
-    if (add.image.output) {
-      if (!target.image.output) {
-        target.image.output = [];
-      }
-      // Merge image outputs by quality and size
-      for (const addOutput of add.image.output) {
-        const existing = target.image.output.find(
-          o => o.quality === addOutput.quality && 
-               o.size.width === addOutput.size.width && 
-               o.size.height === addOutput.size.height
-        );
-        if (existing) {
-          existing.count += addOutput.count;
-        } else {
-          target.image.output.push({ ...addOutput });
-        }
+    for (const addOutput of add.image.output ?? []) {
+      const outputs = image.output ?? (image.output = []);
+      const existing = outputs.find(
+        o => o.quality === addOutput.quality && 
+             o.size.width === addOutput.size.width && 
+             o.size.height === addOutput.size.height
+      );
+      if (existing) {
+        existing.count += addOutput.count;
+      } else {
+        outputs.push({ ...addOutput });
       }
     }
   }
 
-  // Accumulate reasoning usage
-  if (add.reasoning) {
-    if (!target.reasoning) {
-      target.reasoning = {};
-    }
-    if (add.reasoning.input !== undefined) {
-      target.reasoning.input = (target.reasoning.input || 0) + add.reasoning.input;
-    }
-    if (add.reasoning.output !== undefined) {
-      target.reasoning.output = (target.reasoning.output || 0) + add.reasoning.output;
-    }
-    if (add.reasoning.cached !== undefined) {
-      target.reasoning.cached = (target.reasoning.cached || 0) + add.reasoning.cached;
-    }
-  }
-
-  // Accumulate embeddings usage
-  if (add.embeddings) {
-    if (!target.embeddings) {
-      target.embeddings = {};
-    }
-    if (add.embeddings.count !== undefined) {
-      target.embeddings.count = (target.embeddings.count || 0) + add.embeddings.count;
-    }
-    if (add.embeddings.tokens !== undefined) {
-      target.embeddings.tokens = (target.embeddings.tokens || 0) + add.embeddings.tokens;
-    }
-  }
-
-  // Accumulate cost
   if (add.cost !== undefined) {
-    target.cost = (target.cost || 0) + add.cost;
+    target.cost = (target.cost ?? 0) + add.cost;
   }
 }
 
@@ -413,9 +367,41 @@ export function getResponseFromChunks(chunks: Chunk[], model: ModelInput = 'unkn
       resp.usage = resp.usage || {};
       accumulateUsage(resp.usage, chunk.usage);
     }
+    if (chunk.citations) {
+      resp.citations = [...resp.citations ?? [], ...chunk.citations];
+    }
+    if (chunk.images) {
+      resp.images = [...resp.images ?? [], ...chunk.images];
+    }
+    if (chunk.audio) {
+      resp.audio = accumulateAudio(resp.audio, chunk.audio);
+    }
+    if (chunk.moderation) {
+      resp.moderation = { ...resp.moderation, ...chunk.moderation };
+    }
+    if (chunk.serviceTier) {
+      resp.serviceTier = chunk.serviceTier;
+    }
   }
 
   return resp;
+}
+
+/**
+ * Appends a partial audio chunk onto accumulated audio.
+ *
+ * @param target - The audio accumulated so far.
+ * @param add - The partial audio to append.
+ * @returns The combined audio.
+ */
+export function accumulateAudio(target: GeneratedAudio | undefined, add: GeneratedAudio): GeneratedAudio {
+  const concat = (x?: string, y?: string) => x === undefined ? y : x + (y ?? '');
+  return {
+    id: add.id ?? target?.id,
+    format: add.format ?? target?.format,
+    data: concat(target?.data, add.data),
+    transcript: concat(target?.transcript, add.transcript),
+  };
 }
 
 /**
@@ -542,6 +528,11 @@ export function getChunksFromResponse(response: Response): Chunk[] {
     finishReason: response.finishReason,
     usage: response.usage,
     model: response.model,
+    citations: response.citations,
+    images: response.images,
+    audio: response.audio,
+    moderation: response.moderation,
+    serviceTier: response.serviceTier,
   });
 
   return chunks;

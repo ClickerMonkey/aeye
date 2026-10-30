@@ -366,6 +366,15 @@ describe('Common Utilities', () => {
   });
 
   describe('accumulateUsage', () => {
+    it('should sum cache writes and hosted tool calls', () => {
+      const target: Usage = { text: { cacheWrite: 100 }, tools: { web_search: 1 } };
+
+      accumulateUsage(target, { text: { cacheWrite: 50 }, tools: { web_search: 2, web_fetch: 1 } });
+
+      expect(target.text).toEqual({ cacheWrite: 150 });
+      expect(target.tools).toEqual({ web_search: 3, web_fetch: 1 });
+    });
+
     it('should accumulate all usage fields', () => {
       const target: Usage = {
         text: { input: 10, output: 20, cached: 5 },
@@ -492,6 +501,29 @@ describe('Common Utilities', () => {
   });
 
   describe('getResponseFromChunks', () => {
+    it('should collect citations, images, audio, and moderation', () => {
+      const chunks: Chunk[] = [
+        { citations: [{ url: 'https://a.example' }], audio: { id: 'au_1', data: 'QUJD', transcript: 'Hi' } },
+        { citations: [{ url: 'https://b.example', title: 'B' }], audio: { data: 'REVG', transcript: ' there' } },
+        { images: [{ b64_json: 'aW1n' }], moderation: { output: { flagged: false, categories: [] } }, serviceTier: 'flex' },
+      ];
+
+      const response = getResponseFromChunks(chunks);
+      expect(response.citations?.map(c => c.url)).toEqual(['https://a.example', 'https://b.example']);
+      expect(response.audio).toEqual({ id: 'au_1', format: undefined, data: 'QUJDREVG', transcript: 'Hi there' });
+      expect(response.images).toEqual([{ b64_json: 'aW1n' }]);
+      expect(response.moderation?.output?.flagged).toBe(false);
+      expect(response.serviceTier).toBe('flex');
+
+      // Round-trips through chunks
+      expect(getResponseFromChunks(getChunksFromResponse(response)).citations).toHaveLength(2);
+    });
+
+    it('should concatenate audio data even when a delta repeats earlier data', () => {
+      const response = getResponseFromChunks([{ audio: { data: 'AAAA' } }, { audio: { data: 'AA' } }]);
+      expect(response.audio?.data).toBe('AAAAAA');
+    });
+
     it('should aggregate content from chunks', () => {
       const chunks: Chunk[] = [
         { content: 'Hello' },

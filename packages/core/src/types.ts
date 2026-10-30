@@ -431,11 +431,17 @@ export interface Message
 /**
  * The type of content within a message.
  */
-export type MessageContentType = 'text' | 'image' | 'file' | 'audio';
+export type MessageContentType = 'text' | 'image' | 'file' | 'audio' | 'video';
+
+/**
+ * How closely a model should look at an image or document.
+ * `original` keeps the source resolution where the provider supports it.
+ */
+export type ContentDetail = 'auto' | 'low' | 'high' | 'original';
 
 /**
  * Structured content part within a message.
- * Supports multiple content types including text, images, files, and audio.
+ * Supports multiple content types including text, images, files, audio, and video.
  */
 export interface MessageContent
 {
@@ -445,6 +451,112 @@ export interface MessageContent
   content: Resource;
   /** Format of the content if known (e.g., 'png', 'mp3', 'pdf') */
   format?: string;
+  /** File name shown to the model, for file content */
+  name?: string;
+  /** How closely the model should look at image or file content */
+  detail?: ContentDetail;
+  /** Marks the end of a reusable prompt prefix the provider should cache */
+  cacheBreakpoint?: boolean;
+}
+
+/**
+ * Audio encodings shared by speech synthesis and audio output.
+ */
+export type AudioFormat = 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+
+/**
+ * Modalities a chat model can be asked to produce.
+ */
+export type OutputModality = 'text' | 'image' | 'audio';
+
+/**
+ * Voice and encoding for audio produced by a chat model.
+ */
+export interface AudioOutput
+{
+  /** Voice name or custom voice id */
+  voice: string;
+  /** Audio encoding, provider default when omitted */
+  format?: AudioFormat;
+}
+
+/**
+ * A tool the provider runs itself, as opposed to a `ToolDefinition` the
+ * caller executes. Providers that can't run a given type reject the request.
+ */
+export type HostedTool =
+  | { type: 'web_search'; maxResults?: number; allowedDomains?: string[]; blockedDomains?: string[] }
+  | { type: 'web_fetch' }
+  | { type: 'file_search'; vectorStoreIds: string[]; maxResults?: number }
+  | { type: 'code_interpreter' }
+  | { type: 'image_generation' }
+  | { type: 'mcp'; label: string; url: string; headers?: Record<string, string>; allowedTools?: string[] };
+
+/**
+ * The kinds of hosted tools.
+ */
+export type HostedToolType = HostedTool['type'];
+
+/**
+ * A source the model cited in its response.
+ */
+export interface Citation
+{
+  /** Source URL */
+  url: string;
+  /** Source title */
+  title?: string;
+  /** First character of the cited span in the response content */
+  start?: number;
+  /** Character after the last of the cited span in the response content */
+  end?: number;
+}
+
+/**
+ * An image produced by a model, as a URL or base64 data.
+ */
+export interface GeneratedImage
+{
+  url?: string;
+  b64_json?: string;
+  /** The prompt the provider actually used, if it rewrote it */
+  revisedPrompt?: string;
+}
+
+/**
+ * Audio produced by a chat model. Streaming chunks carry partial data that
+ * concatenates into the whole.
+ */
+export interface GeneratedAudio
+{
+  /** Provider id for referencing this audio in later turns */
+  id?: string;
+  /** Base64 encoded audio */
+  data?: string;
+  /** Transcript of the audio */
+  transcript?: string;
+  /** Audio encoding */
+  format?: AudioFormat;
+}
+
+/**
+ * A moderation verdict for one side of a request.
+ */
+export interface ModerationResult
+{
+  /** Whether any category was flagged */
+  flagged: boolean;
+  /** The flagged categories */
+  categories: string[];
+}
+
+/**
+ * Moderation verdicts for a request's input and the generated output.
+ */
+export interface Moderation
+{
+  input?: ModerationResult;
+  output?: ModerationResult;
 }
 
 /**
@@ -567,6 +679,8 @@ export interface Usage
     output?: number;
     /** Cached tokens used, if applicable */
     cached?: number;
+    /** Tokens written to the prompt cache, where the provider bills writes */
+    cacheWrite?: number;
   };
   /** Audio usage */
   audio?: {
@@ -607,15 +721,53 @@ export interface Usage
     /** Total tokens processed for embeddings */
     tokens?: number;
   };
+  /** Hosted tool calls made by the provider, by tool type */
+  tools?: Partial<Record<HostedToolType, number>>;
   /** Total cost of the request in dollars, if calculated */
   cost?: number;
 }
 
 /**
+ * Reasoning effort levels, from cheapest to most thorough.
+ */
+export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/**
  * Effort level for reasoning-capable AI models.
  * Higher effort may produce better results but takes longer and uses more tokens.
+ * Models accept different subsets of the levels.
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high';
+export type ReasoningEffort = typeof REASONING_EFFORTS[number];
+
+/**
+ * Reasoning configuration for reasoning-capable models.
+ */
+export interface Reason
+{
+  /** How much effort to spend reasoning */
+  effort?: ReasoningEffort;
+  /** Maximum tokens to spend reasoning, for budget-based providers */
+  maxTokens?: number;
+  /** `pro` spends more compute on the same model */
+  mode?: 'pro';
+  /** Whether reasoning from earlier turns stays in context */
+  context?: 'auto' | 'all_turns' | 'current_turn';
+  /** Request a readable summary of the reasoning */
+  summary?: 'auto' | 'concise' | 'detailed';
+  /** Reason without returning the reasoning */
+  exclude?: boolean;
+}
+
+/**
+ * How long or terse a model's answer should be.
+ */
+export type Verbosity = 'low' | 'medium' | 'high';
+
+/**
+ * Processing tier for a request: `flex` is cheaper and slower, `fast` is
+ * pricier and quicker than `default`.
+ */
+export type ServiceTier = 'auto' | 'default' | 'flex' | 'fast' | 'scale';
 
 /**
  * Parameters for an AI request.
@@ -652,11 +804,27 @@ export interface Request extends BaseRequest
   /** The expected response format. Defaults to text. */
   responseFormat?: ResponseFormat;
   /** Reasoning configuration for reasoning-capable models */
-  reason?: { effort?: ReasoningEffort, maxTokens?: number };
+  reason?: Reason;
   /** A key that can help optimize cache hit rates */
   cacheKey?: string;
   /** Uniquely identifies the user */
   userKey?: string;
+  /** Seed for repeatable sampling, where supported */
+  seed?: number;
+  /** How long or terse the answer should be */
+  verbosity?: Verbosity;
+  /** Processing tier to run the request on */
+  serviceTier?: ServiceTier;
+  /** Tags the provider stores with the request */
+  metadata?: Record<string, string>;
+  /** Modalities to produce. Defaults to text only. */
+  modalities?: OutputModality[];
+  /** Voice and encoding when `modalities` includes audio */
+  audio?: AudioOutput;
+  /** Tools the provider runs itself, such as web search */
+  hostedTools?: HostedTool[];
+  /** Run the provider's moderation over the input and output */
+  moderate?: boolean;
 }
 
 /**
@@ -739,6 +907,16 @@ export interface Response extends BaseResponse
   refusal?: string;
   /** Reasoning trace for reasoning-capable models */
   reasoning?: Reasoning;
+  /** Sources cited in the content */
+  citations?: Citation[];
+  /** Images produced alongside the content */
+  images?: GeneratedImage[];
+  /** Audio produced alongside the content */
+  audio?: GeneratedAudio;
+  /** Moderation verdicts, when the request asked for moderation */
+  moderation?: Moderation;
+  /** The tier the provider processed the request on */
+  serviceTier?: ServiceTier;
 }
 
 /**
@@ -766,6 +944,16 @@ export interface Chunk extends BaseChunk
   refusal?: string;
   /** Partial reasoning trace */
   reasoning?: Reasoning;
+  /** Citations received */
+  citations?: Citation[];
+  /** Completed images received */
+  images?: GeneratedImage[];
+  /** Partial audio, concatenated in order */
+  audio?: GeneratedAudio;
+  /** Moderation verdicts received */
+  moderation?: Moderation;
+  /** The tier the provider processed the request on */
+  serviceTier?: ServiceTier;
 }
 
 /**

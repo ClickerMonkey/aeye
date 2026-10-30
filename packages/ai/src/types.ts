@@ -8,6 +8,7 @@
 import type {
   AgentInput,
   AnyComponent,
+  AudioFormat,
   BaseChunk,
   BaseRequest,
   BaseResponse,
@@ -19,11 +20,14 @@ import type {
   Context as CoreContext,
   DescriptorFamily,
   Executor,
+  GeneratedImage,
+  HostedToolType,
   Message,
   Model,
   ModelInput,
   OptionalParams,
   PromptInput,
+  ReasoningEffort,
   Request,
   Resource,
   Response,
@@ -87,12 +91,15 @@ export type Providers = Record<string, Provider<any>>;
  * - chat: Basic text completion
  * - tools: Function/tool calling
  * - vision: Image understanding
+ * - files: Document (e.g. PDF) understanding
+ * - videoInput: Video understanding
  * - json: JSON output mode
  * - structured: Structured output with schemas
  * - streaming: Streaming responses
  * - reasoning: Extended reasoning (like OpenAI o1)
  * - image: Image generation
  * - audio: Text-to-speech
+ * - audioOutput: Audio produced by a chat model
  * - hearing: Speech-to-text
  * - embedding: Text embeddings
  * - zdr: Zero data retention
@@ -101,12 +108,15 @@ export type ModelCapability =
   | 'chat'
   | 'tools'
   | 'vision'
+  | 'files'
+  | 'videoInput'
   | 'json'
   | 'structured'
   | 'streaming'
   | 'reasoning'
   | 'image'
   | 'audio'
+  | 'audioOutput'
   | 'hearing'
   | 'embedding'
   | 'zdr'
@@ -146,6 +156,8 @@ export interface ModelPricing {
     input?: number;
     output?: number;
     cached?: number;
+    // Writing to the prompt cache, where billed separately
+    cacheWrite?: number;
   };
   audio?: {
     input?: number;
@@ -171,6 +183,8 @@ export interface ModelPricing {
   embeddings?: {
     cost?: number;
   };
+  // Cost per hosted tool call (not per 1M tokens), by tool type
+  tools?: Partial<Record<HostedToolType, number>>;
   // Fixed cost per request
   perRequest?: number;
 }
@@ -248,6 +262,10 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
    *   auto-derived from a successful resolution.
    */
   strictFormat?: DescriptorFamily | 'none';
+  // Reasoning efforts the model accepts, lowest to highest (all when omitted)
+  reasoningEfforts?: ReasoningEffort[];
+  // ISO date (YYYY-MM-DD) the provider stops serving the model
+  retiresAt?: string;
   // Additional provider-specific metadata
   metadata?: Record<string, unknown>;
 }
@@ -276,6 +294,8 @@ export type ModelParameter =
   | 'logitBias' // logit_bias
   | 'logProbabilities' // logprobs
   | 'reason' // reasoning
+  | 'verbosity' // verbosity
+  | 'serviceTier' // service_tier
   // Image
   | 'imageBackground' // background
   | 'imageMultiple' // n
@@ -609,27 +629,31 @@ export type ToolInfer<A> = A extends AI<infer T> ? ToolCompatible<
 // ============================================================================
 
 /**
- * Request for generating images from text prompts.
+ * Image quality, cheapest to best. Models accept different subsets.
  */
-export interface ImageGenerationRequest extends BaseRequest {
-  // Text description of desired image
+export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Output options shared by image generation and editing.
+ */
+export interface ImageOutputOptions extends BaseRequest {
+  // Text description of the desired image or edit
   prompt: string;
-  // Number of images to generate
+  // Number of images to produce
   n?: number;
-  // Image size
-  // gpt-image-1: 1024x1024, 1536x1024, 1024x1536, auto
-  // dall-e-2: 256x256, 512x512, 1024x1024
-  // dall-e-3: 1024x1024, 1792x1024, 1024x1792
+  // Image size as WIDTHxHEIGHT; the nearest size the model supports is used
   size?: string;
-  // Quality level (gpt-image-1, hd,standard=dall-e-3, standard=dall-e-2)
-  quality?: 'low' | 'medium' | 'high';
-  // Style preference (dall-e-3)
-  style?: 'vivid' | 'natural'; 
-  // Response format (dall-e-3, dall-e-2 supports both, gpt-image-1 only b64_json)
-  responseFormat?: 'url' | 'b64_json';
-  // Background type (gpt-image-1)
+  // Quality level
+  quality?: ImageQuality;
+  // Background type
   background?: 'transparent' | 'opaque' | 'auto';
-  // The number of partial images to generate for progress tracking for streaming operations (gpt-image-1)
+  // Encoding of the returned image
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  // Compression level 0-100, for jpeg and webp
+  outputCompression?: number;
+  // Response format for models that can return URLs
+  responseFormat?: 'url' | 'b64_json';
+  // The number of partial images to stream for progress
   streamCount?: number;
   // Seed for reproducibility
   seed?: number;
@@ -638,27 +662,25 @@ export interface ImageGenerationRequest extends BaseRequest {
 }
 
 /**
+ * Request for generating images from text prompts.
+ */
+export interface ImageGenerationRequest extends ImageOutputOptions {
+  // Style preference, for models that have styles
+  style?: 'vivid' | 'natural';
+  // Content moderation strictness
+  moderation?: 'auto' | 'low';
+}
+
+/**
  * Request for editing existing images with text prompts.
  */
-export interface ImageEditRequest extends BaseRequest {
-  // Text description of desired edits
-  prompt: string;
-  // Source image to edit
-  image: Resource;
-  // Optional mask indicating edit region
+export interface ImageEditRequest extends ImageOutputOptions {
+  // Source image(s) to edit or combine
+  image: Resource | Resource[];
+  // Optional mask indicating the edit region of the first image
   mask?: Resource;
-  // Number of edited images to generate
-  n?: number;
-  // Output size
-  size?: string;
-  // Response format
-  responseFormat?: 'url' | 'b64_json';
-  // Seed for reproducibility
-  seed?: number;
-  // The number of partial images to generate for progress tracking for streaming operations
-  streamCount?: number;
-  // Unique identifier for the user
-  userIdentifier?: string;
+  // How closely to preserve details of the input images
+  inputFidelity?: 'low' | 'high';
 }
 
 /**
@@ -666,28 +688,19 @@ export interface ImageEditRequest extends BaseRequest {
  */
 export interface ImageGenerationResponse extends BaseResponse {
   // Generated images
-  images: Array<{
-    url?: string;
-    b64_json?: string;
-    revisedPrompt?: string;
-  }>;
+  images: GeneratedImage[];
 }
 
 /**
  * Streaming chunk for image generation progress.
  */
 export interface ImageGenerationChunk extends BaseChunk {
-  // Partial image data
-  imageData?: string;
   // Progress percentage (0-1)
   progress?: number;
   // Whether generation is complete
   done?: boolean;
-  // Final image (when done)
-  image?: {
-    url?: string;
-    b64_json?: string;
-  };
+  // Partial or final image
+  image?: GeneratedImage;
 }
 
 /**
@@ -702,10 +715,26 @@ export interface TranscriptionRequest extends BaseRequest {
   prompt?: string;
   // Sampling temperature
   temperature?: number;
-  // Output format
-  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json';
+  // Output format; diarized_json labels each segment with its speaker
+  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json' | 'diarized_json';
   // Timestamp granularity
   timestampGranularities?: Array<'word' | 'segment'>;
+  // Reference clips of known speakers, for diarization
+  knownSpeakers?: Array<{ name: string; audio: Resource }>;
+}
+
+/**
+ * A timed span of a transcription.
+ */
+export interface TranscriptionSegment {
+  id: string;
+  // Start time in seconds
+  start: number;
+  // End time in seconds
+  end: number;
+  text: string;
+  // Speaker label, when diarized
+  speaker?: string;
 }
 
 /**
@@ -714,6 +743,8 @@ export interface TranscriptionRequest extends BaseRequest {
 export interface TranscriptionResponse extends BaseResponse {
   // Transcribed text
   text: string;
+  // Timed segments, when the format provides them
+  segments?: TranscriptionSegment[];
 }
 
 /**
@@ -724,8 +755,8 @@ export interface TranscriptionChunk extends BaseChunk {
   delta?: string;
   // The full text transcribed
   text?: string;
-  // Segment information (after segment complete
-  segment?: { start: number; end: number; speaker: string, text: string, id: string };
+  // A completed segment
+  segment?: TranscriptionSegment;
   // Status message
   status?: string;
 }
@@ -738,12 +769,12 @@ export interface SpeechRequest extends BaseRequest{
   text: string;
   // Instructions for speech style/tone
   instructions?: string;
-  // Voice identifier
+  // Voice name or custom voice id
   voice?: string;
   // Speech speed multiplier (0.25 - 4.0)
   speed?: number;
   // Audio format
-  responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+  responseFormat?: AudioFormat;
 }
 
 /**
@@ -753,7 +784,7 @@ export interface SpeechResponse extends BaseResponse {
   // Generated audio data
   audio: ReadableStream<any>;
   // Audio format
-  responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+  responseFormat?: AudioFormat;
 }
 
 /**
@@ -841,7 +872,7 @@ export interface ModelHandler<TContext extends AIContextAny = AIContextAny> {
 
   imageAnalyze?: {
     get?: <TRuntimeContext extends TContext>(request: ImageAnalyzeRequest, ctx: TRuntimeContext) => Promise<Response>;
-    streem?: <TRuntimeContext extends TContext>(request: ImageAnalyzeRequest, ctx: TRuntimeContext) => AsyncIterable<Chunk>;
+    stream?: <TRuntimeContext extends TContext>(request: ImageAnalyzeRequest, ctx: TRuntimeContext) => AsyncIterable<Chunk>;
   };
 
   transcribe?: {
@@ -1263,6 +1294,10 @@ export interface AIConfig<
     audioBase64Divisor?: number; // Default: 4
     audioFallback?: number;      // Default: 200 (per minute)
     audioMax?: number;           // Default: none
+    videoDivisor?: number;       // Default: 600
+    videoBase64Divisor?: number; // Default: 800
+    videoFallback?: number;      // Default: 15000 (about a minute)
+    videoMax?: number;           // Default: none
   };
 
   // Default cost for unknown models (per 1M tokens)
