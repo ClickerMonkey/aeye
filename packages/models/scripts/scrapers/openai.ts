@@ -23,6 +23,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOT = /-(\d{4}-\d{2}-\d{2}|\d{4})$/;
 
 /**
+ * Models the Decisions API takes. Model pages leave that endpoint out, so
+ * this follows the Decisions guide.
+ */
+const DECISION_MODELS = /^gpt-6-luna\b/;
+
+/**
  * Fetch a docs page as Markdown, or undefined when it doesn't exist.
  */
 function fetchPage(page: string): Promise<string | undefined> {
@@ -146,6 +152,7 @@ function parseModel(id: string, markdown: string, retirements: Map<string, strin
   add(endpoints.has('Speech generation'), 'audio', 'speechInstructions');
   add(endpoints.has('Transcription'), 'hearing', 'transcribeStream', 'transcribePrompt');
   add(endpoints.has('Embeddings'), 'embedding', 'embeddingDimensions');
+  add(DECISION_MODELS.test(id), 'decision');
 
   return {
     provider: 'openai',

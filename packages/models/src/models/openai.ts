@@ -1605,7 +1605,7 @@ export const openaiModels: ModelInfo[] = [{
   contextWindow: 1050000,
   maxOutputTokens: 128000,
   tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  capabilities: new Set(['chat', 'streaming', 'tools', 'structured', 'json', 'vision', 'reasoning', 'decision']),
   supportedParameters: new Set(['maxTokens', 'serviceTier', 'tools', 'toolChoice', 'responseFormat', 'structuredOutput', 'reason', 'verbosity']),
   pricing: {
     text: {

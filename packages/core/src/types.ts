@@ -589,7 +589,26 @@ export interface ToolDefinition
    * provider; absent altogether when the request runs against a non-strict model.
    */
   descriptor?: string;
+  /**
+   * Takes its input as free text instead of JSON, optionally constrained by
+   * a grammar. The text arrives as the `input` field, so the tool's schema
+   * is `{ input: string }` (see `TEXT_TOOL_SCHEMA`). Providers without
+   * text tools send it as an ordinary one-field function.
+   */
+  format?: ToolTextFormat;
+  /** Loaded only when the model searches for it, keeping it out of the prompt */
+  defer?: boolean;
+  /** The model keeps working while the tool runs; its result can arrive on a later turn */
+  async?: boolean;
 }
+
+/**
+ * The text a free-text tool accepts: anything, or text matching a Lark or
+ * regex grammar.
+ */
+export type ToolTextFormat =
+  | { type: 'text' }
+  | { type: 'grammar'; syntax: 'lark' | 'regex'; definition: string };
 
 /**
  * Represents a tool invocation by the AI system.
@@ -612,12 +631,16 @@ export interface ToolCall
  * - `none`: Do not use any tools.
  * - `required`: Use a tool for this request.
  * - `{ tool: 'name' }`: Specify a particular tool to use by name.
+ * - `{ allowed: ['a', 'b'] }`: Only let the model call these tools, while
+ *   still sending every tool (which keeps the prompt cacheable). With
+ *   `required`, it must call one of them.
  */
 export type ToolChoice =
   | 'auto'
   | 'none'
   | 'required'
-  | { tool: string };
+  | { tool: string }
+  | { allowed: string[]; required?: boolean };
 
 /**
  * How a structured output schema is delivered to the model.

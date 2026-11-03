@@ -13,6 +13,7 @@ OpenRouter provider for the @aeye (AI TypeScript) framework. OpenRouter provides
 - **Reasoning Models**: Effort or token-budget reasoning for GPT, Claude, Gemini, Grok, and others
 - **Server Tools**: Web search, web fetch, and image generation run by OpenRouter
 - **Media**: Image generation/editing, speech, transcription, and embeddings
+- **Reranking, Decisions, Batches**: `/rerank` (Cohere, Voyage, Qwen, Nemotron), the alpha decisions endpoint (System One models such as Jev and Kev), and inline batches
 - **Plugins & Fallback Models**: PDF parsing, response healing, context compression, and model fallbacks
 - **Streaming**: Full streaming support across compatible models
 - **Extends OpenAI**: Built on the OpenAI provider for compatibility
@@ -296,15 +297,35 @@ const transcript = await ai.transcribe.get({ audio: fs.readFileSync('note.mp3') 
 
 Defaults: `google/gemini-2.5-flash-image` for images, `openai/gpt-transcribe`, `openai/text-embedding-3-small`, and `openai/gpt-5.4-mini` for image analysis; speech has no default model. Image and transcription streaming fall back to the non-streaming methods.
 
+### Reranking, Decisions, Batches
+
+```typescript
+// Order documents by relevance (default cohere/rerank-v3.5)
+const { results } = await ai.rerank.get({ query: 'refund policy', documents, topN: 3 });
+
+// Typed answers from a decision model (default typesafe/jev-1.14)
+const { answers } = await ai.decide.get({
+  input: 'I was charged twice for my order.',
+  questions: {
+    billing: { type: 'predicate', instructions: 'Is this a billing problem?' },
+    team: { type: 'choice', instructions: 'Which team handles it?', choices: { payments: 'Charges and refunds', web: 'Website bugs' } },
+  },
+});
+
+// Chat requests as one batch, posted inline to /batches
+const job = await ai.batch.submit(requests, { metadata: { model: 'openai/gpt-5.4-mini' } });
+const done = await ai.batch.wait(job, {});
+```
+
+Rerank and decision costs come back as `usage.cost`. Decisions use OpenRouter's alpha endpoint, outside the versioned API. Change the defaults with `defaultModels.rerank` and `defaultModels.decision`.
+
 ### Function Calling
 
 ```typescript
 import z from 'zod';
 
-const response = await ai.chat.get([
-  { role: 'user', content: 'What is the weather in Paris?' }
-], {
-  metadata: { model: 'openai/gpt-5.4-mini' },
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'What is the weather in Paris?' }],
   tools: [
     {
       name: 'get_weather',
@@ -316,8 +337,12 @@ const response = await ai.chat.get([
     }
   ],
   toolChoice: 'auto',
+}, {
+  metadata: { model: 'openai/gpt-5.4-mini' },
 });
 ```
+
+`toolChoice: { allowed: [...], required? }` is emulated by sending only the allowed tools, because OpenRouter ignores `allowed_tools`. Free-text tools (`format`) go as one-field functions with any grammar in the description; `defer` and `async` are not sent.
 
 ### Fetching Available Models
 
@@ -366,6 +391,7 @@ Extends `OpenAIConfig` from `@aeye/openai`, minus its `api` option.
 | `apiKey` | `string` | Yes | OpenRouter API key |
 | `baseURL` | `string` | No | Custom base URL (defaults to https://openrouter.ai/api/v1) |
 | `defaultParams` | `object` | No | Default parameters for all requests |
+| `defaultModels` | `object` | No | Per-operation defaults; built in: `cohere/rerank-v3.5` (rerank), `typesafe/jev-1.14` (decision), plus the image, transcription, and embedding defaults above |
 
 ### defaultParams
 
@@ -543,7 +569,13 @@ Extends `OpenAIProvider` from `@aeye/openai`.
 
 **Overridden Methods**:
 - `createClient(config)` - Creates OpenAI client with OpenRouter endpoint
-- `customizeChatParams(params, config, request)` - Adds OpenRouter-specific params
+- `augmentChatRequest(params, request, config)` - Adds OpenRouter-specific params
+- `buildChatParams(request, run, streaming)` - Sends only the allowed tools for `{ allowed }` tool choices
+- `createBatch(batch, run)` / `retrieveBatch(job, run)` - Inline batches through `/batches`
+
+**Added Methods**:
+- `rerank(request, ctx, config?)` - `/rerank`
+- `decide(request, ctx, config?)` - alpha decisions endpoint
 
 ### OpenRouterModelSource
 
@@ -576,6 +608,9 @@ Model source for fetching OpenRouter models.
 - ✅ Speech synthesis
 - ✅ Transcription (no streaming)
 - ✅ Embeddings
+- ✅ Reranking
+- ✅ Decisions (alpha endpoint)
+- ✅ Batches
 
 ## Related Packages
 

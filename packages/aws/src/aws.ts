@@ -31,6 +31,7 @@ import {
   Streamer,
   toJSONSchema,
   ToolCall,
+  withAllowedTools,
 } from '@aeye/core';
 import {
   BedrockClient,
@@ -373,7 +374,8 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     // the budget only needs to cover tool schemas. It is built the same way
     // as the OpenAI provider's so strictness selection stays consistent.
     const budget = buildSchemaBudget(modelInfo ?? { id: modelId, provider: this.name }, this.supportedStrictFamilies);
-    const toolConfig = this.convertToolsToConverse(request, budget);
+    // Bedrock can't limit which tools a model calls, so only the allowed ones are sent
+    const toolConfig = this.convertToolsToConverse(withAllowedTools(request), budget);
     const model = getModel(request.model);
     const maxTokens = request.maxTokens ?? (typeof model !== 'string' && model?.maxOutputTokens ? model.maxOutputTokens : undefined);
 
@@ -774,7 +776,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       toolChoice = { auto: {} };
     } else if (request.toolChoice === 'required') {
       toolChoice = { any: {} };
-    } else if (typeof request.toolChoice === 'object' && request.toolChoice !== null) {
+    } else if (typeof request.toolChoice === 'object' && 'tool' in request.toolChoice) {
       toolChoice = { tool: { name: request.toolChoice.tool } };
     }
 

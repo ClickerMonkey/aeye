@@ -15,13 +15,13 @@
  *   forces regardless of strictness). See {@link OpenRouterConfig.defaultParams}.
  */
 
-import type { AIContextAny, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
+import type { AIContextAny, BatchJob, DecisionAnswer, DecisionQuestion, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { REASONING_EFFORTS, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
-import { type DefaultModels, OpenAIConfig, OpenAIProvider, ProviderError } from '@aeye/openai';
+import { REASONING_EFFORTS, withAllowedTools, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
+import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
-import type { OpenRouterChatChunk, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterServerTool, OpenRouterUsage } from './types';
+import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterDecisionAnswer, OpenRouterDecisionQuestion, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
 
 /**
  * OpenRouter provider configuration. Requests always go through chat
@@ -107,6 +107,8 @@ const PRODUCES: Partial<Record<OpenRouterOutput, ModelCapability>> = {
   speech: 'audio',
   transcription: 'hearing',
   embeddings: 'embedding',
+  rerank: 'rerank',
+  decisions: 'decision',
 };
 
 /**
@@ -144,6 +146,8 @@ const DEFAULT_MODELS: DefaultModels = {
   imageAnalyze: 'openai/gpt-5.4-mini',
   transcription: 'openai/gpt-transcribe',
   embedding: 'openai/text-embedding-3-small',
+  rerank: 'cohere/rerank-v3.5',
+  decision: 'typesafe/jev-1.14',
 };
 
 /**
@@ -275,6 +279,41 @@ function aspectRatio(size: string): string {
 }
 
 /**
+ * A question as OpenRouter's decisions endpoint takes it: a predicate is a
+ * `noul` question, and choices and levels are its criteria.
+ */
+function toDecisionQuestion(question: DecisionQuestion): OpenRouterDecisionQuestion {
+  const { instructions } = question;
+  switch (question.type) {
+    case 'predicate':
+      return { type: 'noul', instructions };
+    case 'choice':
+      return { type: 'choice', instructions, criteria: question.choices };
+    case 'score':
+      return { type: 'score', instructions, criteria: question.levels };
+  }
+}
+
+/**
+ * An answer in @aeye's shape, with score probabilities in level order.
+ */
+function toDecisionAnswer(answer: OpenRouterDecisionAnswer): DecisionAnswer {
+  switch (answer.type) {
+    case 'noul':
+      return { type: 'predicate', probability: answer.noul };
+    case 'choice':
+      return answer;
+    case 'score':
+      return {
+        type: 'score',
+        score: answer.score,
+        probabilities: Object.entries(answer.probabilities).sort(([a], [b]) => Number(a) - Number(b)).map(([, probability]) => probability),
+        confidence: answer.confidence,
+      };
+  }
+}
+
+/**
  * Images a chat model produced.
  */
 function toImages(images: OpenRouterImage[] | undefined): GeneratedImage[] | undefined {
@@ -363,6 +402,14 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   protected override usesResponses(): boolean {
     return false;
+  }
+
+  /**
+   * OpenRouter doesn't honor `allowed_tools` (models still call the others,
+   * and some upstreams reject it), so only the allowed tools are sent.
+   */
+  protected override buildChatParams(request: Request, run: OperationRun<OpenRouterConfig>, streaming: boolean) {
+    return super.buildChatParams(withAllowedTools(request), run, streaming);
   }
 
   /**
@@ -556,6 +603,81 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    * the non-streaming method.
    */
   override transcribeStream = undefined;
+
+  /**
+   * Order documents by relevance to a query.
+   *
+   * @param request Rerank request parameters
+   * @param ctx Context object
+   * @param config Optional configuration override
+   * @returns Documents by relevance, most relevant first
+   */
+  rerank: Provider['rerank'] = async (request, ctx, config?: OpenRouterConfig) => {
+    const run = this.prepare('rerank', request, ctx, undefined, config, undefined, 'rerank');
+    const body = { model: run.model.id, query: request.query, documents: request.documents, top_n: request.topN, ...request.extra };
+    const result = await run.retry((signal) => run.client.post<OpenRouterRerank>('/rerank', { body, signal }));
+    return {
+      results: result.results.map(({ index, relevance_score }) => ({ index, score: relevance_score })),
+      model: run.model,
+      usage: { cost: result.usage?.cost },
+    };
+  }
+
+  /**
+   * Typed answers about an input, from System One models such as Jev and
+   * Kev or other decision models. A conversation goes in as chat messages.
+   * Decisions are an alpha endpoint, outside the versioned API.
+   *
+   * @param request Decision request parameters
+   * @param ctx Context object
+   * @param config Optional configuration override
+   * @returns Answers by question name
+   */
+  override decide: Provider['decide'] = async (request, ctx, config?: OpenRouterConfig) => {
+    const run = this.prepare('decide', request, ctx, undefined, config, undefined, 'decision');
+    const body = {
+      model: run.model.id,
+      state: typeof request.input === 'string' ? request.input : await this.convertMessages({ messages: request.input }, run.config),
+      questions: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, toDecisionQuestion(question)])),
+      ...request.extra,
+    };
+    const url = new URL('../alpha/decisions', `${run.client.baseURL}/`).href;
+    const result = await run.retry((signal) => run.client.post<OpenRouterDecision>(url, { body, signal }));
+    return {
+      answers: Object.fromEntries(Object.entries(result.answers).map(([name, answer]) => [name, toDecisionAnswer(answer)])),
+      model: run.model,
+      usage: { text: { input: result.usage.input_tokens, output: result.usage.output_tokens || undefined }, cost: result.usage.cost },
+    };
+  }
+
+  /**
+   * Start a batch: OpenRouter takes the requests inline.
+   */
+  protected override async createBatch(batch: BatchSubmission, run: OperationRun<OpenRouterConfig>): Promise<BatchJob> {
+    const body = { endpoint: batch.endpoint, model: batch.model, requests: batch.lines };
+    const created = await run.retry((signal) => run.client.post<OpenRouterBatch>('/batches', { body, signal }));
+    return this.toBatchJob(created, run);
+  }
+
+  /**
+   * Read a batch: OpenRouter returns the results inline once it completes.
+   */
+  protected override async retrieveBatch(job: BatchJob, run: OperationRun<OpenRouterConfig>): Promise<BatchJob> {
+    const batch = await run.retry((signal) => run.client.get<OpenRouterBatch>(`/batches/${job.id}`, { signal }));
+    const results = batch.results && this.batchResults(batch.results, batch.request_counts.total, run);
+    return { ...this.toBatchJob(batch, run), results: results ?? undefined };
+  }
+
+  /**
+   * A batch as @aeye reports it.
+   */
+  private toBatchJob(batch: OpenRouterBatch, run: OperationRun<OpenRouterConfig>): BatchJob {
+    const usage: Usage = {};
+    if (batch.usage) {
+      augmentUsage(usage, batch.usage);
+    }
+    return { id: batch.id, provider: this.name, model: run.model.id, status: batch.status, counts: batch.request_counts, error: batch.error?.message, cost: usage.cost };
+  }
 
   /**
    * Override listModels to use OpenRouter's model API with ZDR support

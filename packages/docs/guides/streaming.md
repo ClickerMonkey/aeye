@@ -82,19 +82,19 @@ Prompts provide rich event streams:
 for await (const event of myPrompt.run(input)) {
   switch (event.type) {
     case 'textPartial':
-      process.stdout.write(event.value);
+      process.stdout.write(event.content);
       break;
     case 'toolStart':
-      spinner.start(`Running ${event.value.name}...`);
+      spinner.start(`Running ${event.tool.name}...`);
       break;
     case 'toolOutput':
       spinner.stop();
       break;
     case 'complete':
-      console.log('\nResult:', event.value);
+      console.log('\nResult:', event.output);
       break;
     case 'usage':
-      console.log('Cost:', event.value.cost);
+      console.log('Cost:', event.usage.cost);
       break;
   }
 }

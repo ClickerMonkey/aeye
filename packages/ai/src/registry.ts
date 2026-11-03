@@ -418,6 +418,16 @@ export function getProviderCapabilities(provider: Provider): Set<ModelCapability
     capabilities.add('embedding');
   }
 
+  // rerank - Ordering documents by relevance
+  if (provider.rerank !== undefined) {
+    capabilities.add('rerank');
+  }
+
+  // decision - Typed answers about an input
+  if (provider.decide !== undefined) {
+    capabilities.add('decision');
+  }
+
   // tools - Function/tool calling
   // Note: This is typically a model capability, not detected from provider methods
   // Function calling is handled through createExecutor with tools parameter

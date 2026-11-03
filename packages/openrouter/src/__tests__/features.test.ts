@@ -3,7 +3,7 @@
  */
 
 import { AI, type AIContextAny, type Request } from '@aeye/ai';
-import { accumulateReasoning, type Reasoning } from '@aeye/core';
+import { accumulateReasoning, TEXT_TOOL_SCHEMA, type Reasoning } from '@aeye/core';
 import { convertOpenRouterModel, OpenRouterProvider } from '../openrouter';
 import type { OpenRouterModel } from '../types';
 
@@ -68,6 +68,19 @@ describe('request', () => {
       { type: 'openrouter:web_search', parameters: { max_results: 3, allowed_domains: ['github.com'], excluded_domains: undefined } },
       { type: 'openrouter:web_fetch' },
     ]);
+  });
+
+  it('sends only the allowed tools, since OpenRouter ignores allowed_tools', async () => {
+    const tool = (name: string) => ({ name, parameters: TEXT_TOOL_SCHEMA });
+
+    await new OpenRouterProvider({ apiKey: 'k' }).createExecutor()({
+      ...hi,
+      tools: [tool('weather'), tool('news')],
+      toolChoice: { allowed: ['news'], required: true },
+    }, ctx, { model: 'anthropic/claude-haiku-4.5' });
+
+    expect(sentParams().tools.map((t: { function: { name: string } }) => t.function.name)).toEqual(['news']);
+    expect(sentParams().tool_choice).toBe('required');
   });
 
   it('marks cache breakpoints with cache_control', async () => {

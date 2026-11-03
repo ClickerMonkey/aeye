@@ -32,7 +32,7 @@ interface ModelInfo<TProvider = string> {
 type ModelCapability =
   | 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'hearing'
   | 'json' | 'structured' | 'streaming' | 'reasoning'
-  | 'image' | 'audio' | 'embedding' | 'zdr'
+  | 'image' | 'audio' | 'embedding' | 'rerank' | 'decision' | 'zdr'
   | 'toolsStrict';
 ```
 
@@ -66,9 +66,14 @@ Prices are in **dollars per million tokens** (text, reasoning, embeddings, image
 
 ```typescript
 interface ModelMetrics {
-  tokensPerSecond?: number;
-  latencyMs?: number;
-  accuracyScore?: number;
+  tokensPerSecond?: number;         // generation speed
+  timeToFirstToken?: number;        // ms
+  averageRequestDuration?: number;  // ms
+  accuracyScore?: number;           // 0-1
+  requestCount?: number;
+  successCount?: number;
+  failureCount?: number;
+  lastUpdated?: Date;
 }
 ```
 

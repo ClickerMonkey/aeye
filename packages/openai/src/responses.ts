@@ -23,6 +23,22 @@ export const RESPONSES_REASONING_FORMAT = 'openai-responses-v1';
 const RESPONSES_ONLY_MODELS = /codex|deep-research|computer-use|^o[13]-pro|^gpt-5(\.[1-5])?-pro/;
 
 /**
+ * A free-text tool call's input as tool call arguments: the text as `input`,
+ * matching the tool's `{ input: string }` schema.
+ */
+export function textArguments(input: string): string {
+  return JSON.stringify({ input });
+}
+
+/**
+ * The text input of a free-text tool call, from its arguments.
+ */
+export function textInput(args: string): string {
+  const parsed: { input?: string } = JSON.parse(args);
+  return parsed.input ?? '';
+}
+
+/**
  * Whether a model can only be reached through the Responses API.
  */
 export function isResponsesOnly(modelId: string): boolean {
@@ -133,6 +149,9 @@ export function outputItemChunk(item: OpenAI.Responses.ResponseOutputItem, strea
     case 'function_call':
       chunk.toolCall = { id: item.call_id, name: item.name, arguments: item.arguments };
       break;
+    case 'custom_tool_call':
+      chunk.toolCall = { id: item.call_id, name: item.name, arguments: textArguments(item.input) };
+      break;
     case 'image_generation_call':
       chunk.images = item.result ? [{ b64_json: item.result, revisedPrompt: item.revised_prompt ?? undefined }] : undefined;
       break;
@@ -165,6 +184,8 @@ export function responseEndChunk(response: OpenAI.Responses.Response): Chunk {
  */
 export async function* responseChunks(events: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>, provider: string): AsyncGenerator<Chunk> {
   const calls = new Map<string, ToolCall>();
+  // The raw text streamed so far for each free-text tool call
+  const texts = new Map<string, string>();
 
   for await (const event of events) {
     switch (event.type) {
@@ -185,7 +206,7 @@ export async function* responseChunks(events: AsyncIterable<OpenAI.Responses.Res
         yield { reasoning: { content: event.delta } };
         break;
       case 'response.output_item.added':
-        if (event.item.type === 'function_call') {
+        if (event.item.type === 'function_call' || event.item.type === 'custom_tool_call') {
           const call = { id: event.item.call_id, name: event.item.name, arguments: '' };
           calls.set(event.item.id ?? event.item.call_id, call);
           yield { toolCallNamed: call };
@@ -195,6 +216,16 @@ export async function* responseChunks(events: AsyncIterable<OpenAI.Responses.Res
         const call = calls.get(event.item_id);
         if (call) {
           call.arguments += event.delta;
+          yield { toolCallArguments: call };
+        }
+        break;
+      }
+      case 'response.custom_tool_call_input.delta': {
+        const call = calls.get(event.item_id);
+        if (call) {
+          const text = (texts.get(event.item_id) ?? '') + event.delta;
+          texts.set(event.item_id, text);
+          call.arguments = textArguments(text);
           yield { toolCallArguments: call };
         }
         break;

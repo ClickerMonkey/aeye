@@ -45,6 +45,8 @@ Models declare their capabilities:
 | `image` | Image generation |
 | `audio` | Audio output: text-to-speech, or a chat model that speaks |
 | `embedding` | Text embeddings |
+| `rerank` | Ordering documents by relevance to a query |
+| `decision` | Typed answers (probabilities, choices, scores) from decision models |
 | `zdr` | Zero Data Retention |
 | `toolsStrict` | Strict tool inputs (derived from `strictFormat`) |
 
