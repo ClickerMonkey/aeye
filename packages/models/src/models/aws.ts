@@ -10,57 +10,331 @@
 import type { ModelInfo } from '@aeye/ai';
 
 export const awsModels: ModelInfo[] = [{
-  id: 'stability.stable-fast-upscale-v1:0',
+  id: 'ai21.jamba-1-5-large-v1:0',
   provider: 'aws',
-  name: 'Stable Image Fast Upscale',
+  name: 'Jamba 1.5 Large',
+  contextWindow: 256000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 8,
+      input: 2
+    }
+  },
+  retiresAt: '2026-11-26',
+  metadata: {
+    providerName: "AI21 Labs",
+    knowledgeCutoff: "Mar 2024",
+    inRegion: true
+  }
+}, {
+  id: 'ai21.jamba-1-5-mini-v1:0',
+  provider: 'aws',
+  name: 'Jamba 1.5 Mini',
+  contextWindow: 256000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools']),
+  pricing: {
+    text: {
+      input: 0.2,
+      output: 0.4
+    }
+  },
+  retiresAt: '2026-11-26',
+  metadata: {
+    providerName: "AI21 Labs",
+    knowledgeCutoff: "Mar 2024",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.nova-2-5-sonic',
+  provider: 'aws',
+  name: 'Nova 2.5 Sonic',
+  contextWindow: 256000,
+  maxOutputTokens: 64000,
+  tier: 'efficient',
+  capabilities: new Set(['hearing', 'audio']),
+  pricing: {
+    text: {
+      output: 2.75,
+      input: 0.33
+    }
+  },
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.nova-2-lite-v1:0',
+  provider: 'aws',
+  name: 'Nova 2 Lite',
+  contextWindow: 1000000,
+  maxOutputTokens: 64000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision', 'videoInput', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.3,
+      cacheWrite: 0,
+      cached: 0.0825,
+      output: 2.5
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    providerName: "Amazon",
+    knowledgeCutoff: "Oct 2025",
+    inRegion: true,
+    inferenceIds: [
+      "us.amazon.nova-2-lite-v1:0",
+      "eu.amazon.nova-2-lite-v1:0",
+      "jp.amazon.nova-2-lite-v1:0",
+      "global.amazon.nova-2-lite-v1:0"
+    ]
+  }
+}, {
+  id: 'amazon.nova-2-multimodal-embeddings-v1:0',
+  provider: 'aws',
+  name: 'Amazon Nova Multimodal Embeddings',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['hearing', 'embedding']),
+  pricing: {},
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.nova-2-sonic-v1:0',
+  provider: 'aws',
+  name: 'Nova 2 Sonic',
+  contextWindow: 1000000,
+  maxOutputTokens: 64000,
+  tier: 'efficient',
+  capabilities: new Set(['hearing', 'audio']),
+  pricing: {},
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.nova-canvas-v1:0',
+  provider: 'aws',
+  name: 'Nova Canvas',
   contextWindow: 0,
   tier: 'efficient',
   capabilities: new Set(['image']),
   pricing: {},
+  retiresAt: '2026-09-30',
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-fast-upscale-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
-    ]
+    providerName: "Amazon",
+    inRegion: true
   }
 }, {
-  id: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  id: 'amazon.nova-lite-v1:0',
   provider: 'aws',
-  name: 'Claude Sonnet 4',
-  contextWindow: 200000,
-  maxOutputTokens: 16384,
+  name: 'Nova Lite',
+  contextWindow: 300000,
+  maxOutputTokens: 10000,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision', 'videoInput']),
   pricing: {
     text: {
-      input: 3,
-      output: 15
+      cacheWrite: 0,
+      output: 0.24,
+      cached: 0.015,
+      input: 0.06
     }
   },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0",
+    providerName: "Amazon",
+    knowledgeCutoff: "Oct 2024",
+    inRegion: true,
+    inferenceIds: [
+      "us.amazon.nova-lite-v1:0",
+      "ca.amazon.nova-lite-v1:0",
+      "eu.amazon.nova-lite-v1:0",
+      "apac.amazon.nova-lite-v1:0"
+    ]
+  }
+}, {
+  id: 'amazon.nova-micro-v1:0',
+  provider: 'aws',
+  name: 'Nova Micro',
+  contextWindow: 128000,
+  maxOutputTokens: 10000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      cacheWrite: 0,
+      input: 0.035,
+      cached: 0.00875,
+      output: 0.14
+    }
+  },
+  metadata: {
+    providerName: "Amazon",
+    knowledgeCutoff: "Oct 2024",
+    inRegion: true,
+    inferenceIds: [
+      "us.amazon.nova-micro-v1:0",
+      "eu.amazon.nova-micro-v1:0"
+    ]
+  }
+}, {
+  id: 'amazon.nova-pro-v1:0',
+  provider: 'aws',
+  name: 'Nova Pro',
+  contextWindow: 300000,
+  maxOutputTokens: 10000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision', 'videoInput']),
+  pricing: {
+    text: {
+      output: 3.2,
+      cached: 0.2,
+      input: 0.8,
+      cacheWrite: 0
+    }
+  },
+  metadata: {
+    providerName: "Amazon",
+    knowledgeCutoff: "Oct 2024",
+    inRegion: true,
+    inferenceIds: [
+      "us.amazon.nova-pro-v1:0",
+      "eu.amazon.nova-pro-v1:0",
+      "apac.amazon.nova-pro-v1:0"
+    ]
+  }
+}, {
+  id: 'amazon.titan-embed-g1-text-02',
+  provider: 'aws',
+  name: 'Titan Embeddings G1 - Text v2',
+  contextWindow: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {},
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.titan-embed-image-v1',
+  provider: 'aws',
+  name: 'Titan Multimodal Embeddings G1',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {},
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.titan-embed-text-v1',
+  provider: 'aws',
+  name: 'Titan Embeddings G1 - Text',
+  contextWindow: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.1
+    }
+  },
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'amazon.titan-embed-text-v2:0',
+  provider: 'aws',
+  name: 'Titan Text Embeddings V2',
+  contextWindow: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {},
+  metadata: {
+    providerName: "Amazon",
+    inRegion: true
+  }
+}, {
+  id: 'anthropic.claude-3-haiku-20240307-v1:0',
+  provider: 'aws',
+  name: 'Claude 3 Haiku',
+  contextWindow: 200000,
+  maxOutputTokens: 4000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'vision']),
+  pricing: {
+    text: {
+      input: 0.25,
+      output: 1.25
+    }
+  },
+  retiresAt: '2026-09-10',
+  metadata: {
     providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
+    knowledgeCutoff: "Aug 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.anthropic.claude-3-haiku-20240307-v1:0",
+      "eu.anthropic.claude-3-haiku-20240307-v1:0"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-fable-5',
+  provider: 'aws',
+  name: 'Claude Fable 5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cacheWrite: 12.5,
+      input: 10,
+      output: 50,
+      cached: 1
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "January 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-fable-5",
+      "global.anthropic.claude-fable-5"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-fable-5-1',
+  provider: 'aws',
+  name: 'Claude Fable 5.1',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 50,
+      cached: 0.25,
+      cacheWrite: 12.5
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "June 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-fable-5-1",
+      "global.anthropic.claude-fable-5-1"
     ]
   }
 }, {
@@ -68,132 +342,1230 @@ export const awsModels: ModelInfo[] = [{
   provider: 'aws',
   name: 'Claude Haiku 4.5',
   contextWindow: 200000,
-  maxOutputTokens: 16384,
+  maxOutputTokens: 64000,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
   pricing: {
     text: {
+      cacheWrite: 1.25,
       input: 1,
+      cached: 0.1,
       output: 5
     }
   },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
     providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
+    knowledgeCutoff: "Feb 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "au.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "in.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "global.anthropic.claude-haiku-4-5-20251001-v1:0"
     ]
   }
 }, {
-  id: 'stability.stable-image-erase-object-v1:0',
+  id: 'anthropic.claude-haiku-5-5',
   provider: 'aws',
-  name: 'Stable Image Erase Object',
-  contextWindow: 0,
+  name: 'Claude Haiku 5.5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
   tier: 'efficient',
-  capabilities: new Set(['image']),
-  pricing: {},
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cacheWrite: 0.125,
+      cached: 0.01,
+      output: 0.5,
+      input: 0.1
+    }
+  },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-erase-object-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    providerName: "Anthropic",
+    knowledgeCutoff: "June 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-haiku-5-5",
+      "ca.anthropic.claude-haiku-5-5",
+      "eu.anthropic.claude-haiku-5-5",
+      "au.anthropic.claude-haiku-5-5",
+      "jp.anthropic.claude-haiku-5-5",
+      "global.anthropic.claude-haiku-5-5"
     ]
   }
 }, {
-  id: 'qwen.qwen3-235b-a22b-2507-v1:0',
+  id: 'anthropic.claude-mythos-5-1',
   provider: 'aws',
-  name: 'Qwen3 235B A22B 2507',
-  contextWindow: 0,
+  name: 'Claude Mythos 5.1',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
   tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
+  capabilities: new Set(['chat', 'tools', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 10,
+      cached: 0.25,
+      output: 50,
+      cacheWrite: 12.5
+    }
+  },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/qwen.qwen3-235b-a22b-2507-v1:0",
-    providerName: "Qwen",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Anthropic",
+    knowledgeCutoff: "June 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-mythos-5-1",
+      "global.anthropic.claude-mythos-5-1"
     ]
   }
 }, {
-  id: 'stability.stable-image-control-structure-v1:0',
+  id: 'anthropic.claude-opus-4-1-20250805-v1:0',
   provider: 'aws',
-  name: 'Stable Image Control Structure',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['image']),
-  pricing: {},
+  name: 'Claude Opus 4.1',
+  contextWindow: 200000,
+  maxOutputTokens: 32000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 15,
+      cached: 1.5,
+      output: 75,
+      cacheWrite: 18.75
+    }
+  },
+  retiresAt: '2027-01-08',
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-control-structure-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    providerName: "Anthropic",
+    knowledgeCutoff: "Mar 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-opus-4-1-20250805-v1:0"
     ]
   }
 }, {
-  id: 'openai.gpt-oss-120b-1:0',
+  id: 'anthropic.claude-opus-4-5-20251101-v1:0',
   provider: 'aws',
-  name: 'gpt-oss-120b',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
+  name: 'Claude Opus 4.5',
+  contextWindow: 200000,
+  maxOutputTokens: 64000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      output: 25,
+      input: 5,
+      cached: 0.5,
+      cacheWrite: 6.25
+    }
+  },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-oss-120b-1:0",
-    providerName: "OpenAI",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Anthropic",
+    knowledgeCutoff: "Mar 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-opus-4-5-20251101-v1:0",
+      "eu.anthropic.claude-opus-4-5-20251101-v1:0",
+      "global.anthropic.claude-opus-4-5-20251101-v1:0"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-opus-4-6-v1',
+  provider: 'aws',
+  name: 'Claude Opus 4.6',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 5,
+      cached: 0.5,
+      cacheWrite: 6.25,
+      output: 25
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "May 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-opus-4-6-v1",
+      "eu.anthropic.claude-opus-4-6-v1",
+      "au.anthropic.claude-opus-4-6-v1",
+      "global.anthropic.claude-opus-4-6-v1"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-opus-4-7',
+  provider: 'aws',
+  name: 'Claude Opus 4.7',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cacheWrite: 6.25,
+      cached: 0.5,
+      output: 25,
+      input: 5
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "January 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-opus-4-7",
+      "eu.anthropic.claude-opus-4-7",
+      "jp.anthropic.claude-opus-4-7",
+      "au.anthropic.claude-opus-4-7",
+      "global.anthropic.claude-opus-4-7"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-opus-4-8',
+  provider: 'aws',
+  name: 'Claude Opus 4.8',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      output: 25,
+      input: 5,
+      cacheWrite: 6.25,
+      cached: 0.5
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "January 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-opus-4-8",
+      "eu.anthropic.claude-opus-4-8",
+      "jp.anthropic.claude-opus-4-8",
+      "au.anthropic.claude-opus-4-8",
+      "us-gov.anthropic.claude-opus-4-8",
+      "global.anthropic.claude-opus-4-8"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-opus-5',
+  provider: 'aws',
+  name: 'Claude Opus 5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cached: 0.5,
+      cacheWrite: 6.25,
+      output: 25,
+      input: 5
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "May 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-opus-5",
+      "eu.anthropic.claude-opus-5",
+      "au.anthropic.claude-opus-5",
+      "in.anthropic.claude-opus-5",
+      "global.anthropic.claude-opus-5"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-opus-5-5',
+  provider: 'aws',
+  name: 'Claude Opus 5.5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 4,
+      cached: 0.2,
+      output: 20,
+      cacheWrite: 5
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "June 2026",
+    inRegion: true,
+    inferenceIds: [
+      "us.anthropic.claude-opus-5-5",
+      "eu.anthropic.claude-opus-5-5",
+      "au.anthropic.claude-opus-5-5",
+      "jp.anthropic.claude-opus-5-5",
+      "global.anthropic.claude-opus-5-5"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  provider: 'aws',
+  name: 'Claude Sonnet 4',
+  contextWindow: 200000,
+  maxOutputTokens: 64000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 3,
+      cached: 0.3,
+      cacheWrite: 3.75,
+      output: 15
+    }
+  },
+  retiresAt: '2026-10-14',
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "Mar 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-sonnet-4-20250514-v1:0",
+      "eu.anthropic.claude-sonnet-4-20250514-v1:0",
+      "apac.anthropic.claude-sonnet-4-20250514-v1:0",
+      "global.anthropic.claude-sonnet-4-20250514-v1:0"
     ]
   }
 }, {
   id: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
   provider: 'aws',
   name: 'Claude Sonnet 4.5',
-  contextWindow: 0,
+  contextWindow: 200000,
+  maxOutputTokens: 64000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cached: 0.3,
+      input: 3,
+      cacheWrite: 3.75,
+      output: 15
+    }
+  },
+  retiresAt: '2027-04-08',
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "Apr 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "au.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "jp.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-sonnet-4-6',
+  provider: 'aws',
+  name: 'Claude Sonnet 4.6',
+  contextWindow: 1000000,
+  maxOutputTokens: 64000,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cacheWrite: 3.75,
+      input: 3,
+      cached: 0.3,
+      output: 15
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "Aug 2025",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-sonnet-4-6",
+      "eu.anthropic.claude-sonnet-4-6",
+      "au.anthropic.claude-sonnet-4-6",
+      "jp.anthropic.claude-sonnet-4-6",
+      "global.anthropic.claude-sonnet-4-6"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-sonnet-5',
+  provider: 'aws',
+  name: 'Claude Sonnet 5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      cacheWrite: 2.5,
+      output: 10,
+      input: 2,
+      cached: 0.2
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "January 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-sonnet-5",
+      "eu.anthropic.claude-sonnet-5",
+      "au.anthropic.claude-sonnet-5",
+      "in.anthropic.claude-sonnet-5",
+      "global.anthropic.claude-sonnet-5"
+    ]
+  }
+}, {
+  id: 'anthropic.claude-sonnet-5-5',
+  provider: 'aws',
+  name: 'Claude Sonnet 5.5',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 2,
+      cacheWrite: 2.5,
+      cached: 0.1,
+      output: 10
+    }
+  },
+  metadata: {
+    providerName: "Anthropic",
+    knowledgeCutoff: "June 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.anthropic.claude-sonnet-5-5",
+      "eu.anthropic.claude-sonnet-5-5",
+      "au.anthropic.claude-sonnet-5-5",
+      "global.anthropic.claude-sonnet-5-5"
+    ]
+  }
+}, {
+  id: 'cohere.command-r-plus-v1:0',
+  provider: 'aws',
+  name: 'Command R+',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 15,
+      input: 3
+    }
+  },
+  retiresAt: '2026-08-19',
+  metadata: {
+    providerName: "Cohere",
+    knowledgeCutoff: "Mar 2024",
+    inRegion: true
+  }
+}, {
+  id: 'cohere.command-r-v1:0',
+  provider: 'aws',
+  name: 'Command R',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 1.5,
+      input: 0.5
+    }
+  },
+  retiresAt: '2026-08-19',
+  metadata: {
+    providerName: "Cohere",
+    knowledgeCutoff: "Mar 2024",
+    inRegion: true
+  }
+}, {
+  id: 'cohere.embed-english-v3',
+  provider: 'aws',
+  name: 'Embed English',
+  contextWindow: 512,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.1
+    }
+  },
+  metadata: {
+    providerName: "Cohere",
+    inRegion: true
+  }
+}, {
+  id: 'cohere.embed-multilingual-v3',
+  provider: 'aws',
+  name: 'Embed Multilingual',
+  contextWindow: 512,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.1
+    }
+  },
+  metadata: {
+    providerName: "Cohere",
+    inRegion: true
+  }
+}, {
+  id: 'cohere.embed-v4:0',
+  provider: 'aws',
+  name: 'Embed v4',
+  contextWindow: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['embedding']),
+  pricing: {
+    embeddings: {
+      cost: 0.12
+    }
+  },
+  metadata: {
+    providerName: "Cohere",
+    inRegion: true,
+    inferenceIds: [
+      "us.cohere.embed-v4:0",
+      "eu.cohere.embed-v4:0",
+      "global.cohere.embed-v4:0"
+    ]
+  }
+}, {
+  id: 'deepseek.r1-v1:0',
+  provider: 'aws',
+  name: 'DeepSeek-R1',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'reasoning']),
+  pricing: {
+    text: {
+      input: 1.35,
+      output: 5.4
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "DeepSeek",
+    knowledgeCutoff: "Jan 2025",
+    inRegion: true,
+    inferenceIds: [
+      "us.deepseek.r1-v1:0"
+    ]
+  }
+}, {
+  id: 'deepseek.v3-v1:0',
+  provider: 'aws',
+  name: 'DeepSeek-V3.1',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.58,
+      output: 1.68
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "DeepSeek",
+    knowledgeCutoff: "Jan 2025",
+    inRegion: true
+  }
+}, {
+  id: 'deepseek.v3.2',
+  provider: 'aws',
+  name: 'DeepSeek V3.2',
+  contextWindow: 164000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.62,
+      output: 1.85
+    }
+  },
+  metadata: {
+    providerName: "DeepSeek",
+    knowledgeCutoff: "Mar 2025",
+    inRegion: true
+  }
+}, {
+  id: 'google.gemma-3-12b-it',
+  provider: 'aws',
+  name: 'Gemma 3 12B IT',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      output: 0.29,
+      input: 0.09
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Google",
+    inRegion: true
+  }
+}, {
+  id: 'google.gemma-3-27b-it',
+  provider: 'aws',
+  name: 'Gemma 3 27B PT',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      output: 0.38,
+      input: 0.23
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Google",
+    inRegion: true
+  }
+}, {
+  id: 'google.gemma-3-4b-it',
+  provider: 'aws',
+  name: 'Gemma 3 4B IT',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {
+    text: {
+      output: 0.08,
+      input: 0.04
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Google",
+    inRegion: true
+  }
+}, {
+  id: 'meta.llama3-1-405b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.1 405B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {},
+  retiresAt: '2026-07-07',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-1-405b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-1-70b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.1 70B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 0.72,
+      output: 0.72
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-1-70b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-1-8b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.1 8B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 0.22,
+      output: 0.22
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-1-8b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-2-11b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.2 11B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {
+    text: {
+      input: 0.16,
+      output: 0.16
+    }
+  },
+  retiresAt: '2026-07-07',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-2-11b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-2-1b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.2 1B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 0.1,
+      input: 0.1
+    }
+  },
+  retiresAt: '2026-07-07',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-2-1b-instruct-v1:0",
+      "eu.meta.llama3-2-1b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-2-3b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.2 3B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 0.15,
+      input: 0.15
+    }
+  },
+  retiresAt: '2026-07-07',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-2-3b-instruct-v1:0",
+      "eu.meta.llama3-2-3b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-2-90b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.2 90B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {
+    text: {
+      output: 0.72,
+      input: 0.72
+    }
+  },
+  retiresAt: '2026-07-07',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-2-90b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-3-70b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3.3 70B Instruct',
+  contextWindow: 128000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 0.72,
+      output: 0.72
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama3-3-70b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama3-70b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3 70B Instruct',
+  contextWindow: 8000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 2.65,
+      output: 3.5
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true
+  }
+}, {
+  id: 'meta.llama3-8b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 3 8B Instruct',
+  contextWindow: 8000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 0.6,
+      input: 0.3
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Dec 2023",
+    inRegion: true
+  }
+}, {
+  id: 'meta.llama4-maverick-17b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 4 Maverick 17B Instruct',
+  contextWindow: 1000000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {
+    text: {
+      input: 0.24,
+      output: 0.97
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Aug 2024",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama4-maverick-17b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'meta.llama4-scout-17b-instruct-v1:0',
+  provider: 'aws',
+  name: 'Llama 4 Scout 17B Instruct',
+  contextWindow: 10000000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {
+    text: {
+      output: 0.66,
+      input: 0.17
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Meta",
+    knowledgeCutoff: "Aug 2024",
+    inRegion: true,
+    inferenceIds: [
+      "us.meta.llama4-scout-17b-instruct-v1:0"
+    ]
+  }
+}, {
+  id: 'minimax.minimax-m2',
+  provider: 'aws',
+  name: 'MiniMax M2',
+  contextWindow: 1000000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      output: 1.2,
+      input: 0.3
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "MiniMax",
+    inRegion: true
+  }
+}, {
+  id: 'minimax.minimax-m2.1',
+  provider: 'aws',
+  name: 'MiniMax M2.1',
+  contextWindow: 196000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      output: 1.2,
+      input: 0.3
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "MiniMax",
+    inRegion: true
+  }
+}, {
+  id: 'minimax.minimax-m2.5',
+  provider: 'aws',
+  name: 'MiniMax M2.5',
+  contextWindow: 196000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      output: 1.2,
+      input: 0.3
+    }
+  },
+  metadata: {
+    providerName: "MiniMax",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.devstral-2-123b',
+  provider: 'aws',
+  name: 'Devstral 2 123B',
+  contextWindow: 256000,
+  maxOutputTokens: 32000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      output: 2,
+      input: 0.4
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.magistral-small-2509',
+  provider: 'aws',
+  name: 'Magistral Small 2509',
+  contextWindow: 128000,
+  maxOutputTokens: 40000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 1.5
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.ministral-3-14b-instruct',
+  provider: 'aws',
+  name: 'Ministral 14B 3.0',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 0.2,
+      output: 0.2
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.ministral-3-3b-instruct',
+  provider: 'aws',
+  name: 'Ministral 3B',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      output: 0.1,
+      input: 0.1
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.ministral-3-8b-instruct',
+  provider: 'aws',
+  name: 'Ministral 3 8B',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      output: 0.15,
+      input: 0.15
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.mistral-7b-instruct-v0:2',
+  provider: 'aws',
+  name: 'Mistral 7B Instruct',
+  contextWindow: 32000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.2
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.mistral-large-2402-v1:0',
+  provider: 'aws',
+  name: 'Mistral Large',
+  contextWindow: 32000,
+  maxOutputTokens: 4000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 4,
+      output: 12
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.mistral-large-3-675b-instruct',
+  provider: 'aws',
+  name: 'Mistral Large 3',
+  contextWindow: 256000,
+  maxOutputTokens: 32000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 1.5
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.mistral-small-2402-v1:0',
+  provider: 'aws',
+  name: 'Mistral Small',
+  contextWindow: 32000,
+  maxOutputTokens: 4000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 3
+    }
+  },
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.mixtral-8x7b-instruct-v0:1',
+  provider: 'aws',
+  name: 'Mixtral 8x7B Instruct',
+  contextWindow: 32000,
+  maxOutputTokens: 4000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 0.7,
+      input: 0.45
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.pixtral-large-2502-v1:0',
+  provider: 'aws',
+  name: 'Pixtral Large',
+  contextWindow: 128000,
+  maxOutputTokens: 16000,
+  tier: 'flagship',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {},
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.mistral.pixtral-large-2502-v1:0",
+      "eu.mistral.pixtral-large-2502-v1:0"
+    ]
+  }
+}, {
+  id: 'mistral.voxtral-mini-3b-2507',
+  provider: 'aws',
+  name: 'Voxtral Mini 3B 2507',
+  contextWindow: 32000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'hearing']),
+  pricing: {
+    text: {
+      output: 0.04,
+      input: 0.04
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'mistral.voxtral-small-24b-2507',
+  provider: 'aws',
+  name: 'Voxtral Small 24B 2507',
+  contextWindow: 32000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'hearing']),
+  pricing: {
+    text: {
+      input: 0.1,
+      output: 0.3
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Mistral AI",
+    inRegion: true
+  }
+}, {
+  id: 'moonshot.kimi-k2-thinking',
+  provider: 'aws',
+  name: 'Kimi K2 Thinking',
+  contextWindow: 256000,
+  maxOutputTokens: 16000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.6,
+      output: 2.5
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Moonshot AI",
+    inRegion: true
+  }
+}, {
+  id: 'moonshotai.kimi-k2.5',
+  provider: 'aws',
+  name: 'Kimi K2.5',
+  contextWindow: 256000,
+  maxOutputTokens: 16000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      output: 3,
+      input: 0.6
+    }
+  },
+  metadata: {
+    providerName: "Moonshot AI",
+    inRegion: true
+  }
+}, {
+  id: 'moonshotai.kimi-k3',
+  provider: 'aws',
+  name: 'Kimi K3',
+  contextWindow: 1000000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
   pricing: {
     text: {
       input: 3,
@@ -201,19 +1573,580 @@ export const awsModels: ModelInfo[] = [{
     }
   },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Moonshot AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.moonshotai.kimi-k3",
+      "in.moonshotai.kimi-k3",
+      "global.moonshotai.kimi-k3"
+    ]
+  }
+}, {
+  id: 'nvidia.nemotron-nano-12b-v2',
+  provider: 'aws',
+  name: 'NVIDIA Nemotron Nano 12B v2 VL BF16',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      output: 0.6,
+      input: 0.2
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "NVIDIA",
+    inRegion: true,
+    inferenceIds: [
+      "us-gov.nvidia.nemotron-nano-12b-v2"
+    ]
+  }
+}, {
+  id: 'nvidia.nemotron-nano-3-30b',
+  provider: 'aws',
+  name: 'Nemotron Nano 3 30B',
+  contextWindow: 256000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.06,
+      output: 0.24
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  metadata: {
+    providerName: "NVIDIA",
+    inRegion: true,
+    inferenceIds: [
+      "us-gov.nvidia.nemotron-nano-3-30b"
+    ]
+  }
+}, {
+  id: 'nvidia.nemotron-nano-9b-v2',
+  provider: 'aws',
+  name: 'NVIDIA Nemotron Nano 9B v2',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.06,
+      output: 0.23
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "NVIDIA",
+    inRegion: true,
+    inferenceIds: [
+      "us-gov.nvidia.nemotron-nano-9b-v2"
+    ]
+  }
+}, {
+  id: 'nvidia.nemotron-super-3-120b',
+  provider: 'aws',
+  name: 'NVIDIA Nemotron 3 Super 120B',
+  contextWindow: 256000,
+  maxOutputTokens: 32000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      output: 0.65,
+      input: 0.15
+    }
+  },
+  reasoningEfforts: ['none', 'low', 'medium', 'high'],
+  metadata: {
+    providerName: "NVIDIA",
+    inRegion: true,
+    inferenceIds: [
+      "us-gov.nvidia.nemotron-super-3-120b"
+    ]
+  }
+}, {
+  id: 'openai.gpt-5.4',
+  provider: 'aws',
+  name: 'GPT-5.4',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 2.75,
+      output: 16.5,
+      cached: 0.275
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-5.4",
+      "global.openai.gpt-5.4"
+    ]
+  }
+}, {
+  id: 'openai.gpt-5.5',
+  provider: 'aws',
+  name: 'GPT-5.5',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 5.5,
+      output: 33,
+      cached: 0.55
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-5.5",
+      "global.openai.gpt-5.5"
+    ]
+  }
+}, {
+  id: 'openai.gpt-5.6-luna',
+  provider: 'aws',
+  name: 'GPT-5.6 Luna',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 0.2,
+      output: 1.2,
+      cached: 0.02,
+      cacheWrite: 0.25
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-5.6-luna",
+      "in.openai.gpt-5.6-luna",
+      "global.openai.gpt-5.6-luna"
+    ]
+  }
+}, {
+  id: 'openai.gpt-5.6-sol',
+  provider: 'aws',
+  name: 'GPT-5.6 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 4,
+      output: 20,
+      cached: 0.4,
+      cacheWrite: 5
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-5.6-sol",
+      "global.openai.gpt-5.6-sol"
+    ]
+  }
+}, {
+  id: 'openai.gpt-5.6-terra',
+  provider: 'aws',
+  name: 'GPT-5.6 Terra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 12,
+      cached: 0.2,
+      cacheWrite: 2.5
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-5.6-terra",
+      "in.openai.gpt-5.6-terra",
+      "global.openai.gpt-5.6-terra"
+    ]
+  }
+}, {
+  id: 'openai.gpt-6-astra',
+  provider: 'aws',
+  name: 'GPT-6 Astra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 10,
+      output: 50,
+      cached: 1,
+      cacheWrite: 12.5
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    knowledgeCutoff: "April 30, 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-6-astra",
+      "global.openai.gpt-6-astra"
+    ]
+  }
+}, {
+  id: 'openai.gpt-6-luna',
+  provider: 'aws',
+  name: 'GPT-6 Luna',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 0.1,
+      output: 0.5,
+      cached: 0.01,
+      cacheWrite: 0.125
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    knowledgeCutoff: "May 18, 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-6-luna",
+      "global.openai.gpt-6-luna"
+    ]
+  }
+}, {
+  id: 'openai.gpt-6-sol',
+  provider: 'aws',
+  name: 'GPT-6 Sol',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.2,
+      cacheWrite: 2.5
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    knowledgeCutoff: "April 20, 2026",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-6-sol",
+      "global.openai.gpt-6-sol"
+    ]
+  }
+}, {
+  id: 'openai.gpt-6.1-sol',
+  provider: 'aws',
+  name: 'GPT-6.1 Sol',
+  contextWindow: 1000000,
+  maxOutputTokens: 131072,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 10,
+      cached: 0.1,
+      cacheWrite: 2.5
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-6.1-sol",
+      "global.openai.gpt-6.1-sol"
+    ]
+  }
+}, {
+  id: 'openai.gpt-6.1-terra',
+  provider: 'aws',
+  name: 'GPT-6.1 Terra',
+  contextWindow: 1050000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 5,
+      cached: 0.05,
+      cacheWrite: 1.25
+    }
+  },
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.openai.gpt-6.1-terra",
+      "global.openai.gpt-6.1-terra"
+    ]
+  }
+}, {
+  id: 'openai.gpt-oss-120b-1:0',
+  provider: 'aws',
+  name: 'gpt-oss-120b',
+  contextWindow: 128000,
+  maxOutputTokens: 16000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.6
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: true,
+    inferenceIds: [
+      "us-gov.openai.gpt-oss-120b-1:0"
+    ]
+  }
+}, {
+  id: 'openai.gpt-oss-20b-1:0',
+  provider: 'aws',
+  name: 'gpt-oss-20b',
+  contextWindow: 128000,
+  maxOutputTokens: 16000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      output: 0.3,
+      input: 0.07
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: true,
+    inferenceIds: [
+      "us-gov.openai.gpt-oss-20b-1:0"
+    ]
+  }
+}, {
+  id: 'openai.gpt-oss-safeguard-120b',
+  provider: 'aws',
+  name: 'GPT OSS Safeguard 120B',
+  contextWindow: 128000,
+  maxOutputTokens: 16000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.6
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: true
+  }
+}, {
+  id: 'openai.gpt-oss-safeguard-20b',
+  provider: 'aws',
+  name: 'GPT OSS Safeguard 20B',
+  contextWindow: 128000,
+  maxOutputTokens: 16000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.07,
+      output: 0.2
+    }
+  },
+  reasoningEfforts: ['low', 'medium', 'high'],
+  metadata: {
+    providerName: "OpenAI",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-235b-a22b-2507-v1:0',
+  provider: 'aws',
+  name: 'Qwen3 235B A22B 2507',
+  contextWindow: 256000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      output: 0.88,
+      input: 0.22
+    }
+  },
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-32b-v1:0',
+  provider: 'aws',
+  name: 'Qwen3 32B',
+  contextWindow: 32000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.6
+    }
+  },
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-coder-30b-a3b-v1:0',
+  provider: 'aws',
+  name: 'Qwen3-Coder-30B-A3B-Instruct',
+  contextWindow: 256000,
+  maxOutputTokens: 16000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.15,
+      output: 0.6
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-coder-480b-a35b-v1:0',
+  provider: 'aws',
+  name: 'Qwen3 Coder 480B A35B Instruct',
+  contextWindow: 256000,
+  maxOutputTokens: 16000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.45,
+      output: 1.8
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-coder-next',
+  provider: 'aws',
+  name: 'Qwen3 Coder Next',
+  contextWindow: 256000,
+  maxOutputTokens: 16000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.5,
+      output: 1.2
+    }
+  },
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-next-80b-a3b',
+  provider: 'aws',
+  name: 'Qwen3 Next 80B A3B',
+  contextWindow: 256000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
+  pricing: {
+    text: {
+      output: 1.2,
+      input: 0.14
+    }
+  },
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'qwen.qwen3-vl-235b-a22b',
+  provider: 'aws',
+  name: 'Qwen3 VL 235B A22B',
+  contextWindow: 256000,
+  maxOutputTokens: 8000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision']),
+  pricing: {
+    text: {
+      input: 0.53,
+      output: 2.66
+    }
+  },
+  metadata: {
+    providerName: "Qwen",
+    inRegion: true
+  }
+}, {
+  id: 'stability.sd3-5-large-v1:0',
+  provider: 'aws',
+  name: 'Stable Diffusion 3.5 Large',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  pricing: {},
+  metadata: {
+    providerName: "Stability AI",
+    inRegion: true
+  }
+}, {
+  id: 'stability.stable-conservative-upscale-v1:0',
+  provider: 'aws',
+  name: 'Stable Image Conservative Upscale',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  pricing: {},
+  metadata: {
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-conservative-upscale-v1:0"
     ]
   }
 }, {
@@ -225,193 +2158,25 @@ export const awsModels: ModelInfo[] = [{
   capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-creative-upscale-v1:0",
     providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-creative-upscale-v1:0"
     ]
   }
 }, {
-  id: 'stability.stable-outpaint-v1:0',
+  id: 'stability.stable-fast-upscale-v1:0',
   provider: 'aws',
-  name: 'Stable Image Outpaint',
+  name: 'Stable Image Fast Upscale',
   contextWindow: 0,
   tier: 'efficient',
   capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-outpaint-v1:0",
     providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
-    ]
-  }
-}, {
-  id: 'stability.stable-image-inpaint-v1:0',
-  provider: 'aws',
-  name: 'Stable Image Inpaint',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['image']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-inpaint-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-opus-4-1-20250805-v1:0',
-  provider: 'aws',
-  name: 'Claude Opus 4.1',
-  contextWindow: 200000,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
-  pricing: {
-    text: {
-      input: 15,
-      output: 75
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-opus-4-1-20250805-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'amazon.nova-pro-v1:0',
-  provider: 'aws',
-  name: 'Nova Pro',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-pro-v1:0",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'stability.stable-image-remove-background-v1:0',
-  provider: 'aws',
-  name: 'Stable Image Remove Background',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['image']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-remove-background-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
-    ]
-  }
-}, {
-  id: 'qwen.qwen3-coder-480b-a35b-v1:0',
-  provider: 'aws',
-  name: 'Qwen3 Coder 480B A35B Instruct',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/qwen.qwen3-coder-480b-a35b-v1:0",
-    providerName: "Qwen",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'stability.stable-image-style-guide-v1:0',
-  provider: 'aws',
-  name: 'Stable Image Style Guide',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['image']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-style-guide-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-fast-upscale-v1:0"
     ]
   }
 }, {
@@ -423,43 +2188,82 @@ export const awsModels: ModelInfo[] = [{
   capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-control-sketch-v1:0",
     providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-control-sketch-v1:0"
     ]
   }
 }, {
-  id: 'stability.stable-conservative-upscale-v1:0',
+  id: 'stability.stable-image-control-structure-v1:0',
   provider: 'aws',
-  name: 'Stable Image Conservative Upscale',
+  name: 'Stable Image Control Structure',
   contextWindow: 0,
   tier: 'efficient',
   capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-conservative-upscale-v1:0",
     providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-control-structure-v1:0"
+    ]
+  }
+}, {
+  id: 'stability.stable-image-core-v1:1',
+  provider: 'aws',
+  name: 'Stable Image Core 1.0',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  pricing: {},
+  metadata: {
+    providerName: "Stability AI",
+    inRegion: true
+  }
+}, {
+  id: 'stability.stable-image-erase-object-v1:0',
+  provider: 'aws',
+  name: 'Stable Image Erase Object',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  pricing: {},
+  metadata: {
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-erase-object-v1:0"
+    ]
+  }
+}, {
+  id: 'stability.stable-image-inpaint-v1:0',
+  provider: 'aws',
+  name: 'Stable Image Inpaint',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  pricing: {},
+  metadata: {
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-inpaint-v1:0"
+    ]
+  }
+}, {
+  id: 'stability.stable-image-remove-background-v1:0',
+  provider: 'aws',
+  name: 'Stable Image Remove Background',
+  contextWindow: 0,
+  tier: 'efficient',
+  capabilities: new Set(['image']),
+  pricing: {},
+  metadata: {
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-remove-background-v1:0"
     ]
   }
 }, {
@@ -471,114 +2275,10 @@ export const awsModels: ModelInfo[] = [{
   capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-search-recolor-v1:0",
     providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
-    ]
-  }
-}, {
-  id: 'twelvelabs.pegasus-1-2-v1:0',
-  provider: 'aws',
-  name: 'Pegasus v1.2',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/twelvelabs.pegasus-1-2-v1:0",
-    providerName: "TwelveLabs",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'stability.stable-style-transfer-v1:0',
-  provider: 'aws',
-  name: 'Stable Image Style Transfer',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['image']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-style-transfer-v1:0",
-    providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
-    ]
-  }
-}, {
-  id: 'cohere.embed-v4:0',
-  provider: 'aws',
-  name: 'Embed v4',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['embedding']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/cohere.embed-v4:0",
-    providerName: "Cohere",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "EMBEDDING"
-    ]
-  }
-}, {
-  id: 'deepseek.v3-v1:0',
-  provider: 'aws',
-  name: 'DeepSeek-V3.1',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/deepseek.v3-v1:0",
-    providerName: "DeepSeek",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-search-recolor-v1:0"
     ]
   }
 }, {
@@ -590,833 +2290,280 @@ export const awsModels: ModelInfo[] = [{
   capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/stability.stable-image-search-replace-v1:0",
     providerName: "Stability AI",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "IMAGE"
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-search-replace-v1:0"
     ]
   }
 }, {
-  id: 'qwen.qwen3-coder-30b-a3b-v1:0',
+  id: 'stability.stable-image-style-guide-v1:0',
   provider: 'aws',
-  name: 'Qwen3-Coder-30B-A3B-Instruct',
+  name: 'Stable Image Style Guide',
   contextWindow: 0,
   tier: 'efficient',
-  capabilities: new Set([]),
+  capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/qwen.qwen3-coder-30b-a3b-v1:0",
-    providerName: "Qwen",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-image-style-guide-v1:0"
     ]
   }
 }, {
-  id: 'qwen.qwen3-32b-v1:0',
+  id: 'stability.stable-image-ultra-v1:1',
   provider: 'aws',
-  name: 'Qwen3 32B (dense)',
+  name: 'Stable Image Ultra 1.0',
   contextWindow: 0,
   tier: 'efficient',
-  capabilities: new Set([]),
+  capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/qwen.qwen3-32b-v1:0",
-    providerName: "Qwen",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
+    providerName: "Stability AI",
+    inRegion: true
   }
 }, {
-  id: 'openai.gpt-oss-20b-1:0',
+  id: 'stability.stable-outpaint-v1:0',
   provider: 'aws',
-  name: 'gpt-oss-20b',
+  name: 'Stable Image Outpaint',
   contextWindow: 0,
   tier: 'efficient',
-  capabilities: new Set([]),
+  capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/openai.gpt-oss-20b-1:0",
-    providerName: "OpenAI",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-outpaint-v1:0"
     ]
   }
 }, {
-  id: 'amazon.titan-embed-text-v2:0',
+  id: 'stability.stable-style-transfer-v1:0',
   provider: 'aws',
-  name: 'Titan Text Embeddings V2',
+  name: 'Stable Image Style Transfer',
   contextWindow: 0,
   tier: 'efficient',
-  capabilities: new Set(['embedding']),
+  capabilities: new Set(['image']),
   pricing: {},
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.titan-embed-text-v2:0",
-    providerName: "Amazon",
-    responseStreamingSupported: false,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "EMBEDDING"
+    providerName: "Stability AI",
+    inRegion: true,
+    inferenceIds: [
+      "us.stability.stable-style-transfer-v1:0"
     ]
   }
 }, {
-  id: 'amazon.nova-premier-v1:0:8k',
+  id: 'twelvelabs.marengo-embed-2-7-v1:0',
   provider: 'aws',
-  name: 'Nova Premier',
+  name: 'Marengo Embed v2.7',
+  contextWindow: 0,
+  tier: 'legacy',
+  capabilities: new Set(['hearing', 'embedding']),
+  pricing: {},
+  retiresAt: '2026-11-30',
+  metadata: {
+    providerName: "TwelveLabs",
+    inRegion: true,
+    inferenceIds: [
+      "us.twelvelabs.marengo-embed-2-7-v1:0",
+      "eu.twelvelabs.marengo-embed-2-7-v1:0"
+    ]
+  }
+}, {
+  id: 'twelvelabs.marengo-embed-3-0-v1:0',
+  provider: 'aws',
+  name: 'Marengo Embed 3.0',
   contextWindow: 0,
   tier: 'efficient',
-  capabilities: new Set(['vision']),
+  capabilities: new Set(['hearing', 'embedding']),
   pricing: {},
+  retiresAt: '2027-03-22',
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-premier-v1:0:8k",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "TwelveLabs",
+    inRegion: true,
+    inferenceIds: [
+      "us.twelvelabs.marengo-embed-3-0-v1:0",
+      "eu.twelvelabs.marengo-embed-3-0-v1:0"
     ]
   }
 }, {
-  id: 'amazon.nova-premier-v1:0:20k',
+  id: 'writer.palmyra-vision-7b',
   provider: 'aws',
-  name: 'Nova Premier',
-  contextWindow: 0,
+  name: 'Palmyra Vision 7B',
+  contextWindow: 4000,
+  maxOutputTokens: 4000,
   tier: 'efficient',
-  capabilities: new Set(['vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-premier-v1:0:20k",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'amazon.nova-premier-v1:0:1000k',
-  provider: 'aws',
-  name: 'Nova Premier',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-premier-v1:0:1000k",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'amazon.nova-premier-v1:0:mm',
-  provider: 'aws',
-  name: 'Nova Premier',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-premier-v1:0:mm",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'amazon.nova-premier-v1:0',
-  provider: 'aws',
-  name: 'Nova Premier',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-premier-v1:0",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'amazon.nova-lite-v1:0',
-  provider: 'aws',
-  name: 'Nova Lite',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-lite-v1:0",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE",
-      "VIDEO"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'amazon.nova-micro-v1:0',
-  provider: 'aws',
-  name: 'Nova Micro',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-micro-v1:0",
-    providerName: "Amazon",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
-  provider: 'aws',
-  name: 'Claude 3.5 Sonnet',
-  contextWindow: 200000,
-  maxOutputTokens: 8192,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision']),
   pricing: {
     text: {
-      input: 3,
-      output: 15
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-3-7-sonnet-20250219-v1:0',
-  provider: 'aws',
-  name: 'Claude 3.7 Sonnet',
-  contextWindow: 200000,
-  maxOutputTokens: 8192,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
-  pricing: {
-    text: {
-      input: 3,
-      output: 15
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-3-haiku-20240307-v1:0:200k',
-  provider: 'aws',
-  name: 'Claude 3 Haiku',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0:200k",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-3-haiku-20240307-v1:0',
-  provider: 'aws',
-  name: 'Claude 3 Haiku',
-  contextWindow: 200000,
-  maxOutputTokens: 4096,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
-  pricing: {
-    text: {
-      input: 0.25,
-      output: 1.25
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
-  provider: 'aws',
-  name: 'Claude 3.5 Sonnet v2',
-  contextWindow: 200000,
-  maxOutputTokens: 8192,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
-  pricing: {
-    text: {
-      input: 3,
-      output: 15
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-3-5-haiku-20241022-v1:0',
-  provider: 'aws',
-  name: 'Claude 3.5 Haiku',
-  contextWindow: 200000,
-  maxOutputTokens: 8192,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'tools']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'anthropic.claude-opus-4-20250514-v1:0',
-  provider: 'aws',
-  name: 'Claude Opus 4',
-  contextWindow: 200000,
-  maxOutputTokens: 16384,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'vision', 'tools']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/anthropic.claude-opus-4-20250514-v1:0",
-    providerName: "Anthropic",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'deepseek.r1-v1:0',
-  provider: 'aws',
-  name: 'DeepSeek-R1',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set([]),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/deepseek.r1-v1:0",
-    providerName: "DeepSeek",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'mistral.pixtral-large-2502-v1:0',
-  provider: 'aws',
-  name: 'Pixtral Large (25.02)',
-  contextWindow: 0,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/mistral.pixtral-large-2502-v1:0",
-    providerName: "Mistral AI",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-1-8b-instruct-v1:0:128k',
-  provider: 'aws',
-  name: 'Llama 3.1 8B Instruct',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-1-8b-instruct-v1:0:128k",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-1-8b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.1 8B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 2048,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {
-    text: {
-      input: 0.3,
+      input: 0.15,
       output: 0.6
     }
   },
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-1-8b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Writer",
+    inRegion: true
+  }
+}, {
+  id: 'writer.palmyra-x4-v1:0',
+  provider: 'aws',
+  name: 'Palmyra X4',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 10,
+      input: 2.5
+    }
+  },
+  retiresAt: '2027-03-09',
+  metadata: {
+    providerName: "Writer",
+    inRegion: true,
+    inferenceIds: [
+      "us.writer.palmyra-x4-v1:0"
     ]
   }
 }, {
-  id: 'meta.llama3-1-70b-instruct-v1:0:128k',
+  id: 'writer.palmyra-x5-v1:0',
   provider: 'aws',
-  name: 'Llama 3.1 70B Instruct',
-  contextWindow: 0,
+  name: 'Palmyra X5',
+  contextWindow: 128000,
+  maxOutputTokens: 8000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming']),
+  pricing: {
+    text: {
+      output: 6,
+      input: 0.6
+    }
+  },
+  retiresAt: '2027-03-21',
+  metadata: {
+    providerName: "Writer",
+    inRegion: true,
+    inferenceIds: [
+      "us.writer.palmyra-x5-v1:0"
+    ]
+  }
+}, {
+  id: 'xai.grok-4.6',
+  provider: 'aws',
+  name: 'Grok 4.6',
+  contextWindow: 500000,
   tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
+  capabilities: new Set(['chat', 'tools', 'streaming', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6
+    }
+  },
+  metadata: {
+    providerName: "xAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.xai.grok-4.6",
+      "global.xai.grok-4.6"
+    ]
+  }
+}, {
+  id: 'xai.grok-4.7',
+  provider: 'aws',
+  name: 'Grok 4.7',
+  contextWindow: 524288,
+  maxOutputTokens: 524288,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'vision', 'reasoning']),
+  pricing: {
+    text: {
+      input: 2,
+      output: 6
+    }
+  },
+  metadata: {
+    providerName: "xAI",
+    inRegion: false,
+    inferenceIds: [
+      "us.xai.grok-4.7",
+      "global.xai.grok-4.7"
+    ]
+  }
+}, {
+  id: 'zai.glm-4.7',
+  provider: 'aws',
+  name: 'GLM 4.7',
+  contextWindow: 203000,
+  maxOutputTokens: 128000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      output: 2.2,
+      input: 0.6
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Z.AI",
+    inRegion: true
+  }
+}, {
+  id: 'zai.glm-4.7-flash',
+  provider: 'aws',
+  name: 'GLM 4.7 Flash',
+  contextWindow: 203000,
+  maxOutputTokens: 128000,
+  tier: 'legacy',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 0.07,
+      output: 0.4
+    }
+  },
+  retiresAt: '2027-03-30',
+  metadata: {
+    providerName: "Z.AI",
+    inRegion: true
+  }
+}, {
+  id: 'zai.glm-5',
+  provider: 'aws',
+  name: 'GLM 5',
+  contextWindow: 200000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json']),
+  pricing: {
+    text: {
+      input: 1,
+      output: 3.2
+    }
+  },
+  metadata: {
+    providerName: "Z.AI",
+    inRegion: true
+  }
+}, {
+  id: 'zai.glm-5.3',
+  provider: 'aws',
+  name: 'GLM 5.3',
+  contextWindow: 1000000,
+  maxOutputTokens: 128000,
+  tier: 'efficient',
+  capabilities: new Set(['chat', 'tools', 'streaming', 'structured', 'json', 'reasoning']),
   pricing: {},
+  reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-1-70b-instruct-v1:0:128k",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-1-70b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.1 70B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 2048,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {
-    text: {
-      input: 2.65,
-      output: 3.5
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-1-70b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-1-405b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.1 405B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 4096,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {
-    text: {
-      input: 5.32,
-      output: 16
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-1-405b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-2-11b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.2 11B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 2048,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision']),
-  pricing: {
-    text: {
-      input: 0.35,
-      output: 0.35
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-2-11b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-2-90b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.2 90B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 2048,
-  tier: 'flagship',
-  capabilities: new Set(['chat', 'streaming', 'vision']),
-  pricing: {
-    text: {
-      input: 2.65,
-      output: 2.65
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-2-90b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-2-1b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.2 1B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 2048,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {
-    text: {
-      input: 0.1,
-      output: 0.1
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-2-1b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-2-3b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.2 3B Instruct',
-  contextWindow: 128000,
-  maxOutputTokens: 2048,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {
-    text: {
-      input: 0.15,
-      output: 0.15
-    }
-  },
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-2-3b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama3-3-70b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 3.3 70B Instruct',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama3-3-70b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "ON_DEMAND",
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama4-scout-17b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 4 Scout 17B Instruct',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama4-scout-17b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
-    ]
-  }
-}, {
-  id: 'meta.llama4-maverick-17b-instruct-v1:0',
-  provider: 'aws',
-  name: 'Llama 4 Maverick 17B Instruct',
-  contextWindow: 0,
-  tier: 'efficient',
-  capabilities: new Set(['chat', 'streaming', 'vision']),
-  pricing: {},
-  metadata: {
-    modelArn: "arn:aws:bedrock:us-east-2::foundation-model/meta.llama4-maverick-17b-instruct-v1:0",
-    providerName: "Meta",
-    responseStreamingSupported: true,
-    customizationsSupported: [],
-    inferenceTypesSupported: [
-      "INFERENCE_PROFILE"
-    ],
-    inputModalities: [
-      "TEXT",
-      "IMAGE"
-    ],
-    outputModalities: [
-      "TEXT"
+    providerName: "Z.AI",
+    inRegion: false,
+    inferenceIds: [
+      "us.zai.glm-5.3",
+      "global.zai.glm-5.3"
     ]
   }
 }];

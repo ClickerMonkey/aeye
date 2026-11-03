@@ -16,23 +16,18 @@ import type {
   ModelInfo,
   Provider
 } from '@aeye/ai';
-import { isModelInfo, resolveStrictFormat } from '@aeye/ai';
+import { allocateToolDescriptors, buildSchemaBudget, isModelInfo } from '@aeye/ai';
 import {
   Chunk,
   type DescriptorFamily,
   Executor,
   FinishReason,
-  type FormatDescriptor,
-  getDescriptor,
   getModel,
-  LENIENT,
   ModelInput,
   Request,
   Response,
-  SchemaBudget,
-  strictestOf,
+  type SchemaBudget,
   strictify,
-  strictPriority,
   Streamer,
   toJSONSchema,
   ToolCall,
@@ -375,11 +370,10 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     const system = this.convertSystemToConverse(request);
     const modelInfo = pickAwsModelInfo(ctx, modelId);
     // Bedrock's Converse API has no separate structured-output endpoint, so
-    // the budget only needs to cover tool schemas. We still build it through
-    // the same helper so the strictness selection stays consistent with the
-    // OpenAI provider and any future structured-output extension.
-    const budget = this.buildSchemaBudget(modelInfo);
-    const toolConfig = this.convertToolsToConverse(request, modelInfo, budget);
+    // the budget only needs to cover tool schemas. It is built the same way
+    // as the OpenAI provider's so strictness selection stays consistent.
+    const budget = buildSchemaBudget(modelInfo ?? { id: modelId, provider: this.name }, this.supportedStrictFamilies);
+    const toolConfig = this.convertToolsToConverse(request, budget);
     const model = getModel(request.model);
     const maxTokens = request.maxTokens ?? (typeof model !== 'string' && model?.maxOutputTokens ? model.maxOutputTokens : undefined);
 
@@ -739,12 +733,12 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   /**
    * Convert @aeye/core tool definitions to AWS Bedrock Converse API tool format.
    *
-   * Strict-tool support is best-effort and per-model: the descriptor is
-   * picked via `resolveStrictFormat(model)`, which falls back through
-   * `model.strictFormat` → `model.provider` → `id` prefix. Bedrock
+   * Strict-tool support is best-effort and per-model: the budget's
+   * descriptor comes from `buildSchemaBudget` (see `@aeye/ai`). Bedrock
    * surfaces both Anthropic-family Claude models and (in some regions)
-   * OpenAI-shaped tools. Models without a declared family fall back to
-   * LENIENT — silent degradation. The chosen descriptor is pinned on each
+   * OpenAI-shaped tools. Models without strict support use their family's
+   * non-strict descriptor, and models without a family Bedrock speaks fall
+   * back to LENIENT — silent degradation. The chosen descriptor is pinned on each
    * `ToolDefinition.descriptor` so the Prompt loop can apply the matching
    * strictify when validating tool arguments.
    *
@@ -755,24 +749,11 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    */
   private convertToolsToConverse(
     request: Request,
-    model?: ModelInfo,
-    budget?: SchemaBudget,
+    budget: SchemaBudget,
   ): ConverseCommandInput['toolConfig'] {
     if (!request.tools || request.tools.length === 0) return undefined;
 
-    const localBudget = budget ?? this.buildSchemaBudget(model);
-
-    // Allocate descriptors in descending-priority order so the most-wanted
-    // strict tools consume budget first, then emit in original order.
-    const order = request.tools
-      .map((t, i) => ({ i, p: strictPriority(t.strict) }))
-      .sort((a, b) => b.p - a.p);
-    const descriptors: FormatDescriptor[] = new Array(request.tools.length);
-    for (const { i } of order) {
-      const tool = request.tools[i];
-      descriptors[i] = localBudget.allocateTool(tool.parameters, tool.strict);
-      tool.descriptor = descriptors[i].id;
-    }
+    const descriptors = allocateToolDescriptors(request.tools, budget);
 
     const tools = request.tools.map((tool, i) => {
       const descriptor = descriptors[i];
@@ -807,24 +788,6 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    * families.
    */
   protected supportedStrictFamilies: ReadonlySet<DescriptorFamily> = new Set<DescriptorFamily>(['openai', 'anthropic', 'google']);
-
-  /**
-   * Build a SchemaBudget tuned to the resolved strict-format family.
-   * Bedrock surfaces multiple model families; the descriptor pick handles
-   * any in `supportedStrictFamilies`. Mismatched families fall back to
-   * LENIENT silently.
-   */
-  private buildSchemaBudget(model?: ModelInfo): SchemaBudget {
-    const family = model ? resolveStrictFormat(model) : undefined;
-    const familySupported = family !== undefined && this.supportedStrictFamilies.has(family);
-    const tools = familySupported && model!.capabilities.has('toolsStrict')
-      ? getDescriptor(family, true)
-      : LENIENT;
-    const out = familySupported && model!.capabilities.has('structured')
-      ? getDescriptor(family, true)
-      : LENIENT;
-    return new SchemaBudget(strictestOf(tools, out));
-  }
 
   /**
    * Map a Bedrock Converse API stop reason to the @aeye/core FinishReason type.

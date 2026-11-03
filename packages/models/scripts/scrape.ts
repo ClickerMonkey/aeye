@@ -6,16 +6,23 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { scrapeOpenAI } from './scrapers/openai';
 import { scrapeOpenRouter } from './scrapers/openrouter';
 import { scrapeReplicate } from './scrapers/replicate';
 import { scrapeAWS } from './scrapers/aws';
 import { generateModelsIndexTS, generateMainIndexTS } from './codegen';
 
+type Source = 'openai' | 'openrouter' | 'replicate' | 'aws';
+
+const SOURCES: Source[] = ['openai', 'openrouter', 'replicate', 'aws'];
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 interface ScraperOptions {
   outputDir?: string;
   cacheDir?: string;
-  sources?: ('openai' | 'openrouter' | 'replicate' | 'aws')[];
+  sources?: Source[];
   concurrency?: number;
   scrapeMetrics?: boolean;
   awsRegion?: string;
@@ -27,7 +34,7 @@ interface ScraperOptions {
 export async function scrapeAllModels(options: ScraperOptions = {}): Promise<void> {
   const outputDir = options.outputDir || path.join(__dirname, '../data');
   const cacheDir = options.cacheDir || path.join(__dirname, '../cache');
-  const sources = options.sources || ['openai', 'openrouter', 'replicate', 'aws'];
+  const sources = options.sources || SOURCES;
   const concurrency = options.concurrency || 5;
   const scrapeMetrics = options.scrapeMetrics || false;
   const awsRegion = options.awsRegion;
@@ -114,7 +121,8 @@ export async function scrapeAllModels(options: ScraperOptions = {}): Promise<voi
 
   console.log(`\n${successCount}/${totalCount} sources completed successfully\n`);
 
-  if (successCount === 0) {
+  // Any failed source fails the run; the sources that succeeded still regenerate
+  if (successCount < totalCount) {
     process.exitCode = 1;
   }
 
@@ -145,7 +153,7 @@ export async function scrapeAllModels(options: ScraperOptions = {}): Promise<voi
 }
 
 // CLI execution
-if (require.main === module) {
+if (process.argv[1].endsWith('scrape.ts')) {
   const args = process.argv.slice(2);
 
   // Parse command line arguments
@@ -153,7 +161,7 @@ if (require.main === module) {
   const cacheDir = args.find((arg) => arg.startsWith('--cache='))?.split('=')[1];
   const sourcesArg = args.find((arg) => arg.startsWith('--sources='))?.split('=')[1];
   const sources = sourcesArg
-    ? (sourcesArg.split(',') as ('openai' | 'openrouter' | 'replicate' | 'aws')[])
+    ? sourcesArg.split(',').flatMap((name) => SOURCES.filter((source) => source === name))
     : undefined;
 
   const concurrencyArg = args.find((arg) => arg.startsWith('--concurrency='));
