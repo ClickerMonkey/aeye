@@ -1179,7 +1179,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       stop: request.stop,
       tools,
       tool_choice: tools?.length ? this.convertToolChoice(request) : undefined,
-      parallel_tool_calls: tools?.length ? !request.toolsOneAtATime : undefined,
+      // Parallel calls are the default; reasoning models such as o3 reject the parameter itself
+      parallel_tool_calls: tools?.length && request.toolsOneAtATime ? false : undefined,
       response_format: this.convertResponseFormat(request, budget),
       reasoning_effort: request.reason?.effort && clampReasoningEffort(request.reason.effort, run.modelInfo?.reasoningEfforts),
       verbosity: request.verbosity,
