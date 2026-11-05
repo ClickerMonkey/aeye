@@ -285,6 +285,24 @@ describe('Converse request mapping', () => {
     expect(sent.converse[0].input).toMatchObject(expected);
   });
 
+  it('offers Claude that always thinks only the forced tool, without disabling thinking', async () => {
+    const sent = fakeBedrock();
+    await execute({
+      model: model('anthropic.claude-opus-5-5'),
+      messages: [{ role: 'user', content: 'Look it up' }],
+      tools: [
+        { name: 'lookup', description: 'Look up', parameters: z.object({ q: z.string() }) },
+        { name: 'other', description: 'Other', parameters: z.object({}) },
+      ],
+      toolChoice: { tool: 'lookup' },
+      reason: { effort: 'high' },
+    });
+    const input = sent.converse[0].input;
+    expect(input.toolConfig?.tools?.map(tool => tool.toolSpec?.name)).toEqual(['lookup']);
+    expect(input.toolConfig?.toolChoice).toEqual({ auto: {} });
+    expect(input.additionalModelRequestFields).toEqual({ thinking: { type: 'adaptive', display: 'summarized' } });
+  });
+
   it('turns Claude thinking off on a turn that forces a tool', async () => {
     const sent = fakeBedrock();
     await execute({

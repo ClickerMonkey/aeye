@@ -288,6 +288,12 @@ export function withoutCachePoints<T extends { cachePoint?: CachePointBlock }>(b
 const ADAPTIVE_CLAUDE = /claude-(?:[a-z]+-)?(?:4-[6-9]|[5-9])/;
 
 /**
+ * Claude models that always think: they reject `thinking: disabled` and a
+ * forced tool choice (per Anthropic's model docs).
+ */
+export const ALWAYS_THINKING_CLAUDE = /claude-(?:opus-5-5|sonnet-5-5|fable)/;
+
+/**
  * Efforts Claude accepts with adaptive thinking.
  */
 const CLAUDE_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -338,7 +344,8 @@ export interface ReasoningRequest {
  * - Claude 4.6+ thinks adaptively, with `effort` and a summarized display
  *   (omitted with `exclude`); older Claude takes a thinking token budget,
  *   from `maxTokens` or the effort, kept under the output limit. Claude
- *   can't think on a turn that forces a tool, so that turn goes without.
+ *   can't think on a turn that forces a tool, so that turn goes without;
+ *   Claude that always thinks is never sent `disabled` (and is never forced).
  * - Nova takes `reasoningConfig`; its high effort rejects sampling and
  *   output limits.
  * - Other models with efforts (gpt-oss and open-weight models) take an
@@ -357,7 +364,7 @@ export function toReasoningRequest(modelId: string, reason: Reason | undefined, 
   const off = reason.effort === 'none';
   if (modelId.includes('anthropic.claude')) {
     if (off || forcedTool) {
-      return { fields: { thinking: { type: 'disabled' } } };
+      return ALWAYS_THINKING_CLAUDE.test(modelId) ? {} : { fields: { thinking: { type: 'disabled' } } };
     }
     if (ADAPTIVE_CLAUDE.test(modelId)) {
       return {

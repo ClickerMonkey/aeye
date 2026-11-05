@@ -130,7 +130,9 @@ and [ConverseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API
 since those models reject them together. Efforts are clamped to what the model
 accepts: Claude 4.6 rejects `xhigh` (added with Opus 4.7), so it gets `high`.
 Claude can't think on a turn that forces a tool, so that turn is sent with
-thinking disabled.
+thinking disabled. Claude that always thinks (Opus 5.5, Sonnet 5.5, Fable) rejects both
+thinking disabled and a forced tool choice, so it is never sent `disabled`, and a
+forced turn offers it only the forced tools with an automatic choice.
 
 Claude's effort goes in Converse's own `outputConfig.effort`, which Bedrock
 passes to the model and validates (an `output_config` in

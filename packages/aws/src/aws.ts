@@ -60,6 +60,7 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import { convertAWSModel } from './common';
 import {
+  ALWAYS_THINKING_CLAUDE,
   BEDROCK_PROVIDER,
   contentBlockChunk,
   endChunk,
@@ -462,12 +463,19 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     // stays consistent across tools and structured output.
     const budget = buildSchemaBudget(info ?? { id: model.id, provider: this.name }, this.supportedStrictFamilies);
     // Bedrock can't limit which tools a model calls, so only the allowed ones are sent
-    const toolConfig = this.convertToolsToConverse(withAllowedTools(request), budget);
+    const allowed = withAllowedTools(request);
+    // Claude that always thinks can't be forced to call a tool, so it's
+    // offered only the forced tools instead
+    const choice = allowed.toolChoice;
+    const offered = ALWAYS_THINKING_CLAUDE.test(modelId) && forcesTool(choice)
+      ? withAllowedTools({ ...allowed, toolChoice: { allowed: typeof choice === 'object' && 'tool' in choice ? [choice.tool] : (allowed.tools ?? []).map(tool => tool.name) } })
+      : allowed;
+    const toolConfig = this.convertToolsToConverse(offered, budget);
     const textFormat = this.convertResponseFormat(request, budget);
     // A schema Converse can't take natively goes in the prompt
     const sent = typeof request.responseFormat === 'object' && !textFormat ? deliverSchema(request, LENIENT, 'prompt') : request;
     const maxTokens = request.maxTokens ?? (info ?? model).maxOutputTokens;
-    const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(request.toolChoice));
+    const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(offered.toolChoice));
     const fields = reasoning.fields || request.extra ? { ...reasoning.fields, ...request.extra } : undefined;
     const messages = await this.convertMessagesToConverse(sent);
     const system = await toSystemBlocks(sent.messages);
