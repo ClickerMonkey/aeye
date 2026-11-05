@@ -355,14 +355,6 @@ export interface OpenRouterRerank {
 }
 
 /**
- * A question as OpenRouter's decisions endpoint takes it.
- */
-export type OpenRouterDecisionQuestion =
-  | { type: 'noul'; instructions: string }
-  | { type: 'choice'; instructions: string; criteria: Record<string, string> }
-  | { type: 'score'; instructions: string; criteria: string[] };
-
-/**
  * An answer as OpenRouter's decisions endpoint returns it. Score
  * probabilities are keyed by level index.
  */

@@ -65,3 +65,23 @@ describe('decide', () => {
     expect(response.usage).toEqual({ text: { input: 421, output: 70 }, cost: 0.00002 });
   });
 });
+
+describe('hooks', () => {
+  it('runs the rerank and decide hooks around the calls', async () => {
+    const calls: string[] = [];
+    const hooked = new OpenRouterProvider({
+      apiKey: 'k',
+      hooks: {
+        rerank: { beforeRequest: (request, params) => { calls.push(`rerank ${params.model}`); }, afterRequest: (request, params, response) => { calls.push(`reranked ${response.results.length}`); } },
+        decide: { beforeRequest: (request, params) => { calls.push(`decide ${'state' in params ? 'system-one' : 'openai'}`); } },
+      },
+    });
+    mockPost.mockResolvedValueOnce({ model: 'rerank-v3.5', results: [{ index: 0, relevance_score: 0.5 }] });
+    mockPost.mockResolvedValueOnce({ model: 'jev', answers: {}, usage: { input_tokens: 1, output_tokens: 0 } });
+
+    await hooked.rerank!({ query: 'q', documents: ['d'] }, ctx);
+    await hooked.decide!({ input: 'x', questions: {} }, ctx);
+
+    expect(calls).toEqual(['rerank cohere/rerank-v3.5', 'reranked 1', 'decide system-one']);
+  });
+});

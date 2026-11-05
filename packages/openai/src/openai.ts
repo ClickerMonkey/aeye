@@ -23,6 +23,8 @@ import type {
   Message,
   ModelInfo,
   Provider,
+  RerankRequest,
+  RerankResponse,
   SpeechRequest,
   SpeechResponse,
   TranscriptionChunk,
@@ -34,7 +36,7 @@ import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detec
 import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, strictify, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, responsesUsage, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
-import { type OpenAIDecision, type OpenAIDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
+import { type OpenAIDecision, type OpenAIDecisionParams, type SystemOneDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
 import { imageParams, imageUsage, partialImages } from './images';
 import { isResponsesOnly, outputItemChunk, responseChunks, responseEndChunk, textInput, toHostedTool, toInputContent, toReasoningItems } from './responses';
 import { isContextWindowError, parseContextWindowError, type RetryConfig, RetryContext, type RetryEvents, withRetry } from './retry';
@@ -130,7 +132,19 @@ export interface OpenAIOperations {
   transcribe: { request: TranscriptionRequest; params: OpenAI.Audio.TranscriptionCreateParams; response: TranscriptionResponse };
   speech: { request: SpeechRequest; params: OpenAI.Audio.SpeechCreateParams; response: SpeechResponse };
   embed: { request: EmbeddingRequest; params: OpenAI.EmbeddingCreateParams; response: EmbeddingResponse };
-  decide: { request: DecisionRequest; params: OpenAIDecisionParams; response: DecisionResponse };
+  rerank: { request: RerankRequest; params: RerankParams; response: RerankResponse };
+  decide: { request: DecisionRequest; params: OpenAIDecisionParams | SystemOneDecisionParams; response: DecisionResponse };
+}
+
+/**
+ * Parameters of a rerank request, in the shape OpenAI-compatible rerank
+ * endpoints (OpenRouter's among them) take.
+ */
+export interface RerankParams {
+  model: string;
+  query: string;
+  documents: string[];
+  top_n?: number;
 }
 
 /**
@@ -1027,7 +1041,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * Send one API call with retries, around the operation's before and error
    * hooks. A context-window rejection becomes a ContextWindowError.
    */
-  private async send<K extends keyof OpenAIOperations, R>(
+  protected async send<K extends keyof OpenAIOperations, R>(
     op: K,
     run: OperationRun<TConfig>,
     request: OpenAIOperations[K]['request'],
@@ -1053,7 +1067,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   /**
    * Report a response to the operation's after hook and return it.
    */
-  private async finish<K extends keyof OpenAIOperations>(
+  protected async finish<K extends keyof OpenAIOperations>(
     op: K,
     run: OperationRun<TConfig>,
     request: OpenAIOperations[K]['request'],

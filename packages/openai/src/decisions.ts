@@ -44,6 +44,41 @@ export interface OpenAIDecision {
 }
 
 /**
+ * A question in the System One decision protocol (TypeSafe's), which
+ * OpenRouter's decisions endpoint speaks: a predicate is a `noul`
+ * question, and choices and levels are its criteria.
+ */
+export type SystemOneQuestion =
+  | { type: 'noul'; instructions: string }
+  | { type: 'choice'; instructions: string; criteria: Record<string, string> }
+  | { type: 'score'; instructions: string; criteria: string[] };
+
+/**
+ * Parameters of a System One decision request: the evidence as `state`,
+ * and questions by name.
+ */
+export interface SystemOneDecisionParams {
+  model: string;
+  state: string | OpenAI.Chat.ChatCompletionMessageParam[];
+  questions: Record<string, SystemOneQuestion>;
+}
+
+/**
+ * A question in System One's shape.
+ */
+export function toSystemOneQuestion(question: DecisionQuestion): SystemOneQuestion {
+  const { instructions } = question;
+  switch (question.type) {
+    case 'predicate':
+      return { type: 'noul', instructions };
+    case 'choice':
+      return { type: 'choice', instructions, criteria: question.choices };
+    case 'score':
+      return { type: 'score', instructions, criteria: question.levels };
+  }
+}
+
+/**
  * A named question in the Decisions API's shape.
  */
 export function toDecisionQuestion(name: string, question: DecisionQuestion): OpenAIDecisionQuestion {

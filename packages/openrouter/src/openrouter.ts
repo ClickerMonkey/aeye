@@ -18,10 +18,10 @@
 import type { AIContextAny, BatchJob, DecisionAnswer, DecisionQuestion, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
 import { REASONING_EFFORTS, withAllowedTools, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
-import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError } from '@aeye/openai';
+import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, type SystemOneDecisionParams, toSystemOneQuestion } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
-import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterDecisionAnswer, OpenRouterDecisionQuestion, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
+import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterDecisionAnswer, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
 
 /**
  * OpenRouter provider configuration. Requests always go through chat
@@ -276,22 +276,6 @@ function aspectRatio(size: string): string {
   return ASPECT_RATIOS.reduce((best, r) =>
     Math.abs(ratio(r) - width / height) < Math.abs(ratio(best) - width / height) ? r : best
   );
-}
-
-/**
- * A question as OpenRouter's decisions endpoint takes it: a predicate is a
- * `noul` question, and choices and levels are its criteria.
- */
-function toDecisionQuestion(question: DecisionQuestion): OpenRouterDecisionQuestion {
-  const { instructions } = question;
-  switch (question.type) {
-    case 'predicate':
-      return { type: 'noul', instructions };
-    case 'choice':
-      return { type: 'choice', instructions, criteria: question.choices };
-    case 'score':
-      return { type: 'score', instructions, criteria: question.levels };
-  }
 }
 
 /**
@@ -614,13 +598,13 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   rerank: Provider['rerank'] = async (request, ctx, config?: OpenRouterConfig) => {
     const run = this.prepare('rerank', request, ctx, undefined, config, undefined, 'rerank');
-    const body = { model: run.model.id, query: request.query, documents: request.documents, top_n: request.topN, ...request.extra };
-    const result = await run.retry((signal) => run.client.post<OpenRouterRerank>('/rerank', { body, signal }));
-    return {
+    const params: RerankParams = { model: run.model.id, query: request.query, documents: request.documents, top_n: request.topN, ...request.extra };
+    const result = await this.send('rerank', run, request, params, (signal) => run.client.post<OpenRouterRerank>('/rerank', { body: params, signal }));
+    return this.finish('rerank', run, request, params, {
       results: result.results.map(({ index, relevance_score }) => ({ index, score: relevance_score })),
       model: run.model,
       usage: { cost: result.usage?.cost },
-    };
+    });
   }
 
   /**
@@ -635,19 +619,19 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   override decide: Provider['decide'] = async (request, ctx, config?: OpenRouterConfig) => {
     const run = this.prepare('decide', request, ctx, undefined, config, undefined, 'decision');
-    const body = {
+    const params: SystemOneDecisionParams = {
       model: run.model.id,
       state: typeof request.input === 'string' ? request.input : await this.convertMessages({ messages: request.input }, run.config),
-      questions: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, toDecisionQuestion(question)])),
+      questions: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, toSystemOneQuestion(question)])),
       ...request.extra,
     };
     const url = new URL('../alpha/decisions', `${run.client.baseURL}/`).href;
-    const result = await run.retry((signal) => run.client.post<OpenRouterDecision>(url, { body, signal }));
-    return {
+    const result = await this.send('decide', run, request, params, (signal) => run.client.post<OpenRouterDecision>(url, { body: params, signal }));
+    return this.finish('decide', run, request, params, {
       answers: Object.fromEntries(Object.entries(result.answers).map(([name, answer]) => [name, toDecisionAnswer(answer)])),
       model: run.model,
       usage: { text: { input: result.usage.input_tokens, output: result.usage.output_tokens || undefined }, cost: result.usage.cost },
-    };
+    });
   }
 
   /**
