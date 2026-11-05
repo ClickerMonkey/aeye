@@ -81,7 +81,8 @@ packages/docs/
 ├── guides/                   # Task-oriented how-tos (chat, streaming,
 │   │                         #   tool-calling, structured-output, strict-mode,
 │   │                         #   image-generation, vision, speech,
-│   │                         #   transcription, embeddings, reasoning,
+│   │                         #   transcription, embeddings, rerank,
+│   │                         #   decisions, batch, reasoning,
 │   │                         #   model-selection, budget, context-management,
 │   │                         #   error-handling, custom-providers)
 │   └── *.md
@@ -103,6 +104,7 @@ packages/docs/
 │   │                         #   utilities, schema
 │   ├── ai/                   # @aeye/ai: ai-class, chat-api, image-api,
 │   │                         #   speech-api, transcribe-api, embed-api,
+│   │                         #   rerank-api, decide-api, batch-api,
 │   │                         #   models-api, registry, types
 │   └── providers/            # openai, openrouter, replicate, aws
 └── examples/                 # End-to-end examples (basic-chat, weather-agent,

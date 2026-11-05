@@ -90,16 +90,51 @@ interface Provider<TConfig = any> {
   defaultMetadata?: any;
   createExecutor?(): Executor;
   createStreamer?(): Streamer;
-  generateImage?(): Function;
-  editImage?(): Function;
-  analyzeImage?(): Function;
-  generateSpeech?(): Function;
-  transcribe?(): Function;
-  embed?(): Function;
-  listModels?(): Promise<ModelInfo[]>;
-  checkHealth?(): Promise<boolean>;
+  generateImage?(request, ctx, config?): Promise<ImageGenerationResponse>;
+  editImage?(request, ctx, config?): Promise<ImageGenerationResponse>;
+  analyzeImage?(request, ctx, config?): Promise<Response>;
+  speech?(request, ctx, config?): Promise<SpeechResponse>;
+  transcribe?(request, ctx, config?): Promise<TranscriptionResponse>;
+  embed?(request, ctx, config?): Promise<EmbeddingResponse>;
+  rerank?(request: RerankRequest, ctx, config?): Promise<RerankResponse>;
+  decide?(request: DecisionRequest, ctx, config?): Promise<DecisionResponse>;
+  submitBatch?(requests: Request[], ctx, config?): Promise<BatchJob>;
+  getBatch?(job: BatchJob, ctx, config?): Promise<BatchJob>;
+  listModels?(config?): Promise<ModelInfo[]>;
+  checkHealth(config?): Promise<boolean>;
 }
 ```
+
+A provider that implements `rerank` gains the `rerank` capability, and one that implements `decide` gains `decision`.
+
+### `ModelHandler`
+
+Per-model overrides for the APIs. Besides `chat`, `imageGenerate`, `imageEdit`, `imageAnalyze`, `transcribe`, `speech`, and `embed`, a handler can supply `rerank.get` and `decide.get`.
+
+## Model Capabilities
+
+### `ModelCapability`
+
+```typescript
+type ModelCapability =
+  | 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'hearing'
+  | 'json' | 'structured' | 'streaming' | 'reasoning'
+  | 'image' | 'audio' | 'embedding'
+  | 'rerank'      // orders documents by relevance to a query
+  | 'decision'    // typed answers (probabilities, choices, scores) about an input
+  | 'zdr' | 'toolsStrict';
+```
+
+`ai.rerank` requires `rerank` and `ai.decide` requires `decision`.
+
+## Request / Response Types
+
+| API | Request | Response | Reference |
+|-----|---------|----------|-----------|
+| `ai.embed` | `EmbeddingRequest` | `EmbeddingResponse` | [EmbedAPI](/reference/ai/embed-api) |
+| `ai.rerank` | `RerankRequest` | `RerankResponse` | [RerankAPI](/reference/ai/rerank-api) |
+| `ai.decide` | `DecisionRequest` (`DecisionQuestion`) | `DecisionResponse` (`DecisionAnswer`) | [DecideAPI](/reference/ai/decide-api) |
+| `ai.batch` | `Request[]` | `BatchJob` (`BatchResult`, `BatchStatus`) | [BatchAPI](/reference/ai/batch-api) |
 
 ## Configuration
 

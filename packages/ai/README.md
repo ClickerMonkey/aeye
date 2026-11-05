@@ -23,6 +23,9 @@ ai.image.analyze.get(request, ctx?)  // or .stream(request, ctx?)
 ai.transcribe.get(request, ctx?)     // or .stream(request, ctx?)
 ai.speech.get(request, ctx?)         // or .stream(request, ctx?)
 ai.embed.get(request, ctx?)
+ai.rerank.get(request, ctx?)         // order documents by relevance
+ai.decide.get(request, ctx?)         // typed answers from decision models
+ai.batch.submit(requests, ctx)       // .get(job, ctx), .wait(job, ctx, options?)
 ai.models.list()  // .get(id), .search(criteria), .select(criteria), .refresh()
 
 // Components bound to this AI instance
@@ -43,7 +46,7 @@ myAgent.run(input, ctx?)
 - **Multi-Provider Support**: Single interface for OpenAI, OpenRouter, Replicate, AWS Bedrock, and custom providers
 - **Intelligent Model Selection**: Automatic model selection based on capabilities, cost, speed, and quality
 - **Type-Safe Context**: Strongly-typed context and metadata with compiler validation
-- **Comprehensive APIs**: Chat, Image Generation/Analysis/Editing, Speech Synthesis, Transcription, Embeddings
+- **Comprehensive APIs**: Chat, Image Generation/Analysis/Editing, Speech Synthesis, Transcription, Embeddings, Reranking, Decisions, Batches
 - **Lifecycle Hooks**: Intercept and modify operations at every stage
 - **Cost Tracking**: Automatic token usage and cost calculation
 - **Streaming Support**: Full streaming support across all compatible capabilities
@@ -62,6 +65,9 @@ myAgent.run(input, ctx?)
   - [Speech API](#speech-api)
   - [Transcribe API](#transcribe-api)
   - [Embed API](#embed-api)
+  - [Rerank API](#rerank-api)
+  - [Decide API](#decide-api)
+  - [Batch API](#batch-api)
   - [Models API](#models-api)
 - [Tools, Prompts & Agents](#tools-prompts--agents)
 - [Advanced Features](#advanced-features)
@@ -336,6 +342,53 @@ const response = await ai.embed.get({
 response.embeddings.forEach(({ embedding, index }) => {
   console.log(`Text ${index}: ${embedding.length} dimensions`);
 });
+```
+
+### Rerank API
+
+**`rerank.get(request, ctx?)`** — Order documents by relevance to a query. Needs a model with the `rerank` capability (OpenRouter: Cohere, Voyage, Qwen, Nemotron).
+
+```typescript
+const documents = ['Paris is the capital of France.', 'Berlin is the capital of Germany.'];
+const { results } = await ai.rerank.get({ query: 'capital of France', documents, topN: 1 });
+
+console.log(documents[results[0].index], results[0].score);
+```
+
+### Decide API
+
+**`decide.get(request, ctx?)`** — Typed answers about text or a conversation from a decision model (`decision` capability; OpenAI `gpt-6-luna`, OpenRouter System One models). Questions are `predicate` (probability), `choice` (one of a set), or `score` (ordered levels). Much faster and cheaper than structured output for classification and routing.
+
+```typescript
+const { answers } = await ai.decide.get({
+  input: 'I was charged twice for my order.',
+  questions: {
+    billing: { type: 'predicate', instructions: 'Is this a billing problem?' },
+    team: { type: 'choice', instructions: 'Which team handles it?', choices: { payments: 'Charges and refunds', web: 'Website bugs' } },
+    urgency: { type: 'score', instructions: 'How urgent is it?', levels: ['Can wait', 'This week', 'Now'] },
+  },
+});
+
+const team = answers.team;
+if (team.type === 'choice') {
+  console.log(team.choice, team.confidence);
+}
+```
+
+### Batch API
+
+**`batch.submit(requests, ctx)`** — Run chat requests as one provider batch (OpenAI, OpenRouter): about half the price, with results within a day. `batch.get(job, ctx)` checks it; `batch.wait(job, ctx, { interval?, signal? })` waits for it to finish. Results come back in request order, and a failed request carries `error`.
+
+```typescript
+const job = await ai.batch.submit(
+  reviews.map(review => ({ messages: [{ role: 'user', content: `Classify: ${review}` }] })),
+  {},
+);
+
+const done = await ai.batch.wait(job, {});
+for (const result of done.results ?? []) {
+  console.log(result.response?.content ?? result.error);
+}
 ```
 
 ### Models API

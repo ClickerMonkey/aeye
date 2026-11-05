@@ -4,6 +4,7 @@
  * Loads environment variables and provides utilities for conditional test execution
  */
 
+import { describe } from '@jest/globals';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -38,33 +39,10 @@ export const hasAPIKey = (provider: string): boolean => {
 /**
  * Skip test suite if API key is not available
  */
-export const skipIfNoAPIKey = (provider: string) => {
+export const skipIfNoAPIKey = (provider: string): typeof describe.skip => {
   if (!hasAPIKey(provider)) {
     console.warn(`Skipping ${provider} tests - no API key found`);
-    // @ts-ignore
     return describe.skip;
   }
-  // @ts-ignore
-  return describe;
-};
-
-/**
- * Get all available providers based on environment variables
- */
-export const getAvailableProviders = (): string[] => {
-  const providers = ['openai', 'openrouter', 'replicate'];
-  return providers.filter(hasAPIKey);
-};
-
-/**
- * Require minimum number of providers for multi-provider tests
- */
-export const requireMinimumProviders = (minCount: number) => {
-  const available = getAvailableProviders();
-  if (available.length < minCount) {
-    // @ts-ignore
-    return describe.skip;
-  }
-  // @ts-ignore
   return describe;
 };

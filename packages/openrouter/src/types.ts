@@ -1,4 +1,5 @@
-import type { ModelTokenizer } from '@aeye/ai';
+import type { BatchStatus, ModelTokenizer } from '@aeye/ai';
+import type { BatchOutputLine } from '@aeye/openai';
 import type { ReasoningDetail, ReasoningEffort } from '@aeye/core';
 import OpenAI from "openai";
 
@@ -330,3 +331,51 @@ export type OpenRouterChatResponse = OpenAI.Chat.ChatCompletion & {
   choices: OpenRouterChoice[];
   usage?: OpenRouterUsage;
 };
+
+/**
+ * A batch as OpenRouter reports it. Results arrive inline once it completes.
+ */
+export interface OpenRouterBatch {
+  id: string;
+  status: BatchStatus;
+  request_counts: { total: number; completed: number; failed: number };
+  error: { message: string } | null;
+  // Totals for the batch; results carry token counts but no cost
+  usage: OpenRouterUsage | null;
+  results: BatchOutputLine[] | null;
+}
+
+/**
+ * Documents by relevance, as OpenRouter's rerank endpoint returns them.
+ */
+export interface OpenRouterRerank {
+  model: string;
+  results: Array<{ index: number; relevance_score: number }>;
+  usage?: { search_units?: number; cost?: number };
+}
+
+/**
+ * A question as OpenRouter's decisions endpoint takes it.
+ */
+export type OpenRouterDecisionQuestion =
+  | { type: 'noul'; instructions: string }
+  | { type: 'choice'; instructions: string; criteria: Record<string, string> }
+  | { type: 'score'; instructions: string; criteria: string[] };
+
+/**
+ * An answer as OpenRouter's decisions endpoint returns it. Score
+ * probabilities are keyed by level index.
+ */
+export type OpenRouterDecisionAnswer =
+  | { type: 'noul'; noul: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  | { type: 'score'; score: number; probabilities: Record<string, number>; confidence: number };
+
+/**
+ * A decision as OpenRouter's decisions endpoint returns it.
+ */
+export interface OpenRouterDecision {
+  model: string;
+  answers: Record<string, OpenRouterDecisionAnswer>;
+  usage: { input_tokens: number; output_tokens: number; cost?: number };
+}

@@ -70,8 +70,8 @@ console.log(result?.suggestion);
 |---------|-------------|
 | [`@aeye/core`](/reference/core/types) | Core primitives: Tool, Prompt, Agent, and shared types |
 | [`@aeye/ai`](/reference/ai/ai-class) | Main AI library with model selection, APIs, and hooks |
-| [`@aeye/openai`](/providers/openai) | OpenAI provider (chat, images, speech, transcription, embeddings) |
-| [`@aeye/openrouter`](/providers/openrouter) | OpenRouter multi-provider gateway |
+| [`@aeye/openai`](/providers/openai) | OpenAI provider (chat, images, speech, transcription, embeddings, decisions, batches) |
+| [`@aeye/openrouter`](/providers/openrouter) | OpenRouter multi-provider gateway (plus reranking, decisions, batches) |
 | [`@aeye/replicate`](/providers/replicate) | Replicate open-source model provider |
 | [`@aeye/aws`](/providers/aws) | AWS Bedrock provider (Converse API) |
 | [`@aeye/gin`](/gin/) | JSON-based programming language and type system for LLM-authored programs |

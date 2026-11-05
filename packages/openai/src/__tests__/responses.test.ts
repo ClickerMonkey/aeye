@@ -3,7 +3,7 @@
  */
 
 import { AI, type AIContextAny, type Request } from '@aeye/ai';
-import { getResponseFromChunks, type Chunk } from '@aeye/core';
+import { getResponseFromChunks, TEXT_TOOL_SCHEMA, type Chunk } from '@aeye/core';
 import { z } from 'zod';
 import { OpenAIProvider } from '../openai';
 
@@ -199,6 +199,29 @@ describe('response', () => {
     expect(response.finishReason).toBe('tool_calls');
   });
 
+  it('streams every reasoning delta and joins summary parts as the finished item does', async () => {
+    const item = { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: '**Plan**\n\nCheck the root.' }, { type: 'summary_text', text: '**Check**\n\nCheck the root.' }], encrypted_content: 'ENC' };
+    const summary = (summary_index: number, ...deltas: string[]) => [
+      { type: 'response.reasoning_summary_part.added', item_id: 'rs_1', summary_index },
+      ...deltas.map(delta => ({ type: 'response.reasoning_summary_text.delta', item_id: 'rs_1', summary_index, delta })),
+    ];
+    mockResponsesCreate.mockResolvedValue(events(
+      ...summary(0, '**Plan**', '\n\n', 'Check', ' the', ' root', '.'),
+      ...summary(1, '**Check**', '\n\n', 'Check', ' the', ' root', '.'),
+      { type: 'response.output_item.done', item },
+      { type: 'response.completed', response: result([item]) },
+    ));
+
+    const chunks: Chunk[] = [];
+    for await (const chunk of provider.createStreamer()({ ...hi, reason: { summary: 'detailed' } }, ctx, { model: 'gpt-5.4' })) {
+      chunks.push(chunk);
+    }
+
+    const { reasoning } = getResponseFromChunks(chunks);
+    expect(reasoning?.content).toBe('**Plan**\n\nCheck the root.\n\n**Check**\n\nCheck the root.');
+    expect(reasoning?.details).toEqual([{ id: 'rs_1', type: 'reasoning.encrypted', format: 'openai-responses-v1', summary: reasoning?.content, data: 'ENC' }]);
+  });
+
   it('fails the stream when the response fails', async () => {
     mockResponsesCreate.mockResolvedValue(events(
       { type: 'response.failed', response: { error: { code: 'server_error', message: 'Upstream broke' } } },
@@ -208,5 +231,85 @@ describe('response', () => {
       for await (const _ of provider.createStreamer()({ ...hi, hostedTools: [{ type: 'web_search' }] }, ctx, { model: 'gpt-5.4' })) { /* drain */ }
     };
     await expect(drain()).rejects.toThrow(/Upstream broke/);
+  });
+});
+
+describe('tool features', () => {
+  const grammar = { type: 'grammar' as const, syntax: 'regex' as const, definition: '^\d+$' };
+  const sql = { name: 'run_sql', description: 'Run SQL', parameters: TEXT_TOOL_SCHEMA, format: grammar };
+  const weather = { name: 'weather', description: 'Weather', parameters: z.object({ city: z.string() }) };
+
+  it('routes free-text, deferred, and async tools to Responses', async () => {
+    mockResponsesCreate.mockResolvedValue(result([message('ok')]));
+
+    await provider.createExecutor()({ ...hi, tools: [{ ...weather, defer: true }, { ...weather, name: 'later', async: true }, sql] }, ctx, { model: 'gpt-6-luna' });
+
+    expect(sentParams().tools).toEqual([
+      expect.objectContaining({ type: 'function', name: 'weather', defer_loading: true }),
+      expect.objectContaining({ type: 'function', name: 'later', async: true }),
+      { type: 'custom', name: 'run_sql', description: 'Run SQL', format: grammar, defer_loading: undefined, async: undefined },
+      { type: 'tool_search' },
+    ]);
+  });
+
+  it('maps allowed tools to the tool kind', async () => {
+    mockResponsesCreate.mockResolvedValue(result([message('ok')]));
+
+    await provider.createExecutor()({ ...hi, tools: [weather, sql], toolChoice: { allowed: ['run_sql', 'weather'], required: true } }, ctx, { model: 'gpt-6-luna' });
+
+    expect(sentParams().tool_choice).toEqual({
+      type: 'allowed_tools',
+      mode: 'required',
+      tools: [{ type: 'custom', name: 'run_sql' }, { type: 'function', name: 'weather' }],
+    });
+  });
+
+  it('reads free-text calls as input arguments and replays them as custom calls', async () => {
+    mockResponsesCreate.mockResolvedValue(result([{ type: 'custom_tool_call', call_id: 'c1', name: 'run_sql', input: '42' }]));
+    const executor = provider.createExecutor();
+
+    const response = await executor({ ...hi, tools: [sql] }, ctx, { model: 'gpt-6-luna' });
+    expect(response.toolCalls).toEqual([{ id: 'c1', name: 'run_sql', arguments: '{"input":"42"}' }]);
+
+    await executor({
+      tools: [sql],
+      messages: [
+        { role: 'user', content: 'Count' },
+        { role: 'assistant', content: '', toolCalls: response.toolCalls },
+        { role: 'tool', toolCallId: 'c1', content: '42 rows' },
+      ],
+    }, ctx, { model: 'gpt-6-luna' });
+    expect(sentParams().input.slice(1)).toEqual([
+      { type: 'custom_tool_call', call_id: 'c1', name: 'run_sql', input: '42' },
+      { type: 'custom_tool_call_output', call_id: 'c1', output: [{ type: 'input_text', text: '42 rows' }] },
+    ]);
+  });
+
+  it('streams free-text input as it arrives', async () => {
+    const call = { type: 'custom_tool_call', id: 'ct_1', call_id: 'c1', name: 'run_sql', input: '' };
+    mockResponsesCreate.mockResolvedValue(events(
+      { type: 'response.output_item.added', item: call },
+      { type: 'response.custom_tool_call_input.delta', item_id: 'ct_1', delta: '4' },
+      { type: 'response.custom_tool_call_input.delta', item_id: 'ct_1', delta: '2' },
+      { type: 'response.output_item.done', item: { ...call, input: '42' } },
+    ));
+
+    const chunks: Chunk[] = [];
+    for await (const chunk of provider.createStreamer()({ ...hi, tools: [sql] }, ctx, { model: 'gpt-6-luna' })) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.filter(c => c.toolCallArguments).map(c => c.toolCallArguments?.arguments)).toEqual(['{"input":"42"}', '{"input":"42"}']);
+    expect(getResponseFromChunks(chunks).toolCalls).toEqual([{ id: 'c1', name: 'run_sql', arguments: '{"input":"42"}' }]);
+  });
+
+  it('sends allowed tools and grammar hints through Chat Completions', async () => {
+    mockChatCreate.mockResolvedValue({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] });
+
+    await new OpenAIProvider({ apiKey: 'test', api: 'chat' }).createExecutor()({ ...hi, tools: [weather, sql], toolChoice: { allowed: ['weather'] } }, ctx, { model: 'gpt-5.4' });
+
+    const params = mockChatCreate.mock.calls[0][0];
+    expect(params.tool_choice).toEqual({ type: 'allowed_tools', allowed_tools: { mode: 'auto', tools: [{ type: 'function', function: { name: 'weather' } }] } });
+    expect(params.tools[1].function.description).toContain('regex grammar');
   });
 });

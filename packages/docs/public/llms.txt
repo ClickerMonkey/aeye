@@ -6,8 +6,8 @@
 
 - @aeye/core: Core primitives — Tool, Prompt, Agent classes and shared types
 - @aeye/ai: Main library — AI class, model registry, APIs, lifecycle hooks, cost tracking
-- @aeye/openai: OpenAI provider — chat, vision, images, speech, transcription, embeddings, reasoning
-- @aeye/openrouter: OpenRouter provider — multi-provider gateway, routing, ZDR, model source
+- @aeye/openai: OpenAI provider — chat, vision, images, speech, transcription, embeddings, decisions, batches, reasoning
+- @aeye/openrouter: OpenRouter provider — multi-provider gateway, routing, ZDR, reranking, decisions, batches, model source
 - @aeye/replicate: Replicate provider — open-source models with adapter/transformer system
 - @aeye/aws: AWS Bedrock provider — Converse API for Claude, Llama, Mistral, Titan, Stability AI
 - @aeye/models: Auto-generated model registry with pricing, capabilities, and Replicate transformers
@@ -39,6 +39,10 @@ ai.image.analyze.get(request, ctx?) → Response
 ai.speech.get(request, ctx?) → SpeechResponse
 ai.transcribe.get(request, ctx?) → TranscriptionResponse
 ai.embed.get(request, ctx?) → EmbeddingResponse
+ai.rerank.get({ query, documents, topN? }, ctx?) → RerankResponse   // OpenRouter
+ai.decide.get({ input, questions }, ctx?) → DecisionResponse       // OpenAI, OpenRouter
+ai.batch.submit(requests, ctx) → BatchJob                            // OpenAI, OpenRouter
+ai.batch.get(job, ctx) / ai.batch.wait(job, ctx, { interval?, signal? }?) → BatchJob
 ai.models.list() / .get(id) / .search(criteria) / .select(criteria) / .refresh()
 ai.tool({...}) / ai.prompt({...}) / ai.agent({...})
 ```
@@ -89,8 +93,15 @@ interface ToolDefinition {
   name: string;
   description?: string;
   parameters: z.ZodType<object>;
-  strict?: boolean;
+  strict?: boolean | number;
+  format?: ToolTextFormat; // free-text input, arrives as { input } (TEXT_TOOL_SCHEMA); OpenAI Responses custom tool
+  defer?: boolean;         // loaded via tool search (OpenAI Responses); ordinary tool elsewhere
+  async?: boolean;         // model keeps working while it runs (OpenAI Responses); ordinary tool elsewhere
 }
+
+type ToolTextFormat =
+  | { type: 'text' }
+  | { type: 'grammar'; syntax: 'lark' | 'regex'; definition: string };
 
 interface ToolCall {
   id: string;
@@ -98,7 +109,10 @@ interface ToolCall {
   arguments: string;
 }
 
-type ToolChoice = 'auto' | 'none' | 'required' | { tool: string };
+type ToolChoice = 'auto' | 'none' | 'required' | { tool: string }
+  | { allowed: string[]; required?: boolean }; // OpenAI allowed_tools; OpenRouter/Bedrock send only the allowed tools
+
+// Helpers: TEXT_TOOL_SCHEMA = z.object({ input: z.string() }); forcesTool(choice); withAllowedTools(request)
 ```
 
 ### Request / Response
@@ -318,7 +332,10 @@ interface ToolInput<TContext, TMetadata, TName extends string, TParams extends o
   instructionsFn?: (ctx: Context<TContext, TMetadata>) => string;
   input?: (ctx: Context<TContext, TMetadata>) => Record<string, any>;
   schema: z.ZodType<TParams> | ((ctx: Context<TContext, TMetadata>) => z.ZodType<TParams> | undefined);
-  strict?: boolean;
+  strict?: boolean | number;
+  format?: ToolTextFormat;
+  defer?: boolean;
+  async?: boolean;
   refs?: TRefs;
   call: (input: TParams, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
   validate?: (input: TParams, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
@@ -503,7 +520,7 @@ function isAsyncGenerator(value: any): value is AsyncGenerator;
 ### Model Types
 
 ```typescript
-type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'zdr' | 'toolsStrict';
+type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict';
 type ModelTier = 'flagship' | 'efficient' | 'experimental';
 type ModelTokenizer = 'gpt3' | 'gpt35turbo' | 'gpt4' | 'cl100k' | 'claude' | 'llama2' | 'mistral' | 'other';
 
@@ -601,6 +618,10 @@ interface Provider<TConfig = any> {
   transcribeStream?(request: TranscriptionRequest, ctx: any, config?: TConfig): AsyncIterable<TranscriptionChunk>;
   speech?(request: SpeechRequest, ctx: any, config?: TConfig): Promise<SpeechResponse>;
   embed?(request: EmbeddingRequest, ctx: any, config?: TConfig): Promise<EmbeddingResponse>;
+  rerank?(request: RerankRequest, ctx: any, config?: TConfig): Promise<RerankResponse>;
+  decide?(request: DecisionRequest, ctx: any, config?: TConfig): Promise<DecisionResponse>;
+  submitBatch?(requests: Request[], ctx: any, config?: TConfig): Promise<BatchJob>;
+  getBatch?(job: BatchJob, ctx: any, config?: TConfig): Promise<BatchJob>;
 }
 ```
 
@@ -695,6 +716,59 @@ interface EmbeddingResponse {
   usage?: Usage;
   model: ModelInput;
 }
+
+interface RerankRequest {
+  model?: ModelInput;
+  query: string;
+  documents: string[];
+  topN?: number;            // default all
+}
+
+interface RerankResponse {
+  results: Array<{ index: number; score: number }>; // most relevant first; score 0-1
+  usage?: Usage;
+  model: ModelInput;
+}
+
+type DecisionQuestion =
+  | { type: 'predicate'; instructions: string }
+  | { type: 'choice'; instructions: string; choices: Record<string, string> } // value → description
+  | { type: 'score'; instructions: string; levels: string[] };               // lowest first
+
+type DecisionAnswer =
+  | { type: 'predicate'; probability: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  | { type: 'score'; score: number; probabilities: number[]; confidence: number } // score = probability-weighted level index
+  | { type: 'refusal' };
+
+interface DecisionRequest {
+  model?: ModelInput;
+  input: string | Message[];
+  questions: Record<string, DecisionQuestion>;
+}
+
+interface DecisionResponse {
+  answers: Record<string, DecisionAnswer>;
+  usage?: Usage;
+  model: ModelInput;
+}
+
+type BatchStatus = 'validating' | 'in_progress' | 'finalizing' | 'completed' | 'failed' | 'expired' | 'cancelling' | 'cancelled';
+
+interface BatchJob {
+  id: string;
+  provider: string;
+  model: string;
+  status: BatchStatus;
+  counts?: { total: number; completed: number; failed: number };
+  error?: string;
+  results?: BatchResult[];  // in request order, once completed
+}
+
+interface BatchResult {
+  response?: Response;
+  error?: string;
+}
 ```
 
 ### Metadata & Context
@@ -784,6 +858,9 @@ class AI<T> {
   readonly speech: SpeechAPI;
   readonly transcribe: TranscribeAPI;
   readonly embed: EmbedAPI;
+  readonly rerank: RerankAPI;
+  readonly decide: DecideAPI;
+  readonly batch: BatchAPI;
   readonly models: ModelsAPI;
   readonly providers: Record<string, Provider>;
   readonly components: Component[];
@@ -856,7 +933,7 @@ interface OpenAIConfig {
   organization?: string;
   project?: string;
   store?: boolean;
-  api?: 'auto' | 'chat' | 'responses'; // auto: Responses for Responses-only models, hostedTools, or reason.mode/summary/context
+  api?: 'auto' | 'chat' | 'responses'; // auto: Responses for Responses-only models, hostedTools, tools with format/defer/async, or reason.mode/summary/context
   retry?: {
     maxRetries?: number;
     initialDelay?: number;
@@ -875,6 +952,7 @@ interface OpenAIConfig {
     speech?: { beforeRequest?; afterRequest?; onError? };
     transcribe?: { beforeRequest?; afterRequest?; onError? };
     embed?: { beforeRequest?; afterRequest?; onError? };
+    decide?: { beforeRequest?; afterRequest?; onError? };
   };
   defaultModels?: {
     chat?: ModelInput;
@@ -884,6 +962,8 @@ interface OpenAIConfig {
     transcription?: ModelInput;   // default 'gpt-transcribe'
     speech?: ModelInput;          // default 'gpt-4o-mini-tts'
     embedding?: ModelInput;       // default 'text-embedding-3-small'
+    decision?: ModelInput;        // default 'gpt-6-luna' (OpenRouter: 'typesafe/jev-1.14')
+    rerank?: ModelInput;          // OpenRouter: 'cohere/rerank-v3.5'
   };
 }
 ```
@@ -893,7 +973,8 @@ interface OpenAIConfig {
 ## @aeye/openrouter — Config
 
 ```typescript
-// Always Chat Completions (no `api` option)
+// Always Chat Completions (no `api` option). toolChoice { allowed } is emulated by sending only the allowed tools.
+// Adds rerank (/rerank), decide (alpha decisions endpoint), and inline batches (/batches).
 interface OpenRouterConfig extends Omit<OpenAIConfig, 'api'> {
   defaultParams?: {
     siteUrl?: string;

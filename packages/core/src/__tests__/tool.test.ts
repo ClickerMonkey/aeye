@@ -5,8 +5,8 @@
  */
 
 import { z } from 'zod';
-import { Tool } from '../tool';
-import type { Context } from '../types';
+import { forcesTool, TEXT_TOOL_SCHEMA, Tool, withAllowedTools } from '../tool';
+import type { Context, Request } from '../types';
 
 // ---- Type-level assertion helpers -----------------------------------------
 type Equal<A, B> =
@@ -910,5 +910,30 @@ describe('Tool', () => {
       expect(result).toBe(20);
       expect(executionLog).toEqual(['Before: 10', 'After: 20']);
     });
+  });
+});
+
+describe('tool choice helpers', () => {
+  const tool = (name: string) => ({ name, parameters: TEXT_TOOL_SCHEMA });
+
+  it('forcesTool is true only for choices that make the model call a tool', () => {
+    expect(forcesTool('required')).toBe(true);
+    expect(forcesTool({ tool: 'a' })).toBe(true);
+    expect(forcesTool({ allowed: ['a'], required: true })).toBe(true);
+    expect(forcesTool({ allowed: ['a'] })).toBe(false);
+    expect(forcesTool('auto')).toBe(false);
+    expect(forcesTool(undefined)).toBe(false);
+  });
+
+  it('withAllowedTools keeps only the allowed tools, by identity', () => {
+    const tools = [tool('a'), tool('b'), tool('c')];
+    const request: Request = { messages: [], tools, toolChoice: { allowed: ['a', 'c'], required: true } };
+
+    const narrowed = withAllowedTools(request);
+
+    expect(narrowed.tools).toEqual([tools[0], tools[2]]);
+    expect(narrowed.tools?.[0]).toBe(tools[0]);
+    expect(narrowed.toolChoice).toBe('required');
+    expect(withAllowedTools({ messages: [], tools, toolChoice: 'auto' })).toEqual({ messages: [], tools, toolChoice: 'auto' });
   });
 });

@@ -39,6 +39,7 @@ const openai = new OpenAIProvider({
     transcription: 'gpt-transcribe',       // default
     speech: 'gpt-4o-mini-tts',             // default
     embedding: 'text-embedding-3-small',   // default
+    decision: 'gpt-6-luna',                // default
   },
   hooks: {
     chat: {
@@ -50,14 +51,15 @@ const openai = new OpenAIProvider({
 });
 ```
 
-Hooks exist for `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, and `embed`. Image analysis runs as chat and reports through the chat (or responses) hooks.
+Hooks exist for `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed`, and `decide`. Image analysis runs as chat and reports through the chat (or responses) hooks.
 
 ### Chat Completions or Responses
 
 With `api: 'auto'` (the default), chat requests use Chat Completions unless they need the Responses API:
 
 - the model is Responses-only (its registry entry's `metadata.responsesOnly`, or by id: codex, pre-5.6 pro models, deep-research, computer-use),
-- the request has `hostedTools`, or
+- the request has `hostedTools`,
+- a tool sets `format`, `defer`, or `async` (see [Tool Features](#tool-features)), or
 - `reason` sets `mode`, `summary`, or `context`.
 
 `'chat'` or `'responses'` forces one API. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns, so multi-turn reasoning works without stored responses.
@@ -78,6 +80,8 @@ With `api: 'auto'` (the default), chat requests use Chat Completions unless they
 | Speech (TTS) | gpt-4o-mini-tts, tts-1 | `ai.speech` |
 | Transcription | gpt-transcribe, gpt-4o-transcribe-diarize | `ai.transcribe` |
 | Embeddings | text-embedding-3-* | `ai.embed` |
+| Decisions | gpt-6-luna | `ai.decide` |
+| Batches | Chat and Responses models | `ai.batch` |
 
 ## Request Features
 
@@ -91,9 +95,36 @@ Beyond the common chat fields, OpenAI sends:
 | `moderate: true` | inline moderation with `omni-moderation-latest`; verdicts come back as `response.moderation` |
 | `hostedTools` | Responses tools: `web_search` (`allowedDomains`; `blockedDomains` is rejected), `file_search`, `code_interpreter`, `image_generation`, `mcp`. `web_fetch` is rejected. |
 | `cacheBreakpoint` on content | a prompt cache breakpoint |
+| `toolChoice: { allowed, required? }` | `allowed_tools` (`mode` `required` or `auto`), on both APIs |
 | `detail` / `name` on content | image detail / file name |
 
 Responses carry `citations`, `images`, `audio`, `moderation`, and `serviceTier` when present, and `usage.tools` counts hosted tool calls.
+
+## Tool Features
+
+| Tool option | Sent as |
+|---|---|
+| `format: { type: 'text' }` | a Responses custom tool; the text comes back as `{ input }` arguments |
+| `format: { type: 'grammar', syntax, definition }` | a Responses custom tool constrained by the Lark or regex grammar. On Chat Completions (`api: 'chat'`) it is a one-field function whose description carries the grammar. |
+| `defer: true` | `defer_loading` on the tool, plus the hosted `tool_search` tool |
+| `async: true` | the Responses `async` flag |
+
+Custom tool calls stream as tool call arguments and replay on later turns as `custom_tool_call` items. See [Tool Calling](/guides/tool-calling#free-text-and-grammar-tools).
+
+## Decisions
+
+`ai.decide` calls `/v1/decisions` (default model `gpt-6-luna`). A conversation `input` is sent as Responses input; choices and levels go as `{ value, description }` and `{ label }` lists, and answers come back keyed by question name. Usage is priced from the model's token pricing. See [Decisions](/guides/decisions).
+
+```typescript
+const { answers } = await ai.decide.get({
+  input: 'Cancel my subscription right now.',
+  questions: { churn: { type: 'predicate', instructions: 'Does the user want to cancel?' } },
+});
+```
+
+## Batches
+
+`ai.batch.submit` uploads the requests as a JSONL file (`purpose: 'batch'`) and creates a batch with a 24 hour completion window, billed at about half the normal price. The requests go to `/v1/chat/completions`, or to `/v1/responses` when any of them needs the Responses API. Once the batch completes, `ai.batch.get` reads its output and error files and returns the results in request order. See [Batches](/guides/batch).
 
 ## Usage
 

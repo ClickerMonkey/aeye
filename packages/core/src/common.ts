@@ -445,75 +445,53 @@ export function getReasoningText(reasoning: Reasoning | undefined): string {
   return parts.join('\n\n');
 }
 
-// Only appends y to x if neither contains the other
-function appendMaybe(x: string | undefined, y: string | undefined): string | undefined {
-  if (!x) {
-    return y;
-  }
-  if (!y) {
-    return x;
-  }
-  if (!x.includes(y) && !y.includes(x)) {
-    return x + y;
-  }
-  return x;
+/** Two streamed pieces of text joined, either of which may be missing. */
+function concat(x: string | null | undefined, y: string | null | undefined): string | undefined {
+  return x && y ? x + y : x || y || undefined;
 }
 
 /**
- * Accumulates reasoning data by merging an additional Reasoning object into a target Reasoning object.
- * 
- * @param target - The target Reasoning object to accumulate into.
- * @param add - The Reasoning object to add from.
- * @returns - The updated Reasoning object.
+ * Accumulates streamed reasoning: the reasoning so far with the next part
+ * appended, as a new object that shares nothing mutable with either input.
+ *
+ * Providers stream reasoning as deltas, never repeating what was sent, so
+ * `content` and each detail's `text`, `summary` and `data` concatenate. A
+ * detail continues an earlier one of the same type with the same id (when
+ * both have one) or index: OpenRouter sends a block's text and later its
+ * signature at one index, and Gemini's text and encrypted reasoning share
+ * index 0 under different types.
+ *
+ * @param target - The reasoning accumulated so far.
+ * @param add - The reasoning to append.
+ * @returns - The accumulated reasoning.
  */
 export function accumulateReasoning(target: Reasoning | undefined, add?: Reasoning): Reasoning | undefined {
-  if (!target) {
-    return add;
-  }
   if (!add) {
     return target;
   }
 
-  if (add.content) {
-    target.content = appendMaybe(target.content || undefined, add.content);
-  }
-  if (add.details?.length) {
-    target.details = target.details || [];
-
-    for (const detail of add.details) {
-      let existing = target.details.find(d => 
-        (detail.id && d.id && detail.id === d.id) ||
-        (detail.index !== undefined && d.index !== undefined && detail.index === d.index)
-      );
-
-      const missingIdentifiers = 
-        add.details.every(d => !d.id && d.index === undefined) && 
-        target.details.every(d => !d.id && d.index === undefined);
-
-      if (missingIdentifiers) {
-        existing = target.details.find(d => d.type === detail.type);
-      }
-
-      if (existing) {
-        if (detail.data) {
-          existing.data = appendMaybe(existing.data, detail.data);
-        }
-        if (detail.text) {
-          existing.text = appendMaybe(existing.text, detail.text);
-          if (detail.signature) {
-            existing.signature = detail.signature;
-          }
-        }
-        if (detail.summary) {
-          existing.summary = appendMaybe(existing.summary, detail.summary);
-        }
-      } else {
-        target.details.push(detail);
-      }
+  const details = [...target?.details ?? []];
+  for (const detail of add.details ?? []) {
+    const at = details.findIndex(d => d.type === detail.type && (d.id && detail.id ? d.id === detail.id : d.index === detail.index));
+    if (at === -1) {
+      details.push(detail);
+    } else {
+      const existing = details[at];
+      details[at] = {
+        ...existing,
+        id: existing.id || detail.id,
+        text: concat(existing.text, detail.text),
+        summary: concat(existing.summary, detail.summary),
+        data: concat(existing.data, detail.data),
+        signature: detail.signature ?? existing.signature,
+      };
     }
   }
-  
-  return target;
+
+  return {
+    content: concat(target?.content, add.content),
+    details: details.length ? details : undefined,
+  };
 }
 
 /**

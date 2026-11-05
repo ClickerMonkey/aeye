@@ -152,7 +152,7 @@ messages.push({ role: 'user', content: 'What is 2+2?' });
 
 for await (const event of chatbot.run({}, { messages })) {
   if (event.type === 'message') {
-    messages.push(event.value); // accumulate assistant messages
+    messages.push(event.message); // accumulate assistant messages
   }
 }
 
