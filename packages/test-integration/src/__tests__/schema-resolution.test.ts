@@ -58,7 +58,7 @@ describe('schema dialect per model', () => {
     ['openrouter', 'anthropic/claude-haiku-4.5', 'anthropic-strict', 'anthropic-strict'],
     ['openrouter', 'google/gemini-2.5-flash-lite', 'google-strict', 'google-strict'],
     ['openrouter', 'google/gemini-3-flash-preview', 'google-strict', 'google-strict'],
-    ['openrouter', 'x-ai/grok-4.1-fast', 'xai-strict', 'xai-strict'],
+    ['openrouter', 'x-ai/grok-4.3', 'xai-strict', 'xai-strict'],
     // OpenRouter, open weights under a vendor prefix
     ['openrouter', 'openai/gpt-oss-20b', 'lenient', 'lenient'],
     ['openrouter', 'google/gemma-3-27b-it', 'lenient', 'lenient'],
