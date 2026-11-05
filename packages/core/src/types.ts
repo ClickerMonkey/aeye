@@ -315,6 +315,14 @@ export type Context<TContext, TMetadata> = TContext &
   schemaFallbacks?: readonly SchemaFallback[];
 
   /**
+   * The user message a prompt adds when there's no conversation: Anthropic,
+   * Bedrock and some OpenRouter hosts reject a request without a user turn.
+   * The prompt itself stays the system message, keeping its authority.
+   * Defaults to `DEFAULT_USER_TURN`.
+   */
+  userTurn?: string;
+
+  /**
    * The current instance of the component being executed, if any.
    */
   instance?: Instance<any>;

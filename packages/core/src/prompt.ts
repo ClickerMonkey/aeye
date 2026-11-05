@@ -15,6 +15,12 @@ import { SCHEMA_FALLBACKS, structuredOutput } from "./delivery";
 const DEFAULT_VALIDATION_ERROR_MAX_LENGTH = 4096;
 
 /**
+ * The user message a prompt adds when it runs without a conversation.
+ * Override it with `userTurn` on the prompt or the context.
+ */
+export const DEFAULT_USER_TURN = 'Begin.';
+
+/**
  * Represents a tool that can be selected by the retool function.
  * Can be either a tool name (string) to select from predefined tools,
  * or a full tool object for dynamic tools.
@@ -171,6 +177,12 @@ export interface PromptInput<
    * Disabled by `runtimeSchemaFallback: false`.
    */
   schemaFallbacks?: readonly SchemaFallback[];
+  /**
+   * The user message added when the prompt runs without a conversation, as
+   * providers need a user turn; the prompt stays the system message. Defaults
+   * to the context's, then `DEFAULT_USER_TURN`.
+   */
+  userTurn?: string;
   /**
    * Enables the RUNTIME schema-delivery fallback under `schemaDelivery: 'auto'`.
    * Default `true`. The static (pre-flight) part of `'auto'` — dropping a schema
@@ -831,7 +843,7 @@ export class Prompt<
     );
 
     const onlyTools = toolsOnly || this.input.toolsOnly;
-    const promptMessage: Message = {
+    const systemMessage: Message = {
       role: 'system',
       content,
     };
@@ -840,7 +852,7 @@ export class Prompt<
       name: this.name,
       ...config,
       maxTokens: config?.maxTokens ?? ctx.maxOutputTokens,
-      messages: [ promptMessage ],
+      messages: [ systemMessage ],
       tools,
       responseFormat,
     };
@@ -858,10 +870,10 @@ export class Prompt<
       request.messages = this.forget(request, ctx);
     }
 
-    // Without a conversation the prompt is the user's turn: APIs such as
-    // Anthropic's and Bedrock's reject a request that has none
+    // Without a conversation the request still needs a user turn: APIs such
+    // as Anthropic's and Bedrock's reject a request that has none
     if (request.messages.length === 1) {
-      promptMessage.role = 'user';
+      request.messages.push({ role: 'user', content: this.input.userTurn ?? ctx.userTurn ?? DEFAULT_USER_TURN });
     }
 
     let outputRetries = this.input.outputRetries ?? ctx.outputRetries ?? 2;
@@ -1595,7 +1607,7 @@ export class Prompt<
 
         // Update request with new resolved state
         Object.assign(request, dynamicConfig);
-        promptMessage.content = dynamicContent;
+        systemMessage.content = dynamicContent;
         request.tools = dynamicTools;
         request.responseFormat = dynamicResponseFormat;
         fallbacksTaken.forEach(([step, target]) => step.apply(request, target));

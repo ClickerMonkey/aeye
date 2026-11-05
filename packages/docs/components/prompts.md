@@ -43,7 +43,8 @@ const summarizer = ai.prompt({
 |----------|------|---------|-------------|
 | `name` | `string` | required | Unique identifier |
 | `description` | `string` | required | What the prompt does |
-| `content` | `string` | required | Handlebars template for the system message (the user turn when there's no conversation) |
+| `content` | `string` | required | Handlebars template for the system message |
+| `userTurn` | `string` | context's, then `'Begin.'` | The user message added when there's no conversation |
 | `input` | `(input) => object` | — | Template variables |
 | `schema` | `ZodType` or `(ctx) => ZodType \| false` | — | Output format schema |
 | `strict` | `boolean` | `true` | Strict schema enforcement |
@@ -72,7 +73,7 @@ const summarizer = ai.prompt({
 
 ### `content` — Handlebars Template
 
-The system message sent to the AI model, ahead of the conversation in `ctx.messages`. With no conversation the content is sent as the user's turn instead, since Anthropic, Bedrock and some OpenRouter hosts reject a request without one. Uses Handlebars for variable interpolation:
+The system message sent to the AI model, ahead of the conversation in `ctx.messages`. With no conversation (or `excludeMessages`), a short user turn follows it, because Anthropic, Bedrock and some OpenRouter hosts reject a request without one; the content stays the system message, keeping its authority over user and tool text. Set that turn with `userTurn` on the prompt or the context (default `'Begin.'`, exported as `DEFAULT_USER_TURN`). Uses Handlebars for variable interpolation:
 
 ```typescript
 const prompt = ai.prompt({
