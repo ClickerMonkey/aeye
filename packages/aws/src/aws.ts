@@ -60,6 +60,7 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import { convertAWSModel } from './common';
 import {
+  BEDROCK_PROVIDER,
   contentBlockChunk,
   endChunk,
   streamChunk,
@@ -266,7 +267,7 @@ export interface AWSBedrockConfig {
  * ```
  */
 export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
-  readonly name: string = 'aws-bedrock';
+  readonly name: string = BEDROCK_PROVIDER;
   readonly config: AWSBedrockConfig;
   defaultMetadata?: Provider['defaultMetadata'];
 

@@ -814,3 +814,25 @@ describe('Prompt dynamic', () => {
     expect(toolsReceived.map(t => t.name).sort()).toEqual(['person_search', 'project_search', 'task_search']);
   });
 });
+
+describe('tools that do not compile', () => {
+  it('leaves out a tool without instructions and still runs the next one', async () => {
+    const hidden = new Tool({ name: 'hidden', description: 'Hidden', schema: z.object({}), call: () => 'never' });
+    const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: z.object({}), call: () => 'ran' });
+    const prompt = new Prompt({ name: 'pairs', description: 'Pairs', content: 'Use tools.', tools: [hidden, shown] });
+    const execute = createMockExecutor({ responses: [
+      { content: '', finishReason: 'tool_calls', toolCalls: [{ id: '1', name: 'shown', arguments: '{}' }] },
+      { content: 'done' },
+    ] });
+
+    const results: string[] = [];
+    for await (const event of prompt.get('stream', {}, { execute })) {
+      if (event.type === 'toolOutput') {
+        results.push(`${event.tool.name}=${event.result}`);
+      }
+    }
+
+    expect(execute.mock.calls[0][0].tools?.map(t => t.name)).toEqual(['shown']);
+    expect(results).toEqual(['shown=ran']);
+  });
+});

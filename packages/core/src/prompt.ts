@@ -831,7 +831,7 @@ export class Prompt<
     );
 
     const onlyTools = toolsOnly || this.input.toolsOnly;
-    const systemMessage: Message = {
+    const promptMessage: Message = {
       role: 'system',
       content,
     };
@@ -840,7 +840,7 @@ export class Prompt<
       name: this.name,
       ...config,
       maxTokens: config?.maxTokens ?? ctx.maxOutputTokens,
-      messages: [ systemMessage ],
+      messages: [ promptMessage ],
       tools,
       responseFormat,
     };
@@ -856,6 +856,12 @@ export class Prompt<
 
       // Pre-emptively trim context messages if we have a context window limit
       request.messages = this.forget(request, ctx);
+    }
+
+    // Without a conversation the prompt is the user's turn: APIs such as
+    // Anthropic's and Bedrock's reject a request that has none
+    if (request.messages.length === 1) {
+      promptMessage.role = 'user';
     }
 
     let outputRetries = this.input.outputRetries ?? ctx.outputRetries ?? 2;
@@ -1589,7 +1595,7 @@ export class Prompt<
 
         // Update request with new resolved state
         Object.assign(request, dynamicConfig);
-        systemMessage.content = dynamicContent;
+        promptMessage.content = dynamicContent;
         request.tools = dynamicTools;
         request.responseFormat = dynamicResponseFormat;
         fallbacksTaken.forEach(([step, target]) => step.apply(request, target));
@@ -1725,20 +1731,15 @@ export class Prompt<
         .map(r => r.tool);
     }
 
-    const toolInstructions = selectedTools && selectedTools.length > 0
-      ? (await Promise.all(selectedTools.map(t => t.compile(ctx)))).filter(t => !!t)
+    // Each tool with its compiled instructions and definition; a tool that
+    // doesn't compile (no schema or no instructions) is left out
+    const compiled = selectedTools && selectedTools.length > 0
+      ? (await Promise.all(selectedTools.map(async (tool) => ({ tool, compiled: await tool.compile(ctx) }))))
+          .flatMap(({ tool, compiled }) => compiled ? [{ tool, instructions: compiled[0], definition: compiled[1] }] : [])
       : undefined;
-    const instructions = toolInstructions
-      ? toolInstructions.map(t => t![0]).join("\n\n")
-      : undefined;
-    const tools = toolInstructions
-      ? toolInstructions.map(t => t![1])
-      : undefined;
-
-    // Create toolObjects as array of { tool, definition } pairs
-    const toolObjects = selectedTools && toolInstructions
-      ? selectedTools.map((tool, i) => ({ tool, definition: toolInstructions[i]![1] }))
-      : [];
+    const instructions = compiled?.map(c => c.instructions).filter(Boolean).join("\n\n");
+    const tools = compiled?.map(c => c.definition);
+    const toolObjects = compiled?.map(({ tool, definition }) => ({ tool, definition })) ?? [];
 
     // Compute the input that is fed to the prompt's prompt content
     let contentInput: Record<string, any> = input;

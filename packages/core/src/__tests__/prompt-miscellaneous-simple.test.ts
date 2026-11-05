@@ -414,3 +414,16 @@ describe('Prompt Remaining Coverage', () => {
     expect(result).toEqual({ value: 42 });
   });
 });
+
+describe('the prompt message', () => {
+  it('is the user turn when there is no conversation, and the system message otherwise', async () => {
+    const prompt = new Prompt({ name: 'turn', description: 'Turn', content: 'Say hi.' });
+    const execute = createMockExecutor({ responses: [{ content: 'hi' }, { content: 'hi' }] });
+
+    await prompt.get('result', {}, { execute });
+    await prompt.get('result', {}, { execute, messages: [{ role: 'user', content: 'Hello' }] });
+
+    expect(execute.mock.calls[0][0].messages[0]).toEqual({ role: 'user', content: 'Say hi.' });
+    expect(execute.mock.calls[1][0].messages.slice(0, 2).map(m => m.role)).toEqual(['system', 'user']);
+  });
+});

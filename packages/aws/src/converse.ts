@@ -48,6 +48,12 @@ import {
 export const BEDROCK_REASONING_FORMAT = 'bedrock-converse-v1';
 
 /**
+ * The provider name, which marks the reasoning Bedrock produces so other
+ * providers don't replay it.
+ */
+export const BEDROCK_PROVIDER = 'aws-bedrock';
+
+/**
  * A JSON value as Converse takes tool schemas, tool inputs and model fields.
  */
 export type Document = NonNullable<ToolUseBlock['input']>;
@@ -438,6 +444,7 @@ export function toReasoning(part: { text?: string; signature?: string; redactedC
   const data = part.redactedContent && Buffer.from(part.redactedContent).toString('base64');
   return {
     content: part.text,
+    provider: BEDROCK_PROVIDER,
     details: [{
       type: data ? 'reasoning.encrypted' : 'reasoning.text',
       format: BEDROCK_REASONING_FORMAT,

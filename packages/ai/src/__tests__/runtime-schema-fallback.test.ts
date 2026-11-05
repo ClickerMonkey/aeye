@@ -47,10 +47,11 @@ function makeExecutor(model: ModelInfo, contents: string[], records: CallRecord[
   let i = 0;
   return async (prompted: Request): Promise<Response> => {
     const request = applySchemaDeliveryFallback(prompted, model);
-    const sys = request.messages.find((m) => m.role === 'system');
+    // The prompt's text: the system message, or the prompt as the user turn,
+    // plus any schema instructions
     records.push({
       hasResponseFormat: request.responseFormat !== undefined,
-      systemText: typeof sys?.content === 'string' ? sys.content : '',
+      systemText: request.messages.flatMap((m) => m.role !== 'assistant' && typeof m.content === 'string' ? [m.content] : []).join('\n\n'),
     });
     const content = contents[Math.min(i, contents.length - 1)];
     i++;

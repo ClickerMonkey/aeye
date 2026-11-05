@@ -288,6 +288,7 @@ describe('Converse responses', () => {
     expect(response.serviceTier).toBe('flex');
     expect(response.reasoning).toEqual({
       content: 'Let me think.',
+      provider: 'aws-bedrock',
       details: [
         { type: 'reasoning.text', format: BEDROCK_REASONING_FORMAT, index: 0, text: 'Let me think.', signature, data: undefined },
         { type: 'reasoning.encrypted', format: BEDROCK_REASONING_FORMAT, index: 1, text: undefined, signature: undefined, data: Buffer.from(redacted).toString('base64') },
