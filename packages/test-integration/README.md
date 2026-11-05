@@ -63,18 +63,17 @@ Tests that verify multiple AI providers work together:
 - Tests use **free/cheap models** when possible to minimize costs
 - Default timeout is **60 seconds** per test (API calls can be slow)
 
+## Live Cases
+
+Suites built on `liveCase` (`src/live.ts`) only call an API when something they depend on changed. A case records its pass in `.live-cache/` (gitignored) under a fingerprint of its inputs and the source of the packages it exercises. The next run skips it, reported as `(passed, unchanged)`, until that source or input changes.
+
+- `LIVE=force npx jest` reruns every case.
+- Delete a file under `.live-cache/`, or the folder, to rerun those cases.
+- `firstChunk` cancels a stream at the model's first token, so checks that a request is accepted (no 400) cost a few output tokens at most.
+
 ## Cost Considerations
 
-Integration tests make real API calls which may incur costs:
-
-- **OpenAI**: Uses `gpt-3.5-turbo` (cheap) and `dall-e-2` for images
-- **OpenRouter**: Prioritizes free models like `google/gemini-flash-1.5`
-- **Estimated cost per full test run**: < $0.10 USD
-
-To minimize costs:
-1. Use free tier API keys when available
-2. Run tests selectively using test name filters
-3. Monitor your API usage dashboards
+Integration tests make real API calls, which cost money. Live cases stay cheap: they use the smallest model of each class, stop at the first token where they can, and don't run again while they still pass.
 
 ## Example Output
 

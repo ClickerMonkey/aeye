@@ -76,5 +76,5 @@ type BatchStatus = 'validating' | 'in_progress' | 'finalizing' | 'completed'
 A provider offers batches by implementing `submitBatch(requests, ctx, config?)` and `getBatch(job, ctx, config?)`. `@aeye/openai` (JSONL upload, 24 hour window) and `@aeye/openrouter` (inline `/batches`) do.
 
 ::: info
-`ai.batch` doesn't run the AI hooks, so `beforeRequest` / `afterRequest` don't see batched requests.
+`submit` runs `onModelSelected` once and `beforeRequest` for each request (at the batch price estimate). `get` and `wait` report a completed batch once to `afterBatch(ctx, job, usage, cost)`. `afterRequest` doesn't run for batched requests.
 :::

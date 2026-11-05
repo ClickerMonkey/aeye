@@ -35,7 +35,7 @@
  * ```
  */
 
-import { getChunksFromResponse, getResponseFromChunks, type Executor, type MessageContentType, type Streamer, type Usage } from '@aeye/core';
+import { getChunksFromResponse, getResponseFromChunks, structuredOutput, type Executor, type MessageContentType, type ResponseFormat, type Streamer, type Usage } from '@aeye/core';
 import { INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '../common';
 import type { AI } from '../ai';
 import type {
@@ -77,6 +77,16 @@ function addMapped<K extends string>(target: Set<ModelCapability>, map: Partial<
  */
 function contentTypes(request: Request): MessageContentType[] {
   return request.messages.flatMap(message => Array.isArray(message.content) ? message.content.map(part => part.type) : []);
+}
+
+/**
+ * How the request's output reaches the model: as structured output, JSON
+ * mode, or neither (text, or a schema delivered as prompt text).
+ */
+function outputMode(format: ResponseFormat | undefined): 'structured' | 'json' | undefined {
+  return structuredOutput(format) ? 'structured'
+    : format === 'json' || (typeof format === 'object' && format.schemaDelivery === 'json') ? 'json'
+    : undefined;
 }
 
 /**
@@ -124,12 +134,9 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
       }
 
       // Check if request expects JSON output
-      if (request.responseFormat) {
-        if (request.responseFormat === 'json') {
-          capabilities.add('json');
-        } else if (typeof request.responseFormat === 'object') {
-          capabilities.add('structured');
-        }
+      const output = outputMode(request.responseFormat);
+      if (output) {
+        capabilities.add(output);
       }
 
       // Check if request uses tools
@@ -178,11 +185,12 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
     if (request.logitBias !== undefined) {
       params.add('logitBias');
     }
-    if (request.responseFormat !== undefined) {
+    const output = outputMode(request.responseFormat);
+    if (request.responseFormat === 'text' || output) {
       params.add('responseFormat');
-      if (typeof request.responseFormat === 'object') {
-        params.add('structuredOutput');
-      }
+    }
+    if (output === 'structured') {
+      params.add('structuredOutput');
     }
     if (request.reason !== undefined) {
       params.add('reason');
@@ -272,10 +280,8 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
     // Provider-agnostic schema-delivery fallback: if the selected model's
     // dialect can't express the structured schema (or delivery is forced to
     // prompt), drop `response_format` and deliver the schema as prompt text.
-    applySchemaDeliveryFallback(request, selected.model);
-
     const executor = selected.provider.createExecutor(selected.providerConfig);
-    return await executor(request, ctx, ctx.metadata);
+    return await executor(applySchemaDeliveryFallback(request, selected.model), ctx, ctx.metadata);
   }
 
   protected async *executeStreamRequest<TRuntimeContext extends AIContext<T>>(
@@ -288,10 +294,8 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
     }
 
     // Provider-agnostic schema-delivery fallback (see executeRequest).
-    applySchemaDeliveryFallback(request, selected.model);
-
     const streamer = selected.provider.createStreamer(selected.providerConfig);
-    return yield* streamer(request, ctx, ctx.metadata);
+    return yield* streamer(applySchemaDeliveryFallback(request, selected.model), ctx, ctx.metadata);
   }
 
   protected responseToChunks(response: Response, model?: SelectedModelFor<T>): Chunk[] {

@@ -44,9 +44,12 @@ const summarizer = ai.prompt({
 | `name` | `string` | required | Unique identifier |
 | `description` | `string` | required | What the prompt does |
 | `content` | `string` | required | Handlebars template for the system message |
+| `userTurn` | `string` | context's, then `'Begin.'` | The user message added when there's no conversation |
 | `input` | `(input) => object` | — | Template variables |
 | `schema` | `ZodType` or `(ctx) => ZodType \| false` | — | Output format schema |
 | `strict` | `boolean` | `true` | Strict schema enforcement |
+| `schemaDelivery` | `'auto' \| 'structured' \| 'json' \| 'prompt'` | `'auto'` | How the schema reaches the model ([details](../guides/structured-output.md#schema-delivery-and-fallbacks)) |
+| `schemaFallbacks` | `SchemaFallback[]` | `SCHEMA_FALLBACKS` | Steps taken when a provider rejects a schema |
 | `config` | `Partial<Request>` or `(ctx) => Partial<Request>` | — | Request overrides |
 | `tools` | `Tool[]` | — | Available tools |
 | `toolIterations` | `number` | `3` | Max rounds of tool calls |
@@ -61,6 +64,8 @@ const summarizer = ai.prompt({
 | `dynamic` | `boolean` | `false` | Re-resolve prompt each iteration |
 | `excludeMessages` | `boolean` | `false` | Exclude context messages |
 | `validate` | `(output, ctx) => void` | — | Custom output validation |
+| `review` | `(output, { input, request, ctx, attempt }) => PromptReview` | — | Review the valid output; feedback sends the model round again |
+| `reviewRetries` | `number` | `1` | Rounds the model gets to answer review feedback |
 | `applicable` | `(ctx) => boolean` | — | Availability check |
 | `metadata` / `metadataFn` | — | — | Static/dynamic metadata |
 
@@ -68,7 +73,7 @@ const summarizer = ai.prompt({
 
 ### `content` — Handlebars Template
 
-The system message sent to the AI model. Uses Handlebars for variable interpolation:
+The system message sent to the AI model, ahead of the conversation in `ctx.messages`. With no conversation (or `excludeMessages`), a short user turn follows it, because Anthropic, Bedrock and some OpenRouter hosts reject a request without one; the content stays the system message, keeping its authority over user and tool text. Set that turn with `userTurn` on the prompt or the context (default `'Begin.'`, exported as `DEFAULT_USER_TURN`). Uses Handlebars for variable interpolation:
 
 ```typescript
 const prompt = ai.prompt({
@@ -384,6 +389,33 @@ const prompt = ai.prompt({
 
 If `validate` throws, the error is sent back to the model and it retries (up to `outputRetries` times).
 
+### `review` — Reviewing the Output
+
+After the output is parsed and validated, and before it's returned, `review` can judge it, for example with a reviewer prompt. It gets the output and `{ input, request, ctx, attempt }`, where `request.messages` ends with the answer under review and `attempt` counts from 1. It returns `{ pass: true }`, or `{ feedback }` to add the feedback as a user message and have the model answer again:
+
+```typescript
+const reviewer = ai.prompt({
+  name: 'reviewer',
+  content: 'Does this summary leave out anything from the text?\n\nText: {{text}}\n\nSummary: {{summary}}',
+  input: (input: { text: string; summary: string }) => input,
+  schema: z.object({ pass: z.boolean(), feedback: z.string() }),
+});
+
+const summarize = ai.prompt({
+  name: 'summarize',
+  content: 'Summarize: {{text}}',
+  input: (input: { text: string }) => input,
+  schema: z.object({ summary: z.string() }),
+  reviewRetries: 2,
+  review: async ({ summary }, { input, ctx }) => {
+    const verdict = await reviewer.get('result', { text: input.text, summary }, ctx);
+    return verdict?.pass ? { pass: true } : { feedback: verdict?.feedback ?? 'Try again.' };
+  },
+});
+```
+
+The model answers feedback up to `reviewRetries` times (default 1), with tools if it has them. Feedback after that throws a `PromptError` whose `cause` is a `ReviewRejectedError` carrying the last `output` and `feedback`, so the caller can still use an output that passed validation. Streams emit `reviewStart`, then `reviewPass` or `reviewFeedback`.
+
 ### `applicable` — Conditional Availability
 
 Control when the prompt can be used:
@@ -444,10 +476,13 @@ const prompt = ai.prompt({
   outputRetries: 3,  // retry up to 3 times if output doesn't match schema
   toolRetries: 2,    // retry up to 2 times if a tool call fails to parse
   forgetRetries: 1,  // trim context and retry once if context window exceeded
+  reviewRetries: 1,  // answer review feedback once
 });
 
-// Total iteration budget: 3 + 1 + toolIterations(3) + 2 + 1 = 10
+// Total iteration budget: 3 + 1 + toolIterations(3) + 2 + 1 + 1 = 11
 ```
+
+Tool errors and invalid output are model mistakes or tool failures; see [Model Mistakes vs Tool Failures](../guides/error-handling.md#model-mistakes-vs-tool-failures).
 
 ## Running Prompts
 
@@ -503,7 +538,11 @@ for await (const event of summarizer.run(input, ctx)) {
 | `textPartial` | Partial text chunk received |
 | `text` | Complete text for this iteration |
 | `textComplete` | All accumulated text content |
-| `textReset` | Text reset due to error/retry |
+| `textReset` | Text reset due to error/retry; `error` holds an invalid output's `OutputValidationError` |
+| `schemaFallback` | A rejected schema stepped down a [schema fallback](../guides/structured-output.md#schema-delivery-and-fallbacks) |
+| `reviewStart` | The output went to `review` |
+| `reviewPass` | The review passed the output |
+| `reviewFeedback` | The review sent feedback; the model answers again |
 | `refusal` | Model refused to respond |
 | `reason` | Reasoning trace (for reasoning models) |
 | `reasonPartial` | Partial reasoning chunk |
@@ -517,7 +556,7 @@ for await (const event of summarizer.run(input, ctx)) {
 | `toolOutput` | Tool completed successfully |
 | `toolInterrupt` | Tool was interrupted |
 | `toolSuspend` | Tool suspended the prompt |
-| `toolError` | Tool execution failed |
+| `toolError` | Tool call failed; `failure.kind` is `model` for a bad call, `tool` for the tool's own error |
 | `message` | Message added to conversation |
 | `complete` | Final parsed output |
 | `suspend` | Prompt suspended |
@@ -544,10 +583,10 @@ const prompt = ai.prompt({
 The prompt's main loop has a budget computed from:
 
 ```
-maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + 1
+maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + reviewRetries + 1
 ```
 
-With defaults: `2 + 1 + 3 + 2 + 1 = 9`
+With defaults: `2 + 1 + 3 + 2 + 1 + 1 = 10`
 
 If the model needs more tool call rounds, increase `toolIterations`:
 

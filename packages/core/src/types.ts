@@ -309,6 +309,20 @@ export type Context<TContext, TMetadata> = TContext &
   toolRetries?: number;
 
   /**
+   * The steps a prompt takes, in order, when a provider rejects a schema.
+   * Defaults to `SCHEMA_FALLBACKS`.
+   */
+  schemaFallbacks?: readonly SchemaFallback[];
+
+  /**
+   * The user message a prompt adds when there's no conversation: Anthropic,
+   * Bedrock and some OpenRouter hosts reject a request without a user turn.
+   * The prompt itself stays the system message, keeping its authority.
+   * Defaults to `DEFAULT_USER_TURN`.
+   */
+  userTurn?: string;
+
+  /**
    * The current instance of the component being executed, if any.
    */
   instance?: Instance<any>;
@@ -395,6 +409,8 @@ export interface Reasoning {
   content?: string | null;
   /** Detailed reasoning steps */
   details?: ReasoningDetail[];
+  /** The provider that produced the reasoning. Signed and encrypted details are bound to it, so only it gets them back. */
+  provider?: string;
 }
 
 /**
@@ -418,6 +434,8 @@ export interface Message
   name?: string;
   /** Used for tool call results (when role='tool') */
   toolCallId?: string;
+  /** Set on a tool result that reports a failure, naming who caused it */
+  failure?: ErrorKind;
   /** Used to acknowledge an assistant is running tools (when role='assistant') */
   toolCalls?: ToolCall[];
   /** Used for refusals (when role='assistant') */
@@ -652,9 +670,39 @@ export type ToolChoice =
  *   structured-output endpoint 400s on unions/`$ref`.
  * - `'structured'`: always send structured output — even for models whose
  *   dialect can't express the schema (current pre-fallback behavior).
+ * - `'json'`: DROP the wire schema, deliver it as prompt text, and ask for
+ *   JSON mode (`responseFormat: 'json'`).
  * - `'prompt'`: always DROP the wire schema and deliver it as prompt text.
  */
-export type SchemaDelivery = 'auto' | 'structured' | 'prompt';
+export type SchemaDelivery = 'auto' | 'structured' | 'json' | 'prompt';
+
+/**
+ * A schema a provider rejected: the output's, one tool's parameters, or every
+ * tool's when the error doesn't say which.
+ */
+export type SchemaTarget = { kind: 'output' } | { kind: 'tool'; name: string } | { kind: 'tools' };
+
+/**
+ * One step down the schema-delivery ladder, taken after a provider rejects a
+ * schema (see `SCHEMA_FALLBACKS`).
+ */
+export interface SchemaFallback
+{
+  /** Reported on the prompt's `schemaFallback` event */
+  name: string;
+  /**
+   * Moves the request to this step for the rejected schema and returns true,
+   * or returns false when the step doesn't apply (another target, or the
+   * request is already past it).
+   */
+  apply: (request: Request, target: SchemaTarget) => boolean;
+}
+
+/**
+ * Who caused a failure: the `model`, which can fix it on another try, or the
+ * `tool`'s own code.
+ */
+export type ErrorKind = 'model' | 'tool';
 
 /**
 * Response format options.

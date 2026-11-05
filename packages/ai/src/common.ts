@@ -38,7 +38,8 @@ export function isModelInfo<TProvider extends string = string>(input: ModelInput
 
 /**
  * The accepted reasoning effort closest to the one asked for, preferring the
- * lower on a tie. Returns the effort unchanged when acceptance is unknown.
+ * lower on a tie, and `none` only when asked for or alone accepted. Returns
+ * the effort unchanged when acceptance is unknown.
  *
  * @param effort - The effort asked for.
  * @param accepted - The efforts the model accepts, lowest to highest.
@@ -48,6 +49,9 @@ export function clampReasoningEffort(effort: ReasoningEffort, accepted?: readonl
   if (!accepted?.length || accepted.includes(effort)) {
     return effort;
   }
+  // Reasoning asked for stays on
+  const reasoning = accepted.filter(e => e !== 'none');
+  const candidates = effort === 'none' || !reasoning.length ? accepted : reasoning;
   const distance = (e: ReasoningEffort) => Math.abs(REASONING_EFFORTS.indexOf(e) - REASONING_EFFORTS.indexOf(effort));
-  return accepted.reduce((best, e) => distance(e) < distance(best) ? e : best);
+  return candidates.reduce((best, e) => distance(e) < distance(best) ? e : best);
 }

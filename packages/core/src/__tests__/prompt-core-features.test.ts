@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import { Prompt } from '../prompt';
+import { DEFAULT_USER_TURN, Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context } from '../types';
 import { createMockExecutor, createMockStreamer } from './mocks/executor.mock';
@@ -304,13 +304,21 @@ describe('Prompt', () => {
     });
 
     it('should execute multiple tools in parallel', async () => {
+      // How many tool calls are running at once, and the most at any point
+      let running = 0;
+      let peak = 0;
+      const overlap = async () => {
+        peak = Math.max(peak, ++running);
+        await new Promise(resolve => setTimeout(resolve, 10));
+        running--;
+      };
       const tool1 = new Tool({
         name: 'multiply',
         description: 'Multiply',
         instructions: 'Multiply two numbers',
         schema: z.object({ a: z.number(), b: z.number() }),
         call: async (input) => {
-          await new Promise(resolve => setTimeout(resolve, 10));
+          await overlap();
           return input.a * input.b;
         }
       });
@@ -321,7 +329,7 @@ describe('Prompt', () => {
         instructions: 'Subtract two numbers',
         schema: z.object({ a: z.number(), b: z.number() }),
         call: async (input) => {
-          await new Promise(resolve => setTimeout(resolve, 10));
+          await overlap();
           return input.a - input.b;
         }
       });
@@ -359,12 +367,10 @@ describe('Prompt', () => {
         messages: []
       };
 
-      const startTime = Date.now();
       await prompt.get('result', {}, ctx);
-      const duration = Date.now() - startTime;
 
-      // Parallel should be faster than sequential (< 15ms instead of ~20ms)
-      expect(duration).toBeLessThan(70);
+      // Both calls ran at the same time
+      expect(peak).toBe(2);
     });
 
     it('should handle tool errors gracefully', async () => {
@@ -582,8 +588,10 @@ describe('Prompt', () => {
 
       await prompt.get('result', {}, ctx);
 
-      expect(snapshot).toHaveLength(1);
+      // The prompt, then the user turn in place of the excluded conversation
+      expect(snapshot).toHaveLength(2);
       expect(snapshot[0].content).toContain('Standalone prompt');
+      expect(snapshot[1].content).toBe(DEFAULT_USER_TURN);
     });
   });
 

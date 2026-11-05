@@ -41,7 +41,7 @@ interface Reason {
 | `xhigh` | Deeper still |
 | `max` | The most the model offers |
 
-Models accept different subsets. When a model's `ModelInfo.reasoningEfforts` lists the levels it accepts, the requested effort is clamped to the nearest accepted one (`clampReasoningEffort` from `@aeye/ai`), so `max` on a model that tops out at `xhigh` sends `xhigh`.
+Models accept different subsets. When a model's `ModelInfo.reasoningEfforts` lists the levels it accepts, the requested effort is clamped to the nearest accepted one (`clampReasoningEffort` from `@aeye/ai`), so `max` on a model that tops out at `xhigh` sends `xhigh`. Reasoning asked for stays on: `low` on a model that takes `none`, `high` and `xhigh` sends `high`, never `none`.
 
 ## In Prompts
 
@@ -84,6 +84,7 @@ for await (const event of solver.run(input)) {
 interface Reasoning {
   content?: string;           // full reasoning text
   details?: ReasoningDetail[]; // structured reasoning blocks
+  provider?: string;           // the provider that produced it
 }
 
 interface ReasoningDetail {
@@ -97,14 +98,14 @@ interface ReasoningDetail {
 }
 ```
 
-Keep the assistant message's `reasoning` when you send the conversation back: providers replay it on later turns.
+Keep the assistant message's `reasoning` when you send the conversation back: providers replay it on later turns. Signed and encrypted reasoning only verifies where it was made, so a provider replays only reasoning it produced (or that names no provider); a conversation can move to another provider without a rejected replay.
 
 ## Provider Support
 
 | Provider | Models | Notes |
 |----------|--------|-------|
-| OpenAI | gpt-5.x, gpt-6, o3 | `effort` goes as `reasoning_effort`. `mode`, `summary`, or `context` route the request to the Responses API, where reasoning comes back encrypted (unless `store` is on) as `openai-responses-v1` details and is replayed on later turns. `maxTokens` and `exclude` are not used. |
-| OpenRouter | Any reasoning model | Sent as one `reasoning` object with a token budget (`maxTokens`) or an `effort`, never both (`maxTokens` wins), plus `exclude`, `summary`, `mode`, and `context`. |
+| OpenAI | gpt-5.x, gpt-6, o3 | `effort` goes as `reasoning_effort`. `mode`, `summary`, or `context`, or an effort with tools, route the request to the Responses API, where reasoning comes back encrypted (unless `store` is on) as `openai-responses-v1` details and is replayed on later turns. `maxTokens` and `exclude` are not used. |
+| OpenRouter | Any reasoning model | Sent as one `reasoning` object with a token budget (`maxTokens`) or an `effort`, never both (`maxTokens` wins), plus `exclude`, `summary`, `mode`, and `context`. `reasoning` and `reasoning_details` are replayed on the assistant message they came with. |
 | AWS Bedrock | Claude models with extended thinking | |
 
 Models with reasoning capability are selected automatically when `reason` is set:

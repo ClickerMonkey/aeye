@@ -62,6 +62,20 @@ describe('routing', () => {
     expect(mockChatCreate).not.toHaveBeenCalled();
   });
 
+  it('uses Responses for reasoning with function tools', async () => {
+    // Only Responses carries reasoning across tool calls, and gpt-5.4 answers
+    // 400 "Function tools with reasoning_effort are not supported" on Chat Completions
+    mockResponsesCreate.mockResolvedValue(result([message('ok')]));
+    mockChatCreate.mockResolvedValue({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] });
+    const tools = [{ name: 'weather', parameters: z.object({ city: z.string() }) }];
+
+    await provider.createExecutor()({ ...hi, tools, reason: { effort: 'low' } }, ctx, { model: 'gpt-5.4' });
+    await provider.createExecutor()({ ...hi, tools, reason: { effort: 'none' } }, ctx, { model: 'gpt-5.4' });
+
+    expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+    expect(mockChatCreate).toHaveBeenCalledTimes(1);
+  });
+
   it('uses Chat Completions otherwise, or when configured', async () => {
     mockChatCreate.mockResolvedValue({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] });
 
@@ -128,6 +142,19 @@ describe('request', () => {
     });
   });
 
+  it('replays only reasoning OpenAI produced', async () => {
+    // As captured from openai/gpt-5.4-mini through OpenRouter: OpenAI answers 400
+    // "Encrypted content could not be decrypted or parsed" for another account's items
+    mockResponsesCreate.mockResolvedValue(result([message('ok')]));
+    const details = [{ id: 'rs_2', type: 'reasoning.encrypted', format: 'openai-responses-v1', data: 'ENC', index: 0 }];
+
+    await responses.createExecutor()({
+      messages: [{ role: 'user', content: 'Q' }, { role: 'assistant', content: 'A', reasoning: { details, provider: 'openrouter' } }, { role: 'user', content: 'Q2' }],
+    }, ctx, { model: 'gpt-5.4' });
+
+    expect(sentParams().input.map((item: { type?: string; role?: string }) => item.type ?? item.role)).toEqual(['user', 'assistant', 'user']);
+  });
+
   it('rejects hosted tools OpenAI has no equivalent for', async () => {
     await expect(responses.createExecutor()({ ...hi, hostedTools: [{ type: 'web_fetch' }] }, ctx, { model: 'gpt-5.4' }))
       .rejects.toThrow(/web_fetch/);
@@ -154,6 +181,7 @@ describe('response', () => {
       reasoning: {
         content: 'Checked sources',
         details: [{ id: 'rs_1', type: 'reasoning.encrypted', format: 'openai-responses-v1', summary: 'Checked sources', data: 'ENC' }],
+        provider: 'openai',
       },
       usage: {
         text: { input: 80, output: 20, cached: 20 },

@@ -19,14 +19,21 @@ import type {
 import { allocateToolDescriptors, buildSchemaBudget, isModelInfo } from '@aeye/ai';
 import {
   Chunk,
+  deliverSchema,
   type DescriptorFamily,
+  describeTool,
   Executor,
-  FinishReason,
   getModel,
+  getResponseFromChunks,
+  LENIENT,
+  type Model,
   ModelInput,
+  type Reasoning,
+  forcesTool,
   Request,
   Response,
   type SchemaBudget,
+  schemaRejection,
   strictify,
   Streamer,
   toJSONSchema,
@@ -40,19 +47,33 @@ import {
 } from '@aws-sdk/client-bedrock';
 import {
   BedrockRuntimeClient,
-  ContentBlock,
   ConverseCommand,
   ConverseCommandInput,
   ConverseStreamCommand,
-  ConverseStreamCommandInput,
-  ImageFormat,
+  type GuardrailStreamConfiguration,
   InvokeModelCommand,
   Message as BedrockMessage,
-  SystemContentBlock,
+  type OutputFormat,
+  type PerformanceConfigLatency,
   Tool as BedrockTool,
   ToolChoice as BedrockToolChoice,
 } from '@aws-sdk/client-bedrock-runtime';
 import { convertAWSModel } from './common';
+import {
+  ALWAYS_THINKING_CLAUDE,
+  BEDROCK_PROVIDER,
+  contentBlockChunk,
+  endChunk,
+  streamChunk,
+  toAssistantBlocks,
+  toBedrockServiceTier,
+  toContentBlocks,
+  toDocument,
+  toReasoningRequest,
+  toSystemBlocks,
+  toToolResultBlocks,
+  withoutCachePoints,
+} from './converse';
 import { AWSAuthError, AWSContextWindowError, AWSError, AWSQuotaError, AWSRateLimitError, type ModelFamilyConfig } from './types';
 
 // ============================================================================
@@ -63,23 +84,49 @@ import { AWSAuthError, AWSContextWindowError, AWSError, AWSQuotaError, AWSRateLi
  * Resolve the full ModelInfo for the request when available.
  *
  * BaseAPI injects `selected.model` into `ctx.metadata.model` after model
- * selection; on the standard execution path we read strict-format
- * declarations from there. Returns undefined when no ModelInfo is available
- * (the convert call then falls back to LENIENT — silent best-effort).
+ * selection; on the standard execution path we read strict-format and
+ * reasoning declarations from there. Returns undefined when no ModelInfo is
+ * available (the convert call then falls back to LENIENT — silent best-effort).
  */
-function pickAwsModelInfo(ctx: AIContextAny | undefined, modelId: string): ModelInfo | undefined {
-  const candidates = [ctx?.metadata?.model];
-  for (const c of candidates) {
-    if (c && typeof c === 'object' && isModelInfo(c)) {
-      // The Bedrock provider applies a model prefix at request build time
-      // (e.g. arn:aws:...) so the modelId we see here may not match the
-      // ModelInfo.id verbatim. Accept by suffix match for safety.
-      if (c.id === modelId || modelId.endsWith(c.id)) {
-        return c as ModelInfo;
-      }
-    }
+function pickAwsModelInfo(model: Model, ctx: AIContextAny | undefined): ModelInfo | undefined {
+  if (isModelInfo(model)) {
+    return model;
   }
-  return undefined;
+  const selected = ctx?.metadata?.model;
+  // An inference profile id (e.g. us.anthropic...) ends with the model id
+  return selected && isModelInfo(selected) && (selected.id === model.id || model.id.endsWith(`.${selected.id}`))
+    ? selected
+    : undefined;
+}
+
+/**
+ * Bedrock errors that mean the credentials aren't accepted.
+ */
+const AUTH_ERRORS = new Set(['UnrecognizedClientException', 'InvalidSignatureException', 'AccessDeniedException', 'ExpiredTokenException']);
+
+/**
+ * Bedrock errors that clear up when retried later.
+ */
+const RATE_LIMIT_ERRORS = new Set(['ThrottlingException', 'TooManyRequestsException', 'ServiceUnavailableException']);
+
+/**
+ * Messages Bedrock models reject an over-long prompt with, such as "Input is
+ * too long for requested model", "prompt is too long: 210000 tokens > 200000
+ * maximum" or Nova's "Input Tokens Exceeded".
+ */
+const CONTEXT_WINDOW_ERROR = /context (length|window)|token limit|too long|too many (input )?tokens|input tokens exceed/i;
+
+/**
+ * How Bedrock rejects a model id it serves in the region only through an
+ * inference profile.
+ */
+const PROFILE_REQUIRED = /on-demand throughput isn.t supported/i;
+
+/**
+ * The inference profile geography for a region, as profile ids prefix it.
+ */
+function regionGeography(region: string): string {
+  return region.startsWith('us-gov') ? 'us-gov' : region.startsWith('ap-') ? 'apac' : region.split('-')[0];
 }
 
 /**
@@ -172,8 +219,14 @@ export interface AWSBedrockConfig {
     secretAccessKey?: string;
     sessionToken?: string;
   };
-  // Optional prefix for cross-region inference (e.g., 'us.', 'eu.')
+  // Optional prefix for cross-region inference (e.g., 'us.', 'eu.', 'global.').
+  // Without one, models Bedrock serves only through inference profiles use
+  // the profile for the region's geography, or the global one.
   modelPrefix?: string;
+  // Latency-optimized inference, for models that offer it
+  latency?: PerformanceConfigLatency;
+  // Guardrail applied to every chat request
+  guardrail?: GuardrailStreamConfiguration;
   // Model family configurations
   modelFamilies?: Record<string, ModelFamilyConfig>;
   // Default models for different capabilities
@@ -185,12 +238,6 @@ export interface AWSBedrockConfig {
   // Hooks for intercepting requests and responses
   hooks?: AWSBedrockHooks;
 }
-
-/**
- * A recursive JSON-compatible value type matching AWS SDK's internal DocumentType.
- * Used for tool inputs and additional model request fields.
- */
-type JsonDocument = null | boolean | number | string | JsonDocument[] | { [key: string]: JsonDocument };
 
 // ============================================================================
 // AWS Bedrock Provider Class
@@ -228,12 +275,14 @@ type JsonDocument = null | boolean | number | string | JsonDocument[] | { [key: 
  * ```
  */
 export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
-  readonly name: string = 'aws-bedrock';
+  readonly name: string = BEDROCK_PROVIDER;
   readonly config: AWSBedrockConfig;
   defaultMetadata?: Provider['defaultMetadata'];
 
   private bedrockClient: BedrockClient;
   private bedrockRuntimeClient: BedrockRuntimeClient;
+  // Models found to need an inference profile in this region
+  private profileOnly = new Set<string>();
 
   constructor(config: AWSBedrockConfig) {
     this.config = config;
@@ -335,7 +384,8 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      return self.executeWithConverse(modelInput, request, ctx);
+      // Converse has no structured output or JSON mode, so a schema goes in the prompt
+      return self.executeWithConverse(modelInput, deliverSchema(request), ctx);
     };
   }
 
@@ -355,7 +405,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      yield* self.streamWithConverse(modelInput, request, ctx);
+      yield* self.streamWithConverse(modelInput, deliverSchema(request), ctx);
     };
   }
 
@@ -364,25 +414,78 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   // ============================================================================
 
   /**
-   * Build a ConverseCommandInput from a generic @aeye/core Request.
+   * The id to call a chat model by. A configured `modelPrefix` picks a
+   * cross-region inference profile; otherwise a model Bedrock serves only
+   * through inference profiles (per the registry, or as Bedrock answered an
+   * earlier call in this region) uses the profile for the client region's
+   * geography, or the global one when only that is listed.
    */
-  private convertRequestToConverse(modelId: string, request: Request, ctx?: AIContextAny): ConverseCommandInput {
-    const messages = this.convertMessagesToConverse(request);
-    const system = this.convertSystemToConverse(request);
-    const modelInfo = pickAwsModelInfo(ctx, modelId);
-    // Bedrock's Converse API has no separate structured-output endpoint, so
-    // the budget only needs to cover tool schemas. It is built the same way
-    // as the OpenAI provider's so strictness selection stays consistent.
-    const budget = buildSchemaBudget(modelInfo ?? { id: modelId, provider: this.name }, this.supportedStrictFamilies);
+  private async resolveModelId(id: string, info: ModelInfo | undefined): Promise<string> {
+    const prefix = this.config.modelPrefix;
+    if (prefix) {
+      return id.startsWith(prefix) ? id : `${prefix}${id}`;
+    }
+    if (info?.metadata?.inRegion !== false && !this.profileOnly.has(id)) {
+      return id;
+    }
+    const listed = info?.metadata?.inferenceIds;
+    const profiles = Array.isArray(listed) ? listed.filter((p): p is string => typeof p === 'string') : [];
+    const geography = regionGeography(await this.bedrockRuntimeClient.config.region());
+    const candidates = [geography, 'global'].map(g => `${g}.${id}`);
+    return profiles.length ? candidates.find(profile => profiles.includes(profile)) ?? id : candidates[0];
+  }
+
+  /**
+   * Make a chat call, and when Bedrock answers that the model needs an
+   * inference profile in this region (the registry's `inRegion` holds for
+   * the region it was gathered in), make it again by profile.
+   */
+  private async byProfileWhenRequired<T>(id: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (this.config.modelPrefix || this.profileOnly.has(id) || !(error instanceof Error && PROFILE_REQUIRED.test(error.message))) {
+        throw error;
+      }
+      this.profileOnly.add(id);
+      return call();
+    }
+  }
+
+  /**
+   * Build the Converse input from a generic @aeye/core Request, without the
+   * guardrail, whose shape differs between Converse and ConverseStream.
+   */
+  private async convertRequestToConverse(model: Model, request: Request, ctx?: AIContextAny): Promise<Omit<ConverseCommandInput, 'guardrailConfig'>> {
+    const info = pickAwsModelInfo(model, ctx);
+    const modelId = await this.resolveModelId(model.id, info);
+    // Built the same way as the OpenAI provider's so strictness selection
+    // stays consistent across tools and structured output.
+    const budget = buildSchemaBudget(info ?? { id: model.id, provider: this.name }, this.supportedStrictFamilies);
     // Bedrock can't limit which tools a model calls, so only the allowed ones are sent
-    const toolConfig = this.convertToolsToConverse(withAllowedTools(request), budget);
-    const model = getModel(request.model);
-    const maxTokens = request.maxTokens ?? (typeof model !== 'string' && model?.maxOutputTokens ? model.maxOutputTokens : undefined);
+    const allowed = withAllowedTools(request);
+    // Claude that always thinks can't be forced to call a tool, so it's
+    // offered only the forced tools instead
+    const choice = allowed.toolChoice;
+    const offered = ALWAYS_THINKING_CLAUDE.test(modelId) && forcesTool(choice)
+      ? withAllowedTools({ ...allowed, toolChoice: { allowed: typeof choice === 'object' && 'tool' in choice ? [choice.tool] : (allowed.tools ?? []).map(tool => tool.name) } })
+      : allowed;
+    const toolConfig = this.convertToolsToConverse(offered, budget);
+    const textFormat = this.convertResponseFormat(request, budget);
+    // A schema Converse can't take natively goes in the prompt
+    const sent = typeof request.responseFormat === 'object' && !textFormat ? deliverSchema(request, LENIENT, 'prompt') : request;
+    const maxTokens = request.maxTokens ?? (info ?? model).maxOutputTokens;
+    const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(offered.toolChoice));
+    const fields = reasoning.fields || request.extra ? { ...reasoning.fields, ...request.extra } : undefined;
+    const messages = await this.convertMessagesToConverse(sent);
+    const system = await toSystemBlocks(sent.messages);
+    // Models the registry prices no cache reads for reject cache points
+    const caches = !info || info.pricing.text?.cached !== undefined;
 
     return {
       modelId,
-      messages,
-      system,
+      messages: caches ? messages : messages.map(message => ({ ...message, content: withoutCachePoints(message.content) })),
+      system: caches ? system : withoutCachePoints(system),
       inferenceConfig: {
         maxTokens,
         temperature: request.temperature,
@@ -390,9 +493,14 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
         stopSequences: request.stop
           ? Array.isArray(request.stop) ? request.stop : [request.stop]
           : undefined,
+        ...reasoning.cleared,
       },
       toolConfig,
-      additionalModelRequestFields: request.extra,
+      outputConfig: textFormat || reasoning.effort ? { textFormat, effort: reasoning.effort } : undefined,
+      serviceTier: toBedrockServiceTier(request.serviceTier),
+      performanceConfig: this.config.latency && { latency: this.config.latency },
+      requestMetadata: request.metadata,
+      additionalModelRequestFields: fields,
     };
   }
 
@@ -401,59 +509,27 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    */
   private async executeWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): Promise<Response> {
     const model = getModel(modelInput);
-    const modelId = this.applyModelPrefix(model.id);
-    const params = this.convertRequestToConverse(modelId, request, ctx);
+    const guardrail = this.config.guardrail;
 
     try {
-      const command = new ConverseCommand(params);
-
-      await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
-
-      const response = await this.bedrockRuntimeClient.send(command);
-
-      let content = '';
-      let reasoning: string | undefined;
-      const toolCalls: ToolCall[] = [];
-
-      const outputMessage = response.output?.message;
-      if (outputMessage?.content) {
-        for (const block of outputMessage.content) {
-          if ('text' in block && block.text !== undefined) {
-            content += block.text;
-          } else if ('toolUse' in block && block.toolUse) {
-            toolCalls.push({
-              id: block.toolUse.toolUseId!,
-              name: block.toolUse.name!,
-              arguments: JSON.stringify(block.toolUse.input ?? {}),
-            });
-          } else if ('reasoningContent' in block && block.reasoningContent) {
-            const rc = block.reasoningContent;
-            if ('reasoningText' in rc && rc.reasoningText) {
-              reasoning = (reasoning ?? '') + rc.reasoningText.text;
-            }
-          }
-        }
-      }
-
-      const result: Response = {
-        content,
-        reasoning: reasoning !== undefined ? { content: reasoning } : undefined,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        finishReason: this.mapStopReason(response.stopReason),
-        model: modelInput,
-        usage: {
-          text: {
-            input: response.usage?.inputTokens ?? -1,
-            output: response.usage?.outputTokens ?? -1,
-          },
-        },
-      };
+      const { command, response } = await this.byProfileWhenRequired(model.id, async () => {
+        const command = new ConverseCommand({
+          ...await this.convertRequestToConverse(model, request, ctx),
+          guardrailConfig: guardrail && { guardrailIdentifier: guardrail.guardrailIdentifier, guardrailVersion: guardrail.guardrailVersion, trace: guardrail.trace },
+        });
+        await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
+        return { command, response: await this.bedrockRuntimeClient.send(command) };
+      });
+      const result = getResponseFromChunks([
+        ...(response.output?.message?.content ?? []).map(contentBlockChunk),
+        endChunk(response.stopReason, response.usage, response.serviceTier),
+      ], modelInput);
 
       await this.config.hooks?.chat?.afterRequest?.(request, command, result, ctx);
 
       return result;
     } catch (error: any) {
-      this.handleAWSError(error);
+      this.handleAWSError(error, request);
       throw error;
     }
   }
@@ -463,234 +539,70 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    */
   private async* streamWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
     const model = getModel(modelInput);
-    const modelId = this.applyModelPrefix(model.id);
-    const params = this.convertRequestToConverse(modelId, request, ctx) as ConverseStreamCommandInput;
 
     try {
-      const command = new ConverseStreamCommand(params);
-
-      await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
-
-      const response = await this.bedrockRuntimeClient.send(command);
+      const { command, response } = await this.byProfileWhenRequired(model.id, async () => {
+        const command = new ConverseStreamCommand({ ...await this.convertRequestToConverse(model, request, ctx), guardrailConfig: this.config.guardrail });
+        await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
+        return { command, response: await this.bedrockRuntimeClient.send(command) };
+      });
 
       if (!response.stream) {
         throw new AWSError('No stream in streaming response');
       }
 
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let accumulatedContent = '';
-      let finishReason: FinishReason = 'stop';
-
-      type ToolCallItem = { id: string; name: string; arguments: string; finished: boolean };
-      const toolCallsMap = new Map<number, ToolCallItem>();
-
+      // Tool calls in progress, by content block index
+      const calls = new Map<number, ToolCall>();
+      const chunks: Chunk[] = [];
       try {
         for await (const event of response.stream) {
-          if (event.contentBlockDelta?.delta) {
-            const delta = event.contentBlockDelta.delta;
-            const index = event.contentBlockDelta.contentBlockIndex ?? 0;
-
-            if ('text' in delta && delta.text !== undefined) {
-              accumulatedContent += delta.text;
-              yield { content: delta.text };
-            } else if ('toolUse' in delta && delta.toolUse?.input !== undefined) {
-              const toolCall = toolCallsMap.get(index);
-              if (toolCall) {
-                toolCall.arguments += delta.toolUse.input;
-                yield {
-                  toolCallArguments: {
-                    id: toolCall.id,
-                    name: toolCall.name,
-                    arguments: toolCall.arguments,
-                  },
-                };
-              }
-            } else if ('reasoningContent' in delta && delta.reasoningContent) {
-              const rc = delta.reasoningContent;
-              if ('text' in rc && rc.text !== undefined) {
-                yield { reasoning: { content: rc.text } };
-              }
-            }
-          } else if (event.contentBlockStart?.start) {
-            const start = event.contentBlockStart.start;
-            const index = event.contentBlockStart.contentBlockIndex ?? 0;
-
-            if ('toolUse' in start && start.toolUse) {
-              const toolCall: ToolCallItem = {
-                id: start.toolUse.toolUseId!,
-                name: start.toolUse.name!,
-                arguments: '',
-                finished: false,
-              };
-              toolCallsMap.set(index, toolCall);
-              yield {
-                toolCallNamed: {
-                  id: toolCall.id,
-                  name: toolCall.name,
-                  arguments: '',
-                },
-              };
-            }
-          } else if (event.contentBlockStop) {
-            const index = event.contentBlockStop.contentBlockIndex ?? 0;
-            const toolCall = toolCallsMap.get(index);
-            if (toolCall && !toolCall.finished) {
-              toolCall.finished = true;
-              yield {
-                toolCall: {
-                  id: toolCall.id,
-                  name: toolCall.name,
-                  arguments: toolCall.arguments,
-                },
-              };
-            }
-          } else if (event.messageStop) {
-            finishReason = this.mapStopReason(event.messageStop.stopReason);
-            yield { finishReason };
-          } else if (event.metadata?.usage) {
-            inputTokens = event.metadata.usage.inputTokens ?? 0;
-            outputTokens = event.metadata.usage.outputTokens ?? 0;
-            yield {
-              usage: {
-                text: {
-                  input: inputTokens,
-                  output: outputTokens,
-                },
-              },
-            };
+          const chunk = streamChunk(event, calls);
+          if (chunk) {
+            chunks.push(chunk);
+            yield chunk;
           }
         }
       } finally {
-        const toolCalls = Array.from(toolCallsMap.values()).map(tc => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.arguments,
-        }));
-
-        const accumulatedResponse: Response = {
-          content: accumulatedContent,
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-          finishReason,
-          model: modelInput,
-          usage: {
-            text: {
-              input: inputTokens,
-              output: outputTokens,
-            },
-          },
-        };
-
-        await this.config.hooks?.chat?.afterRequest?.(request, command, accumulatedResponse, ctx);
+        await this.config.hooks?.chat?.afterRequest?.(request, command, getResponseFromChunks(chunks, modelInput), ctx);
       }
     } catch (error: any) {
-      this.handleAWSError(error);
+      this.handleAWSError(error, request);
       throw error;
     }
   }
 
   /**
-   * Convert system messages to the Converse API system format.
-   */
-  private convertSystemToConverse(request: Request): SystemContentBlock[] | undefined {
-    const systemMessages = request.messages.filter(m => m.role === 'system');
-    if (systemMessages.length === 0) return undefined;
-
-    return systemMessages.map((m): SystemContentBlock => ({
-      text: typeof m.content === 'string'
-        ? m.content
-        : m.content.map(c => String(c.content)).join('\n'),
-    }));
-  }
-
-  /**
    * Convert @aeye/core messages to AWS Bedrock Converse API message format.
-   * Filters out system messages (handled via convertSystemToConverse).
+   * Filters out system messages (handled via toSystemBlocks).
    * Merges consecutive messages with the same role as required by the API.
    */
-  private convertMessagesToConverse(request: Request): BedrockMessage[] {
-    const rawMessages: BedrockMessage[] = [];
-
-    for (const msg of request.messages) {
-      if (msg.role === 'system') continue;
-
-      if (msg.role === 'user') {
-        const content: ContentBlock[] = [];
-        if (typeof msg.content === 'string') {
-          if (msg.content.trim()) {
-            content.push({ text: msg.content });
-          }
-        } else {
-          for (const part of msg.content) {
-            if (part.type === 'text') {
-              if (String(part.content).trim()) {
-                content.push({ text: String(part.content) });
-              }
-            } else if (part.type === 'image') {
-              const imageBlock = this.convertImageContent(part.content);
-              if (imageBlock) {
-                content.push(imageBlock);
-              }
-            }
-          }
-        }
-        if (content.length > 0) {
-          rawMessages.push({ role: 'user', content });
-        }
-      } else if (msg.role === 'assistant') {
-        const content: ContentBlock[] = [];
-        if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
-          content.push({ text: msg.content });
-        }
-        if (msg.toolCalls && msg.toolCalls.length > 0) {
-          for (const tc of msg.toolCalls) {
-            let input: Record<string, unknown> = {};
-            try {
-              input = JSON.parse(tc.arguments);
-            } catch {
-              input = { _raw: tc.arguments };
-            }
-            content.push({
-              toolUse: {
-                toolUseId: tc.id,
-                name: tc.name,
-                input: input as unknown as JsonDocument,
-              },
-            });
-          }
-        }
-        if (content.length > 0) {
-          rawMessages.push({ role: 'assistant', content });
-        }
-      } else if (msg.role === 'tool') {
-        rawMessages.push({
-          role: 'user',
-          content: [
-            {
-              toolResult: {
-                toolUseId: msg.toolCallId!,
-                content: [
-                  {
-                    text: typeof msg.content === 'string'
-                      ? msg.content
-                      : JSON.stringify(msg.content),
-                  },
-                ],
-              },
-            },
-          ],
-        });
+  private async convertMessagesToConverse(request: Request): Promise<BedrockMessage[]> {
+    // An assistant turn split across messages replays its reasoning once
+    const replayed = new Set<Reasoning>();
+    const rawMessages = await Promise.all(request.messages.map(async (msg): Promise<BedrockMessage | undefined> => {
+      switch (msg.role) {
+        case 'system':
+          return undefined;
+        case 'user':
+          return { role: 'user', content: await toContentBlocks(msg.content) };
+        case 'assistant':
+          return { role: 'assistant', content: await toAssistantBlocks(msg, replayed) };
+        case 'tool':
+          return { role: 'user', content: await toToolResultBlocks(msg) };
       }
-    }
+    }));
 
     // Merge consecutive messages with the same role (required by Converse API)
     const merged: BedrockMessage[] = [];
     for (const msg of rawMessages) {
+      if (!msg?.content?.length) {
+        continue;
+      }
       const last = merged[merged.length - 1];
       if (last && last.role === msg.role) {
-        last.content = [...(last.content ?? []), ...(msg.content ?? [])];
+        last.content = [...(last.content ?? []), ...msg.content];
       } else {
-        merged.push({ role: msg.role, content: [...(msg.content ?? [])] });
+        merged.push(msg);
       }
     }
 
@@ -703,36 +615,6 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   }
 
   /**
-   * Convert an image content value to a Converse API ContentBlock.
-   * Only base64 data URIs are natively supported; URL images are not supported
-   * by the Converse API without fetching the bytes first.
-   */
-  private convertImageContent(content: string | URL | unknown): ContentBlock | null {
-    const src = content instanceof URL ? content.href : typeof content === 'string' ? content : null;
-    if (!src) return null;
-
-    // data URI: data:<mediaType>;base64,<data>
-    const match = src.match(/^data:([^;]+);base64,(.+)$/);
-    if (match) {
-      const mediaType = match[1].toLowerCase();
-      const format = (
-        mediaType.includes('png') ? 'png' :
-        mediaType.includes('jpeg') || mediaType.includes('jpg') ? 'jpeg' :
-        mediaType.includes('gif') ? 'gif' :
-        mediaType.includes('webp') ? 'webp' : null
-      ) as ImageFormat | null;
-
-      if (format) {
-        const bytes = Buffer.from(match[2], 'base64');
-        return { image: { format, source: { bytes } } };
-      }
-    }
-
-    // URL images are not natively supported by the Converse API
-    return null;
-  }
-
-  /**
    * Convert @aeye/core tool definitions to AWS Bedrock Converse API tool format.
    *
    * Strict-tool support is best-effort and per-model: the budget's
@@ -740,7 +622,9 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    * surfaces both Anthropic-family Claude models and (in some regions)
    * OpenAI-shaped tools. Models without strict support use their family's
    * non-strict descriptor, and models without a family Bedrock speaks fall
-   * back to LENIENT — silent degradation. The chosen descriptor is pinned on each
+   * back to LENIENT — silent degradation. Tools with a strict descriptor are
+   * sent with Converse's `strict` flag, which constrains the model's calls to
+   * the schema. The chosen descriptor is pinned on each
    * `ToolDefinition.descriptor` so the Prompt loop can apply the matching
    * strictify when validating tool arguments.
    *
@@ -748,39 +632,67 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    * params, 16 union types across the whole request) — those are tracked
    * by the shared `SchemaBudget` so over-budget tools degrade to LENIENT
    * silently rather than failing the API call.
+   *
+   * Converse has no free-text tools, so those go as their one-field function
+   * with any grammar in the description. It has no `none` choice either, so
+   * tools are left out then, unless the conversation already used them
+   * (Converse rejects tool blocks without a tool config).
    */
   private convertToolsToConverse(
     request: Request,
     budget: SchemaBudget,
   ): ConverseCommandInput['toolConfig'] {
     if (!request.tools || request.tools.length === 0) return undefined;
+    const choice = request.toolChoice;
+    if (choice === 'none' && !request.messages.some(m => m.role === 'tool' || m.toolCalls?.length)) return undefined;
 
     const descriptors = allocateToolDescriptors(request.tools, budget);
 
-    const tools = request.tools.map((tool, i) => {
+    const tools = request.tools.map((tool, i): BedrockTool => {
       const descriptor = descriptors[i];
       const strictifiedSchema = strictify(tool.parameters, descriptor);
       return {
         toolSpec: {
           name: tool.name,
-          description: tool.description,
+          description: describeTool(tool),
           inputSchema: {
-            json: toJSONSchema(strictifiedSchema, descriptor) as unknown as JsonDocument,
+            json: toDocument(JSON.stringify(toJSONSchema(strictifiedSchema, descriptor))),
           },
+          strict: descriptor.strict || undefined,
         },
       };
-    }) as BedrockTool[];
+    });
 
-    let toolChoice: BedrockToolChoice | undefined;
-    if (request.toolChoice === 'auto') {
-      toolChoice = { auto: {} };
-    } else if (request.toolChoice === 'required') {
-      toolChoice = { any: {} };
-    } else if (typeof request.toolChoice === 'object' && 'tool' in request.toolChoice) {
-      toolChoice = { tool: { name: request.toolChoice.tool } };
-    }
+    const toolChoice: BedrockToolChoice | undefined =
+      choice === 'auto' ? { auto: {} }
+      : choice === 'required' ? { any: {} }
+      : typeof choice === 'object' && 'tool' in choice ? { tool: { name: choice.tool } }
+      : undefined;
 
     return { tools, toolChoice };
+  }
+
+  /**
+   * Convert a schema response format to Converse structured output. Converse
+   * rejects schemas outside its strict subset, so a schema goes only when the
+   * model's strict descriptor can shape it; the descriptor is pinned on the
+   * format so the Prompt validator can apply the matching strictify. Plain
+   * JSON has no Converse mode.
+   */
+  private convertResponseFormat(request: Request, budget: SchemaBudget): OutputFormat | undefined {
+    const format = request.responseFormat;
+    if (typeof format !== 'object') return undefined;
+
+    const descriptor = budget.allocateOutput(format.type, format.strict ?? 1);
+    if (!descriptor.strict) return undefined;
+    format.descriptor = descriptor.id;
+
+    return {
+      type: 'json_schema',
+      structure: {
+        jsonSchema: { name: 'response', schema: JSON.stringify(toJSONSchema(strictify(format.type, descriptor), descriptor)) },
+      },
+    };
   }
 
   /**
@@ -790,27 +702,6 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    * families.
    */
   protected supportedStrictFamilies: ReadonlySet<DescriptorFamily> = new Set<DescriptorFamily>(['openai', 'anthropic', 'google']);
-
-  /**
-   * Map a Bedrock Converse API stop reason to the @aeye/core FinishReason type.
-   */
-  private mapStopReason(stopReason: string | undefined): FinishReason {
-    switch (stopReason) {
-      case 'end_turn':
-        return 'stop';
-      case 'max_tokens':
-      case 'model_context_window_exceeded':
-        return 'length';
-      case 'stop_sequence':
-        return 'stop';
-      case 'tool_use':
-        return 'tool_calls';
-      case 'content_filtered':
-        return 'content_filter';
-      default:
-        return 'stop';
-    }
-  }
 
   // ============================================================================
   // Image Generation (Stability AI)
@@ -942,17 +833,17 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   // Error Handling
   // ============================================================================
 
-  private handleAWSError(error: any): void {
+  private handleAWSError(error: any, request?: Request): void {
     const errorName = error.name || '';
     const errorMessage = error.message || '';
 
     // Authentication errors
-    if (errorName === 'UnrecognizedClientException' || errorName === 'InvalidSignatureException') {
+    if (AUTH_ERRORS.has(errorName)) {
       throw new AWSAuthError(error);
     }
 
-    // Rate limiting
-    if (errorName === 'ThrottlingException' || errorName === 'TooManyRequestsException') {
+    // Rate limiting, and capacity that's busy for now
+    if (RATE_LIMIT_ERRORS.has(errorName)) {
       throw new AWSRateLimitError('Rate limit exceeded', undefined, error);
     }
 
@@ -962,8 +853,14 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     }
 
     // Context window errors
-    if (errorMessage.includes('context length') || errorMessage.includes('token limit')) {
+    if (CONTEXT_WINDOW_ERROR.test(errorMessage)) {
       throw new AWSContextWindowError('Context window exceeded', undefined, error);
+    }
+
+    // A rejected tool schema
+    const rejected = errorName === 'ValidationException' && request ? schemaRejection(request, error) : undefined;
+    if (rejected) {
+      throw rejected;
     }
 
     // Re-throw as generic AWS error

@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { Prompt } from '../prompt';
+import { DEFAULT_USER_TURN, Prompt } from '../prompt';
 import { Tool } from '../tool';
 import { Context } from '../types';
 import { createMockExecutor, createMockStreamer } from './mocks/executor.mock';
@@ -412,5 +412,28 @@ describe('Prompt Remaining Coverage', () => {
 
     const result = await prompt.get('result', {}, ctx);
     expect(result).toEqual({ value: 42 });
+  });
+});
+
+describe('the user turn', () => {
+  it('is added after the system prompt when there is no conversation', async () => {
+    const prompt = new Prompt({ name: 'turn', description: 'Turn', content: 'Say hi.' });
+    const execute = createMockExecutor({ responses: [{ content: 'hi' }, { content: 'hi' }] });
+
+    await prompt.get('result', {}, { execute });
+    await prompt.get('result', {}, { execute, messages: [{ role: 'user', content: 'Hello' }] });
+
+    expect(execute.mock.calls[0][0].messages.slice(0, 2)).toEqual([{ role: 'system', content: 'Say hi.' }, { role: 'user', content: DEFAULT_USER_TURN }]);
+    expect(execute.mock.calls[1][0].messages.slice(0, 2)).toEqual([{ role: 'system', content: 'Say hi.' }, { role: 'user', content: 'Hello' }]);
+  });
+
+  it('comes from the prompt, then the context', async () => {
+    const execute = createMockExecutor({ responses: [{ content: 'hi' }, { content: 'hi' }] });
+
+    await new Prompt({ name: 'turn', description: 'Turn', content: 'Say hi.', userTurn: 'Go.' }).get('result', {}, { execute, userTurn: 'Start.' });
+    await new Prompt({ name: 'turn', description: 'Turn', content: 'Say hi.' }).get('result', {}, { execute, userTurn: 'Start.' });
+
+    expect(execute.mock.calls[0][0].messages[1]).toEqual({ role: 'user', content: 'Go.' });
+    expect(execute.mock.calls[1][0].messages[1]).toEqual({ role: 'user', content: 'Start.' });
   });
 });

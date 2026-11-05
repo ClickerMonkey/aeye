@@ -17,11 +17,11 @@
 
 import type { AIContextAny, BatchJob, DecisionAnswer, DecisionQuestion, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { REASONING_EFFORTS, withAllowedTools, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
-import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError } from '@aeye/openai';
+import { type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, replaysTo, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
+import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, type SystemOneDecisionParams, toSystemOneQuestion } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
-import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterDecisionAnswer, OpenRouterDecisionQuestion, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
+import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterDecisionAnswer, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
 
 /**
  * OpenRouter provider configuration. Requests always go through chat
@@ -279,22 +279,6 @@ function aspectRatio(size: string): string {
 }
 
 /**
- * A question as OpenRouter's decisions endpoint takes it: a predicate is a
- * `noul` question, and choices and levels are its criteria.
- */
-function toDecisionQuestion(question: DecisionQuestion): OpenRouterDecisionQuestion {
-  const { instructions } = question;
-  switch (question.type) {
-    case 'predicate':
-      return { type: 'noul', instructions };
-    case 'choice':
-      return { type: 'choice', instructions, criteria: question.choices };
-    case 'score':
-      return { type: 'score', instructions, criteria: question.levels };
-  }
-}
-
-/**
  * An answer in @aeye's shape, with score probabilities in level order.
  */
 function toDecisionAnswer(answer: OpenRouterDecisionAnswer): DecisionAnswer {
@@ -413,6 +397,28 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   }
 
   /**
+   * OpenRouter reports an upstream's rejection as "Provider returned error",
+   * with the upstream's own message in `metadata.raw`.
+   */
+  protected override rejectedSchema(request: Request, error: Error): SchemaRejectedError | undefined {
+    const body = 'error' in error ? error.error : undefined;
+    const metadata = body && typeof body === 'object' && 'metadata' in body ? body.metadata : undefined;
+    const raw = metadata && typeof metadata === 'object' && 'raw' in metadata && typeof metadata.raw === 'string' ? metadata.raw : '';
+    return schemaRejection(request, error, `${error.message} ${raw}`);
+  }
+
+  /**
+   * OpenRouter strips `strict` from tools bound for Anthropic unless the
+   * request carries Anthropic's structured-outputs beta flag, so a strict tool
+   * would silently go unenforced (openrouter.ai/docs/guides/routing/provider-selection,
+   * read 2026-11-04). Other upstreams ignore the header.
+   */
+  protected override chatHeaders(params: OpenAI.Chat.ChatCompletionCreateParams): Record<string, string> | undefined {
+    const strictTool = params.tools?.some(tool => tool.type === 'function' && tool.function.strict);
+    return strictTool ? { 'x-anthropic-beta': 'structured-outputs-2025-11-13' } : undefined;
+  }
+
+  /**
    * Augment chat request with OpenRouter-specific parameters
    */
   protected override augmentChatRequest(
@@ -468,6 +474,15 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
       params.provider = { ...params.provider, require_parameters: true };
     }
 
+    // Some upstreams serve any response format as JSON mode, which refuses a
+    // conversation that never says "json" (Alibaba for Qwen: "'messages' must
+    // contain the word 'json' in some form", even for a strict json_schema,
+    // 2026-11-04). Say it once when nothing else does.
+    const saysJson = params.messages.some(message => /json/i.test(JSON.stringify(message.content ?? '')));
+    if (params.response_format && params.response_format.type !== 'text' && !saysJson) {
+      params.messages = [{ role: 'system', content: 'Respond in JSON.' }, ...params.messages];
+    }
+
     const plugins: OpenRouterPlugin[] = [...dp?.plugins ?? []];
     if (dp?.transforms?.includes('middle-out')) {
       plugins.push({ id: 'context-compression', engine: 'middle-out' });
@@ -494,7 +509,7 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   ) {
     const message = expected.choices?.[0]?.message;
     if (message?.reasoning || message?.reasoning_details) {
-      response.reasoning = { content: message.reasoning, details: message.reasoning_details };
+      response.reasoning = { content: message.reasoning, details: message.reasoning_details, provider: this.name };
     }
     response.images = toImages(message?.images);
     if (expected.usage) {
@@ -509,7 +524,7 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   ) {
     const delta = expected.choices[0]?.delta;
     if (delta?.reasoning || delta?.reasoning_details?.length) {
-      chunk.reasoning = { content: delta.reasoning, details: delta.reasoning_details };
+      chunk.reasoning = { content: delta.reasoning, details: delta.reasoning_details, provider: this.name };
     }
     chunk.images = toImages(delta?.images);
     if (expected.usage) {
@@ -534,30 +549,26 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
     chatMessage: OpenAI.Chat.ChatCompletionMessageParam,
     message: Message,
   ) {
-    if (message.reasoning && chatMessage.role === 'assistant') {
+    if (chatMessage.role === 'assistant' && replaysTo(message.reasoning, this.name)) {
       this.reasoningOf.set(chatMessage, message.reasoning);
     }
   }
 
   /**
-   * Assistant messages carry their reasoning back, once even when a message
-   * was split into parts. OpenRouter doesn't transform reasoning on a message
-   * that also has content, so that reasoning goes in its own assistant
-   * message just before.
+   * Assistant messages carry their reasoning back on the same message, which
+   * OpenRouter relays with the turn's text and tool calls, once even when a
+   * message was split into parts.
    */
   protected override async convertMessages(request: Request, config: OpenRouterConfig): Promise<OpenRouterRequestMessage[]> {
     const messages = await super.convertMessages(request, config);
     const replayed = new Set<Reasoning>();
-    return messages.flatMap((message): OpenRouterRequestMessage[] => {
+    return messages.map((message): OpenRouterRequestMessage => {
       const reasoning = this.reasoningOf.get(message);
       if (!reasoning || replayed.has(reasoning)) {
-        return [message];
+        return message;
       }
       replayed.add(reasoning);
-      const replay = { reasoning: reasoning.content ?? undefined, reasoning_details: reasoning.details };
-      return message.role === 'assistant' && message.content?.length
-        ? [{ role: 'assistant', name: message.name, ...replay }, message]
-        : [{ ...message, ...replay }];
+      return { ...message, reasoning: reasoning.content ?? undefined, reasoning_details: reasoning.details };
     });
   }
 
@@ -614,13 +625,13 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   rerank: Provider['rerank'] = async (request, ctx, config?: OpenRouterConfig) => {
     const run = this.prepare('rerank', request, ctx, undefined, config, undefined, 'rerank');
-    const body = { model: run.model.id, query: request.query, documents: request.documents, top_n: request.topN, ...request.extra };
-    const result = await run.retry((signal) => run.client.post<OpenRouterRerank>('/rerank', { body, signal }));
-    return {
+    const params: RerankParams = { model: run.model.id, query: request.query, documents: request.documents, top_n: request.topN, ...request.extra };
+    const result = await this.send('rerank', run, request, params, (signal) => run.client.post<OpenRouterRerank>('/rerank', { body: params, signal }));
+    return this.finish('rerank', run, request, params, {
       results: result.results.map(({ index, relevance_score }) => ({ index, score: relevance_score })),
       model: run.model,
       usage: { cost: result.usage?.cost },
-    };
+    });
   }
 
   /**
@@ -635,19 +646,19 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   override decide: Provider['decide'] = async (request, ctx, config?: OpenRouterConfig) => {
     const run = this.prepare('decide', request, ctx, undefined, config, undefined, 'decision');
-    const body = {
+    const params: SystemOneDecisionParams = {
       model: run.model.id,
       state: typeof request.input === 'string' ? request.input : await this.convertMessages({ messages: request.input }, run.config),
-      questions: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, toDecisionQuestion(question)])),
+      questions: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, toSystemOneQuestion(question)])),
       ...request.extra,
     };
     const url = new URL('../alpha/decisions', `${run.client.baseURL}/`).href;
-    const result = await run.retry((signal) => run.client.post<OpenRouterDecision>(url, { body, signal }));
-    return {
+    const result = await this.send('decide', run, request, params, (signal) => run.client.post<OpenRouterDecision>(url, { body: params, signal }));
+    return this.finish('decide', run, request, params, {
       answers: Object.fromEntries(Object.entries(result.answers).map(([name, answer]) => [name, toDecisionAnswer(answer)])),
       model: run.model,
       usage: { text: { input: result.usage.input_tokens, output: result.usage.output_tokens || undefined }, cost: result.usage.cost },
-    };
+    });
   }
 
   /**

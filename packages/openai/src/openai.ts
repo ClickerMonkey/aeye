@@ -23,6 +23,8 @@ import type {
   Message,
   ModelInfo,
   Provider,
+  RerankRequest,
+  RerankResponse,
   SpeechRequest,
   SpeechResponse,
   TranscriptionChunk,
@@ -31,10 +33,10 @@ import type {
   TranscriptionSegment
 } from '@aeye/ai';
 import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detectTier, isModelInfo } from '@aeye/ai';
-import { type AudioFormat, BaseRequest, type Chunk, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, strictify, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
+import { type AudioFormat, BaseRequest, type Chunk, deliverSchema, describeTool, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, type SchemaRejectedError, schemaRejection, type Streamer, strictify, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, responsesUsage, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
-import { type OpenAIDecision, type OpenAIDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
+import { type OpenAIDecision, type OpenAIDecisionParams, type SystemOneDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
 import { imageParams, imageUsage, partialImages } from './images';
 import { isResponsesOnly, outputItemChunk, responseChunks, responseEndChunk, textInput, toHostedTool, toInputContent, toReasoningItems } from './responses';
 import { isContextWindowError, parseContextWindowError, type RetryConfig, RetryContext, type RetryEvents, withRetry } from './retry';
@@ -130,7 +132,19 @@ export interface OpenAIOperations {
   transcribe: { request: TranscriptionRequest; params: OpenAI.Audio.TranscriptionCreateParams; response: TranscriptionResponse };
   speech: { request: SpeechRequest; params: OpenAI.Audio.SpeechCreateParams; response: SpeechResponse };
   embed: { request: EmbeddingRequest; params: OpenAI.EmbeddingCreateParams; response: EmbeddingResponse };
-  decide: { request: DecisionRequest; params: OpenAIDecisionParams; response: DecisionResponse };
+  rerank: { request: RerankRequest; params: RerankParams; response: RerankResponse };
+  decide: { request: DecisionRequest; params: OpenAIDecisionParams | SystemOneDecisionParams; response: DecisionResponse };
+}
+
+/**
+ * Parameters of a rerank request, in the shape OpenAI-compatible rerank
+ * endpoints (OpenRouter's among them) take.
+ */
+export interface RerankParams {
+  model: string;
+  query: string;
+  documents: string[];
+  top_n?: number;
 }
 
 /**
@@ -292,7 +306,8 @@ type ChatSent<R> = { result: R } | { overflow: Response };
  *
  * Supports the full range of OpenAI capabilities including:
  * - Chat through Chat Completions, or the Responses API when a model or
- *   request needs it (hosted tools, reasoning summaries, Responses-only models)
+ *   request needs it (hosted tools, reasoning summaries or reasoning with
+ *   tools, Responses-only models)
  * - Function calling and structured outputs, streaming, and reasoning
  * - Image, audio, and file input; audio output
  * - Image generation and editing with GPT Image
@@ -514,6 +529,16 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     config: TConfig,
   ) {
     // No-op by default
+  }
+
+  /**
+   * Extra HTTP headers for a chat completion request, such as a router's
+   * feature flags. None by default.
+   *
+   * @param params The params about to be sent
+   */
+  protected chatHeaders(params: OpenAI.Chat.ChatCompletionCreateParams): Record<string, string> | undefined {
+    return undefined;
   }
 
   /**
@@ -756,9 +781,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         case 'assistant': {
           const name = this.convertName(msg.name);
           const toolCalls = msg.toolCalls?.map((tc) => this.convertToolCall(tc));
-          const content = await this.convertContent(msg.content, msg.name || 'assistant', config);
+          // Some upstreams reject empty text, so a turn of only tool calls has no content
+          const content = (await this.convertContent(msg.content, msg.name || 'assistant', config)).filter(c => c.type !== 'text' || c.text);
           if (content.every(c => c.type === 'text')) {
-            return [this.getChatMessage({ role: 'assistant', name, tool_calls: toolCalls, content }, msg, config)];
+            return [this.getChatMessage({ role: 'assistant', name, tool_calls: toolCalls, content: content.length ? content : toolCalls?.length ? null : '' }, msg, config)];
           }
           // The assistant role only takes text, so non-text parts are sent
           // as user messages in place
@@ -804,7 +830,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
             ? { type: 'custom_tool_call', call_id: tc.id, name: tc.name, input: textInput(tc.arguments) }
             : { type: 'function_call', call_id: tc.id, name: tc.name, arguments: tc.arguments }
           );
-          return [...toReasoningItems(msg.reasoning), ...message, ...calls];
+          return [...toReasoningItems(msg.reasoning, this.name), ...message, ...calls];
         }
       }
     }))).flat();
@@ -848,9 +874,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         type: 'function',
         function: {
           name: tool.name,
-          description: tool.format?.type === 'grammar'
-            ? `${tool.description ?? ''}\n\nThe input must match this ${tool.format.syntax} grammar:\n${tool.format.definition}`
-            : tool.description,
+          description: describeTool(tool),
           parameters: toJSONSchema(strictifiedSchema, descriptor),
           ...(descriptor.strict ? { strict: true } : {}),
         },
@@ -1027,7 +1051,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    * Send one API call with retries, around the operation's before and error
    * hooks. A context-window rejection becomes a ContextWindowError.
    */
-  private async send<K extends keyof OpenAIOperations, R>(
+  protected async send<K extends keyof OpenAIOperations, R>(
     op: K,
     run: OperationRun<TConfig>,
     request: OpenAIOperations[K]['request'],
@@ -1053,7 +1077,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   /**
    * Report a response to the operation's after hook and return it.
    */
-  private async finish<K extends keyof OpenAIOperations>(
+  protected async finish<K extends keyof OpenAIOperations>(
     op: K,
     run: OperationRun<TConfig>,
     request: OpenAIOperations[K]['request'],
@@ -1065,8 +1089,20 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   }
 
   /**
+   * The schema a bad request rejected, if any. OpenAI names it in the error
+   * message; OpenAI-compatible providers can look further.
+   *
+   * @param request - The request as sent
+   * @param error - The API's 400 or 422 error
+   */
+  protected rejectedSchema(request: Request, error: Error): SchemaRejectedError | undefined {
+    return schemaRejection(request, error);
+  }
+
+  /**
    * Send a chat call. A request that overflows the context window ends as
-   * `length` rather than failing, so the prompt loop can trim and retry.
+   * `length` rather than failing, so the prompt loop can trim and retry. A
+   * rejected schema becomes a SchemaRejectedError.
    */
   private async sendChat<K extends 'chat' | 'responses', R>(
     op: K,
@@ -1079,7 +1115,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return { result: await this.send(op, run, request, params, call) };
     } catch (e) {
       if (!(e instanceof ContextWindowError)) {
-        throw e;
+        const badRequest = e instanceof Error && 'status' in e && (e.status === 400 || e.status === 422);
+        throw (badRequest && this.rejectedSchema(request, e)) || e;
       }
       const overflow: Response = { content: '', toolCalls: [], finishReason: 'length', model: run.model, usage: { text: { input: e.contextWindow } } };
       return { overflow: await this.finish(op, run, request, params, overflow) };
@@ -1135,9 +1172,12 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return api === 'responses';
     }
     const responsesOnly = model?.metadata?.responsesOnly ?? isResponsesOnly(modelId);
-    const { mode, summary, context } = request.reason ?? {};
+    const { effort, mode, summary, context } = request.reason ?? {};
     const responsesTools = request.tools?.some(tool => tool.format || tool.defer || tool.async);
-    return responsesOnly === true || !!request.hostedTools?.length || !!responsesTools || !!(mode || summary || context);
+    // Only Responses carries reasoning across tool calls, and newer models
+    // reject function tools with reasoning on Chat Completions
+    const reasonsWithTools = !!request.tools?.length && !!effort && effort !== 'none';
+    return responsesOnly === true || !!request.hostedTools?.length || !!responsesTools || reasonsWithTools || !!(mode || summary || context);
   }
 
   /**
@@ -1169,7 +1209,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       stop: request.stop,
       tools,
       tool_choice: tools?.length ? this.convertToolChoice(request) : undefined,
-      parallel_tool_calls: tools?.length ? !request.toolsOneAtATime : undefined,
+      // Parallel calls are the default; reasoning models such as o3 reject the parameter itself
+      parallel_tool_calls: tools?.length && request.toolsOneAtATime ? false : undefined,
       response_format: this.convertResponseFormat(request, budget),
       reasoning_effort: request.reason?.effort && clampReasoningEffort(request.reason.effort, run.modelInfo?.reasoningEfforts),
       verbosity: request.verbosity,
@@ -1226,7 +1267,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         : { type: 'allowed_tools', mode: choice.required ? 'required' : 'auto', tools: choice.allowed.map(name => ({ type: kind(name), name })) },
       parallel_tool_calls: tools.length ? !request.toolsOneAtATime : undefined,
       text: {
-        format: format?.type === 'json_schema' ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {} } : format,
+        // The Responses API treats an unflagged json_schema as strict, so a non-strict one says so
+        format: format?.type === 'json_schema'
+          ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {}, strict: format.json_schema.strict ?? false }
+          : format,
         verbosity: request.verbosity,
       },
       reasoning: reason && {
@@ -1360,7 +1404,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     this.augmentChatRequest(params, request, run.config);
 
     const sent = await this.sendChat('chat', run, request, params, async (signal) => {
-      const completion = await run.client.chat.completions.create(params, { signal });
+      const completion = await run.client.chat.completions.create(params, { signal, headers: this.chatHeaders(params) });
       if (!completion.choices?.[0]) {
         throw new ProviderError(this.name, 'No choices in response');
       }
@@ -1386,7 +1430,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     };
     this.augmentChatRequest(params, request, run.config);
 
-    const sent = await this.sendChat('chat', run, request, params, (signal) => run.client.chat.completions.create(params, { signal }));
+    const sent = await this.sendChat('chat', run, request, params, (signal) => run.client.chat.completions.create(params, { signal, headers: this.chatHeaders(params) }));
     if ('overflow' in sent) {
       return sent.overflow;
     }
@@ -1404,7 +1448,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return sent.overflow;
     }
 
-    const chunks = [...sent.result.output.map(item => outputItemChunk(item, false)), responseEndChunk(sent.result)];
+    const chunks = [...sent.result.output.map(item => outputItemChunk(item, false, this.name)), responseEndChunk(sent.result)];
     return this.finish('responses', run, request, params, getResponseFromChunks(chunks, run.model));
   }
 
@@ -1431,9 +1475,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   createExecutor(config?: TConfig): Executor<AIContextAny, AIMetadataAny> {
     return async (request, ctx, metadata, signal) => {
       const run = this.prepare('chat', request, ctx, metadata, config, signal, 'chat');
-      return this.usesResponses(request, run.model.id, run.config, run.modelInfo)
-        ? this.respond(request, run)
-        : this.complete(request, run);
+      const sent = deliverSchema(request);
+      return this.usesResponses(sent, run.model.id, run.config, run.modelInfo)
+        ? this.respond(sent, run)
+        : this.complete(sent, run);
     };
   }
 
@@ -1448,9 +1493,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     const provider = this;
     return async function* (request, ctx, metadata, signal) {
       const run = provider.prepare('streaming chat', request, ctx, metadata, config, signal, 'chat');
-      return yield* provider.usesResponses(request, run.model.id, run.config, run.modelInfo)
-        ? provider.respondStream(request, run)
-        : provider.completeStream(request, run);
+      const sent = deliverSchema(request);
+      return yield* provider.usesResponses(sent, run.model.id, run.config, run.modelInfo)
+        ? provider.respondStream(sent, run)
+        : provider.completeStream(sent, run);
     };
   }
 
@@ -1913,7 +1959,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    */
   private batchResponse(body: OpenAI.Chat.Completions.ChatCompletion | OpenAI.Responses.Response, run: OperationRun<TConfig>): Response {
     if (body.object === 'response') {
-      return getResponseFromChunks([...body.output.map(item => outputItemChunk(item, false)), responseEndChunk(body)], run.model);
+      return getResponseFromChunks([...body.output.map(item => outputItemChunk(item, false, this.name)), responseEndChunk(body)], run.model);
     }
     const response = this.chatResponse(body, run);
     this.augmentChatResponse(body, response, run.config);

@@ -55,8 +55,8 @@ function systemContent(request: Request): string {
 describe('applySchemaDeliveryFallback', () => {
   describe("Google-family model + allOf schema + 'auto'", () => {
     it('drops response_format and appends schema text + the Google instruction', () => {
-      const request = makeRequest(allOfSchema, 'auto');
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
+      let request = makeRequest(allOfSchema, 'auto');
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
 
       // Wire schema dropped — no provider will emit response_format.
       expect(request.responseFormat).toBeUndefined();
@@ -70,37 +70,32 @@ describe('applySchemaDeliveryFallback', () => {
     });
 
     it('resolves the google dialect from the id prefix when provider is openrouter', () => {
-      const request = makeRequest(allOfSchema, 'auto');
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-flash'));
+      let request = makeRequest(allOfSchema, 'auto');
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-flash'));
       expect(request.responseFormat).toBeUndefined();
     });
 
-    it('is idempotent — re-applying does not duplicate the schema text', () => {
-      const request = makeRequest(allOfSchema, 'auto');
-      const model = makeModel('openrouter', 'google/gemini-2.5-pro');
-      applySchemaDeliveryFallback(request, model);
-      const afterFirst = systemContent(request);
+    it('leaves the original request unchanged, so a prompt can resend it', () => {
+      const original = makeRequest(allOfSchema, 'auto');
+      const sent = applySchemaDeliveryFallback(original, makeModel('openrouter', 'google/gemini-2.5-pro'));
 
-      // Simulate a later iteration re-setting a structured responseFormat
-      // (as a dynamic prompt would) and re-running the fallback.
-      request.responseFormat = { type: allOfSchema, strict: false, schemaDelivery: 'auto' };
-      applySchemaDeliveryFallback(request, model);
-
-      expect(request.responseFormat).toBeUndefined();
-      expect(systemContent(request)).toBe(afterFirst);
+      expect(sent).not.toBe(original);
+      expect(typeof original.responseFormat).toBe('object');
+      expect(systemContent(original)).toBe('You are a helpful assistant.');
+      expect(systemContent(sent)).toContain('"allOf"');
     });
 
     it('keeps a union structured, now that Gemini takes anyOf', () => {
-      const request = makeRequest(unionSchema, 'auto');
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-3.5-flash'));
+      let request = makeRequest(unionSchema, 'auto');
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-3.5-flash'));
       expect(request.responseFormat).toBeDefined();
     });
   });
 
   describe("schemaDelivery: 'structured'", () => {
     it('keeps response_format even for a Google model that cannot express the schema', () => {
-      const request = makeRequest(allOfSchema, 'structured');
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
+      let request = makeRequest(allOfSchema, 'structured');
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
       expect(request.responseFormat).toBeDefined();
       expect(typeof request.responseFormat).toBe('object');
       expect(systemContent(request)).toBe('You are a helpful assistant.');
@@ -109,17 +104,25 @@ describe('applySchemaDeliveryFallback', () => {
 
   describe("schemaDelivery: 'prompt'", () => {
     it('always drops response_format, even for OpenAI + a plain schema', () => {
-      const request = makeRequest(plainSchema, 'prompt');
-      applySchemaDeliveryFallback(request, makeModel('openai', 'gpt-4o'));
+      let request = makeRequest(plainSchema, 'prompt');
+      request = applySchemaDeliveryFallback(request, makeModel('openai', 'gpt-4o'));
       expect(request.responseFormat).toBeUndefined();
+      expect(systemContent(request)).toContain('conforming to this schema');
+    });
+  });
+
+  describe("schemaDelivery: 'json'", () => {
+    it('asks for JSON mode with the schema in the prompt', () => {
+      const request = applySchemaDeliveryFallback(makeRequest(plainSchema, 'json'), makeModel('openai', 'gpt-4o'));
+      expect(request.responseFormat).toBe('json');
       expect(systemContent(request)).toContain('conforming to this schema');
     });
   });
 
   describe("OpenAI + union schema + 'auto' (no regression)", () => {
     it('keeps structured output (response_format present)', () => {
-      const request = makeRequest(unionSchema, 'auto');
-      applySchemaDeliveryFallback(request, makeModel('openai', 'gpt-4o'));
+      let request = makeRequest(unionSchema, 'auto');
+      request = applySchemaDeliveryFallback(request, makeModel('openai', 'gpt-4o'));
       expect(request.responseFormat).toBeDefined();
       expect(typeof request.responseFormat).toBe('object');
       expect(systemContent(request)).toBe('You are a helpful assistant.');
@@ -128,22 +131,22 @@ describe('applySchemaDeliveryFallback', () => {
 
   describe('non-structured response formats', () => {
     it('is a no-op for text', () => {
-      const request: Request = { messages: [{ role: 'user', content: 'hi' }], responseFormat: 'text' };
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
+      let request: Request = { messages: [{ role: 'user', content: 'hi' }], responseFormat: 'text' };
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
       expect(request.responseFormat).toBe('text');
     });
 
     it('is a no-op when there is no responseFormat', () => {
-      const request: Request = { messages: [{ role: 'user', content: 'hi' }] };
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
+      let request: Request = { messages: [{ role: 'user', content: 'hi' }] };
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
       expect(request.responseFormat).toBeUndefined();
     });
   });
 
   describe('parse hook can validate the model text JSON after fallback', () => {
     it('the dropped schema still validates a conforming instance', () => {
-      const request = makeRequest(unionSchema, 'auto');
-      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
+      let request = makeRequest(unionSchema, 'auto');
+      request = applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
 
       // A model reply (fenced) → the Prompt extracts + parses it; the schema
       // (kept by the Prompt) still validates the conceptual value.

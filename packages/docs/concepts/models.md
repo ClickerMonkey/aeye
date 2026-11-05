@@ -130,6 +130,11 @@ const all = ai.models.list();
 // Get a specific model
 const model = ai.models.get('gpt-5.4-mini');
 const model2 = ai.models.get('openai/gpt-5.4-mini'); // with provider prefix
+const model3 = ai.models.get('openrouter/openai/gpt-5.4-mini'); // OpenRouter's copy
+
+// An id's first segment names the provider when one of that name is
+// configured: with both OpenAI and OpenRouter, 'openai/gpt-5.4-mini' is
+// OpenAI's model, and OpenRouter's is 'openrouter/openai/gpt-5.4-mini'.
 
 // Search with scoring
 const results = ai.models.search({

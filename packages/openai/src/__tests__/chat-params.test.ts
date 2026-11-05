@@ -50,6 +50,18 @@ describe('chat params', () => {
     expect(sentParams().reasoning_effort).toBe('low');
   });
 
+  it('sends no content beside tool calls rather than empty text', async () => {
+    // Upstreams such as Qwen's reject an empty text part
+    mockCreate.mockResolvedValue(completion({}));
+    const call = { id: 'call_1', name: 'roll_dice', arguments: '{}' };
+
+    await provider.createExecutor()({
+      messages: [{ role: 'user', content: 'Roll' }, { role: 'assistant', content: '', toolCalls: [call] }, { role: 'tool', toolCallId: 'call_1', content: '7' }],
+    }, ctx, { model: 'gpt-5.4' });
+
+    expect(sentParams().messages[1]).toEqual({ role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'roll_dice', arguments: '{}' } }] });
+  });
+
   it('maps the newer request fields', async () => {
     mockCreate.mockResolvedValue(completion({}));
 

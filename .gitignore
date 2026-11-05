@@ -55,3 +55,6 @@ coverage/
 *.cpuprofile
 packages/query/integration/reports/
 
+
+# Live test passes (packages/test-integration)
+.live-cache/

@@ -6,7 +6,7 @@
  * same mapping when each item finishes.
  */
 
-import type { Chunk, HostedTool, Reasoning, ToolCall } from '@aeye/core';
+import { replaysTo, type Chunk, type HostedTool, type Reasoning, type ToolCall } from '@aeye/core';
 import OpenAI from 'openai';
 import { responsesUsage, toCitation, toModeration, toServiceTier } from './convert';
 import { ProviderError } from './types';
@@ -66,10 +66,15 @@ export function toInputContent(part: OpenAI.Chat.ChatCompletionContentPart): Ope
 /**
  * Reasoning from an earlier assistant turn that came from the Responses API,
  * as input items. Encrypted content lets the model resume its reasoning
- * without the response being stored.
+ * without the response being stored, but only for the provider that made it.
+ *
+ * @param provider - The provider the items are for.
  */
-export function toReasoningItems(reasoning: Reasoning | undefined): OpenAI.Responses.ResponseReasoningItem[] {
-  return (reasoning?.details ?? []).flatMap((detail): OpenAI.Responses.ResponseReasoningItem[] =>
+export function toReasoningItems(reasoning: Reasoning | undefined, provider: string): OpenAI.Responses.ResponseReasoningItem[] {
+  if (!replaysTo(reasoning, provider)) {
+    return [];
+  }
+  return (reasoning.details ?? []).flatMap((detail): OpenAI.Responses.ResponseReasoningItem[] =>
     detail.format === RESPONSES_REASONING_FORMAT && detail.id
       ? [{
           type: 'reasoning',
@@ -122,8 +127,9 @@ const HOSTED_CALLS: Partial<Record<OpenAI.Responses.ResponseOutputItem['type'], 
  *
  * @param streamed - Whether text and reasoning already arrived as deltas, in
  *   which case only what deltas don't carry is included.
+ * @param provider - The provider the item came from, which its reasoning names.
  */
-export function outputItemChunk(item: OpenAI.Responses.ResponseOutputItem, streamed: boolean): Chunk {
+export function outputItemChunk(item: OpenAI.Responses.ResponseOutputItem, streamed: boolean, provider: string): Chunk {
   const hosted = HOSTED_CALLS[item.type];
   const chunk: Chunk = hosted ? { usage: { tools: { [hosted]: 1 } } } : {};
 
@@ -143,6 +149,7 @@ export function outputItemChunk(item: OpenAI.Responses.ResponseOutputItem, strea
       chunk.reasoning = {
         content: streamed ? undefined : summary,
         details: [{ id: item.id, type: 'reasoning.encrypted', format: RESPONSES_REASONING_FORMAT, summary, data: item.encrypted_content ?? undefined }],
+        provider,
       };
       break;
     }
@@ -231,7 +238,7 @@ export async function* responseChunks(events: AsyncIterable<OpenAI.Responses.Res
         break;
       }
       case 'response.output_item.done':
-        yield outputItemChunk(event.item, true);
+        yield outputItemChunk(event.item, true, provider);
         break;
       case 'response.completed':
       case 'response.incomplete':

@@ -17,20 +17,29 @@
  * ```
  */
 
+import { accumulateUsage } from '@aeye/core';
 import type { AI } from '../ai';
 import type {
   AIBaseTypes,
+  AIContext,
   AIContextAny,
   AIContextRequired,
   BatchJob,
   BatchStatus,
   Request,
+  Usage,
 } from '../types';
 
 /**
  * Statuses a batch never leaves.
  */
 const FINAL: ReadonlySet<BatchStatus> = new Set<BatchStatus>(['completed', 'failed', 'expired', 'cancelled']);
+
+/**
+ * Batch price as a share of the regular price, for providers that don't
+ * report a batch's cost: OpenAI and OpenRouter bill batches at half price.
+ */
+const BATCH_PRICE = 0.5;
 
 /**
  * Options for waiting on a batch.
@@ -48,12 +57,17 @@ export interface BatchWaitOptions {
  * @template T - AIBaseTypes container with all type information
  */
 export class BatchAPI<T extends AIBaseTypes> {
+  // Completed batches already reported to the afterBatch hook
+  private readonly reported = new Set<string>();
+
   constructor(private ai: AI<T>) {}
 
   /**
    * Submit chat requests to run as one batch on one model. The model is
    * selected for the first request, so pin one with `metadata.model` when
-   * the requests differ in what they need.
+   * the requests differ in what they need. The onModelSelected hook runs
+   * once, and beforeRequest runs for each request (so budget checks can
+   * stop the batch) with the batch price estimate.
    *
    * @param requests - The chat requests, whose results come back in this order.
    * @param ctx - The context.
@@ -64,10 +78,16 @@ export class BatchAPI<T extends AIBaseTypes> {
       throw new Error('A batch needs at least one request');
     }
 
+    const { hooks } = this.ai;
     const fullCtx = await this.ai.buildContext(ctx);
-    const selected = await this.ai.chat.getModelFor(first, fullCtx, false);
+    const found = await this.ai.chat.getModelFor(first, fullCtx, false);
+    const selected = found && ((await hooks.onModelSelected?.(fullCtx, first, found)) || found);
     if (!selected?.provider.submitBatch) {
       throw new Error(`No model found that can run a batch${selected ? `: ${selected.model.provider} does not offer batches` : ''}`);
+    }
+    for (const request of requests) {
+      const usage = this.ai.estimateRequestUsage(request);
+      await hooks.beforeRequest?.(fullCtx, request, selected, usage, this.ai.calculateCost(selected.model, usage) * BATCH_PRICE);
     }
 
     // The provider reads the selected model from the context, as for chat
@@ -76,7 +96,9 @@ export class BatchAPI<T extends AIBaseTypes> {
   }
 
   /**
-   * The batch as it stands now, with results once it completes.
+   * The batch as it stands now, with results once it completes. The first
+   * time this sees a batch completed, it reports the batch's usage and cost
+   * to the afterBatch hook.
    *
    * @param job - A batch from `submit`.
    * @param ctx - The context.
@@ -86,7 +108,29 @@ export class BatchAPI<T extends AIBaseTypes> {
     if (!provider?.getBatch) {
       throw new Error(`Provider "${job.provider}" does not offer batches`);
     }
-    return provider.getBatch(job, await this.ai.buildContext(ctx));
+    const fullCtx = await this.ai.buildContext(ctx);
+    const current = await provider.getBatch(job, fullCtx);
+    const key = `${current.provider}:${current.id}`;
+    if (current.status === 'completed' && current.results && !this.reported.has(key)) {
+      this.reported.add(key);
+      await this.report(current, fullCtx);
+    }
+    return current;
+  }
+
+  /**
+   * Report a completed batch to the afterBatch hook: the usage of its
+   * results, and the cost the provider reported or else the batch price of
+   * that usage.
+   */
+  private async report(job: BatchJob, ctx: AIContext<T>): Promise<void> {
+    const usage: Usage = {};
+    for (const result of job.results ?? []) {
+      accumulateUsage(usage, result.response?.usage);
+    }
+    const model = this.ai.registry.getModel(job.model);
+    const cost = job.cost ?? usage.cost ?? (model ? this.ai.calculateCost(model, usage) * BATCH_PRICE : 0);
+    await this.ai.hooks.afterBatch?.(ctx, job, usage, cost);
   }
 
   /**

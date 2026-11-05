@@ -348,8 +348,9 @@ describe('Prompt Final Coverage', () => {
 
       await prompt.get('result', {}, ctx);
 
-      // The executor should have seen only the prompt's system message.
-      expect(messagesAtCall).toBe(1);
+      // The executor should have seen only the prompt's system message and
+      // the user turn added in place of the excluded conversation.
+      expect(messagesAtCall).toBe(2);
     });
 
     it('should include context messages by default', async () => {

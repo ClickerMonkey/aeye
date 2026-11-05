@@ -80,7 +80,7 @@ const provider = new OpenAIProvider({
 });
 ```
 
-With `'auto'`, chat uses Chat Completions unless the model is Responses-only (codex, pre-5.6 pro models, deep-research, computer-use), the request has `hostedTools`, a tool sets `format`, `defer`, or `async`, or `reason` sets `mode`, `summary`, or `context`. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns.
+With `'auto'`, chat uses Chat Completions unless the model is Responses-only (codex, pre-5.6 pro models, deep-research, computer-use), the request has `hostedTools`, a tool sets `format`, `defer`, or `async`, `reason` sets `mode`, `summary`, or `context`, or the request has tools and a reasoning `effort` other than `none`. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns.
 
 ### Custom Base URL (for Azure OpenAI or compatible APIs)
 
@@ -601,7 +601,7 @@ console.log('Answer:', response.content);
 ```
 
 - The effort is clamped to the model's accepted efforts when its `ModelInfo.reasoningEfforts` lists them.
-- `mode`, `summary`, or `context` send the request to the Responses API. There, reasoning comes back encrypted (`openai-responses-v1` details) unless `store` is on; keep the assistant message's `reasoning` in the conversation and it is replayed on the next turn.
+- `mode`, `summary`, or `context`, or an effort other than `none` with tools, send the request to the Responses API. There, reasoning comes back encrypted (`openai-responses-v1` details) unless `store` is on; keep the assistant message's `reasoning` in the conversation and it is replayed on the next turn.
 - `reason.maxTokens` and `reason.exclude` are not used by OpenAI.
 
 ### Hosted Tools
@@ -687,7 +687,7 @@ Typed answers from `/v1/decisions` (default model `gpt-6-luna`, or `defaultModel
 ```typescript
 import { AI } from '@aeye/ai';
 
-const ai = AI.with().providers({ openai: provider }).create({});
+const ai = AI.with().providers({ openai: provider }).create();
 
 const { answers } = await ai.decide.get({
   input: 'I was charged twice for my order.',

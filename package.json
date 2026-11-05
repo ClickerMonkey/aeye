@@ -30,7 +30,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "update:versions": "node scripts/update-versions.js",
     "update:versions:patch": "node scripts/update-versions-patch.js",
-    "release": "npm publish --workspaces --access public"
+    "release": "node scripts/release.js"
   },
   "keywords": [
     "ai",

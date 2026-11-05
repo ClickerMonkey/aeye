@@ -1326,6 +1326,18 @@ export interface AIHooks<T extends AIBaseTypes> {
   ) => Promise<void> | void;
 
   /**
+   * Called once when a batch is first seen completed (`ai.batch.get` or
+   * `wait`), with its total usage and cost. Batches don't run afterRequest:
+   * a completed batch read back later no longer has its requests.
+   */
+  afterBatch?: (
+    ctx: AIContext<T>,
+    job: BatchJob,
+    usage: Usage,
+    cost: number
+  ) => Promise<void> | void;
+
+  /**
    * Called when an error occurs in any AI operation.
    * Use this for centralized error logging and monitoring.
    */

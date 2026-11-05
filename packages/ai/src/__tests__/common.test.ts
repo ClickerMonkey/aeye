@@ -22,4 +22,12 @@ describe('clampReasoningEffort', () => {
   it('prefers the lower effort on a tie', () => {
     expect(clampReasoningEffort('medium', ['low', 'high'])).toBe('low');
   });
+
+  it('keeps reasoning on unless none is asked for', () => {
+    // DeepSeek V4 takes none, high and xhigh; GPT-5.4 has no minimal
+    expect(clampReasoningEffort('low', ['none', 'high', 'xhigh'])).toBe('high');
+    expect(clampReasoningEffort('minimal', ['none', 'low', 'medium', 'high', 'xhigh'])).toBe('low');
+    expect(clampReasoningEffort('none', ['none', 'high'])).toBe('none');
+    expect(clampReasoningEffort('low', ['none'])).toBe('none');
+  });
 });

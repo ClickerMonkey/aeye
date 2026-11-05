@@ -95,11 +95,12 @@ export const strictSupport: ModelOverride[] = [
   // floating `-latest` aliases). Listed here both to add the `'toolsStrict'`
   // capability (which the OpenRouter scraper doesn't currently set) and to pin
   // the dialect explicitly. xAI's prefix is `x-ai`, which no family resolves
-  // on its own.
+  // on its own. Floating aliases (`~openai/gpt-luna-latest`,
+  // `openai/gpt-chat-latest`) name the same models.
   // ---------------------------------------------------------------------------
   {
     provider: 'openrouter',
-    modelPattern: /^~?openai\/(gpt-4o|gpt-4\.1|gpt-([5-9]|\d{2,})|o[1-9])/,
+    modelPattern: /^~?openai\/(gpt-4o|gpt-4\.1|gpt-([5-9]|\d{2,}|[a-z]+-latest)|o[1-9])/,
     overrides: { strictFormat: 'openai' },
   },
   {
@@ -116,5 +117,18 @@ export const strictSupport: ModelOverride[] = [
     provider: 'openrouter',
     modelPattern: /^~?x-ai\/grok-([4-9]|latest)/,
     overrides: { strictFormat: 'xai' },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Open-weight models under a vendor prefix. `openai/gpt-oss-*` and
+  // `google/gemma-*` would otherwise resolve to the OpenAI / Gemini dialect by
+  // id prefix, but OpenRouter serves them from third-party hosts (Groq,
+  // Cerebras, DeepInfra, ...) whose json_schema support is their own — see
+  // docs/plans/schema-dialects-2026.md § 6.
+  // ---------------------------------------------------------------------------
+  {
+    provider: 'openrouter',
+    modelPattern: /^~?(openai\/gpt-oss|google\/gemma)/,
+    overrides: { strictFormat: 'none' },
   },
 ];
