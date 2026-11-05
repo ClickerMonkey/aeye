@@ -1236,7 +1236,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         : { type: 'allowed_tools', mode: choice.required ? 'required' : 'auto', tools: choice.allowed.map(name => ({ type: kind(name), name })) },
       parallel_tool_calls: tools.length ? !request.toolsOneAtATime : undefined,
       text: {
-        format: format?.type === 'json_schema' ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {} } : format,
+        // The Responses API treats an unflagged json_schema as strict, so a non-strict one says so
+        format: format?.type === 'json_schema'
+          ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {}, strict: format.json_schema.strict ?? false }
+          : format,
         verbosity: request.verbosity,
       },
       reasoning: reason && {
