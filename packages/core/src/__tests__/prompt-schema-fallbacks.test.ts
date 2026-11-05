@@ -8,7 +8,7 @@ import { deliverSchema, SCHEMA_FALLBACKS, schemaRejection } from '../delivery';
 import { SchemaRejectedError } from '../errors';
 import { Prompt, PromptEvent } from '../prompt';
 import { Tool } from '../tool';
-import type { Context, Request, Response, SchemaFallback, SchemaTarget } from '../types';
+import type { Context, Request, Response, SchemaDelivery, SchemaFallback, SchemaTarget } from '../types';
 
 /** What the provider saw on each call: the output's strict and delivery, and each tool's strict. */
 interface Sent {
@@ -210,7 +210,7 @@ describe('deliverSchema', () => {
     expect(deliverSchema(original)).toBe(original);
   });
 
-  it.each([['json', 'json'], ['prompt', undefined]] as const)("moves a '%s' schema into the prompt", (delivery, format) => {
+  it.each<[SchemaDelivery, 'json' | undefined]>([['json', 'json'], ['prompt', undefined]])("moves a '%s' schema into the prompt", (delivery, format) => {
     const original = request(delivery);
     const sent = deliverSchema(original);
     expect(sent.responseFormat).toBe(format);

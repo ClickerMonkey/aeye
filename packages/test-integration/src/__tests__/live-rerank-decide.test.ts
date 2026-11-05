@@ -3,7 +3,7 @@
  */
 
 import { describe, expect } from '@jest/globals';
-import { AI, type DecisionQuestion } from '@aeye/ai';
+import { AI, type DecisionQuestion, type DecisionRequest, type DecisionResponse } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { liveCase } from '../live';
@@ -30,16 +30,14 @@ describeLive('live rerank and decisions', () => {
     expect(results[0].index).toBe(1);
   });
 
-  const decides: Array<[string, typeof openai | typeof openrouter, string]> = [
-    ['openai', openai, 'gpt-6-luna'],
-    ['openrouter', openrouter, 'typesafe/jev-1.14'],
+  const request: DecisionRequest = { input: [{ role: 'user', content: ticket }], questions };
+  const decides: Array<[string, string, () => Promise<DecisionResponse>]> = [
+    ['openai', 'gpt-6-luna', () => openai.decide.get(request, { metadata: { model: 'gpt-6-luna' } })],
+    ['openrouter', 'typesafe/jev-1.14', () => openrouter.decide.get(request, { metadata: { model: 'typesafe/jev-1.14' } })],
   ];
-  for (const [provider, ai, model] of decides) {
+  for (const [provider, model, decide] of decides) {
     liveCase(`decide ${provider} ${model}`, { sources: ['core', 'ai', 'openai', 'openrouter'], inputs: { model, questions, ticket } }, async () => {
-      const { answers } = await ai.decide.get(
-        { input: [{ role: 'user', content: ticket }], questions },
-        { metadata: { model } },
-      );
+      const { answers } = await decide();
       expect(answers.billing).toMatchObject({ type: 'predicate' });
       expect(answers.team).toMatchObject({ type: 'choice', choice: 'payments' });
       expect(answers.urgency).toMatchObject({ type: 'score' });

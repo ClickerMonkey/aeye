@@ -4,7 +4,7 @@
  */
 
 import type { ModelInfo } from '@aeye/ai';
-import { type Chunk, type FinishReason, type Message, type Request, type Response, TEXT_TOOL_SCHEMA } from '@aeye/core';
+import { type Chunk, type FinishReason, type Message, type Reason, type Request, type Response, TEXT_TOOL_SCHEMA, type ToolTextFormat } from '@aeye/core';
 import {
   BedrockRuntimeClient,
   ConverseCommand,
@@ -128,7 +128,7 @@ describe('Converse request mapping', () => {
   });
 
   it('sends settings: inference, service tier, metadata, latency, guardrails, and extra fields', async () => {
-    const guardrail = { guardrailIdentifier: 'gr-1', guardrailVersion: '2', streamProcessingMode: 'async' as const };
+    const guardrail: NonNullable<AWSBedrockConfig['guardrail']> = { guardrailIdentifier: 'gr-1', guardrailVersion: '2', streamProcessingMode: 'async' };
     const provider = new AWSBedrockProvider({ ...config, latency: 'optimized', guardrail });
     const sent = fakeBedrock();
     const request: Request = {
@@ -172,7 +172,7 @@ describe('Converse request mapping', () => {
 
   it('sends tools with grammar hints, strict flags, and the tool choice', async () => {
     const sent = fakeBedrock();
-    const grammar = { type: 'grammar' as const, syntax: 'lark' as const, definition: 'start: "a"+' };
+    const grammar: ToolTextFormat = { type: 'grammar', syntax: 'lark', definition: 'start: "a"+' };
     const tools = [
       { name: 'search', description: 'Search', parameters: z.object({ q: z.string() }), strict: true },
       { name: 'emit', description: 'Emit', parameters: TEXT_TOOL_SCHEMA, format: grammar },
@@ -214,30 +214,30 @@ describe('Converse request mapping', () => {
     expect(JSON.stringify(sent.converse[1].input.system)).toContain('conforming to this schema');
   });
 
-  it.each([
-    ['adaptive Claude', model('anthropic.claude-opus-4-7'), { effort: 'high' as const }, {
+  it.each<[string, ModelInfo, Reason, object]>([
+    ['adaptive Claude', model('anthropic.claude-opus-4-7'), { effort: 'high' }, {
       additionalModelRequestFields: { thinking: { type: 'adaptive', display: 'summarized' } },
       outputConfig: { effort: 'high' },
       inferenceConfig: { temperature: undefined },
     }],
-    ['adaptive Claude without visible reasoning', model('anthropic.claude-sonnet-5'), { effort: 'minimal' as const, exclude: true }, {
+    ['adaptive Claude without visible reasoning', model('anthropic.claude-sonnet-5'), { effort: 'minimal', exclude: true }, {
       additionalModelRequestFields: { thinking: { type: 'adaptive', display: 'omitted' } },
       outputConfig: { effort: 'low' },
     }],
-    ['budget Claude', model('anthropic.claude-sonnet-4-5-20250929-v1:0'), { effort: 'low' as const }, {
+    ['budget Claude', model('anthropic.claude-sonnet-4-5-20250929-v1:0'), { effort: 'low' }, {
       additionalModelRequestFields: { thinking: { type: 'enabled', budget_tokens: 2048 } },
     }],
     ['budget Claude under the output limit', model('anthropic.claude-sonnet-4-5-20250929-v1:0', { maxOutputTokens: 4000 }), { maxTokens: 10_000 }, {
       additionalModelRequestFields: { thinking: { type: 'enabled', budget_tokens: 3999 } },
     }],
-    ['Claude without thinking', model('anthropic.claude-opus-4-7'), { effort: 'none' as const }, {
+    ['Claude without thinking', model('anthropic.claude-opus-4-7'), { effort: 'none' }, {
       additionalModelRequestFields: { thinking: { type: 'disabled' } },
     }],
-    ['Nova at high effort', model('amazon.nova-2-lite-v1:0', { reasoningEfforts: ['low', 'medium', 'high'] }), { effort: 'max' as const }, {
+    ['Nova at high effort', model('amazon.nova-2-lite-v1:0', { reasoningEfforts: ['low', 'medium', 'high'] }), { effort: 'max' }, {
       additionalModelRequestFields: { reasoningConfig: { type: 'enabled', maxReasoningEffort: 'high' } },
       inferenceConfig: { maxTokens: undefined, temperature: undefined },
     }],
-    ['gpt-oss', model('openai.gpt-oss-120b-1:0', { reasoningEfforts: ['low', 'medium', 'high'] }), { effort: 'xhigh' as const }, {
+    ['gpt-oss', model('openai.gpt-oss-120b-1:0', { reasoningEfforts: ['low', 'medium', 'high'] }), { effort: 'xhigh' }, {
       additionalModelRequestFields: { reasoning_effort: 'high' },
     }],
   ])('maps reasoning for %s', async (_, info, reason, expected) => {

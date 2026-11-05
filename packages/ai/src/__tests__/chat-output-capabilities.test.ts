@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { Request, SchemaDelivery } from '@aeye/core';
 import { AI } from '../ai';
 import { ChatAPI } from '../apis/chat';
-import type { AIBaseTypes } from '../types';
+import type { AIBaseTypes, ModelCapability } from '../types';
 
 class Capabilities<T extends AIBaseTypes> extends ChatAPI<T> {
   of(request: Request) {
@@ -23,11 +23,11 @@ function request(schemaDelivery: SchemaDelivery): Request {
 }
 
 describe('chat output capabilities', () => {
-  it.each([
+  it.each<[SchemaDelivery, ModelCapability]>([
     ['structured', 'structured'],
     ['auto', 'structured'],
     ['json', 'json'],
-  ] as const)("a '%s' schema needs %s", (delivery, capability) => {
+  ])("a '%s' schema needs %s", (delivery, capability) => {
     expect(capabilities.of(request(delivery))).toContain(capability);
   });
 

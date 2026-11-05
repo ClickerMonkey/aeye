@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { describeTool, forcesTool, TEXT_TOOL_SCHEMA, Tool, withAllowedTools } from '../tool';
-import type { Context, Request } from '../types';
+import type { Context, Request, ToolTextFormat } from '../types';
 
 // ---- Type-level assertion helpers -----------------------------------------
 type Equal<A, B> =
@@ -940,7 +940,7 @@ describe('tool choice helpers', () => {
 
 describe('describeTool', () => {
   it('appends a grammar to the description of a free-text tool', () => {
-    const format = { type: 'grammar' as const, syntax: 'regex' as const, definition: '^[0-9]+$' };
+    const format: ToolTextFormat = { type: 'grammar', syntax: 'regex', definition: '^[0-9]+$' };
     expect(describeTool({ name: 'n', description: 'A number', parameters: TEXT_TOOL_SCHEMA, format }))
       .toBe('A number\n\nThe input must match this regex grammar:\n^[0-9]+$');
   });
