@@ -3,8 +3,10 @@ import { ZodString, ZodType } from 'zod';
 
 import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, forcesTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
-import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
+import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify, decodeWire } from "./schema";
+import { OutputValidationError, PromptError, ReviewRejectedError, SchemaRejectedError, ToolExecutionError, ToolFailure, ToolInputError } from "./errors";
+import { SCHEMA_FALLBACKS } from "./delivery";
 
 /** Default cap (chars) for validation error messages surfaced back to the
  *  LLM. Read by `Prompt.truncateValidationError`; subclasses may override
@@ -70,6 +72,26 @@ export interface PromptReconfig {
 }
 
 /**
+ * A review's verdict on a prompt's output: it passes, or the model gets the
+ * feedback and another round.
+ */
+export type PromptReview = { pass: true } | { feedback: string };
+
+/**
+ * What a prompt's `review` sees besides the output.
+ */
+export interface PromptReviewContext<TContext, TMetadata, TInput> {
+  // The prompt's input.
+  input: TInput;
+  // The request so far; `request.messages` ends with the reviewed answer.
+  request: Request;
+  // The prompt's context, for running a reviewer prompt.
+  ctx: Context<TContext, TMetadata>;
+  // Which review this is, from 1.
+  attempt: number;
+}
+
+/**
  * Input structure for defining a prompt.
  * 
  * @template TContext - The context type needed for the prompt's operation.
@@ -129,11 +151,26 @@ export interface PromptInput<
    *   prompt retries once with prompt-text delivery.
    * - `'structured'` — always send structured output, even for dialects that
    *   can't express the schema (pre-fallback behavior).
+   * - `'json'` — DROP the wire schema, deliver it as prompt text, and ask for
+   *   JSON mode.
    * - `'prompt'` — always DROP the wire schema and deliver it as prompt text.
    *
-   * Only affects prompts with a structured (non-`ZodString`) `schema`.
+   * Only affects prompts with a structured (non-`ZodString`) `schema`. When a
+   * provider rejects a schema (`SchemaRejectedError`) the prompt steps down
+   * `schemaFallbacks` from here.
    */
   schemaDelivery?: SchemaDelivery;
+  /**
+   * The steps taken, in order, when a provider rejects a schema with a
+   * `SchemaRejectedError`. Each rejection takes the first step that applies
+   * to the rejected schema and sends the request again; the request keeps
+   * the step for the rest of the run, so later iterations don't fail first.
+   * Each step is taken at most once per schema, and the error is thrown when
+   * none applies. Defaults to the context's, then `SCHEMA_FALLBACKS`: output
+   * strict → non-strict → JSON mode → text, and tools strict → non-strict.
+   * Disabled by `runtimeSchemaFallback: false`.
+   */
+  schemaFallbacks?: readonly SchemaFallback[];
   /**
    * Enables the RUNTIME schema-delivery fallback under `schemaDelivery: 'auto'`.
    * Default `true`. The static (pre-flight) part of `'auto'` — dropping a schema
@@ -311,6 +348,17 @@ export interface PromptInput<
   parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>;
   // Optional post-validation hook that runs after parsing succeeds (Zod or custom `parse`) on the final DECODED output (`TDecoded`). Can throw to trigger re-prompting.
   validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  /**
+   * Optional review of the parsed, validated output before it's returned,
+   * for example by a reviewer prompt run on `context.ctx`. On `{ feedback }`
+   * the feedback is added as a user message and the model answers again, up
+   * to `reviewRetries` times; feedback after that throws a `PromptError`
+   * whose cause is a `ReviewRejectedError` carrying the last output. Emits
+   * `reviewStart`, then `reviewPass` or `reviewFeedback`.
+   */
+  review?: (output: TDecoded, context: PromptReviewContext<TContext, TMetadata, TInput>) => PromptReview | Promise<PromptReview>;
+  // Number of times the model answers review feedback. Defaults to 1.
+  reviewRetries?: number;
   // Optional function to determine if the component is applicable in the given context. If this is defined it is used over the default check.
   applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
   // Optional way to explicitly declare the types used in this component.
@@ -389,7 +437,7 @@ export type PromptTools<TTools extends AnyTool[]> =
  * 
  * { type: 'toolStart', tool: TTool, args: any } |
  * { type: 'toolOutput', tool: TTool, args: any, result: TOutput, toModel: unknown } |
- * { type: 'toolError', tool: TTool, args: any, error: string }
+ * { type: 'toolError', tool: TTool, args: any, error: string, failure: ToolFailure }
  */
 export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
   TTools extends Array<infer TTool>
@@ -401,7 +449,8 @@ export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
       | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, toModel: unknown, request: Request }
       | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
       | { type: 'toolSuspend', tool: TTool, args: any, request: Request }
-      | { type: 'toolError', tool: TTool, args: any, error: string, rawArgs?: string, request: Request }
+      // `failure.kind` says who caused it: `model` for a bad call, `tool` for the tool's own error.
+      | { type: 'toolError', tool: TTool, args: any, error: string, failure: ToolFailure, rawArgs?: string, request: Request }
       : never
     : never;
 
@@ -427,7 +476,12 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'textComplete', content: string, request: Request } |
   { type: 'complete', output: TOutput, request: Request } |
   { type: 'suspend', request: Request } |
-  { type: 'textReset', reason?: string, request: Request } |
+  // `error` is set when the model's output was invalid and it's asked again.
+  { type: 'textReset', reason?: string, error?: OutputValidationError, request: Request } |
+  { type: 'schemaFallback', fallback: string, error: SchemaRejectedError, request: Request } |
+  { type: 'reviewStart', output: TOutput, attempt: number, request: Request } |
+  { type: 'reviewPass', output: TOutput, attempt: number, request: Request } |
+  { type: 'reviewFeedback', output: TOutput, feedback: string, attempt: number, request: Request } |
   { type: 'requestUsage', usage: Usage, request: Request } |
   { type: 'responseTokens', tokens: number, request: Request } |
   { type: 'usage', usage: Usage, request: Request };
@@ -808,10 +862,18 @@ export class Prompt<
     let forgetRetries = this.input.forgetRetries ?? ctx.forgetRetries ?? 1;
     let toolIterations = this.input.toolIterations ?? 3;
     let toolRetries = this.input.toolRetries ?? ctx.toolRetries ?? 2;
+    let reviewRetries = this.input.reviewRetries ?? 1;
+    let reviews = 0;
     const toolsComplete = this.input.toolsComplete ?? true;
+    const schemaFallbacks = this.input.schemaFallbacks ?? ctx.schemaFallbacks ?? SCHEMA_FALLBACKS;
+    // Schema fallbacks taken this run, re-applied when a dynamic prompt
+    // re-resolves its request.
+    const fallbacksTaken: [SchemaFallback, SchemaTarget][] = [];
 
     let result: TDecoded | undefined = undefined;
-    let lastError: string | undefined = undefined;
+    let lastError: PromptError | undefined = undefined;
+    // The last tool failure, the cause when the iterations run out.
+    let toolFailure: ToolFailure | undefined = undefined;
     let completeText: string = '';
     // Runtime schema-delivery fallback guard. A model whose descriptor ALLOWS
     // the schema (so the static `canExpress` check passes and structured output
@@ -824,7 +886,7 @@ export class Prompt<
     // idempotent within a single prompt run — we switch at most once and never
     // loop. Per-run only; nothing is persisted across requests.
     let promotedToPromptDelivery = false;
-    let maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + 1;
+    let maxIterations = outputRetries + forgetRetries + toolIterations + toolRetries + reviewRetries + 1;
     let requestUsageSent = false;
     let usage: Usage | undefined = undefined;
     let iterations = 0;
@@ -849,6 +911,29 @@ export class Prompt<
     const emitMessage = (message: Message) => {
       request.messages.push(message);
       return emit({ type: 'message', message, request });
+    };
+    // The events a tool execution is ready to emit, each emitted once.
+    const toolEvents = function* (te: ToolExecution<PromptTools<TTools>>) {
+      const { tool, args } = te;
+      if (te.emitRepairAttempt()) {
+        yield emit({ type: 'toolArgRepairAttempt', tool: tool!, fields: te.repairAttempt!.fields, success: te.repairAttempt!.success, request });
+      }
+      if (te.emitStart()) {
+        yield emitTool({ type: 'toolStart', tool: tool!, args, request });
+      }
+      if (te.emitOutput()) {
+        yield emitTool({ type: 'toolOutput', tool: tool!, args, result: te.result, toModel: te.toModel, request });
+      }
+      if (te.emitInterrupt()) {
+        yield emitTool({ type: 'toolInterrupt', tool: tool!, args, request });
+      }
+      if (te.emitSuspend()) {
+        yield emitTool({ type: 'toolSuspend', tool: tool!, args, request });
+      }
+      if (te.emitError()) {
+        const failure = te.error!;
+        yield emitTool({ type: 'toolError', tool: tool!, args, error: failure.message, failure, rawArgs: failure instanceof ToolInputError ? failure.rawArgs : undefined, request });
+      }
     };
 
     // Main execution loop!
@@ -1017,21 +1102,7 @@ export class Prompt<
         // In immediate mode we might be getting more chunks while executing, emit events as soon as possible.
         if (toolMode === 'immediate') {
           for (const toolCall of toolExecutors) {
-            if (toolCall.emitStart()) {
-              yield emitTool({ type: 'toolStart', tool: toolCall.tool!, args: toolCall.args, request });
-            }
-            if (toolCall.emitOutput()) {
-              yield emitTool({ type: 'toolOutput', tool: toolCall.tool!, args: toolCall.args, result: toolCall.result, toModel: toolCall.toModel, request });
-            }
-            if (toolCall.emitInterrupt()) {
-              yield emitTool({ type: 'toolInterrupt', tool: toolCall.tool!, args: toolCall.args, request });
-            }
-            if (toolCall.emitSuspend()) {
-              yield emitTool({ type: 'toolSuspend', tool: toolCall.tool!, args: toolCall.args, request });
-            }
-            if (toolCall.emitError()) {
-              yield emitTool({ type: 'toolError', tool: toolCall.tool!, args: toolCall.args, error: toolCall.error!, rawArgs: toolCall.rawArgs, request })
-            }
+            yield* toolEvents(toolCall);
           }
         }
       }
@@ -1046,14 +1117,14 @@ export class Prompt<
       // If the model refused to answer and stop
       if (finishReason === 'refusal' || refusal) {
         yield emit({ type: 'refusal', content: refusal || 'unspecified', request });
-        lastError = refusal || 'Model refused to answer.';
+        lastError = new PromptError(refusal || 'Model refused to answer.', 'model');
         break;
       }
 
       // If the model was stopped due to content filtering
       if (finishReason === 'content_filter') {
         yield emit({ type: 'refusal', content: 'Content filtered by AI model', request });
-        lastError = 'Model response was filtered due to content policy.';
+        lastError = new PromptError('Model response was filtered due to content policy.', 'model');
         break;
       }
 
@@ -1069,7 +1140,7 @@ export class Prompt<
           continue;          
         } else {
           // Stop iteration - we can't trim without usage info
-          lastError = 'Model indicated length finish reason but no token usage was provided so context cannot be trimmed.';
+          lastError = new PromptError('Model indicated length finish reason but no token usage was provided so context cannot be trimmed.', 'model');
           break;
         }
       }
@@ -1099,15 +1170,7 @@ export class Prompt<
             // Non-blocking call, we don't want to hold up execution here. But if we can emit start or error early below this we will try.
             toolExecutor.parse();
           }
-          if (toolExecutor.emitRepairAttempt()) {
-            yield emit({ type: 'toolArgRepairAttempt', tool: toolExecutor.tool!, fields: toolExecutor.repairAttempt!.fields, success: toolExecutor.repairAttempt!.success, request });
-          }
-          if (toolExecutor.emitStart()) {
-            yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-          }
-          if (toolExecutor.emitError()) {
-            yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, rawArgs: toolExecutor.rawArgs, request })
-          }
+          yield* toolEvents(toolExecutor);
         }
 
         // The execution mode for this iteration.
@@ -1127,25 +1190,9 @@ export class Prompt<
               // removed by the time tool dispatch runs.
               if (ctx.signal?.aborted) break;
               await toolExecutor.parse();
-              if (toolExecutor.emitRepairAttempt()) {
-                yield emit({ type: 'toolArgRepairAttempt', tool: toolExecutor.tool!, fields: toolExecutor.repairAttempt!.fields, success: toolExecutor.repairAttempt!.success, request });
-              }
-              if (toolExecutor.emitStart()) {
-                yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-              }
+              yield* toolEvents(toolExecutor);
               await toolExecutor.run();
-              if (toolExecutor.emitOutput()) {
-                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, toModel: toolExecutor.toModel, request });
-              }
-              if (toolExecutor.emitInterrupt()) {
-                yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-              }
-              if (toolExecutor.emitSuspend()) {
-                yield emitTool({ type: 'toolSuspend', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-              }
-              if (toolExecutor.emitError()) {
-                yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, rawArgs: toolExecutor.rawArgs, request })
-              }
+              yield* toolEvents(toolExecutor);
             }
             break;
           case 'parallel':
@@ -1161,25 +1208,7 @@ export class Prompt<
               // (We check `ctx.signal` directly — streamController's
               // listener was already removed before tool dispatch.)
               if (ctx.signal?.aborted) break;
-              const toolExecutor = await toolCallPromise;
-              if (toolExecutor.emitRepairAttempt()) {
-                yield emit({ type: 'toolArgRepairAttempt', tool: toolExecutor.tool!, fields: toolExecutor.repairAttempt!.fields, success: toolExecutor.repairAttempt!.success, request });
-              }
-              if (toolExecutor.emitStart()) {
-                yield emitTool({ type: 'toolStart', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-              }
-              if (toolExecutor.emitOutput()) {
-                yield emitTool({ type: 'toolOutput', tool: toolExecutor.tool!, args: toolExecutor.args, result: toolExecutor.result, toModel: toolExecutor.toModel, request });
-              }
-              if (toolExecutor.emitInterrupt()) {
-                yield emitTool({ type: 'toolInterrupt', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-              }
-              if (toolExecutor.emitSuspend()) {
-                yield emitTool({ type: 'toolSuspend', tool: toolExecutor.tool!, args: toolExecutor.args, request });
-              }
-              if (toolExecutor.emitError()) {
-                yield emitTool({ type: 'toolError', tool: toolExecutor.tool!, args: toolExecutor.args, error: toolExecutor.error!, rawArgs: toolExecutor.rawArgs, request })
-              }
+              yield* toolEvents(await toolCallPromise);
             }
             break;
         }
@@ -1224,7 +1253,7 @@ export class Prompt<
           // exactly as before: strings verbatim, everything else JSON.
           const modelValue = toolExecutor.status === 'success' ? toolExecutor.toModel : toolExecutor.result;
           const content = hasError
-            ? toolExecutor.error!
+            ? toolExecutor.error!.message
             : hasResult
               ? typeof modelValue === 'string'
                 ? modelValue
@@ -1235,8 +1264,10 @@ export class Prompt<
             role: 'tool',
             content,
             toolCallId: toolExecutor.toolCall.id,
+            failure: toolExecutor.error?.kind,
           });
 
+          toolFailure = toolExecutor.error ?? toolFailure;
           if (toolExecutor.status === 'invalid') {
             toolParseErrors++;
           } else if (toolExecutor.status === 'error') {
@@ -1304,10 +1335,9 @@ export class Prompt<
 
       // If we are finished, parse the output
       if (stop) {
+        let failure: OutputValidationError | undefined;
         if (!schema || (schema instanceof ZodString)) {
           result = content as unknown as TDecoded;
-
-          break; // All good!
         } else {
           // Grab the JSON part from the content just in case. In the
           // schema-delivery prompt-text fallback the model replies with
@@ -1315,9 +1345,13 @@ export class Prompt<
           // outermost balanced `{…}` (see `extractJSONObject`).
           const potentialJSON = extractJSONObject(content);
 
-          let errorMessage = '';
-          let resetReason = '';
-          const errMax = this.input.validationErrorMaxLength;
+          const invalid = (message: string, reason: OutputValidationError['reason']) =>
+            new OutputValidationError(this.truncateValidationError(message, this.input.validationErrorMaxLength), reason, content);
+          // The descriptor the provider shaped the output with, when the
+          // schema went on the wire.
+          const descriptorId = typeof request.responseFormat === 'object' && request.responseFormat.schemaDelivery !== 'json' && request.responseFormat.schemaDelivery !== 'prompt'
+            ? request.responseFormat.descriptor
+            : undefined;
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
@@ -1337,11 +1371,8 @@ export class Prompt<
               // (no Zod vocabulary — Zod never ran). Absent ⇒ unchanged.
               // Decode only when a descriptor was pinned; otherwise the wire
               // shape IS the conceptual shape and `parsedJSON` passes through.
-              const customDescriptorId = typeof request.responseFormat === 'object'
-                ? request.responseFormat.descriptor
-                : undefined;
-              const decoded = customDescriptorId
-                ? decodeWire(schema, parsedJSON, getDescriptorById(customDescriptorId))
+              const decoded = descriptorId
+                ? decodeWire(schema, parsedJSON, getDescriptorById(descriptorId))
                 : parsedJSON;
               let customResult: TDecoded | Error;
               try {
@@ -1350,19 +1381,14 @@ export class Prompt<
                 customResult = customError instanceof Error ? customError : new Error(String(customError));
               }
               if (customResult instanceof Error) {
-                errorMessage = this.truncateValidationError(customResult.message, errMax);
-                resetReason = 'schema-parsing';
+                failure = invalid(customResult.message, 'schema-parsing');
               } else {
                 result = customResult;
 
                 try {
                   await this.input.validate?.(result, ctx);
                 } catch (validationError: any) {
-                  errorMessage = this.truncateValidationError(
-                    `The output failed validation:\n${validationError.message}`,
-                    errMax,
-                  );
-                  resetReason = 'validation';
+                  failure = invalid(`The output failed validation:\n${validationError.message}`, 'validation');
                 }
               }
             } else {
@@ -1371,11 +1397,8 @@ export class Prompt<
             // normalize back into the natural Zod shape before validation.
             // The descriptor was pinned on the response format when the
             // provider built the request. Fast cache lookup on retries.
-            const responseDescriptorId = typeof request.responseFormat === 'object'
-              ? request.responseFormat.descriptor
-              : undefined;
-            const validationSchema = responseDescriptorId
-              ? strictify(schema, getDescriptorById(responseDescriptorId)) as typeof schema
+            const validationSchema = descriptorId
+              ? strictify(schema, getDescriptorById(descriptorId)) as typeof schema
               : schema;
 
             const parsedSafe = await validationSchema.safeParseAsync(parsedJSON);
@@ -1383,31 +1406,19 @@ export class Prompt<
               const issueSummary = parsedSafe.error.issues
                 .map(i => `- ${i.path.join('.')}: ${i.message}${['string', 'boolean', 'number'].includes(typeof i.input) ? ` (input: ${i.input})` : ''}`)
                 .join('\n')
-              errorMessage = this.truncateValidationError(
-                `The output was an invalid format:\n${issueSummary}`,
-                errMax,
-              );
-              resetReason = 'schema-parsing';
+              failure = invalid(`The output was an invalid format:\n${issueSummary}`, 'schema-parsing');
             } else {
               result = parsedSafe.data as unknown as TDecoded;
 
               try {
                 await this.input.validate?.(result, ctx);
               } catch (validationError: any) {
-                errorMessage = this.truncateValidationError(
-                  `The output failed validation:\n${validationError.message}`,
-                  errMax,
-                );
-                resetReason = 'validation';
+                failure = invalid(`The output failed validation:\n${validationError.message}`, 'validation');
               }
             }
             }
           } catch (parseError: any) {
-            errorMessage = this.truncateValidationError(
-              `The output was not valid JSON:\n${parseError.message}`,
-              errMax,
-            );
-            resetReason = 'json-parsing';
+            failure = invalid(`The output was not valid JSON:\n${parseError.message}`, 'json-parsing');
           }
 
           // Runtime schema-delivery fallback. The structured response was EMPTY
@@ -1428,7 +1439,7 @@ export class Prompt<
           // existing outputRetries re-prompt mechanism below to re-issue.
           if (
             this.input.runtimeSchemaFallback !== false &&
-            resetReason === 'json-parsing' &&
+            failure?.reason === 'json-parsing' &&
             !promotedToPromptDelivery &&
             typeof request.responseFormat === 'object' &&
             (request.responseFormat.schemaDelivery ?? 'auto') === 'auto'
@@ -1437,32 +1448,66 @@ export class Prompt<
             promotedToPromptDelivery = true;
           }
 
-          if (errorMessage) {
-            if (outputRetries > 0) {
-              outputRetries--;
+        }
 
-              yield emit({ type: 'textReset', reason: resetReason, request });
+        if (failure) {
+          result = undefined;
+          if (outputRetries > 0) {
+            outputRetries--;
 
-              yield emitMessage({
-                role: 'user',
-                content: errorMessage,
-              });
-            } else {
-              lastError = errorMessage;
-              break; // No more retries left
-            }
+            yield emit({ type: 'textReset', reason: failure.reason, error: failure, request });
+
+            yield emitMessage({
+              role: 'user',
+              content: failure.message,
+            });
           } else {
-            // A result was successfully parsed and validated!
+            lastError = failure;
+            break; // No more retries left
+          }
+        } else if (this.input.review) {
+          // A valid result goes to the review, whose feedback asks the model
+          // to answer again.
+          const output = result!;
+          const attempt = ++reviews;
+          yield emit({ type: 'reviewStart', output, attempt, request });
+          const verdict = await this.input.review(output, { input, request, ctx, attempt });
+          if ('pass' in verdict) {
+            yield emit({ type: 'reviewPass', output, attempt, request });
             lastError = undefined;
             break;
           }
+          yield emit({ type: 'reviewFeedback', output, feedback: verdict.feedback, attempt, request });
+          result = undefined;
+          if (reviewRetries <= 0) {
+            lastError = new ReviewRejectedError(output, verdict.feedback);
+            break;
+          }
+          reviewRetries--;
+          yield emitMessage({ role: 'user', content: verdict.feedback });
+        } else {
+          // A result was successfully parsed and validated!
+          lastError = undefined;
+          break;
         }
       }
       } catch (requestError) {
+        const recoverable = !ctx.signal?.aborted && !streamController.signal.aborted && this.input.runtimeSchemaFallback !== false;
+        // A classified schema rejection takes the first schema fallback not
+        // yet taken for its schema that applies, and the request goes again.
+        // The step stays on the request, so later iterations start there.
+        const rejected = requestError instanceof SchemaRejectedError ? requestError : undefined;
+        const fallback = rejected && recoverable
+          ? schemaFallbacks.find(step => !fallbacksTaken.some(([taken, target]) => taken === step && sameTarget(target, rejected.target)) && step.apply(request, rejected.target))
+          : undefined;
+        if (rejected && fallback) {
+          fallbacksTaken.push([fallback, rejected.target]);
+          yield emit({ type: 'schemaFallback', fallback: fallback.name, error: rejected, request });
+          continue;
+        }
         if (
-          !ctx.signal?.aborted &&
-          !streamController.signal.aborted &&
-          this.input.runtimeSchemaFallback !== false &&
+          !rejected &&
+          recoverable &&
           !promotedToPromptDelivery &&
           typeof request.responseFormat === 'object' &&
           (request.responseFormat.schemaDelivery ?? 'auto') === 'auto' &&
@@ -1549,6 +1594,7 @@ export class Prompt<
         systemMessage.content = dynamicContent;
         request.tools = dynamicTools;
         request.responseFormat = dynamicResponseFormat;
+        fallbacksTaken.forEach(([step, target]) => step.apply(request, target));
 
         // Update toolMap with new tool objects
         toolMap.clear();
@@ -1601,13 +1647,11 @@ export class Prompt<
       if (ctx.signal?.aborted) {
         return undefined as any;
       }
-      if (!lastError && iterations === maxIterations) {
-        lastError = `Maximum iterations (${maxIterations}) reached without a valid response.`;
-      }
-      if (!lastError) {
-        lastError = `Prompt ${this.input.name} failed without a specified error.`;
-      }
-      throw new Error(`Prompt ${this.input.name} failed: ${lastError}`);
+      const reason = lastError?.message ?? (iterations === maxIterations
+        ? `Maximum iterations (${maxIterations}) reached without a valid response.`
+        : `Prompt ${this.input.name} failed without a specified error.`);
+      const cause = lastError ?? toolFailure;
+      throw new PromptError(`Prompt ${this.input.name} failed: ${reason}`, cause?.kind ?? 'model', cause);
     }
 
     yield emit({ type: 'complete', output: result!, request });
@@ -1780,12 +1824,12 @@ export class Prompt<
     switch (te.status) {
       case 'interrupted':
         return te.error
-          ? `[interrupted: ${te.error}]`
+          ? `[interrupted: ${te.error.message}]`
           : '[interrupted]';
       case 'error':
       case 'invalid':
         return te.error
-          ? `[error: ${te.error}]`
+          ? `[error: ${te.error.message}]`
           : '[error]';
       case 'ready':
       case 'parsed':
@@ -1947,17 +1991,22 @@ type ToolExecution<T> = {
    *  `onToolResult` transformer changed it. Only set once the tool reaches
    *  `success` (transforms run on success results only in v1). */
   toModel?: any;
-  error?: string;
+  /** Why the call failed: a `ToolInputError` the model caused (its
+   *  `rawArgs` keep the untruncated arguments for log post-mortems) or a
+   *  `ToolExecutionError` from the tool's own code. */
+  error?: ToolFailure;
   /** Diagnostic info from the parse-fallback when it ran a repair
    *  attempt. `fields` lists which top-level string fields were
    *  JSON.parse-d; `success` says whether the schema accepted the
    *  repaired value (false → original error was rethrown). */
   repairAttempt?: { fields: ReadonlyArray<string>; success: boolean };
-  /** Raw, untruncated argument string the model sent. Populated when
-   *  arg parsing fails so the surrounding loop can attach the full
-   *  payload to the `toolError` event for log post-mortems — the
-   *  model-facing `error` string is truncated, but our log isn't. */
-  rawArgs?: string;
+}
+
+/**
+ * Whether two schema targets name the same schema.
+ */
+function sameTarget(a: SchemaTarget, b: SchemaTarget): boolean {
+  return a.kind === 'tool' && b.kind === 'tool' ? a.name === b.name : a.kind === b.kind;
 }
 
 function once<R>(fn: () => Promise<R>): () => Promise<R> {
@@ -2032,7 +2081,7 @@ function newToolExecution<T extends AnyTool>(
     tool: toolInfo?.tool,
     definition: toolInfo?.definition,
     status: toolInfo ? 'ready' : 'error',
-    error: toolInfo ? undefined : `Tool not found: ${toolCall.name}`,
+    error: toolInfo ? undefined : new ToolInputError(toolCall.name, `Tool not found: ${toolCall.name}`),
     emitStart: start.emit,
     emitOutput: output.emit,
     emitError: error.emit,
@@ -2068,10 +2117,6 @@ function newToolExecution<T extends AnyTool>(
         start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
-        // Preserve the untruncated raw args alongside the truncated
-        // model-facing error so the diagnostic log gets the full
-        // payload (post-mortem reproduction is impossible without it).
-        execution.rawArgs = args;
         // Distinguish "model sent no arguments at all" from "model sent
         // bad arguments". The former is usually a streaming-relay issue
         // (OpenRouter/Anthropic) or a genuine model gaffe — calling it
@@ -2083,9 +2128,13 @@ function newToolExecution<T extends AnyTool>(
           ? `the tool was called with NO arguments. The schema requires arguments — re-call this tool with the required fields populated. Validation: ${e.message}`
           : `${e.message}, args: ${args}`;
         const formatted = `Error parsing tool arguments: ${reason}`;
-        execution.error = truncate
-          ? truncate(formatted, validationErrorMaxLength)
-          : formatted;
+        // The untruncated raw args go alongside the truncated model-facing
+        // message so the diagnostic log gets the full payload.
+        execution.error = new ToolInputError(
+          toolCall.name,
+          truncate ? truncate(formatted, validationErrorMaxLength) : formatted,
+          args,
+        );
         error.ready = true;
       }
 
@@ -2121,7 +2170,7 @@ function newToolExecution<T extends AnyTool>(
           execution.toModel = present ? await present(execution.result, execution.args) : execution.result;
         } catch (e: any) {
           execution.status = 'error';
-          execution.error = `Error transforming tool result: ${e.message}`;
+          execution.error = new ToolExecutionError(toolCall.name, `Error transforming tool result: ${e.message}`, e);
           error.ready = true;
           return execution;
         }
@@ -2136,7 +2185,7 @@ function newToolExecution<T extends AnyTool>(
           interrupt.ready = true;
         } else {
           execution.status = 'error';
-          execution.error = `Error executing tool: ${e.message}, args: ${JSON.stringify(execution.args)}`;
+          execution.error = new ToolExecutionError(toolCall.name, `Error executing tool: ${e.message}, args: ${JSON.stringify(execution.args)}`, e);
           error.ready = true;
         }
       }

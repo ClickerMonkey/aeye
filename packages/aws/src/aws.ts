@@ -19,14 +19,17 @@ import type {
 import { allocateToolDescriptors, buildSchemaBudget, isModelInfo } from '@aeye/ai';
 import {
   Chunk,
+  deliverSchema,
   type DescriptorFamily,
   Executor,
   FinishReason,
   getModel,
+  LENIENT,
   ModelInput,
   Request,
   Response,
   type SchemaBudget,
+  schemaRejection,
   strictify,
   Streamer,
   toJSONSchema,
@@ -335,7 +338,8 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      return self.executeWithConverse(modelInput, request, ctx);
+      // Converse has no structured output or JSON mode, so a schema goes in the prompt
+      return self.executeWithConverse(modelInput, deliverSchema(request, LENIENT, 'prompt'), ctx);
     };
   }
 
@@ -355,7 +359,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      yield* self.streamWithConverse(modelInput, request, ctx);
+      yield* self.streamWithConverse(modelInput, deliverSchema(request, LENIENT, 'prompt'), ctx);
     };
   }
 
@@ -453,7 +457,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
 
       return result;
     } catch (error: any) {
-      this.handleAWSError(error);
+      this.handleAWSError(error, request);
       throw error;
     }
   }
@@ -584,7 +588,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
         await this.config.hooks?.chat?.afterRequest?.(request, command, accumulatedResponse, ctx);
       }
     } catch (error: any) {
-      this.handleAWSError(error);
+      this.handleAWSError(error, request);
       throw error;
     }
   }
@@ -942,7 +946,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   // Error Handling
   // ============================================================================
 
-  private handleAWSError(error: any): void {
+  private handleAWSError(error: any, request?: Request): void {
     const errorName = error.name || '';
     const errorMessage = error.message || '';
 
@@ -964,6 +968,12 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     // Context window errors
     if (errorMessage.includes('context length') || errorMessage.includes('token limit')) {
       throw new AWSContextWindowError('Context window exceeded', undefined, error);
+    }
+
+    // A rejected tool schema
+    const rejected = errorName === 'ValidationException' && request ? schemaRejection(request, error) : undefined;
+    if (rejected) {
+      throw rejected;
     }
 
     // Re-throw as generic AWS error

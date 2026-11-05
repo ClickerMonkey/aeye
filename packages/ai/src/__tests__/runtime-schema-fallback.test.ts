@@ -45,8 +45,8 @@ interface CallRecord {
  */
 function makeExecutor(model: ModelInfo, contents: string[], records: CallRecord[]) {
   let i = 0;
-  return async (request: Request): Promise<Response> => {
-    applySchemaDeliveryFallback(request, model);
+  return async (prompted: Request): Promise<Response> => {
+    const request = applySchemaDeliveryFallback(prompted, model);
     const sys = request.messages.find((m) => m.role === 'system');
     records.push({
       hasResponseFormat: request.responseFormat !== undefined,
