@@ -42,7 +42,7 @@ interface OpenAIConfig {
 }
 ```
 
-With `api: 'auto'`, chat uses Chat Completions unless the model is Responses-only (`metadata.responsesOnly` in its registry entry, or by id: codex, pre-5.6 pro, deep-research, computer-use), the request has `hostedTools`, a tool sets `format`, `defer`, or `async`, or `reason` sets `mode`, `summary`, or `context`; then it uses the Responses API.
+With `api: 'auto'`, chat uses Chat Completions unless the model is Responses-only (`metadata.responsesOnly` in its registry entry, or by id: codex, pre-5.6 pro, deep-research, computer-use), the request has `hostedTools`, a tool sets `format`, `defer`, or `async`, `reason` sets `mode`, `summary`, or `context`, or the request has tools and a reasoning `effort` other than `none`; then it uses the Responses API.
 
 Subclasses can override the protected `defaults` property to supply their own default model ids.
 

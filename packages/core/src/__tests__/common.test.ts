@@ -14,6 +14,7 @@ import {
   consumeAll,
   accumulateUsage,
   accumulateReasoning,
+  replaysTo,
   getModel,
   getResponseFromChunks,
   getChunksFromResponse,
@@ -525,6 +526,25 @@ describe('Common Utilities', () => {
       accumulate([first, second]);
       expect(first).toEqual({ content: 'A', details: [{ type: 'reasoning.text', text: 'A', format: 'f', index: 0 }] });
       expect(second.content).toBe('B');
+    });
+
+    it('keeps the provider a streamed part names', () => {
+      // Responses streams summary deltas, then the finished item names the provider
+      const reasoning = accumulate([
+        { content: 'Checking' },
+        { details: [{ id: 'rs_1', type: 'reasoning.encrypted', format: 'openai-responses-v1', data: 'ENC' }], provider: 'openai' },
+      ]);
+      expect(reasoning?.provider).toBe('openai');
+    });
+  });
+
+  describe('replaysTo', () => {
+    it('replays reasoning to the provider that made it, or reasoning that names none', () => {
+      const details = [{ id: 'rs_1', type: 'reasoning.encrypted', format: 'openai-responses-v1', data: 'ENC' }];
+      expect(replaysTo({ details, provider: 'openai' }, 'openai')).toBe(true);
+      expect(replaysTo({ details }, 'openai')).toBe(true);
+      expect(replaysTo({ details, provider: 'openrouter' }, 'openai')).toBe(false);
+      expect(replaysTo(undefined, 'openai')).toBe(false);
     });
   });
 

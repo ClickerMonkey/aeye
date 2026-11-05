@@ -459,7 +459,7 @@ function concat(x: string | null | undefined, y: string | null | undefined): str
  * detail continues an earlier one of the same type with the same id (when
  * both have one) or index: OpenRouter sends a block's text and later its
  * signature at one index, and Gemini's text and encrypted reasoning share
- * index 0 under different types.
+ * index 0 under different types. The provider is whichever part names it.
  *
  * @param target - The reasoning accumulated so far.
  * @param add - The reasoning to append.
@@ -491,7 +491,20 @@ export function accumulateReasoning(target: Reasoning | undefined, add?: Reasoni
   return {
     content: concat(target?.content, add.content),
     details: details.length ? details : undefined,
+    provider: target?.provider ?? add.provider,
   };
+}
+
+/**
+ * Whether reasoning goes back to a provider: it came from there, or names no
+ * provider. Signed and encrypted reasoning only verifies where it was made.
+ *
+ * @param reasoning - The reasoning of an earlier assistant turn.
+ * @param provider - The provider the conversation goes to.
+ * @returns - Whether to replay the reasoning.
+ */
+export function replaysTo(reasoning: Reasoning | undefined, provider: string): reasoning is Reasoning {
+  return !!reasoning && (!reasoning.provider || reasoning.provider === provider);
 }
 
 /**

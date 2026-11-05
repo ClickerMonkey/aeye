@@ -59,8 +59,9 @@ With `api: 'auto'` (the default), chat requests use Chat Completions unless they
 
 - the model is Responses-only (its registry entry's `metadata.responsesOnly`, or by id: codex, pre-5.6 pro models, deep-research, computer-use),
 - the request has `hostedTools`,
-- a tool sets `format`, `defer`, or `async` (see [Tool Features](#tool-features)), or
-- `reason` sets `mode`, `summary`, or `context`.
+- a tool sets `format`, `defer`, or `async` (see [Tool Features](#tool-features)),
+- `reason` sets `mode`, `summary`, or `context`, or
+- the request has tools and a reasoning `effort` other than `none` (Chat Completions drops reasoning between tool calls, and gpt-5.4 and later reject function tools with reasoning there).
 
 `'chat'` or `'responses'` forces one API. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns, so multi-turn reasoning works without stored responses.
 
