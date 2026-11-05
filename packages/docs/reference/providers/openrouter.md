@@ -53,7 +53,7 @@ Default models (`defaultModels`, from `OpenAIConfig`): `imageGenerate` / `imageE
 | `submitBatch(requests, ctx, config?)` | `POST /batches` with the requests inline (always Chat Completions) |
 | `getBatch(job, ctx, config?)` | `GET /batches/{id}`; results are inline once complete |
 
-Rerank and decide don't run the provider's `hooks`.
+Rerank and decide run the provider's `hooks.rerank` and `hooks.decide`. The decide hooks receive System One parameters (`state`, and `questions` by name); on OpenAI they receive the Decisions API's (`input`, and a `questions` array), so check `'state' in params` to tell them apart.
 
 ### Tools
 

@@ -113,4 +113,12 @@ Replicate and AWS Bedrock don't offer batches through @aeye.
 
 The provider bills batch requests at its batch price. Each result's `response.usage` carries the token counts the provider reported; OpenRouter reports the batch's total in `job.cost` (with BYOK, its fee plus the provider's bill); results carry token counts only.
 
-`ai.batch` doesn't run the AI hooks (`beforeRequest`, `afterRequest`), so budget checks and cost tracking built on them don't see batches. To price results yourself, pass a result's usage to [`ai.calculateCost`](/reference/ai/ai-class#calculatecost-model-usage), and keep in mind that it uses the model's regular price.
+`ai.batch.submit` runs `onModelSelected` once and `beforeRequest` for each request, with the cost estimated at the batch price, so a budget check can stop a batch before it's submitted. A completed batch is reported once to the `afterBatch` hook with its total usage and cost: the provider's figure when it reports one (OpenRouter), otherwise the batch price (half the regular price) of the results' usage. `afterRequest` doesn't run for batched requests, because a batch read back later no longer has its requests.
+
+```typescript
+ai.withHooks({
+  afterBatch: async (ctx, job, usage, cost) => {
+    await db.logUsage({ batch: job.id, model: job.model, cost });
+  },
+});
+```

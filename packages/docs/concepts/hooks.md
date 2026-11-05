@@ -76,13 +76,17 @@ afterRequest: async (ctx, request, response, responseComplete, selected, usage, 
   await db.logUsage({
     userId: ctx.userId,
     model: selected.model.id,
-    tokens: usage.text?.input ?? 0 + (usage.text?.output ?? 0),
+    tokens: (usage.text?.input ?? 0) + (usage.text?.output ?? 0),
     cost,
   });
 }
 ```
 
-The `response` parameter is the raw provider response. `responseComplete` is the normalized `Response` object.
+`response` is the API's response. `responseComplete` is `false` when a stream ended early, in which case usage and cost cover what arrived.
+
+### `afterBatch`
+
+Called once when a batch is first seen completed (`ai.batch.get` or `wait`), with its total usage and cost. See [Batches](/guides/batch#costs).
 
 ### `onError`
 

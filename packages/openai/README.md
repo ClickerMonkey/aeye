@@ -687,7 +687,7 @@ Typed answers from `/v1/decisions` (default model `gpt-6-luna`, or `defaultModel
 ```typescript
 import { AI } from '@aeye/ai';
 
-const ai = AI.with().providers({ openai: provider }).create({});
+const ai = AI.with().providers({ openai: provider }).create();
 
 const { answers } = await ai.decide.get({
   input: 'I was charged twice for my order.',
