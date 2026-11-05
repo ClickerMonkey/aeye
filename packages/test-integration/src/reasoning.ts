@@ -133,17 +133,17 @@ function carries(reasoning: Reasoning | undefined, carry: Carry): boolean {
 
 const QUESTION: Message = { role: 'user', content: 'What is the sum of the digits of 2^20? Reply with only the number.' };
 
-const DICE_ROLL = '7';
+export const DICE_ROLL = '7';
 
 // A tool whose answer the model can't guess, so it has to call it
-const DICE_TOOL = { name: 'roll_dice', description: 'Rolls the house dice and returns the total.' };
+export const DICE_TOOL = { name: 'roll_dice', description: 'Rolls the house dice and returns the total.' };
 
 // Worked out from the task, so the model reasons before the call
-const DICE_COUNT = z.object({ count: z.number().describe('How many dice to roll') });
+export const DICE_COUNT = z.object({ count: z.number().describe('How many dice to roll') });
 
-const DICE: Request['tools'] = [{ ...DICE_TOOL, parameters: DICE_COUNT }];
+export const DICE: Request['tools'] = [{ ...DICE_TOOL, parameters: DICE_COUNT }];
 
-const DICE_TASK: Message = { role: 'user', content: 'Roll as many dice as there are vowels in the word "reasoning" with the roll_dice tool, then reply with only the total plus 10.' };
+export const DICE_TASK: Message = { role: 'user', content: 'Roll as many dice as there are vowels in the word "reasoning" with the roll_dice tool, then reply with only the total plus 10.' };
 
 /**
  * The first turn of a dice exchange: the model reasons and calls the tool.
