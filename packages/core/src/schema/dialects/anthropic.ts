@@ -1,6 +1,10 @@
 import type { FormatDescriptor } from '../descriptor';
 import { LENIENT } from './lenient';
 
+const ANTHROPIC_STRICT_FORMATS = new Set([
+  'date-time', 'time', 'date', 'duration', 'email', 'hostname', 'uri', 'ipv4', 'ipv6', 'uuid',
+]);
+
 /**
  * Anthropic strict — Claude 4.5 and later (Opus 4.5–4.8, Sonnet 4.5/4.6,
  * Haiku 4.5, and the 5.x Opus, Sonnet, Haiku, Fable, and Mythos models). Strict
@@ -21,10 +25,15 @@ import { LENIENT } from './lenient';
  *   (`minLength`/`maxLength`) constraints are not supported and are dropped,
  *   as are array sizes (only `minItems` of 0 or 1 is accepted).
  * - `allOf` is supported except around a `$ref`.
+ * - `pattern` may not use backreferences, lookaround, `` or large `{n,m}`
+ *   ranges; a schema that compiles too big is rejected with "Schema is too
+ *   complex for compilation".
  * - `prefixItems` and other positional tuple keywords are not in the
  *   supported list, so tuples collapse to a homogeneous `items: anyOf`.
- * - Supported formats include `uri` (unlike OpenAI strict). We pass all
- *   formats through and let Anthropic ignore unknowns.
+ * - Formats are a closed list (re-read 2026-11-04): OpenAI strict's nine plus
+ *   `uri`. Anything else is dropped rather than risk a 400.
+ *
+ * See docs/plans/schema-dialects-2026.md for sources.
  */
 export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   id: 'anthropic-strict',
@@ -40,7 +49,7 @@ export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   allowRootRef: false,
   allowDefsRef: true,
   emitPropertyOrdering: false,
-  supportedStringFormats: 'all',
+  supportedStringFormats: ANTHROPIC_STRICT_FORMATS,
   allowPattern: true,
   allowMultiplePatterns: false,
   allowMinMaxLength: false,
