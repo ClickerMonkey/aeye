@@ -705,17 +705,17 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
 }
 
 /**
- * Makes a JSON Schema nullable.
+ * Makes a JSON Schema nullable: `z.nullable()` under every dialect, and
+ * `z.optional()` under one that spells optional as nullable (OpenAI strict).
  *
- * For descriptors where optional becomes nullable on the wire (OpenAI strict),
- * this rewrites the schema to either include `null` in `type` or wrap in
- * `anyOf: [..., {type: 'null'}]`. For other descriptors this is a no-op (the
- * caller handles optional via the `required[]` list instead).
+ * The null joins as an `anyOf` branch wherever the dialect has `anyOf`. A
+ * `["T", "null"]` type array is the spelling of last resort: o3's strict
+ * function validator rejects it ("schema must have a 'type' key", measured
+ * 2026-11-05) where the `anyOf` form passes.
  */
 function makeNullable(schema: JSONSchema, descriptor: FormatDescriptor): JSONSchema {
-  // Lenient/standard dialects don't rewrite — optional is expressed via
-  // required[] omission, not via type-union with null.
-  if (!descriptor.optionalAsNullable) {
+  // The empty schema already admits null
+  if (Object.keys(schema).length === 0) {
     return schema;
   }
 
@@ -739,7 +739,7 @@ function makeNullable(schema: JSONSchema, descriptor: FormatDescriptor): JSONSch
       schema.minProperties !== undefined ||
       schema.maxProperties !== undefined;
 
-    if (hasTypeSpecificProps) {
+    if (hasTypeSpecificProps || (descriptor.allowAnyOf && !Array.isArray(schema.type) && schema.type !== 'null')) {
       const { type, description, ...rest } = schema;
       const baseType = Array.isArray(type) ? type[0] : type;
 

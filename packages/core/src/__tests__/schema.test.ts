@@ -11,6 +11,9 @@
 import z from 'zod';
 import { ANTHROPIC_STRICT, OPENAI_STRICT, strictify, toJSONSchema, JSONSchema } from '../schema';
 
+/** The types a node admits, whether spelled as a type array or an `anyOf` of types. */
+const typesOf = (node: JSONSchema) => node.anyOf ? node.anyOf.map(branch => branch.type) : [node.type].flat();
+
 type JS = JSONSchema; //z.core.JSONSchema.JSONSchema;
 
 function js(schema?: JS): JS
@@ -773,7 +776,7 @@ describe('Schema Utilities', () => {
         expect(jsonSchema.type).toBe('object');
         expect(jsonSchema.required).toEqual(['name', 'age']);
         expect(js(jsonSchema.properties!.name).type).toBe('string');
-        expect(js(jsonSchema.properties!.age).type).toEqual(['number', 'null']);
+        expect(js(jsonSchema.properties!.age).anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
       });
 
       it('should handle multiple optional fields', () => {
@@ -788,9 +791,9 @@ describe('Schema Utilities', () => {
         const jsonSchema = toJSONSchema(strictSchema, true);
 
         expect(jsonSchema.required).toEqual(['required', 'optional1', 'optional2', 'optional3']);
-        expect(js(jsonSchema.properties!.optional1).type).toEqual(['string', 'null']);
-        expect(js(jsonSchema.properties!.optional2).type).toEqual(['number', 'null']);
-        expect(js(jsonSchema.properties!.optional3).type).toEqual(['boolean', 'null']);
+        expect(js(jsonSchema.properties!.optional1).anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
+        expect(js(jsonSchema.properties!.optional2).anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
+        expect(js(jsonSchema.properties!.optional3).anyOf).toEqual([{ type: 'boolean' }, { type: 'null' }]);
       });
 
       it('should set additionalProperties to false', () => {
@@ -816,7 +819,7 @@ describe('Schema Utilities', () => {
         const jsonSchema = toJSONSchema(strictSchema, true);
 
         expect(js(jsonSchema.properties!.user).required).toEqual(['name', 'email']);
-        expect(js(js(jsonSchema.properties!.user).properties!.email).type).toEqual(['string', 'null']);
+        expect(js(js(jsonSchema.properties!.user).properties!.email).anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
       });
 
       it('should handle arrays with optional element fields', () => {
@@ -832,7 +835,7 @@ describe('Schema Utilities', () => {
 
         expect(js(jsonSchema.properties!.items).type).toBe('array');
         expect((js(jsonSchema.properties!.items).items as JS).required).toEqual(['name', 'value']);
-        expect(js((js(jsonSchema.properties!.items).items as JS).properties!.value).type).toEqual(['number', 'null']);
+        expect(js((js(jsonSchema.properties!.items).items as JS).properties!.value).anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
       });
 
       it('should handle optional arrays', () => {
@@ -992,7 +995,7 @@ describe('Schema Utilities', () => {
         const jsonSchema = toJSONSchema(strictSchema, true);
 
         // Nullable should already include null type
-        expect(js(jsonSchema.properties!.value).type).toContain('null');
+        expect(typesOf(js(jsonSchema.properties!.value))).toContain('null');
         // Nullable fields are required (must be present, but can be null)
         expect(jsonSchema.required).toContain('value');
       });
@@ -1009,8 +1012,8 @@ describe('Schema Utilities', () => {
         // In strict mode, optional fields become required but nullable
         expect(jsonSchema.required).toEqual(['required', 'nullableOptional']);
         // Should include both string and null types
-        expect(js(jsonSchema.properties!.nullableOptional).type).toContain('null');
-        expect(js(jsonSchema.properties!.nullableOptional).type).toContain('string');
+        expect(typesOf(js(jsonSchema.properties!.nullableOptional))).toContain('null');
+        expect(typesOf(js(jsonSchema.properties!.nullableOptional))).toContain('string');
       });
 
       it('should handle optional().nullable() in JSON schema', () => {
@@ -1025,8 +1028,8 @@ describe('Schema Utilities', () => {
         // In strict mode, optional fields become required but nullable
         expect(jsonSchema.required).toEqual(['required', 'optionalNullable']);
         // Should include both string and null types
-        expect(js(jsonSchema.properties!.optionalNullable).type).toContain('null');
-        expect(js(jsonSchema.properties!.optionalNullable).type).toContain('string');
+        expect(typesOf(js(jsonSchema.properties!.optionalNullable))).toContain('null');
+        expect(typesOf(js(jsonSchema.properties!.optionalNullable))).toContain('string');
       });
 
       it('should handle mixed nullable, optional, and regular fields', () => {
@@ -1047,17 +1050,16 @@ describe('Schema Utilities', () => {
         expect(js(jsonSchema.properties!.required).type).toBe('string');
 
         // Nullable field - string or null, but must be present
-        const nullableType = js(jsonSchema.properties!.nullable).type;
-        const nullableTypes = Array.isArray(nullableType) ? nullableType : [nullableType];
+        const nullableTypes = typesOf(js(jsonSchema.properties!.nullable));
         expect(nullableTypes).toContain('string');
         expect(nullableTypes).toContain('null');
 
         // Optional field - string or null in strict mode
-        expect(js(jsonSchema.properties!.optional).type).toEqual(['string', 'null']);
+        expect(js(jsonSchema.properties!.optional).anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
 
         // Nullable optional field - string or null
-        expect(js(jsonSchema.properties!.nullableOptional).type).toContain('string');
-        expect(js(jsonSchema.properties!.nullableOptional).type).toContain('null');
+        expect(typesOf(js(jsonSchema.properties!.nullableOptional))).toContain('string');
+        expect(typesOf(js(jsonSchema.properties!.nullableOptional))).toContain('null');
       });
 
       it('should handle nullable arrays in JSON schema', () => {
@@ -1092,12 +1094,11 @@ describe('Schema Utilities', () => {
         expect(js(jsonSchema.properties!.user).required).toEqual(['name', 'email', 'bio']);
 
         // email is nullable - should have null type
-        const emailType = js(js(jsonSchema.properties!.user).properties!.email).type;
-        const emailTypes = Array.isArray(emailType) ? emailType : [emailType];
+        const emailTypes = typesOf(js(js(jsonSchema.properties!.user).properties!.email));
         expect(emailTypes).toContain('null');
 
         // bio is nullable and optional - should have null type
-        expect(js(js(jsonSchema.properties!.user).properties!.bio).type).toContain('null');
+        expect(typesOf(js(js(jsonSchema.properties!.user).properties!.bio))).toContain('null');
       });
     });
 
@@ -1179,10 +1180,10 @@ describe('Schema Utilities', () => {
 
       // Verify JSON Schema has all fields required and optional ones nullable
       expect(jsonSchema.required).toEqual(['id', 'name', 'email', 'age', 'settings']);
-      expect(js(jsonSchema.properties!.email).type).toEqual(['string', 'null']);
-      expect(js(jsonSchema.properties!.age).type).toEqual(['number', 'null']);
+      expect(js(jsonSchema.properties!.email).anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
+      expect(js(jsonSchema.properties!.age).anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
       expect(js(jsonSchema.properties!.settings).required).toEqual(['theme', 'notifications']);
-      expect(js(js(jsonSchema.properties!.settings).properties!.notifications).type).toEqual(['boolean', 'null']);
+      expect(js(js(jsonSchema.properties!.settings).properties!.notifications).anyOf).toEqual([{ type: 'boolean' }, { type: 'null' }]);
 
       // Step 3: Parse data with nulls
       const result = strictSchema.parse({
@@ -1221,7 +1222,7 @@ describe('Schema Utilities', () => {
       const jsonSchema = toJSONSchema(strictSchema, true);
 
       expect((js(jsonSchema.properties!.users).items as JS).required).toEqual(['name', 'email']);
-      expect(js((js(jsonSchema.properties!.users).items as JS).properties!.email).type).toEqual(['string', 'null']);
+      expect(js((js(jsonSchema.properties!.users).items as JS).properties!.email).anyOf).toEqual([{ type: 'string' }, { type: 'null' }]);
 
       const result = strictSchema.parse({
         users: [
@@ -1714,9 +1715,9 @@ describe('Schema Utilities', () => {
         expect(fieldsJsonSchema.required).toContain('createdAt');
 
         // Nullable fields should have null type
-        expect(js(fieldsJsonSchema.properties!.age).type).toContain('null');
-        expect(js(fieldsJsonSchema.properties!.isAdmin).type).toContain('null');
-        expect(js(fieldsJsonSchema.properties!.role).type).toContain('null');
+        expect(typesOf(js(fieldsJsonSchema.properties!.age))).toContain('null');
+        expect(typesOf(js(fieldsJsonSchema.properties!.isAdmin))).toContain('null');
+        expect(typesOf(js(fieldsJsonSchema.properties!.role))).toContain('null');
 
         // Required fields should not have null type (unless explicitly nullable)
         expect(js(fieldsJsonSchema.properties!.email).type).toBe('string');
@@ -1814,5 +1815,22 @@ describe('strictify with a registered id', () => {
   it('still names the definition by its id', () => {
     const json = toJSONSchema(strictify(schema, OPENAI_STRICT), OPENAI_STRICT);
     expect(Object.keys(json.$defs ?? {})).toEqual(['StrictifyRegisteredNode']);
+  });
+});
+
+describe('nullable under every dialect', () => {
+  const schema = z.object({ note: z.string().nullable(), tag: z.string().optional() });
+
+  it('admits null for z.nullable() and leaves z.optional() to required[]', () => {
+    for (const descriptor of [ANTHROPIC_STRICT, false] as const) {
+      const json = toJSONSchema(schema, descriptor);
+      expect(json.properties!.note).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] });
+      expect(json.properties!.tag).toEqual({ type: 'string' });
+    }
+  });
+
+  it('spells null as an anyOf branch under OpenAI strict, which o3 requires', () => {
+    const json = toJSONSchema(strictify(schema, OPENAI_STRICT), OPENAI_STRICT);
+    expect(json.properties!.tag).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] });
   });
 });
