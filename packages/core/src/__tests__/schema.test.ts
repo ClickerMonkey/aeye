@@ -9,7 +9,7 @@
  */
 
 import z from 'zod';
-import { strictify, toJSONSchema, JSONSchema } from '../schema';
+import { ANTHROPIC_STRICT, OPENAI_STRICT, strictify, toJSONSchema, JSONSchema } from '../schema';
 
 type JS = JSONSchema; //z.core.JSONSchema.JSONSchema;
 
@@ -1794,5 +1794,25 @@ describe('Schema Utilities', () => {
         expect(result.not.or.length).toBe(2);
       });
     });
+  });
+});
+
+describe('strictify with a registered id', () => {
+  interface Node { name: string; children?: Node[] }
+  const node: z.ZodType<Node> = z.lazy(() => z.object({
+    name: z.string(),
+    children: z.array(node).optional(),
+  })).meta({ id: 'StrictifyRegisteredNode' });
+  const schema = z.object({ root: node });
+
+  it('clones without colliding in the global registry, under every dialect', () => {
+    for (const descriptor of [OPENAI_STRICT, ANTHROPIC_STRICT]) {
+      expect(() => toJSONSchema(strictify(schema, descriptor), descriptor)).not.toThrow();
+    }
+  });
+
+  it('still names the definition by its id', () => {
+    const json = toJSONSchema(strictify(schema, OPENAI_STRICT), OPENAI_STRICT);
+    expect(Object.keys(json.$defs ?? {})).toEqual(['StrictifyRegisteredNode']);
   });
 });

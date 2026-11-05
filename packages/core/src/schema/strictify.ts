@@ -71,7 +71,11 @@ function strictifyWithDescriptor<S extends z.ZodType>(schema: S, descriptor: For
 }
 
 /**
-* Transfer description and metadata from source Zod schema to target Zod schema
+* Transfer description and metadata from source Zod schema to target Zod schema.
+*
+* A declared `id` moves to `aid`: zod's global registry refuses a second schema
+* with the same `id` ("ID X already exists in the registry"), and the clone is
+* that second schema. `aid` names the same definition everywhere an `id` does.
 */
 function transferMetadata(target: z.ZodType, source: z.ZodType) {
   if (source.description) {
@@ -79,7 +83,8 @@ function transferMetadata(target: z.ZodType, source: z.ZodType) {
   }
   const meta = source.meta();
   if (meta) {
-    target = target.meta(meta);
+    const { id, ...rest } = meta;
+    target = target.meta(id === undefined ? meta : { ...rest, aid: rest.aid ?? id });
   }
   return target;
 }
