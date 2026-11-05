@@ -532,6 +532,16 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   }
 
   /**
+   * Extra HTTP headers for a chat completion request, such as a router's
+   * feature flags. None by default.
+   *
+   * @param params The params about to be sent
+   */
+  protected chatHeaders(params: OpenAI.Chat.ChatCompletionCreateParams): Record<string, string> | undefined {
+    return undefined;
+  }
+
+  /**
    * Augment chat message with provider-specific data.
    *
    * @param chatMessage - OpenAI chat message
@@ -1199,7 +1209,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       stop: request.stop,
       tools,
       tool_choice: tools?.length ? this.convertToolChoice(request) : undefined,
-      parallel_tool_calls: tools?.length ? !request.toolsOneAtATime : undefined,
+      // Parallel calls are the default; reasoning models such as o3 reject the parameter itself
+      parallel_tool_calls: tools?.length && request.toolsOneAtATime ? false : undefined,
       response_format: this.convertResponseFormat(request, budget),
       reasoning_effort: request.reason?.effort && clampReasoningEffort(request.reason.effort, run.modelInfo?.reasoningEfforts),
       verbosity: request.verbosity,
@@ -1256,7 +1267,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         : { type: 'allowed_tools', mode: choice.required ? 'required' : 'auto', tools: choice.allowed.map(name => ({ type: kind(name), name })) },
       parallel_tool_calls: tools.length ? !request.toolsOneAtATime : undefined,
       text: {
-        format: format?.type === 'json_schema' ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {} } : format,
+        // The Responses API treats an unflagged json_schema as strict, so a non-strict one says so
+        format: format?.type === 'json_schema'
+          ? { type: 'json_schema', ...format.json_schema, schema: format.json_schema.schema ?? {}, strict: format.json_schema.strict ?? false }
+          : format,
         verbosity: request.verbosity,
       },
       reasoning: reason && {
@@ -1390,7 +1404,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     this.augmentChatRequest(params, request, run.config);
 
     const sent = await this.sendChat('chat', run, request, params, async (signal) => {
-      const completion = await run.client.chat.completions.create(params, { signal });
+      const completion = await run.client.chat.completions.create(params, { signal, headers: this.chatHeaders(params) });
       if (!completion.choices?.[0]) {
         throw new ProviderError(this.name, 'No choices in response');
       }
@@ -1416,7 +1430,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     };
     this.augmentChatRequest(params, request, run.config);
 
-    const sent = await this.sendChat('chat', run, request, params, (signal) => run.client.chat.completions.create(params, { signal }));
+    const sent = await this.sendChat('chat', run, request, params, (signal) => run.client.chat.completions.create(params, { signal, headers: this.chatHeaders(params) }));
     if ('overflow' in sent) {
       return sent.overflow;
     }

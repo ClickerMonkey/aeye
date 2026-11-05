@@ -129,6 +129,31 @@ describe('OpenRouterProvider strict structured output enforcement', () => {
     expect(body.provider?.order).toEqual(['openai']);
   });
 
+  it('mentions JSON once when a response format is set and the messages never do', async () => {
+    const provider = new OpenRouterProvider({ apiKey: 'test-key' });
+    const silent = await buildBody(provider, strictRequest);
+    expect(silent.messages[0]).toEqual({ role: 'system', content: 'Respond in JSON.' });
+
+    const said = await buildBody(provider, { ...strictRequest, messages: [{ role: 'user', content: 'Return the query as JSON' }] });
+    expect(said.messages).toHaveLength(1);
+  });
+
+  it('sends the Anthropic structured-outputs flag only with a strict tool', async () => {
+    const haiku: ModelInfo = { ...gpt4o, id: 'anthropic/claude-haiku-4.5', capabilities: new Set(['chat', 'tools', 'toolsStrict']) };
+    const executor = new OpenRouterProvider({ apiKey: 'test-key' }).createExecutor();
+    const tool = (strict: boolean): Request => ({
+      messages: [{ role: 'user', content: 'Call it' }],
+      tools: [{ name: 'record', parameters: z.object({ query: z.string() }), strict }],
+    });
+    await executor(tool(true), { ...ctxDefault, metadata: { model: haiku } }, { model: haiku.id });
+    await executor(tool(false), { ...ctxDefault, metadata: { model: haiku } }, { model: haiku.id });
+
+    const [[strictBody, strictOptions], [, looseOptions]] = mockOpenAI.chat.completions.create.mock.calls;
+    expect(strictBody.tools[0].function.strict).toBe(true);
+    expect(strictOptions.headers).toEqual({ 'x-anthropic-beta': 'structured-outputs-2025-11-13' });
+    expect(looseOptions.headers).toBeUndefined();
+  });
+
   it('leaves require_parameters undefined for a non-strict request with unrelated provider config', async () => {
     const config: OpenRouterConfig = {
       apiKey: 'test-key',

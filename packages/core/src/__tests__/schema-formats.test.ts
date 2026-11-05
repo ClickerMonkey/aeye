@@ -16,6 +16,7 @@ import {
   LENIENT,
   OPENAI_NON_STRICT,
   OPENAI_STRICT,
+  XAI_STRICT,
   type FormatDescriptor,
   getDescriptor,
   getDescriptorById,
@@ -224,11 +225,11 @@ describe('FormatDescriptor matrix', () => {
       expect(objectBranch!.items!.properties).toHaveProperty('value');
     });
 
-    it('ANTHROPIC_STRICT uses flat (non-recursive) Any encoding', () => {
-      // Anthropic rejects circular `$defs` graphs, so `z.any()` is inlined as
+    it('XAI_STRICT uses flat (non-recursive) Any encoding', () => {
+      // xAI rejects circular `$defs` graphs, so `z.any()` is inlined as
       // a flat `anyOf` over every JSON value type — equivalent to TS `any`,
       // with no self-reference. No shared `$defs/Any` entry is created.
-      const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+      const json = toJSONSchema(schema, XAI_STRICT);
       expect(json.$defs?.Any).toBeUndefined();
       const inlined = json.properties!.data;
       expect(inlined.anyOf).toBeDefined();
@@ -290,6 +291,11 @@ describe('FormatDescriptor matrix', () => {
       const json = toJSONSchema(schema, ANTHROPIC_STRICT);
       expect(json.properties!.contact.format).toBe('email');
       expect(json.properties!.unique.format).toBe('uuid');
+    });
+
+    it('never emits zod check names that are not JSON Schema formats', () => {
+      const json = toJSONSchema(z.object({ code: z.string().regex(/^[a-z]+$/) }), LENIENT);
+      expect(json.properties!.code).toEqual({ type: 'string', pattern: '^[a-z]+$' });
     });
 
     it('LENIENT passes all string formats through', () => {
@@ -623,10 +629,10 @@ function collectRefs(schema: any): string[] {
   return refs;
 }
 
-describe('flat anyEncoding (Anthropic)', () => {
+describe('flat anyEncoding (xAI)', () => {
   it('inlines a non-recursive anyOf covering every JSON value type', () => {
     const schema = z.object({ data: z.any() });
-    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+    const json = toJSONSchema(schema, XAI_STRICT);
 
     // No shared $defs/Any entry — the flat shape inlines at every use site.
     expect(json.$defs?.Any).toBeUndefined();
@@ -645,9 +651,9 @@ describe('flat anyEncoding (Anthropic)', () => {
     expect(collectRefs(inlined)).toEqual([]);
   });
 
-  it('z.unknown() also uses the flat encoding under Anthropic', () => {
+  it('z.unknown() also uses the flat encoding under xAI', () => {
     const schema = z.object({ data: z.unknown() });
-    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+    const json = toJSONSchema(schema, XAI_STRICT);
     expect(json.$defs?.Any).toBeUndefined();
     expect(json.properties!.data.anyOf).toBeDefined();
     expect(collectRefs(json.properties!.data)).toEqual([]);
@@ -659,7 +665,7 @@ describe('flat anyEncoding (Anthropic)', () => {
       b: z.any(),
       c: z.array(z.any()),
     });
-    const json = toJSONSchema(schema, ANTHROPIC_STRICT);
+    const json = toJSONSchema(schema, XAI_STRICT);
     expect(json.$defs?.Any).toBeUndefined();
     expect(collectRefs(json)).toEqual([]);
     expect(json.properties!.a.anyOf).toBeDefined();
@@ -1022,5 +1028,17 @@ describe('cycle-breaker — shape-aware placeholder', () => {
     // "array of arrays" structural hint without re-walking the cycle.
     expect(ph.type).toBe('array');
     expect(ph.items).toEqual({ type: 'array' });
+  });
+});
+
+describe('open records', () => {
+  it('omit propertyNames for a plain string key', () => {
+    const json = toJSONSchema(z.object({ attrs: z.record(z.string(), z.number()) }), LENIENT);
+    expect(json.properties!.attrs).toEqual({ type: 'object', additionalProperties: { type: 'number' } });
+  });
+
+  it('keep propertyNames for a constrained key', () => {
+    const json = toJSONSchema(z.object({ attrs: z.record(z.string().regex(/^x-/), z.number()) }), LENIENT);
+    expect(json.properties!.attrs.propertyNames).toEqual({ type: 'string', pattern: '^x-' });
   });
 });

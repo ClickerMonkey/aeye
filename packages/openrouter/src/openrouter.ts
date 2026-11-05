@@ -408,6 +408,17 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   }
 
   /**
+   * OpenRouter strips `strict` from tools bound for Anthropic unless the
+   * request carries Anthropic's structured-outputs beta flag, so a strict tool
+   * would silently go unenforced (openrouter.ai/docs/guides/routing/provider-selection,
+   * read 2026-11-04). Other upstreams ignore the header.
+   */
+  protected override chatHeaders(params: OpenAI.Chat.ChatCompletionCreateParams): Record<string, string> | undefined {
+    const strictTool = params.tools?.some(tool => tool.type === 'function' && tool.function.strict);
+    return strictTool ? { 'x-anthropic-beta': 'structured-outputs-2025-11-13' } : undefined;
+  }
+
+  /**
    * Augment chat request with OpenRouter-specific parameters
    */
   protected override augmentChatRequest(
@@ -461,6 +472,15 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
 
     if (isStrictStructured && dp?.providers?.requireParameters === undefined) {
       params.provider = { ...params.provider, require_parameters: true };
+    }
+
+    // Some upstreams serve any response format as JSON mode, which refuses a
+    // conversation that never says "json" (Alibaba for Qwen: "'messages' must
+    // contain the word 'json' in some form", even for a strict json_schema,
+    // 2026-11-04). Say it once when nothing else does.
+    const saysJson = params.messages.some(message => /json/i.test(JSON.stringify(message.content ?? '')));
+    if (params.response_format && params.response_format.type !== 'text' && !saysJson) {
+      params.messages = [{ role: 'system', content: 'Respond in JSON.' }, ...params.messages];
     }
 
     const plugins: OpenRouterPlugin[] = [...dp?.plugins ?? []];
