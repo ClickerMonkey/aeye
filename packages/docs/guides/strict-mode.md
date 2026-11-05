@@ -1,6 +1,6 @@
 # Strict Mode
 
-Strict mode is the LLM provider feature that grammar-constrains tool inputs and structured output to your JSON Schema — the model can't return malformed arguments or off-schema fields. `@aeye` reconciles each provider's flavor of strict (OpenAI, Anthropic, Google) under one config knob so the same Zod schema works everywhere.
+Strict mode is the LLM provider feature that grammar-constrains tool inputs and structured output to your JSON Schema — the model can't return malformed arguments or off-schema fields. `@aeye` reconciles each provider's flavor of strict (OpenAI, Anthropic, Google, xAI) under one config knob so the same Zod schema works everywhere.
 
 ## The `strict` flag
 
@@ -102,23 +102,24 @@ Separate from the per-request budget, a dialect may bound how big ONE schema can
 
 Because each is a sum over a single schema, no other tool in the request can change the verdict — so an over-size tool is degraded on its own (to `OPENAI_NON_STRICT`) **even when it asked for `strict: true`**, and the rest of the request stays strict. `checkSchemaSizeLimits(schema, descriptor)` returns one line per bound broken, which is the answer to "why did my tool silently stop being strict?".
 
-Anthropic and Google publish no equivalent size ceilings, so their descriptors declare none.
+Anthropic, Google, and xAI publish no equivalent size ceilings, so their descriptors declare none.
 
 ## Format families
 
-A model's strict-mode JSON Schema dialect is one of three families. Each provider's strict mode is its own beast — the dialects are NOT interchangeable:
+A model's strict-mode JSON Schema dialect is one of four families. Each provider's strict mode is its own beast — the dialects are NOT interchangeable:
 
 | Family | What's distinctive |
 |---|---|
-| `openai` | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, all fields required. |
-| `anthropic` | Closed objects + all-required honored, but no recursive schemas, no length / numeric constraints, per-request slot budgets. |
-| `google` | Standard `prefixItems`, `$ref: '#'` recursion, `propertyOrdering` emitted, restricted format whitelist (date-time / date / time only). No combinators and no named `$defs`, so `z.any()` emits the empty schema `{}` rather than an `anyOf` union. |
+| `openai` | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, all fields required. Numeric bounds (`minimum`/`maximum`/`exclusive*`/`multipleOf`), `minItems`/`maxItems`, and `minLength`/`maxLength` are kept. |
+| `anthropic` | Closed objects + all-required honored, but no recursive schemas, no length / numeric / item-count constraints, tuples collapse to `items: anyOf`, per-request slot budgets. |
+| `google` | Standard `prefixItems`, `anyOf`, named `$defs`/`$ref` and `$ref: '#'` recursion, numeric and item-count bounds, `propertyOrdering` emitted, restricted format whitelist (date-time / date / time only). No `allOf`, `pattern`, or string lengths. `z.any()` still emits the empty schema `{}`: Gemini rejects a recursive `$defs/Any` as a ref loop through required values. |
+| `xai` | Grok 4+. `anyOf`, non-circular `$defs`, `prefixItems` tuples, open records, formats including `uri`, `pattern`, and length / item / numeric bounds. No `allOf`; recursion goes through the cycle breaker and `z.any()` is a flat `anyOf`. |
 
-`@aeye/core` ships seven `FormatDescriptor` constants encoding all this: `OPENAI_STRICT`, `ANTHROPIC_STRICT`, `GOOGLE_STRICT`, `LENIENT`, plus three non-strict family aliases. See the [`@aeye/core` README](https://github.com/ClickerMonkey/aeye/blob/main/packages/core/README.md#strict-mode) for the full descriptor table and how to register a custom one.
+`@aeye/core` ships nine `FormatDescriptor` constants encoding all this: `OPENAI_STRICT`, `ANTHROPIC_STRICT`, `GOOGLE_STRICT`, `XAI_STRICT`, `LENIENT`, plus four non-strict family aliases. See the [`@aeye/core` README](https://github.com/ClickerMonkey/aeye/blob/main/packages/core/README.md#strict-mode) for the full descriptor table and how to register a custom one.
 
 ## Wiring up the curated table
 
-`@aeye/models` ships `strictSupport` — a hand-maintained `ModelOverride[]` listing the model families known to support strict (gpt-4o+, claude 4.5+, gemini 2.0+). Splat it into your `AI` config:
+`@aeye/models` ships `strictSupport` — a hand-maintained `ModelOverride[]` listing the model families known to support strict (gpt-4o+, claude 4.5+, gemini 2+, grok 4+). Splat it into your `AI` config:
 
 ```typescript
 import { models, strictSupport } from '@aeye/models';
@@ -133,9 +134,9 @@ const ai = AI.with()
 
 Without it, models default to lenient even when their underlying API supports strict. With it:
 
-- `gpt-4o`, `gpt-4.1`, `gpt-5`, `o1`/`o3`/`o4` get the OpenAI dialect.
-- AWS Bedrock + Claude 4.5 / Sonnet 4 / Haiku 4 / Opus 4 get the Anthropic dialect.
-- OpenRouter `openai/*`, `anthropic/*`, `google/gemini-2+` get their respective dialects, for **tool** schemas as well as `response_format`. (Before 0.4.x only `response_format` was family-aware on OpenRouter; tool schemas silently fell back to LENIENT for every non-OpenAI model, which is how Gemini ended up receiving a recursive `$defs/Any` it answers `400 INVALID_ARGUMENT` to whenever a tool call is forced.)
+- `gpt-4o`, `gpt-4.1`, `gpt-5` and later (`gpt-5.x`, `gpt-6.x`), `chat-latest`, the o-series, and `gpt-realtime` get the OpenAI dialect.
+- AWS Bedrock + Claude 4.5 and later (including the 5.x families) get the Anthropic dialect. Sonnet 4 / Opus 4 / 4.1 have no strict mode and are not matched.
+- OpenRouter `openai/*`, `anthropic/` Claude 4.5+, `google/gemini-2+` (and the flash/pro `-latest` aliases), and `x-ai/grok-4+` get their respective dialects, for **tool** schemas as well as `response_format`. (Before 0.4.x only `response_format` was family-aware on OpenRouter; tool schemas silently fell back to LENIENT for every non-OpenAI model, which is how Gemini ended up receiving a recursive `$defs/Any` it answers `400 INVALID_ARGUMENT` to whenever a tool call is forced.)
 
 You can mix it with your own overrides:
 
@@ -143,7 +144,7 @@ You can mix it with your own overrides:
 modelOverrides: [
   ...strictSupport,
   // Your overrides:
-  { modelPattern: /gpt-4/, overrides: { tier: 'flagship' } },
+  { modelPattern: /gpt-5\.5/, overrides: { tier: 'flagship' } },
   // Mark a custom model as strict-capable:
   { provider: 'my-provider', modelId: 'flagship', overrides: { strictFormat: 'openai' } },
 ],
@@ -151,13 +152,15 @@ modelOverrides: [
 
 ## Auto-resolution and `strictFormat`
 
-Each `ModelInfo` has a `strictFormat?: 'openai' | 'anthropic' | 'google' | 'none'` field:
+Each `ModelInfo` has a `strictFormat?: 'openai' | 'anthropic' | 'google' | 'xai' | 'none'` field (or any registered family):
 
 - Set to a family name → opts the model into strict (auto-derives the `'toolsStrict'` capability) and pins the dialect.
 - Set to `'none'` → explicitly opts out, even if some upstream source had marked the model strict-capable.
 - Unset → the dialect is auto-resolved at request-build time via `resolveStrictFormat(model)`:
   1. `model.provider` if it matches a family name (covers direct `openai` / `anthropic` / `google` providers).
-  2. The `[family]/...` prefix of `model.id` (covers `openai/gpt-4o` on OpenRouter).
+  2. The `[family]/...` prefix of `model.id` (covers `openai/gpt-5.4-mini` on OpenRouter). OpenRouter's xAI prefix is `x-ai`, which resolves to no family, so Grok there relies on `strictSupport`.
+
+When the OpenAI provider (or an OpenAI-compatible subclass such as OpenRouter) is handed only a model id rather than a `ModelInfo`, it still resolves the family from the id and uses that family's non-strict descriptor, so a Gemini model keeps Google's `z.any()` encoding. Strict itself still needs the capabilities a `ModelInfo` carries.
 
 The fallback resolves the *dialect* but does **not** auto-add the `'toolsStrict'` capability. The capability comes from explicit `strictFormat` (or from a scraper that sets it directly). This avoids the failure mode where every legacy gpt-3.5-turbo silently gets treated as strict-capable and crashes against a real strict request.
 

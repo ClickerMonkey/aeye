@@ -33,9 +33,9 @@
   },
   "devDependencies": {
     "@aeye/ai": "^0.3.9",
-    "@aeye/core": "^0.3.9",
+    "@aeye/core": "^0.5.4",
     "@aeye/models": "^0.3.9",
-    "@aeye/openrouter": "^0.3.9",
+    "@aeye/openrouter": "^0.4.1",
     "tsup": "^8.0.0",
     "tsx": "^4.19.0",
     "vitest": "^3.0.0",

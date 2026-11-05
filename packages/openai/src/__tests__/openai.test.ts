@@ -207,7 +207,7 @@ describe('OpenAIProvider', () => {
       });
 
       it('should handle API errors', async () => {
-        mockOpenAI.chat.completions.create.mockRejectedValue(new Error('API Error'));
+        mockOpenAI.chat.completions.create.mockRejectedValue(Object.assign(new Error('API Error'), { status: 400 }));
 
         const executor = provider.createExecutor();
         const request: Request = {
@@ -222,7 +222,8 @@ describe('OpenAIProvider', () => {
         rateLimitError.status = 429;
         mockOpenAI.chat.completions.create.mockRejectedValue(rateLimitError);
 
-        const executor = provider.createExecutor();
+        // No retries: a 429 is retried with jittered backoff, racing the test timeout
+        const executor = new OpenAIProvider({ apiKey: 'test-api-key', retry: { maxRetries: 0 } }).createExecutor();
         const request: Request = {
           messages: [{ role: 'user', content: 'Hello' }]
         };
@@ -240,9 +241,6 @@ describe('OpenAIProvider', () => {
       });
 
       it('should stream chat completion', async () => {
-        // Streaming path uses `.create(...).withResponse()` to get both the
-        // HTTP response (for ok-check) and the async-iterable stream. Mock
-        // both layers.
         const mockStream = {
           [Symbol.asyncIterator]: async function* () {
             yield {
@@ -274,12 +272,7 @@ describe('OpenAIProvider', () => {
           }
         };
 
-        mockOpenAI.chat.completions.create.mockReturnValue({
-          withResponse: jest.fn().mockResolvedValue({
-            response: { ok: true, headers: new Map(), status: 200, statusText: 'OK' },
-            data: mockStream,
-          }),
-        });
+        mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
 
         const streamer = provider.createStreamer();
         const request: Request = {
@@ -354,7 +347,9 @@ describe('OpenAIProvider', () => {
     });
 
     it('should handle image generation errors', async () => {
-      mockOpenAI.images.generate.mockRejectedValue(new Error('Generation failed'));
+      // A 400 is not retryable; a status-less Error reads as a network failure
+      // (status 0) and is retried with jittered backoff, racing the test timeout.
+      mockOpenAI.images.generate.mockRejectedValue(Object.assign(new Error('Generation failed'), { status: 400 }));
 
       const request: ImageGenerationRequest = {
         prompt: 'Test'
@@ -865,14 +860,7 @@ describe('OpenAIProvider', () => {
         }
       };
 
-      // Streaming uses `.create(...).withResponse()` to get the HTTP
-      // response + the iterable stream.
-      mockOpenAI.chat.completions.create.mockReturnValue({
-        withResponse: jest.fn().mockResolvedValue({
-          response: { ok: true, headers: new Map(), status: 200, statusText: 'OK' },
-          data: mockStream,
-        }),
-      });
+      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
 
       const streamer = provider.createStreamer();
       const request: Request = {

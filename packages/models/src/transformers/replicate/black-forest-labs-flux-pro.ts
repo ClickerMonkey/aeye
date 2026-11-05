@@ -43,7 +43,7 @@ export default {
             }
           }
           if (request.quality) {
-            const qualityMap = { low: 60, medium: 80, high: 100 };
+            const qualityMap = { auto: 80, low: 60, medium: 80, high: 100, xhigh: 100, max: 100 };
             input.output_quality = qualityMap[request.quality] || 80;
           }
           return input;

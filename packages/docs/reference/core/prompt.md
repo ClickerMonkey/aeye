@@ -87,6 +87,10 @@ Events emitted during `run()` / `get('stream')`:
 | `refusal` | `string` | Model refusal message |
 | `reason` | `Reasoning` | Complete reasoning trace |
 | `reasonPartial` | `Reasoning` | Reasoning chunk |
+| `citations` | `Citation[]` | Sources the model cited |
+| `images` | `GeneratedImage[]` | Images produced alongside the text |
+| `audioPartial` | `GeneratedAudio` | Partial audio output |
+| `moderation` | `Moderation` | Moderation verdicts |
 | `toolParseName` | `{ id, name }` | Tool name parsed |
 | `toolParseArguments` | `{ id, name, args }` | Tool args streaming |
 | `toolStart` | `{ name, input }` | Tool execution starting |

@@ -3,7 +3,7 @@
  * (`applySchemaDeliveryFallback`).
  *
  * Verifies that a structured schema the selected model's dialect can't express
- * (e.g. a union under a Google-family model) transparently drops the wire
+ * (e.g. an intersection under a Google-family model) transparently drops the wire
  * schema and delivers it as prompt text, while models that CAN express it (and
  * `schemaDelivery: 'structured'`) keep `response_format`.
  */
@@ -32,6 +32,13 @@ const unionSchema = z.object({
   value: z.union([z.string(), z.number()]),
 });
 
+// Google strict has taken unions since November 2025, but still not
+// intersections (allOf).
+const allOfSchema = z.object({
+  id: z.string(),
+  value: z.intersection(z.object({ a: z.string() }), z.object({ b: z.number() })),
+});
+
 const plainSchema = z.object({ id: z.string(), name: z.string() });
 
 function makeRequest(schema: z.ZodType<object, object>, schemaDelivery: SchemaDelivery): Request {
@@ -46,9 +53,9 @@ function systemContent(request: Request): string {
 }
 
 describe('applySchemaDeliveryFallback', () => {
-  describe("Google-family model + union schema + 'auto'", () => {
+  describe("Google-family model + allOf schema + 'auto'", () => {
     it('drops response_format and appends schema text + the Google instruction', () => {
-      const request = makeRequest(unionSchema, 'auto');
+      const request = makeRequest(allOfSchema, 'auto');
       applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
 
       // Wire schema dropped — no provider will emit response_format.
@@ -58,35 +65,41 @@ describe('applySchemaDeliveryFallback', () => {
       const content = systemContent(request);
       expect(content).toContain('You are a helpful assistant.');
       expect(content).toContain('JSON object conforming to this schema');
-      expect(content).toContain('"anyOf"');
+      expect(content).toContain('"allOf"');
       expect(content).toContain(getJsonFallbackInstruction(GOOGLE_STRICT));
     });
 
     it('resolves the google dialect from the id prefix when provider is openrouter', () => {
-      const request = makeRequest(unionSchema, 'auto');
+      const request = makeRequest(allOfSchema, 'auto');
       applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-flash'));
       expect(request.responseFormat).toBeUndefined();
     });
 
     it('is idempotent — re-applying does not duplicate the schema text', () => {
-      const request = makeRequest(unionSchema, 'auto');
+      const request = makeRequest(allOfSchema, 'auto');
       const model = makeModel('openrouter', 'google/gemini-2.5-pro');
       applySchemaDeliveryFallback(request, model);
       const afterFirst = systemContent(request);
 
       // Simulate a later iteration re-setting a structured responseFormat
       // (as a dynamic prompt would) and re-running the fallback.
-      request.responseFormat = { type: unionSchema, strict: false, schemaDelivery: 'auto' };
+      request.responseFormat = { type: allOfSchema, strict: false, schemaDelivery: 'auto' };
       applySchemaDeliveryFallback(request, model);
 
       expect(request.responseFormat).toBeUndefined();
       expect(systemContent(request)).toBe(afterFirst);
     });
+
+    it('keeps a union structured, now that Gemini takes anyOf', () => {
+      const request = makeRequest(unionSchema, 'auto');
+      applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-3.5-flash'));
+      expect(request.responseFormat).toBeDefined();
+    });
   });
 
   describe("schemaDelivery: 'structured'", () => {
     it('keeps response_format even for a Google model that cannot express the schema', () => {
-      const request = makeRequest(unionSchema, 'structured');
+      const request = makeRequest(allOfSchema, 'structured');
       applySchemaDeliveryFallback(request, makeModel('openrouter', 'google/gemini-2.5-pro'));
       expect(request.responseFormat).toBeDefined();
       expect(typeof request.responseFormat).toBe('object');

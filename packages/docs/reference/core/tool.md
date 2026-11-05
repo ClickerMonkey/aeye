@@ -21,13 +21,16 @@ new Tool<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded = TParams
 | `instructions` | `string` | No | Handlebars template for usage guidance |
 | `instructionsFn` | `(ctx) => string` | No | Dynamic instructions |
 | `input` | `(ctx) => object` | No | Template variables for instructions |
-| `strict` | `boolean` | No | Strict JSON schema (default: `true`) |
+| `strict` | `boolean \| number` | No | Strict tool inputs: `true` requires, `false` disables, a number is a preference priority (default: `1`) |
 | `refs` | `Component[]` | No | Referenced components |
 | `validate` | `(input, ctx) => void` | No | Post-parse validation |
 | `applicable` | `(ctx) => boolean` | No | Availability check |
 | `metadata` | `object` | No | Static metadata |
 | `metadataFn` | `(input, ctx) => object` | No | Dynamic metadata |
 | `descriptionFn` | `(ctx) => string` | No | Dynamic description |
+| `format` | `ToolTextFormat` | No | Take the input as free text (`{ type: 'text' }`) or text matching a grammar (`{ type: 'grammar', syntax: 'lark' \| 'regex', definition }`). The text arrives as `input`; use `TEXT_TOOL_SCHEMA` as the schema. |
+| `defer` | `boolean` | No | Load the tool only when the model searches for it (OpenAI tool search) |
+| `async` | `boolean` | No | The model keeps working while the tool runs (OpenAI Responses) |
 
 ## Properties
 
@@ -72,7 +75,7 @@ Compile instructions and schema for AI model consumption.
 ```typescript
 const [instructions, definition] = await tool.compile(ctx);
 // instructions: rendered template string
-// definition: { name, description, parameters, strict }
+// definition: { name, description, parameters, strict, format, defer, async }
 ```
 
 Returns `undefined` if `applicable()` returns `false`.
@@ -80,6 +83,42 @@ Returns `undefined` if `applicable()` returns `false`.
 ### `metadata(input?, ctx?)`
 
 Get tool metadata (static or dynamic).
+
+## Helpers
+
+### `TEXT_TOOL_SCHEMA`
+
+The schema of a free-text tool, `z.object({ input: z.string() })`. A tool with `format` set receives its text as `input`:
+
+```typescript
+import { TEXT_TOOL_SCHEMA } from '@aeye/core';
+
+const runShell = ai.tool({
+  name: 'runShell',
+  description: 'Run a shell command',
+  schema: TEXT_TOOL_SCHEMA,
+  format: { type: 'text' },
+  call: async ({ input }) => exec(input),
+});
+```
+
+### `forcesTool(choice)`
+
+Whether a `ToolChoice` makes the model call a tool: `'required'`, `{ tool }`, or `{ allowed, required: true }`.
+
+```typescript
+forcesTool({ allowed: ['a'], required: true }); // true
+forcesTool({ allowed: ['a'] });                 // false
+```
+
+### `withAllowedTools(request)`
+
+The request with only its allowed tools, for providers that can't limit which tools a model calls while sending them all. A `{ allowed, required }` choice becomes `'required'` or `'auto'`; any other choice returns the request unchanged. The OpenRouter and AWS Bedrock providers use it.
+
+```typescript
+const narrowed = withAllowedTools({ messages, tools, toolChoice: { allowed: ['search'] } });
+// narrowed.tools holds only `search`; narrowed.toolChoice is 'auto'
+```
 
 ## Special Error Classes
 

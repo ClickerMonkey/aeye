@@ -8,6 +8,7 @@
 import type {
   AgentInput,
   AnyComponent,
+  AudioFormat,
   BaseChunk,
   BaseRequest,
   BaseResponse,
@@ -19,11 +20,14 @@ import type {
   Context as CoreContext,
   DescriptorFamily,
   Executor,
+  GeneratedImage,
+  HostedToolType,
   Message,
   Model,
   ModelInput,
   OptionalParams,
   PromptInput,
+  ReasoningEffort,
   Request,
   Resource,
   Response,
@@ -87,20 +91,26 @@ export type Providers = Record<string, Provider<any>>;
  * - chat: Basic text completion
  * - tools: Function/tool calling
  * - vision: Image understanding
+ * - files: Document (e.g. PDF) understanding
+ * - videoInput: Video understanding
  * - json: JSON output mode
  * - structured: Structured output with schemas
  * - streaming: Streaming responses
  * - reasoning: Extended reasoning (like OpenAI o1)
  * - image: Image generation
- * - audio: Text-to-speech
- * - hearing: Speech-to-text
+ * - audio: Audio output (text-to-speech, or a chat model that speaks)
+ * - hearing: Audio input (speech-to-text, or a chat model that listens)
  * - embedding: Text embeddings
+ * - rerank: Ordering documents by relevance to a query
+ * - decision: Typed answers (probabilities, choices, scores) about an input
  * - zdr: Zero data retention
  */
 export type ModelCapability =
   | 'chat'
   | 'tools'
   | 'vision'
+  | 'files'
+  | 'videoInput'
   | 'json'
   | 'structured'
   | 'streaming'
@@ -109,6 +119,8 @@ export type ModelCapability =
   | 'audio'
   | 'hearing'
   | 'embedding'
+  | 'rerank'
+  | 'decision'
   | 'zdr'
   // Strict tool-input enforcement. Auto-derived from `resolveStrictFormat(model)` returning a family.
   // Selection treats this as an *optional preference* when a request has any
@@ -146,6 +158,8 @@ export interface ModelPricing {
     input?: number;
     output?: number;
     cached?: number;
+    // Writing to the prompt cache, where billed separately
+    cacheWrite?: number;
   };
   audio?: {
     input?: number;
@@ -154,6 +168,9 @@ export interface ModelPricing {
   };
   image?: {
     input?: number;
+    // Output image tokens, for models that bill image output per token
+    tokens?: number;
+    // Per-image output prices, for models that bill per image
     output?: {
       quality: string; // e.g., low, medium, high
       sizes: {
@@ -171,6 +188,8 @@ export interface ModelPricing {
   embeddings?: {
     cost?: number;
   };
+  // Cost per hosted tool call (not per 1M tokens), by tool type
+  tools?: Partial<Record<HostedToolType, number>>;
   // Fixed cost per request
   perRequest?: number;
 }
@@ -248,6 +267,10 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
    *   auto-derived from a successful resolution.
    */
   strictFormat?: DescriptorFamily | 'none';
+  // Reasoning efforts the model accepts, lowest to highest (all when omitted)
+  reasoningEfforts?: ReasoningEffort[];
+  // ISO date (YYYY-MM-DD) the provider stops serving the model
+  retiresAt?: string;
   // Additional provider-specific metadata
   metadata?: Record<string, unknown>;
 }
@@ -255,7 +278,7 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
 /**
  * Tokenizer type used by the model.
  */
-export type ModelTokenizer = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'Gemma' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router';
+export type ModelTokenizer = 'Other' | 'GPT' | 'Mistral' | 'Llama3' | 'Qwen3' | 'Qwen' | 'Gemini' | 'Gemma' | 'DeepSeek' | 'Claude' | 'Grok' | 'Llama4' | 'Llama2' | 'Cohere' | 'Nova' | 'Router' | 'Media';
 
 /**
  * Parameter names supported by models.
@@ -276,6 +299,8 @@ export type ModelParameter =
   | 'logitBias' // logit_bias
   | 'logProbabilities' // logprobs
   | 'reason' // reasoning
+  | 'verbosity' // verbosity
+  | 'serviceTier' // service_tier
   // Image
   | 'imageBackground' // background
   | 'imageMultiple' // n
@@ -609,27 +634,31 @@ export type ToolInfer<A> = A extends AI<infer T> ? ToolCompatible<
 // ============================================================================
 
 /**
- * Request for generating images from text prompts.
+ * Image quality, cheapest to best. Models accept different subsets.
  */
-export interface ImageGenerationRequest extends BaseRequest {
-  // Text description of desired image
+export type ImageQuality = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/**
+ * Output options shared by image generation and editing.
+ */
+export interface ImageOutputOptions extends BaseRequest {
+  // Text description of the desired image or edit
   prompt: string;
-  // Number of images to generate
+  // Number of images to produce
   n?: number;
-  // Image size
-  // gpt-image-1: 1024x1024, 1536x1024, 1024x1536, auto
-  // dall-e-2: 256x256, 512x512, 1024x1024
-  // dall-e-3: 1024x1024, 1792x1024, 1024x1792
+  // Image size as WIDTHxHEIGHT; the nearest size the model supports is used
   size?: string;
-  // Quality level (gpt-image-1, hd,standard=dall-e-3, standard=dall-e-2)
-  quality?: 'low' | 'medium' | 'high';
-  // Style preference (dall-e-3)
-  style?: 'vivid' | 'natural'; 
-  // Response format (dall-e-3, dall-e-2 supports both, gpt-image-1 only b64_json)
-  responseFormat?: 'url' | 'b64_json';
-  // Background type (gpt-image-1)
+  // Quality level
+  quality?: ImageQuality;
+  // Background type
   background?: 'transparent' | 'opaque' | 'auto';
-  // The number of partial images to generate for progress tracking for streaming operations (gpt-image-1)
+  // Encoding of the returned image
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  // Compression level 0-100, for jpeg and webp
+  outputCompression?: number;
+  // Response format for models that can return URLs
+  responseFormat?: 'url' | 'b64_json';
+  // The number of partial images to stream for progress
   streamCount?: number;
   // Seed for reproducibility
   seed?: number;
@@ -638,27 +667,27 @@ export interface ImageGenerationRequest extends BaseRequest {
 }
 
 /**
+ * Request for generating images from text prompts.
+ */
+export interface ImageGenerationRequest extends ImageOutputOptions {
+  // Style preference, for models that have styles
+  style?: 'vivid' | 'natural';
+  // Content moderation strictness
+  moderation?: 'auto' | 'low';
+}
+
+/**
  * Request for editing existing images with text prompts.
  */
-export interface ImageEditRequest extends BaseRequest {
-  // Text description of desired edits
-  prompt: string;
+export interface ImageEditRequest extends ImageOutputOptions {
   // Source image to edit
   image: Resource;
-  // Optional mask indicating edit region
+  // More images to combine with or take reference from
+  references?: Resource[];
+  // Optional mask indicating the edit region of the source image
   mask?: Resource;
-  // Number of edited images to generate
-  n?: number;
-  // Output size
-  size?: string;
-  // Response format
-  responseFormat?: 'url' | 'b64_json';
-  // Seed for reproducibility
-  seed?: number;
-  // The number of partial images to generate for progress tracking for streaming operations
-  streamCount?: number;
-  // Unique identifier for the user
-  userIdentifier?: string;
+  // How closely to preserve details of the input images
+  inputFidelity?: 'low' | 'high';
 }
 
 /**
@@ -666,28 +695,19 @@ export interface ImageEditRequest extends BaseRequest {
  */
 export interface ImageGenerationResponse extends BaseResponse {
   // Generated images
-  images: Array<{
-    url?: string;
-    b64_json?: string;
-    revisedPrompt?: string;
-  }>;
+  images: GeneratedImage[];
 }
 
 /**
  * Streaming chunk for image generation progress.
  */
 export interface ImageGenerationChunk extends BaseChunk {
-  // Partial image data
-  imageData?: string;
   // Progress percentage (0-1)
   progress?: number;
   // Whether generation is complete
   done?: boolean;
-  // Final image (when done)
-  image?: {
-    url?: string;
-    b64_json?: string;
-  };
+  // Partial or final image
+  image?: GeneratedImage;
 }
 
 /**
@@ -702,10 +722,26 @@ export interface TranscriptionRequest extends BaseRequest {
   prompt?: string;
   // Sampling temperature
   temperature?: number;
-  // Output format
-  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json';
+  // Output format; diarized_json labels each segment with its speaker
+  responseFormat?: 'json' | 'text' | 'srt' | 'vtt' | 'verbose_json' | 'diarized_json';
   // Timestamp granularity
   timestampGranularities?: Array<'word' | 'segment'>;
+  // Reference clips of known speakers, for diarization
+  knownSpeakers?: Array<{ name: string; audio: Resource }>;
+}
+
+/**
+ * A timed span of a transcription.
+ */
+export interface TranscriptionSegment {
+  id: string;
+  // Start time in seconds
+  start: number;
+  // End time in seconds
+  end: number;
+  text: string;
+  // Speaker label, when diarized
+  speaker?: string;
 }
 
 /**
@@ -714,6 +750,8 @@ export interface TranscriptionRequest extends BaseRequest {
 export interface TranscriptionResponse extends BaseResponse {
   // Transcribed text
   text: string;
+  // Timed segments, when the format provides them
+  segments?: TranscriptionSegment[];
 }
 
 /**
@@ -724,8 +762,8 @@ export interface TranscriptionChunk extends BaseChunk {
   delta?: string;
   // The full text transcribed
   text?: string;
-  // Segment information (after segment complete
-  segment?: { start: number; end: number; speaker: string, text: string, id: string };
+  // A completed segment
+  segment?: TranscriptionSegment;
   // Status message
   status?: string;
 }
@@ -738,12 +776,12 @@ export interface SpeechRequest extends BaseRequest{
   text: string;
   // Instructions for speech style/tone
   instructions?: string;
-  // Voice identifier
+  // Voice name or custom voice id
   voice?: string;
   // Speech speed multiplier (0.25 - 4.0)
   speed?: number;
   // Audio format
-  responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+  responseFormat?: AudioFormat;
 }
 
 /**
@@ -753,7 +791,7 @@ export interface SpeechResponse extends BaseResponse {
   // Generated audio data
   audio: ReadableStream<any>;
   // Audio format
-  responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
+  responseFormat?: AudioFormat;
 }
 
 /**
@@ -782,6 +820,70 @@ export interface EmbeddingResponse extends BaseResponse {
 }
 
 /**
+ * Request to order documents by how relevant they are to a query.
+ */
+export interface RerankRequest extends BaseRequest {
+  query: string;
+  documents: string[];
+  // How many of the most relevant documents to return. Default all.
+  topN?: number;
+}
+
+/**
+ * Documents by relevance, most relevant first.
+ */
+export interface RerankResponse extends BaseResponse {
+  results: Array<{
+    // Position of the document in the request
+    index: number;
+    // Relevance to the query, from 0 to 1
+    score: number;
+  }>;
+}
+
+/**
+ * A question a decision model answers about the input.
+ *
+ * - predicate: how likely a condition is true
+ * - choice: which one of the choices applies, keyed by value with a
+ *   description of when it applies
+ * - score: where the input falls on ordered levels, lowest first
+ */
+export type DecisionQuestion =
+  | { type: 'predicate'; instructions: string }
+  | { type: 'choice'; instructions: string; choices: Record<string, string> }
+  | { type: 'score'; instructions: string; levels: string[] };
+
+/**
+ * A decision model's answer to one question. Probabilities run from 0 to 1;
+ * a score is the probability-weighted average of the level indices, so it
+ * can fall between levels.
+ */
+export type DecisionAnswer =
+  | { type: 'predicate'; probability: number }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
+  | { type: 'score'; score: number; probabilities: number[]; confidence: number }
+  | { type: 'refusal' };
+
+/**
+ * Request for typed answers about an input, from a decision model.
+ */
+export interface DecisionRequest extends BaseRequest {
+  // The evidence: text, or a conversation
+  input: string | Message[];
+  // Questions by name
+  questions: Record<string, DecisionQuestion>;
+}
+
+/**
+ * Answers to a decision request.
+ */
+export interface DecisionResponse extends BaseResponse {
+  // Answers by question name
+  answers: Record<string, DecisionAnswer>;
+}
+
+/**
  * Request for analyzing images with vision models.
  */
 export interface ImageAnalyzeRequest extends BaseRequest{
@@ -793,6 +895,40 @@ export interface ImageAnalyzeRequest extends BaseRequest{
   maxTokens?: number;
   // Sampling temperature
   temperature?: number;
+}
+
+/**
+ * Where a batch is in its run.
+ */
+export type BatchStatus = 'validating' | 'in_progress' | 'finalizing' | 'completed' | 'failed' | 'expired' | 'cancelling' | 'cancelled';
+
+/**
+ * A batch of chat requests running at a provider: cheaper than running
+ * them one by one, with results within about a day.
+ */
+export interface BatchJob {
+  id: string;
+  // Provider running the batch
+  provider: string;
+  // Model every request runs on
+  model: string;
+  status: BatchStatus;
+  // How many requests there are, and how many finished or failed so far
+  counts?: { total: number; completed: number; failed: number };
+  // Why the batch failed, when it did
+  error?: string;
+  // Dollars billed so far, where the provider reports it for the batch
+  cost?: number;
+  // One per request, in request order, once the batch completes
+  results?: BatchResult[];
+}
+
+/**
+ * The outcome of one request in a batch.
+ */
+export interface BatchResult {
+  response?: Response;
+  error?: string;
 }
 
 // ============================================================================
@@ -841,7 +977,7 @@ export interface ModelHandler<TContext extends AIContextAny = AIContextAny> {
 
   imageAnalyze?: {
     get?: <TRuntimeContext extends TContext>(request: ImageAnalyzeRequest, ctx: TRuntimeContext) => Promise<Response>;
-    streem?: <TRuntimeContext extends TContext>(request: ImageAnalyzeRequest, ctx: TRuntimeContext) => AsyncIterable<Chunk>;
+    stream?: <TRuntimeContext extends TContext>(request: ImageAnalyzeRequest, ctx: TRuntimeContext) => AsyncIterable<Chunk>;
   };
 
   transcribe?: {
@@ -855,6 +991,14 @@ export interface ModelHandler<TContext extends AIContextAny = AIContextAny> {
 
   embed?: {
     get?: <TRuntimeContext extends TContext>(request: EmbeddingRequest, ctx: TRuntimeContext) => Promise<EmbeddingResponse>;
+  };
+
+  rerank?: {
+    get?: <TRuntimeContext extends TContext>(request: RerankRequest, ctx: TRuntimeContext) => Promise<RerankResponse>;
+  };
+
+  decide?: {
+    get?: <TRuntimeContext extends TContext>(request: DecisionRequest, ctx: TRuntimeContext) => Promise<DecisionResponse>;
   };
 }
 
@@ -1060,6 +1204,18 @@ export interface Provider<TConfig = any> {
     config?: TConfig
   ): Promise<EmbeddingResponse>;
 
+  rerank?(
+    request: RerankRequest,
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<RerankResponse>;
+
+  decide?(
+    request: DecisionRequest,
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<DecisionResponse>;
+
   analyzeImage?(
     request: ImageAnalyzeRequest,
     ctx: AIContextAny,
@@ -1071,6 +1227,18 @@ export interface Provider<TConfig = any> {
     ctx: AIContextAny,
     config?: TConfig
   ): AsyncIterable<Chunk>;
+
+  submitBatch?(
+    requests: Request[],
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<BatchJob>;
+
+  getBatch?(
+    job: BatchJob,
+    ctx: AIContextAny,
+    config?: TConfig
+  ): Promise<BatchJob>;
 }
 
 // ============================================================================
@@ -1263,6 +1431,10 @@ export interface AIConfig<
     audioBase64Divisor?: number; // Default: 4
     audioFallback?: number;      // Default: 200 (per minute)
     audioMax?: number;           // Default: none
+    videoDivisor?: number;       // Default: 600
+    videoBase64Divisor?: number; // Default: 800
+    videoFallback?: number;      // Default: 15000 (about a minute)
+    videoMax?: number;           // Default: none
   };
 
   // Default cost for unknown models (per 1M tokens)

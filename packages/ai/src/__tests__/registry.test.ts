@@ -497,3 +497,25 @@ describe('ModelRegistry', () => {
     });
   });
 });
+
+describe('ModelRegistry retirement', () => {
+  it('skips models past their retirement date', async () => {
+    const registry = new ModelRegistry({ mock: createMockProvider({ name: 'mock' }) });
+    await registry.refresh();
+    for (const model of registry.listModels()) {
+      registry.registerModel({ ...model, retiresAt: '2020-01-01' });
+    }
+    registry.registerModel({
+      id: 'mock-current',
+      provider: 'mock',
+      name: 'Current',
+      capabilities: new Set(['chat']),
+      tier: 'flagship',
+      pricing: {},
+      contextWindow: 1000,
+      retiresAt: '9999-12-31',
+    });
+
+    expect(registry.selectModel({ required: ['chat'] })?.model.id).toBe('mock-current');
+  });
+});

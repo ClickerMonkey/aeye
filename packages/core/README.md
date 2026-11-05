@@ -421,6 +421,8 @@ const adaptivePrompt = new Prompt({
 | `audio` | Text-to-speech |
 | `hearing` | Speech-to-text |
 | `embedding` | Text embeddings |
+| `rerank` | Ordering documents by relevance |
+| `decision` | Typed answers (probabilities, choices, scores) from decision models |
 | `tools` | Function/tool calling |
 | `json` | JSON output mode |
 | `structured` | Structured outputs with schemas |
@@ -541,7 +543,10 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 - `content: string` - Handlebars template for the system/user message
 - `input?: (input: TInput, ctx: Context<TContext, TMetadata>) => Record<string, any>` - Maps raw input to template variables
 - `schema?: ZodType<TOutput> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => ZodType<TOutput> | false)` - Output schema; `false` disables structured output
-- `strict?: boolean` - Enforce strict Zod schema (default: `true`)
+- `strict?: boolean | number` - Strict tool inputs: `true` requires, `false` disables, a number is a preference priority (default: `1`)
+- `format?: ToolTextFormat` - Take free text (`{ type: 'text' }`) or grammar-constrained text (`{ type: 'grammar', syntax: 'lark' | 'regex', definition }`) as `input` instead of JSON; use `TEXT_TOOL_SCHEMA` as the schema
+- `defer?: boolean` - Load only when the model searches for it (OpenAI tool search)
+- `async?: boolean` - The model keeps working while the tool runs (OpenAI Responses)
 - `config?: Partial<Request> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Partial<Request> | false)` - AI request overrides
 - `tools?: TTools` - Tools the prompt may call
 - `toolExecution?: 'sequential' | 'parallel' | 'immediate'` - Tool execution mode
@@ -644,9 +649,9 @@ interface Request {
   maxTokens?: number;
   stop?: string | string[];
   tools?: ToolDefinition[];
-  toolChoice?: 'auto' | 'required' | 'none' | { type: 'tool'; name: string };
-  responseFormat?: 'text' | 'json' | { type: 'json_schema'; schema: object; name: string; strict?: boolean };
-  reason?: { effort?: 'low' | 'medium' | 'high'; maxTokens?: number };
+  toolChoice?: 'auto' | 'required' | 'none' | { tool: string } | { allowed: string[]; required?: boolean };
+  responseFormat?: 'text' | 'json' | { type: ZodType; strict: boolean | number };
+  reason?: { effort?: ReasoningEffort; maxTokens?: number; summary?: 'auto' | 'concise' | 'detailed'; exclude?: boolean };
   frequencyPenalty?: number;
   presencePenalty?: number;
   seed?: number;

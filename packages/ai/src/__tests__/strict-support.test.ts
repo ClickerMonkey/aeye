@@ -1,3 +1,4 @@
+import { strictSupport } from '@aeye/models';
 /**
  * Strict-mode support tests.
  *
@@ -271,5 +272,32 @@ describe('Strict-mode capability handling', () => {
 
       expect(selection).toBeUndefined();
     });
+  });
+});
+
+describe('curated strictSupport table', () => {
+  const familyOf = (provider: string, id: string) =>
+    strictSupport.find(o => o.provider === provider && o.modelPattern?.test(id))?.overrides.strictFormat;
+
+  it.each([
+    ['openai', 'gpt-5.4-mini', 'openai'],
+    ['openai', 'gpt-6.1-sol', 'openai'],
+    ['openai', 'chat-latest', 'openai'],
+    ['openai', 'gpt-4.1-mini', 'openai'],
+    ['openai', 'gpt-3.5-turbo', undefined],
+    ['aws', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'anthropic'],
+    ['aws', 'anthropic.claude-opus-5-v1:0', 'anthropic'],
+    ['aws', 'anthropic.claude-opus-4-1-20250805-v1:0', undefined],
+    ['openrouter', 'anthropic/claude-opus-4.8', 'anthropic'],
+    ['openrouter', 'anthropic/claude-sonnet-5', 'anthropic'],
+    ['openrouter', '~anthropic/claude-sonnet-latest', 'anthropic'],
+    ['openrouter', 'anthropic/claude-sonnet-4', undefined],
+    ['openrouter', 'openai/gpt-6-luna', 'openai'],
+    ['openrouter', 'google/gemini-3.5-flash', 'google'],
+    ['openrouter', '~google/gemini-flash-latest', 'google'],
+    ['openrouter', 'x-ai/grok-4.3', 'xai'],
+    ['openrouter', 'meta-llama/llama-4-maverick', undefined],
+  ])('%s %s -> %s', (provider, id, family) => {
+    expect(familyOf(provider, id)).toBe(family);
   });
 });

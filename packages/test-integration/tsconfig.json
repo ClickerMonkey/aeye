@@ -5,11 +5,11 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
-  "exclude": ["src/**/__tests__", "src/**/*.test.ts"],
   "references": [
     { "path": "../core" },
     { "path": "../ai" },
     { "path": "../openai" },
-    { "path": "../openrouter" }
+    { "path": "../openrouter" },
+    { "path": "../models" }
   ]
 }

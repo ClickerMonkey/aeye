@@ -70,7 +70,7 @@ const weatherBot = ai.prompt({
 // The prompt automatically calls tools and returns the final response
 for await (const event of weatherBot.run({ })) {
   if (event.type === 'text') {
-    console.log(event.value);
+    console.log(event.content);
   }
 }
 ```

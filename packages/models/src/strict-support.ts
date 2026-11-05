@@ -34,21 +34,23 @@
  * strict-capable.
  *
  * References:
- * - https://platform.openai.com/docs/guides/structured-outputs
+ * - https://developers.openai.com/api/docs/guides/structured-outputs
  * - https://platform.claude.com/docs/en/agents-and-tools/tool-use/strict-tool-use
  * - https://platform.claude.com/docs/en/build-with-claude/structured-outputs
  * - https://ai.google.dev/gemini-api/docs/structured-output
+ * - https://docs.x.ai/docs/guides/structured-outputs
  */
 
 import type { ModelOverride } from '@aeye/ai';
 
 export const strictSupport: ModelOverride[] = [
   // ---------------------------------------------------------------------------
-  // OpenAI direct — gpt-4o, gpt-4.1, gpt-5, o-series support strict tools +
-  // outputs. gpt-realtime supports function calling (no documented support
-  // for structured output, gated by the `'structured'` capability — which
-  // the scraper doesn't add for realtime models). Legacy gpt-4 / gpt-3.5
-  // are not listed: they don't get the cap, so they stay lenient.
+  // OpenAI direct — gpt-4o, gpt-4.1, gpt-5 and later (gpt-5.x, gpt-6.x), and
+  // the o-series support strict tools + outputs. gpt-realtime supports
+  // function calling (no documented support for structured output, gated by
+  // the `'structured'` capability — which the scraper doesn't add for realtime
+  // models). Legacy gpt-4 / gpt-3.5 are not listed: they don't get the cap, so
+  // they stay lenient.
   // ---------------------------------------------------------------------------
   {
     provider: 'openai',
@@ -62,7 +64,7 @@ export const strictSupport: ModelOverride[] = [
   },
   {
     provider: 'openai',
-    modelPattern: /^gpt-5(\b|[-_])/,
+    modelPattern: /^(gpt-([5-9]|\d{2,})(\b|[-_.])|chat-latest$)/,
     overrides: { strictFormat: 'openai' },
   },
   {
@@ -79,33 +81,40 @@ export const strictSupport: ModelOverride[] = [
   // ---------------------------------------------------------------------------
   // AWS Bedrock — Anthropic-family Claude 4.5+ only. provider='aws' doesn't
   // resolve and the id uses '.' separators rather than '/', so the dialect
-  // must be set explicitly here. Earlier Claude versions (3.5/3.7) don't
-  // support strict per Anthropic docs and are deliberately not listed.
+  // must be set explicitly here. Claude 3.x, 4, and 4.1 don't support strict
+  // per Anthropic docs and are deliberately not matched.
   // ---------------------------------------------------------------------------
   {
     provider: 'aws',
-    modelPattern: /anthropic\.claude-(opus-4|sonnet-4|haiku-4)/,
+    modelPattern: /anthropic\.claude-((opus|sonnet|haiku)-4-[5-9]|(opus|sonnet|haiku|fable|mythos)-[5-9])/,
     overrides: { strictFormat: 'anthropic' },
   },
 
   // ---------------------------------------------------------------------------
-  // OpenRouter — keyed off the `[family]/...` id prefix. Listed here both
-  // to add the `'toolsStrict'` capability (which the OpenRouter scraper
-  // doesn't currently set) and to pin the dialect explicitly.
+  // OpenRouter — keyed off the `[family]/...` id prefix (and the `~` of
+  // floating `-latest` aliases). Listed here both to add the `'toolsStrict'`
+  // capability (which the OpenRouter scraper doesn't currently set) and to pin
+  // the dialect explicitly. xAI's prefix is `x-ai`, which no family resolves
+  // on its own.
   // ---------------------------------------------------------------------------
   {
     provider: 'openrouter',
-    modelPattern: /^openai\/(gpt-4o|gpt-4\.1|gpt-5|o[1-9])/,
+    modelPattern: /^~?openai\/(gpt-4o|gpt-4\.1|gpt-([5-9]|\d{2,})|o[1-9])/,
     overrides: { strictFormat: 'openai' },
   },
   {
     provider: 'openrouter',
-    modelPattern: /^anthropic\/claude-(opus-4|sonnet-4|haiku-4|4)/,
+    modelPattern: /^~?anthropic\/claude-((opus|sonnet|haiku)-4\.[5-9]|(opus|sonnet|haiku|fable|mythos)-([5-9]|latest))/,
     overrides: { strictFormat: 'anthropic' },
   },
   {
     provider: 'openrouter',
-    modelPattern: /^google\/gemini-(2\.0|2\.5|3|3\.1)/,
+    modelPattern: /^~?google\/gemini-([2-9]|flash|pro)/,
     overrides: { strictFormat: 'google' },
+  },
+  {
+    provider: 'openrouter',
+    modelPattern: /^~?x-ai\/grok-([4-9]|latest)/,
+    overrides: { strictFormat: 'xai' },
   },
 ];

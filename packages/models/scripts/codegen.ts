@@ -27,6 +27,8 @@ export const stringifyModel = (m: ModelInfo) => {
     [m.capabilities, `capabilities: new Set([${Array.from(m.capabilities).map(c => `'${c}'`).join(', ')}])`],
     [m.supportedParameters?.size || (m.supportedParameters as any)?.length, `supportedParameters: new Set([${Array.from(m.supportedParameters || []).map(p => `'${p}'`).join(', ')}])`],
     [m.pricing || {}, `pricing: ${stringify(m.pricing, 2)}`],
+    [m.reasoningEfforts?.length, `reasoningEfforts: [${(m.reasoningEfforts ?? []).map(e => `'${e}'`).join(', ')}]`],
+    [m.retiresAt, `retiresAt: '${m.retiresAt}'`],
     [m.metrics, `metrics: ${stringify(m.metrics, 2)}`],
     [m.metadata, `metadata: ${stringify(m.metadata, 2)}`],
   ];
@@ -70,6 +72,14 @@ export async function writeModelTS(
   const content = generateModelTS(models, exportName);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(outputPath, content, 'utf-8');
+}
+
+/**
+ * Write model data as JSON for reference, sets as arrays
+ */
+export async function writeModelJSON(models: ModelInfo[], outputPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, JSON.stringify(models, (_key, value) => value instanceof Set ? Array.from(value) : value, 2));
 }
 
 /**
@@ -117,5 +127,7 @@ export function generateMainIndexTS(): string {
 
 export { models, openaiModels, openrouterModels, replicateModels, awsModels } from './models';
 export { transformers } from './transformers';
+export { replicateTransformers } from './transformers/replicate';
+export { strictSupport } from './strict-support';
 `;
 }

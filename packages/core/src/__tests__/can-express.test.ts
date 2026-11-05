@@ -13,13 +13,18 @@ import {
   ANTHROPIC_STRICT,
   LENIENT,
 } from '../index';
+import { NO_COMBINATORS_STRICT } from './mocks/descriptors';
 
 describe('canExpress', () => {
   describe('unions (anyOf)', () => {
     const unionSchema = z.union([z.string(), z.number()]);
 
-    it('is false under GOOGLE_STRICT (allowAnyOf: false)', () => {
-      expect(canExpress(unionSchema, GOOGLE_STRICT)).toBe(false);
+    it('is false without anyOf (allowAnyOf: false)', () => {
+      expect(canExpress(unionSchema, NO_COMBINATORS_STRICT)).toBe(false);
+    });
+
+    it('is true under GOOGLE_STRICT, which takes anyOf since November 2025', () => {
+      expect(canExpress(unionSchema, GOOGLE_STRICT)).toBe(true);
     });
 
     it('is true under OPENAI_STRICT (allowAnyOf: true)', () => {
@@ -30,12 +35,12 @@ describe('canExpress', () => {
       expect(canExpress(unionSchema, LENIENT)).toBe(true);
     });
 
-    it('detects a union nested inside an object under GOOGLE_STRICT', () => {
+    it('detects a union nested inside an object', () => {
       const schema = z.object({
         id: z.string(),
         value: z.union([z.string(), z.number()]),
       });
-      expect(canExpress(schema, GOOGLE_STRICT)).toBe(false);
+      expect(canExpress(schema, NO_COMBINATORS_STRICT)).toBe(false);
       expect(canExpress(schema, OPENAI_STRICT)).toBe(true);
     });
 
@@ -44,7 +49,7 @@ describe('canExpress', () => {
         z.object({ kind: z.literal('a'), a: z.string() }),
         z.object({ kind: z.literal('b'), b: z.number() }),
       ]);
-      expect(canExpress(schema, GOOGLE_STRICT)).toBe(false);
+      expect(canExpress(schema, NO_COMBINATORS_STRICT)).toBe(false);
       expect(canExpress(schema, OPENAI_STRICT)).toBe(true);
     });
 
@@ -67,13 +72,14 @@ describe('canExpress', () => {
       expect(canExpress(Node, GOOGLE_STRICT)).toBe(true);
     });
 
-    it('rejects a NON-root recursive $ref under GOOGLE_STRICT (allowDefsRef: false)', () => {
+    it('rejects a NON-root recursive $ref without named refs (allowDefsRef: false)', () => {
       const Inner: z.ZodType = z.object({
         label: z.string(),
         next: z.lazy(() => Inner),
       });
       const Root = z.object({ inner: Inner });
-      expect(canExpress(Root, GOOGLE_STRICT)).toBe(false);
+      expect(canExpress(Root, NO_COMBINATORS_STRICT)).toBe(false);
+      expect(canExpress(Root, GOOGLE_STRICT)).toBe(true);
     });
 
     it('allows a NON-root recursive $ref under a descriptor with allowDefsRef + supportsRecursion', () => {

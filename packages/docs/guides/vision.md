@@ -56,6 +56,8 @@ const response = await ai.chat.get({
 });
 ```
 
+Image and file parts take an optional `detail` (`'auto' | 'low' | 'high' | 'original'`) for how closely the model should look.
+
 ## In Tools
 
 Process images within tool calls:
@@ -82,8 +84,8 @@ const analyzeImage = ai.tool({
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | GPT-4o, GPT-4 Vision |
-| OpenRouter | Claude 3, Gemini Pro Vision, GPT-4V, and more |
+| OpenAI | GPT-5.x, GPT-6, GPT-4.1, GPT-4o (image analysis defaults to `gpt-5.4-mini`) |
+| OpenRouter | Claude, Gemini, GPT, and more (image analysis defaults to `openai/gpt-5.4-mini`) |
 | AWS Bedrock | Claude 3 (Sonnet, Haiku, Opus) |
 
 Models are automatically selected when the `vision` capability is required:

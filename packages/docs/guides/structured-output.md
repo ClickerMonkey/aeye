@@ -2,6 +2,10 @@
 
 @aeye can enforce that AI responses conform to a Zod schema, giving you type-safe structured data instead of free-form text.
 
+::: tip
+For classification, routing, and scoring (picking from a known set of answers), [Decisions](/guides/decisions) are about 10x faster and cheaper than structured output, and return probabilities.
+:::
+
 ## Basic Usage
 
 ```typescript
@@ -57,7 +61,7 @@ const strictPrompt = ai.prompt({
 });
 ```
 
-`@aeye` reconciles each provider's strict-mode dialect (OpenAI / Anthropic / Google) so the same Zod schema works everywhere — see the [Strict Mode guide](./strict-mode.md) for format families, per-request budgets, the curated `strictSupport` overrides, and how to register a custom dialect.
+`@aeye` reconciles each provider's strict-mode dialect (OpenAI / Anthropic / Google / xAI) so the same Zod schema works everywhere — see the [Strict Mode guide](./strict-mode.md) for format families, per-request budgets, the curated `strictSupport` overrides, and how to register a custom dialect.
 
 ## Dynamic Schema
 

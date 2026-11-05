@@ -83,7 +83,7 @@ describeIntegration('OpenRouter Integration', () => {
       };
 
       // Use a free model to avoid charges
-      const response = await executor(request, {}, { model: 'google/gemini-flash-1.5' });
+      const response = await executor(request, {}, { model: 'google/gemini-2.5-flash-lite' });
 
       expect(response.content).toBeTruthy();
       expect(typeof response.content).toBe('string');
@@ -110,7 +110,7 @@ describeIntegration('OpenRouter Integration', () => {
       const chunks: string[] = [];
       let finalUsage: any = null;
 
-      for await (const chunk of streamer(request, {}, { model: 'google/gemini-flash-1.5' })) {
+      for await (const chunk of streamer(request, {}, { model: 'google/gemini-2.5-flash-lite' })) {
         if (chunk.content) {
           chunks.push(chunk.content as string);
         }
@@ -140,7 +140,7 @@ describeIntegration('OpenRouter Integration', () => {
 
       const ctx = {
         metadata: {
-          model: 'google/gemini-flash-1.5'
+          model: 'google/gemini-2.5-flash-lite'
         }
       };
 
@@ -156,8 +156,8 @@ describeIntegration('OpenRouter Integration', () => {
 
       // Test models from different providers available on OpenRouter
       const testModels = [
-        'google/gemini-flash-1.5',
-        'meta-llama/llama-3.2-3b-instruct:free'
+        'google/gemini-2.5-flash-lite',
+        'openai/gpt-5.4-nano'
       ];
 
       for (const model of testModels) {
@@ -232,7 +232,7 @@ describeIntegration('OpenRouter Integration', () => {
 
       // Make multiple rapid requests using free model
       const promises = Array(3).fill(null).map(() =>
-        executor(request, {}, { model: 'google/gemini-flash-1.5' })
+        executor(request, {}, { model: 'google/gemini-2.5-flash-lite' })
       );
 
       // At least some should succeed

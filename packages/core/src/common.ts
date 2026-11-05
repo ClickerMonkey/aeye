@@ -1,4 +1,4 @@
-import { Chunk, ComponentOutput, Events, Instance, Model, ModelInput, Reasoning, Resource, Response, Runner, Usage } from "./types";
+import { Chunk, ComponentOutput, Events, GeneratedAudio, Instance, Model, ModelInput, Reasoning, Resource, Response, Runner, Usage } from "./types";
 
 /**
  * A flexible function type that can be:
@@ -205,6 +205,23 @@ export type Resolved<T> = T extends Promise<infer U>
 ;
 
 /**
+ * Adds every count in `add` onto `target`, treating a missing count as zero.
+ *
+ * @param target - The counts to add into (mutated).
+ * @param add - The counts to add.
+ * @returns The target.
+ */
+function sumCounts<K extends string>(target: Partial<Record<K, number>>, add: Partial<Record<K, number>>): Partial<Record<K, number>> {
+  for (const key in add) {
+    const value = add[key];
+    if (value !== undefined) {
+      target[key] = (target[key] ?? 0) + value;
+    }
+  }
+  return target;
+}
+
+/**
  * Accumulates usage statistics by adding values from one Usage object to another.
  * Handles the nested structure matching ModelPricing.
  * 
@@ -217,98 +234,38 @@ export function accumulateUsage(target: Usage, add?: Usage) {
     return;
   }
 
-  // Accumulate text usage
-  if (add.text) {
-    if (!target.text) {
-      target.text = {};
-    }
-    if (add.text.input !== undefined) {
-      target.text.input = (target.text.input || 0) + add.text.input;
-    }
-    if (add.text.output !== undefined) {
-      target.text.output = (target.text.output || 0) + add.text.output;
-    }
-    if (add.text.cached !== undefined) {
-      target.text.cached = (target.text.cached || 0) + add.text.cached;
-    }
-  }
+  if (add.text) target.text = sumCounts(target.text ?? {}, add.text);
+  if (add.audio) target.audio = sumCounts(target.audio ?? {}, add.audio);
+  if (add.reasoning) target.reasoning = sumCounts(target.reasoning ?? {}, add.reasoning);
+  if (add.embeddings) target.embeddings = sumCounts(target.embeddings ?? {}, add.embeddings);
+  if (add.tools) target.tools = sumCounts(target.tools ?? {}, add.tools);
 
-  // Accumulate audio usage
-  if (add.audio) {
-    if (!target.audio) {
-      target.audio = {};
-    }
-    if (add.audio.input !== undefined) {
-      target.audio.input = (target.audio.input || 0) + add.audio.input;
-    }
-    if (add.audio.output !== undefined) {
-      target.audio.output = (target.audio.output || 0) + add.audio.output;
-    }
-    if (add.audio.seconds !== undefined) {
-      target.audio.seconds = (target.audio.seconds || 0) + add.audio.seconds;
-    }
-  }
-
-  // Accumulate image usage
+  // Image input is a count; image output merges by quality and size
   if (add.image) {
-    if (!target.image) {
-      target.image = { output: [] };
-    }
+    const image = target.image ?? (target.image = {});
     if (add.image.input !== undefined) {
-      target.image.input = (target.image.input || 0) + add.image.input;
+      image.input = (image.input ?? 0) + add.image.input;
     }
-    if (add.image.output) {
-      if (!target.image.output) {
-        target.image.output = [];
-      }
-      // Merge image outputs by quality and size
-      for (const addOutput of add.image.output) {
-        const existing = target.image.output.find(
-          o => o.quality === addOutput.quality && 
-               o.size.width === addOutput.size.width && 
-               o.size.height === addOutput.size.height
-        );
-        if (existing) {
-          existing.count += addOutput.count;
-        } else {
-          target.image.output.push({ ...addOutput });
-        }
+    if (add.image.tokens !== undefined) {
+      image.tokens = (image.tokens ?? 0) + add.image.tokens;
+    }
+    for (const addOutput of add.image.output ?? []) {
+      const outputs = image.output ?? (image.output = []);
+      const existing = outputs.find(
+        o => o.quality === addOutput.quality && 
+             o.size.width === addOutput.size.width && 
+             o.size.height === addOutput.size.height
+      );
+      if (existing) {
+        existing.count += addOutput.count;
+      } else {
+        outputs.push({ ...addOutput });
       }
     }
   }
 
-  // Accumulate reasoning usage
-  if (add.reasoning) {
-    if (!target.reasoning) {
-      target.reasoning = {};
-    }
-    if (add.reasoning.input !== undefined) {
-      target.reasoning.input = (target.reasoning.input || 0) + add.reasoning.input;
-    }
-    if (add.reasoning.output !== undefined) {
-      target.reasoning.output = (target.reasoning.output || 0) + add.reasoning.output;
-    }
-    if (add.reasoning.cached !== undefined) {
-      target.reasoning.cached = (target.reasoning.cached || 0) + add.reasoning.cached;
-    }
-  }
-
-  // Accumulate embeddings usage
-  if (add.embeddings) {
-    if (!target.embeddings) {
-      target.embeddings = {};
-    }
-    if (add.embeddings.count !== undefined) {
-      target.embeddings.count = (target.embeddings.count || 0) + add.embeddings.count;
-    }
-    if (add.embeddings.tokens !== undefined) {
-      target.embeddings.tokens = (target.embeddings.tokens || 0) + add.embeddings.tokens;
-    }
-  }
-
-  // Accumulate cost
   if (add.cost !== undefined) {
-    target.cost = (target.cost || 0) + add.cost;
+    target.cost = (target.cost ?? 0) + add.cost;
   }
 }
 
@@ -403,7 +360,7 @@ export function getResponseFromChunks(chunks: Chunk[], model: ModelInput = 'unkn
       resp.model = chunk.model;
     }
     if (chunk.refusal) {
-      resp.refusal = chunk.refusal;
+      resp.refusal = (resp.refusal ?? '') + chunk.refusal;
     }
     if (chunk.toolCall) {
       resp.toolCalls = resp.toolCalls || [];
@@ -413,9 +370,51 @@ export function getResponseFromChunks(chunks: Chunk[], model: ModelInput = 'unkn
       resp.usage = resp.usage || {};
       accumulateUsage(resp.usage, chunk.usage);
     }
+    if (chunk.citations) {
+      resp.citations = [...resp.citations ?? [], ...chunk.citations];
+    }
+    if (chunk.images) {
+      resp.images = [...resp.images ?? [], ...chunk.images];
+    }
+    if (chunk.audio) {
+      resp.audio = accumulateAudio(resp.audio, chunk.audio);
+    }
+    if (chunk.moderation) {
+      resp.moderation = { ...resp.moderation, ...chunk.moderation };
+    }
+    if (chunk.serviceTier) {
+      resp.serviceTier = chunk.serviceTier;
+    }
   }
 
   return resp;
+}
+
+/**
+ * The base64 encoding of two base64 strings' bytes joined. Each streamed part
+ * is encoded on its own, so a padded last block of the first is re-encoded
+ * with the bytes that follow.
+ */
+function joinBase64(x: string, y: string): string {
+  return x.endsWith('=') ? x.slice(0, -4) + btoa(atob(x.slice(-4)) + atob(y)) : x + y;
+}
+
+/**
+ * Appends a partial audio chunk onto accumulated audio.
+ *
+ * @param target - The audio accumulated so far.
+ * @param add - The partial audio to append.
+ * @returns The combined audio.
+ */
+export function accumulateAudio(target: GeneratedAudio | undefined, add: GeneratedAudio): GeneratedAudio {
+  const join = (x: string | undefined, y: string | undefined, by: (x: string, y: string) => string) =>
+    x === undefined || y === undefined ? x ?? y : by(x, y);
+  return {
+    id: add.id ?? target?.id,
+    format: add.format ?? target?.format,
+    data: join(target?.data, add.data, joinBase64),
+    transcript: join(target?.transcript, add.transcript, (x, y) => x + y),
+  };
 }
 
 /**
@@ -446,75 +445,53 @@ export function getReasoningText(reasoning: Reasoning | undefined): string {
   return parts.join('\n\n');
 }
 
-// Only appends y to x if neither contains the other
-function appendMaybe(x: string | undefined, y: string | undefined): string | undefined {
-  if (!x) {
-    return y;
-  }
-  if (!y) {
-    return x;
-  }
-  if (!x.includes(y) && !y.includes(x)) {
-    return x + y;
-  }
-  return x;
+/** Two streamed pieces of text joined, either of which may be missing. */
+function concat(x: string | null | undefined, y: string | null | undefined): string | undefined {
+  return x && y ? x + y : x || y || undefined;
 }
 
 /**
- * Accumulates reasoning data by merging an additional Reasoning object into a target Reasoning object.
- * 
- * @param target - The target Reasoning object to accumulate into.
- * @param add - The Reasoning object to add from.
- * @returns - The updated Reasoning object.
+ * Accumulates streamed reasoning: the reasoning so far with the next part
+ * appended, as a new object that shares nothing mutable with either input.
+ *
+ * Providers stream reasoning as deltas, never repeating what was sent, so
+ * `content` and each detail's `text`, `summary` and `data` concatenate. A
+ * detail continues an earlier one of the same type with the same id (when
+ * both have one) or index: OpenRouter sends a block's text and later its
+ * signature at one index, and Gemini's text and encrypted reasoning share
+ * index 0 under different types.
+ *
+ * @param target - The reasoning accumulated so far.
+ * @param add - The reasoning to append.
+ * @returns - The accumulated reasoning.
  */
 export function accumulateReasoning(target: Reasoning | undefined, add?: Reasoning): Reasoning | undefined {
-  if (!target) {
-    return add;
-  }
   if (!add) {
     return target;
   }
 
-  if (add.content) {
-    target.content = appendMaybe(target.content || undefined, add.content);
-  }
-  if (add.details?.length) {
-    target.details = target.details || [];
-
-    for (const detail of add.details) {
-      let existing = target.details.find(d => 
-        (detail.id && d.id && detail.id === d.id) ||
-        (detail.index !== undefined && d.index !== undefined && detail.index === d.index)
-      );
-
-      const missingIdentifiers = 
-        add.details.every(d => !d.id && d.index === undefined) && 
-        target.details.every(d => !d.id && d.index === undefined);
-
-      if (missingIdentifiers) {
-        existing = target.details.find(d => d.type === detail.type);
-      }
-
-      if (existing) {
-        if (detail.data) {
-          existing.data = appendMaybe(existing.data, detail.data);
-        }
-        if (detail.text) {
-          existing.text = appendMaybe(existing.text, detail.text);
-          if (detail.signature) {
-            existing.signature = detail.signature;
-          }
-        }
-        if (detail.summary) {
-          existing.summary = appendMaybe(existing.summary, detail.summary);
-        }
-      } else {
-        target.details.push(detail);
-      }
+  const details = [...target?.details ?? []];
+  for (const detail of add.details ?? []) {
+    const at = details.findIndex(d => d.type === detail.type && (d.id && detail.id ? d.id === detail.id : d.index === detail.index));
+    if (at === -1) {
+      details.push(detail);
+    } else {
+      const existing = details[at];
+      details[at] = {
+        ...existing,
+        id: existing.id || detail.id,
+        text: concat(existing.text, detail.text),
+        summary: concat(existing.summary, detail.summary),
+        data: concat(existing.data, detail.data),
+        signature: detail.signature ?? existing.signature,
+      };
     }
   }
-  
-  return target;
+
+  return {
+    content: concat(target?.content, add.content),
+    details: details.length ? details : undefined,
+  };
 }
 
 /**
@@ -542,6 +519,11 @@ export function getChunksFromResponse(response: Response): Chunk[] {
     finishReason: response.finishReason,
     usage: response.usage,
     model: response.model,
+    citations: response.citations,
+    images: response.images,
+    audio: response.audio,
+    moderation: response.moderation,
+    serviceTier: response.serviceTier,
   });
 
   return chunks;

@@ -35,7 +35,8 @@
  * ```
  */
 
-import { getChunksFromResponse, getResponseFromChunks, type Executor, type Streamer, type Usage } from '@aeye/core';
+import { getChunksFromResponse, getResponseFromChunks, type Executor, type MessageContentType, type Streamer, type Usage } from '@aeye/core';
+import { INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '../common';
 import type { AI } from '../ai';
 import type {
   AIBaseTypes,
@@ -52,6 +53,31 @@ import type {
 } from '../types';
 import { BaseAPI } from './base';
 import { applySchemaDeliveryFallback } from './schema-fallback';
+
+/**
+ * Content whose capability is only preferred: most registries don't record
+ * document support.
+ */
+const PREFERRED_CONTENT: MessageContentType[] = ['file'];
+
+/**
+ * Adds the capability mapped to each key present in the request.
+ */
+function addMapped<K extends string>(target: Set<ModelCapability>, map: Partial<Record<K, ModelCapability>>, keys: Iterable<K>) {
+  for (const key of keys) {
+    const capability = map[key];
+    if (capability) {
+      target.add(capability);
+    }
+  }
+}
+
+/**
+ * Every content part type used across the request messages.
+ */
+function contentTypes(request: Request): MessageContentType[] {
+  return request.messages.flatMap(message => Array.isArray(message.content) ? message.content.map(part => part.type) : []);
+}
 
 /**
  * Returns true when a `strict` field expresses a numeric (best-effort)
@@ -88,29 +114,9 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
   protected getRequiredCapabilities(provided: ModelCapability[], request: Request, forStreaming: boolean): ModelCapability[] {
     const capabilities = new Set<ModelCapability>(['chat', ...provided]);
 
-    // Check if request contains images - requires vision capability
     if (request) {
-      const hasImages = request.messages.some(message => {
-        if (Array.isArray(message.content)) {
-          return message.content.some(part => part.type === 'image');
-        }
-        return false;
-      });
-
-      if (hasImages) {
-        capabilities.add('vision');
-      }
-
-      const hasAudio = request.messages.some(message => {
-        if (Array.isArray(message.content)) {
-          return message.content.some(part => part.type === 'audio');
-        }
-        return false;
-      });
-
-      if (hasAudio) {
-        capabilities.add('hearing');
-      }
+      addMapped(capabilities, INPUT_CAPABILITIES, contentTypes(request).filter(type => !PREFERRED_CONTENT.includes(type)));
+      addMapped(capabilities, OUTPUT_CAPABILITIES, request.modalities ?? []);
 
       // Check if request uses reasoning
       if (request.reason !== undefined) {
@@ -203,6 +209,8 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
   protected getOptionalCapabilities(provided: ModelCapability[], request: Request, forStreaming: boolean): ModelCapability[] {
     const optional = new Set<ModelCapability>(provided);
 
+    addMapped(optional, INPUT_CAPABILITIES, contentTypes(request).filter(type => PREFERRED_CONTENT.includes(type)));
+
     if ((request.tools?.length ?? 0) > 0) {
       const wantsStrictPreference = request.tools!.some(t => isNumericStrictPreference(t.strict));
       if (wantsStrictPreference) {
@@ -222,6 +230,15 @@ export class ChatAPI<T extends AIBaseTypes> extends BaseAPI<
 
     if (request.tools?.some(t => isNumericStrictPreference(t.strict))) {
       params.add('toolsStrict');
+    }
+    if (request.seed !== undefined) {
+      params.add('seed');
+    }
+    if (request.verbosity !== undefined) {
+      params.add('verbosity');
+    }
+    if (request.serviceTier !== undefined) {
+      params.add('serviceTier');
     }
 
     return Array.from(params);

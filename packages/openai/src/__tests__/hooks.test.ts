@@ -64,8 +64,6 @@ describe('OpenAIProvider Hooks', () => {
         messages: [{ role: 'user', content: 'Hello' }]
       };
 
-      // Non-streaming executor awaits `create(...)` directly — no
-      // `.withResponse()` chain (that's only used by the streaming path).
       mockOpenAI.chat.completions.create.mockResolvedValue({
         choices: [{
           message: { content: 'Hi there!' },
@@ -151,13 +149,7 @@ describe('OpenAIProvider Hooks', () => {
         }
       };
 
-      const mockStreamResponse = {
-        withResponse: jest.fn().mockResolvedValue({
-          response: { ok: true, headers: new Map() },
-          data: mockStream
-        })
-      };
-      mockOpenAI.chat.completions.create.mockReturnValue(mockStreamResponse);
+      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
 
       const streamer = provider.createStreamer();
       const chunks: any[] = [];
@@ -230,7 +222,8 @@ describe('OpenAIProvider Hooks', () => {
           model: expect.any(String),
           prompt: 'A beautiful landscape'
         }),
-        ctxDefault
+        ctxDefault,
+        undefined
       );
 
       // Check that post-request hook was called with params
@@ -248,7 +241,8 @@ describe('OpenAIProvider Hooks', () => {
             })
           ])
         }),
-        ctxDefault
+        ctxDefault,
+        undefined
       );
 
       expect(response.images[0].url).toBe('https://example.com/image.png');
@@ -291,8 +285,6 @@ describe('OpenAIProvider Hooks', () => {
         messages: [{ role: 'user', content: 'Hello' }]
       };
 
-      // Non-streaming executor awaits `create(...)` directly — no
-      // `.withResponse()` chain (only used by the streaming path).
       mockOpenAI.chat.completions.create.mockResolvedValue({
         choices: [{
           message: { content: 'Hi there!' },

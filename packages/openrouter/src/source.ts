@@ -7,7 +7,9 @@
 
 import type { ModelInfo, ModelSource } from '@aeye/ai';
 import { convertOpenRouterModel } from './openrouter';
-import { OpenRouterModel, ZDRModel } from './types';
+import type { OpenRouterEndpoint, OpenRouterMetrics, OpenRouterModel } from './types';
+
+const API = 'https://openrouter.ai/api/v1';
 
 /**
  * Configuration for OpenRouter model source
@@ -18,26 +20,30 @@ export interface OpenRouterSourceConfig {
 }
 
 /**
+ * GET an OpenRouter API path, authenticated when a key is available, and
+ * read its JSON body as the documented shape. Undefined when the request
+ * fails.
+ */
+async function get<T>(path: string, apiKey?: string): Promise<T | undefined> {
+  const key = apiKey ?? process.env.OPENROUTER_API_KEY;
+  const response = await fetch(`${API}${path}`, {
+    headers: key ? { Authorization: `Bearer ${key}` } : {},
+  });
+  return response.ok ? JSON.parse(await response.text()) : undefined;
+}
+
+/**
  * Fetch ZDR (Zero Data Retention) compliant models
  */
 export async function fetchZDRModels(apiKey?: string): Promise<Set<string>> {
   try {
-    const effectiveKey = apiKey ?? process.env.OPENROUTER_API_KEY;
-    const response = await fetch('https://openrouter.ai/api/v1/endpoints/zdr', {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': effectiveKey ? `Bearer ${effectiveKey}` : undefined,
-      },
-    });
-
-    if (!response.ok) {
+    const body = await get<{ data: OpenRouterEndpoint[] }>('/endpoints/zdr', apiKey);
+    if (!body) {
       console.warn('Failed to fetch ZDR models from OpenRouter');
       return new Set();
     }
-
-    const data = (await response.json()) as { data: ZDRModel[] };
     // The model_name field contains the model ID in provider/model format
-    return new Set(data.data.map((model) => model.model_name));
+    return new Set(body.data.map((model) => model.model_name));
   } catch (error) {
     console.warn('Error fetching ZDR models:', error);
     return new Set();
@@ -45,22 +51,36 @@ export async function fetchZDRModels(apiKey?: string): Promise<Set<string>> {
 }
 
 /**
- * Fetch all OpenRouter models
- * @returns 
+ * Fetch all OpenRouter models: chat, and also image, speech, transcription,
+ * and embedding models, which the default listing leaves out.
  */
 export async function fetchModels(apiKey?: string): Promise<OpenRouterModel[]> {
-  const effectiveKey = apiKey ?? process.env.OPENROUTER_API_KEY;
-  const response = await fetch('https://openrouter.ai/api/v1/models', {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': effectiveKey ? `Bearer ${effectiveKey}` : undefined,
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch models: ${response.statusText}`);
+  const body = await get<{ data: OpenRouterModel[] }>('/models?output_modalities=all', apiKey);
+  if (!body) {
+    throw new Error('Failed to fetch OpenRouter models');
   }
-  const data = (await response.json()) as { data: OpenRouterModel[] };
-  return data.data;
+  return body.data;
+}
+
+/**
+ * Fetch a model's live performance: the best of each metric across the
+ * providers serving it, since routing favors the better endpoints.
+ */
+export async function fetchEndpointMetrics(modelId: string, apiKey?: string): Promise<OpenRouterMetrics | null> {
+  const body = await get<{ data: { endpoints: OpenRouterEndpoint[] } }>(`/models/${modelId}/endpoints`, apiKey);
+  if (!body) {
+    return null;
+  }
+  const best = (values: Array<number | null | undefined>, pick: (...values: number[]) => number) => {
+    const known = values.filter((value): value is number => typeof value === 'number');
+    return known.length ? pick(...known) : undefined;
+  };
+  const endpoints = body.data.endpoints;
+  return {
+    latency: best(endpoints.map(e => e.latency_last_30m?.p50), Math.min),
+    throughput: best(endpoints.map(e => e.throughput_last_30m?.p50), Math.max),
+    uptime: best(endpoints.map(e => e.uptime_last_30m), Math.max),
+  };
 }
 
 /**
@@ -74,17 +94,15 @@ export class OpenRouterModelSource implements ModelSource {
     this.config = config;
   }
 
-  async fetchModels(config?: Record<string, unknown>): Promise<ModelInfo[]> {
-    const effectiveConfig = { ...this.config, ...config } as OpenRouterSourceConfig;
+  async fetchModels(config?: OpenRouterSourceConfig): Promise<ModelInfo[]> {
+    const { apiKey, includeZDR } = { ...this.config, ...config };
 
     try {
-      // Fetch both models and ZDR models in parallel if ZDR is enabled
       const [models, zdrModels] = await Promise.all([
-        fetchModels(effectiveConfig.apiKey),
-        effectiveConfig.includeZDR !== false ? fetchZDRModels(effectiveConfig.apiKey) : Promise.resolve(new Set<string>()),
+        fetchModels(apiKey),
+        includeZDR !== false ? fetchZDRModels(apiKey) : new Set<string>(),
       ]);
 
-      // Convert models and update ZDR support
       return models.map((model) => convertOpenRouterModel(model, zdrModels));
     } catch (error) {
       console.error('Failed to fetch models from OpenRouter:', error);
