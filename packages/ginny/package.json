@@ -51,7 +51,7 @@
     "@aeye/ai": "0.4.0",
     "@aeye/aws": "0.4.0",
     "@aeye/core": "0.6.0",
-    "@aeye/gin": "0.4.4",
+    "@aeye/gin": "0.4.5",
     "@aeye/models": "0.4.0",
     "@aeye/openai": "0.4.0",
     "@aeye/openrouter": "0.5.0",
