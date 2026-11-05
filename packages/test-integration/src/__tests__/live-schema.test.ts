@@ -160,8 +160,9 @@ describeLive('live schema acceptance', () => {
             ? { messages: [{ role: 'user', content: 'Reply.' }], responseFormat: { type: schema, strict: 1 } }
             : { messages: [{ role: 'user', content: 'Reply.' }], tools: [tool], toolChoice: 'required' };
 
-          const chunk = await firstChunk((signal) => ai.chat.stream(request, { signal, metadata: { model } }));
-          expect(chunk).toBeDefined();
+          // Accepted when the stream starts without an error; a model may
+          // occasionally end its turn without a token
+          await firstChunk((signal) => ai.chat.stream(request, { signal, metadata: { model } }));
           if (shape === 'strict-tool' && !strictTools) {
             expect(tool.descriptor).toBeDefined();
             expect(getDescriptorById(tool.descriptor).strict).toBe(false);

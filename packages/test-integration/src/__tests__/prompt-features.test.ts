@@ -73,16 +73,9 @@ describeLive('live prompt features', () => {
     expect(typeof output?.color).toBe('string');
   });
 
-  liveCase('review feedback sends a nano model round again', { sources: ['core', 'ai', 'openai'], inputs: { model: MODEL, review: 'starts-with-z' } }, async () => {
-    const reviewer = openai.prompt({
-      name: 'reviewer',
-      description: 'Checks a cat name',
-      content: 'A cat name must start with the letter Z. Review this name: {{name}}',
-      input: ({ name }: { name: string }) => ({ name }),
-      schema: z.object({ pass: z.boolean(), feedback: z.string().describe('What to change, when it fails') }),
-      config,
-      metadata: { model: MODEL },
-    });
+  // The review decides in code: a model reviewer is the unit tests' job, and
+  // a nano judge is too unreliable to gate on
+  liveCase('review feedback sends a nano model round again', { sources: ['core', 'ai', 'openai'], inputs: { model: MODEL, review: 'starts-with-z-code' } }, async () => {
     const namer = openai.prompt({
       name: 'namer',
       description: 'Names a cat',
@@ -90,10 +83,9 @@ describeLive('live prompt features', () => {
       config,
       metadata: { model: MODEL },
       reviewRetries: 2,
-      review: async (name, { ctx }) => {
-        const verdict = await reviewer.get('result', { name }, ctx);
-        return verdict?.pass ? { pass: true } : { feedback: verdict?.feedback || 'The name must start with Z.' };
-      },
+      review: async (name) => name.trim().toUpperCase().startsWith('Z')
+        ? { pass: true }
+        : { feedback: `"${name.trim()}" doesn't start with the letter Z. Reply with a cat name that does.` },
     });
 
     const attempts: number[] = [];
