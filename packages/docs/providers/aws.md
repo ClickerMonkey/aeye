@@ -95,6 +95,12 @@ profile for the client region's geography (`us.` in `us-east-1`, `eu.` in
 `eu-west-1`, `apac.` in `ap-*`), or by its `global.` profile when the geography
 has none. Other models are called by their plain id.
 
+The registry's `inRegion` holds for the region it was gathered in, so a model
+can still need a profile elsewhere (Nova Micro does in `us-east-2`). When
+Bedrock answers that a model's "on-demand throughput isn't supported", the
+provider sends the request again by profile and calls that model by profile
+from then on.
+
 ## Chat Features
 
 Chat runs on the [Converse](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html)
@@ -122,7 +128,23 @@ and [ConverseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API
 `effort: 'none'` turns Claude and Nova thinking off. Claude thinking clears
 `temperature` and `topP`, and Nova's `high` effort also clears `maxTokens`,
 since those models reject them together. Efforts are clamped to what the model
-accepts.
+accepts: Claude 4.6 rejects `xhigh` (added with Opus 4.7), so it gets `high`.
+Claude can't think on a turn that forces a tool, so that turn is sent with
+thinking disabled.
+
+Claude's effort goes in Converse's own `outputConfig.effort`, which Bedrock
+passes to the model and validates (an `output_config` in
+`additionalModelRequestFields`, as AWS's example has it, works the same).
+`display: 'summarized'` and `'omitted'` are both accepted.
+
+What comes back differs by model:
+
+| Models | Reasoning |
+|--------|-----------|
+| Claude | Text with a signature; redacted reasoning as one `reasoning.encrypted` detail per block, streamed as one or more deltas |
+| Nova 2 | The text `[REDACTED]`, unsigned |
+| gpt-oss, DeepSeek R1 | Plain reasoning text, unsigned |
+| Nemotron | Nothing, though it takes `reasoning_effort` |
 
 Reasoning comes back as `response.reasoning` (streamed as `chunk.reasoning`),
 with one `ReasoningDetail` per reasoning block in the `bedrock-converse-v1`
@@ -138,6 +160,12 @@ A `MessageContent` with `cacheBreakpoint: true` adds a
 after that part, in system prompts, messages, and tool results. Cache reads and
 writes are reported as `usage.text.cached` and `usage.text.cacheWrite`;
 `usage.text.input` counts only uncached input.
+
+Models without prompt caching (gpt-oss, Llama, DeepSeek, Nemotron, ...) reject
+cache points with an `AccessDeniedException`, so they're left out for models
+whose registry pricing has no cache reads. A prefix shorter than the model's
+minimum (about 4k tokens on Claude Haiku 4.5) isn't cached. Nova may take a
+few seconds before it serves a prefix it just wrote.
 
 ### Content
 
@@ -161,6 +189,13 @@ emulated by sending only the allowed tools, and `'none'` leaves the tools out
 unless the conversation already used them. Free-text tools (`format`) are sent
 as their one-field function with any grammar appended to the description.
 Tool calls Bedrock runs itself (`server_tool_use`) aren't returned as tool calls.
+
+On Claude 4.5 and later, a tool or response schema goes strict (`strict: true`,
+or `outputConfig.textFormat`) when it fits Anthropic's strict subset and
+limits. Recursive schemas, open values and tuples, and requests past 24
+optional or 16 union-typed parameters go non-strict instead (a response schema
+then goes in the prompt). The first request with a new strict schema can take
+several seconds while Bedrock compiles it.
 
 ### Stop Reasons
 
@@ -226,8 +261,9 @@ import {
 
 Throttling and busy capacity (`ThrottlingException`, `ServiceUnavailableException`)
 throw `AWSRateLimitError`; rejected credentials (including `AccessDeniedException`)
-throw `AWSAuthError`; prompts the model reports as too long throw
-`AWSContextWindowError`. Errors a stream reports mid-way are thrown the same way.
+throw `AWSAuthError`, as does a model the account can't use; prompts the
+model reports as too long (Claude's "prompt is too long", Nova's "Input Tokens
+Exceeded") throw `AWSContextWindowError`. Errors a stream reports mid-way are thrown the same way.
 
 ## Model Access
 

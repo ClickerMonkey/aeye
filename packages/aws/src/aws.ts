@@ -71,6 +71,7 @@ import {
   toReasoningRequest,
   toSystemBlocks,
   toToolResultBlocks,
+  withoutCachePoints,
 } from './converse';
 import { AWSAuthError, AWSContextWindowError, AWSError, AWSQuotaError, AWSRateLimitError, type ModelFamilyConfig } from './types';
 
@@ -109,10 +110,16 @@ const RATE_LIMIT_ERRORS = new Set(['ThrottlingException', 'TooManyRequestsExcept
 
 /**
  * Messages Bedrock models reject an over-long prompt with, such as "Input is
- * too long for requested model" or "prompt is too long: 210000 tokens > 200000
- * maximum".
+ * too long for requested model", "prompt is too long: 210000 tokens > 200000
+ * maximum" or Nova's "Input Tokens Exceeded".
  */
-const CONTEXT_WINDOW_ERROR = /context (length|window)|token limit|too long|too many (input )?tokens/i;
+const CONTEXT_WINDOW_ERROR = /context (length|window)|token limit|too long|too many (input )?tokens|input tokens exceed/i;
+
+/**
+ * How Bedrock rejects a model id it serves in the region only through an
+ * inference profile.
+ */
+const PROFILE_REQUIRED = /on-demand throughput isn.t supported/i;
 
 /**
  * The inference profile geography for a region, as profile ids prefix it.
@@ -273,6 +280,8 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
 
   private bedrockClient: BedrockClient;
   private bedrockRuntimeClient: BedrockRuntimeClient;
+  // Models found to need an inference profile in this region
+  private profileOnly = new Set<string>();
 
   constructor(config: AWSBedrockConfig) {
     this.config = config;
@@ -406,21 +415,40 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   /**
    * The id to call a chat model by. A configured `modelPrefix` picks a
    * cross-region inference profile; otherwise a model Bedrock serves only
-   * through inference profiles (per the registry) uses the profile for the
-   * client region's geography, or the global one.
+   * through inference profiles (per the registry, or as Bedrock answered an
+   * earlier call in this region) uses the profile for the client region's
+   * geography, or the global one when only that is listed.
    */
   private async resolveModelId(id: string, info: ModelInfo | undefined): Promise<string> {
     const prefix = this.config.modelPrefix;
     if (prefix) {
       return id.startsWith(prefix) ? id : `${prefix}${id}`;
     }
-    const listed = info?.metadata?.inRegion === false ? info.metadata.inferenceIds : undefined;
-    const profiles = Array.isArray(listed) ? listed.filter((p): p is string => typeof p === 'string') : [];
-    if (!profiles.length) {
+    if (info?.metadata?.inRegion !== false && !this.profileOnly.has(id)) {
       return id;
     }
+    const listed = info?.metadata?.inferenceIds;
+    const profiles = Array.isArray(listed) ? listed.filter((p): p is string => typeof p === 'string') : [];
     const geography = regionGeography(await this.bedrockRuntimeClient.config.region());
-    return [geography, 'global'].map(g => `${g}.${id}`).find(profile => profiles.includes(profile)) ?? id;
+    const candidates = [geography, 'global'].map(g => `${g}.${id}`);
+    return profiles.length ? candidates.find(profile => profiles.includes(profile)) ?? id : candidates[0];
+  }
+
+  /**
+   * Make a chat call, and when Bedrock answers that the model needs an
+   * inference profile in this region (the registry's `inRegion` holds for
+   * the region it was gathered in), make it again by profile.
+   */
+  private async byProfileWhenRequired<T>(id: string, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (this.config.modelPrefix || this.profileOnly.has(id) || !(error instanceof Error && PROFILE_REQUIRED.test(error.message))) {
+        throw error;
+      }
+      this.profileOnly.add(id);
+      return call();
+    }
   }
 
   /**
@@ -441,11 +469,15 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     const maxTokens = request.maxTokens ?? (info ?? model).maxOutputTokens;
     const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(request.toolChoice));
     const fields = reasoning.fields || request.extra ? { ...reasoning.fields, ...request.extra } : undefined;
+    const messages = await this.convertMessagesToConverse(sent);
+    const system = await toSystemBlocks(sent.messages);
+    // Models the registry prices no cache reads for reject cache points
+    const caches = !info || info.pricing.text?.cached !== undefined;
 
     return {
       modelId,
-      messages: await this.convertMessagesToConverse(sent),
-      system: await toSystemBlocks(sent.messages),
+      messages: caches ? messages : messages.map(message => ({ ...message, content: withoutCachePoints(message.content) })),
+      system: caches ? system : withoutCachePoints(system),
       inferenceConfig: {
         maxTokens,
         temperature: request.temperature,
@@ -468,18 +500,18 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    * Execute a non-streaming chat completion using the Converse API.
    */
   private async executeWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): Promise<Response> {
-    const params = await this.convertRequestToConverse(getModel(modelInput), request, ctx);
+    const model = getModel(modelInput);
     const guardrail = this.config.guardrail;
 
     try {
-      const command = new ConverseCommand({
-        ...params,
-        guardrailConfig: guardrail && { guardrailIdentifier: guardrail.guardrailIdentifier, guardrailVersion: guardrail.guardrailVersion, trace: guardrail.trace },
+      const { command, response } = await this.byProfileWhenRequired(model.id, async () => {
+        const command = new ConverseCommand({
+          ...await this.convertRequestToConverse(model, request, ctx),
+          guardrailConfig: guardrail && { guardrailIdentifier: guardrail.guardrailIdentifier, guardrailVersion: guardrail.guardrailVersion, trace: guardrail.trace },
+        });
+        await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
+        return { command, response: await this.bedrockRuntimeClient.send(command) };
       });
-
-      await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
-
-      const response = await this.bedrockRuntimeClient.send(command);
       const result = getResponseFromChunks([
         ...(response.output?.message?.content ?? []).map(contentBlockChunk),
         endChunk(response.stopReason, response.usage, response.serviceTier),
@@ -498,14 +530,14 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
    * Execute a streaming chat completion using the Converse Stream API.
    */
   private async* streamWithConverse(modelInput: ModelInput, request: Request, ctx: AIContextAny): AsyncGenerator<Chunk> {
-    const params = await this.convertRequestToConverse(getModel(modelInput), request, ctx);
+    const model = getModel(modelInput);
 
     try {
-      const command = new ConverseStreamCommand({ ...params, guardrailConfig: this.config.guardrail });
-
-      await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
-
-      const response = await this.bedrockRuntimeClient.send(command);
+      const { command, response } = await this.byProfileWhenRequired(model.id, async () => {
+        const command = new ConverseStreamCommand({ ...await this.convertRequestToConverse(model, request, ctx), guardrailConfig: this.config.guardrail });
+        await this.config.hooks?.chat?.beforeRequest?.(request, command, ctx);
+        return { command, response: await this.bedrockRuntimeClient.send(command) };
+      });
 
       if (!response.stream) {
         throw new AWSError('No stream in streaming response');

@@ -255,10 +255,26 @@ function toToolInput(args: string): Document {
 export function toReasoningBlocks(reasoning: Reasoning | undefined): ContentBlock[] {
   return (reasoning?.details ?? []).flatMap((detail): ContentBlock[] =>
     detail.format !== BEDROCK_REASONING_FORMAT ? []
-    : detail.data ? [{ reasoningContent: { redactedContent: Buffer.from(detail.data, 'base64') } }]
+    : detail.data ? [{ reasoningContent: { redactedContent: fromBase64(detail.data) } }]
     : detail.signature ? [{ reasoningContent: { reasoningText: { text: detail.text ?? '', signature: detail.signature } } }]
     : []
   );
+}
+
+/**
+ * Bytes from base64 that may be several encodings joined, as streamed redacted
+ * reasoning accumulates: each piece decodes up to its padding, where a plain
+ * decode would stop.
+ */
+function fromBase64(data: string): Buffer {
+  return Buffer.concat(data.split(/(?<==)(?!=)/).map(piece => Buffer.from(piece, 'base64')));
+}
+
+/**
+ * Blocks without their cache points, for models that reject them.
+ */
+export function withoutCachePoints<T extends { cachePoint?: CachePointBlock }>(blocks: T[] | undefined): T[] | undefined {
+  return blocks?.filter(block => !block.cachePoint);
 }
 
 // ============================================================================
@@ -275,6 +291,11 @@ const ADAPTIVE_CLAUDE = /claude-(?:[a-z]+-)?(?:4-[6-9]|[5-9])/;
  * Efforts Claude accepts with adaptive thinking.
  */
 const CLAUDE_EFFORTS: ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * Claude 4.6, which rejects `xhigh` (added with Opus 4.7).
+ */
+const CLAUDE_4_6 = /claude-[a-z]+-4-6/;
 
 /**
  * Efforts Nova accepts.
@@ -341,7 +362,7 @@ export function toReasoningRequest(modelId: string, reason: Reason | undefined, 
     if (ADAPTIVE_CLAUDE.test(modelId)) {
       return {
         fields: { thinking: { type: 'adaptive', display: reason.exclude ? 'omitted' : 'summarized' } },
-        effort: reason.effort && clampReasoningEffort(reason.effort, accepted ?? CLAUDE_EFFORTS),
+        effort: reason.effort && clampReasoningEffort(reason.effort, accepted ?? CLAUDE_EFFORTS.filter(e => e !== 'xhigh' || !CLAUDE_4_6.test(modelId))),
         cleared: NO_SAMPLING,
       };
     }

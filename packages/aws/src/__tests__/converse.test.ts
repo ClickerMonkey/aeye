@@ -170,6 +170,42 @@ describe('Converse request mapping', () => {
     ]);
   });
 
+  it('calls a model by profile from when Bedrock answers that the region needs one', async () => {
+    const sent: string[] = [];
+    jest.spyOn(BedrockRuntimeClient.prototype, 'send').mockImplementation(async (command: object) => {
+      const modelId = command instanceof ConverseCommand || command instanceof ConverseStreamCommand ? command.input.modelId ?? '' : '';
+      sent.push(modelId);
+      if (!modelId.startsWith('us.')) {
+        throw new ValidationException({ message: `Invocation of model ID ${modelId} with on-demand throughput isn’t supported.`, $metadata: {} });
+      }
+      return { stream: (async function* () {})(), $metadata: {} };
+    });
+    const provider = new AWSBedrockProvider(config);
+    const nova = model('amazon.nova-micro-v1:0', { metadata: { inRegion: true, inferenceIds: ['us.amazon.nova-micro-v1:0'] } });
+
+    await execute({ model: nova, messages: [{ role: 'user', content: 'Hi' }] }, provider);
+    await stream({ model: nova, messages: [{ role: 'user', content: 'Hi' }] }, provider);
+
+    expect(sent).toEqual(['amazon.nova-micro-v1:0', 'us.amazon.nova-micro-v1:0', 'us.amazon.nova-micro-v1:0']);
+  });
+
+  it('leaves cache points out for models without prompt caching', async () => {
+    const sent = fakeBedrock();
+    const messages: Message[] = [
+      { role: 'system', content: [{ type: 'text', content: 'Be brief.', cacheBreakpoint: true }] },
+      { role: 'user', content: [{ type: 'text', content: 'Hi', cacheBreakpoint: true }] },
+    ];
+
+    await execute({ model: model('openai.gpt-oss-20b-1:0', { pricing: { text: { input: 0.07, output: 0.3 } } }), messages });
+    await execute({ model: model('amazon.nova-micro-v1:0', { pricing: { text: { input: 0.035, output: 0.14, cached: 0.00875 } } }), messages });
+
+    const [uncached, cached] = sent.converse.map(command => command.input);
+    expect(uncached.system).toEqual([{ text: 'Be brief.' }]);
+    expect(uncached.messages).toEqual([{ role: 'user', content: [{ text: 'Hi' }] }]);
+    expect(cached.system).toEqual([{ text: 'Be brief.' }, { cachePoint: { type: 'default' } }]);
+    expect(cached.messages).toEqual([{ role: 'user', content: [{ text: 'Hi' }, { cachePoint: { type: 'default' } }] }]);
+  });
+
   it('sends tools with grammar hints, strict flags, and the tool choice', async () => {
     const sent = fakeBedrock();
     const grammar: ToolTextFormat = { type: 'grammar', syntax: 'lark', definition: 'start: "a"+' };
@@ -223,6 +259,9 @@ describe('Converse request mapping', () => {
     ['adaptive Claude without visible reasoning', model('anthropic.claude-sonnet-5'), { effort: 'minimal', exclude: true }, {
       additionalModelRequestFields: { thinking: { type: 'adaptive', display: 'omitted' } },
       outputConfig: { effort: 'low' },
+    }],
+    ['Claude 4.6, which has no xhigh', model('anthropic.claude-sonnet-4-6'), { effort: 'xhigh' }, {
+      outputConfig: { effort: 'high' },
     }],
     ['budget Claude', model('anthropic.claude-sonnet-4-5-20250929-v1:0'), { effort: 'low' }, {
       additionalModelRequestFields: { thinking: { type: 'enabled', budget_tokens: 2048 } },
@@ -377,6 +416,28 @@ describe('Converse responses', () => {
     ] });
     expect(sent.converse[0].input.messages?.[3]).toEqual({ role: 'assistant', content: [{ text: 'Earlier' }, { text: 'Again' }] });
   });
+
+  it('replays redacted reasoning streamed in several deltas as its whole bytes', async () => {
+    fakeBedrock({}, [
+      { contentBlockDelta: { contentBlockIndex: 0, delta: { reasoningContent: { redactedContent: Uint8Array.from([1, 2]) } } } },
+      { contentBlockDelta: { contentBlockIndex: 0, delta: { reasoningContent: { redactedContent: Uint8Array.from([3, 4, 5, 6]) } } } },
+      { contentBlockStop: { contentBlockIndex: 0 } },
+      { contentBlockStart: { contentBlockIndex: 1, start: { toolUse: { toolUseId: 't1', name: 'lookup' } } } },
+      { contentBlockStop: { contentBlockIndex: 1 } },
+    ]);
+    const afterRequest = jest.fn();
+    await stream({ model: CLAUDE, messages: [{ role: 'user', content: 'Q' }] }, new AWSBedrockProvider({ ...config, hooks: { chat: { afterRequest } } }));
+    const call: Response = afterRequest.mock.calls[0][2];
+    const sent = fakeBedrock();
+
+    await execute({ model: CLAUDE, messages: [
+      { role: 'user', content: 'Q' },
+      { role: 'assistant', content: '', toolCalls: call.toolCalls, reasoning: call.reasoning },
+      { role: 'tool', toolCallId: 't1', content: 'result' },
+    ] });
+
+    expect(sent.converse[0].input.messages?.[1].content?.[0]).toEqual({ reasoningContent: { redactedContent: Buffer.from([1, 2, 3, 4, 5, 6]) } });
+  });
 });
 
 describe('Converse errors', () => {
@@ -384,6 +445,7 @@ describe('Converse errors', () => {
     const errors = [
       new ThrottlingException({ message: 'Too many requests', $metadata: {} }),
       new ValidationException({ message: 'Input is too long for requested model.', $metadata: {} }),
+      new ValidationException({ message: 'The model returned the following errors: Input Tokens Exceeded: Number of input tokens exceeds maximum length.', $metadata: {} }),
     ];
     jest.spyOn(BedrockRuntimeClient.prototype, 'send').mockImplementation(async () => {
       throw errors.shift();
@@ -391,6 +453,7 @@ describe('Converse errors', () => {
 
     const request: Request = { model: 'amazon.nova-pro-v1:0', messages: [{ role: 'user', content: 'Q' }] };
     await expect(execute(request)).rejects.toBeInstanceOf(AWSRateLimitError);
+    await expect(execute(request)).rejects.toBeInstanceOf(AWSContextWindowError);
     await expect(execute(request)).rejects.toBeInstanceOf(AWSContextWindowError);
   });
 
