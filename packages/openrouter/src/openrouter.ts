@@ -413,6 +413,17 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   }
 
   /**
+   * OpenRouter strips `strict` from tools bound for Anthropic unless the
+   * request carries Anthropic's structured-outputs beta flag, so a strict tool
+   * would silently go unenforced (openrouter.ai/docs/guides/routing/provider-selection,
+   * read 2026-11-04). Other upstreams ignore the header.
+   */
+  protected override chatHeaders(params: OpenAI.Chat.ChatCompletionCreateParams): Record<string, string> | undefined {
+    const strictTool = params.tools?.some(tool => tool.type === 'function' && tool.function.strict);
+    return strictTool ? { 'x-anthropic-beta': 'structured-outputs-2025-11-13' } : undefined;
+  }
+
+  /**
    * Augment chat request with OpenRouter-specific parameters
    */
   protected override augmentChatRequest(
