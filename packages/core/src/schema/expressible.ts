@@ -42,7 +42,7 @@ export function canExpress(
  * Whether `schema`, as the only strict schema in a request, stays inside the
  * descriptor's size limits and per-request budgets.
  */
-function fitsStrictAlone(schema: z.ZodType | z.core.$ZodType, descriptor: FormatDescriptor): boolean {
+export function fitsStrictAlone(schema: z.ZodType | z.core.$ZodType, descriptor: FormatDescriptor): boolean {
   const features = analyzeSchema(schema);
   return checkSchemaSizeLimits(schema, descriptor).length === 0
     && features.optionalParameterCount <= (descriptor.maxStrictOptionalParams ?? Infinity)
@@ -94,8 +94,9 @@ function expressible(
   const walk = (s: z.ZodType | z.core.$ZodType): boolean => {
     const key = walkKey(s);
     if (inProgress.has(key)) {
-      // Recursion cycle detected at `s`.
-      if (cycleBreakerCounts) return true;
+      // Recursion cycle detected at `s`. The placeholder that makes a cycle
+      // sendable bottoms out at "any", which a `none` dialect cannot spell.
+      if (cycleBreakerCounts) return descriptor.anyEncoding !== 'none';
       if (key === rootKey) return descriptor.allowRootRef && descriptor.supportsRecursion;
       return descriptor.allowDefsRef && descriptor.supportsRecursion;
     }
@@ -150,6 +151,8 @@ function expressible(
     if (s instanceof z.ZodRecord) return walk(s._zod.def.valueType);
     if (s instanceof z.ZodMap) return walk(s._zod.def.keyType) && walk(s._zod.def.valueType);
     if (s instanceof z.ZodSet) return walk(s._zod.def.valueType);
+
+    if (s instanceof z.ZodAny || s instanceof z.ZodUnknown) return descriptor.anyEncoding !== 'none';
 
     // ---- Leaves / anything without forbidden substructure ----
     return true;

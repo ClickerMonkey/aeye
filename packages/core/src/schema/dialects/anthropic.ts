@@ -17,15 +17,15 @@ const ANTHROPIC_STRICT_FORMATS = new Set([
  * - Non-cyclic `$ref` / `$defs` reuse is supported and used freely — only
  *   *circular* `$defs` graphs are rejected by the API
  *   (`Circular reference detected in schema definitions: …`). The emitter
- *   sets `supportsRecursion: false` so the cycle-breaker replaces the
- *   offending back-edge with the flat "any" shape (see `anyEncoding`) and
- *   leaves shared non-cyclic `$ref`s alone. Root self-reference (`$ref: '#'`)
- *   is always cyclic by definition, so `allowRootRef` stays `false`.
+ *   sets `supportsRecursion: false`; shared non-cyclic `$ref`s are emitted
+ *   normally, and a cycle makes the schema unsendable (see `anyEncoding`).
+ *   Root self-reference (`$ref: '#'`) is always cyclic by definition, so
+ *   `allowRootRef` stays `false`.
  * - Numerical (`minimum`/`maximum`/`multipleOf`) and string-length
  *   (`minLength`/`maxLength`) constraints are not supported and are dropped,
  *   as are array sizes (only `minItems` of 0 or 1 is accepted).
  * - `allOf` is supported except around a `$ref`.
- * - `pattern` may not use backreferences, lookaround, `` or large `{n,m}`
+ * - `pattern` may not use backreferences, lookaround, `\b` or large `{n,m}`
  *   ranges; a schema that compiles too big is rejected with "Schema is too
  *   complex for compilation".
  * - `prefixItems` and other positional tuple keywords are not in the
@@ -56,9 +56,10 @@ export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   allowMinMaxItems: false,
   allowMinimumMaximum: false,
   optionalAsNullable: false,
-  // Anthropic rejects recursive `$defs/Any` definitions, so encode `z.any()`
-  // as a flat `anyOf` over every JSON value — equivalent to TypeScript `any`.
-  anyEncoding: 'flat',
+  // No spelling for "any JSON value": `{}` ("Empty schema … is not
+  // supported"), a typeless schema, `additionalProperties: true` and a
+  // recursive `$defs/Any` are all rejected (measured 2026-11-04).
+  anyEncoding: 'none',
   // Anthropic-documented per-request limits (apply across ALL strict tool
   // schemas + JSON output schemas in one request).
   // Source: https://platform.claude.com/docs/en/build-with-claude/structured-outputs
@@ -66,9 +67,8 @@ export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   maxStrictOptionalParams: 24,
   maxStrictUnionTypes: 16,
   // Recursive `$ref` graphs are rejected by Anthropic's tool input_schema
-  // validator. The toJSONSchema emitter detects cycles and replaces the
-  // back-edge with an inline flat "any" shape (see `anyEncoding`); shared
-  // non-cyclic `$ref`s are still emitted normally.
+  // validator, and the cycle-breaker's placeholder needs "any", so a cyclic
+  // schema is not sent strict.
   supportsRecursion: false,
   structuredOutputAlwaysStrict: true,
 });

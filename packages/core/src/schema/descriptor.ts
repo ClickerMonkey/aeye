@@ -134,22 +134,27 @@ export interface FormatDescriptor {
    *   REQUIRES `allowAnyOf` and `allowDefsRef`.
    * - `flat`: a non-recursive `anyOf` over the JSON value types
    *   (`string`/`number`/`boolean`/`null`/`array`/open-`object`). Used by
-   *   descriptors that reject recursive `$defs/Any` definitions (Anthropic
-   *   strict). Equivalent to TypeScript `any` — accepts every JSON value
-   *   without imposing any structural constraints. REQUIRES `allowAnyOf`
-   *   (no `$defs` needed).
+   *   descriptors that reject recursive `$defs/Any` definitions (xAI strict).
+   *   Equivalent to TypeScript `any` — accepts every JSON value without
+   *   imposing any structural constraints. REQUIRES `allowAnyOf` (no `$defs`
+   *   needed).
    * - `unconstrained`: the empty schema `{}` (plus any `description`). Per
    *   JSON Schema, a schema with no assertion keywords validates EVERY
    *   instance — which is exactly what "any JSON value" means — and it
    *   introduces no keyword a restrictive dialect could reject. REQUIRES
    *   NOTHING, so it's the only encoding available to a dialect that forbids
    *   both combinators and named `$defs`/`$ref` (Google — see `GOOGLE_STRICT`).
+   * - `none`: the dialect has no spelling for "any JSON value" (Anthropic
+   *   strict rejects `{}`, a typeless schema, an open object and a recursive
+   *   `$defs/Any`). A schema containing one — or a recursion cycle, whose
+   *   placeholder bottoms out at "any" — is not sendable, so the budget
+   *   degrades the tool and `canExpress` sends an output as prompt text.
    *
    * The `REQUIRES` notes above are enforced by `checkDescriptorConsistency`,
    * which `registerDescriptor` runs so a self-contradictory descriptor is
    * caught at declaration time rather than as a provider HTTP 400.
    */
-  readonly anyEncoding: 'recursive-strict' | 'recursive-open' | 'flat' | 'unconstrained';
+  readonly anyEncoding: 'recursive-strict' | 'recursive-open' | 'flat' | 'unconstrained' | 'none';
 
   // ---- Per-request strict-mode budget ----
   // Limits enforced by the API across ALL strict tools + structured-output

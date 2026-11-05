@@ -21,7 +21,7 @@ export function usesSharedAnyDefinition(descriptor: FormatDescriptor): boolean {
  *   array-of-pairs records (no open-object support in strict mode).
  * - `recursive-open` (Lenient): self-referencing `$defs/Any` with
  *   `additionalProperties: <self>` records.
- * - `flat` (Anthropic strict): non-recursive — array branch has no `items`
+ * - `flat` (xAI strict): non-recursive — array branch has no `items`
  *   constraint, object branch is `additionalProperties: true`. Equivalent
  *   to TypeScript `any`; safe under descriptors that reject cyclic `$defs`.
  * - `unconstrained` (Google): the empty schema `{}`. A schema with no
@@ -29,9 +29,12 @@ export function usesSharedAnyDefinition(descriptor: FormatDescriptor): boolean {
  *   value" using zero keywords — the only option for a dialect that forbids
  *   `anyOf` AND named `$defs`/`$ref`. The caller re-attaches `description`
  *   from the source schema's metadata, so the model still gets the prose.
+ * - `none` (Anthropic strict): no spelling exists. `expressible` keeps such a
+ *   schema off a strict request, so this is only reached by a direct
+ *   `toJSONSchema` call, which gets the empty schema.
  */
 export function buildAnyValueSchema(descriptor: FormatDescriptor): JSONSchema {
-  if (descriptor.anyEncoding === 'unconstrained') {
+  if (descriptor.anyEncoding === 'unconstrained' || descriptor.anyEncoding === 'none') {
     return {};
   }
   const isFlat = descriptor.anyEncoding === 'flat';

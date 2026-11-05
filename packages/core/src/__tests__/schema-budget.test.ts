@@ -192,11 +192,9 @@ describe('SchemaBudget — Anthropic per-request limits', () => {
     expect(granted).toBe(16);
   });
 
-  it('keeps recursive schemas strict under ANTHROPIC_STRICT (cycle-broken inline)', () => {
-    // Anthropic strict no longer degrades recursive schemas to LENIENT — the
-    // toJSONSchema cycle-breaker inlines a flat "any" placeholder at every
-    // back-edge so the schema remains expressible. allocateTool therefore
-    // grants strict (subject to remaining union/optional budget).
+  it('degrades recursive schemas and any values under ANTHROPIC_STRICT', () => {
+    // The cycle-breaker's placeholder needs an open object or "any", and
+    // Anthropic strict rejects both, so neither shape is sent strict.
     type Node = { value: string; children?: Node[] };
     const NodeSchema: z.ZodType<Node> = z.lazy(() =>
       z.object({
@@ -205,8 +203,14 @@ describe('SchemaBudget — Anthropic per-request limits', () => {
       })
     );
     const budget = new SchemaBudget(ANTHROPIC_STRICT);
-    expect(budget.allocateTool(NodeSchema, true)).toBe(ANTHROPIC_STRICT);
-    expect(budget.allocateTool(NodeSchema, 5)).toBe(ANTHROPIC_STRICT);
+    expect(budget.allocateTool(NodeSchema, true)).toBe(ANTHROPIC_NON_STRICT);
+    expect(budget.allocateTool(z.object({ data: z.unknown() }), true)).toBe(ANTHROPIC_NON_STRICT);
+    expect(budget.allocateTool(z.object({ data: z.string() }), true)).toBe(ANTHROPIC_STRICT);
+  });
+
+  it('degrades a schema whose optional parameters alone exceed the request budget, even when required', () => {
+    const wide = z.object(Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`f${i}`, z.string().optional()])));
+    expect(new SchemaBudget(ANTHROPIC_STRICT).allocateTool(wide, true)).toBe(ANTHROPIC_NON_STRICT);
   });
 });
 

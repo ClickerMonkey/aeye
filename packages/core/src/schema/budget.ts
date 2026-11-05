@@ -1,8 +1,8 @@
 import z from 'zod';
 import type { FormatDescriptor } from './descriptor';
 import { getDescriptor } from './registry';
-import { sendableUnder } from './expressible';
-import { analyzeSchema, checkSchemaSizeLimits } from './analyze';
+import { fitsStrictAlone, sendableUnder } from './expressible';
+import { analyzeSchema } from './analyze';
 
 /**
  * Per-request strict-mode allocator.
@@ -155,11 +155,12 @@ export class SchemaBudget {
     // why the two questions are different.
     if (!sendableUnder(schema, descriptor)) return degraded;
 
-    // SIZE, still before budget and still regardless of priority: these bounds
-    // are per-SCHEMA (see `checkSchemaSizeLimits`), so no other item in the
-    // request can make this one fit, and a hard `strict: true` cannot force a
-    // schema the API will refuse to compile.
-    if (checkSchemaSizeLimits(schema, descriptor).length > 0) return degraded;
+    // SIZE, still before budget and still regardless of priority: the per-SCHEMA
+    // bounds (see `checkSchemaSizeLimits`), and the per-request budgets when
+    // this schema alone exceeds them, cannot be met by anything else in the
+    // request, and a hard `strict: true` cannot force a schema the API will
+    // refuse to compile.
+    if (!fitsStrictAlone(schema, descriptor)) return degraded;
 
     const features = analyzeSchema(schema);
 

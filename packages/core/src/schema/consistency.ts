@@ -17,6 +17,7 @@ const ANY_ENCODING_REQUIREMENTS: Readonly<Record<
   'recursive-open': { anyOf: true, defsRef: true },
   'flat': { anyOf: true, defsRef: false },
   'unconstrained': { anyOf: false, defsRef: false },
+  'none': { anyOf: false, defsRef: false },
 });
 
 /**
