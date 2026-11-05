@@ -253,3 +253,24 @@ describe('SchemaBudget — descriptor.id pinning is the caller\'s job', () => {
     expect(d.id).toBe('openai-strict');
   });
 });
+
+describe('SchemaBudget — separate tool and output descriptors', () => {
+  const schema = z.object({ a: z.string().optional() });
+
+  it('keeps tools non-strict when only output is strict', () => {
+    const budget = new SchemaBudget(OPENAI_NON_STRICT, OPENAI_STRICT);
+    expect(budget.allocateTool(schema, 1)).toBe(OPENAI_NON_STRICT);
+    expect(budget.allocateOutput(schema, 1)).toBe(OPENAI_STRICT);
+  });
+
+  it('keeps output non-strict when only tools are strict', () => {
+    const budget = new SchemaBudget(ANTHROPIC_STRICT, ANTHROPIC_NON_STRICT);
+    expect(budget.allocateTool(schema, 1)).toBe(ANTHROPIC_STRICT);
+    expect(budget.allocateOutput(schema, 1)).toBe(ANTHROPIC_NON_STRICT);
+  });
+
+  it('takes slot limits from the strict side', () => {
+    const budget = new SchemaBudget(ANTHROPIC_NON_STRICT, ANTHROPIC_STRICT);
+    expect(budget.remaining().strictTools).toBe(20);
+  });
+});

@@ -5,7 +5,7 @@
  * Provider order ensures deterministic model resolution: first provider to return a model ID wins.
  */
 
-import { type DescriptorFamily, type FormatDescriptor, getDescriptor, getModel, hasDescriptorFamily, LENIENT, SchemaBudget, strictestOf, strictPriority, type ToolDefinition } from '@aeye/core';
+import { type DescriptorFamily, type FormatDescriptor, getDescriptor, getModel, hasDescriptorFamily, LENIENT, SchemaBudget, strictPriority, type ToolDefinition } from '@aeye/core';
 import { detectTier } from './modelDetection';
 import type {
   AIBaseMetadata,
@@ -63,10 +63,11 @@ export function resolveStrictFormat(model: {
 }
 
 /**
- * Build a SchemaBudget tuned to the strictest of the model's tool /
- * structured-output dialects. Anthropic-style per-request limits apply
- * across BOTH tool schemas and the output schema, so a provider shares one
- * budget between them.
+ * Build a SchemaBudget over the model's tool and structured-output dialects.
+ * Anthropic-style per-request limits apply across BOTH tool schemas and the
+ * output schema, so a provider shares one budget between them, but each kind
+ * keeps its own descriptor: a model with strict output and no strict tools
+ * must not send `strict: true` tools.
  *
  * Strict mode engages only when the model's resolved family is one the
  * provider speaks (`families`) AND the model has the corresponding capability
@@ -89,7 +90,7 @@ export function buildSchemaBudget(
     family !== undefined && families.has(family)
       ? getDescriptor(family, model.capabilities?.has(capability) ?? false)
       : LENIENT;
-  return new SchemaBudget(strictestOf(descriptorFor('toolsStrict'), descriptorFor('structured')));
+  return new SchemaBudget(descriptorFor('toolsStrict'), descriptorFor('structured'));
 }
 
 /**

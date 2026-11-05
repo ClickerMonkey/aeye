@@ -7,8 +7,10 @@ import { analyzeSchema, checkSchemaSizeLimits } from './analyze';
 /**
  * Per-request strict-mode allocator.
  *
- * Constructed once per outgoing request with the chosen model's strictest
- * descriptor. Tracks remaining slots (strict tools, optional parameters,
+ * Constructed once per outgoing request with the chosen model's tool and
+ * structured-output descriptors (the same one when only one is given; they
+ * differ when the model has strict tools but not strict output, or the
+ * reverse). The slot limits come from the stricter of the two. Tracks remaining slots (strict tools, optional parameters,
  * union types) against the descriptor's documented per-request limits and
  * decides per-tool / per-output whether to emit strict or fall back to the
  * SAME FAMILY's non-strict descriptor (`degraded` — never the family-blind
@@ -25,7 +27,8 @@ import { analyzeSchema, checkSchemaSizeLimits } from './analyze';
  * pre-sort by descending priority before iterating.
  */
 export class SchemaBudget {
-  private readonly descriptor: FormatDescriptor;
+  private readonly tool: FormatDescriptor;
+  private readonly output: FormatDescriptor;
   /**
    * What an item that does NOT get strict is emitted through: the descriptor's
    * own family, non-strict.
@@ -48,16 +51,18 @@ export class SchemaBudget {
    * `LENIENT` (`getDescriptor`). Only the pinned `descriptor` id on the tool
    * changes, which round-trips through `getDescriptorById`.
    */
-  private readonly degraded: FormatDescriptor;
+  private readonly degradedTool: FormatDescriptor;
+  private readonly degradedOutput: FormatDescriptor;
   private remainingTools: number;
   private remainingOptionalParams: number;
   private remainingUnionTypes: number;
 
-  constructor(descriptor: FormatDescriptor) {
-    this.descriptor = descriptor;
-    // An already-non-strict budget degrades to itself: there is nothing looser
-    // in its family, and `LENIENT`'s own family has no other variant.
-    this.degraded = descriptor.strict ? getDescriptor(descriptor.family, false) : descriptor;
+  constructor(tool: FormatDescriptor, output: FormatDescriptor = tool) {
+    this.tool = tool;
+    this.output = output;
+    this.degradedTool = degrade(tool);
+    this.degradedOutput = degrade(output);
+    const descriptor = strictestOf(tool, output);
     this.remainingTools = descriptor.maxStrictTools ?? Infinity;
     this.remainingOptionalParams = descriptor.maxStrictOptionalParams ?? Infinity;
     this.remainingUnionTypes = descriptor.maxStrictUnionTypes ?? Infinity;
@@ -113,10 +118,12 @@ export class SchemaBudget {
     requested: boolean | number | undefined,
     isTool: boolean,
   ): FormatDescriptor {
+    const descriptor = isTool ? this.tool : this.output;
+    const degraded = isTool ? this.degradedTool : this.degradedOutput;
     // strict: false → always non-strict, no budget movement.
-    if (requested === false) return this.degraded;
+    if (requested === false) return degraded;
     // Descriptor itself is lenient → nothing to allocate.
-    if (!this.descriptor.strict) return this.degraded;
+    if (!descriptor.strict) return degraded;
 
     const isHardRequired = requested === true;
     const isPreferredNumeric = typeof requested === 'number' && requested > 0;
@@ -126,7 +133,7 @@ export class SchemaBudget {
       // non-strict so callers explicitly opt into strict. Decided BEFORE any
       // walk of `schema`: analysing a schema whose verdict is already
       // non-strict is pure waste on the hot path of every tool of every request.
-      return this.degraded;
+      return degraded;
     }
 
     // FEASIBILITY, before budget — the second clause of this method's contract,
@@ -144,13 +151,13 @@ export class SchemaBudget {
     // `sendableUnder`, not `canExpress`: a cycle is always sendable (the
     // emitter's bounded placeholder), only looser — see that function's note on
     // why the two questions are different.
-    if (!sendableUnder(schema, this.descriptor)) return this.degraded;
+    if (!sendableUnder(schema, descriptor)) return degraded;
 
     // SIZE, still before budget and still regardless of priority: these bounds
     // are per-SCHEMA (see `checkSchemaSizeLimits`), so no other item in the
     // request can make this one fit, and a hard `strict: true` cannot force a
     // schema the API will refuse to compile.
-    if (checkSchemaSizeLimits(schema, this.descriptor).length > 0) return this.degraded;
+    if (checkSchemaSizeLimits(schema, descriptor).length > 0) return degraded;
 
     const features = analyzeSchema(schema);
 
@@ -159,9 +166,9 @@ export class SchemaBudget {
     // them — if there are too many, that's a request-construction bug we
     // surface via API error rather than degrading silently.
     if (isPreferredNumeric) {
-      if (isTool && this.remainingTools <= 0) return this.degraded;
-      if (this.remainingOptionalParams - features.optionalParameterCount < 0) return this.degraded;
-      if (this.remainingUnionTypes - features.unionTypeCount < 0) return this.degraded;
+      if (isTool && this.remainingTools <= 0) return degraded;
+      if (this.remainingOptionalParams - features.optionalParameterCount < 0) return degraded;
+      if (this.remainingUnionTypes - features.unionTypeCount < 0) return degraded;
     }
 
     // Allocation succeeded — decrement.
@@ -169,8 +176,18 @@ export class SchemaBudget {
     this.remainingOptionalParams -= features.optionalParameterCount;
     this.remainingUnionTypes -= features.unionTypeCount;
 
-    return this.descriptor;
+    return descriptor;
   }
+}
+
+/**
+ * What an item that does not get strict is emitted through (see
+ * `SchemaBudget.degradedTool`). An already-non-strict descriptor degrades to
+ * itself: there is nothing looser in its family, and `LENIENT`'s own family
+ * has no other variant.
+ */
+function degrade(descriptor: FormatDescriptor): FormatDescriptor {
+  return descriptor.strict ? getDescriptor(descriptor.family, false) : descriptor;
 }
 
 /**
