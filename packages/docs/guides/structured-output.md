@@ -61,7 +61,57 @@ const strictPrompt = ai.prompt({
 });
 ```
 
+A schema the model can't express, or one a provider rejects, falls back on its own; see [Schema Delivery and Fallbacks](#schema-delivery-and-fallbacks).
+
 `@aeye` reconciles each provider's strict-mode dialect (OpenAI / Anthropic / Google / xAI) so the same Zod schema works everywhere — see the [Strict Mode guide](./strict-mode.md) for format families, per-request budgets, the curated `strictSupport` overrides, and how to register a custom dialect.
+
+## Schema Delivery and Fallbacks
+
+`schemaDelivery` decides how the schema reaches the model:
+
+| Value | Delivery |
+|---|---|
+| `'auto'` (default) | Structured output when the model's dialect can express the schema, otherwise the schema as prompt text |
+| `'structured'` | Always structured output |
+| `'json'` | JSON mode, with the schema in the prompt |
+| `'prompt'` | Plain text, with the schema in the prompt |
+
+The prompt's parsing and validation run the same way under every delivery. Providers map them to their own API: OpenAI and OpenRouter send `json_schema` (strict or not) or `json_object`; Bedrock Converse and Replicate have neither, so they always get the schema as prompt text.
+
+When a provider rejects a schema, it throws a `SchemaRejectedError` naming the output or the tool, and the prompt steps down its `schemaFallbacks` and sends the request again. The default, `SCHEMA_FALLBACKS`, goes:
+
+1. `non-strict` — the rejected schema (output or tool) drops `strict`. A required `strict: true` is kept.
+2. `json` — the output moves to JSON mode with its schema in the prompt.
+3. `text` — the output moves to plain text with its schema in the prompt.
+
+Each step is taken at most once per schema; the error is thrown when none applies. A step stays on the request for the rest of the run, so later iterations (after tool calls, retries, or a `dynamic` re-resolve) start there instead of failing first. Fallbacks don't use `outputRetries`, and `runtimeSchemaFallback: false` turns them off.
+
+```typescript
+import { SCHEMA_FALLBACKS, type SchemaFallback } from '@aeye/core';
+
+// Skip JSON mode
+const prompt = ai.prompt({
+  schema,
+  schemaFallbacks: SCHEMA_FALLBACKS.filter(step => step.name !== 'json'),
+});
+
+// Your own step: apply() changes the request and returns true, or returns false when it doesn't apply
+const dropTools: SchemaFallback = {
+  name: 'drop-tool',
+  apply: (request, target) => {
+    if (target.kind !== 'tool') return false;
+    request.tools = request.tools?.filter(tool => tool.name !== target.name);
+    return true;
+  },
+};
+
+// AI-wide, through the default context
+const ai = AI.with<{ schemaFallbacks?: readonly SchemaFallback[] }>()
+  .providers({ openai })
+  .create({ defaultContext: { schemaFallbacks: [...SCHEMA_FALLBACKS, dropTools] } });
+```
+
+Every step emits a `schemaFallback` event with the step's `fallback` name and the `error`.
 
 ## Dynamic Schema
 
@@ -138,9 +188,11 @@ Only runs where Zod validation runs today (a structured `schema` is present); th
 
 When output parsing or validation fails:
 
-1. The error is sent back to the model as a system message
+1. The error is sent back to the model as a user message, and a `textReset` event carries it as an `OutputValidationError`
 2. The model tries again (up to `outputRetries` times, default: 2)
-3. If all retries fail, the prompt throws an error
+3. If all retries fail, the prompt throws a `PromptError` (`kind: 'model'`) whose `cause` is the last `OutputValidationError`
+
+A [review](../components/prompts.md#review--reviewing-the-output) can then check an output that passed.
 
 ```typescript
 const prompt = ai.prompt({

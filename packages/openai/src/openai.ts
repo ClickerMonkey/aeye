@@ -33,7 +33,7 @@ import type {
   TranscriptionSegment
 } from '@aeye/ai';
 import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detectTier, isModelInfo } from '@aeye/ai';
-import { type AudioFormat, BaseRequest, type Chunk, describeTool, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, strictify, type Streamer, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
+import { type AudioFormat, BaseRequest, type Chunk, deliverSchema, describeTool, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, type SchemaRejectedError, schemaRejection, type Streamer, strictify, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, responsesUsage, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
 import { type OpenAIDecision, type OpenAIDecisionParams, type SystemOneDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
@@ -1077,8 +1077,20 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   }
 
   /**
+   * The schema a bad request rejected, if any. OpenAI names it in the error
+   * message; OpenAI-compatible providers can look further.
+   *
+   * @param request - The request as sent
+   * @param error - The API's 400 or 422 error
+   */
+  protected rejectedSchema(request: Request, error: Error): SchemaRejectedError | undefined {
+    return schemaRejection(request, error);
+  }
+
+  /**
    * Send a chat call. A request that overflows the context window ends as
-   * `length` rather than failing, so the prompt loop can trim and retry.
+   * `length` rather than failing, so the prompt loop can trim and retry. A
+   * rejected schema becomes a SchemaRejectedError.
    */
   private async sendChat<K extends 'chat' | 'responses', R>(
     op: K,
@@ -1091,7 +1103,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return { result: await this.send(op, run, request, params, call) };
     } catch (e) {
       if (!(e instanceof ContextWindowError)) {
-        throw e;
+        const badRequest = e instanceof Error && 'status' in e && (e.status === 400 || e.status === 422);
+        throw (badRequest && this.rejectedSchema(request, e)) || e;
       }
       const overflow: Response = { content: '', toolCalls: [], finishReason: 'length', model: run.model, usage: { text: { input: e.contextWindow } } };
       return { overflow: await this.finish(op, run, request, params, overflow) };
@@ -1443,9 +1456,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   createExecutor(config?: TConfig): Executor<AIContextAny, AIMetadataAny> {
     return async (request, ctx, metadata, signal) => {
       const run = this.prepare('chat', request, ctx, metadata, config, signal, 'chat');
-      return this.usesResponses(request, run.model.id, run.config, run.modelInfo)
-        ? this.respond(request, run)
-        : this.complete(request, run);
+      const sent = deliverSchema(request);
+      return this.usesResponses(sent, run.model.id, run.config, run.modelInfo)
+        ? this.respond(sent, run)
+        : this.complete(sent, run);
     };
   }
 
@@ -1460,9 +1474,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     const provider = this;
     return async function* (request, ctx, metadata, signal) {
       const run = provider.prepare('streaming chat', request, ctx, metadata, config, signal, 'chat');
-      return yield* provider.usesResponses(request, run.model.id, run.config, run.modelInfo)
-        ? provider.respondStream(request, run)
-        : provider.completeStream(request, run);
+      const sent = deliverSchema(request);
+      return yield* provider.usesResponses(sent, run.model.id, run.config, run.modelInfo)
+        ? provider.respondStream(sent, run)
+        : provider.completeStream(sent, run);
     };
   }
 

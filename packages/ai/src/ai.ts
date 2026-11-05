@@ -753,7 +753,7 @@ export class AI<T extends AIBaseTypes> {
   >(
     options: AIPromptInput<T, TName, TInput, TOutput, TTools, TDecoded>
   ) {
-    const { input, schema, config, reconfig, retool, parse, validate, applicable, metadataFn, ...rest } = options;
+    const { input, schema, config, reconfig, retool, parse, validate, review, applicable, metadataFn, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -799,6 +799,7 @@ export class AI<T extends AIBaseTypes> {
       validate: hydrateFn(validate, (r) => (async (output, ctxPartial) => {
         return r(output, await getContext(ctxPartial));
       })),
+      review: review && (async (output, context) => review(output, { ...context, ctx: await getContext(context.ctx) })),
       applicable: hydrateFn(applicable, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
       })),

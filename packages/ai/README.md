@@ -469,6 +469,31 @@ for await (const text of knowledgeAssistant.get('streamContent', { question: 'Ho
 }
 ```
 
+A prompt can `review` its valid output, for example with another prompt, and send feedback for another round (up to `reviewRetries`):
+
+```typescript
+const checked = ai.prompt({
+  name: 'checked',
+  description: 'Answers, then checks the answer cites a source',
+  content: 'Answer with a source: {{question}}',
+  input: (input: { question: string }) => input,
+  schema: z.object({ answer: z.string(), sources: z.array(z.string()) }),
+  review: ({ sources }) => sources.length ? { pass: true } : { feedback: 'Cite at least one source.' },
+});
+```
+
+When a provider rejects a schema, the prompt steps down its schema fallbacks (non-strict, then JSON mode, then text) instead of failing. The chat API sends a `'json'` or `'prompt'` schema as JSON mode or prompt text, and picks a model with the `json` capability rather than `structured` for it. Set the steps AI-wide through the default context:
+
+```typescript
+import { SCHEMA_FALLBACKS, type SchemaFallback } from '@aeye/core';
+
+const ai = AI.with<{ schemaFallbacks?: readonly SchemaFallback[] }>()
+  .providers({ openai })
+  .create({ defaultContext: { schemaFallbacks: SCHEMA_FALLBACKS.filter(step => step.name !== 'json') } });
+```
+
+Tool errors and thrown prompt errors carry `kind: 'model' | 'tool'`, telling a model's mistake from a tool's own failure; see the core README.
+
 ### Agent
 
 ```typescript

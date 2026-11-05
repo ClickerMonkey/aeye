@@ -192,7 +192,7 @@ describe('Converse request mapping', () => {
     expect(none).toBeUndefined();
   });
 
-  it('sends a structured output schema the model can be held to', async () => {
+  it('sends a structured output schema the model can be held to, else puts it in the prompt', async () => {
     const sent = fakeBedrock();
     const responseFormat = { type: z.object({ title: z.string(), tags: z.array(z.string()).optional() }), strict: true };
 
@@ -208,7 +208,10 @@ describe('Converse request mapping', () => {
       required: ['title'],
     });
     expect(responseFormat).toHaveProperty('descriptor', 'anthropic-strict');
+    expect(sent.converse[0].input.system).toBeUndefined();
+    // Llama has no strict dialect, so its schema goes in the prompt instead
     expect(sent.converse[1].input.outputConfig).toBeUndefined();
+    expect(JSON.stringify(sent.converse[1].input.system)).toContain('conforming to this schema');
   });
 
   it.each([

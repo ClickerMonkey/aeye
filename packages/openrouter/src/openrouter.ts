@@ -17,7 +17,7 @@
 
 import type { AIContextAny, BatchJob, DecisionAnswer, DecisionQuestion, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { REASONING_EFFORTS, withAllowedTools, type Chunk, type MessageContent, type DescriptorFamily, type GeneratedImage, type HostedTool, type Reasoning, type Request, type Resource, type Response, type Usage } from '@aeye/core';
+import { type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
 import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, type SystemOneDecisionParams, toSystemOneQuestion } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
@@ -394,6 +394,17 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   protected override buildChatParams(request: Request, run: OperationRun<OpenRouterConfig>, streaming: boolean) {
     return super.buildChatParams(withAllowedTools(request), run, streaming);
+  }
+
+  /**
+   * OpenRouter reports an upstream's rejection as "Provider returned error",
+   * with the upstream's own message in `metadata.raw`.
+   */
+  protected override rejectedSchema(request: Request, error: Error): SchemaRejectedError | undefined {
+    const body = 'error' in error ? error.error : undefined;
+    const metadata = body && typeof body === 'object' && 'metadata' in body ? body.metadata : undefined;
+    const raw = metadata && typeof metadata === 'object' && 'raw' in metadata && typeof metadata.raw === 'string' ? metadata.raw : '';
+    return schemaRejection(request, error, `${error.message} ${raw}`);
   }
 
   /**

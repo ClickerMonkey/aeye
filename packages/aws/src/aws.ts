@@ -19,11 +19,13 @@ import type {
 import { allocateToolDescriptors, buildSchemaBudget, isModelInfo } from '@aeye/ai';
 import {
   Chunk,
+  deliverSchema,
   type DescriptorFamily,
   describeTool,
   Executor,
   getModel,
   getResponseFromChunks,
+  LENIENT,
   type Model,
   ModelInput,
   type Reasoning,
@@ -31,6 +33,7 @@ import {
   Request,
   Response,
   type SchemaBudget,
+  schemaRejection,
   strictify,
   Streamer,
   toJSONSchema,
@@ -370,7 +373,8 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      return self.executeWithConverse(modelInput, request, ctx);
+      // Converse has no structured output or JSON mode, so a schema goes in the prompt
+      return self.executeWithConverse(modelInput, deliverSchema(request), ctx);
     };
   }
 
@@ -390,7 +394,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
       if (!modelInput) {
         throw new AWSError('Model is required for AWS Bedrock requests');
       }
-      yield* self.streamWithConverse(modelInput, request, ctx);
+      yield* self.streamWithConverse(modelInput, deliverSchema(request), ctx);
     };
   }
 
@@ -431,14 +435,16 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     // Bedrock can't limit which tools a model calls, so only the allowed ones are sent
     const toolConfig = this.convertToolsToConverse(withAllowedTools(request), budget);
     const textFormat = this.convertResponseFormat(request, budget);
+    // A schema Converse can't take natively goes in the prompt
+    const sent = typeof request.responseFormat === 'object' && !textFormat ? deliverSchema(request, LENIENT, 'prompt') : request;
     const maxTokens = request.maxTokens ?? (info ?? model).maxOutputTokens;
     const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(request.toolChoice));
     const fields = reasoning.fields || request.extra ? { ...reasoning.fields, ...request.extra } : undefined;
 
     return {
       modelId,
-      messages: await this.convertMessagesToConverse(request),
-      system: await toSystemBlocks(request.messages),
+      messages: await this.convertMessagesToConverse(sent),
+      system: await toSystemBlocks(sent.messages),
       inferenceConfig: {
         maxTokens,
         temperature: request.temperature,
@@ -482,7 +488,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
 
       return result;
     } catch (error: any) {
-      this.handleAWSError(error);
+      this.handleAWSError(error, request);
       throw error;
     }
   }
@@ -519,7 +525,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
         await this.config.hooks?.chat?.afterRequest?.(request, command, getResponseFromChunks(chunks, modelInput), ctx);
       }
     } catch (error: any) {
-      this.handleAWSError(error);
+      this.handleAWSError(error, request);
       throw error;
     }
   }
@@ -786,7 +792,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   // Error Handling
   // ============================================================================
 
-  private handleAWSError(error: any): void {
+  private handleAWSError(error: any, request?: Request): void {
     const errorName = error.name || '';
     const errorMessage = error.message || '';
 
@@ -808,6 +814,12 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     // Context window errors
     if (CONTEXT_WINDOW_ERROR.test(errorMessage)) {
       throw new AWSContextWindowError('Context window exceeded', undefined, error);
+    }
+
+    // A rejected tool schema
+    const rejected = errorName === 'ValidationException' && request ? schemaRejection(request, error) : undefined;
+    if (rejected) {
+      throw rejected;
     }
 
     // Re-throw as generic AWS error
