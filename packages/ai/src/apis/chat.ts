@@ -35,7 +35,7 @@
  * ```
  */
 
-import { getChunksFromResponse, getResponseFromChunks, type Executor, type MessageContentType, type ResponseFormat, type Streamer, type Usage } from '@aeye/core';
+import { getChunksFromResponse, getResponseFromChunks, structuredOutput, type Executor, type MessageContentType, type ResponseFormat, type Streamer, type Usage } from '@aeye/core';
 import { INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '../common';
 import type { AI } from '../ai';
 import type {
@@ -84,14 +84,9 @@ function contentTypes(request: Request): MessageContentType[] {
  * mode, or neither (text, or a schema delivered as prompt text).
  */
 function outputMode(format: ResponseFormat | undefined): 'structured' | 'json' | undefined {
-  if (typeof format !== 'object') {
-    return format === 'json' ? 'json' : undefined;
-  }
-  switch (format.schemaDelivery) {
-    case 'json': return 'json';
-    case 'prompt': return undefined;
-    default: return 'structured';
-  }
+  return structuredOutput(format) ? 'structured'
+    : format === 'json' || (typeof format === 'object' && format.schemaDelivery === 'json') ? 'json'
+    : undefined;
 }
 
 /**

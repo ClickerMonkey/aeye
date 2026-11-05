@@ -115,6 +115,31 @@ describe('schema fallbacks', () => {
     ]);
   });
 
+  it('re-applies the step after a dynamic prompt re-resolves its request', async () => {
+    const sent: Sent[] = [];
+    const ping = new Tool({ name: 'ping', description: 'Ping', instructions: 'Ping', schema: z.object({}), call: () => 'pong' });
+    const execute = rejectingExecutor(
+      { kind: 'output' },
+      request => typeof request.responseFormat === 'object' && request.responseFormat.strict !== false,
+      [
+        { finishReason: 'tool_calls', toolCalls: [{ id: '1', name: 'ping', arguments: '{}' }] },
+        { content: '{"value":2}' },
+      ],
+      sent,
+    );
+    const prompt = new Prompt({
+      name: 'dynamic',
+      description: 'Dynamic',
+      content: 'Answer.',
+      schema: z.object({ value: z.number() }),
+      tools: [ping],
+      dynamic: true,
+    });
+
+    expect(await prompt.get('result', {}, { execute })).toEqual({ value: 2 });
+    expect(sent.map(({ strict }) => strict)).toEqual([1, false, false]);
+  });
+
   it('throws the rejection once no fallback applies', async () => {
     const sent: Sent[] = [];
     const execute = rejectingExecutor({ kind: 'output' }, () => true, [{}], sent);

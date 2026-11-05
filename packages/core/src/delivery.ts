@@ -1,6 +1,14 @@
 import { SchemaRejectedError } from './errors';
 import { getJsonFallbackInstruction, LENIENT, toJSONSchema, type FormatDescriptor } from './schema';
-import type { Message, Request, SchemaDelivery, SchemaFallback, SchemaTarget } from './types';
+import type { Message, Request, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget } from './types';
+
+/**
+ * The output schema when it goes on the wire as structured output, rather
+ * than into the prompt.
+ */
+export function structuredOutput(format: ResponseFormat | undefined): Extract<ResponseFormat, object> | undefined {
+  return typeof format === 'object' && format.schemaDelivery !== 'json' && format.schemaDelivery !== 'prompt' ? format : undefined;
+}
 
 /**
  * Moves a structured output schema to another delivery when it's at one of
@@ -20,9 +28,9 @@ function redeliver(request: Request, from: SchemaDelivery[], to: SchemaDelivery)
  * preference. A required `strict: true` is left alone.
  */
 function strictSchemas(request: Request, target: SchemaTarget): { strict?: boolean | number }[] {
-  const format = request.responseFormat;
+  const output = structuredOutput(request.responseFormat);
   const schemas = target.kind === 'output'
-    ? typeof format === 'object' && format.schemaDelivery !== 'json' && format.schemaDelivery !== 'prompt' ? [format] : []
+    ? output ? [output] : []
     : (request.tools ?? []).filter(tool => target.kind === 'tools' || tool.name === target.name);
   return schemas.filter(schema => schema.strict !== true && schema.strict !== false);
 }

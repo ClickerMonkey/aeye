@@ -6,7 +6,7 @@ import { AnyTool, forcesTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend
 import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
 import { getDescriptorById, strictify, decodeWire } from "./schema";
 import { OutputValidationError, PromptError, ReviewRejectedError, SchemaRejectedError, ToolExecutionError, ToolFailure, ToolInputError } from "./errors";
-import { SCHEMA_FALLBACKS } from "./delivery";
+import { SCHEMA_FALLBACKS, structuredOutput } from "./delivery";
 
 /** Default cap (chars) for validation error messages surfaced back to the
  *  LLM. Read by `Prompt.truncateValidationError`; subclasses may override
@@ -1349,9 +1349,7 @@ export class Prompt<
             new OutputValidationError(this.truncateValidationError(message, this.input.validationErrorMaxLength), reason, content);
           // The descriptor the provider shaped the output with, when the
           // schema went on the wire.
-          const descriptorId = typeof request.responseFormat === 'object' && request.responseFormat.schemaDelivery !== 'json' && request.responseFormat.schemaDelivery !== 'prompt'
-            ? request.responseFormat.descriptor
-            : undefined;
+          const descriptorId = structuredOutput(request.responseFormat)?.descriptor;
           try {
             const parsedJSON = JSON.parse(potentialJSON);
 
