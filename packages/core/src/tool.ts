@@ -11,6 +11,17 @@ import { Component, ComponentCompatible, Context, OptionalParams, Request, Schem
 export const TEXT_TOOL_SCHEMA = z.object({ input: z.string() });
 
 /**
+ * A tool's description for providers that send a free-text tool as an
+ * ordinary one-field function: a grammar its input must match is appended,
+ * since the function can't carry the grammar itself.
+ */
+export function describeTool(tool: ToolDefinition): string | undefined {
+  return tool.format?.type === 'grammar'
+    ? `${tool.description ?? ''}\n\nThe input must match this ${tool.format.syntax} grammar:\n${tool.format.definition}`
+    : tool.description;
+}
+
+/**
  * Whether a tool choice makes the model call a tool.
  */
 export function forcesTool(choice: ToolChoice | undefined): boolean {

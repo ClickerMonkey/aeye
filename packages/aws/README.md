@@ -7,6 +7,10 @@ AWS Bedrock integration for the [@aeye](https://github.com/ClickerMonkey/aeye) f
 - 🤖 **Multi-Model Support** - Access to all AWS Bedrock foundation models
 - 🔐 **Automatic Authentication** - Uses AWS SDK credential chain for seamless authentication
 - 🌊 **Streaming** - Full streaming support for real-time responses
+- 🧠 **Reasoning** - Claude adaptive and budgeted thinking, Nova and gpt-oss reasoning, with reasoning blocks replayed across turns
+- 📐 **Structured Output** - Converse JSON-schema output and strict tools
+- 💾 **Prompt Caching** - Cache points from `cacheBreakpoint`, with cache read/write usage
+- 📄 **Documents, Images, Video** - Bytes or S3 locations
 - 🎨 **Image Generation** - Stability AI models for image creation
 - 📊 **Embeddings** - Amazon Titan embeddings for semantic search
 - 🔧 **Type-Safe** - Full TypeScript support with type inference
@@ -15,7 +19,10 @@ AWS Bedrock integration for the [@aeye](https://github.com/ClickerMonkey/aeye) f
 ## Supported Models
 
 ### Chat Models
-- **Anthropic Claude** - Claude 3 Opus, Sonnet, Haiku, and Claude 3.5 Sonnet
+- **Anthropic Claude** - Claude 3.x through 5.x
+- **Amazon Nova** - Nova and Nova 2
+- **OpenAI** - gpt-oss
+- **Open-weight models** - DeepSeek, Qwen, Kimi, MiniMax, and more
 - **Meta Llama** - Llama 2, Llama 3, Llama 3.1, Llama 3.2
 - **Mistral AI** - Mistral 7B, Mixtral 8x7B, Mistral Large
 - **Cohere** - Command, Command Light, Command R, Command R+
@@ -157,6 +164,16 @@ const config: AWSBedrockConfig = {
     sessionToken: process.env.AWS_SESSION_TOKEN, // Optional
   },
   
+  // Optional: Inference profile prefix. Without one, models served only
+  // through inference profiles use the region's geography (or global) profile
+  modelPrefix: 'us.',
+
+  // Optional: Latency-optimized inference, where the model offers it
+  latency: 'optimized',
+
+  // Optional: Guardrail applied to every chat request
+  guardrail: { guardrailIdentifier: 'gr-abc123', guardrailVersion: '1' },
+
   // Optional: Default models for different capabilities
   defaultModels: {
     chat: 'anthropic.claude-3-sonnet-20240229-v1:0',
@@ -289,6 +306,58 @@ const response = await ai.chat.get([
 });
 ```
 
+### Documents, Video, and S3
+
+```typescript
+const response = await ai.chat.get([
+  {
+    role: 'user',
+    content: [
+      { type: 'text', content: 'Summarize the report and the clip.' },
+      { type: 'file', content: 's3://my-bucket/q3-report.pdf', name: 'Q3 report.pdf' },
+      { type: 'video', content: 's3://my-bucket/clip.mp4' },
+    ],
+  },
+], {
+  model: 'amazon.nova-pro-v1:0',
+});
+```
+
+`s3://` URIs are sent as S3 locations; other content is sent as bytes. The
+format comes from `format`, the MIME type, or the file extension.
+
+### Reasoning
+
+```typescript
+const response = await ai.chat.get([
+  { role: 'user', content: 'Prove that there are infinitely many primes.' },
+], {
+  model: 'anthropic.claude-opus-4-7',
+  reason: { effort: 'high' },
+});
+
+console.log(response.reasoning?.content);
+```
+
+Claude 4.6+ thinks adaptively (`thinking.type: 'adaptive'` with
+`outputConfig.effort`), earlier Claude takes a thinking budget, Nova 2 takes
+`reasoningConfig`, and gpt-oss takes `reasoning_effort`. Reasoning blocks keep
+their signatures and redacted content, and are sent back with the assistant
+message on later turns, as Claude requires while it uses tools.
+
+### Prompt Caching
+
+```typescript
+const response = await ai.chat.get([
+  { role: 'system', content: [{ type: 'text', content: longInstructions, cacheBreakpoint: true }] },
+  { role: 'user', content: 'First question' },
+], {
+  model: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+});
+
+console.log(response.usage?.text?.cached, response.usage?.text?.cacheWrite);
+```
+
 ### Custom Request Parameters
 
 ```typescript
@@ -300,6 +369,9 @@ const response = await ai.chat.get([
   maxTokens: 2048,
   topP: 0.9,
   stop: ['Human:', 'Assistant:'],
+  serviceTier: 'flex',            // Converse serviceTier (fast → priority)
+  metadata: { team: 'search' },   // Converse requestMetadata
+  extra: { top_k: 50 },           // additionalModelRequestFields
 });
 ```
 
