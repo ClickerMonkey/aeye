@@ -479,6 +479,15 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
       params.provider = { ...params.provider, require_parameters: true };
     }
 
+    // Some upstreams serve any response format as JSON mode, which refuses a
+    // conversation that never says "json" (Alibaba for Qwen: "'messages' must
+    // contain the word 'json' in some form", even for a strict json_schema,
+    // 2026-11-04). Say it once when nothing else does.
+    const saysJson = params.messages.some(message => /json/i.test(JSON.stringify(message.content ?? '')));
+    if (params.response_format && params.response_format.type !== 'text' && !saysJson) {
+      params.messages = [{ role: 'system', content: 'Respond in JSON.' }, ...params.messages];
+    }
+
     const plugins: OpenRouterPlugin[] = [...dp?.plugins ?? []];
     if (dp?.transforms?.includes('middle-out')) {
       plugins.push({ id: 'context-compression', engine: 'middle-out' });
