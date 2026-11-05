@@ -408,6 +408,42 @@ const adaptivePrompt = new Prompt({
 });
 ```
 
+## Schema Fallbacks
+
+A provider that rejects a schema throws `SchemaRejectedError` with a `target` naming the output or the tool. The prompt then steps down its `schemaFallbacks`, by default `SCHEMA_FALLBACKS`: the rejected schema goes non-strict, then the output moves to JSON mode with its schema in the prompt (`schemaDelivery: 'json'`), then to plain text with its schema in the prompt (`'prompt'`). Steps stay on the request for the rest of the run, and each emits a `schemaFallback` event.
+
+```typescript
+import { Prompt, SCHEMA_FALLBACKS } from '@aeye/core';
+
+const prompt = new Prompt({
+  name: 'extract',
+  description: 'Extracts fields',
+  content: 'Extract the fields from: {{text}}',
+  schema,
+  schemaFallbacks: SCHEMA_FALLBACKS.filter(step => step.name !== 'json'),
+});
+```
+
+Providers use `schemaRejection(request, error)` to classify a bad request and `deliverSchema(request)` to send a `json` or `prompt` schema without changing the prompt's request.
+
+## Error Kinds
+
+Every prompt failure has `kind: 'model' | 'tool'`. `ToolInputError` (an unknown tool or bad arguments) and `OutputValidationError` (output that isn't JSON or fails the schema or `validate`) are model mistakes, fed back to the model for another try. `ToolExecutionError` is a tool's own throw. They appear on the `toolError` event's `failure`, on tool result messages' `failure`, and on the `textReset` event's `error`. A prompt that gives up throws a `PromptError` whose `cause` is the last failure.
+
+## Review
+
+`review` judges the parsed, validated output before it's returned. Feedback becomes a user message and the model answers again, up to `reviewRetries` times; after that the prompt throws a `PromptError` caused by a `ReviewRejectedError` with the last output.
+
+```typescript
+const answer = new Prompt({
+  name: 'answer',
+  description: 'Answers briefly',
+  content: 'Answer in under 20 words: {{question}}',
+  input: (input: { question: string }) => input,
+  review: (output) => output.split(' ').length < 20 ? { pass: true } : { feedback: 'Use fewer than 20 words.' },
+});
+```
+
 ## Model Capabilities
 
 @aeye uses a capability system for automatic model selection. Models advertise their capabilities and the library selects the best match for each request:
@@ -554,8 +590,12 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 - `toolIterations?: number` - Max tool-calling iterations (default: 3)
 - `toolsMax?: number` - Max successful tool calls
 - `outputRetries?: number` - Retry count for invalid structured outputs
+- `schemaDelivery?: 'auto' | 'structured' | 'json' | 'prompt'` - How the output schema reaches the model (default: `'auto'`)
+- `schemaFallbacks?: readonly SchemaFallback[]` - Steps taken when a provider rejects a schema (default: the context's, then `SCHEMA_FALLBACKS`)
 - `metadata?: TMetadata` - Static metadata for this prompt
 - `validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>` - Post-parse validation
+- `review?: (output: TDecoded, context: PromptReviewContext) => PromptReview | Promise<PromptReview>` - Review the valid output: `{ pass: true }` or `{ feedback }` for another round
+- `reviewRetries?: number` - Rounds the model gets to answer review feedback (default: 1)
 - `applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>` - Availability check
 
 **Methods:**
@@ -631,6 +671,8 @@ interface CoreContextFields {
   outputRetries?: number;
   // Number of context-trimming retries (default: 1)
   forgetRetries?: number;
+  // Steps a prompt takes when a provider rejects a schema (default: SCHEMA_FALLBACKS)
+  schemaFallbacks?: readonly SchemaFallback[];
 
   // Abort signal for cancellation
   signal?: AbortSignal;
