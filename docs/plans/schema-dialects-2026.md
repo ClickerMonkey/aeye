@@ -259,3 +259,25 @@ Tools: "the `strict` flag is implicitly always `true`", so tool args always conf
 5. **GROQ_STRICT**: OpenAI-strict shape on gpt-oss/qwen3.8/muse only; can't be combined with tools or streaming.
 6. **QWEN_JSON_SCHEMA**: permissive (oneOf/allOf/not/if/then/else ok), but must strip `multipleOf, uniqueItems, contains, min/maxContains, additionalItems, patternProperties, propertyNames` (they return 400).
 7. **BEST_EFFORT_JSON_SCHEMA** (Together, Fireworks, DeepInfra, Mistral, OpenRouter open-weight models): send a plain, conservative schema (no strict-only requirements) and always validate on the client.
+
+## Measured live (2026-11-04/05)
+
+`packages/test-integration/src/__tests__/live-schema.test.ts` sends five fixtures as a strict tool, a non-strict tool and structured output, through `ai.chat.stream`, cancelled at the first token. Every 400 below was reproduced, fixed in the library, and the case rerun. Final run: 240/240 passed.
+
+| Where | Error | Fix |
+|---|---|---|
+| OpenAI `gpt-4.1-nano`, `o4-mini` | 404 "has been deprecated" | Registry data is stale (no `retiresAt`); live classes use `gpt-4.1-mini` and `o3` (no o-series mini is still served). |
+| OpenAI `o3`, any tool | "'parallel_tool_calls' is not supported with this model" | Chat Completions sends `parallel_tool_calls` only to turn parallel calls off. |
+| OpenAI `o3`, strict tool | "schema must have a 'type' key" for `type: ["string","null"]` | Nullable is spelled `anyOf: [T, {type:"null"}]` wherever the dialect has `anyOf`. gpt-5.4 and gpt-4.1 accept both spellings. |
+| OpenAI Responses, non-strict output | "'additionalProperties' is required to be supplied and to be false" | The Responses API treats an unflagged `json_schema` format as strict; the library now sends `strict: false`. |
+| Any provider, `.meta({ id })` schema | "ID X already exists in the registry" (zod, before sending) | `strictify` carries a declared `id` as `aid` on its clone. |
+| Claude via OpenRouter, strict tool | (none, but `strict` was silently stripped) | OpenRouter needs `x-anthropic-beta: structured-outputs-2025-11-13` for strict tools; the provider sends it. |
+| Claude, strict tool with `z.any()` / recursion | "'additionalProperties: true' is not supported"; `{}` is "Empty schema ... not supported"; a typeless schema is "Schema type is missing" | Anthropic strict has no spelling for "any": new `anyEncoding: 'none'` degrades such tools to non-strict and sends such outputs as prompt text. |
+| Claude, 30 optional fields (tool or "non-strict" output) | "too many optional parameters (30) ... (limit: 24)" | A schema that alone exceeds a per-request budget degrades even under `strict: true`. Structured output on Claude is always compiled (OpenRouter adds the header for every `json_schema`), so `structuredOutputAlwaysStrict` keeps an unfitting output off the wire. |
+| Qwen via OpenRouter (Alibaba), any output | "'messages' must contain the word 'json' ... to use 'response_format' of type 'json_object'", even for a strict `json_schema` | OpenRouter provider adds a one-line "Respond in JSON." system message when the conversation never says JSON. |
+| Llama 4 Scout via OpenRouter (DeepInfra) | "Grammar error: Unknown format: regex" | Zod records `.regex()` as `format: 'regex'`; only real JSON Schema formats are emitted now. |
+| Llama 4 Scout (DeepInfra), GLM 4.7 Flash (Cloudflare) | "Unimplemented keys: [\"propertyNames\"]" | Open records omit `propertyNames` for a plain string key. |
+
+Also found by the offline audit (`schema-resolution.test.ts`): `openai/gpt-oss-*` and `google/gemma-*` resolved to the OpenAI / Gemini strict dialects by id prefix (now `strictFormat: 'none'`); `~openai/gpt-*-latest` aliases had no strict support; and a model with strict output but no strict tools was sent `strict: true` tools (SchemaBudget now keeps a descriptor per kind). Separately, `z.nullable()` emitted no `null` at all under every dialect but OpenAI strict.
+
+Not adopted from the recommendations above: the per-host families (Cerebras, Groq, DeepSeek beta, Qwen). OpenRouter picks the host per request, so the library can't know which one applies; LENIENT plus the fixes above passed on every open-weight model tested (DeepSeek, Qwen, Mistral, Llama, gpt-oss, Kimi, GLM).

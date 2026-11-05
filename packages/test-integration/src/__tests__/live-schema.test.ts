@@ -90,7 +90,6 @@ const fixtures = {
   }),
 };
 
-type Fixture = keyof typeof fixtures;
 type Shape = 'strict-tool' | 'tool' | 'output';
 
 // ============================================================================
@@ -147,18 +146,18 @@ describeLive('live schema acceptance', () => {
     const shapes: Shape[] = info?.capabilities.has('structured') ? ['strict-tool', 'tool', 'output'] : ['strict-tool', 'tool'];
 
     for (const shape of shapes) {
-      for (const fixture of Object.keys(fixtures) as Fixture[]) {
+      for (const [fixture, schema] of Object.entries(fixtures)) {
         liveCase(`schema ${provider} ${model} ${shape} ${fixture}`, { sources, inputs: { model, shape, fixture, strictTools } }, async () => {
           expect(info).toBeDefined();
           const tool: ToolDefinition = {
             name: 'record',
             description: 'Record the result.',
-            parameters: fixtures[fixture],
+            parameters: schema,
             // A model without strict tools gets a preference, which must fall back
             strict: shape === 'tool' ? false : strictTools || 1,
           };
           const request: Request = shape === 'output'
-            ? { messages: [{ role: 'user', content: 'Reply.' }], responseFormat: { type: fixtures[fixture], strict: 1 } }
+            ? { messages: [{ role: 'user', content: 'Reply.' }], responseFormat: { type: schema, strict: 1 } }
             : { messages: [{ role: 'user', content: 'Reply.' }], tools: [tool], toolChoice: 'required' };
 
           const chunk = await firstChunk((signal) => ai.chat.stream(request, { signal, metadata: { model } }));
