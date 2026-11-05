@@ -12,6 +12,7 @@ import {
   OPENAI_STRICT,
   ANTHROPIC_STRICT,
   LENIENT,
+  SchemaBudget,
 } from '../index';
 import { NO_COMBINATORS_STRICT } from './mocks/descriptors';
 
@@ -160,5 +161,23 @@ describe('extractJSONObject', () => {
 
   it("returns '' when there is no object (matches the prior extractor)", () => {
     expect(extractJSONObject('no json here')).toBe('');
+  });
+});
+
+describe('canExpress under a family whose structured output is always strict', () => {
+  const optionals = (count: number) =>
+    z.object(Object.fromEntries(Array.from({ length: count }, (_, i) => [`f${i}`, z.string().optional()])));
+
+  it('rejects a schema over the strict optional-parameter limit', () => {
+    expect(canExpress(optionals(24), ANTHROPIC_STRICT)).toBe(true);
+    expect(canExpress(optionals(25), ANTHROPIC_STRICT)).toBe(false);
+  });
+
+  it('leaves families with a non-strict output alone', () => {
+    expect(canExpress(optionals(30), OPENAI_STRICT)).toBe(true);
+  });
+
+  it('never degrades the output to the non-strict variant', () => {
+    expect(new SchemaBudget(ANTHROPIC_STRICT).allocateOutput(optionals(1), false)).toBe(ANTHROPIC_STRICT);
   });
 });

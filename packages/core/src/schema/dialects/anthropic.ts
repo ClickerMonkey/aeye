@@ -70,6 +70,7 @@ export const ANTHROPIC_STRICT: FormatDescriptor = Object.freeze({
   // back-edge with an inline flat "any" shape (see `anyEncoding`); shared
   // non-cyclic `$ref`s are still emitted normally.
   supportsRecursion: false,
+  structuredOutputAlwaysStrict: true,
 });
 
 export const ANTHROPIC_NON_STRICT: FormatDescriptor = Object.freeze({

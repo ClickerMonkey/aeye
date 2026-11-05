@@ -1,6 +1,6 @@
 import z from 'zod';
 import type { FormatDescriptor } from './descriptor';
-import { walkKey } from './expressible';
+import { walkKey } from './walk-key';
 import { enumEmittedValues, literalEmittedValues } from './enum-values';
 
 // ============================================================================

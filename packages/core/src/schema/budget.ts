@@ -61,7 +61,9 @@ export class SchemaBudget {
     this.tool = tool;
     this.output = output;
     this.degradedTool = degrade(tool);
-    this.degradedOutput = degrade(output);
+    // A family with no non-strict structured output keeps the strict dialect
+    // (`canExpress` already kept an unfitting schema off the wire)
+    this.degradedOutput = output.structuredOutputAlwaysStrict ? output : degrade(output);
     const descriptor = strictestOf(tool, output);
     this.remainingTools = descriptor.maxStrictTools ?? Infinity;
     this.remainingOptionalParams = descriptor.maxStrictOptionalParams ?? Infinity;
