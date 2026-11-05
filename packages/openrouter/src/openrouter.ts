@@ -17,7 +17,7 @@
 
 import type { AIContextAny, BatchJob, DecisionAnswer, DecisionQuestion, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
 import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
-import { type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
+import { type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, replaysTo, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
 import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, type SystemOneDecisionParams, toSystemOneQuestion } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
@@ -489,7 +489,7 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   ) {
     const message = expected.choices?.[0]?.message;
     if (message?.reasoning || message?.reasoning_details) {
-      response.reasoning = { content: message.reasoning, details: message.reasoning_details };
+      response.reasoning = { content: message.reasoning, details: message.reasoning_details, provider: this.name };
     }
     response.images = toImages(message?.images);
     if (expected.usage) {
@@ -504,7 +504,7 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   ) {
     const delta = expected.choices[0]?.delta;
     if (delta?.reasoning || delta?.reasoning_details?.length) {
-      chunk.reasoning = { content: delta.reasoning, details: delta.reasoning_details };
+      chunk.reasoning = { content: delta.reasoning, details: delta.reasoning_details, provider: this.name };
     }
     chunk.images = toImages(delta?.images);
     if (expected.usage) {
@@ -529,30 +529,26 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
     chatMessage: OpenAI.Chat.ChatCompletionMessageParam,
     message: Message,
   ) {
-    if (message.reasoning && chatMessage.role === 'assistant') {
+    if (chatMessage.role === 'assistant' && replaysTo(message.reasoning, this.name)) {
       this.reasoningOf.set(chatMessage, message.reasoning);
     }
   }
 
   /**
-   * Assistant messages carry their reasoning back, once even when a message
-   * was split into parts. OpenRouter doesn't transform reasoning on a message
-   * that also has content, so that reasoning goes in its own assistant
-   * message just before.
+   * Assistant messages carry their reasoning back on the same message, which
+   * OpenRouter relays with the turn's text and tool calls, once even when a
+   * message was split into parts.
    */
   protected override async convertMessages(request: Request, config: OpenRouterConfig): Promise<OpenRouterRequestMessage[]> {
     const messages = await super.convertMessages(request, config);
     const replayed = new Set<Reasoning>();
-    return messages.flatMap((message): OpenRouterRequestMessage[] => {
+    return messages.map((message): OpenRouterRequestMessage => {
       const reasoning = this.reasoningOf.get(message);
       if (!reasoning || replayed.has(reasoning)) {
-        return [message];
+        return message;
       }
       replayed.add(reasoning);
-      const replay = { reasoning: reasoning.content ?? undefined, reasoning_details: reasoning.details };
-      return message.role === 'assistant' && message.content?.length
-        ? [{ role: 'assistant', name: message.name, ...replay }, message]
-        : [{ ...message, ...replay }];
+      return { ...message, reasoning: reasoning.content ?? undefined, reasoning_details: reasoning.details };
     });
   }
 

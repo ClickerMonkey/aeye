@@ -306,7 +306,8 @@ type ChatSent<R> = { result: R } | { overflow: Response };
  *
  * Supports the full range of OpenAI capabilities including:
  * - Chat through Chat Completions, or the Responses API when a model or
- *   request needs it (hosted tools, reasoning summaries, Responses-only models)
+ *   request needs it (hosted tools, reasoning summaries or reasoning with
+ *   tools, Responses-only models)
  * - Function calling and structured outputs, streaming, and reasoning
  * - Image, audio, and file input; audio output
  * - Image generation and editing with GPT Image
@@ -770,9 +771,10 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
         case 'assistant': {
           const name = this.convertName(msg.name);
           const toolCalls = msg.toolCalls?.map((tc) => this.convertToolCall(tc));
-          const content = await this.convertContent(msg.content, msg.name || 'assistant', config);
+          // Some upstreams reject empty text, so a turn of only tool calls has no content
+          const content = (await this.convertContent(msg.content, msg.name || 'assistant', config)).filter(c => c.type !== 'text' || c.text);
           if (content.every(c => c.type === 'text')) {
-            return [this.getChatMessage({ role: 'assistant', name, tool_calls: toolCalls, content }, msg, config)];
+            return [this.getChatMessage({ role: 'assistant', name, tool_calls: toolCalls, content: content.length ? content : toolCalls?.length ? null : '' }, msg, config)];
           }
           // The assistant role only takes text, so non-text parts are sent
           // as user messages in place
@@ -818,7 +820,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
             ? { type: 'custom_tool_call', call_id: tc.id, name: tc.name, input: textInput(tc.arguments) }
             : { type: 'function_call', call_id: tc.id, name: tc.name, arguments: tc.arguments }
           );
-          return [...toReasoningItems(msg.reasoning), ...message, ...calls];
+          return [...toReasoningItems(msg.reasoning, this.name), ...message, ...calls];
         }
       }
     }))).flat();
@@ -1160,9 +1162,12 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return api === 'responses';
     }
     const responsesOnly = model?.metadata?.responsesOnly ?? isResponsesOnly(modelId);
-    const { mode, summary, context } = request.reason ?? {};
+    const { effort, mode, summary, context } = request.reason ?? {};
     const responsesTools = request.tools?.some(tool => tool.format || tool.defer || tool.async);
-    return responsesOnly === true || !!request.hostedTools?.length || !!responsesTools || !!(mode || summary || context);
+    // Only Responses carries reasoning across tool calls, and newer models
+    // reject function tools with reasoning on Chat Completions
+    const reasonsWithTools = !!request.tools?.length && !!effort && effort !== 'none';
+    return responsesOnly === true || !!request.hostedTools?.length || !!responsesTools || reasonsWithTools || !!(mode || summary || context);
   }
 
   /**
@@ -1429,7 +1434,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
       return sent.overflow;
     }
 
-    const chunks = [...sent.result.output.map(item => outputItemChunk(item, false)), responseEndChunk(sent.result)];
+    const chunks = [...sent.result.output.map(item => outputItemChunk(item, false, this.name)), responseEndChunk(sent.result)];
     return this.finish('responses', run, request, params, getResponseFromChunks(chunks, run.model));
   }
 
@@ -1940,7 +1945,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
    */
   private batchResponse(body: OpenAI.Chat.Completions.ChatCompletion | OpenAI.Responses.Response, run: OperationRun<TConfig>): Response {
     if (body.object === 'response') {
-      return getResponseFromChunks([...body.output.map(item => outputItemChunk(item, false)), responseEndChunk(body)], run.model);
+      return getResponseFromChunks([...body.output.map(item => outputItemChunk(item, false, this.name)), responseEndChunk(body)], run.model);
     }
     const response = this.chatResponse(body, run);
     this.augmentChatResponse(body, response, run.config);

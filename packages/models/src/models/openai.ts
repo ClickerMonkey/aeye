@@ -864,6 +864,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.025
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   retiresAt: '2026-12-11',
   metadata: {
     knowledgeCutoff: "May 31, 2024",
@@ -885,6 +886,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.025
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   retiresAt: '2026-12-11',
   metadata: {
     knowledgeCutoff: "May 31, 2024",
@@ -906,6 +908,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.005
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   retiresAt: '2026-12-11',
   metadata: {
     knowledgeCutoff: "May 31, 2024",
@@ -927,6 +930,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.005
     }
   },
+  reasoningEfforts: ['minimal', 'low', 'medium', 'high'],
   retiresAt: '2026-12-11',
   metadata: {
     knowledgeCutoff: "May 31, 2024",
@@ -2285,6 +2289,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 7.5
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-10-23',
   metadata: {
     knowledgeCutoff: "Oct 01, 2023",
@@ -2306,6 +2311,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 7.5
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-10-23',
   metadata: {
     knowledgeCutoff: "Oct 01, 2023",
@@ -2367,6 +2373,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.25
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-12-11',
   metadata: {
     knowledgeCutoff: "Jun 01, 2024",
@@ -2388,6 +2395,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.25
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-12-11',
   metadata: {
     knowledgeCutoff: "Jun 01, 2024",
@@ -2451,6 +2459,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.55
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-10-23',
   metadata: {
     knowledgeCutoff: "Oct 01, 2023",
@@ -2472,6 +2481,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.55
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-10-23',
   metadata: {
     knowledgeCutoff: "Oct 01, 2023",
@@ -2533,6 +2543,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.275
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-10-23',
   metadata: {
     knowledgeCutoff: "Jun 01, 2024",
@@ -2554,6 +2565,7 @@ export const openaiModels: ModelInfo[] = [{
       cached: 0.275
     }
   },
+  reasoningEfforts: ['low', 'medium', 'high'],
   retiresAt: '2026-10-23',
   metadata: {
     knowledgeCutoff: "Jun 01, 2024",

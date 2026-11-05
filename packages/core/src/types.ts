@@ -401,6 +401,8 @@ export interface Reasoning {
   content?: string | null;
   /** Detailed reasoning steps */
   details?: ReasoningDetail[];
+  /** The provider that produced the reasoning. Signed and encrypted details are bound to it, so only it gets them back. */
+  provider?: string;
 }
 
 /**

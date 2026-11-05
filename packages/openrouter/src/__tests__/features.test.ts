@@ -91,21 +91,47 @@ describe('request', () => {
     expect(sentParams().messages[0].content[0]).toEqual({ type: 'text', text: 'Shared prefix', cache_control: { type: 'ephemeral' } });
   });
 
-  it('replays reasoning in its own message before assistant content', async () => {
-    const details = [{ id: 'r1', type: 'reasoning.text', format: 'anthropic-claude-v1', text: 'Thinking', signature: 'sig' }];
+  it('replays reasoning on its own turn, with no empty text beside tool calls', async () => {
+    // As captured from anthropic/claude-haiku-4.5: Anthropic checks the signature, and
+    // upstreams such as Qwen's reject an empty text part
+    const details = [{ type: 'reasoning.text', text: 'Roll first.', signature: 'sig', format: 'anthropic-claude-v1', index: 0 }];
+    const call = { id: 'toolu_1', name: 'roll_dice', arguments: '{"count":4}' };
 
     await new OpenRouterProvider({ apiKey: 'k' }).createExecutor()({
       messages: [
         { role: 'user', content: 'Q' },
-        { role: 'assistant', content: 'A', reasoning: { content: 'Thinking', details } },
+        { role: 'assistant', content: 'A', reasoning: { content: 'Thinking', details, provider: 'openrouter' } },
         { role: 'user', content: 'Q2' },
+        { role: 'assistant', content: '', toolCalls: [call], reasoning: { content: 'Roll first.', details } },
+        { role: 'tool', toolCallId: 'toolu_1', content: '7' },
       ],
     }, ctx, { model: 'anthropic/claude-sonnet-5' });
 
-    const [, reasoning, answer] = sentParams().messages;
-    expect(reasoning).toEqual({ role: 'assistant', name: undefined, reasoning: 'Thinking', reasoning_details: details });
-    expect(answer).toMatchObject({ role: 'assistant', content: [{ type: 'text', text: 'A' }] });
-    expect(answer).not.toHaveProperty('reasoning');
+    const [, answer, , roll] = sentParams().messages;
+    expect(answer).toMatchObject({ role: 'assistant', content: [{ type: 'text', text: 'A' }], reasoning: 'Thinking', reasoning_details: details });
+    expect(roll).toEqual({
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'toolu_1', type: 'function', function: { name: 'roll_dice', arguments: '{"count":4}' } }],
+      reasoning: 'Roll first.',
+      reasoning_details: details,
+    });
+    expect(sentParams().messages).toHaveLength(5);
+  });
+
+  it('replays only reasoning OpenRouter produced', async () => {
+    // As captured from OpenAI gpt-5.4-nano directly: encrypted for another account
+    const details = [{ id: 'rs_1', type: 'reasoning.encrypted', format: 'openai-responses-v1', data: 'ENC' }];
+
+    await new OpenRouterProvider({ apiKey: 'k' }).createExecutor()({
+      messages: [
+        { role: 'user', content: 'Q' },
+        { role: 'assistant', content: 'A', reasoning: { details, provider: 'openai' } },
+        { role: 'user', content: 'Q2' },
+      ],
+    }, ctx, { model: 'openai/gpt-5.4-mini' });
+
+    expect(sentParams().messages[1]).not.toHaveProperty('reasoning_details');
   });
 });
 
@@ -159,6 +185,7 @@ describe('response', () => {
     const reasoning = {
       content: text,
       details: [{ type: 'reasoning.text', text, signature: 'sig', format, index: 0 }, { type: 'reasoning.encrypted', data: 'ENC', format, index: 0 }],
+      provider: 'openrouter',
     };
     expect(partial).toEqual(reasoning);
     expect(next.value.reasoning).toEqual(reasoning);

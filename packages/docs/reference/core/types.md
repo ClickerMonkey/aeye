@@ -259,6 +259,7 @@ interface Usage {
 interface Reasoning {
   content?: string;
   details?: ReasoningDetail[];
+  provider?: string; // the provider that produced it, the only one it replays to
 }
 ```
 

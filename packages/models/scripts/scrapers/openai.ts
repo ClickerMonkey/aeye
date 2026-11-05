@@ -10,6 +10,7 @@
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { detectTier, type ModelCapability, type ModelInfo, type ModelParameter, type ModelPricing } from '@aeye/ai';
+import type { ReasoningEffort } from '@aeye/core';
 import { writeModelJSON, writeModelTS } from '../codegen';
 import { amount, bullets, fetchMarkdown, isoDate, reasoningEfforts, section, subsections, tableRows } from './docs';
 
@@ -27,6 +28,15 @@ const SNAPSHOT = /-(\d{4}-\d{2}-\d{2}|\d{4})$/;
  * this follows the Decisions guide.
  */
 const DECISION_MODELS = /^gpt-6-luna\b/;
+
+/**
+ * Reasoning efforts of models whose pages don't list them, by base model:
+ * the o-series takes low to high, and the first GPT-5 models add minimal.
+ */
+const UNLISTED_EFFORTS: Array<[RegExp, ReasoningEffort[]]> = [
+  [/^o\d(-mini)?$/, ['low', 'medium', 'high']],
+  [/^gpt-5-(mini|nano)$/, ['minimal', 'low', 'medium', 'high']],
+];
 
 /**
  * Fetch a docs page as Markdown, or undefined when it doesn't exist.
@@ -164,7 +174,7 @@ function parseModel(id: string, markdown: string, retirements: Map<string, strin
     contextWindow: amount(detail(/^([\d,]+) context window$/) ?? '') ?? 0,
     maxOutputTokens: amount(detail(/^([\d,]+) max output tokens$/) ?? ''),
     pricing: { ...parsePricing(markdown), ...extraPricing },
-    reasoningEfforts: efforts ? reasoningEfforts(efforts) : undefined,
+    reasoningEfforts: efforts ? reasoningEfforts(efforts) : reasons ? UNLISTED_EFFORTS.find(([base]) => base.test(id.replace(SNAPSHOT, '')))?.[1] : undefined,
     retiresAt,
     metadata: {
       knowledgeCutoff: detail(/^(.+) knowledge cutoff$/),
