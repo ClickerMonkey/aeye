@@ -390,12 +390,15 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
       };
     }
 
-    // Standard: open record with propertyNames + additionalProperties.
-    return {
-      type: 'object',
-      propertyNames: convert(schema.keyType, context),
-      additionalProperties: convert(schema.valueType, context),
-    };
+    // Standard: open record. `propertyNames` only when the key says more than
+    // "a string": several grammar-compiling hosts reject the keyword outright
+    // (`Unimplemented keys: ["propertyNames"]`, DeepInfra and Cloudflare via
+    // OpenRouter, 2026-11-04), and for a plain string key it constrains nothing.
+    const propertyNames = convert(schema.keyType, context);
+    const additionalProperties = convert(schema.valueType, context);
+    return Object.keys(propertyNames).some((key) => key !== 'type' && key !== 'description')
+      ? { type: 'object', propertyNames, additionalProperties }
+      : { type: 'object', additionalProperties };
   }
 
   // Handle ZodUnion
@@ -556,11 +559,8 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
     const { minimum, maximum, format, patterns, contentEncoding } = schema._zod.bag;
 
     // Format: emit only when allowed by the descriptor.
-    if (typeof format === 'string') {
-      const formats = descriptor.supportedStringFormats;
-      if (formats === 'all' || formats.has(format)) {
-        result.format = format;
-      }
+    if (typeof format === 'string' && emitsFormat(format, descriptor)) {
+      result.format = format;
     }
 
     if (descriptor.allowMinMaxLength) {
@@ -786,14 +786,31 @@ function isOptional(schema: z.ZodType | z.core.$ZodType): boolean {
 }
 
 /**
+ * The `format` values JSON Schema (2020-12) defines, which is what `'all'`
+ * passes through. Zod's own check names (`regex` for `.regex()`, `cuid`,
+ * `starts_with`, …) share the field but are not formats: a grammar-compiling
+ * host rejects them (`Unknown format: regex`, DeepInfra via OpenRouter,
+ * 2026-11-04), so they are never emitted.
+ */
+const JSON_SCHEMA_FORMATS = new Set([
+  'date-time', 'date', 'time', 'duration', 'email', 'idn-email', 'hostname', 'idn-hostname',
+  'ipv4', 'ipv6', 'uri', 'uri-reference', 'iri', 'iri-reference', 'uuid', 'uri-template',
+  'json-pointer', 'relative-json-pointer',
+]);
+
+/**
+ * Whether `format` may be emitted under the descriptor's whitelist.
+ */
+function emitsFormat(format: string, descriptor: FormatDescriptor): boolean {
+  const formats = descriptor.supportedStringFormats;
+  return formats === 'all' ? JSON_SCHEMA_FORMATS.has(format) : formats.has(format);
+}
+
+/**
  * Emit a `{ type: 'string', format: ... }` JSON Schema, dropping the format
  * when the descriptor's whitelist excludes it. The string type is always
  * preserved; only the format hint is gated.
  */
 function stringWithFormat(format: string, descriptor: FormatDescriptor): JSONSchema {
-  const formats = descriptor.supportedStringFormats;
-  if (formats === 'all' || formats.has(format)) {
-    return { type: 'string', format };
-  }
-  return { type: 'string' };
+  return emitsFormat(format, descriptor) ? { type: 'string', format } : { type: 'string' };
 }

@@ -110,7 +110,7 @@ export interface FormatDescriptor {
   readonly emitPropertyOrdering: boolean;
 
   // ---- String formats ----
-  /** Whitelist of `format:` values to emit, or `'all'` to pass through. */
+  /** Whitelist of `format:` values to emit, or `'all'` for every format JSON Schema defines. */
   readonly supportedStringFormats: ReadonlySet<string> | 'all';
   readonly allowPattern: boolean;
   readonly allowMultiplePatterns: boolean;
@@ -287,6 +287,20 @@ export interface FormatDescriptor {
    * entry.
    */
   readonly supportsRecursion: boolean;
+
+  /**
+   * True when the family's structured output is always compiled to a grammar,
+   * so there is no non-strict `json_schema` to degrade an output to. Anthropic:
+   * `output_config.format` is strict by definition, and OpenRouter adds the
+   * structured-outputs flag to every `json_schema` bound for Claude — a
+   * "non-strict" output with 30 optional fields still earns "Schemas contains
+   * too many optional parameters (30) … (limit: 24)" (measured 2026-11-04).
+   *
+   * A schema over the strict limits then cannot go out as structured output at
+   * all: `canExpress` answers `false`, so it is delivered as prompt text, and
+   * `SchemaBudget` never degrades an output to the non-strict variant.
+   */
+  readonly structuredOutputAlwaysStrict?: boolean;
 
   // ---- Prompt-text schema-delivery fallback ----
   /**
