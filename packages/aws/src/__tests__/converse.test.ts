@@ -242,6 +242,18 @@ describe('Converse request mapping', () => {
     await execute({ model: info, messages: [{ role: 'user', content: 'Think' }], temperature: 0.5, reason });
     expect(sent.converse[0].input).toMatchObject(expected);
   });
+
+  it('turns Claude thinking off on a turn that forces a tool', async () => {
+    const sent = fakeBedrock();
+    await execute({
+      model: model('anthropic.claude-sonnet-4-5-20250929-v1:0'),
+      messages: [{ role: 'user', content: 'Look it up' }],
+      tools: [{ name: 'lookup', description: 'Look up', parameters: z.object({ q: z.string() }) }],
+      toolChoice: 'required',
+      reason: { effort: 'high' },
+    });
+    expect(sent.converse[0].input.additionalModelRequestFields).toEqual({ thinking: { type: 'disabled' } });
+  });
 });
 
 describe('Converse responses', () => {

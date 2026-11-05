@@ -310,7 +310,8 @@ export interface ReasoningRequest {
  *
  * - Claude 4.6+ thinks adaptively, with `effort` and a summarized display
  *   (omitted with `exclude`); older Claude takes a thinking token budget,
- *   from `maxTokens` or the effort, kept under the output limit.
+ *   from `maxTokens` or the effort, kept under the output limit. Claude
+ *   can't think on a turn that forces a tool, so that turn goes without.
  * - Nova takes `reasoningConfig`; its high effort rejects sampling and
  *   output limits.
  * - Other models with efforts (gpt-oss and open-weight models) take an
@@ -320,14 +321,15 @@ export interface ReasoningRequest {
  * @param reason - The reasoning asked for.
  * @param accepted - The efforts the model accepts, when known.
  * @param maxTokens - The output limit, which a thinking budget must stay under.
+ * @param forcedTool - Whether the tool choice forces a tool call.
  */
-export function toReasoningRequest(modelId: string, reason: Reason | undefined, accepted: ReasoningEffort[] | undefined, maxTokens: number | undefined): ReasoningRequest {
+export function toReasoningRequest(modelId: string, reason: Reason | undefined, accepted: ReasoningEffort[] | undefined, maxTokens: number | undefined, forcedTool: boolean): ReasoningRequest {
   if (!reason) {
     return {};
   }
   const off = reason.effort === 'none';
   if (modelId.includes('anthropic.claude')) {
-    if (off) {
+    if (off || forcedTool) {
       return { fields: { thinking: { type: 'disabled' } } };
     }
     if (ADAPTIVE_CLAUDE.test(modelId)) {

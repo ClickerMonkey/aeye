@@ -27,6 +27,7 @@ import {
   type Model,
   ModelInput,
   type Reasoning,
+  forcesTool,
   Request,
   Response,
   type SchemaBudget,
@@ -431,7 +432,7 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     const toolConfig = this.convertToolsToConverse(withAllowedTools(request), budget);
     const textFormat = this.convertResponseFormat(request, budget);
     const maxTokens = request.maxTokens ?? (info ?? model).maxOutputTokens;
-    const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens);
+    const reasoning = toReasoningRequest(modelId, request.reason, info?.reasoningEfforts, maxTokens, forcesTool(request.toolChoice));
     const fields = reasoning.fields || request.extra ? { ...reasoning.fields, ...request.extra } : undefined;
 
     return {
