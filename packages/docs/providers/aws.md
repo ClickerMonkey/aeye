@@ -23,6 +23,12 @@ const aws = new AWSBedrockProvider({
     sessionToken: '...',  // for temporary credentials
   },
   modelPrefix: 'us.',   // optional, for cross-region inference
+  latency: 'optimized', // optional, latency-optimized inference where offered
+  guardrail: {          // optional, a guardrail on every chat request
+    guardrailIdentifier: 'gr-abc123',
+    guardrailVersion: '1',
+    streamProcessingMode: 'async', // streaming only
+  },
   defaultModels: {
     chat: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
     imageGenerate: 'stability.stable-diffusion-xl-v1',
@@ -60,7 +66,10 @@ const aws = new AWSBedrockProvider({
 
 | Family | Models | Capabilities |
 |--------|--------|-------------|
-| Anthropic | Claude 3.5 Sonnet, Claude 3 Haiku/Sonnet/Opus | Chat, Vision, Tools, Streaming, Reasoning |
+| Anthropic | Claude 3.x through 5.x | Chat, Vision, Documents, Tools, Streaming, Reasoning, Structured output, Caching |
+| Amazon | Nova, Nova 2 | Chat, Vision, Video, Documents, Tools, Streaming, Reasoning, Caching |
+| OpenAI | gpt-oss | Chat, Tools, Streaming, Reasoning |
+| DeepSeek, Qwen, Kimi, MiniMax | Open-weight chat models | Chat, Tools, Streaming, Reasoning (model dependent) |
 | Meta | Llama 3, 3.1, 3.2 | Chat, Streaming |
 | Mistral | Mistral 7B, Mixtral, Mistral Large | Chat, Streaming |
 | Cohere | Command R, Command R+ | Chat, Streaming |
@@ -78,6 +87,87 @@ const aws = new AWSBedrockProvider({
   modelPrefix: 'us.', // routes to US-based endpoints
 });
 ```
+
+Without a prefix, a model the registry marks as served only through
+[inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/cross-region-inference.html)
+(`metadata.inRegion: false`, with `metadata.inferenceIds`) is called by the
+profile for the client region's geography (`us.` in `us-east-1`, `eu.` in
+`eu-west-1`, `apac.` in `ap-*`), or by its `global.` profile when the geography
+has none. Other models are called by their plain id.
+
+## Chat Features
+
+Chat runs on the [Converse](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html)
+and [ConverseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html) APIs.
+
+| Request field | Converse |
+|---------------|----------|
+| `maxTokens`, `temperature`, `topP`, `stop` | `inferenceConfig` (defaults `maxTokens` to the model's output limit) |
+| `reason` | Per model family, see [Reasoning](#reasoning) |
+| `responseFormat` (schema) | `outputConfig.textFormat` JSON schema, for models with structured output |
+| `tools`, `toolChoice` | `toolConfig`; strict tools set `strict: true` |
+| `serviceTier` | `serviceTier`: `default`, `flex`, `fast` → `priority`, `scale` → `reserved` |
+| `metadata` | `requestMetadata`, for filtering invocation logs |
+| `extra` | `additionalModelRequestFields`, merged over the provider's own fields |
+
+### Reasoning
+
+| Models | `reason` maps to |
+|--------|------------------|
+| Claude 4.6 and later | `thinking: { type: 'adaptive', display: 'summarized' }` (`'omitted'` with `exclude`) and `outputConfig.effort` |
+| Earlier Claude (3.7 – 4.5) | `thinking: { type: 'enabled', budget_tokens }`, from `maxTokens` or the effort (`low` 2048 … `max` 65536), kept under the output limit |
+| Amazon Nova 2 | `reasoningConfig: { type: 'enabled', maxReasoningEffort }` |
+| gpt-oss and models with `reasoningEfforts` | `reasoning_effort` |
+
+`effort: 'none'` turns Claude and Nova thinking off. Claude thinking clears
+`temperature` and `topP`, and Nova's `high` effort also clears `maxTokens`,
+since those models reject them together. Efforts are clamped to what the model
+accepts.
+
+Reasoning comes back as `response.reasoning` (streamed as `chunk.reasoning`),
+with one `ReasoningDetail` per reasoning block in the `bedrock-converse-v1`
+format: `reasoning.text` with its `signature`, or `reasoning.encrypted` with
+redacted content as base64 `data`. When the assistant message is sent back,
+signed and redacted blocks are replayed before its text and tool calls, as
+Claude requires while it uses tools. Unsigned reasoning isn't replayed.
+
+### Prompt Caching
+
+A `MessageContent` with `cacheBreakpoint: true` adds a
+[`cachePoint`](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html)
+after that part, in system prompts, messages, and tool results. Cache reads and
+writes are reported as `usage.text.cached` and `usage.text.cacheWrite`;
+`usage.text.input` counts only uncached input.
+
+### Content
+
+| Part | Converse block |
+|------|----------------|
+| `image` | `image` (png, jpeg, gif, webp) |
+| `file` | `document` (pdf, csv, doc, docx, xls, xlsx, html, txt, md), named from `name` |
+| `video` | `video` (mp4, mov, mkv, webm, flv, mpeg, mpg, wmv, 3gp) |
+| `audio` | `audio`, for models that take it |
+
+The format comes from `format`, the data URL's MIME type, or the file
+extension. An `s3://bucket/key` URI is sent as an S3 location instead of
+bytes; other URLs are downloaded. Tool results can carry text, images,
+documents, and video. Unsupported content becomes a short note in its place.
+Web citations in responses (`citationsContent`) become `response.citations`.
+
+### Tools
+
+`toolChoice` maps to `auto`, `any` (`'required'`), or `tool`. `{ allowed }` is
+emulated by sending only the allowed tools, and `'none'` leaves the tools out
+unless the conversation already used them. Free-text tools (`format`) are sent
+as their one-field function with any grammar appended to the description.
+Tool calls Bedrock runs itself (`server_tool_use`) aren't returned as tool calls.
+
+### Stop Reasons
+
+`guardrail_intervened` and `content_filtered` finish as `content_filter`;
+`max_tokens` and `model_context_window_exceeded` as `length`; `tool_use` as
+`tool_calls`; everything else, including `malformed_model_output` and
+`malformed_tool_use`, as `stop`.
 
 ## Model Family Configuration
 
@@ -133,6 +223,11 @@ import {
   AWSContextWindowError,
 } from '@aeye/aws';
 ```
+
+Throttling and busy capacity (`ThrottlingException`, `ServiceUnavailableException`)
+throw `AWSRateLimitError`; rejected credentials (including `AccessDeniedException`)
+throw `AWSAuthError`; prompts the model reports as too long throw
+`AWSContextWindowError`. Errors a stream reports mid-way are thrown the same way.
 
 ## Model Access
 
