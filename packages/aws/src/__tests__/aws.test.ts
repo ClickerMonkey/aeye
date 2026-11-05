@@ -399,7 +399,7 @@ describe('AWSBedrockProvider — tool schema emission', () => {
     return refs;
   }
 
-  it('emits a cycle-broken inputSchema for a recursive tool when targeting a Claude model with toolsStrict', () => {
+  it('sends a recursive tool non-strict (keeps $ref) even when the Claude model has toolsStrict', () => {
     type Node = { value: string; children?: Node[] };
     const NodeSchema: z.ZodType<Node> = z.lazy(() =>
       z.object({ value: z.string(), children: z.array(NodeSchema).optional() }),
@@ -420,21 +420,13 @@ describe('AWSBedrockProvider — tool schema emission', () => {
     expect(toolConfig.tools).toHaveLength(1);
     const inputSchema = toolConfig.tools[0].toolSpec.inputSchema.json;
 
-    // No $ref anywhere — the cycle-breaker replaced the back-edge with a
-    // shape-aware placeholder, so Anthropic's "Circular reference detected"
-    // validator can't fire.
-    expect(collectRefs(inputSchema)).toEqual([]);
-
-    // The placeholder INSIDE the children array's items mirrors Node (a
-    // ZodObject), so it's an open object — not an array, not a flat-any.
-    // This is what the LLM sees as the "what to send for a child node" hint.
-    const childrenItems = (inputSchema as any).properties.children.items;
-    expect(childrenItems.type).toBe('object');
-    expect(childrenItems.additionalProperties).toBe(true);
-    expect(childrenItems.description).toMatch(/^Would recursively reference #\/\$defs\//);
+    // Anthropic strict can't spell the cycle-breaker's open-object
+    // placeholder (it rejects `additionalProperties: true`), so the tool goes
+    // out non-strict, where the recursive `$ref` is accepted.
+    expect(collectRefs(inputSchema)).toEqual(['#']);
 
     // Descriptor was pinned on the tool for the parse-time roundtrip.
-    expect((tool as any).descriptor).toBe('anthropic-strict');
+    expect((tool as any).descriptor).toBe('anthropic-non-strict');
   });
 
   it('falls back to the non-strict dialect (keeps $ref) when the Claude model lacks toolsStrict capability', () => {
