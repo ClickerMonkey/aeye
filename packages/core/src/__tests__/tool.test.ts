@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import { forcesTool, TEXT_TOOL_SCHEMA, Tool, withAllowedTools } from '../tool';
+import { describeTool, forcesTool, TEXT_TOOL_SCHEMA, Tool, withAllowedTools } from '../tool';
 import type { Context, Request } from '../types';
 
 // ---- Type-level assertion helpers -----------------------------------------
@@ -935,5 +935,18 @@ describe('tool choice helpers', () => {
     expect(narrowed.tools?.[0]).toBe(tools[0]);
     expect(narrowed.toolChoice).toBe('required');
     expect(withAllowedTools({ messages: [], tools, toolChoice: 'auto' })).toEqual({ messages: [], tools, toolChoice: 'auto' });
+  });
+});
+
+describe('describeTool', () => {
+  it('appends a grammar to the description of a free-text tool', () => {
+    const format = { type: 'grammar' as const, syntax: 'regex' as const, definition: '^[0-9]+$' };
+    expect(describeTool({ name: 'n', description: 'A number', parameters: TEXT_TOOL_SCHEMA, format }))
+      .toBe('A number\n\nThe input must match this regex grammar:\n^[0-9]+$');
+  });
+
+  it('keeps the description of other tools', () => {
+    expect(describeTool({ name: 'n', description: 'Anything', parameters: TEXT_TOOL_SCHEMA, format: { type: 'text' } })).toBe('Anything');
+    expect(describeTool({ name: 'n', parameters: TEXT_TOOL_SCHEMA })).toBeUndefined();
   });
 });
