@@ -34,6 +34,9 @@ ai.image.analyze.get(request, ctx?);  // or .stream(request, ctx?)
 ai.speech.get(request, ctx?);         // or .stream(request, ctx?)
 ai.transcribe.get(request, ctx?);     // or .stream(request, ctx?)
 ai.embed.get(request, ctx?);
+ai.rerank.get(request, ctx?);         // order documents by relevance
+ai.decide.get(request, ctx?);         // typed answers from decision models
+ai.batch.submit(requests, ctx);       // .get(job, ctx), .wait(job, ctx, options?)
 ai.models.list(); // .get(id), .search(criteria), .select(criteria), .refresh()
 ```
 
@@ -46,7 +49,7 @@ ai.models.list(); // .get(id), .search(criteria), .select(criteria), .refresh()
 - 💰 **Cost Tracking** - Built-in token usage and cost calculation with provider-reported costs
 - 🔄 **Streaming Support** - Full streaming support across all compatible capabilities
 - 🛡️ **Type-Safe** - Strongly-typed context and metadata with compiler validation
-- 🎨 **Comprehensive APIs** - Chat, Image Generation, Speech Synthesis, Transcription, Embeddings
+- 🎨 **Comprehensive APIs** - Chat, Image Generation, Speech Synthesis, Transcription, Embeddings, Rerank, Decisions, Batches
 - 🔌 **Extensible** - Custom providers, model handlers, and transformers
 - 📊 **Model Registry** - Centralized model management with external sources
 
@@ -58,6 +61,10 @@ ai.models.list(); // .get(id), .search(criteria), .select(criteria), .refresh()
 - 📦 **Model Sources** - External model sources (OpenRouter, custom APIs)
 - 🌊 **Context Management** - Thread context through your entire AI operation
 - 🎛️ **Fine-Grained Control** - Temperature, tokens, stop sequences, tool calling, and more
+- 🧾 **Structured Output Everywhere** - One Zod schema, translated to each provider's JSON Schema dialect (strict where the model supports it), with automatic fallbacks (non-strict → JSON mode → prompt text) when a provider rejects a schema
+- 🧠 **Reasoning** - Efforts and budgets clamped to what each model accepts; reasoning is captured, streamed, and replayed across tool calls to the provider that produced it
+- 🛠️ **Rich Tools** - Strict, free-text and grammar tools, tool search, async tools, allowed-tool lists, and model-vs-tool error kinds so the model retries its own mistakes
+- ✅ **Output Review** - An optional `review` step on prompts sends feedback back to the model before an answer is accepted
 
 ## Quick Start
 
@@ -180,8 +187,9 @@ npm install @aeye/openai openai
 ```
 
 **Features:**
+- Chat Completions and Responses APIs (`api: 'auto'` picks per request)
 - Chat completions with vision support
-- Reasoning models
+- Reasoning models (efforts clamped per model, encrypted reasoning replayed)
 - Image generation and editing
 - Speech-to-text (transcription)
 - Text-to-speech
@@ -202,6 +210,8 @@ npm install @aeye/openrouter
 - Built-in cost tracking
 - Zero Data Retention (ZDR) support
 - Provider routing preferences
+- Strict tools and structured output kept strict for Anthropic upstreams
+- Reasoning replay, rerank, and batches
 
 #### [@aeye/replicate](./packages/replicate)
 Replicate provider with flexible adapter system for running open-source AI models.
@@ -224,10 +234,36 @@ npm install @aeye/aws
 ```
 
 **Features:**
-- Chat completions with models from Anthropic, Meta, Mistral, Amazon, and more
+- Chat completions with models from Anthropic, Meta, Mistral, Amazon, OpenAI (gpt-oss), DeepSeek, and more
+- Reasoning: Claude adaptive and budgeted thinking (replayed across tool calls), Nova, gpt-oss, DeepSeek R1
+- Structured output and strict tools, prompt caching (cache points, read/write tokens)
+- Documents, video, audio and S3 content; guardrails, service tiers, inference profiles
 - Image generation (Stability AI)
 - Text embeddings (Amazon Titan)
 - Automatic AWS credential discovery
+
+### Supporting Packages
+
+#### [@aeye/models](./packages/models)
+A static, pre-scraped model catalog (pricing, capabilities, context windows, reasoning efforts) for OpenAI, OpenRouter, Replicate and AWS Bedrock, plus the strict-mode support table that picks each model's JSON Schema dialect. Splat it into an `AI` instance and model selection works offline.
+
+```bash
+npm install @aeye/models
+```
+
+#### [@aeye/resources](./packages/resources)
+Resource parsing, slicing and resolution: turn files, URLs and zip entries into typed parts, split them into embed-ready slices, follow their links, and walk the reference graph — the ingestion half of a RAG pipeline.
+
+```bash
+npm install @aeye/resources
+```
+
+#### [@aeye/context](./packages/context)
+Every `@aeye/*` package ships flat agent-reference docs (`aeye-<pkg>.md`). This CLI copies the docs of every installed package into one folder with a generated index, to point a coding agent at.
+
+```bash
+npx @aeye/context        # → ./docs
+```
 
 ### Higher-Level Packages
 
@@ -553,8 +589,8 @@ const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
 
 const ai = AI.with<AppContext>()
   .providers({ openai })
-  .create({
-    hooks: {
+  .create()
+  .withHooks({
       beforeRequest: async (ctx, request, selected, estimatedUsage, estimatedCost) => {
         // Throw to cancel the request if the estimated cost exceeds the user's budget
         if (estimatedCost > ctx.user.budgetRemaining) {
@@ -583,7 +619,6 @@ const ai = AI.with<AppContext>()
       onError: (errorType, message, error, ctx) => {
         console.error(`[AI Error] ${errorType}: ${message}`, error?.message);
       },
-    }
   });
 
 // Chat with budget enforcement
@@ -793,8 +828,13 @@ npm install
 # Build all packages
 npm run build
 
-# Run tests
+# Type-check every package
+npm run typecheck
+
+# Run tests (everything, unit only, or the live integration suite)
 npm run test
+npm run test:unit
+npm run test:integration
 
 # Clean build artifacts
 npm run clean
@@ -814,10 +854,26 @@ aeye/
 │   ├── gin/           # JSON-typed program language for LLMs
 │   ├── ginny/         # CLI agent that authors gin programs
 │   ├── query/         # LLM-authorable relational query language + SQL converter
-│   └── cletus/        # Example CLI agent
+│   ├── models/        # Pre-scraped model catalog + strict-mode support table
+│   ├── resources/     # Resource parsing, slicing and link resolution
+│   ├── context/       # CLI that gathers the packages' agent docs
+│   ├── cletus/        # Example CLI agent
+│   ├── docs/          # VitePress documentation site
+│   └── test-integration/ # Live multi-provider tests
+├── scripts/           # Release and versioning scripts
 ├── package.json       # Root package configuration
 └── tsconfig.json      # TypeScript configuration
 ```
+
+### Releasing
+
+```bash
+npm login
+npm run release              # publish every public package whose version isn't on npm yet
+npm run release -- --dry-run # build and pack without publishing
+```
+
+Bump the versions of the packages you changed first. `scripts/release.js` finds the public packages whose versions npm doesn't have, clean-builds them and every internal package they build against, and publishes each after its dependencies. Nothing is published unless every build succeeds, and versions already on npm are skipped, so it's safe to run again.
 
 ## Best Practices
 

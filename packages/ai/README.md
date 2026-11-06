@@ -13,7 +13,8 @@ const openai = new OpenAIProvider({ apiKey: process.env.OPENAI_API_KEY! });
 
 const ai = AI.with<MyContext>()
   .providers({ openai })
-  .create({ /* defaultContext, providedContext, defaultWeights, hooks, ... */ });
+  .create({ /* defaultContext, providedContext, defaultWeights, ... */ })
+  .withHooks({ /* beforeRequest, afterRequest, afterBatch, onError, ... */ });
 
 // Low-level APIs
 ai.chat.get(request, ctx?)           // or .stream(request, ctx?)
@@ -253,6 +254,18 @@ const response = await ai.chat.get({
 // vision capability is detected automatically from the message content
 ```
 
+**Reasoning:**
+
+```typescript
+const response = await ai.chat.get({
+  messages: [{ role: 'user', content: 'Solve step by step: 15! / 13!' }],
+  reason: { effort: 'low' },
+});
+console.log(response.reasoning?.content);
+```
+
+The effort is clamped to the nearest one the model accepts (`clampReasoningEffort`), and reasoning asked for stays on: `none` is only sent when asked for or when nothing else is accepted. Keep the assistant message's `reasoning` in the conversation: each provider replays only the reasoning it produced (`Reasoning.provider`) or that names none, so a conversation can move between providers. See the [reasoning guide](../docs/guides/reasoning.md).
+
 ### Image API
 
 **`image.generate.get(request, ctx?)`** — Generate images from a text prompt.
@@ -377,7 +390,7 @@ if (team.type === 'choice') {
 
 ### Batch API
 
-**`batch.submit(requests, ctx)`** — Run chat requests as one provider batch (OpenAI, OpenRouter): about half the price, with results within a day. `batch.get(job, ctx)` checks it; `batch.wait(job, ctx, { interval?, signal? })` waits for it to finish. Results come back in request order, and a failed request carries `error`.
+**`batch.submit(requests, ctx)`** — Run chat requests as one provider batch (OpenAI, OpenRouter): about half the price, with results within a day. `batch.get(job, ctx)` checks it; `batch.wait(job, ctx, { interval?, signal? })` waits for it to finish. Results come back in request order, and a failed request carries `error`. `submit` runs the `onModelSelected` hook once and `beforeRequest` for each request at the batch price estimate (so a budget check can stop the batch), and a completed batch is reported once to `afterBatch` with its usage and cost.
 
 ```typescript
 const job = await ai.batch.submit(
@@ -492,6 +505,10 @@ const ai = AI.with<{ schemaFallbacks?: readonly SchemaFallback[] }>()
   .create({ defaultContext: { schemaFallbacks: SCHEMA_FALLBACKS.filter(step => step.name !== 'json') } });
 ```
 
+Run without a conversation, a prompt stays the system message and adds a user turn (`userTurn` on the prompt or context, default `'Begin.'`), since providers need one.
+
+The prompt's callbacks (`validate`, `review`, `onToolIntercept`, and the rest) receive the full AI context.
+
 Tool errors and thrown prompt errors carry `kind: 'model' | 'tool'`, telling a model's mistake from a tool's own failure; see the core README.
 
 ### Agent
@@ -594,6 +611,11 @@ const ai = AI.with<AppContext>()
         `[${ctx.userId}] ${selected.model.id} — ` +
         `~${estimatedUsage.text?.input ?? 0} input tokens, ~$${estimatedCost.toFixed(5)}`
       );
+    },
+
+    afterBatch: async (ctx, job, usage, cost) => {
+      // A completed batch, reported once with its total usage and cost
+      console.log(`[${ctx.userId}] batch ${job.id}: $${cost.toFixed(5)}`);
     },
 
     afterRequest: async (ctx, request, response, responseComplete, selected, usage, cost) => {
@@ -804,25 +826,25 @@ export const ai = AI.with<AppContext>()
       user: await getUser(ctx.userId),
     }),
     defaultWeights: { cost: 0.5, speed: 0.3, accuracy: 0.2 },
-    hooks: {
-      beforeRequest: async (ctx, _request, selected, estimatedUsage, estimatedCost) => {
-        if (ctx.user && estimatedCost > ctx.user.budgetRemaining) {
-          throw new Error(
-            `Estimated cost $${estimatedCost.toFixed(4)} exceeds budget ` +
-            `$${ctx.user.budgetRemaining.toFixed(4)}`
-          );
-        }
-      },
-      afterRequest: async (ctx, _request, _response, _complete, _selected, usage, cost) => {
-        if (ctx.user) {
-          ctx.user.budgetRemaining -= cost;
-          ctx.user.totalSpent += cost;
-          await ctx.user.save();
-        }
-      },
-      onError: (errorType, message, error, ctx) => {
-        console.error(`[AI ${errorType}] ${message}`, { userId: ctx?.userId, error });
-      },
+  })
+  .withHooks({
+    beforeRequest: async (ctx, _request, selected, estimatedUsage, estimatedCost) => {
+      if (ctx.user && estimatedCost > ctx.user.budgetRemaining) {
+        throw new Error(
+          `Estimated cost $${estimatedCost.toFixed(4)} exceeds budget ` +
+          `$${ctx.user.budgetRemaining.toFixed(4)}`
+        );
+      }
+    },
+    afterRequest: async (ctx, _request, _response, _complete, _selected, usage, cost) => {
+      if (ctx.user) {
+        ctx.user.budgetRemaining -= cost;
+        ctx.user.totalSpent += cost;
+        await ctx.user.save();
+      }
+    },
+    onError: (errorType, message, error, ctx) => {
+      console.error(`[AI ${errorType}] ${message}`, { userId: ctx?.userId, error });
     },
   });
 

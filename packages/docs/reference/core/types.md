@@ -158,8 +158,15 @@ type FinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'refus
 ### `ResponseFormat`
 
 ```typescript
-type ResponseFormat = 'text' | 'json' | { type: z.ZodType; strict: boolean };
+type ResponseFormat = 'text' | 'json' | {
+  type: z.ZodType;
+  strict: boolean | number;          // true requires, false forces lenient, a number prefers
+  descriptor?: string;               // FormatDescriptor id, set by the provider
+  schemaDelivery?: SchemaDelivery;   // 'auto' | 'structured' | 'json' | 'prompt'
+};
 ```
+
+`structuredOutput(format)` returns the object form when the schema goes on the wire as structured output (not `'json'` or `'prompt'` delivery), otherwise `undefined`.
 
 ### `ReasoningEffort` / `Reason`
 
@@ -196,7 +203,7 @@ interface ToolDefinition {
 }
 ```
 
-- `format`: the tool takes free text instead of JSON, so `parameters` is `{ input: string }` (`TEXT_TOOL_SCHEMA`). OpenAI sends it as a Responses custom tool; other providers send a one-field function, and Chat Completions appends the grammar to the description.
+- `format`: the tool takes free text instead of JSON, so `parameters` is `{ input: string }` (`TEXT_TOOL_SCHEMA`). OpenAI sends it as a Responses custom tool; other providers send a one-field function whose description, from `describeTool`, has the grammar appended.
 - `defer`: OpenAI sends it with `defer_loading` and adds the hosted `tool_search` tool. Other providers send it as an ordinary tool.
 - `async`: an OpenAI Responses async tool. Other providers send it as an ordinary tool.
 

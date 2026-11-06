@@ -343,7 +343,23 @@ Claude 4.6+ thinks adaptively (`thinking.type: 'adaptive'` with
 `outputConfig.effort`), earlier Claude takes a thinking budget, Nova 2 takes
 `reasoningConfig`, and gpt-oss takes `reasoning_effort`. Reasoning blocks keep
 their signatures and redacted content, and are sent back with the assistant
-message on later turns, as Claude requires while it uses tools.
+message on later turns, as Claude requires while it uses tools. Reasoning is
+marked `provider: 'aws-bedrock'`, so OpenAI and OpenRouter don't replay it.
+
+- Efforts are clamped to what the model accepts (Claude 4.6 gets `high` for `xhigh`).
+- Claude can't think on a turn that forces a tool, so that turn is sent with
+  thinking disabled.
+- Claude that always thinks (Opus 5.5, Sonnet 5.5, Fable) rejects both thinking
+  disabled and a forced tool choice: it is never sent `disabled`, and a forced
+  turn offers it only the forced tools with an automatic choice.
+
+### Structured Output
+
+On Claude 4.5 and later, a tool or response schema goes strict (`strict: true`,
+or `outputConfig.textFormat`) when it fits Anthropic's strict subset and
+limits. Recursive schemas, open values and tuples, and requests past 24
+optional or 16 union-typed parameters go non-strict instead, and a response
+schema then goes in the prompt.
 
 ### Prompt Caching
 
@@ -357,6 +373,10 @@ const response = await ai.chat.get([
 
 console.log(response.usage?.text?.cached, response.usage?.text?.cacheWrite);
 ```
+
+Models without prompt caching (gpt-oss, Llama, DeepSeek, Nemotron, ...) reject
+cache points, so they're left out for models whose registry pricing has no
+cache reads.
 
 ### Custom Request Parameters
 
@@ -393,6 +413,14 @@ const ai = AI.with()
   .create();
 ```
 
+### Inference Profiles
+
+Without a `modelPrefix`, a model the registry marks as served only through
+inference profiles is called by the profile for the region's geography (`us.`,
+`eu.`, `apac.`), or its `global.` profile. When Bedrock answers that a model's
+"on-demand throughput isn't supported" in this region, the request is sent
+again by profile, and that model is called by profile from then on.
+
 ## Error Handling
 
 ```typescript
@@ -422,6 +450,10 @@ try {
   }
 }
 ```
+
+`AccessDeniedException` (including a model the account can't use) throws
+`AWSAuthError`; `ServiceUnavailableException` throws `AWSRateLimitError`; Claude's
+"prompt is too long" and Nova's "Input Tokens Exceeded" throw `AWSContextWindowError`.
 
 ## Health Check
 

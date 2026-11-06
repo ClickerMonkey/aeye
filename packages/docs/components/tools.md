@@ -64,7 +64,7 @@ const getWeather = ai.tool({
 | `metadataFn` | `(input, ctx) => object` | Dynamic metadata |
 | `descriptionFn` | `(ctx) => string` | Dynamic description |
 | `instructionsFn` | `(ctx) => string` | Dynamic instructions |
-| `format` | `ToolTextFormat` | Free-text input, optionally grammar-constrained; use `TEXT_TOOL_SCHEMA` as the schema |
+| `format` | `ToolTextFormat` | Free-text input, optionally grammar-constrained; use `TEXT_TOOL_SCHEMA` as the schema. Providers without free-text tools send a one-field function with the grammar appended to its description (`describeTool`) |
 | `defer` | `boolean` | Load only when the model searches for it (OpenAI tool search) |
 | `async` | `boolean` | The model keeps working while the tool runs (OpenAI Responses) |
 
@@ -185,7 +185,7 @@ Tools compile their schema and instructions into the format expected by AI model
 ```typescript
 const [instructions, definition] = await myTool.compile(ctx);
 // instructions: rendered Handlebars template
-// definition: { name, description, parameters, strict }
+// definition: { name, description, parameters, strict, format, defer, async }
 ```
 
 This is handled automatically when tools are attached to a [Prompt](/components/prompts).

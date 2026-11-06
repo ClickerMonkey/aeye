@@ -88,6 +88,10 @@ const tools = Array.from({ length: 25 }, (_, i) => new Tool({
 
 OpenAI doesn't publish hard caps, so its budget is unbounded. Google Gemini also has no documented per-request cap.
 
+A schema whose optional parameters or unions **alone** exceed the budget (say 30 optional fields against Anthropic's 24) can't fit however the rest of the request is allocated, so it degrades even when it asked for `strict: true`.
+
+Tools and the structured output each keep their own dialect: the budget is built from the model's `'toolsStrict'` and `'structured'` capabilities separately, and only the slot counts are shared. A model with strict structured output but no strict tools (gpt-audio, for one) never gets `strict: true` tools, and the reverse.
+
 ## Per-schema size limits
 
 Separate from the per-request budget, a dialect may bound how big ONE schema can be. OpenAI documents four such limits for Structured Outputs, and `OPENAI_STRICT` declares them (`FormatDescriptor.schemaSizeLimits`):
@@ -104,6 +108,22 @@ Because each is a sum over a single schema, no other tool in the request can cha
 
 Anthropic, Google, and xAI publish no equivalent size ceilings, so their descriptors declare none.
 
+## Anthropic: "any" and always-strict output
+
+Two Anthropic rules make some schemas unsendable strict, whatever their priority:
+
+- **No spelling for "any JSON value".** Anthropic strict rejects `{}`, a typeless schema, `additionalProperties: true` and a recursive `$defs/Any` alike, so `ANTHROPIC_STRICT` uses `anyEncoding: 'none'`. A schema with `z.any()`, `z.unknown()` or a recursion cycle can't be sent strict: a tool goes out non-strict, and a structured output goes as prompt text.
+- **Structured output is always compiled.** Anthropic (and OpenRouter, for any `json_schema` bound for Claude) compiles every output schema, strict flag or not, so `ANTHROPIC_STRICT` sets `structuredOutputAlwaysStrict`. An output that doesn't fit the strict limits on its own — size, 24 optional parameters, 16 unions — is sent as prompt text instead of as a "non-strict" schema the API would still reject.
+
+Both apply under the default `schemaDelivery: 'auto'`; `canExpress(schema, ANTHROPIC_STRICT)` tells you which way an output will go.
+
+## What every dialect emits
+
+- `z.nullable()` always admits `null`, as an `anyOf` branch where the dialect has `anyOf` (never dropped outside OpenAI, as it once was).
+- Only formats JSON Schema defines are emitted, filtered by the dialect's whitelist. Zod's `.regex()` records a `regex` format, which is never sent (grammar-compiling hosts answer `Unknown format: regex`); the `pattern` still is where the dialect allows it.
+- An open record with a plain string key leaves out `propertyNames`, which constrains nothing there and which DeepInfra and Cloudflare reject.
+- Schemas that name a definition with `.meta({ id })` work under every dialect.
+
 ## Format families
 
 A model's strict-mode JSON Schema dialect is one of four families. Each provider's strict mode is its own beast — the dialects are NOT interchangeable:
@@ -111,9 +131,9 @@ A model's strict-mode JSON Schema dialect is one of four families. Each provider
 | Family | What's distinctive |
 |---|---|
 | `openai` | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, all fields required. Numeric bounds (`minimum`/`maximum`/`exclusive*`/`multipleOf`), `minItems`/`maxItems`, and `minLength`/`maxLength` are kept. |
-| `anthropic` | Closed objects + all-required honored, but no recursive schemas, no length / numeric / item-count constraints, tuples collapse to `items: anyOf`, per-request slot budgets. |
+| `anthropic` | Closed objects + all-required honored, but no recursive schemas, no length / numeric / item-count constraints, tuples collapse to `items: anyOf`, per-request slot budgets. Formats limited to `date-time`, `time`, `date`, `duration`, `email`, `hostname`, `uri`, `ipv4`, `ipv6`, `uuid`. No spelling for `z.any()` / `z.unknown()`, and structured output is always strict (see above). |
 | `google` | Standard `prefixItems`, `anyOf`, named `$defs`/`$ref` and `$ref: '#'` recursion, numeric and item-count bounds, `propertyOrdering` emitted, restricted format whitelist (date-time / date / time only). No `allOf`, `pattern`, or string lengths. `z.any()` still emits the empty schema `{}`: Gemini rejects a recursive `$defs/Any` as a ref loop through required values. |
-| `xai` | Grok 4+. `anyOf`, non-circular `$defs`, `prefixItems` tuples, open records, formats including `uri`, `pattern`, and length / item / numeric bounds. No `allOf`; recursion goes through the cycle breaker and `z.any()` is a flat `anyOf`. |
+| `xai` | Grok 4+. `anyOf` and `oneOf`, non-circular `$defs`, `prefixItems` tuples, open records, formats including `uri`, `pattern`, and length / item / numeric bounds. No `allOf`; recursion goes through the cycle breaker and `z.any()` is a flat `anyOf`. |
 
 `@aeye/core` ships nine `FormatDescriptor` constants encoding all this: `OPENAI_STRICT`, `ANTHROPIC_STRICT`, `GOOGLE_STRICT`, `XAI_STRICT`, `LENIENT`, plus four non-strict family aliases. See the [`@aeye/core` README](https://github.com/ClickerMonkey/aeye/blob/main/packages/core/README.md#strict-mode) for the full descriptor table and how to register a custom one.
 
@@ -136,7 +156,8 @@ Without it, models default to lenient even when their underlying API supports st
 
 - `gpt-4o`, `gpt-4.1`, `gpt-5` and later (`gpt-5.x`, `gpt-6.x`), `chat-latest`, the o-series, and `gpt-realtime` get the OpenAI dialect.
 - AWS Bedrock + Claude 4.5 and later (including the 5.x families) get the Anthropic dialect. Sonnet 4 / Opus 4 / 4.1 have no strict mode and are not matched.
-- OpenRouter `openai/*`, `anthropic/` Claude 4.5+, `google/gemini-2+` (and the flash/pro `-latest` aliases), and `x-ai/grok-4+` get their respective dialects, for **tool** schemas as well as `response_format`. (Before 0.4.x only `response_format` was family-aware on OpenRouter; tool schemas silently fell back to LENIENT for every non-OpenAI model, which is how Gemini ended up receiving a recursive `$defs/Any` it answers `400 INVALID_ARGUMENT` to whenever a tool call is forced.)
+- OpenRouter `openai/*` (including floating aliases such as `~openai/gpt-luna-latest`), `anthropic/` Claude 4.5+, `google/gemini-2+` (and the flash/pro `-latest` aliases), and `x-ai/grok-4+` get their respective dialects, for **tool** schemas as well as `response_format`. (Before 0.4.x only `response_format` was family-aware on OpenRouter; tool schemas silently fell back to LENIENT for every non-OpenAI model, which is how Gemini ended up receiving a recursive `$defs/Any` it answers `400 INVALID_ARGUMENT` to whenever a tool call is forced.)
+- OpenRouter `openai/gpt-oss-*` and `google/gemma-*` get `strictFormat: 'none'`. They're open-weight models served by third-party hosts (Groq, Cerebras, DeepInfra, …) whose `json_schema` support is their own, so the OpenAI / Gemini dialect their id prefix suggests doesn't apply.
 
 You can mix it with your own overrides:
 
@@ -176,7 +197,7 @@ You don't have to do anything for this to work — but if you're authoring a cus
 |---|---|
 | You want every tool strict, no fallback. | `strict: true` on each tool, and add a strict-capable model to your config. |
 | You have many tools and Anthropic is in the mix. | Default `strict: 1` plus `strict: <higher>` on the most-important ones. The budget allocator picks the right ones to ship strict. |
-| You want NO strict on a tool that has a recursive schema. | `strict: false` — Anthropic strict can't represent recursion, and you'd rather opt out explicitly than rely on silent fallback. |
+| You want NO strict on a tool that has a recursive schema. | `strict: false` — Anthropic strict can't represent recursion (or `z.any()`), and such a tool already degrades there; opt out explicitly to keep it non-strict everywhere. |
 | A model in your config supports strict but isn't in `strictSupport`. | Add a custom override: `{ provider, modelId, overrides: { strictFormat: 'openai' } }`. |
 | `strictSupport` marks a model as strict-capable but it's actually broken. | Override with `strictFormat: 'none'` to clear the capability. |
 

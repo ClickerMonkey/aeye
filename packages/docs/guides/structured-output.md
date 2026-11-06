@@ -76,6 +76,8 @@ A schema the model can't express, or one a provider rejects, falls back on its o
 | `'json'` | JSON mode, with the schema in the prompt |
 | `'prompt'` | Plain text, with the schema in the prompt |
 
+"Can express" is `canExpress(schema, descriptor)`. Under Anthropic's strict dialect it's `false` for a schema with `z.any()`, `z.unknown()` or recursion, which Anthropic strict can't spell, and for one over the strict limits on its own (24 optional parameters, 16 unions), since Anthropic compiles every structured output whether or not it's flagged strict. Such a schema goes as prompt text rather than earning a 400.
+
 The prompt's parsing and validation run the same way under every delivery. Providers map them to their own API: OpenAI and OpenRouter send `json_schema` (strict or not) or `json_object`; Bedrock Converse and Replicate have neither, so they always get the schema as prompt text.
 
 When a provider rejects a schema, it throws a `SchemaRejectedError` naming the output or the tool, and the prompt steps down its `schemaFallbacks` and sends the request again. The default, `SCHEMA_FALLBACKS`, goes:

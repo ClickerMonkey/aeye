@@ -154,6 +154,8 @@ format: `reasoning.text` with its `signature`, or `reasoning.encrypted` with
 redacted content as base64 `data`. When the assistant message is sent back,
 signed and redacted blocks are replayed before its text and tool calls, as
 Claude requires while it uses tools. Unsigned reasoning isn't replayed.
+Reasoning is marked `provider: 'aws-bedrock'`, so OpenAI and OpenRouter
+don't replay it on their own turns.
 
 ### Prompt Caching
 

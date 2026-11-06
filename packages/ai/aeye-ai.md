@@ -1,6 +1,6 @@
 # @aeye/ai
 
-> Multi-provider AI library: a single typed instance that selects models, runs chat/image/speech/transcribe/embed requests, tracks cost, and binds tools/prompts/agents — built on `@aeye/core`.
+> Multi-provider AI library: a single typed instance that selects models, runs chat/image/speech/transcribe/embed/rerank/decide requests and provider batches, tracks cost, and binds tools/prompts/agents — built on `@aeye/core`.
 
 ## When to use it
 
@@ -36,7 +36,7 @@ import {
 - **Context** (`TContext`): your app data threaded through every call. Resolved by merging `defaultContext` → `providedContext(ctx)` → per-call required context → `{ ai }`. Fields satisfied by defaults/provided are not required at call time.
 - **Metadata** (`TMetadata` + `AIBaseMetadata`): controls model selection (`model`, `required`/`optional` capabilities, `requiredParameters`, `providers.allow/deny`, `pricing`/`contextWindow`/`outputTokens`/`metrics` constraints, `weights`, `weightProfile`, `tier`) plus your custom fields. Merged like context.
 - **Registry** (`ModelRegistry`): stores `ModelInfo` records keyed by both `id` and `provider/id`, applies overrides, scores and selects models.
-- **APIs**: `chat`, `image.{generate,edit,analyze}`, `speech`, `transcribe`, `embed`, `models`. Each request API has `get()` (await) and `stream()` (async iterable); **`embed` has only `get()`**. Selection/hooks/cost logic is shared via `BaseAPI`.
+- **APIs**: `chat`, `image.{generate,edit,analyze}`, `speech`, `transcribe`, `embed`, `rerank`, `decide`, `batch`, `models`. Each request API has `get()` (await) and `stream()` (async iterable); **`embed`, `rerank` and `decide` have only `get()`**, and `batch` has `submit()`, `get()` and `wait()`. Selection/hooks/cost logic is shared via `BaseAPI`.
 - **Components**: `ai.tool()`, `ai.prompt()`, `ai.agent()` wrap the `@aeye/core` classes and auto-inject the executor/streamer/context.
 
 ## Creating an instance
@@ -76,6 +76,8 @@ Constructing `new AI(config)` directly is also valid but loses inference; prefer
 | `defaultCostPerMillionTokens` | Fallback price for unknown models (default `5.0`). |
 | `tokens` | Token-estimation divisors per content type. |
 
+Hooks are not a config field: attach them with `ai.withHooks(...)`. Callbacks in the config (e.g. `providedContext`) are typed from `TContext`/`TMetadata`.
+
 ## Using the request APIs
 
 All request APIs follow `api.get(request, ctx?)` / `api.stream(request, ctx?)`. The second arg is the **required context** (only the fields not satisfied by defaults/provided), and may carry `metadata` and `signal`.
@@ -109,7 +111,19 @@ await ai.image.analyze.get({ prompt: 'describe this', images: ['https://...jpg']
 // Speech / Transcription
 const speech = await ai.speech.get({ text: 'Hello there', voice: 'alloy', speed: 1.0 });
 const text = await ai.transcribe.get({ audio: audioBuf, language: 'en' });
+
+// Rerank (OpenRouter) / Decisions (OpenAI, OpenRouter)
+const { results } = await ai.rerank.get({ query: 'capital of France', documents, topN: 1 });
+const { answers } = await ai.decide.get({ input: text, questions: { spam: { type: 'predicate', instructions: 'Is this spam?' } } });
+
+// Batches (OpenAI, OpenRouter): about half price, results within a day
+const job = await ai.batch.submit([{ messages }, { messages: other }], {});
+const done = await ai.batch.wait(job, {}); // done.results in request order
 ```
+
+### Reasoning
+
+`reason: { effort }` is clamped to the model's `reasoningEfforts` with `clampReasoningEffort(effort, accepted)`: nearest accepted, lower on a tie, and `none` only when asked for or alone accepted (`low` on `[none, high, xhigh]` sends `high`). Keep `message.reasoning` when sending a conversation back: `Reasoning.provider` names who produced it, and a provider replays only its own or unnamed reasoning (`replaysTo` in core).
 
 Request/response shapes are exported types: `Request`/`Response`/`Chunk`/`Message` (re-exported from core), plus `EmbeddingRequest`/`EmbeddingResponse`, `ImageGenerationRequest`/`ImageEditRequest`/`ImageGenerationResponse`/`ImageGenerationChunk`, `ImageAnalyzeRequest`, `SpeechRequest`/`SpeechResponse`, `TranscriptionRequest`/`TranscriptionResponse`/`TranscriptionChunk`.
 
@@ -125,7 +139,7 @@ ai.models.select(criteria)                     // SelectedModel | undefined
 await ai.models.refresh()                      // re-fetch from providers + modelSources
 ```
 
-`ModelCapability` = `'chat' | 'tools' | 'vision' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'zdr' | 'toolsStrict'`. `ModelTier` = `'flagship' | 'efficient' | 'legacy' | 'experimental'`.
+`ModelCapability` = `'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict'`. `ModelTier` = `'flagship' | 'efficient' | 'legacy' | 'experimental'`.
 
 ## Tools, prompts & agents
 
@@ -157,6 +171,8 @@ for await (const t of assistant.get('streamContent', { question: '...' })) proce
 const out = await ai.run(assistant, { question: '...' }, { userId: 'u1' });
 ```
 
+Every callback given to `ai.prompt` (`input`, `schema`, `config`, `reconfig`, `retool`, `parse`, `validate`, `review`, `onToolIntercept`, `applicable`, `metadataFn`) receives the full AI context. Prompts also take `review` / `reviewRetries` (check valid output, send feedback for another round), `schemaFallbacks` (steps taken when a provider rejects a schema; default `SCHEMA_FALLBACKS`, AI-wide via `defaultContext`), and `userTurn` (the user message added when run without a conversation, default `'Begin.'`). Errors carry `kind: 'model' | 'tool'` (`PromptError`, `ToolInputError`, `ToolExecutionError`, `OutputValidationError`, `ReviewRejectedError`, all from core).
+
 `ai.agent({ name, description, refs, call })` composes other components; `call(input, [..refs], ctx)` receives the resolved refs tuple and the full AI context.
 
 `ai.tool()` and `ai.prompt()` forward a trailing **`TDecoded`** generic to the underlying core `Tool`/`Prompt`, so a custom `parse` (which replaces Zod — see the [structured-output](../docs/guides/structured-output.md) / [tool-calling](../docs/guides/tool-calling.md) guides) has its **return type surface through the wrapper**: `call`/`validate` receive the decoded value, not the wire params/output. Absent a custom `parse`, `TDecoded` defaults to the wire type.
@@ -174,7 +190,7 @@ const out = await ai.run(assistant, { question: '...' }, { userId: 'u1' });
 
 ### Hooks
 
-Attach with `.withHooks(...)` (returns `this`) or via `config.hooks`-style assignment. Hooks run around every request:
+Attach with `.withHooks(...)` (returns `this`) or by assigning `ai.hooks`; `create(config)` has no hooks field. Hooks run around every request:
 
 ```typescript
 ai.withHooks({
@@ -184,6 +200,7 @@ ai.withHooks({
     if (ctx.user && estimatedCost > ctx.user.budget) throw new Error('over budget'); // throw to cancel
   },
   afterRequest: async (ctx, request, response, complete, selected, usage, cost) => {/* track */},
+  afterBatch: async (ctx, job, usage, cost) => {/* once per completed batch */},
   onError: (type, message, error, ctx, request) => console.error(type, message),
 });
 ```
@@ -201,6 +218,7 @@ const chatAI = ai.extend<{ chatId: string }>({ defaultContext: {} });
 - `ModelRegistry` — the registry class (`getModel`, `registerModel(s)`, `listModels`, `providedModels`, `searchModels`, `selectModel`, `getProvider`, `getProviderCapabilities`, `getStrictFormat`, `refresh`). Accessible as `ai.registry`.
 - `getProviderCapabilities(provider)` → `Set<ModelCapability>` inferred from provider methods.
 - `resolveStrictFormat(model)` → strict dialect family or `undefined` (checks `strictFormat`, then `provider`, then `id` prefix).
+- `clampReasoningEffort(effort, accepted?)` — the accepted reasoning effort nearest the one asked for (unchanged when `accepted` is unknown).
 - `isModelInfo(input)` — type guard distinguishing a full `ModelInfo` from a model reference.
 - `detectTier(name)`, `detectCapabilitiesFromModality(modality, id)`, `detectZDRFromModeration(isModerated)` — heuristics used as fallbacks during refresh.
 - `ai.stats()` → `LibraryStats` (model counts, cumulative requests, average cost/latency).

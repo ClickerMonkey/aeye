@@ -20,7 +20,8 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 |------|------|-------|
 | `name` | `string` | Unique identifier. |
 | `description` | `string` | Informational. |
-| `content` | `string` | Handlebars template. `{{tools}}` is auto-appended (wrapped in `<tools>`) when tools exist and you didn't include it. |
+| `content` | `string` | Handlebars template, sent as the system message. `{{tools}}` is auto-appended (wrapped in `<tools>`) when tools exist and you didn't include it. |
+| `userTurn?` | `string` | User message added after the system message when there's no conversation (Anthropic, Bedrock and some OpenRouter hosts require one). Defaults to `ctx.userTurn`, then `DEFAULT_USER_TURN` (`'Begin.'`). |
 | `input?` | `Fn<Record<string,any>, [TInput?, ctx]>` | Maps raw input → template variables. |
 | `schema?` | `Fn<ZodType<TOutput> \| false, [TInput?, ctx]>` | Output schema. `false` → plain-text output. Omitted → text. |
 | `parse?` | `(raw, ctx) => TDecoded \| Error \| Promise<…>` | **Custom output parser that REPLACES Zod.** Receives the structured value **already wire-decoded to the conceptual shape** — core first applies the request's `FormatDescriptor` decode (`decodeWire`: array-of-pairs→record, null→undefined for optionals, numeric-key→tuple, …) so your parser is provider-agnostic and never sees a model family's wire quirks — and fully owns turning it into the decoded `TDecoded`; return (or throw) an `Error` to reject it — routed through the same `outputRetries` channel a Zod failure would, surfacing the error's own `.message` (no Zod vocabulary, since Zod never runs). Lets a caller (e.g. `@aeye/query`'s parser) return a built AST plus compiler-style diagnostics. Only runs where Zod validation runs today (a structured, non-`ZodString` `schema` is present); `schema` is still required and still drives the model wire format. Absent ⇒ unchanged Zod path. |

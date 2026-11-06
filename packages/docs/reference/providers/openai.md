@@ -70,10 +70,18 @@ type OpenAIHooks = {
     onError?: (request, params, error, ctx, metadata) => void;
   };
 };
-// Operations: chat, responses, imageGenerate, imageEdit, transcribe, speech, embed, decide
+// Operations: chat, responses, imageGenerate, imageEdit, transcribe, speech, embed, rerank, decide
 ```
 
-Image analysis runs as chat, so it reports through the `chat` (or `responses`) hooks.
+Image analysis runs as chat, so it reports through the `chat` (or `responses`) hooks. OpenAI itself has no rerank endpoint; the `rerank` hooks (with `RerankParams`: `model`, `query`, `documents`, `top_n`) serve OpenAI-compatible subclasses such as `OpenRouterProvider`.
+
+### Extending
+
+| Protected member | Purpose |
+|---|---|
+| `chatHeaders(params)` | Extra HTTP headers for a Chat Completions request; none by default (`OpenRouterProvider` adds `x-anthropic-beta` for strict tools) |
+| `send(op, run, request, params, call)` | Runs an API call with retries inside the operation's `beforeRequest` / `onError` hooks; a context-window rejection becomes `ContextWindowError` |
+| `finish(op, run, request, params, response)` | Reports a response to the operation's `afterRequest` hook and returns it |
 
 ### Decisions and Batches
 
@@ -85,13 +93,19 @@ Image analysis runs as chat, so it reports through the `chat` (or `responses`) h
 
 Subclasses can override the protected `createBatch(batch, run)` and `retrieveBatch(job, run)` to submit and read batches another way, and reuse `batchResults(lines, total, run)` to map result lines (`BatchOutputLine`) to `BatchResult`s in request order. `BatchSubmission` and `BatchOutputLine` are exported for this; `OpenRouterProvider` uses them for its inline batches.
 
-The Decisions API wire types (`OpenAIDecisionQuestion`, `OpenAIDecisionAnswer`, `OpenAIDecisionParams`, `OpenAIDecision`) live in `src/decisions.ts` and are not exported.
+The Decisions API wire types (`OpenAIDecisionQuestion`, `OpenAIDecisionAnswer`, `OpenAIDecisionParams`, `OpenAIDecision`) live in `src/decisions.ts` and are not exported. The System One shape OpenRouter's decisions endpoint speaks is exported: `SystemOneDecisionParams` (`model`, `state`, `questions` by name), `SystemOneQuestion`, and `toSystemOneQuestion(question)` (a predicate becomes a `noul` question; choices and levels become `criteria`).
 
 ### Tools
 
 - `toolChoice: { allowed, required? }` is sent as `allowed_tools` on Chat Completions and Responses.
 - Tools with `format` become Responses custom tools (`{ type: 'custom', format }`); on Chat Completions a grammar tool is a one-field function whose description carries the grammar.
 - `defer` sets `defer_loading` and adds the hosted `tool_search` tool; `async` sets the tool's `async` flag.
+- `toolsOneAtATime` sends `parallel_tool_calls: false`; otherwise Chat Completions omits the parameter (o3 rejects it), and Responses sends `true` with any tools.
+- An assistant turn of only tool calls goes with no content (`content: null` on Chat Completions), not an empty text part.
+
+### Reasoning replay
+
+Responses reasoning is returned with `reasoning.provider` set to the provider's `name`, and replayed as `reasoning` input items only when the assistant message's reasoning names this provider or none (`replaysTo` from `@aeye/core`).
 
 ## Error Types
 

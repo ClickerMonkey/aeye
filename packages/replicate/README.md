@@ -157,6 +157,8 @@ for await (const chunk of ai.chat.stream([
 }
 ```
 
+Replicate models take no response format, so a schema `responseFormat` is delivered as text: the JSON Schema is appended to the system prompt and the request asks for plain text, which the caller (or a Prompt) parses.
+
 ### Image Generation
 
 ```typescript

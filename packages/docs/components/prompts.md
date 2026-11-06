@@ -47,7 +47,7 @@ const summarizer = ai.prompt({
 | `userTurn` | `string` | context's, then `'Begin.'` | The user message added when there's no conversation |
 | `input` | `(input) => object` | — | Template variables |
 | `schema` | `ZodType` or `(ctx) => ZodType \| false` | — | Output format schema |
-| `strict` | `boolean` | `true` | Strict schema enforcement |
+| `strict` | `boolean \| number` | `1` | Strict output schema: `true` requires, `false` disables, a number is a preference priority |
 | `schemaDelivery` | `'auto' \| 'structured' \| 'json' \| 'prompt'` | `'auto'` | How the schema reaches the model ([details](../guides/structured-output.md#schema-delivery-and-fallbacks)) |
 | `schemaFallbacks` | `SchemaFallback[]` | `SCHEMA_FALLBACKS` | Steps taken when a provider rejects a schema |
 | `config` | `Partial<Request>` or `(ctx) => Partial<Request>` | — | Request overrides |
@@ -166,13 +166,13 @@ const prompt = ai.prompt({
 
 ### `strict` — Schema Strictness
 
-Controls whether the JSON schema sent to the AI model uses strict mode (all properties required, no additionalProperties):
+Controls whether the output schema goes out in the model's strict dialect: `true` requires a strict-capable model, `false` forces lenient, and a number (default `1`) prefers strict where the model supports it. A schema too large for the strict limits is sent non-strict; on Anthropic, which compiles every structured output, such a schema (or one with `z.any()` / recursion) goes as prompt text under the default `schemaDelivery: 'auto'`. See the [Strict Mode guide](/guides/strict-mode):
 
 ```typescript
-// Strict mode (default) — best for OpenAI structured outputs
+// Require strict structured output
 const prompt = ai.prompt({
   schema: z.object({ name: z.string(), age: z.number() }),
-  strict: true, // default
+  strict: true,
 });
 
 // Non-strict — allows optional fields, more lenient parsing

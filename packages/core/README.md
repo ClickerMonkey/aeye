@@ -492,15 +492,17 @@ Default `1` keeps "it just works" against unannotated models — strict where th
 
 ### Native format descriptors
 
-Seven descriptors ship out of the box:
+Nine descriptors ship out of the box:
 
 | Descriptor | Family / Strict | Notes |
 |---|---|---|
 | `OPENAI_STRICT` | openai / strict | Records → array-of-pairs, tuples → numeric-key objects, `optional → T \| null`, closed objects, restricted format whitelist. |
-| `ANTHROPIC_STRICT` | anthropic / strict | Closed objects, no recursion, no length / numeric range constraints, per-request slot budgets (20 strict tools / 24 optional params / 16 union types). |
+| `ANTHROPIC_STRICT` | anthropic / strict | Closed objects, no recursion, no length / numeric range constraints, per-request slot budgets (20 strict tools / 24 optional params / 16 union types), format whitelist (OpenAI's nine plus `uri`). No spelling for "any" (see below), and structured output is always strict. |
 | `GOOGLE_STRICT` | google / strict | `prefixItems`, `$ref: '#'` recursion, `propertyOrdering` emitted, restricted format whitelist. |
+| `XAI_STRICT` | xai / strict | `anyOf` / `oneOf`, non-circular `$defs`, `prefixItems` tuples, open records, format whitelist with `uri`; no `allOf`. |
 | `LENIENT` | lenient / non-strict | No rewrites, all features pass through. Default for unannotated models. |
-| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT`, `GOOGLE_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
+| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT`, `XAI_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
+| `GOOGLE_NON_STRICT` | google / non-strict | `LENIENT` except `z.any()` is the empty schema `{}`: Gemini rejects a recursive `$defs/Any` whenever a tool call is forced. |
 
 ```typescript
 import { OPENAI_STRICT, ANTHROPIC_STRICT, getDescriptor, toJSONSchema } from '@aeye/core';
@@ -519,6 +521,18 @@ toJSONSchema(schema, getDescriptor('google', true));    // tags → standard add
 toJSONSchema(schema, true);   // === OPENAI_STRICT
 toJSONSchema(schema, false);  // === LENIENT
 ```
+
+Under every descriptor, `z.nullable()` admits `null` (as an `anyOf` branch where the dialect has `anyOf`), only formats JSON Schema defines are emitted (`.regex()`'s `regex` is dropped), and an open record with a plain string key leaves out `propertyNames`. `strictify` accepts schemas named with `.meta({ id })`.
+
+### When a schema can't go out strict
+
+Some schemas fall back even under `strict: true`, because no allocation could make the API accept them:
+
+- **Size.** A schema over the dialect's per-schema `schemaSizeLimits`, or whose optional parameters or unions alone exceed the per-request budget, degrades to the family's non-strict descriptor.
+- **"Any" on Anthropic.** Anthropic strict rejects every spelling of "any JSON value" (`{}`, a typeless schema, `additionalProperties: true`, a recursive `$defs/Any`), so `ANTHROPIC_STRICT` uses `anyEncoding: 'none'`. A tool with `z.any()`, `z.unknown()` or a recursion cycle goes out non-strict; a structured output with one goes as prompt text (`canExpress` answers `false`).
+- **Anthropic structured output.** Anthropic compiles every structured output, strict flag or not, so `ANTHROPIC_STRICT` sets `structuredOutputAlwaysStrict`. An output that doesn't fit the strict limits on its own is sent as prompt text rather than as a "non-strict" schema the API would still reject.
+
+`SchemaBudget` takes separate tool and output descriptors (`new SchemaBudget(tool, output)`), so a model with strict structured output but no strict tools never gets `strict: true` tools, and the reverse.
 
 ### Registering a custom descriptor
 
@@ -555,9 +569,11 @@ The descriptor's full field list is exported as the `FormatDescriptor` interface
 | `recordEncoding` | `'array-of-pairs'` vs `'open-record'`. |
 | `tupleEncoding` | `'object-numeric-keys'` vs `'prefix-items'` vs `'items-union'`. |
 | `allowAllOf` / `allowAnyOf` / `allowOneOf` | JSON-Schema combinator support. |
-| `supportedStringFormats` | `'all'` or a `Set<string>` whitelist (`'date-time'`, `'email'`, etc.). |
+| `supportedStringFormats` | `'all'` (every format JSON Schema defines) or a `Set<string>` whitelist (`'date-time'`, `'email'`, etc.). |
 | `optionalAsNullable` | Whether `optional` fields are emitted as `T \| null` (OpenAI strict) vs omitted from `required[]`. |
 | `supportsRecursion` | Whether `$ref` self-reference works under this dialect. |
+| `anyEncoding` | How `z.any()` / `z.unknown()` is spelled: `'recursive-strict'`, `'recursive-open'`, `'flat'`, `'unconstrained'` (`{}`), or `'none'` (not sendable strict). |
+| `structuredOutputAlwaysStrict` | The API compiles every structured output, so an output over the strict limits goes as prompt text instead of degrading. |
 | `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request budget caps; `undefined` means no documented limit. |
 | `schemaSizeLimits` | Per-SCHEMA size ceilings (properties, nesting, total string characters, enum values); `undefined` means no documented limit. An over-size schema degrades on its own, even when it asked for `strict: true`. |
 
@@ -576,13 +592,11 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 **Constructor Options (`PromptInput`):**
 - `name: string` - Unique identifier
 - `description: string` - Purpose description
-- `content: string` - Handlebars template for the system/user message
+- `content: string` - Handlebars template for the system message
+- `userTurn?: string` - User message added when there's no conversation (default: the context's, then `DEFAULT_USER_TURN`, `'Begin.'`)
 - `input?: (input: TInput, ctx: Context<TContext, TMetadata>) => Record<string, any>` - Maps raw input to template variables
 - `schema?: ZodType<TOutput> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => ZodType<TOutput> | false)` - Output schema; `false` disables structured output
-- `strict?: boolean | number` - Strict tool inputs: `true` requires, `false` disables, a number is a preference priority (default: `1`)
-- `format?: ToolTextFormat` - Take free text (`{ type: 'text' }`) or grammar-constrained text (`{ type: 'grammar', syntax: 'lark' | 'regex', definition }`) as `input` instead of JSON; use `TEXT_TOOL_SCHEMA` as the schema
-- `defer?: boolean` - Load only when the model searches for it (OpenAI tool search)
-- `async?: boolean` - The model keeps working while the tool runs (OpenAI Responses)
+- `strict?: boolean | number` - Strict output schema: `true` requires, `false` disables, a number is a preference priority (default: `1`)
 - `config?: Partial<Request> | ((input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Partial<Request> | false)` - AI request overrides
 - `tools?: TTools` - Tools the prompt may call
 - `toolExecution?: 'sequential' | 'parallel' | 'immediate'` - Tool execution mode
@@ -616,7 +630,10 @@ class Tool<TContext, TMetadata, TName extends string, TParams extends object, TO
 - `description: string` - What the tool does (shown to the AI model)
 - `instructions?: string` - Handlebars template for usage instructions
 - `schema: ZodType<TParams> | ((ctx: Context<TContext, TMetadata>) => ZodType<TParams> | undefined)` - Input parameter schema
-- `strict?: boolean` - Enforce strict Zod schema (default: `true`)
+- `strict?: boolean | number` - Strict input schema: `true` requires, `false` disables, a number is a preference priority (default: `1`)
+- `format?: ToolTextFormat` - Take free text (`{ type: 'text' }`) or grammar-constrained text (`{ type: 'grammar', syntax: 'lark' | 'regex', definition }`) as `input` instead of JSON; use `TEXT_TOOL_SCHEMA` as the schema. Providers without free-text tools send a one-field function whose description `describeTool(definition)` builds, with the grammar appended
+- `defer?: boolean` - Load only when the model searches for it (OpenAI tool search)
+- `async?: boolean` - The model keeps working while the tool runs (OpenAI Responses)
 - `refs?: TRefs` - Referenced components
 - `call: (input: TParams, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput` - Implementation
 - `validate?: (input: TParams, ctx: Context<TContext, TMetadata>) => void | Promise<void>` - Post-parse validation
@@ -673,6 +690,8 @@ interface CoreContextFields {
   forgetRetries?: number;
   // Steps a prompt takes when a provider rejects a schema (default: SCHEMA_FALLBACKS)
   schemaFallbacks?: readonly SchemaFallback[];
+  // User message a prompt adds when there's no conversation (default: DEFAULT_USER_TURN, 'Begin.')
+  userTurn?: string;
 
   // Abort signal for cancellation
   signal?: AbortSignal;

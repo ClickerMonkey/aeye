@@ -63,7 +63,7 @@ With `api: 'auto'` (the default), chat requests use Chat Completions unless they
 - `reason` sets `mode`, `summary`, or `context`, or
 - the request has tools and a reasoning `effort` other than `none` (Chat Completions drops reasoning between tool calls, and gpt-5.4 and later reject function tools with reasoning there).
 
-`'chat'` or `'responses'` forces one API. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns, so multi-turn reasoning works without stored responses.
+`'chat'` or `'responses'` forces one API. Through Responses, reasoning comes back encrypted (unless `store` is on) and is replayed on later turns, so multi-turn reasoning works without stored responses. Only reasoning OpenAI produced (`reasoning.provider` `'openai'`, or unset) is replayed: reasoning relayed by OpenRouter or made on Bedrock is left out, since OpenAI can't decrypt it.
 
 ## Capabilities
 
@@ -97,9 +97,13 @@ Beyond the common chat fields, OpenAI sends:
 | `hostedTools` | Responses tools: `web_search` (`allowedDomains`; `blockedDomains` is rejected), `file_search`, `code_interpreter`, `image_generation`, `mcp`. `web_fetch` is rejected. |
 | `cacheBreakpoint` on content | a prompt cache breakpoint |
 | `toolChoice: { allowed, required? }` | `allowed_tools` (`mode` `required` or `auto`), on both APIs |
+| `toolsOneAtATime: true` | `parallel_tool_calls: false`. Otherwise Chat Completions leaves the parameter out (parallel calls are the default, and o3 rejects the parameter); Responses sends it with any tools |
+| `responseFormat` (schema) | `json_schema`, with `strict: true` when the schema fits OpenAI's strict dialect. A non-strict schema is marked `strict: false` on Responses, which treats an unflagged schema as strict |
 | `detail` / `name` on content | image detail / file name |
 
 Responses carry `citations`, `images`, `audio`, `moderation`, and `serviceTier` when present, and `usage.tools` counts hosted tool calls.
+
+An assistant turn of only tool calls is sent with no content rather than an empty text part, which some OpenAI-compatible upstreams reject.
 
 ## Tool Features
 
@@ -190,5 +194,7 @@ class AzureProvider extends OpenAIProvider {
   // customize as needed, e.g. override the protected `defaults` model ids
 }
 ```
+
+Subclasses can add HTTP headers to Chat Completions requests by overriding the protected `chatHeaders(params)`, and run their own operations through the provider hooks with the protected `send` and `finish`; `OpenRouterProvider` uses both.
 
 See [Custom Providers](/guides/custom-providers) for details.

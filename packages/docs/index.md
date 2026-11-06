@@ -26,10 +26,13 @@ features:
     details: Build sophisticated AI workflows with Tools, Prompts, and Agents that compose together naturally.
   - icon: "\U0001F4B0"
     title: Cost Tracking
-    details: Built-in token usage and cost calculation with budget enforcement hooks.
+    details: Built-in token usage and cost calculation with budget enforcement hooks, including provider batches at half price.
+  - icon: "\u2705"
+    title: Output That Holds Up
+    details: Prompts validate and review their output, step down schema fallbacks when a provider rejects a schema, and tell a model's mistakes from a tool's own failures.
   - icon: "\U0001F30A"
     title: Full Streaming
-    details: Streaming support across all APIs with rich event system for real-time UI updates.
+    details: Streaming for chat, images, speech, and transcription, with a rich event system for real-time UI updates.
 ---
 
 ## Quick Example
@@ -69,7 +72,7 @@ console.log(result?.suggestion);
 | Package | Description |
 |---------|-------------|
 | [`@aeye/core`](/reference/core/types) | Core primitives: Tool, Prompt, Agent, and shared types |
-| [`@aeye/ai`](/reference/ai/ai-class) | Main AI library with model selection, APIs, and hooks |
+| [`@aeye/ai`](/reference/ai/ai-class) | Main AI library with model selection, APIs (chat, images, speech, transcription, embeddings, reranking, decisions, batches), and hooks |
 | [`@aeye/openai`](/providers/openai) | OpenAI provider (chat, images, speech, transcription, embeddings, decisions, batches) |
 | [`@aeye/openrouter`](/providers/openrouter) | OpenRouter multi-provider gateway (plus reranking, decisions, batches) |
 | [`@aeye/replicate`](/providers/replicate) | Replicate open-source model provider |

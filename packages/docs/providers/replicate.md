@@ -66,6 +66,8 @@ const response = await ai.chat.get(
 );
 ```
 
+Replicate models take no response format, so a schema `responseFormat` is delivered in the prompt: its JSON Schema is appended to the system prompt and the response is parsed from plain text.
+
 ## Error Types
 
 ```typescript

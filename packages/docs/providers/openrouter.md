@@ -108,7 +108,7 @@ const openrouter = new OpenRouterProvider({
 
 ### Reasoning
 
-`reason` goes as one `reasoning` object with either a token budget (`maxTokens`) or an `effort`, never both (`maxTokens` wins), plus `exclude`, `summary`, `mode`, and `context`. Reasoning returned on an assistant message is replayed on later turns.
+`reason` goes as one `reasoning` object with either a token budget (`maxTokens`) or an `effort`, never both (`maxTokens` wins), plus `exclude`, `summary`, `mode`, and `context`. Reasoning returned on an assistant message is replayed on later turns, on that same message alongside its text and tool calls (Anthropic verifies the signature there). Only reasoning OpenRouter returned (`reasoning.provider` `'openrouter'`, or unset) is replayed; reasoning made by OpenAI directly or on Bedrock isn't sent.
 
 ### Server Tools
 
@@ -128,6 +128,7 @@ const openrouter = new OpenRouterProvider({
 - `modalities` including `'image'` asks image-output models for images; they come back on `response.images`, streamed or not.
 - `userKey` goes as `user`.
 - `moderate` is not sent (OpenRouter ignores OpenAI's inline moderation).
+- A JSON or schema `responseFormat` adds a `Respond in JSON.` system message when no message mentions JSON: some upstreams serve every response format as JSON mode and reject a conversation that never says "json" (Alibaba for Qwen).
 - Requests always go through Chat Completions (`OpenRouterConfig` has no `api` option); routing, plugins, server tools, and reasoning options all work there.
 
 ### Tools
@@ -135,6 +136,8 @@ const openrouter = new OpenRouterProvider({
 - `toolChoice: { allowed, required? }` is emulated: only the allowed tools are sent, with `tool_choice` `required` or `auto`. OpenRouter ignores `allowed_tools` (models still call the other tools, and some upstreams reject it), so the cache benefit of sending every tool is lost.
 - Free-text tools (`format`) are sent as a function with one `input` field; a grammar is appended to the description, so the model is asked, not forced, to follow it.
 - `defer` and `async` are not offered; those tools are sent as ordinary tools.
+- When any tool is strict, the request carries the `x-anthropic-beta: structured-outputs-2025-11-13` header; without it OpenRouter strips `strict` from tools bound for Anthropic. Other upstreams ignore it.
+- An assistant turn of only tool calls is sent with no content, since some upstreams (Qwen's) reject an empty text part.
 
 ### Images, Speech, Transcription, Embeddings
 
@@ -156,7 +159,7 @@ const { results } = await ai.rerank.get({ query: 'refund policy', documents, top
 
 ### Batches
 
-`ai.batch.submit` posts the requests inline to `/batches` as Chat Completions calls; `ai.batch.get` returns the results inline once the batch completes, in request order. See [Batches](/guides/batch).
+`ai.batch.submit` posts the requests inline to `/batches` as Chat Completions calls; `ai.batch.get` returns the results inline once the batch completes, in request order. OpenRouter reports cost only for the whole batch, as `job.cost` (with BYOK, its fee plus the provider's bill); results carry token counts only. See [Batches](/guides/batch).
 
 ### Model Source
 

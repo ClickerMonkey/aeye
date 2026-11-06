@@ -86,7 +86,13 @@ afterRequest: async (ctx, request, response, responseComplete, selected, usage, 
 
 ### `afterBatch`
 
-Called once when a batch is first seen completed (`ai.batch.get` or `wait`), with its total usage and cost. See [Batches](/guides/batch#costs).
+Called once when a batch is first seen completed (`ai.batch.get` or `wait`), with its total usage and cost. See [Batches](/guides/batch#costs). The cost is the provider's when it reports one (OpenRouter), else the batch price (half) of the usage. `afterRequest` doesn't run for batched requests.
+
+```typescript
+afterBatch: async (ctx, job, usage, cost) => {
+  await db.logUsage({ batchId: job.id, model: job.model, cost });
+}
+```
 
 ### `onError`
 
@@ -115,7 +121,7 @@ const openai = new OpenAIProvider({
       afterRequest: (request, response, responseComplete, ctx, metadata) => { /* ... */ },
       onError: (request, params, error, ctx, metadata) => { /* ... */ },
     },
-    // imageGenerate, embed, etc. also available
+    // also responses, imageGenerate, imageEdit, transcribe, speech, embed, rerank, decide
   },
 });
 ```
@@ -135,6 +141,15 @@ For a typical chat request:
 6. API call
 7. Provider afterRequest  (provider hook)
 8. afterRequest          (AI hook)
+```
+
+For a batch (`ai.batch.submit`, then `get` or `wait`):
+
+```
+1. onModelSelected       (AI hook, once, for the first request)
+2. beforeRequest         (AI hook, per request, at the batch price estimate)
+3. Provider submitBatch
+4. afterBatch            (AI hook, once, when first seen completed)
 ```
 
 If an error occurs at any step:

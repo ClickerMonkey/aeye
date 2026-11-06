@@ -75,6 +75,7 @@ interface AIHooks<T extends AIBaseTypes> {
   onModelSelected?: (ctx, request, selected) => SelectedModel | void | Promise<...>;
   beforeRequest?: (ctx, request, selected, estimatedUsage, estimatedCost) => void | Promise<void>;
   afterRequest?: (ctx, request, response, complete, selected, usage, cost) => void | Promise<void>;
+  afterBatch?: (ctx, job: BatchJob, usage, cost) => void | Promise<void>; // once, when a batch is first seen completed
   onError?: (errorType, message, error?, ctx?, request?) => void;
 }
 ```
@@ -157,6 +158,8 @@ interface AIConfig<TContext, TMetadata, TProviders> {
   defaultCostPerMillionTokens?: number;
 }
 ```
+
+Hooks are not part of the config; attach them with `ai.withHooks(hooks)`.
 
 ## Statistics
 

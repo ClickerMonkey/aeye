@@ -102,6 +102,16 @@ const runShell = ai.tool({
 });
 ```
 
+### `describeTool(definition)`
+
+A `ToolDefinition`'s description for providers that send a free-text tool as an ordinary one-field function: for a `{ type: 'grammar' }` format, the grammar its input must match is appended, since the function can't carry it. Any other tool's description comes back unchanged.
+
+```typescript
+describeTool({ name: 'calc', description: 'Evaluate', parameters: TEXT_TOOL_SCHEMA,
+  format: { type: 'grammar', syntax: 'regex', definition: '[0-9+*/() -]+' } });
+// 'Evaluate\n\nThe input must match this regex grammar:\n[0-9+*/() -]+'
+```
+
 ### `forcesTool(choice)`
 
 Whether a `ToolChoice` makes the model call a tool: `'required'`, `{ tool }`, or `{ allowed, required: true }`.

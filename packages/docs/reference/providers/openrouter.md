@@ -51,13 +51,19 @@ Default models (`defaultModels`, from `OpenAIConfig`): `imageGenerate` / `imageE
 | `rerank(request, ctx, config?)` | `POST /rerank` (`top_n` from `topN`; `relevance_score` becomes `score`; `usage.cost` from the response) |
 | `decide(request, ctx, config?)` | `POST /api/alpha/decisions` (input as `state`; predicates go as `noul` questions, choices and levels as `criteria`) |
 | `submitBatch(requests, ctx, config?)` | `POST /batches` with the requests inline (always Chat Completions) |
-| `getBatch(job, ctx, config?)` | `GET /batches/{id}`; results are inline once complete |
+| `getBatch(job, ctx, config?)` | `GET /batches/{id}`; results are inline once complete; the batch's `usage` cost becomes `job.cost` |
 
 Rerank and decide run the provider's `hooks.rerank` and `hooks.decide`. The decide hooks receive System One parameters (`state`, and `questions` by name); on OpenAI they receive the Decisions API's (`input`, and a `questions` array), so check `'state' in params` to tell them apart.
 
 ### Tools
 
 `buildChatParams` applies `withAllowedTools` from `@aeye/core`: a `{ allowed, required? }` tool choice sends only the allowed tools, because OpenRouter ignores `allowed_tools`. Free-text tools go as one-field functions with any grammar in the description; `defer` and `async` are not sent.
+
+`chatHeaders` adds `x-anthropic-beta: structured-outputs-2025-11-13` whenever a tool is strict, so OpenRouter keeps `strict` on tools bound for Anthropic. `augmentChatRequest` puts a `Respond in JSON.` system message first when the response format isn't `text` and no message mentions JSON.
+
+### Reasoning
+
+Reasoning parsed from responses and chunks is marked `provider: 'openrouter'`. `convertMessages` replays it as `reasoning` / `reasoning_details` on the assistant message it came with (once, even when a message was split into parts), and only when `replaysTo(reasoning, 'openrouter')`: reasoning named for another provider is dropped.
 
 ## `OpenRouterModelSource`
 

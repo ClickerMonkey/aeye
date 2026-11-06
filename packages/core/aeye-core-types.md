@@ -38,6 +38,7 @@ type Context<TContext, TMetadata> = TContext & {
   contextWindow?: number;       // override window size for trimming
   outputRetries?: number;       // default 2
   forgetRetries?: number;       // context-trim retries, default 1
+  userTurn?: string;            // user message a prompt adds with no conversation; default DEFAULT_USER_TURN ('Begin.')
   toolRetries?: number;         // default 2
   instance?: Instance<any>;     // current execution instance
   runner?: Runner;              // override how components execute (see withEvents)

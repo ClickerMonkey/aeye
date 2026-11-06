@@ -31,8 +31,9 @@ A descriptor (see `src/schema.ts` line ~26 for the fully documented interface) d
 | `allowAllOf` / `allowAnyOf` / `allowOneOf` | Combinator support. |
 | `allowRootRef` / `allowDefsRef` | Whether `$ref: '#'` / `$ref: '#/$defs/X'` are permitted. Under `allowDefsRef: false` the emitter never produces a `$defs` section at all: a shared node is **inlined** at each use site, and a non-root cycle takes the bounded placeholder (`supportsRecursion` alone does not license a `$ref` the descriptor cannot spell). |
 | `anyEncoding` | How `z.any()` / `z.unknown()` is emitted — see below. |
-| `supportedStringFormats` | `'all'` or a `Set<string>` whitelist. |
+| `supportedStringFormats` | `'all'` (every format JSON Schema 2020-12 defines) or a `Set<string>` whitelist. |
 | `supportsRecursion` | Whether `$ref` self-reference works. |
+| `structuredOutputAlwaysStrict` | The family has no non-strict structured output (Anthropic) — see [below](#structuredoutputalwaysstrict). |
 | `maxStrictTools` / `maxStrictOptionalParams` / `maxStrictUnionTypes` | Per-request slot budgets (`undefined` = no documented limit). |
 | `schemaSizeLimits` | Per-SCHEMA size ceilings — properties, nesting, total string characters, enum values (`undefined` = no documented limit) — see below. |
 | `maxEnumValues` | Opt-in ceiling on how many values ONE emitted `enum` may carry (`undefined` = no cap). `GOOGLE_STRICT`/`GOOGLE_NON_STRICT` declare 40, a MEASURED response to a real provider rejection; every other built-in declares none — see below. |
@@ -97,22 +98,42 @@ An open "any JSON value" slot has no single portable spelling, so each dialect p
 |------|------|------|
 | `'recursive-strict'` | `$defs/Any` with array-of-pairs records (OpenAI strict has no open objects) | `allowAnyOf`, `allowDefsRef`, `supportsRecursion` |
 | `'recursive-open'` | `$defs/Any` with `additionalProperties: <self>` | `allowAnyOf`, `allowDefsRef`, `supportsRecursion` |
-| `'flat'` | inline non-recursive `anyOf` over every JSON type | `allowAnyOf` |
+| `'flat'` | inline non-recursive `anyOf` over every JSON type (xAI strict) | `allowAnyOf` |
 | `'unconstrained'` | the empty schema `{}` (plus any `description`) | nothing |
+| `'none'` | no spelling exists (Anthropic strict) — the schema is not sent strict | nothing |
+
+`'none'` is for a dialect that rejects every spelling of "any": Anthropic strict answers 400 to `{}` ("Empty schema … is not supported"), a typeless schema, `additionalProperties: true` and a recursive `$defs/Any` alike. A schema containing `z.any()` / `z.unknown()`, or a recursion cycle (whose placeholder bottoms out at "any"), is therefore not sendable under it: `SchemaBudget` degrades such a tool to the family's non-strict descriptor (even under `strict: true`), and `canExpress` answers `false` so such an output goes as prompt text.
 
 `'unconstrained'` is the only mode available to a dialect that forbids combinators **and** named `$defs` (Google). Per JSON Schema a schema with no assertion keywords validates every instance, which is exactly what "any value" means — so it is lossless as a constraint, and the source schema's `description` still rides along as the human/model-facing signal.
 
+### `structuredOutputAlwaysStrict`
+
+Anthropic compiles every structured output to a grammar (`output_config.format` is strict by definition, and OpenRouter flags every `json_schema` bound for Claude), so an output "degraded" to the non-strict dialect still earns `too many optional parameters (30) … (limit: 24)`. A descriptor declaring `structuredOutputAlwaysStrict: true` (`ANTHROPIC_STRICT`) changes two things:
+
+- `canExpress` also requires the output schema to fit the strict limits **on its own** — the per-schema size limits and the per-request optional-parameter and union budgets. An output that doesn't fit is delivered as prompt text under `schemaDelivery: 'auto'`.
+- `SchemaBudget` never degrades an output to the non-strict variant; it keeps the strict dialect.
+
+## What every dialect emits
+
+A few emitter rules hold under every descriptor, `LENIENT` included:
+
+- **`z.nullable()` always admits `null`**, spelled as an `anyOf` branch (`anyOf: [T, { type: 'null' }]`) wherever the dialect has `anyOf`; a `["T", "null"]` type array is the spelling of last resort (o3's strict function validator rejects it). Earlier versions dropped the null outside OpenAI strict, so a grammar-constrained model could never answer it.
+- **Only real JSON Schema formats are emitted.** `'all'` means the formats JSON Schema 2020-12 defines (`date-time`, `email`, `uri`, `uuid`, …); Zod's own check names that share the field — `regex` from `.regex()`, `cuid`, `starts_with` — are never emitted (DeepInfra answers `Unknown format: regex`). A whitelisted descriptor emits only its list.
+- **Open records drop `propertyNames` for a plain string key**: it constrains nothing, and DeepInfra and Cloudflare reject the keyword (`Unimplemented keys: ["propertyNames"]`). A key schema with real constraints (an enum, a pattern) still emits it.
+- **`strictify` handles `.meta({ id })`.** The strictified clone carries the id as `aid` (zod's global registry refuses a second schema with the same `id`), and `aid` names the same `$defs` entry.
+
 ## Built-in descriptors
 
-Seven ship frozen and pre-registered:
+Nine ship frozen and pre-registered:
 
 | Export | Family / Strict | Notes |
 |------|------|-------|
 | `OPENAI_STRICT` | openai / strict | records→array-of-pairs, tuples→numeric-key objects, `optional → T \| null`, closed objects, restricted format whitelist. |
-| `ANTHROPIC_STRICT` | anthropic / strict | closed objects, no recursion, no length/range constraints; budgets 20 tools / 24 optional params / 16 unions. |
+| `ANTHROPIC_STRICT` | anthropic / strict | closed objects, no recursion, no length/range constraints; budgets 20 tools / 24 optional params / 16 unions; format whitelist `date-time`, `time`, `date`, `duration`, `email`, `hostname`, `uri`, `ipv4`, `ipv6`, `uuid`; `anyEncoding: 'none'`; `structuredOutputAlwaysStrict`. |
 | `GOOGLE_STRICT` | google / strict | `prefixItems`, `$ref: '#'` recursion, `propertyOrdering`, restricted format whitelist, `z.any()` → `unconstrained` (Gemini forbids `anyOf` and named `$defs`). |
+| `XAI_STRICT` | xai / strict | `anyOf` and `oneOf`, non-circular `$defs`, `prefixItems` tuples, open records, format whitelist incl. `uri`, `pattern`, length/item/numeric bounds; no `allOf`; `z.any()` → `flat`. |
 | `LENIENT` | lenient / non-strict | No rewrites; everything passes through. Default for unannotated models. |
-| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
+| `OPENAI_NON_STRICT`, `ANTHROPIC_NON_STRICT`, `XAI_NON_STRICT` | family / non-strict | Aliased to `LENIENT` but tagged with the family for diagnostics. |
 | `GOOGLE_NON_STRICT` | google / non-strict | `LENIENT` **except** `anyEncoding: 'unconstrained'`. Gemini compiles a decoding grammar whenever a tool call is forced, and rejects a self-referencing `$defs/Any` when it does — which has nothing to do with a per-tool strict flag (Google's function-calling API has none), so the encoding belongs to the dialect. |
 
 ## Functions
@@ -130,6 +151,7 @@ hasDescriptorFamily(family: string | undefined): boolean
 resolveDescriptor(options: ToJSONSchemaOptions | boolean | FormatDescriptor): FormatDescriptor
 strictestOf(a, b): FormatDescriptor
 strictPriority(requested: boolean | number | undefined): number
+canExpress(schema, descriptor): boolean   // can it go out as structured output?
 ```
 
 - `toJSONSchema` accepts a descriptor, a `ToJSONSchemaOptions` object, or a boolean (back-compat: `true` ⇒ `OPENAI_STRICT`, `false` ⇒ `LENIENT`).
@@ -155,18 +177,18 @@ toJSONSchema(schema, false);                         // === LENIENT
 
 ## `SchemaBudget`
 
-`new SchemaBudget(descriptor)` allocates strict "slots" across a single request when a descriptor has per-request limits (e.g. Anthropic). Providers call:
+`new SchemaBudget(tool, output = tool)` allocates strict "slots" across a single request when a descriptor has per-request limits (e.g. Anthropic). Tools are emitted through `tool` and the structured output through `output`; they differ when a model has strict structured output but no strict tools (gpt-audio, for one) or the reverse, so neither kind is sent `strict: true` the model can't take. Only the slot counters are shared, sized from the stricter of the two. `@aeye/ai`'s `buildSchemaBudget` builds it from the model's `'toolsStrict'` and `'structured'` capabilities. Providers call:
 
 ```typescript
 budget.allocateTool(schema, requested): FormatDescriptor   // returns strict or the family's non-strict, decrements
 budget.allocateOutput(schema, requested): FormatDescriptor // output schema; consumes param/union budget, not a tool slot
 ```
 
-It falls back when `requested === false`, when the schema uses an unrepresentable feature, when the schema exceeds the dialect's `schemaSizeLimits`, or when a positive-number request can't fit the remaining budget (priority order; `true` always wins subject to *budget*, never subject to feasibility or size).
+It falls back when `requested === false`, when the schema uses an unrepresentable feature, when the schema exceeds the dialect's `schemaSizeLimits`, when the schema's optional parameters or unions **alone** exceed the per-request budget (no other item can make it fit), or when a positive-number request can't fit the remaining budget (priority order; `true` always wins subject to *budget*, never subject to feasibility or size). An output under a `structuredOutputAlwaysStrict` descriptor is never degraded — `canExpress` already kept an unfitting one off the wire.
 
 **The fallback is the descriptor's own family, non-strict — never the family-blind `LENIENT`.** A dialect rule can outlive strict mode: `GOOGLE_NON_STRICT` exists for exactly one such rule, the `unconstrained` encoding of `z.any()`, because Gemini compiles a decoding grammar whenever a tool call is forced and no per-tool `strict` flag is involved. Degrading to `LENIENT` put the self-referencing `$defs/Any` that encoding was created to avoid straight back on the Google wire — and did so for *every* schema that degrades, which under `GOOGLE_STRICT` (`allowAnyOf: false`) is every recursive gin/query program schema there is. For the other families the change is behaviour-neutral by construction: `OPENAI_NON_STRICT` / `ANTHROPIC_NON_STRICT` are `LENIENT` with a family tag, and a family that registers no non-strict variant resolves to `LENIENT`. Only the `descriptor` id pinned on the tool differs, and it round-trips through `getDescriptorById`.
 
-"Unrepresentable" here means a **combinator the descriptor forbids** (`z.union` → `anyOf`, `z.intersection` → `allOf`), because nothing rewrites those away — a schema carrying one under `GOOGLE_STRICT` is a provider HTTP 400. **Recursion is not unrepresentable**: the emitter replaces any back-edge the descriptor cannot spell with a bounded placeholder, so a recursive schema stays strict (looser at the back-edge, never rejected). That is the difference between this check and `canExpress`, which additionally treats a widened back-edge as a reason to fall back — the right answer for a structured *output* (it can be delivered as prompt text instead) and the wrong one for a *tool* (it cannot).
+"Unrepresentable" here means a **combinator the descriptor forbids** (`z.union` → `anyOf`, `z.intersection` → `allOf`), because nothing rewrites those away — a schema carrying one under `GOOGLE_STRICT` is a provider HTTP 400. **Recursion is not unrepresentable**: the emitter replaces any back-edge the descriptor cannot spell with a bounded placeholder, so a recursive schema stays strict (looser at the back-edge, never rejected). The exception is an `anyEncoding: 'none'` dialect (Anthropic strict): the placeholder bottoms out at "any", which it cannot spell, so a cycle — like `z.any()` / `z.unknown()` — degrades the tool there. That is the difference between this check and `canExpress`, which additionally treats a widened back-edge as a reason to fall back — the right answer for a structured *output* (it can be delivered as prompt text instead) and the wrong one for a *tool* (it cannot).
 
 ## Registering a custom descriptor
 
@@ -190,5 +212,6 @@ Once registered, `toJSONSchema(schema, MY_PROVIDER_STRICT)` / `strictify(...)` w
 ## Gotchas
 
 - `ToolDefinition.parameters` and `ResponseFormat.type` stay **raw Zod**. The matching `strictify` is applied *lazily* by the provider once it knows the model's descriptor, then pinned via `descriptor` id so the validator (`Tool.parse` / Prompt output validation) matches the exact wire shape the model saw.
-- Strict dialects drop features they can't represent (Anthropic: no recursion, no numeric ranges). If a feature matters, check `analyzeSchema` against the descriptor or force `strict: false`.
+- Strict dialects drop features they can't represent (Anthropic: no numeric ranges, formats outside its whitelist). If a feature matters, check `analyzeSchema` against the descriptor or force `strict: false`.
+- Under Anthropic strict, `z.any()`, `z.unknown()` and recursive schemas never go out strict: such a tool degrades to non-strict and such an output is sent as prompt text.
 - The `JSONSchema` / `JSONSchemaType` / `ToJSONSchemaOptions` / `DescriptorFamily` types are exported for tooling.

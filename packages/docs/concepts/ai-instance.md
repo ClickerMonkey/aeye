@@ -40,7 +40,7 @@ Pass an object mapping provider names to provider instances. The keys become the
 
 ### `.create(config?)`
 
-Creates the AI instance with optional configuration:
+Creates the AI instance with optional configuration. Callbacks in the config, such as `providedContext`, are typed from your context and metadata. Hooks are not part of the config: attach them with [`withHooks`](#withhooks-hooks).
 
 ```typescript
 .create({
@@ -102,6 +102,8 @@ const myAgent = ai.agent({ /* ... */ });
 
 These are enhanced versions of the `@aeye/core` classes with automatic executor/streamer injection from the AI instance. Every component created this way is also tracked in `ai.components`.
 
+The callbacks given to `ai.prompt` (`input`, `schema`, `config`, `reconfig`, `retool`, `parse`, `validate`, `review`, `onToolIntercept`, `applicable`, `metadataFn`) all receive the full AI context, built from your defaults and provided context.
+
 ## Methods
 
 ### `withHooks(hooks)`
@@ -114,6 +116,7 @@ ai.withHooks({
   onModelSelected: async (ctx, request, selected) => {},
   beforeRequest: async (ctx, request, selected, usage, cost) => {},
   afterRequest: async (ctx, request, response, complete, selected, usage, cost) => {},
+  afterBatch: async (ctx, job, usage, cost) => {},
   onError: (type, message, error, ctx, request) => {},
 });
 ```

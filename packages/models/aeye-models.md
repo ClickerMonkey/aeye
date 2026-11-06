@@ -108,7 +108,13 @@ listings. Each entry matches by `provider` + `modelPattern` (regex) or `modelId`
 - `'openai'` — records→array-of-pairs, optional→nullable
 - `'anthropic'` — closed objects, all-required, per-request budgets
 - `'google'` — `prefixItems`, `$ref: '#'` recursion, `propertyOrdering`
+- `'xai'` — Grok 4+: `prefixItems`, open records, non-circular `$defs`
 - `'none'` — hard opt-out (forces lenient mode even if auto-resolution would mark it strict)
+
+On OpenRouter, floating aliases (`~openai/gpt-luna-latest`, `openai/gpt-chat-latest`) get
+`'openai'`, while `openai/gpt-oss-*` and `google/gemma-*` get `'none'`: they're open-weight models
+served by third-party hosts, so the OpenAI / Gemini dialect their id prefix would resolve to
+doesn't apply.
 
 Setting `strictFormat` does two things at runtime: (1) auto-derives the `'toolsStrict'`
 capability for model selection, and (2) pins the JSON-Schema dialect the provider emits.

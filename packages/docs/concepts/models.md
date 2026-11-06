@@ -218,7 +218,11 @@ const ai = AI.with()
 `strictSupport` is a `ModelOverride[]` you can splat alongside your own
 overrides. It only adds `strictFormat` (auto-derives the `'toolsStrict'`
 capability) — it doesn't touch pricing, tiers, or other fields, so it's
-safe to combine with arbitrary overrides:
+safe to combine with arbitrary overrides. It also opts some models *out*:
+OpenRouter's `openai/gpt-oss-*` and `google/gemma-*` are open-weight models
+served by third-party hosts, so they get `strictFormat: 'none'` rather than
+the OpenAI / Gemini dialect their id prefix suggests.
+
 
 ```typescript
 modelOverrides: [

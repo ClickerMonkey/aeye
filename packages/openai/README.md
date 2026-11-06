@@ -342,6 +342,8 @@ const person = JSON.parse(response.content);
 console.log(person.name, person.age); // Type-safe
 ```
 
+A schema that fits OpenAI's strict dialect is sent with `strict: true`. One that doesn't (nested more than 10 levels, for example) goes non-strict, and through the Responses API it is marked `strict: false`, since Responses treats an unflagged `json_schema` as strict.
+
 ### Image Generation (GPT Image)
 
 #### Generate an Image
@@ -603,6 +605,8 @@ console.log('Answer:', response.content);
 - The effort is clamped to the model's accepted efforts when its `ModelInfo.reasoningEfforts` lists them.
 - `mode`, `summary`, or `context`, or an effort other than `none` with tools, send the request to the Responses API. There, reasoning comes back encrypted (`openai-responses-v1` details) unless `store` is on; keep the assistant message's `reasoning` in the conversation and it is replayed on the next turn.
 - `reason.maxTokens` and `reason.exclude` are not used by OpenAI.
+- Only reasoning OpenAI produced (`reasoning.provider` is `'openai'`, or unset) is replayed; reasoning relayed by OpenRouter or made on Bedrock is left out, since OpenAI can't decrypt it.
+- An assistant turn of only tool calls is sent with no content rather than an empty text part.
 
 ### Hosted Tools
 
@@ -853,7 +857,7 @@ const azureProvider = new AzureOpenAIProvider({
 | `store` | `boolean` | No | Let OpenAI store requests (default `false`) |
 | `api` | `'auto' \| 'chat' \| 'responses'` | No | Which API chat uses (default `'auto'`) |
 | `retry` / `retryEvents` | `RetryConfig` / `RetryEvents` | No | Retry behavior and events |
-| `hooks` | `OpenAIHooks` | No | `beforeRequest` / `afterRequest` / `onError` for `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed` |
+| `hooks` | `OpenAIHooks` | No | `beforeRequest` / `afterRequest` / `onError` for `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed`, `rerank`, `decide` |
 | `defaultModels` | `object` | No | Per-operation defaults; built in: `gpt-image-2` (generate, edit), `gpt-5.4-mini` (image analysis), `gpt-transcribe`, `gpt-4o-mini-tts`, `text-embedding-3-small`, `gpt-6-luna` (decision); `rerank` has no OpenAI default |
 
 ### Request Parameters
@@ -868,6 +872,7 @@ const azureProvider = new AzureOpenAIProvider({
 | `maxTokens` | `number` | Maximum tokens to generate |
 | `stop` | `string \| string[]` | Stop sequences |
 | `tools` | `Tool[]` | Function definitions for tool calling |
+| `toolsOneAtATime` | `boolean` | Sends `parallel_tool_calls: false`. Otherwise Chat Completions leaves the parameter out (parallel calls are the default, and o3 rejects the parameter) |
 | `toolChoice` | `'auto' \| 'required' \| 'none' \| { tool: string } \| { allowed: string[]; required?: boolean }` | Tool selection mode |
 | `responseFormat` | `'text' \| 'json' \| ZodSchema` | Response format constraint |
 | `reason` | `Reason` | `{ effort, summary, mode, context }` |
@@ -990,11 +995,13 @@ Main provider class implementing the @aeye Provider interface.
 - `convertToolChoice(request): OpenAI.ChatCompletionToolChoiceOption` - Convert tool choice
 - `convertResponseFormat(request): ResponseFormat` - Convert response format
 - `augmentChatRequest(params, request, config)` - Add to Chat Completions params (mutate in place)
+- `chatHeaders(params)` - Extra HTTP headers for a Chat Completions request (none by default; OpenRouter adds a feature flag here)
 - `augmentChatMessage(chatMessage, message, config)` / `augmentChatContent(...)` - Add to converted messages and content parts
 - `augmentChatResponse(completion, response, config)` / `augmentChatChunk(chunk, ...)` - Read extra fields from responses and chunks
 - `augmentImageGenerateRequest?` / `augmentImageEditRequest?` / `augmentTranscriptionRequest?` / `augmentSpeechRequest?` / `augmentEmbeddingRequest?` `(params, request, config)` - Optional hooks to add to those params
 - `usesResponses(request, modelId, config, model?)` - Whether a chat request goes to the Responses API
 - `createBatch(batch, run)` / `retrieveBatch(job, run)` - Submit and read batches (OpenRouter overrides these for inline batches)
+- `send(op, run, request, params, call)` / `finish(op, run, request, params, response)` - Run an API call with retries inside the operation's `beforeRequest` / `onError` hooks, then report its response to `afterRequest` (OpenRouter's `rerank` and `decide` use these)
 
 ## Model Support
 

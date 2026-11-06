@@ -265,6 +265,8 @@ console.log('Answer:', response.content);
 console.log('Cost:', response.usage.cost);
 ```
 
+Reasoning comes back with `reasoning.provider` set to `'openrouter'`. Keep it on the assistant message and it is replayed on that same message (with its text and tool calls) on the next turn; reasoning made by another provider, such as OpenAI directly or Bedrock, isn't replayed.
+
 ### Server Tools
 
 ```typescript
@@ -317,7 +319,9 @@ const job = await ai.batch.submit(requests, { metadata: { model: 'openai/gpt-5.4
 const done = await ai.batch.wait(job, {});
 ```
 
-Rerank and decision costs come back as `usage.cost`. Decisions use OpenRouter's alpha endpoint, outside the versioned API. Change the defaults with `defaultModels.rerank` and `defaultModels.decision`.
+Rerank and decision costs come back as `usage.cost`, and both run the provider's `hooks.rerank` / `hooks.decide`. Decisions use OpenRouter's alpha endpoint, outside the versioned API. Change the defaults with `defaultModels.rerank` and `defaultModels.decision`.
+
+OpenRouter reports a batch's cost only for the whole batch: `job.cost` (with BYOK, its fee plus the provider's bill). Batch results carry token counts but no cost.
 
 ### Function Calling
 
@@ -343,6 +347,10 @@ const response = await ai.chat.get({
 ```
 
 `toolChoice: { allowed: [...], required? }` is emulated by sending only the allowed tools, because OpenRouter ignores `allowed_tools`. Free-text tools (`format`) go as one-field functions with any grammar in the description; `defer` and `async` are not sent.
+
+When any tool is strict, the request carries `x-anthropic-beta: structured-outputs-2025-11-13`: without it OpenRouter strips `strict` from tools bound for Anthropic. Other upstreams ignore the header.
+
+When a request sets a JSON or schema `responseFormat` and no message mentions JSON, a `Respond in JSON.` system message is put first, because some upstreams serve every response format as JSON mode and reject a conversation that never says "json" (Alibaba for Qwen).
 
 ### Fetching Available Models
 
@@ -571,6 +579,7 @@ Extends `OpenAIProvider` from `@aeye/openai`.
 - `createClient(config)` - Creates OpenAI client with OpenRouter endpoint
 - `augmentChatRequest(params, request, config)` - Adds OpenRouter-specific params
 - `buildChatParams(request, run, streaming)` - Sends only the allowed tools for `{ allowed }` tool choices
+- `chatHeaders(params)` - Adds `x-anthropic-beta: structured-outputs-2025-11-13` when a tool is strict
 - `createBatch(batch, run)` / `retrieveBatch(job, run)` - Inline batches through `/batches`
 
 **Added Methods**:

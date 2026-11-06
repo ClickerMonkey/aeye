@@ -96,7 +96,9 @@ const aws = new AWSBedrockProvider({
 |-------|------|-------|
 | `region` | `string` | AWS region; defaults to `AWS_REGION` then `us-east-1` |
 | `credentials` | `{ accessKeyId?, secretAccessKey?, sessionToken? }` | Only used when access key + secret are both set |
-| `modelPrefix` | `string` | Prepended to every model id — for cross-region inference (`'us.'`, `'eu.'`, `'apac.'`) |
+| `modelPrefix` | `string` | Inference profile prefix prepended to every model id (`'us.'`, `'eu.'`, `'apac.'`, `'global.'`); without one, profile-only models use the region's profile automatically |
+| `latency` | `'standard' | 'optimized'` | Converse `performanceConfig.latency`, for models that offer latency-optimized inference |
+| `guardrail` | `GuardrailStreamConfiguration` | Guardrail on every chat request (`guardrailIdentifier`, `guardrailVersion`, `trace`; `streamProcessingMode` applies to streams) |
 | `modelFamilies` | `Record<string, ModelFamilyConfig>` | Per-family enable/disable and model-id mapping |
 | `defaultModels` | `{ chat?, imageGenerate?, embedding? }` | Fallback model per capability |
 | `hooks` | `AWSBedrockHooks` | `chat` / `imageGenerate` / `embed` with `beforeRequest` / `afterRequest` |
@@ -110,14 +112,19 @@ const aws = new AWSBedrockProvider({ region: 'us-east-1', modelPrefix: 'us.' });
 // model 'anthropic.claude-...' is sent as 'us.anthropic.claude-...'
 ```
 
+Without a prefix, a model the registry marks `metadata.inRegion: false` is called by its inference profile for the client region's geography (`us.`, `eu.`, `apac.`), or `global.`. When Bedrock answers "on-demand throughput isn't supported" for a plain id, the request is retried by profile and that model is called by profile from then on.
+
 ## Supported capabilities
 
 | Capability | Implementation | Models |
 |-----------|----------------|--------|
-| Chat (+ streaming) | `ConverseCommand` / `ConverseStreamCommand` | Anthropic Claude, Meta Llama, Mistral, Cohere, AI21, Amazon Titan, etc. |
-| Tools / function calling | Converse `toolConfig` | Claude and other tool-capable families |
-| Vision | Converse image content blocks | Claude 3+ (see gotcha — base64 only) |
-| Reasoning | Converse `reasoningContent` | Reasoning-capable Claude models |
+| Chat (+ streaming) | `ConverseCommand` / `ConverseStreamCommand` | Anthropic Claude, Amazon Nova, gpt-oss, open-weight models (DeepSeek, Qwen, ...), Meta Llama, Mistral, Cohere, etc. |
+| Tools / function calling | Converse `toolConfig` (`auto` / `any` / `tool`; `{ allowed }` sends only the allowed tools; strict tools set `strict: true`) | Claude and other tool-capable families |
+| Content | `image`, `document` (pdf, csv, doc(x), xls(x), html, txt, md), `video`, `audio` blocks; `s3://` URIs go as S3 locations, other URLs are downloaded | Per model |
+| Reasoning | Claude 4.6+ adaptive `thinking` + `outputConfig.effort`; earlier Claude `budget_tokens`; Nova 2 `reasoningConfig`; others `reasoning_effort`. Returned as `bedrock-converse-v1` details marked `provider: 'aws-bedrock'` and replayed (signed/redacted only) on later turns | Claude 3.7+, Nova 2, gpt-oss, ... |
+| Structured output | `outputConfig.textFormat` JSON schema when the schema fits Anthropic's strict subset; otherwise the schema goes in the prompt | Claude 4.5+ |
+| Prompt caching | `cacheBreakpoint` → `cachePoint`; usage `cached` / `cacheWrite`. Left out for models whose registry pricing has no cache reads | Claude, Nova |
+| Other request fields | `serviceTier` (`fast` → `priority`, `scale` → `reserved`), `metadata` → `requestMetadata`, `extra` → `additionalModelRequestFields` | All Converse models |
 | Image generation | `InvokeModelCommand` | Stability AI (SDXL / SD3) |
 | Embeddings | `InvokeModelCommand` | Amazon Titan text embeddings |
 
@@ -154,18 +161,19 @@ const embeddings = await ai.embed.get(
 ```typescript
 import {
   AWSError,            // base
-  AWSAuthError,        // UnrecognizedClientException / InvalidSignatureException
-  AWSRateLimitError,   // ThrottlingException / TooManyRequestsException
+  AWSAuthError,        // UnrecognizedClientException / InvalidSignatureException / AccessDeniedException / ExpiredTokenException
+  AWSRateLimitError,   // ThrottlingException / TooManyRequestsException / ServiceUnavailableException
   AWSQuotaError,       // ServiceQuotaExceededException
-  AWSContextWindowError, // "context length" / "token limit" in message
+  AWSContextWindowError, // "context length", "token limit", "too long" (Claude), "Input Tokens Exceeded" (Nova)
 } from '@aeye/aws';
 ```
 
 ## Gotchas
 
-- **Vision is base64-only.** The Converse conversion only accepts `data:<type>;base64,...` image content (png/jpeg/gif/webp). Plain image URLs are dropped — fetch the bytes yourself and pass a data URI.
+- **Claude thinking and forced tools don't mix.** A turn that forces a tool is sent with thinking disabled. Claude that always thinks (Opus 5.5, Sonnet 5.5, Fable) rejects both, so it is never sent `disabled`; a forced turn offers it only the forced tools with an automatic choice.
+- Efforts are clamped to what the model accepts (Claude 4.6 gets `high` for `xhigh`); Claude thinking clears `temperature`/`topP`, and Nova's `high` effort clears `maxTokens`.
 - **Titan embeddings only embed the first text.** The provider sends `request.texts[0]` and returns that single embedding duplicated once per input text. Call once per text if you need distinct vectors.
 - **Model is always required** (no implicit default unless you set `defaultModels`); missing model throws `AWSError`.
-- Consecutive same-role messages are merged automatically (Converse requirement); an empty conversation gets a synthetic user message.
+- Consecutive same-role messages are merged automatically (Converse requirement); an empty conversation gets a synthetic user message (`Perform the requested operation.`).
 - Image generation/embeddings use fixed defaults in the Stability payload (`cfg_scale: 7`, `steps: 30`); only `prompt`, `size`, and `seed` flow through.
 - Model access must be enabled in your AWS account/region (some families, e.g. Anthropic, require a use-case submission in the Bedrock console).

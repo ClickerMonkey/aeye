@@ -56,6 +56,9 @@ Recognized variables (from `.env.example`; each provider key is
 | `GOOGLE_API_KEY`     | Google AI (Gemini) — present in `.env.example` |
 | `UNIT_TESTS_ONLY`    | Flag in `.env.example` (`true`/`false`)     |
 | `RUN_INTEGRATION_TESTS` | Flag in `.env.example` (`true`/`false`)  |
+| `AWS_ACCESS_KEY_ID_TEMP` / `AWS_SECRET_ACCESS_KEY_TEMP` | AWS Bedrock credentials; `live-bedrock.test.ts` is skipped without both |
+| `AWS_REGION`         | Bedrock region for the live cases (default `us-east-2`) |
+| `LIVE`               | `LIVE=force` reruns every live case even when unchanged |
 
 ### Conditional execution (how tests skip)
 
@@ -109,6 +112,31 @@ npm run test:unit          # ignores @aeye/test-integration
 ## What the tests cover
 
 Test files live in `packages/test-integration/src/__tests__/`.
+
+| Suite | What it checks |
+|-------|----------------|
+| `multi-provider.test.ts` | Model discovery, selection, chat and streaming across OpenAI and OpenRouter |
+| `live-smoke.test.ts` | Each provider streams a first token through the AI class |
+| `live-schema.test.ts` | Every model class accepts each schema fixture as a strict tool, a non-strict tool and structured output; models without strict support get the tool non-strict |
+| `schema-resolution.test.ts` | Offline: which JSON Schema dialect each registry model resolves to, for tools and output |
+| `prompt-features.test.ts` | A real schema rejection steps down the schema fallbacks; a review loop sends feedback back to the model |
+| `live-reasoning-openai.test.ts` | Reasoning through Chat Completions and Responses (encrypted items and summaries, replayed with `store: false`) |
+| `live-reasoning-openrouter.test.ts` | Reasoning relayed through OpenRouter (`reasoning_details`, signatures) and replayed |
+| `live-reasoning-cross.test.ts` | A tool call (and its reasoning) from one model continues on another without sending reasoning it rejects |
+| `live-rerank-decide.test.ts` | Rerank and decisions through the AI class |
+| `live-bedrock.test.ts` | Bedrock text, usage and caching on Nova and Claude; Claude adaptive, budget and redacted thinking across a tool call; gpt-oss, Nemotron, Nova 2 and DeepSeek R1 reasoning; strict tools and structured output; context window errors; inference profiles |
+| `ginny-24game.test.ts` | Reproducer that runs the ginny CLI on the 24 game and reports on its log |
+
+### Live cases (`src/live.ts`)
+
+Suites built on `liveCase` call an API only when something they depend on
+changed. A pass is recorded in `.live-cache/` (gitignored) under a fingerprint
+of the case's inputs and the source of the packages it exercises; later runs
+report it as `(passed, unchanged)` until that changes. `LIVE=force` reruns
+everything; deleting files under `.live-cache/` reruns those cases.
+`firstChunk` cancels a stream at the first token, so acceptance checks (no 400)
+cost a few output tokens. Shared schema fixtures live in `src/schemas.ts`;
+reasoning helpers in `src/reasoning.ts`.
 
 ### `multi-provider.test.ts`
 

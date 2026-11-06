@@ -41,7 +41,18 @@ interface Reason {
 | `xhigh` | Deeper still |
 | `max` | The most the model offers |
 
-Models accept different subsets. When a model's `ModelInfo.reasoningEfforts` lists the levels it accepts, the requested effort is clamped to the nearest accepted one (`clampReasoningEffort` from `@aeye/ai`), so `max` on a model that tops out at `xhigh` sends `xhigh`. Reasoning asked for stays on: `low` on a model that takes `none`, `high` and `xhigh` sends `high`, never `none`.
+Models accept different subsets. When a model's `ModelInfo.reasoningEfforts` lists the levels it accepts, the requested effort is clamped to the nearest accepted one (`clampReasoningEffort` from `@aeye/ai`), so `max` on a model that tops out at `xhigh` sends `xhigh`. Reasoning asked for stays on: `low` on a model that takes `none`, `high` and `xhigh` sends `high`, never `none`. `none` is only sent when asked for or when it is all the model accepts, so `none` on o3 (`low`, `medium`, `high`) sends `low`.
+
+```typescript
+import { clampReasoningEffort } from '@aeye/ai';
+
+clampReasoningEffort('max', ['none', 'low', 'medium', 'high', 'xhigh']); // 'xhigh'
+clampReasoningEffort('low', ['none', 'high', 'xhigh']);                  // 'high'
+clampReasoningEffort('none', ['low', 'medium', 'high']);                 // 'low'
+clampReasoningEffort('medium');                                           // 'medium' (acceptance unknown)
+```
+
+`@aeye/models` lists the accepted efforts for OpenAI models whose pages don't: the o-series takes `low` to `high`, and `gpt-5-mini` / `gpt-5-nano` add `minimal`.
 
 ## In Prompts
 
@@ -100,13 +111,22 @@ interface ReasoningDetail {
 
 Keep the assistant message's `reasoning` when you send the conversation back: providers replay it on later turns. Signed and encrypted reasoning only verifies where it was made, so a provider replays only reasoning it produced (or that names no provider); a conversation can move to another provider without a rejected replay.
 
+```typescript
+import { replaysTo } from '@aeye/core';
+
+// What a provider checks before it sends an earlier turn's reasoning back
+if (replaysTo(message.reasoning, 'openai')) { /* replay it */ }
+```
+
+Providers that produce signed or encrypted reasoning set `provider` on it (OpenAI, OpenRouter, and AWS Bedrock as `aws-bedrock`). Reasoning rides on the assistant message it came with, and an assistant turn of only tool calls sends no text content.
+
 ## Provider Support
 
 | Provider | Models | Notes |
 |----------|--------|-------|
 | OpenAI | gpt-5.x, gpt-6, o3 | `effort` goes as `reasoning_effort`. `mode`, `summary`, or `context`, or an effort with tools, route the request to the Responses API, where reasoning comes back encrypted (unless `store` is on) as `openai-responses-v1` details and is replayed on later turns. `maxTokens` and `exclude` are not used. |
 | OpenRouter | Any reasoning model | Sent as one `reasoning` object with a token budget (`maxTokens`) or an `effort`, never both (`maxTokens` wins), plus `exclude`, `summary`, `mode`, and `context`. `reasoning` and `reasoning_details` are replayed on the assistant message they came with. |
-| AWS Bedrock | Claude models with extended thinking | |
+| AWS Bedrock | Claude models with extended thinking | Reasoning comes back as `bedrock-converse-v1` details marked `provider: 'aws-bedrock'`, so OpenAI and OpenRouter don't replay it; Bedrock replays it as reasoning blocks ahead of the turn's text and tool calls. |
 
 Models with reasoning capability are selected automatically when `reason` is set:
 

@@ -43,6 +43,7 @@ ai.withHooks({
   onModelSelected: async (ctx, request, selected) => {},
   beforeRequest: async (ctx, request, selected, usage, cost) => {},
   afterRequest: async (ctx, request, response, complete, selected, usage, cost) => {},
+  afterBatch: async (ctx, job, usage, cost) => {},
   onError: (type, message, error, ctx, request) => {},
 });
 ```
@@ -59,6 +60,8 @@ const myPrompt = ai.prompt({
   // ... all PromptInput options
 });
 ```
+
+Its callbacks (`validate`, `review`, `onToolIntercept`, and the rest) receive the full AI context.
 
 ### `tool(input)`
 

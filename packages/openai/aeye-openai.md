@@ -85,7 +85,7 @@ const res = await executor(
 | `organization` | `string` | Org ID |
 | `project` | `string` | Project ID |
 | `store` | `boolean` | Allow OpenAI to store call contents. Defaults to `false` |
-| `api` | `'auto' \| 'chat' \| 'responses'` | Which API chat uses. `auto` (default) picks Responses for Responses-only models (registry `metadata.responsesOnly`, else by id: codex, pre-5.6 pro, deep-research, computer-use), `hostedTools`, or `reason.mode`/`summary`/`context` |
+| `api` | `'auto' \| 'chat' \| 'responses'` | Which API chat uses. `auto` (default) picks Responses for Responses-only models (registry `metadata.responsesOnly`, else by id: codex, pre-5.6 pro, deep-research, computer-use), `hostedTools`, a tool with `format`/`defer`/`async`, `reason.mode`/`summary`/`context`, or tools with a reasoning `effort` other than `none` |
 | `retry` | `RetryConfig` | Per-provider retry (maxRetries, initialDelay, retryableStatuses, etc.) |
 | `retryEvents` | `RetryEvents` | Retry lifecycle callbacks (e.g. `onRetry`) |
 | `hooks` | `OpenAIHooks` | Per-operation `beforeRequest` / `afterRequest` / `onError` |
@@ -95,7 +95,7 @@ Retry config can also be overridden per request via `request.extra.retry` / `req
 
 ### Hooks
 
-`OpenAIHooks` has a block per operation in `OpenAIOperations`: `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed`. Image analysis runs as chat and reports through the `chat` (or `responses`) hooks. Each block may define `beforeRequest(request, params, ctx, metadata)`, `afterRequest(request, params, response, ctx, metadata)`, and `onError(request, params, error, ctx, metadata)`. The `params` argument is the raw OpenAI SDK params, so you can inspect/mutate the exact wire payload.
+`OpenAIHooks` has a block per operation in `OpenAIOperations`: `chat`, `responses`, `imageGenerate`, `imageEdit`, `transcribe`, `speech`, `embed`, `rerank` (used by subclasses such as OpenRouter), `decide`. Image analysis runs as chat and reports through the `chat` (or `responses`) hooks. Each block may define `beforeRequest(request, params, ctx, metadata)`, `afterRequest(request, params, response, ctx, metadata)`, and `onError(request, params, error, ctx, metadata)`. The `params` argument is the raw OpenAI SDK params, so you can inspect/mutate the exact wire payload.
 
 ## Supported capabilities
 
@@ -116,11 +116,13 @@ Retry config can also be overridden per request via `request.extra.retry` / `req
 
 Other request fields passed through: `seed`, `verbosity`, `serviceTier`, `metadata` (Chat Completions sends it only when `store` is on), `moderate` (inline `omni-moderation-latest`), `cacheBreakpoint` on content. Responses carry `citations`, `images`, `audio`, `moderation`, `serviceTier`; `usage` counts cache writes, audio, reasoning, and hosted tool calls once each.
 
-Through Responses, reasoning comes back encrypted (`include: reasoning.encrypted_content`, unless `store` is on) as `openai-responses-v1` reasoning details and is replayed from the assistant message's `reasoning` on later turns.
+Through Responses, reasoning comes back encrypted (`include: reasoning.encrypted_content`, unless `store` is on) as `openai-responses-v1` reasoning details and is replayed from the assistant message's `reasoning` on later turns — only when that reasoning's `provider` is this provider's `name` or unset, so reasoning from OpenRouter or Bedrock is never sent to OpenAI.
+
+Other wire details: `toolsOneAtATime` sends `parallel_tool_calls: false`, and Chat Completions otherwise omits the parameter (o3 rejects it); an assistant turn of only tool calls is sent with no content, not an empty text part.
 
 ### Strict / structured output
 
-The provider only emits OpenAI-shaped strict schemas (`supportedStrictFamilies = {'openai'}`). Strict mode for a tool or structured output engages only when the resolved model's strict format is `openai` **and** the model declares the `toolsStrict` / `structured` capability; otherwise it silently falls back to the family's non-strict descriptor. When selection supplies only a model id (no `ModelInfo`), the family is still resolved from the id, so the family's non-strict dialect is kept; strict needs the `ModelInfo` capabilities. A shared `SchemaBudget` is used so tools and the response format cooperate on per-request limits.
+The provider only emits OpenAI-shaped strict schemas (`supportedStrictFamilies = {'openai'}`). Strict mode for a tool or structured output engages only when the resolved model's strict format is `openai` **and** the model declares the `toolsStrict` / `structured` capability; otherwise it silently falls back to the family's non-strict descriptor. When selection supplies only a model id (no `ModelInfo`), the family is still resolved from the id, so the family's non-strict dialect is kept; strict needs the `ModelInfo` capabilities. A shared `SchemaBudget` is used so tools and the response format cooperate on per-request limits. A non-strict `json_schema` response format is sent to the Responses API with an explicit `strict: false`, because Responses treats an unflagged one as strict.
 
 That default is correct for api.openai.com, which speaks exactly one dialect. **A subclass that fronts other providers' models must widen it** — `supportedStrictFamilies` is the gate on the whole family resolution, so leaving it at `{'openai'}` sends every other family's tool schemas out as LENIENT no matter what the model declares. `OpenRouterProvider` sets `{'openai', 'anthropic', 'google', 'xai'}` for this reason; `AWSProvider` sets `{'openai', 'anthropic', 'google'}`.
 
@@ -165,6 +167,8 @@ await ai.embed.get({ texts: ['Hello world'] });
 - `convertModel(model)` — enrich `ModelInfo`.
 - `listModels(config)` — custom model discovery.
 - `augmentChatRequest` / `augmentChatMessage` / `augmentChatContent` / `augmentChatChunk` / `augmentChatResponse` — inject provider-specific params and parse extra response fields.
+- `chatHeaders(params)` — extra HTTP headers per Chat Completions request (none by default).
+- `send` / `finish` — run a custom operation through the provider's hooks and retries.
 - `augmentImageGenerateRequest`, `augmentImageEditRequest`, `augmentTranscriptionRequest`, `augmentSpeechRequest`, `augmentEmbeddingRequest`.
 - `supportedStrictFamilies` — widen accepted strict descriptor families.
 - `usesResponses(request, modelId, config, model?)` — decide when chat goes to the Responses API.

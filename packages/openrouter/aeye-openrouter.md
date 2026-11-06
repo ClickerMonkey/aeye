@@ -115,7 +115,7 @@ const openrouter = new OpenRouterProvider({
 
 ## Reasoning
 
-If a request sets `request.reason`, the provider emits OpenRouter's `reasoning` object: `enabled: true`, either `max_tokens` (from `maxTokens`) or `effort` (clamped to the model's `reasoningEfforts`), never both, plus `exclude`, `summary`, `mode`, and `context`. No separate `reasoning_effort` is sent. Reasoning text and `reasoning_details` are parsed back onto `response.reasoning` (and streamed via chunks), and replayed from assistant messages on later turns.
+If a request sets `request.reason`, the provider emits OpenRouter's `reasoning` object: `enabled: true`, either `max_tokens` (from `maxTokens`) or `effort` (clamped to the model's `reasoningEfforts`), never both, plus `exclude`, `summary`, `mode`, and `context`. No separate `reasoning_effort` is sent. Reasoning text and `reasoning_details` are parsed back onto `response.reasoning` (and streamed via chunks) with `provider: 'openrouter'`, and replayed on the same assistant message on later turns. Reasoning that names another provider (OpenAI directly, Bedrock) is not replayed.
 
 ## Server tools and other request features
 
@@ -123,6 +123,10 @@ If a request sets `request.reason`, the provider emits OpenRouter's `reasoning` 
 - `cacheBreakpoint` on content goes as `cache_control: { type: 'ephemeral' }`.
 - `modalities` with `'image'` is passed through; images come back on `response.images` (streamed or not).
 - `userKey` goes as `user`. `moderate` is not sent (OpenRouter ignores OpenAI's inline moderation).
+- A strict tool adds the `x-anthropic-beta: structured-outputs-2025-11-13` header (via `chatHeaders`), without which OpenRouter strips `strict` from tools bound for Anthropic.
+- A JSON or schema response format adds a `Respond in JSON.` system message when no message mentions JSON (Alibaba's Qwen rejects JSON mode otherwise).
+- Assistant turns of only tool calls are sent with no content (Qwen's upstream rejects empty text).
+- `rerank` (`/rerank`) and `decide` (alpha decisions endpoint, System One shape) run through `hooks.rerank` / `hooks.decide`. Batches go inline to `/batches`; the whole batch's cost comes back as `job.cost` (results carry token counts only).
 
 ## Dynamic model registry (`OpenRouterModelSource`)
 
@@ -151,7 +155,7 @@ await ai.models.refresh();
 
 Capabilities depend on the selected model, but the provider class supports: **chat, streaming, tools, hosted (server) tools, structured output / JSON mode, reasoning, vision, files, video input, image generation and editing, audio output, speech, transcription, embeddings** (per model). Capabilities are auto-detected from each model's input/output modalities and `supported_parameters` during model conversion.
 
-Default models: `google/gemini-2.5-flash-image` (image generate/edit), `openai/gpt-5.4-mini` (image analysis), `openai/gpt-transcribe`, `openai/text-embedding-3-small`; speech and chat have none.
+Default models: `google/gemini-2.5-flash-image` (image generate/edit), `openai/gpt-5.4-mini` (image analysis), `openai/gpt-transcribe`, `openai/text-embedding-3-small`, `cohere/rerank-v3.5` (rerank), `typesafe/jev-1.14` (decision); speech and chat have none.
 
 Not offered (overridden to `undefined`, so the non-streaming method is used): image generation streaming, image edit streaming, transcription streaming.
 
@@ -171,5 +175,5 @@ console.log(response.usage?.cost); // real cost reported by OpenRouter, includin
 - **Images go through chat.** `generateImage` / `editImage` send a chat request with `modalities: ['image', 'text']` (running through the chat hooks); `size` becomes an `image_config.aspect_ratio`, and an edit's `image` + `references` are sent as input images. GPT Image options such as `quality` and `outputFormat` are not sent.
 - Model ids are `provider/model` slugs (e.g. `anthropic/claude-sonnet-4.5`), not raw OpenAI ids.
 - Strict/structured output behavior is inherited from `OpenAIProvider` (best-effort, silent fallback to the family's non-strict descriptor), but the accepted dialects are widened here: `supportedStrictFamilies = {'openai', 'anthropic', 'google', 'xai'}`, because the model id's `family/…` prefix names the upstream that actually serves the request. This applies to **tool** schemas as well as `response_format`; before 0.4.x the inherited `{'openai'}` quietly forced every non-OpenAI model's tools through LENIENT.
-- Assistant reasoning is split into a separate preceding message during conversion to work around OpenRouter not round-tripping reasoning attached to content — expect an extra assistant message in transformed payloads.
+- Assistant reasoning rides on its own assistant message (with that turn's text and tool calls), once even when the message is split into parts; it is not split into a separate message.
 - ZDR (`zdr: true` / `dataCollection: 'deny'`) only constrains upstreams that honor it; combine with `only`/`ignore` for strict guarantees.

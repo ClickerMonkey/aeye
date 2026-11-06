@@ -47,6 +47,16 @@ ai.models.list() / .get(id) / .search(criteria) / .select(criteria) / .refresh()
 ai.tool({...}) / ai.prompt({...}) / ai.agent({...})
 ```
 
+Key behaviours:
+
+- Model selection: requests pick a model by required capabilities (vision, tools, structured, reasoning, rerank, decision, ...) and cost/speed/accuracy weights, or use `metadata.model`.
+- Hooks: `ai.withHooks({ beforeModelSelection, onModelSelected, beforeRequest, afterRequest, afterBatch, onError })` for budgets and logging; batches run them too.
+- Prompts: Handlebars `content` is the system message; without a conversation a `userTurn` (default 'Begin.') is added. Output is parsed (Zod or custom `parse`), validated, then optionally `review`ed with feedback rounds (`reviewRetries`).
+- Schema fallbacks: when a provider rejects a schema (`SchemaRejectedError`), prompts step down `SCHEMA_FALLBACKS` (non-strict → JSON mode → text) instead of failing.
+- Error kinds: `PromptError` and its subclasses carry `kind: 'model' | 'tool'`.
+- Reasoning: `reason: { effort }` is clamped to the model's accepted efforts without turning reasoning off; replayed reasoning goes only to the provider that produced it.
+- Batches: `ai.batch` runs chat requests at about half price, results within a day.
+
 ---
 
 ## @aeye/core — Types
@@ -142,7 +152,8 @@ type HostedTool =
   | { type: 'image_generation' }
   | { type: 'mcp'; label: string; url: string; headers?: Record<string, string>; allowedTools?: string[] };
 type FinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'refusal';
-type ResponseFormat = 'text' | 'json' | { type: z.ZodType<object, object>; strict: boolean };
+type ResponseFormat = 'text' | 'json' | { type: z.ZodType<object, object>; strict: boolean | number; schemaDelivery?: SchemaDelivery };
+type SchemaDelivery = 'auto' | 'structured' | 'json' | 'prompt'; // json/prompt: schema moves into the system prompt (JSON mode / text)
 type ModelInput = string | Model;
 
 interface Model {
@@ -245,8 +256,13 @@ interface ReasoningDetail {
 interface Reasoning {
   content?: string | null;
   details?: ReasoningDetail[];
+  provider?: string; // who produced it; signed/encrypted details only verify there
 }
 ```
+
+Keep an assistant message's `reasoning` when sending the conversation back. A provider replays only reasoning it produced or that names no provider (`replaysTo(reasoning, provider)`), so a conversation can move between providers. OpenAI, OpenRouter, and AWS Bedrock (`aws-bedrock`) mark their reasoning. Reasoning rides on the assistant message it came with; a turn of only tool calls sends no text content.
+
+Requested efforts are clamped to `ModelInfo.reasoningEfforts` (`clampReasoningEffort` in @aeye/ai): nearest accepted, lower on a tie, and `none` only when asked for or alone accepted (`low` on [none, high, xhigh] → `high`; `none` on o3 [low, medium, high] → `low`).
 
 ### Execution Types
 
@@ -265,6 +281,8 @@ type Context<TContext, TMetadata> = TContext & {
   outputRetries?: number;
   forgetRetries?: number;
   toolRetries?: number;
+  schemaFallbacks?: readonly SchemaFallback[]; // AI-wide default for prompts
+  userTurn?: string;                          // AI-wide default for prompts
   instance?: Instance<any>;
   runner?: Runner;
   toolCallId?: string;
@@ -407,14 +425,26 @@ interface PromptInput<TContext, TMetadata, TName extends string, TInput extends 
   toolsMax?: number;
   outputRetries?: number;
   forgetRetries?: number;
+  toolsComplete?: boolean;          // pair every tool call with a reply, even on abort/interrupt (default true)
   retool?: (input: TInput | undefined, ctx: Context<TContext, TMetadata>) => Tool[] | false;
   dynamic?: boolean;
   excludeMessages?: boolean;
-  validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  schemaDelivery?: SchemaDelivery;  // default 'auto'
+  schemaFallbacks?: readonly SchemaFallback[]; // on a SchemaRejectedError; default ctx's, then SCHEMA_FALLBACKS
+  runtimeSchemaFallback?: boolean;  // default true
+  userTurn?: string;                // user message added without a conversation; default ctx's, then DEFAULT_USER_TURN ('Begin.')
+  onToolIntercept?: (tool: Tool, args: unknown, ctx: Context<TContext, TMetadata>) => unknown | false | Promise<unknown | false>; // a value short-circuits the tool
+  onToolResult?: (event: { tool; result; args; ctx; request }) => unknown; // what the model sees for a tool result
+  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>; // replaces Zod for structured output
+  validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  review?: (output: TDecoded, context: { input: TInput; request: Request; ctx: Context<TContext, TMetadata>; attempt: number }) => PromptReview | Promise<PromptReview>;
+  reviewRetries?: number;           // rounds of review feedback the model answers (default 1)
   applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
   metadata?: TMetadata;
   metadataFn?: (input: TInput, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
 }
+
+type PromptReview = { pass: true } | { feedback: string };
 
 type PromptGetType = 'result' | 'tools' | 'stream' | 'streamTools' | 'streamContent';
 
@@ -423,17 +453,22 @@ type PromptEvent<TOutput, TTools> =
   | { type: 'textPartial'; content: string; request: Request }
   | { type: 'text'; content: string; request: Request }
   | { type: 'textComplete'; content: string; request: Request }
-  | { type: 'textReset'; reason?: string; request: Request }
+  | { type: 'textReset'; reason?: string; error?: OutputValidationError; request: Request }
   | { type: 'refusal'; content: string; request: Request }
   | { type: 'reason'; reasoning: Reasoning; request: Request }
   | { type: 'reasonPartial'; reasoning: Reasoning; request: Request }
   | { type: 'toolParseName'; tool: Tool; request: Request }
   | { type: 'toolParseArguments'; tool: Tool; args: string; request: Request }
   | { type: 'toolStart'; tool: Tool; args: any; request: Request }
-  | { type: 'toolOutput'; tool: Tool; args: any; result: any; request: Request }
+  | { type: 'toolArgRepairAttempt'; tool: Tool; fields: readonly string[]; success: boolean; request: Request }
+  | { type: 'toolOutput'; tool: Tool; args: any; result: any; toModel: unknown; request: Request }
   | { type: 'toolInterrupt'; tool: Tool; args: any; request: Request }
   | { type: 'toolSuspend'; tool: Tool; args: any; request: Request }
-  | { type: 'toolError'; tool: Tool; args: any; error: string; request: Request }
+  | { type: 'toolError'; tool: Tool; args: any; error: string; failure: ToolInputError | ToolExecutionError; rawArgs?: string; request: Request }
+  | { type: 'citations' | 'images' | 'audioPartial' | 'moderation'; /* ... */ request: Request }
+  | { type: 'schemaFallback'; fallback: string; error: SchemaRejectedError; request: Request }
+  | { type: 'reviewStart' | 'reviewPass'; output: TOutput; attempt: number; request: Request }
+  | { type: 'reviewFeedback'; output: TOutput; feedback: string; attempt: number; request: Request }
   | { type: 'message'; message: Message; request: Request }
   | { type: 'complete'; output: TOutput; request: Request }
   | { type: 'suspend'; request: Request }
@@ -457,6 +492,27 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
   static compileContent(content: string, hasTools: boolean): Function;
 }
 ```
+
+### Errors & Schema Fallbacks
+
+```typescript
+type ErrorKind = 'model' | 'tool'; // model: it can fix it on another try; tool: the tool's own code
+class PromptError extends Error { kind: ErrorKind; cause?: Error }  // anything a prompt throws; cause = last failure
+class ToolInputError extends PromptError { tool: string; rawArgs?: string }        // kind 'model'
+class ToolExecutionError extends PromptError { tool: string }                      // kind 'tool'
+class OutputValidationError extends PromptError { reason: 'json-parsing' | 'schema-parsing' | 'validation'; output: string } // kind 'model'
+class ReviewRejectedError<TOutput> extends PromptError { output: TOutput; feedback: string } // feedback after reviewRetries
+class SchemaRejectedError extends Error { target: SchemaTarget }
+type SchemaTarget = { kind: 'output' } | { kind: 'tool'; name: string } | { kind: 'tools' };
+
+interface SchemaFallback { name: string; apply: (request: Request, target: SchemaTarget) => boolean }
+const SCHEMA_FALLBACKS: readonly SchemaFallback[]; // 'non-strict' → 'json' → 'text' (tools only go non-strict)
+const DEFAULT_USER_TURN = 'Begin.';
+function schemaRejection(request: Request, error: Error, message?: string): SchemaRejectedError | undefined; // providers classify 400s
+function deliverSchema(request: Request, descriptor?: FormatDescriptor, delivery?: SchemaDelivery): Request;
+```
+
+A prompt run without a conversation stays the system message and adds `userTurn` as the user message. Tool result messages carry `failure: 'model' | 'tool'`. When a provider rejects a schema, the prompt takes the first applicable fallback step, emits `schemaFallback`, and resends; the step stays on the request for the run.
 
 ---
 
@@ -499,6 +555,7 @@ function getChunksFromResponse(response: Response): Chunk[];
 function getModel(input: ModelInput): Model | undefined;
 function getReasoningText(reasoning?: Reasoning): string;
 function accumulateReasoning(target?: Reasoning, add?: Reasoning): Reasoning | undefined;
+function replaysTo(reasoning: Reasoning | undefined, provider: string): reasoning is Reasoning;
 function withEvents<TRoot extends AnyComponent>(events: Events<TRoot>): Runner;
 function toURL(input: Resource, mimeType?: string, fallback?: string): Promise<string>;
 function toBase64(input: Resource, mimeType?: string, fallback?: string): Promise<string>;
@@ -521,7 +578,7 @@ function isAsyncGenerator(value: any): value is AsyncGenerator;
 
 ```typescript
 type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict';
-type ModelTier = 'flagship' | 'efficient' | 'experimental';
+type ModelTier = 'flagship' | 'efficient' | 'legacy' | 'experimental';
 type ModelTokenizer = 'gpt3' | 'gpt35turbo' | 'gpt4' | 'cl100k' | 'claude' | 'llama2' | 'mistral' | 'other';
 
 type ModelParameter =
@@ -762,6 +819,7 @@ interface BatchJob {
   status: BatchStatus;
   counts?: { total: number; completed: number; failed: number };
   error?: string;
+  cost?: number;            // dollars billed, where the provider reports it (OpenRouter)
   results?: BatchResult[];  // in request order, once completed
 }
 
@@ -801,13 +859,16 @@ interface AIBaseContext<T> {
 
 ```typescript
 interface AIHooks<T> {
-  beforeModelSelection?(ctx: AIContext<T>, request: Request, metadata: AIMetadata<T>): Promise<AIMetadata<T>> | AIMetadata<T>;
-  onModelSelected?(ctx: AIContext<T>, selected: SelectedModel, request: Request, metadata: AIMetadata<T>): Promise<SelectedModel | void> | SelectedModel | void;
-  beforeRequest?(type: string, ctx: AIContext<T>, request: Request, selected: SelectedModel, metadata: AIMetadata<T>): Promise<void> | void;
-  afterRequest?(type: string, ctx: AIContext<T>, selected: SelectedModel, usage: Usage, cost?: number): Promise<void> | void;
-  onError?(type: string, message: string, error: Error, ctx: AIContext<T>): void;
+  beforeModelSelection?(ctx: AIContext<T>, request: BaseRequest, metadata: AIMetadata<T>): Promise<AIMetadata<T>> | AIMetadata<T>;
+  onModelSelected?(ctx: AIContext<T>, request: BaseRequest, selected: SelectedModel): Promise<SelectedModel | void> | SelectedModel | void;
+  beforeRequest?(ctx: AIContext<T>, request: BaseRequest, selected: SelectedModel, estimatedUsage: Usage, estimatedCost: number): Promise<void> | void; // throw to cancel
+  afterRequest?(ctx: AIContext<T>, request: BaseRequest, response: BaseResponse, responseComplete: boolean, selected: SelectedModel, usage: Usage, cost: number): Promise<void> | void;
+  afterBatch?(ctx: AIContext<T>, job: BatchJob, usage: Usage, cost: number): Promise<void> | void;
+  onError?(errorType: string, message: string, error?: Error, ctx?: AIContext<T>, request?: BaseRequest): void;
 }
 ```
+
+Attach with `ai.withHooks(hooks)`. `ai.batch.submit` runs `onModelSelected` once and `beforeRequest` per request at the batch price estimate (so budget checks can stop a batch); `get`/`wait` report a completed batch once to `afterBatch` (provider-reported cost, else half the regular price of its usage). `afterRequest` doesn't run for batched requests. Every callback given to `ai.prompt` (`validate`, `review`, `onToolIntercept`, ...) receives the full AI context.
 
 ### Configuration
 
@@ -824,7 +885,6 @@ interface AIConfig<TContext, TMetadata, TProviders> {
   modelSources?: ModelSource[];
   defaultWeights?: ModelSelectionWeights;
   weightProfiles?: Record<string, ModelSelectionWeights>;
-  hooks?: AIHooks<any>;
   tokens?: {
     textDivisor?: number; textBase64Divisor?: number; textFallback?: number; textMax?: number;
     imageDivisor?: number; imageBase64Divisor?: number; imageFallback?: number; imageMax?: number;
@@ -886,6 +946,8 @@ class AI<T> {
   trackRequest(cost: number, latency: number): void;
   stats(): LibraryStats;
 }
+
+function clampReasoningEffort(effort: ReasoningEffort, accepted?: readonly ReasoningEffort[]): ReasoningEffort;
 ```
 
 ---
@@ -933,7 +995,7 @@ interface OpenAIConfig {
   organization?: string;
   project?: string;
   store?: boolean;
-  api?: 'auto' | 'chat' | 'responses'; // auto: Responses for Responses-only models, hostedTools, tools with format/defer/async, or reason.mode/summary/context
+  api?: 'auto' | 'chat' | 'responses'; // auto: Responses for Responses-only models, hostedTools, tools with format/defer/async, tools with a reason.effort other than none, or reason.mode/summary/context
   retry?: {
     maxRetries?: number;
     initialDelay?: number;
