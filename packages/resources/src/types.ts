@@ -89,9 +89,31 @@ export interface ParsedResource {
 export interface SliceContext {
   headings?: string[];
   declaration?: string;
+  /** Summary of the whole resource, from {@link SliceOptions.summarize}. */
   summary?: string;
+  /** Summary of the section (markdown section, code block, text part) the slice belongs to. */
+  sectionSummary?: string;
   prefixes?: string[];
 }
+
+/** What {@link SliceOptions.summarize} is asked to summarize. */
+export interface SummaryRequest {
+  /** "resource" for the whole resource, "section" for one section of it. */
+  scope: "resource" | "section";
+  resource: ParsedResource;
+  /** The text to summarize (all text parts for a resource; the section's text for a section). */
+  text: string;
+  /** Section id (only for scope "section"). */
+  sectionId?: string;
+  /** Heading path of the section, when known. */
+  headings?: string[];
+  /** Leading declaration of a code section, when known. */
+  declaration?: string;
+  signal?: AbortSignal;
+}
+
+/** Produces a summary for a resource or section, e.g. by calling an LLM. Return undefined to skip. */
+export type SummarizeFn = (request: SummaryRequest) => Promise<string | undefined>;
 
 /** A contiguous span of text produced by a {@link TextSegmenter}, with offsets into the input text. */
 export interface TextSegment {
@@ -131,6 +153,11 @@ export interface ResourceSlice {
   end: number;
   context?: SliceContext;
   links: ResourceLink[];
+  /**
+   * Id of the section the slice was cut from (a markdown section, a code block, or a whole text
+   * part). Slices sharing a section id are contiguous pieces of the same section.
+   */
+  sectionId?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -148,6 +175,11 @@ export interface CodeParserOptions {
   importPattern?: RegExp;
   /** Maximum number of detected import lines to attach as slice context prefixes. Defaults to 5. */
   maxImportPrefixes?: number;
+  /**
+   * Only treat unindented lines as declarations, so nested `const`s or methods don't split a block.
+   * Defaults to true. Set false for languages where top-level declarations are indented.
+   */
+  topLevelOnly?: boolean;
 }
 
 export interface PdfParseOptions {
@@ -159,6 +191,12 @@ export interface PdfParseOptions {
   transcribePages?: boolean;
   /** When true, extract embedded images from the PDF as image parts. */
   extractImages?: boolean;
+  /**
+   * Directory to keep rendered page images in. When set, page image parts reference files there
+   * (`metadata.filePath`) and the caller owns them. When unset, pages render to a temporary
+   * directory, their bytes are loaded into the image parts' `data`, and the directory is deleted.
+   */
+  pageOutputDir?: string;
 }
 
 export interface RenderedPage {
@@ -234,6 +272,19 @@ export interface SliceOptions {
   buildEmbedText?: (context: EmbedTextContext) => string;
   /** Options for code slicing behavior. */
   code?: CodeParserOptions;
+  /**
+   * Summarizes resources and/or sections (see {@link SliceOptions.summaryScope}); the results land
+   * in each slice's `context.summary` / `context.sectionSummary` and in its embed text. Summaries
+   * are cached on `resource.metadata.summary` / `resource.metadata.sectionSummaries`, so slicing
+   * the same (or a cached) resource again does not re-summarize.
+   */
+  summarize?: SummarizeFn;
+  /** What to summarize: "resource" (default), "section", or "both". */
+  summaryScope?: "resource" | "section" | "both";
+  /** Maximum concurrent {@link SliceOptions.summarize} calls. Defaults to 4. */
+  summaryConcurrency?: number;
+  /** Sections whose text is shorter than this are not summarized. Defaults to 0 (summarize all). */
+  minSectionSummaryChars?: number;
 }
 
 export interface ResolveOptions {
@@ -241,6 +292,10 @@ export interface ResolveOptions {
   baseLocation?: string;
   headers?: Record<string, string>;
   metadata?: Record<string, unknown>;
+  /** Timeout for fetching a URL (headers and body), in milliseconds. Defaults to 30000. 0 disables. */
+  timeoutMs?: number;
+  /** Maximum bytes to download for a URL. Defaults to 50 MiB. 0 disables. */
+  maxBytes?: number;
 }
 
 export interface LoadResourceOptions extends ParseOptions, SliceOptions, ResolveOptions {

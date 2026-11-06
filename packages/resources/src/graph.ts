@@ -7,13 +7,20 @@ import type {
   ResourceSlice,
   ResourceSource,
 } from "./types";
-import { assertNotAborted } from "./utils";
+import { createLimiter } from "./summaries";
+import { assertNotAborted, isHttpUrl, resolveAgainstUrl } from "./utils";
+
+/** Default cap on graph size, so a crawl can't run away. Pass `Infinity` to lift it. */
+export const DEFAULT_GRAPH_MAX_RESOURCES = 1000;
+/** Default number of link targets loaded at once. */
+export const DEFAULT_GRAPH_CONCURRENCY = 4;
 
 /** Why a link's target was not loaded into the graph. */
 export type GraphEdgeSkipReason =
   | "external"
   | "resource-links-disabled"
   | "filtered"
+  | "cross-origin"
   | "unresolved"
   | "max-depth"
   | "max-resources"
@@ -48,7 +55,7 @@ export interface ResourceGraphNode {
   slices?: ResourceSlice[];
   /** True when the resource was reused from the caller's cache rather than freshly parsed. */
   reused: boolean;
-  /** Outgoing link edges. */
+  /** Outgoing link edges, in the order the links appear in the resource. */
   edges: ResourceGraphEdge[];
   /** Locations of child resources (e.g. zip entries, rendered PDF pages) contained by this node. */
   children: ResourceLocation[];
@@ -74,14 +81,30 @@ export interface GraphTarget {
 export interface BuildGraphOptions extends LoadResourceOptions {
   /** Maximum link/child distance from a root to traverse. Defaults to unlimited. */
   maxDepth?: number;
-  /** Maximum number of nodes to load. Defaults to unlimited. Existing nodes are never re-counted. */
+  /**
+   * Maximum number of nodes to load. Defaults to {@link DEFAULT_GRAPH_MAX_RESOURCES} (1000); pass
+   * `Infinity` for no cap. Existing nodes are never re-counted.
+   */
   maxResources?: number;
+  /** How many link targets to probe/load at once. Defaults to {@link DEFAULT_GRAPH_CONCURRENCY} (4). */
+  concurrency?: number;
   /** Traverse child resources (zip entries, rendered PDF pages, …) as nodes. Defaults to true. */
   followChildren?: boolean;
-  /** Follow external (e.g. http) links. Defaults to true. */
+  /**
+   * Follow external links (e.g. http links from a local file, or links to another site). Defaults to
+   * false. Links between pages of the same site are not external; they follow with
+   * {@link BuildGraphOptions.followResourceLinks}.
+   */
   followExternal?: boolean;
   /** Follow internal/relative resource links. Defaults to true. */
   followResourceLinks?: boolean;
+  /**
+   * Keep web crawling on one site: a link found on a web page is only followed when it points to the
+   * same origin. Links from non-web resources (local files, zips) to the web are not affected, so a
+   * local doc can still reach the pages it links to, which then stay on their own site. Only matters
+   * with `followExternal`. Defaults to true.
+   */
+  sameOrigin?: boolean;
   /** Also slice each loaded resource and attach the slices to its node. Defaults to false. */
   includeSlices?: boolean;
   /** Per-link filter; return false to skip following a link. */
@@ -109,6 +132,10 @@ export interface BuildGraphOptions extends LoadResourceOptions {
  * each canonical location is loaded at most once, so cycles and shared references are handled and the
  * traversal terminates even on infinitely cross-referencing content.
  *
+ * The graph is walked one depth level at a time, with up to {@link BuildGraphOptions.concurrency}
+ * targets loading at once, so each node's `depth` is its true shortest distance from a root. Node
+ * insertion order in `nodes` may vary between runs when concurrency is above 1.
+ *
  * Pass {@link BuildGraphOptions.shouldLoad} + {@link BuildGraphOptions.getCached} to perform
  * incremental rebuilds against a target system, using each resource's `modifiedAt` to detect staleness.
  */
@@ -118,14 +145,20 @@ export async function buildResourceGraph(
   options: BuildGraphOptions = {},
 ): Promise<ResourceGraph> {
   const maxDepth = options.maxDepth ?? Number.POSITIVE_INFINITY;
-  const maxResources = options.maxResources ?? Number.POSITIVE_INFINITY;
+  const maxResources = options.maxResources ?? DEFAULT_GRAPH_MAX_RESOURCES;
   const followChildren = options.followChildren ?? true;
-  const followExternal = options.followExternal ?? true;
+  const followExternal = options.followExternal ?? false;
   const followResourceLinks = options.followResourceLinks ?? true;
+  const sameOrigin = options.sameOrigin ?? true;
+  const limit = createLimiter(options.concurrency ?? DEFAULT_GRAPH_CONCURRENCY);
 
   const nodes = new Map<ResourceLocation, ResourceGraphNode>();
   const roots: ResourceLocation[] = [];
-  const queue: ResourceLocation[] = [];
+  /** Targets being loaded right now, so concurrent links to the same target share one load. */
+  const pending = new Map<string, Promise<ResourceGraphNode>>();
+  let discovered: ResourceGraphNode[] = [];
+
+  const isFull = (): boolean => nodes.size + pending.size >= maxResources;
 
   const addParent = (node: ResourceGraphNode, parent: ResourceLocation): void => {
     if (parent !== node.location && !node.parents.includes(parent)) {
@@ -151,39 +184,49 @@ export async function buildResourceGraph(
       children: [],
       parents: [],
     };
+    // Claim the location before any await so concurrent loads see it.
+    nodes.set(node.location, node);
+    discovered.push(node);
     if (options.includeSlices) {
       node.slices = await registry.slice(resource, options);
     }
-    nodes.set(node.location, node);
     options.onNode?.(node);
-    queue.push(node.location);
     return node;
   };
 
-  // Seed roots.
+  // Seed roots (loaded concurrently, kept in input order).
   const rootInputs = Array.isArray(inputs) ? inputs : [inputs];
-  for (const input of rootInputs) {
+  const rootNodes = await Promise.all(rootInputs.map((input) => limit(async () => {
     assertNotAborted(options.signal);
     const { resource } = await registry.parse(input, options);
-    const node = await registerNode(resource, 0, false);
+    return registerNode(resource, 0, false);
+  })));
+  for (const node of rootNodes) {
     if (!roots.includes(node.location)) {
       roots.push(node.location);
     }
   }
 
-  // Breadth-first expansion.
-  while (queue.length > 0) {
+  // Breadth-first expansion, one depth level per wave.
+  let frontier = discovered;
+  discovered = [];
+  while (frontier.length > 0) {
     assertNotAborted(options.signal);
-    const location = queue.shift()!;
-    const node = nodes.get(location)!;
+    await Promise.all(frontier.map((node) => expand(node)));
+    frontier = discovered;
+    discovered = [];
+  }
 
+  return { roots, nodes };
+
+  async function expand(node: ResourceGraphNode): Promise<void> {
     if (node.depth >= maxDepth) {
-      continue;
+      return;
     }
 
     if (followChildren) {
       for (const child of node.resource.children ?? []) {
-        if (!nodes.has(child.location) && nodes.size >= maxResources) {
+        if (!nodes.has(child.location) && isFull()) {
           continue;
         }
         const childNode = await registerNode(child, node.depth + 1, false);
@@ -194,21 +237,36 @@ export async function buildResourceGraph(
       }
     }
 
-    for (const link of node.resource.links) {
-      assertNotAborted(options.signal);
-      node.edges.push(await followLink(link, node));
-    }
+    node.edges = await Promise.all(node.resource.links.map((link) => limit(() => followLink(link, node))));
   }
 
-  return { roots, nodes };
+  /** The absolute http(s) URL a link points to, if it is a web link. */
+  function webTarget(link: ResourceLink, from: ResourceGraphNode): URL | undefined {
+    try {
+      if (isHttpUrl(link.value)) return new URL(link.value);
+      if (isHttpUrl(from.location)) return new URL(resolveAgainstUrl(link.value, from.location));
+    } catch {
+      // Not a valid URL.
+    }
+    return undefined;
+  }
 
   async function followLink(link: ResourceLink, from: ResourceGraphNode): Promise<ResourceGraphEdge> {
-    const isExternal = link.kind === "external";
+    assertNotAborted(options.signal);
+    const target = webTarget(link, from);
+    const fromWeb = isHttpUrl(from.location);
+    const crossOrigin = Boolean(target && fromWeb && target.origin !== new URL(from.location).origin);
+    // A link to another page of the same site is internal, however it is spelled.
+    const isExternal = link.kind === "external" && !(target && fromWeb && !crossOrigin);
+
     if (isExternal && !followExternal) {
       return { link, loaded: false, reason: "external" };
     }
     if (!isExternal && !followResourceLinks) {
       return { link, loaded: false, reason: "resource-links-disabled" };
+    }
+    if (crossOrigin && sameOrigin) {
+      return { link, loaded: false, reason: "cross-origin", targetLocation: target?.toString() };
     }
     if (options.shouldFollow && !options.shouldFollow(link, from)) {
       return { link, loaded: false, reason: "filtered" };
@@ -225,11 +283,20 @@ export async function buildResourceGraph(
     const stat = await registry.statLink(link.value, linkOptions).catch(() => undefined);
     const probedLocation = stat?.location;
 
+    const connect = (node: ResourceGraphNode): ResourceGraphEdge => {
+      addParent(node, from.location);
+      return { link, loaded: true, targetLocation: node.location, targetId: node.id };
+    };
+
     if (probedLocation) {
       const known = nodes.get(probedLocation);
       if (known) {
-        addParent(known, from.location);
-        return { link, loaded: true, targetLocation: known.location, targetId: known.id };
+        return connect(known);
+      }
+      const inFlight = pending.get(probedLocation);
+      if (inFlight) {
+        const node = await inFlight.catch(() => undefined);
+        if (node) return connect(node);
       }
     }
 
@@ -248,24 +315,30 @@ export async function buildResourceGraph(
       if (!shouldLoad) {
         const cached = options.getCached?.(probedLocation ?? link.value, stat?.modifiedAt);
         if (cached) {
-          const node = await registerNode(cached, targetDepth, true);
-          addParent(node, from.location);
-          return { link, loaded: true, targetLocation: node.location, targetId: node.id };
+          return connect(await registerNode(cached, targetDepth, true));
         }
         return { link, loaded: false, reason: "skipped", targetLocation: probedLocation };
       }
     }
 
-    if (nodes.size >= maxResources) {
+    if (isFull()) {
       return { link, loaded: false, reason: "max-resources", targetLocation: probedLocation };
     }
 
-    try {
+    // Without a probed location the load can't be shared; key it uniquely so it still counts as pending.
+    const key = probedLocation ?? `\0link:${from.location}:${link.id}`;
+    const load = (async () => {
       const { resource } = await registry.parse(link.value, linkOptions);
-      const node = await registerNode(resource, targetDepth, false);
-      addParent(node, from.location);
-      return { link, loaded: true, targetLocation: node.location, targetId: node.id };
+      // registerNode claims the location synchronously, so the node takes over from the reservation.
+      pending.delete(key);
+      return registerNode(resource, targetDepth, false);
+    })();
+    pending.set(key, load);
+
+    try {
+      return connect(await load);
     } catch (error) {
+      assertNotAborted(options.signal);
       return {
         link,
         loaded: false,
@@ -273,6 +346,8 @@ export async function buildResourceGraph(
         error: error instanceof Error ? error.message : String(error),
         targetLocation: probedLocation,
       };
+    } finally {
+      pending.delete(key);
     }
   }
 }

@@ -1,5 +1,4 @@
-import { Buffer } from "node:buffer";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createParsedResource } from "../registry";
@@ -8,17 +7,20 @@ import {
   assertNotAborted,
   createPartId,
   dedupeLinks,
+  collectInput,
   extractLinksFromText,
-  toFilePath,
+  isAbortError,
+  withLocalFile,
 } from "../utils";
 
-let pdfParse: ((buffer: Buffer) => Promise<{ text: string; numpages: number }>) | undefined;
+let pdfParse: ((buffer: Uint8Array) => Promise<{ text: string; numpages: number }>) | undefined;
 
 async function loadPdfParse(): Promise<typeof pdfParse> {
   if (pdfParse) return pdfParse;
   try {
     const mod = await import("pdf-parse");
-    pdfParse = mod.default ?? mod;
+    // Typed for Buffer, but pdf.js reads any Uint8Array (and needs one starting at offset 0).
+    pdfParse = (mod.default ?? mod) as unknown as typeof pdfParse;
     return pdfParse;
   } catch {
     return undefined;
@@ -54,101 +56,113 @@ export const pdfRenderParser: ResourceParser = {
       return undefined;
     }
 
-    const resource = createParsedResource(source);
-    resource.defaultSlicer = "text";
-
-    const pdfFilePath = toFilePath(source.location);
+    // Pages go to the caller's directory (kept) or a temporary one (deleted, bytes kept in the parts).
+    const keepPages = Boolean(pdfOptions?.pageOutputDir);
+    let outputDir: string | undefined;
 
     try {
-      const outputDir = await mkdtemp(join(tmpdir(), "aeye-pdf-pages-"));
-      const renderedPages = await renderPdfPages(pdfFilePath, outputDir, dpi, context.options.signal);
+      // Renderers need a file on disk; in-memory, URL and zip-entry PDFs go through a temp file.
+      return await withLocalFile(source, ".pdf", async (pdfFilePath) => {
+        if (pdfOptions?.pageOutputDir) {
+          await mkdir(pdfOptions.pageOutputDir, { recursive: true });
+          outputDir = pdfOptions.pageOutputDir;
+        } else {
+          outputDir = await mkdtemp(join(tmpdir(), "aeye-pdf-pages-"));
+        }
+        const renderedPages = await renderPdfPages(pdfFilePath, outputDir, dpi, context.options.signal);
+        if (renderedPages.length === 0) {
+          return undefined;
+        }
 
-      if (renderedPages.length === 0) {
-        return undefined;
-      }
+        const resource = createParsedResource(source);
+        resource.defaultSlicer = "text";
+        const pageChildren: ParsedResource[] = [];
 
-      const pageChildren: ParsedResource[] = [];
+        for (const renderedPage of renderedPages) {
+          assertNotAborted(context.options.signal);
+          const pageLocation = `${source.location}#page/${renderedPage.pageNumber}`;
 
-      for (const renderedPage of renderedPages) {
-        assertNotAborted(context.options.signal);
+          const pageResource = createParsedResource({
+            ...source,
+            location: pageLocation,
+            name: `${source.name ?? "page"} - Page ${renderedPage.pageNumber}`,
+            type: "image",
+            mimeType: renderedPage.mimeType,
+          });
+          pageResource.parentLocation = source.location;
 
-        const pageResource = createParsedResource({
-          ...source,
-          location: `${source.location}#page/${renderedPage.pageNumber}`,
-          name: `${source.name ?? "page"} - Page ${renderedPage.pageNumber}`,
-          type: "image",
-          mimeType: renderedPage.mimeType,
-        });
-        pageResource.parentLocation = source.location;
+          const needsData = !keepPages || canTranscribePages;
+          const imageData = needsData ? await readFile(renderedPage.filePath) : undefined;
 
-        const imagePart: ResourcePart = {
-          id: createPartId(pageResource, 0, "image"),
-          location: `${source.location}#page/${renderedPage.pageNumber}/image`,
-          kind: "image",
-          mimeType: renderedPage.mimeType,
-          pageNumber: renderedPage.pageNumber,
-          metadata: { filePath: renderedPage.filePath },
-        };
-        pageResource.parts.push(imagePart);
+          const imagePart: ResourcePart = {
+            id: createPartId(pageResource, 0, "image"),
+            location: `${pageLocation}/image`,
+            kind: "image",
+            mimeType: renderedPage.mimeType,
+            pageNumber: renderedPage.pageNumber,
+            // Temporary page files are deleted below, so their bytes travel with the part.
+            ...(keepPages ? { metadata: { filePath: renderedPage.filePath } } : { data: imageData }),
+          };
+          pageResource.parts.push(imagePart);
 
-        // If transcription is available, read the image file and transcribe it
-        if (canTranscribePages && context.options.transcribeImage) {
-          try {
-            const imageData = await readFile(renderedPage.filePath);
-            const pageSource = {
-              ...source,
-              location: pageResource.location,
-              name: pageResource.name,
-              type: "image" as const,
-              mimeType: renderedPage.mimeType,
-            };
-            const transcript = await context.options.transcribeImage(imageData, imagePart, pageSource);
-            if (transcript) {
-              const textPart: ResourcePart = {
-                id: createPartId(pageResource, 1, "transcript"),
-                location: `${source.location}#page/${renderedPage.pageNumber}/transcript`,
-                kind: "text",
-                text: transcript,
-                pageNumber: renderedPage.pageNumber,
-                links: extractLinksFromText(transcript, `${source.location}#page/${renderedPage.pageNumber}/transcript`),
+          if (canTranscribePages && context.options.transcribeImage && imageData) {
+            try {
+              const pageSource = {
+                ...source,
+                location: pageResource.location,
+                name: pageResource.name,
+                type: "image" as const,
+                mimeType: renderedPage.mimeType,
               };
-              pageResource.parts.push(textPart);
+              const transcript = await context.options.transcribeImage(imageData, imagePart, pageSource);
+              if (transcript) {
+                pageResource.parts.push({
+                  id: createPartId(pageResource, 1, "transcript"),
+                  location: `${pageLocation}/transcript`,
+                  kind: "text",
+                  text: transcript,
+                  pageNumber: renderedPage.pageNumber,
+                  links: extractLinksFromText(transcript, `${pageLocation}/transcript`),
+                });
+              }
+            } catch (error) {
+              if (isAbortError(error)) throw error;
+              // Transcription failed for this page; image part still available.
             }
-          } catch {
-            // Transcription failed for this page; image part still available
+          }
+
+          pageResource.links = dedupeLinks(pageResource.parts.flatMap((p) => p.links ?? []));
+          pageChildren.push(pageResource);
+        }
+
+        resource.children = pageChildren;
+
+        // Add text parts from transcribed pages to the parent resource.
+        let partIndex = 0;
+        for (const child of pageChildren) {
+          for (const part of child.parts) {
+            if (part.kind === "text" && part.text) {
+              resource.parts.push({ ...part, id: createPartId(resource, partIndex++) });
+            }
           }
         }
 
-        pageResource.links = dedupeLinks(pageResource.parts.flatMap((p) => p.links ?? []));
-        pageChildren.push(pageResource);
-      }
-
-      resource.children = pageChildren;
-
-      // Add text parts from transcribed pages to the parent resource
-      let partIndex = 0;
-      for (const child of pageChildren) {
-        for (const part of child.parts) {
-          if (part.kind === "text" && part.text) {
-            resource.parts.push({
-              ...part,
-              id: createPartId(resource, partIndex++),
-              location: part.location,
-            });
-          }
+        // Only succeed if rendering produced usable text parts; otherwise fall back to text extraction.
+        if (resource.parts.length === 0) {
+          return undefined;
         }
-      }
-
-      // Only succeed if rendering produced usable text parts; otherwise fall back to text extraction.
-      if (resource.parts.length > 0) {
         resource.links = dedupeLinks(resource.parts.flatMap((p) => p.links ?? []));
         return resource;
-      }
-    } catch {
+      });
+    } catch (error) {
+      if (isAbortError(error) || context.options.signal?.aborted) throw error;
       // Rendering failed; decline so the text-extraction parser can handle it.
+      return undefined;
+    } finally {
+      if (outputDir && !keepPages) {
+        await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
-
-    return undefined;
   }
 };
 
@@ -170,9 +184,10 @@ export const pdfParser: ResourceParser = {
     const resource = createParsedResource(source);
     resource.defaultSlicer = "text";
 
-    const pdfFilePath = toFilePath(source.location);
-    const pdfBuffer = await readFile(pdfFilePath);
-    const pdfResult = await parse(pdfBuffer);
+    // Read the source's own bytes so URL, zip-entry and in-memory PDFs work, not just local files.
+    // pdf.js ignores a view's byteOffset, so small (pooled) Buffers would be read from the wrong
+    // position; hand it a standalone copy that starts at offset 0 of its own ArrayBuffer.
+    const pdfResult = await parse(new Uint8Array(await collectInput(source.input)));
 
     const part: ResourcePart = {
       id: createPartId(resource, 0),

@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 
 /** Zip bomb protection limits, shared by the zip parser and zip resolver. */
 export const ZIP_LIMITS = {
@@ -44,34 +45,60 @@ interface CacheEntry {
 const MAX_CACHED_ZIPS = 8;
 const zipCache = new Map<string, CacheEntry>();
 
-/**
- * Loads (and caches) a zip archive from disk. The cache is keyed by absolute path and invalidated by
- * the file's modified time, so repeatedly resolving entries within one archive (e.g. while walking a
- * resource graph of cross-referencing entries) does not re-read or re-parse it.
- */
-export async function getCachedZip(zipPath: string): Promise<LoadedZip | undefined> {
-  const JSZip = await loadJSZip();
-  if (!JSZip) return undefined;
-
-  const stats = await stat(zipPath).catch(() => undefined);
-  const mtimeMs = stats?.mtimeMs ?? 0;
-
-  const cached = zipCache.get(zipPath);
-  if (cached && cached.mtimeMs === mtimeMs) {
-    // Refresh recency for the simple LRU eviction below.
-    zipCache.delete(zipPath);
-    zipCache.set(zipPath, cached);
-    return cached.zip;
-  }
-
-  const buffer = await readFile(zipPath);
-  const zip = await JSZip.loadAsync(buffer);
-  zipCache.set(zipPath, { mtimeMs, zip });
+function remember(key: string, entry: CacheEntry): void {
+  zipCache.delete(key);
+  zipCache.set(key, entry);
   if (zipCache.size > MAX_CACHED_ZIPS) {
     const oldest = zipCache.keys().next().value;
     if (oldest !== undefined) {
       zipCache.delete(oldest);
     }
   }
+}
+
+/**
+ * Loads (and caches) a zip archive. The cache is keyed by location, so repeatedly resolving entries
+ * within one archive (e.g. while walking a resource graph of cross-referencing entries) does not
+ * re-read or re-parse it.
+ *
+ * - With `data`, the archive is loaded from those bytes (a zip fetched from a URL, nested in another
+ *   zip, or held in memory) and cached under `location`.
+ * - Without `data`, a local file path is read from disk (cache invalidated by its modified time);
+ *   any other location is served only from the cache.
+ */
+export async function getCachedZip(location: string, data?: Uint8Array, modifiedAt?: number): Promise<LoadedZip | undefined> {
+  const JSZip = await loadJSZip();
+  if (!JSZip) return undefined;
+
+  const cached = zipCache.get(location);
+
+  if (data) {
+    if (cached && modifiedAt !== undefined && cached.mtimeMs === modifiedAt) {
+      remember(location, cached);
+      return cached.zip;
+    }
+    const zip = await JSZip.loadAsync(data);
+    remember(location, { mtimeMs: modifiedAt ?? Number.NaN, zip });
+    return zip;
+  }
+
+  if (!path.isAbsolute(location)) {
+    if (cached) remember(location, cached);
+    return cached?.zip;
+  }
+
+  const stats = await stat(location).catch(() => undefined);
+  if (!stats) {
+    if (cached) remember(location, cached);
+    return cached?.zip;
+  }
+  const mtimeMs = stats.mtimeMs;
+  if (cached && cached.mtimeMs === mtimeMs) {
+    remember(location, cached);
+    return cached.zip;
+  }
+
+  const zip = await JSZip.loadAsync(await readFile(location));
+  remember(location, { mtimeMs, zip });
   return zip;
 }

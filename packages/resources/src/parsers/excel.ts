@@ -1,5 +1,4 @@
 import { Buffer } from "node:buffer";
-import { createReadStream } from "node:fs";
 import { createParsedResource } from "../registry";
 import type { ExtractedTable, ResourceParser, ResourcePart, SupportContext } from "../types";
 import {
@@ -8,8 +7,8 @@ import {
   createPartId,
   dedupeLinks,
   extractLinksFromText,
-  toFilePath,
 } from "../utils";
+import { parseViaPdf } from "./convert";
 
 let xlsxModule: any;
 
@@ -94,22 +93,7 @@ export const excelPdfParser: ResourceParser = {
       return undefined;
     }
 
-    const sourceFilePath = toFilePath(source.location);
-    const pdfPath = await context.options.convertToPdf(sourceFilePath, context.options.signal);
-    const pdfSource = {
-      ...source,
-      location: pdfPath,
-      type: "pdf" as const,
-      mimeType: "application/pdf",
-      input: (() => createReadStream(pdfPath) as unknown as AsyncIterable<Uint8Array>)(),
-      metadata: { ...source.metadata, convertedFrom: source.location },
-    };
-    // Delegate through the registry so the full PDF parser stack (render + text) applies.
-    const result = await context.registry.parseSource(pdfSource, context.options);
-    result.location = source.location;
-    result.name = source.name ?? result.name;
-    result.metadata = { ...result.metadata, convertedFrom: source.type, pdfPath };
-    return result;
+    return parseViaPdf(source, context);
   }
 };
 

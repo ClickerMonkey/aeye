@@ -93,8 +93,10 @@ interface ResourceSlice {
   text: string;        // the slice content
   embedText: string;   // text augmented with context/links, ready to embed
   start: number; end: number;        // offsets into the part text
-  context?: { headings?; declaration?; summary?; prefixes? };
-  links: ResourceLink[]; metadata?: Record<string, unknown>;
+  context?: { headings?; declaration?; summary?; sectionSummary?; prefixes? };
+  links: ResourceLink[];   // links that appear in this slice, each once
+  sectionId?: string;      // markdown section / code block / text part the slice came from
+  metadata?: Record<string, unknown>;
 }
 ```
 
@@ -182,5 +184,9 @@ const graph = await buildResourceGraph(registry, "/docs/index.md");
   or `isTypeSupported` returns false, not a hard crash (except when a format has no fallback).
 - File locations are emitted **absolute** so they round-trip; a manually-supplied *relative*
   `location` is not self-contained (`locate()` rejects it).
-- Zips are read from disk (URL-hosted zips are not supported by the zip parser/resolver).
+- Zips and PDFs can come from anywhere (disk, URL, memory, another zip). Non-local zips are cached
+  in memory (8, LRU) so their entry links resolve.
+- `buildResourceGraph` is bounded by default: no external links, same-site web crawling, 1000
+  nodes max. Opt in with `followExternal`, `sameOrigin: false`, `maxResources: Infinity`.
+- Aborts throw an `AbortError` (the signal's reason), not a plain `Error`.
 - `modifiedAt` is best-effort: filesystem mtime, HTTP `Last-Modified`, or zip entry date.

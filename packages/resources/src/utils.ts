@@ -2,6 +2,8 @@ import { Buffer } from "node:buffer";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import type { EmbedTextContext, LoadResourceOptions, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types";
 
 export const DEFAULT_MAX_CHARS = 2000;
@@ -160,9 +162,56 @@ export function mergeOptions<T extends Partial<LoadResourceOptions>>(base: T | u
   return merged;
 }
 
+/**
+ * Throws when the signal has been aborted. The thrown value is the signal's `reason` (an
+ * `AbortError` DOMException by default), so callers can tell a cancellation apart from a failure.
+ */
 export function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
-    throw new Error("Operation aborted");
+    throw signal.reason ?? new DOMException("Operation aborted", "AbortError");
+  }
+}
+
+/** True when an error is an abort (an `AbortError`), as thrown by {@link assertNotAborted} or `fetch`. */
+export function isAbortError(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { name?: unknown }).name === "AbortError");
+}
+
+/**
+ * True when an input can be read more than once (buffers, strings, URLs, and factory functions).
+ * Streams and iterators can only be consumed once.
+ */
+export function isReplayableInput(input: ResourceInput): boolean {
+  return typeof input === "string"
+    || typeof input === "function"
+    || input instanceof Uint8Array
+    || input instanceof ArrayBuffer
+    || input instanceof URL;
+}
+
+/**
+ * Runs `fn` with a local file path holding the source's bytes. Uses the source location directly
+ * when it is an existing local file; otherwise writes the input to a temporary file, which is removed
+ * once `fn` settles. Lets file-based tools (pdf renderers, converters) handle in-memory, URL and
+ * zip-entry sources too.
+ */
+export async function withLocalFile<T>(source: ResourceSource, extension: string, fn: (filePath: string) => Promise<T>): Promise<T> {
+  if (!isZipEntryLocation(source.location) && !isHttpUrl(source.location)) {
+    const candidate = toFilePath(source.location);
+    if (path.isAbsolute(candidate)) {
+      const stats = await stat(candidate).catch(() => undefined);
+      if (stats?.isFile()) {
+        return fn(candidate);
+      }
+    }
+  }
+  const dir = await mkdtemp(path.join(tmpdir(), "aeye-resource-"));
+  try {
+    const filePath = path.join(dir, `input${extension}`);
+    await writeFile(filePath, await collectInput(source.input));
+    return await fn(filePath);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -320,6 +369,22 @@ export function dedupeLinks(links: ResourceLink[]): ResourceLink[] {
   });
 }
 
+/**
+ * De-duplicates a slice's links by value, keeping the first occurrence. A slice often finds the same
+ * link twice (once from its part, once re-extracted from its own text, or as both a markdown link and
+ * a bare URL); the first one is kept, so put the richest source (e.g. titled links) first.
+ */
+export function dedupeSliceLinks(links: ResourceLink[]): ResourceLink[] {
+  const seen = new Set<string>();
+  return links.filter((link) => {
+    if (seen.has(link.value)) {
+      return false;
+    }
+    seen.add(link.value);
+    return true;
+  });
+}
+
 export function splitTextByBoundaries(text: string, maxChars = DEFAULT_MAX_CHARS, minChars = DEFAULT_MIN_CHARS, boundaries = ["\n\n", "\n", " "]): Array<{ start: number; end: number; text: string }> {
   if (text.length <= maxChars) {
     return [{ start: 0, end: text.length, text }];
@@ -399,6 +464,9 @@ export function collectEmbedContext(resource: ParsedResource, part: ResourcePart
     }
     if (slice.context?.summary) {
       lines.push(`Summary: ${slice.context.summary}`);
+    }
+    if (slice.context?.sectionSummary) {
+      lines.push(`Section summary: ${slice.context.sectionSummary}`);
     }
     if (slice.context?.prefixes?.length) {
       lines.push(...slice.context.prefixes.map((prefix) => `Context: ${prefix}`));
@@ -638,9 +706,14 @@ export function extractLinksFromText(text: string, location: string): ResourceLi
   let index = 0;
 
   while ((match = pattern.exec(text))) {
+    // Sentence punctuation right after a URL ("see https://x.com.") is not part of it.
+    const value = match[0].replace(/[.,;:!?]+$/, "");
+    if (!/^https?:\/\/[^/]/.test(value)) {
+      continue;
+    }
     links.push({
-      id: createLinkId(location, match[0], index++),
-      value: match[0],
+      id: createLinkId(location, value, index++),
+      value,
       location,
       kind: "external"
     });

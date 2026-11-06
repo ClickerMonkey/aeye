@@ -31,20 +31,33 @@ interface ResourceSlicer {
 Universal fallback. Splits each text part on boundary strings into contiguous, non-overlapping
 segments. No structural context.
 - Default boundaries: `["\n\n", "\n", " "]`.
-- Per-slice links: part links present in the text + bare URLs in the segment.
+- Per-slice links: the part's links that appear in the slice + bare URLs in the segment.
+- `slice.sectionId` = the part location (one section per part).
 
 ### `markdown` — `supportedTypes: ["markdown", "html"]`
-Heading-aware. Detects `#`–`######` headings, builds a heading breadcrumb
-(`slice.context.headings`, e.g. `Intro > Details`), then segments each section.
+Heading-aware. Detects `#`–`######` headings (ignoring `#` lines inside `` ``` `` / `~~~` code
+fences), builds a heading breadcrumb (`slice.context.headings`, e.g. `Intro > Details`), then
+segments each section. Text before the first heading is its own section with no headings, so the
+slices always cover the whole text. `slice.sectionId` = `<part>#section/<n>`.
+`splitMarkdownSections(text)` is exported.
 - Default boundaries: `["\n\n", "\n", ". ", " "]` (sentence-aware).
 - Per-slice links: markdown `[](…)` links + bare URLs. Used for HTML too (HTML is parsed to markdown).
 
 ### `code` — `supportedTypes: [...CODE_TYPES]`
-Declaration-aware. Splits at top-level declarations and attaches import context.
-- `slice.context.declaration` = the block's first line; `slice.context.prefixes` = the first
-  `maxImportPrefixes` import lines.
+Declaration-aware. Splits at top-level (unindented) declarations and attaches import context.
+- Text before the first declaration (license header, imports) is its own block, so the slices
+  always cover the whole file. Doc comments, decorators and attributes directly above a declaration
+  stay with it.
+- Declaration patterns per language (`CODE_DECLARATION_PATTERNS`): JS/TS, python, ruby, go, rust,
+  lua, shell, sql, graphql; other languages use a generic pattern (class/struct/fn/func/def/…).
+- `slice.context.declaration` = the declaration line (undefined for the preamble);
+  `slice.context.prefixes` = the first `maxImportPrefixes` import lines.
+- `slice.sectionId` = `<part>#block/<n>`. `splitCodeBlocks(text, type, codeOptions)` is exported.
 - Default boundaries: `["\n\n", "\n", " "]`.
-- Per-slice links: import/require specifiers + bare URLs.
+- Per-slice links: the part's links that appear in the slice + import/require specifiers + bare URLs.
+
+Every slicer de-duplicates a slice's links by value, so the `Links:` line in `embedText` lists each
+link once, and only links that are in that slice.
 
 ## Slice options (`SliceOptions`)
 
@@ -65,9 +78,14 @@ All apply to every slicer and can be set **per call** or **per type** via `confi
 | `includeLinks` | `true` | add `Links: …` line |
 | `embedSeparator` | `"\n\n"` | joins embed-text lines |
 | `buildEmbedText` | built-in | full override: `(EmbedTextContext) => string` |
-| `code.declarationPattern` | TS/JS regex | what starts a code block |
+| `code.declarationPattern` | per language (`CODE_DECLARATION_PATTERNS`) | what starts a code block |
+| `code.topLevelOnly` | `true` | only unindented lines can start a block |
 | `code.importPattern` | import/require regex | what counts as an import prefix |
 | `code.maxImportPrefixes` | `5` | how many import lines to attach |
+| `summarize` | — | `(SummaryRequest) => Promise<string \| undefined>`; see [Summaries](#summaries) |
+| `summaryScope` | `"resource"` | `"resource"`, `"section"` or `"both"` |
+| `summaryConcurrency` | `4` | max concurrent `summarize` calls |
+| `minSectionSummaryChars` | `0` | skip summarizing sections shorter than this |
 | `signal` | — | abort |
 
 `embedText` is assembled by the built-in `buildEmbedText`/`collectEmbedContext` from the include-flags
@@ -77,6 +95,28 @@ above; override `buildEmbedText` to fully control the embedding-facing string.
 registry.configureType("markdown", { maxChars: 1200, minChars: 200, includePartKind: true });
 const { slices } = await registry.load("/docs/guide.md");
 ```
+
+## Summaries
+
+Pass `summarize` to add model-written context to every slice. It is called for the whole resource
+and/or for each section (markdown section, code block, or text part). The results land in
+`slice.context.summary` / `slice.context.sectionSummary` and in `embedText` as `Summary: …` and
+`Section summary: …` lines.
+
+```ts
+registry.configureType("markdown", {
+  summaryScope: "both",
+  summarize: async ({ scope, text, headings, signal }) =>
+    myModel(`Summarize this ${scope}${headings ? ` (${headings.join(" > ")})` : ""} in one sentence:\n\n${text}`, signal),
+});
+```
+
+- `SummaryRequest` = `{ scope, resource, text, sectionId?, headings?, declaration?, signal? }`.
+- Results are cached on `resource.metadata.summary` and `resource.metadata.sectionSummaries`
+  (keyed by `sectionId`), so slicing the same resource again, or one reused from a graph cache, does
+  not call `summarize` again. Clear those fields to force a refresh.
+- With `"both"`, a section that is the whole resource is not summarized twice.
+- Return `undefined` to skip a summary. Errors from `summarize` propagate.
 
 ## Pluggable segmenters
 

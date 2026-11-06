@@ -1,5 +1,4 @@
 import { Buffer } from "node:buffer";
-import { createReadStream } from "node:fs";
 import { createParsedResource } from "../registry";
 import type { ResourceParser, ResourcePart, SupportContext } from "../types";
 import {
@@ -9,8 +8,8 @@ import {
   dedupeLinks,
   extractLinksFromText,
   htmlToMarkdown,
-  toFilePath,
 } from "../utils";
+import { parseViaPdf } from "./convert";
 
 let mammothModule: any;
 
@@ -40,28 +39,7 @@ export const docxPdfParser: ResourceParser = {
   async parse(source, context) {
     assertNotAborted(context.options.signal);
 
-    const convertToPdf = context.options.convertToPdf;
-    if (!convertToPdf) {
-      return undefined;
-    }
-
-    const sourceFilePath = toFilePath(source.location);
-    const pdfPath = await convertToPdf(sourceFilePath, context.options.signal);
-    const pdfSource = {
-      ...source,
-      location: pdfPath,
-      type: "pdf" as const,
-      mimeType: "application/pdf",
-      input: (() => createReadStream(pdfPath) as unknown as AsyncIterable<Uint8Array>)(),
-      metadata: { ...source.metadata, convertedFrom: source.location },
-    };
-    // Delegate through the registry so the full PDF parser stack (render + text) applies.
-    const result = await context.registry.parseSource(pdfSource, context.options);
-    // Restore original location info
-    result.location = source.location;
-    result.name = source.name ?? result.name;
-    result.metadata = { ...result.metadata, convertedFrom: "docx", pdfPath };
-    return result;
+    return parseViaPdf(source, context);
   }
 };
 

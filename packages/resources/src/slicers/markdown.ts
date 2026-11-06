@@ -3,7 +3,7 @@ import {
   DEFAULT_MAX_CHARS,
   DEFAULT_MIN_CHARS,
   createSliceId,
-  dedupeLinks,
+  dedupeSliceLinks,
   extractLinksFromMarkdown,
   extractLinksFromText,
   finalizeSlice,
@@ -12,6 +12,58 @@ import {
 import { defaultTextSegmenter } from "../segmenters";
 
 const DEFAULT_MARKDOWN_BOUNDARIES = ["\n\n", "\n", ". ", " "];
+
+export interface MarkdownSection {
+  start: number;
+  end: number;
+  /** Heading path for the section (empty for text before the first heading). */
+  headings: string[];
+}
+
+const HEADING_PATTERN = /^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/;
+const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
+
+/**
+ * Splits markdown into sections at ATX headings. Headings inside fenced code blocks are ignored, and
+ * any text before the first heading becomes its own section, so the sections cover the whole text.
+ */
+export function splitMarkdownSections(text: string): MarkdownSection[] {
+  const sections: MarkdownSection[] = [];
+  const stack: string[] = [];
+  let fence: { char: string; length: number } | undefined;
+  let current: MarkdownSection = { start: 0, end: text.length, headings: [] };
+  let offset = 0;
+
+  for (const rawLine of text.split(/(?<=\n)/)) {
+    const line = rawLine.replace(/\r?\n$/, "");
+    const fenceMatch = FENCE_PATTERN.exec(line);
+    if (fence) {
+      if (fenceMatch && fenceMatch[1][0] === fence.char && fenceMatch[1].length >= fence.length && line.trim() === fenceMatch[1].trim()) {
+        fence = undefined;
+      }
+    } else if (fenceMatch) {
+      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
+    } else {
+      const heading = HEADING_PATTERN.exec(line);
+      if (heading) {
+        const level = heading[1].length;
+        stack.length = Math.min(stack.length, level - 1);
+        stack[level - 1] = heading[2].trim();
+        if (offset > current.start) {
+          current.end = offset;
+          sections.push(current);
+        }
+        current = { start: offset, end: text.length, headings: stack.filter(Boolean) };
+      }
+    }
+    offset += rawLine.length;
+  }
+
+  if (current.end > current.start || sections.length === 0) {
+    sections.push(current);
+  }
+  return sections;
+}
 
 export const markdownSlicer: ResourceSlicer = {
   id: "markdown",
@@ -29,29 +81,9 @@ export const markdownSlicer: ResourceSlicer = {
       }
 
       const text = part.text;
-      const headingMatches = [...text.matchAll(/^(#{1,6}) (.+)$/gm)];
-      const sections = headingMatches.length === 0
-        ? [{ start: 0, end: text.length, headings: [] as string[] }]
-        : headingMatches.map((match, index) => {
-            const level = match[1].length;
-            const title = match[2].trim();
-            const start = match.index ?? 0;
-            const end = headingMatches[index + 1]?.index ?? text.length;
-            const headings = headingMatches
-              .slice(0, index + 1)
-              .reduce<string[]>((stack, current) => {
-                const currentLevel = current[1].length;
-                const currentTitle = current[2].trim();
-                stack.splice(currentLevel - 1);
-                stack[currentLevel - 1] = currentTitle;
-                return stack.filter(Boolean);
-              }, [])
-              .slice(0, level);
-            return { start, end, headings: headings.length > 0 ? headings : [title] };
-          });
-
-      for (const [sectionIndex, section] of sections.entries()) {
+      for (const [sectionIndex, section] of splitMarkdownSections(text).entries()) {
         const sectionText = text.slice(section.start, section.end);
+        const sectionId = `${part.location}#section/${sectionIndex}`;
         const segments = await segment(sectionText, {
           maxChars,
           minChars,
@@ -61,18 +93,20 @@ export const markdownSlicer: ResourceSlicer = {
           signal: context.options.signal,
         });
         segments.forEach((seg, index) => {
+          const location = `${sectionId}/slice/${index}`;
           const rawSlice = {
             id: createSliceId(part, slices.length),
             resourceId: resource.id,
             partId: part.id,
-            location: `${part.location}#section/${sectionIndex}/slice/${index}`,
+            location,
+            sectionId,
             text: seg.text,
             start: section.start + seg.start,
             end: section.start + seg.end,
             context: toHeadingContext(section.headings),
-            links: dedupeLinks([
-              ...extractLinksFromMarkdown(seg.text, `${part.location}#section/${sectionIndex}/slice/${index}`),
-              ...extractLinksFromText(seg.text, `${part.location}#section/${sectionIndex}/slice/${index}`)
+            links: dedupeSliceLinks([
+              ...extractLinksFromMarkdown(seg.text, location),
+              ...extractLinksFromText(seg.text, location)
             ])
           };
           slices.push(finalizeSlice(resource, part, rawSlice, context.options));

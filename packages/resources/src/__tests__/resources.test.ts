@@ -48,8 +48,10 @@ describe("default resource registry", () => {
     const { slices } = await registry.load(source, { maxChars: 80, minChars: 20 });
 
     expect(slices.length).toBeGreaterThan(0);
-    expect(slices[0].embedText).toContain("Declaration: export function greet");
+    // The import preamble is its own slice and keeps the import link.
+    expect(slices[0].text).toContain("import { thing }");
     expect(slices[0].links.map((link) => link.value)).toContain("./dep");
+    expect(slices.some((slice) => slice.embedText.includes("Declaration: export function greet"))).toBe(true);
   });
 
   it("extracts href/src references from svg markup", async () => {

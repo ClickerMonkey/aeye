@@ -84,7 +84,8 @@ import { buildResourceGraph } from "@aeye/resources";
 
 const graph = await buildResourceGraph(registry, "/docs/index.md", {
   maxDepth: 5,
-  followExternal: false,   // don't fetch http links
+  followExternal: true,    // also fetch pages the docs link to (off by default)
+  concurrency: 8,          // load up to 8 targets at once (default 4)
 });
 
 graph.roots;   // ResourceLocation[]
@@ -110,7 +111,7 @@ interface ResourceGraphEdge {
   link: ResourceLink;
   targetLocation?: string; targetId?: string;
   loaded: boolean;            // is the target a node in the graph?
-  reason?: "external" | "resource-links-disabled" | "filtered"
+  reason?: "external" | "resource-links-disabled" | "filtered" | "cross-origin"
          | "unresolved" | "max-depth" | "max-resources" | "skipped" | "error";
   error?: string;
 }
@@ -121,15 +122,26 @@ interface ResourceGraphEdge {
 | Option | Default | Effect |
 | --- | --- | --- |
 | `maxDepth` | ∞ | max link/child distance from a root |
-| `maxResources` | ∞ | cap on nodes loaded (existing nodes never re-counted) |
+| `maxResources` | `1000` (`DEFAULT_GRAPH_MAX_RESOURCES`) | cap on nodes loaded (existing nodes never re-counted); `Infinity` lifts it |
+| `concurrency` | `4` (`DEFAULT_GRAPH_CONCURRENCY`) | link targets probed/loaded at once |
 | `followChildren` | `true` | traverse children (zip entries, rendered pages) as nodes |
-| `followExternal` | `true` | follow external (http) links |
-| `followResourceLinks` | `true` | follow internal/relative links |
+| `followExternal` | `false` | follow external links: http links from local files, or links to another site |
+| `followResourceLinks` | `true` | follow internal/relative links (includes same-site links on web pages) |
+| `sameOrigin` | `true` | with `followExternal`, a link found on a web page is only followed to the same origin (else `cross-origin`); local files can still link out to any site |
 | `includeSlices` | `false` | also slice each resource → `node.slices` |
 | `shouldFollow(link, from)` | — | per-link filter |
 | `shouldLoad(target)` | — | incremental: return false to skip parsing (target = `{location, modifiedAt, link, depth}`) |
 | `getCached(location, modifiedAt?)` | — | supply a previously-parsed resource to reuse |
 | `onNode(node)` | — | called as each node is added |
+
+The walk goes one depth level at a time, so `node.depth` is the true shortest distance from a root
+even with concurrency. `node.edges` stay in link order, but `graph.nodes` insertion order can vary
+between runs. Concurrent links to the same target share one load.
+
+**Safe defaults**: starting from a web page, the graph only crawls that site (relative and absolute
+same-origin links), stops at 1000 nodes, and never leaves the site unless you set `followExternal`
+(plus `sameOrigin: false` to crawl freely). URL fetches time out after 30 s and stop at 50 MiB
+(`timeoutMs` / `maxBytes` on the options).
 
 De-duplication uses `statLink` to get a target's canonical location (and `modifiedAt`) **before**
 loading, so a URL/file referenced many times is fetched once, and cross-zip-entry links connect to
@@ -151,7 +163,9 @@ const graph = await buildResourceGraph(registry, roots, {
 
 ## Gotchas
 
-- URL-hosted zips are not supported (zip parser/resolver read archives from disk).
+- Zips that are not local files (fetched from a URL, nested in another zip, passed in memory) are
+  parsed from their bytes and kept in an in-memory cache (8 archives, LRU) under their location, so
+  links between their entries resolve while they stay cached.
 - Relative links *between* zip entries resolve correctly; a link from a zip entry pointing **outside**
   the archive won't (it stays archive-relative) and surfaces as an `unresolved`/`error` edge.
 - `statLink` issues a `HEAD` for URLs; servers that reject HEAD still yield a location (for dedup) but

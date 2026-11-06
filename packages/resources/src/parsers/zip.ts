@@ -1,13 +1,18 @@
 import { Buffer } from "node:buffer";
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import { createParsedResource } from "../registry";
 import type { ParsedResource, ResourceParser, ResourcePart, ResourceSource, SupportContext } from "../types";
 import {
   assertNotAborted,
   buildZipEntryLocation,
+  collectInput,
   createPartId,
   createResourceId,
   dedupeLinks,
   imageMimeTypeFromLocation,
+  isHttpUrl,
+  isZipEntryLocation,
   toFilePath,
 } from "../utils";
 import { ZIP_LIMITS, getCachedZip, loadJSZip } from "../zip-internal";
@@ -25,9 +30,14 @@ export const zipParser: ResourceParser = {
       throw new Error("jszip is not installed. Install it to parse ZIP resources: npm install jszip");
     }
 
-    // Read (and cache) the zip from the file system to avoid holding the entire zip in JS heap.
+    // Local zips are read (and cached) from disk; anything else (URL, nested entry, in-memory) is
+    // loaded from the source's bytes and cached under its location so entry links still resolve.
     const filePath = toFilePath(source.location);
-    const zip = await getCachedZip(filePath);
+    const isLocalFile = !isZipEntryLocation(source.location) && !isHttpUrl(source.location) && path.isAbsolute(filePath)
+      && Boolean((await stat(filePath).catch(() => undefined))?.isFile());
+    const zip = isLocalFile
+      ? await getCachedZip(filePath)
+      : await getCachedZip(filePath, await collectInput(source.input), source.modifiedAt);
     if (!zip) {
       throw new Error("jszip is not installed. Install it to parse ZIP resources: npm install jszip");
     }

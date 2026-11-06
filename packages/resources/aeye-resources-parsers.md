@@ -94,6 +94,7 @@ interface PdfParseOptions {
   renderDpi?: number;        // default 150
   transcribePages?: boolean; // transcribe rendered pages → markdown text parts
   extractImages?: boolean;
+  pageOutputDir?: string;    // keep page images here (caller owns them); default: temp dir, deleted
 }
 ```
 
@@ -126,6 +127,13 @@ await isPopplerAvailable(); // boolean — binaries present?
 When rendering is enabled, `pdfRenderParser` produces page-image **children** and (if
 `transcribePages`) parent text parts; otherwise it declines and `pdfParser` extracts text.
 
+- Page images render to a temporary directory that is deleted afterwards; their bytes are kept in
+  each page's image part (`part.data`). Set `pdf.pageOutputDir` to keep the files there instead
+  (parts then carry `metadata.filePath` and no `data`).
+- PDFs (and docx/excel for `convertToPdf`) do not need to be local files: in-memory, URL and
+  zip-entry sources are written to a temporary file for the renderer/converter, and `pdfParser`
+  reads the source's bytes directly.
+
 ## Registry-driven type detection
 
 Detection maps live on the registry (seeded from defaults) and are extensible:
@@ -157,7 +165,9 @@ Exposed default tables: `DEFAULT_EXTENSION_TYPES`, `DEFAULT_MIME_TYPE_PATTERNS`,
 
 | Field | Effect |
 | --- | --- |
-| `signal` | abort |
+| `signal` | abort; an aborted operation throws the signal's reason (an `AbortError`; see `isAbortError`) |
+| `timeoutMs` | URL fetch timeout, headers + body (default 30000; 0 disables) |
+| `maxBytes` | max bytes downloaded per URL (default 50 MiB; 0 disables) |
 | `code` | `CodeParserOptions` (declaration/import patterns, `maxImportPrefixes`) |
 | `pdf` | `PdfParseOptions` (see above) |
 | `renderPdfPages`, `convertToPdf` | PDF render / doc→pdf conversion functions |

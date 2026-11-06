@@ -25,14 +25,18 @@ import {
   DEFAULT_MIME_TYPE_PATTERNS,
   assertNotAborted,
   basenameFromLocation,
+  collectInput,
   createResourceId,
   dedupeLinks,
+  isAbortError,
+  isReplayableInput,
   inferTypeFromExtension,
   inferTypeFromLocation,
   inferTypeFromMimePatterns,
   isSelfContainedLocation,
   mergeOptions
 } from "./utils";
+import { applySummaries } from "./summaries";
 
 interface ParserEntry {
   id: string;
@@ -286,6 +290,12 @@ export class ResourceRegistry implements ResourceRegistryLike {
     const context = { registry: this, options: mergedOptions };
     const errors: unknown[] = [];
 
+    // A parser that reads a one-shot stream and then declines or throws would leave nothing for the
+    // next parser, so buffer such input once when there is a fallback.
+    if (parsers.length > 1 && !isReplayableInput(source.input)) {
+      source = { ...source, input: await collectInput(source.input) };
+    }
+
     for (const parser of parsers) {
       assertNotAborted(mergedOptions.signal);
       try {
@@ -297,7 +307,7 @@ export class ResourceRegistry implements ResourceRegistryLike {
         // Parser declined; fall through to the next one in the stack.
       } catch (error) {
         // Never swallow aborts — propagate immediately rather than falling back.
-        if (mergedOptions.signal?.aborted) {
+        if (mergedOptions.signal?.aborted || isAbortError(error)) {
           throw error;
         }
         errors.push(error);
@@ -332,6 +342,9 @@ export class ResourceRegistry implements ResourceRegistryLike {
     }
 
     const slices = await slicer.slice(resource, { registry: this, options: mergedOptions });
+    if (mergedOptions.summarize) {
+      return applySummaries(resource, slices, mergedOptions);
+    }
     return slices;
   }
 

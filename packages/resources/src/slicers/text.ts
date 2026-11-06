@@ -3,7 +3,7 @@ import {
   DEFAULT_MAX_CHARS,
   DEFAULT_MIN_CHARS,
   createSliceId,
-  dedupeLinks,
+  dedupeSliceLinks,
   extractLinksFromText,
   finalizeSlice,
 } from "../utils";
@@ -37,11 +37,13 @@ export const textSlicer: ResourceSlicer = {
           resourceId: resource.id,
           partId: part.id,
           location: `${part.location}#slice/${index}`,
+          sectionId: part.location,
           text: segment.text,
           start: segment.start,
           end: segment.end,
-          links: dedupeLinks([
-            ...(part.links ?? []).filter((link) => part.text?.includes(link.value)),
+          links: dedupeSliceLinks([
+            // Only the part's links that actually appear in this slice.
+            ...(part.links ?? []).filter((link) => segment.text.includes(link.value)),
             ...extractLinksFromText(segment.text, `${part.location}#slice/${index}`)
           ])
         };
