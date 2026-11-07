@@ -4,6 +4,7 @@ import type { JSONSchema, ToJSONSchemaOptions } from './json-schema';
 import { resolveDescriptor } from './registry';
 import { buildAnyValueSchema, usesSharedAnyDefinition } from './any-value';
 import { buildCycleBreakerSchema } from './cycle-breaker';
+import { checkBag } from './check-bag';
 import { describeOversizeEnum, enumEmittedValues, literalEmittedValues } from './enum-values';
 
 /**
@@ -361,7 +362,7 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
       items: convert(schema.element, context),
     };
     if (descriptor.allowMinMaxItems) {
-      const { minimum, maximum } = schema._zod.bag;
+      const { minimum, maximum } = checkBag(schema);
       if (typeof minimum === 'number') {
         result.minItems = minimum;
       }
@@ -483,7 +484,7 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
     }
 
     if (descriptor.allowMinMaxItems) {
-      const { minimum, maximum } = schema._zod.bag;
+      const { minimum, maximum } = checkBag(schema);
       if (typeof minimum === 'number') {
         result.minItems = minimum;
       }
@@ -556,7 +557,7 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
   if (schema instanceof z.ZodString) {
     const result: JSONSchema = { type: 'string' };
 
-    const { minimum, maximum, format, patterns, contentEncoding } = schema._zod.bag;
+    const { minimum, maximum, format, patterns, contentEncoding } = checkBag(schema);
 
     // Format: emit only when allowed by the descriptor.
     if (typeof format === 'string' && emitsFormat(format, descriptor)) {
@@ -594,7 +595,7 @@ function convertSchema(schema: z.ZodType | z.core.$ZodType, context: ConversionC
   if (schema instanceof z.ZodNumber) {
     const result: JSONSchema = { type: 'number' };
 
-    const { minimum, maximum, format, multipleOf, exclusiveMaximum, exclusiveMinimum } = schema._zod.bag;
+    const { minimum, maximum, format, multipleOf, exclusiveMaximum, exclusiveMinimum } = checkBag(schema);
     if (typeof format === 'string' && format.includes("int")) {
       result.type = 'integer';
     }

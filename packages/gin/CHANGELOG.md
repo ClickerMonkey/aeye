@@ -5,6 +5,44 @@ commits); this file starts here and is the place to look from now on.
 
 ## Unreleased
 
+### The type builder infers TypeScript values
+
+Every `TypeBuilder` method returns its concrete class carrying the logical value
+it describes, and `Infer<X>` reads it back: `r.obj({ path: r.text(), offset:
+r.optional(r.num()) })` is an `ObjType<{ path: string; offset?: number | undefined }>`.
+`or` / `and` / `tuple` / `enum` / `literal` / `fn` (`FnArgs` / `FnReturns` /
+`FnThrows`) / `iface` (data props) / `alias<T>` / `extend` (base value plus added
+data props) all infer. New: `obj` fields may be bare types; `field(type, { docs,
+default })`; `enum(['a', 'b'])`; `literal('x')`; `Value.toLogical()` (the plain JS
+value). `Type` carries a phantom value slot (`ValueSlot`) — type-only, no runtime
+cost. Class generics added with defaults: `OrType<T>`, `AndType<T>`,
+`AliasType<T>`, `IfaceType<T>`, `TupleType<T>`, `FnType<A, R, E>`,
+`EnumType<V, B>`, `LiteralType<T, B>`, `Prop<T>`, `PropSpec<T>`.
+
+### Named type references
+
+`typeReferences(def, registry)` / `type.references()` report the named types a
+def refers to and does not define; `typeClosure(defs, registry, resolve)` /
+`type.closure(scope)` follow them transitively, dependencies first, with the
+names the resolver did not know. New `TypeClass` flags `declaresGenerics` (fn)
+and `valuesAreTypes` (typ); `registry.typeClass(name)`.
+
+### `toDefinitionJSON` inlined the first registered type under a plain root
+
+`obj{ c: Customer }.toDefinitionJSON()` wrote `Customer` in full: only an
+Extension root counted as "inside a definition". A root that is not itself a
+registered type now writes every registered type it reaches as `{name}`.
+
+### `compatible` refused an `and` on the right
+
+No type accepted an intersection, including the same `and` re-parsed from its
+own JSON. An `and` on the right is now assignable wherever one part is, or where
+its single equivalent (`and<obj{a}, obj{b}>` → `obj{a, b}`) is.
+
+### zod 4.6.7
+
+The `zod` dependency is `^4.6.7`; everything builds and tests against it.
+
 References with arguments resolve like bare names, and types that share
 references stay linear. Found loading the dg-engine model (3,534 types) into a
 registry: it hung as written, and parsed 1,873 types in a scope overlay. It now

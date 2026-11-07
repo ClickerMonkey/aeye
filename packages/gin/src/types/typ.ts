@@ -28,6 +28,7 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
 
   static readonly optionKeys = [] as const;
   static readonly genericKeys = ['T'] as const;
+  static readonly valuesAreTypes = true;
 
   static from(json: TypeDef, scope: TypeScope): TypType {
     const registry = scope.registry;

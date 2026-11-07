@@ -14,6 +14,7 @@ import type { EncodeOptions, JSONOf, RuntimeOf } from './json-type';
 import { z } from 'zod';
 import type { SchemaOptions, ValueSchemaOptions } from './node';
 import { Effects } from './effects';
+import { typeClosure, typeReferences, type TypeClosure, type TypeReferences } from './refs';
 import {
   CALL_DEF_HINTS, CALL_DEF_KEYS, GET_SET_DEF_KEYS, INIT_DEF_KEYS,
   PROP_DEF_HINTS, PROP_DEF_KEYS, checkDefKeys,
@@ -36,8 +37,8 @@ import {
  * normalizer (`Prop.from`) wraps these into Prop instances. Used at call
  * sites that don't want to `new Prop(...)` just to pass a type.
  */
-export interface PropSpec {
-  type: Type;
+export interface PropSpec<T = any> {
+  type: Type<T>;
   get?: Expr;
   set?: Expr;
   default?: Expr;
@@ -133,6 +134,15 @@ function orVariants(t: Type): Type[] | undefined {
   return variants as Type[];
 }
 
+/** The parts of an `and` on the right of `compatible`, read the same guarded
+ *  way as {@link orVariants}. */
+function andParts(t: Type): Type[] | undefined {
+  if (t.name !== 'and') return undefined;
+  const parts = (t as unknown as { parts?: unknown }).parts;
+  if (!Array.isArray(parts) || !parts.every((p) => p instanceof Type)) return undefined;
+  return parts as Type[];
+}
+
 /**
  * Serialize ONE slot of a composite. The single place the envelope-vs-logical
  * and definition-vs-name choices are made, so every container — list
@@ -186,14 +196,14 @@ export function embeddedExpr(value: unknown, scope: TypeScope): Expr | undefined
   }
 }
 
-export class Prop {
-  readonly type: Type;
+export class Prop<T = any> {
+  readonly type: Type<T>;
   readonly get?: Expr;
   readonly set?: Expr;
   readonly default?: Expr;
   readonly docs?: string;
 
-  constructor(spec: PropSpec) {
+  constructor(spec: PropSpec<T>) {
     this.type = spec.type;
     this.get = spec.get;
     this.set = spec.set;
@@ -213,11 +223,14 @@ export class Prop {
    *   - `PropSpec` — plain object with parsed `Type` and `Expr` fields.
    *   - `PropDef` — JSON-shape with `TypeDef` and `ExprDef` fields.
    *     Requires `scope` so types/exprs can be parsed.
+   *   - a bare `Type` — a plain field of that type, the shorthand
+   *     `obj({ name: r.text() })` writes.
    *
    * `scope` is optional for instance/spec inputs whose fields are
    * already parsed; mandatory when any field needs parsing.
    */
-  static from(x: Prop | PropSpec | PropDef, scope?: TypeScope, name?: string): Prop {
+  static from(x: Prop | PropSpec | PropDef | Type, scope?: TypeScope, name?: string): Prop {
+    if (x instanceof Type) return new Prop({ type: x });
     if (!(x instanceof Prop)) {
       checkDefKeys(name ? `prop '${name}'` : 'prop', x, PROP_DEF_KEYS, PROP_DEF_HINTS, scope?.registry);
     }
@@ -248,7 +261,7 @@ export class Prop {
   /** Map a record of `PropDef` / `PropSpec` / `Prop` values into a
    *  record of `Prop` instances. Idempotent per-entry via `Prop.from`. */
   static fromMap(
-    defs: Record<string, Prop | PropSpec | PropDef>,
+    defs: Record<string, Prop | PropSpec | PropDef | Type>,
     scope?: TypeScope,
   ): Record<string, Prop> {
     const out: Record<string, Prop> = {};
@@ -258,7 +271,7 @@ export class Prop {
 
   /** Inverse of `fromMap` — encode a record of Prop/PropSpec values
    *  to their JSON `PropDef` form. */
-  static toJSONMap(props: Record<string, Prop | PropSpec>): Record<string, PropDef> {
+  static toJSONMap(props: Record<string, Prop | PropSpec | Type>): Record<string, PropDef> {
     const out: Record<string, PropDef> = {};
     for (const [name, prop] of Object.entries(props)) out[name] = Prop.from(prop).toJSON();
     return out;
@@ -532,6 +545,17 @@ export class GetSet<K = any, V = any> {
  * a freshly constructed LocalScope on round-trip. No source-form
  * preservation needed — the structure is symmetric.
  */
+/** The parsed parts a {@link Call} is built from. */
+export interface CallSpec<TArgs extends object = any, TResult = any, TError = any> {
+  args: Type<TArgs>;
+  returns?: Type<TResult>;
+  throws?: Type<TError>;
+  get?: Expr;
+  set?: Expr;
+  docs?: string;
+  types?: Record<string, Type>;
+}
+
 export class Call<TArgs extends object = any, TResult = any, TError = any> {
   readonly args: Type<TArgs>;
   readonly returns?: Type<TResult>;
@@ -545,15 +569,7 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
    *  alias header. Populated only when aliases were declared. */
   readonly types?: Record<string, Type>;
 
-  constructor(spec: {
-    args: Type<TArgs>;
-    returns?: Type<TResult>;
-    throws?: Type<TError>;
-    get?: Expr;
-    set?: Expr;
-    docs?: string;
-    types?: Record<string, Type>;
-  }) {
+  constructor(spec: CallSpec<TArgs, TResult, TError>) {
     this.args = spec.args;
     this.returns = spec.returns;
     this.throws = spec.throws;
@@ -760,7 +776,20 @@ export type Rnd = (min: number, max: number, whole: boolean) => number;
  *    constituents and delegate to them polymorphically.
  *  - Every method returns new instances where applicable (no mutation).
  */
+/**
+ * Type-only key of the phantom slot that carries a `Type`'s logical value
+ * for static inference. It has no runtime existence: {@link Infer} reads
+ * `T` from it, because inferring `T` from the methods would pick up the
+ * mapped forms (`JSONOf<T>`, `RuntimeOf<T>`) instead of `T` itself.
+ */
+declare const valueSlot: unique symbol;
+
+/** The key of {@link Type}'s phantom value slot — see {@link Infer}. */
+export type ValueSlot = typeof valueSlot;
+
 export abstract class Type<T = any, O = any> implements Node {
+  /** Phantom: the logical value type, for {@link Infer}. Never set at runtime. */
+  declare readonly [valueSlot]: T;
   constructor(
     /**
      * Type-name resolution scope. Usually the Registry (root scope);
@@ -911,13 +940,41 @@ export abstract class Type<T = any, O = any> implements Node {
   toDefinitionJSON(): TypeDef {
     const saved = definitionRefs.depth;
     definitionRefs.active++;
-    definitionRefs.depth = 0;
+    // A registered named type writes its OWN definition (its `toJSON` enters
+    // depth 1 itself); any other root is already "inside" a definition, so
+    // the first registered type it reaches — an obj field, a list item — is
+    // an OTHER type and is written as a reference.
+    definitionRefs.depth = this.registry.lookup(this.name) === this ? 0 : 1;
     try {
       return this.toJSON();
     } finally {
       definitionRefs.active--;
       definitionRefs.depth = saved;
     }
+  }
+
+  /**
+   * The named types this type refers to and does not define — what a
+   * process must have bound before it can parse this type's definition.
+   * Walks {@link toDefinitionJSON}, so a registered named type this type
+   * reaches is a reference, not an inlined copy. See `refs.ts`.
+   */
+  references(): TypeReferences {
+    return typeReferences(this.toDefinitionJSON(), this.registry);
+  }
+
+  /**
+   * {@link references}, followed transitively: every named type this type
+   * needs, each resolved through `scope` (this type's own by default), in
+   * an order that can be bound into a scope one by one, plus the names
+   * `scope` does not know.
+   */
+  closure(scope: TypeScope = this.scope): TypeClosure {
+    return typeClosure(
+      [this.toDefinitionJSON()],
+      this.registry,
+      (name) => scope.lookup(name)?.toDefinitionJSON(),
+    );
   }
 
   /** Default / zero raw value — used by { kind: 'new' } with no args. */
@@ -927,6 +984,22 @@ export abstract class Type<T = any, O = any> implements Node {
   abstract random(rnd: Rnd): RuntimeOf<T>;
 
   // ─── TYPE RELATIONS ──────────────────────────────────────────────────────
+
+  /**
+   * An `and` on the RIGHT that this type's own `compatibleType` did not
+   * recognise: every value of `and<A, B>` is a value of `A` AND of `B`, so it
+   * is assignable wherever ONE part is, and wherever the intersection's single
+   * equivalent is (`and<obj{a}, obj{b}>` simplifies to `obj{a, b}`, which is
+   * what `obj{a, b}` on the left must be compared with). Without it no type,
+   * not even an identical `and` re-parsed from its own JSON, accepted an `and`.
+   */
+  private compatibleWithParts(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+    const parts = andParts(other);
+    if (!parts) return false;
+    if (parts.some((p) => this.compatible(p, opts, scope))) return true;
+    const single = other.simplify(scope);
+    return single !== other && this.compatible(single, opts, scope);
+  }
 
   /**
    * Structural + (optional) strict compatibility check — "every value of
@@ -996,7 +1069,7 @@ export abstract class Type<T = any, O = any> implements Node {
       const variants = orVariants(other);
       result = variants
         ? variants.every((v) => this.compatible(v, opts, scope))
-        : this.compatibleType(other, opts, scope);
+        : this.compatibleType(other, opts, scope) || this.compatibleWithParts(other, opts, scope);
       if (!result || c.lowWater >= depth) {
         let byOther = c.memo.get(this);
         if (!byOther) c.memo.set(this, byOther = new Map());

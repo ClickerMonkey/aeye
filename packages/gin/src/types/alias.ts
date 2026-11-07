@@ -65,7 +65,12 @@ export interface AliasOptions {
  *   `When<A>` ↔ `Condition<A>`). On resolve the target is specialized
  *   and narrowed via `Registry.applyUse`, once per target.
  */
-export class AliasType extends Type<any, AliasOptions> {
+/**
+ * `T` is the value of the type the name resolves to. A name is resolved at
+ * use time, so TypeScript cannot see it: the builder defaults `T` to
+ * `unknown` and takes it explicitly (`r.alias<Customer>('Customer')`).
+ */
+export class AliasType<T = any> extends Type<T, AliasOptions> {
   static readonly NAME = 'alias';
   readonly name = AliasType.NAME;
 
@@ -238,8 +243,8 @@ export class AliasType extends Type<any, AliasOptions> {
     } as TypeDef;
   }
 
-  clone(): AliasType {
-    return new AliasType(this.scope, { ...this.options }, { ...this.generic });
+  clone(): AliasType<T> {
+    return new AliasType<T>(this.scope, { ...this.options }, { ...this.generic });
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {

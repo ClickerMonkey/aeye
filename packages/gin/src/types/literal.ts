@@ -29,14 +29,15 @@ export interface LiteralOptions<T = unknown> {
  * when the literal values are equal. In non-exact mode it also accepts any
  * value of the inner type (since the literal IS a value of the inner type).
  */
-export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
+export class LiteralType<T = any, B = T> extends Type<T, LiteralOptions<T>> {
   static readonly NAME = 'literal';
   readonly name = LiteralType.NAME;
 
   static readonly optionKeys = ['value'] as const satisfies readonly (keyof LiteralOptions)[];
   static readonly genericKeys = ['T'] as const;
 
-  readonly inner: Type<T>;
+  /** The type the literal is a value of — its value is `B`, the literal's is `T`. */
+  readonly inner: Type<B>;
 
   static from(json: TypeDef, scope: TypeScope): LiteralType {
     const registry = scope.registry;
@@ -59,7 +60,7 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     return z.any();
   }
 
-  constructor(scope: TypeScope, inner: Type<T>, value: T) {
+  constructor(scope: TypeScope, inner: Type<B>, value: T) {
     super(scope, { value }, { T: inner });
     this.inner = inner;
   }
@@ -85,13 +86,14 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
   }
 
   encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
-    return this.inner.encode(raw, scope);
+    // The literal IS a value of the inner type (`T extends B`).
+    return this.inner.encode(raw as RuntimeOf<B>, scope) as JSONOf<T>;
   }
 
   /** The inner type does the walk — a literal pins WHICH value, never how
    *  it serializes. */
   encodeAs(raw: RuntimeOf<T>, opts: EncodeOptions, scope?: TypeScope): unknown {
-    return this.inner.encodeAs(raw, opts, scope);
+    return this.inner.encodeAs(raw as RuntimeOf<B>, opts, scope);
   }
 
   create(): RuntimeOf<T> {
@@ -146,8 +148,8 @@ export class LiteralType<T = unknown> extends Type<T, LiteralOptions<T>> {
     };
   }
 
-  clone(): LiteralType<T> {
-    return new LiteralType(this.registry, this.inner.clone() as Type<T>, this.literal);
+  clone(): LiteralType<T, B> {
+    return new LiteralType<T, B>(this.registry, this.inner.clone(), this.literal);
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {

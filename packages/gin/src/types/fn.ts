@@ -1,7 +1,9 @@
 import type { ExprDef, TypeDef } from '../schema';
 import type { Registry } from '../registry';
 import { Value } from '../value';
-import { Call, type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import { Call, type CallSpec, type CompatOptions, type Prop, type Rnd, Type } from '../type';
+import type { FnValue } from '../infer';
+import type { JSONOf, RuntimeOf } from '../json-type';
 import { LocalScope, type TypeScope } from '../type-scope';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
@@ -10,13 +12,14 @@ import { callDefSchema } from '../schemas';
 /**
  * FnType — the universal callable. Its shape lives on the `_call` field
  * (exposed via `call()`). Raw values are either a JS function, a lambda
- * ExprDef, or a stringified native reference.
+ * ExprDef, or a stringified native reference — {@link FnValue}.
  *
- * `T` is `any` here because a function value is an opaque runtime cell —
- * neither the `RuntimeOf` per-element mapping nor the `JSONOf` envelope
- * shape apply meaningfully to function bodies.
+ * `A`, `R` and `E` are the args, return and thrown values of the signature,
+ * kept on the type (`FnArgs` / `FnReturns` / `FnThrows` read them back) because
+ * a fn VALUE is an opaque runtime cell: neither the `RuntimeOf` per-element
+ * mapping nor the `JSONOf` envelope shape apply meaningfully to a body.
  */
-export class FnType extends Type<any, Record<string, never>> {
+export class FnType<A extends object = any, R = any, E = any> extends Type<FnValue<A, R>, Record<string, never>> {
   static readonly NAME = 'fn';
   /** fn's signature IS its structure — call is natively consumed. */
   static readonly consumes = ['call'] as const;
@@ -25,8 +28,9 @@ export class FnType extends Type<any, Record<string, never>> {
   /** A fn's signature is its `call`; its `generic` entries are DECLARATIONS,
    *  so there is no fixed parameter set and `generic` goes unchecked. */
   static readonly optionKeys = [] as const;
+  static readonly declaresGenerics = true;
 
-  readonly _call: Call;
+  readonly _call: Call<A, R, E>;
 
   static from(json: TypeDef, scope: TypeScope): FnType {
     const registry = scope.registry;
@@ -74,7 +78,7 @@ export class FnType extends Type<any, Record<string, never>> {
 
   constructor(
     scope: TypeScope,
-    call: Call | ConstructorParameters<typeof Call>[0],
+    call: Call<A, R, E> | CallSpec<A, R, E>,
     generic: Record<string, Type> = {},
   ) {
     super(scope, {}, generic);
@@ -107,10 +111,11 @@ export class FnType extends Type<any, Record<string, never>> {
     return new Value(this, null as any);
   }
 
-  encode(raw: ((...args: any[]) => any) | ExprDef | string, _scope?: TypeScope): any {
-    if (typeof raw === 'string') return raw;
-    if (typeof raw === 'function') return null; // native, not serializable
-    return raw;
+  /** A native ref or lambda body is its own JSON; a JS callable is not
+   *  serializable and encodes as `null`. */
+  encode(raw: RuntimeOf<FnValue<A, R>>, _scope?: TypeScope): JSONOf<FnValue<A, R>> {
+    const json: unknown = typeof raw === 'function' ? null : raw;
+    return json as JSONOf<FnValue<A, R>>;
   }
 
   /**
@@ -191,7 +196,7 @@ export class FnType extends Type<any, Record<string, never>> {
     return {};
   }
 
-  call(_scope?: TypeScope): Call {
+  call(_scope?: TypeScope): Call<A, R, E> {
     return this._call;
   }
 
@@ -211,13 +216,13 @@ export class FnType extends Type<any, Record<string, never>> {
     };
   }
 
-  clone(): FnType {
+  clone(): FnType<A, R, E> {
     const genericClone: Record<string, Type> = {};
     for (const [k, t] of Object.entries(this.generic)) genericClone[k] = t.clone();
-    return new FnType(
+    return new FnType<A, R, E>(
       this.registry,
       {
-        args: this._call.args.clone() as Type<any>,
+        args: this._call.args.clone(),
         returns: this._call.returns?.clone(),
         throws: this._call.throws?.clone(),
         get: this._call.get,

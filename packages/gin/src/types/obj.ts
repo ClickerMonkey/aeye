@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 import { propDefSchema } from '../schemas';
+import type { FieldsInput } from '../infer';
 
 /**
  * ObjType — structural object with named fields (props). Unlike other
@@ -50,7 +51,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return z.record(z.string(), opts.Expr);
   }
 
-  constructor(scope: TypeScope, fields: Record<string, Prop | PropSpec>) {
+  constructor(scope: TypeScope, fields: FieldsInput) {
     super(scope, {});
     // Normalize plain objects to Prop instances so methods are available.
     const normalized: Record<string, Prop> = {};

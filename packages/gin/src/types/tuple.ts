@@ -11,7 +11,7 @@ import type { Scope } from '../scope';
 import { TypeError } from '../problem';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import type { EncodeOptions, JSONValue } from '../json-type';
+import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
 export interface TupleOptions {
@@ -43,7 +43,7 @@ function lazyElementDefs(elements: Type[]): TupleOptions {
  * its own Type. follow() is overridden so that a literal numeric key
  * returns the exact positional type (rather than a union over positions).
  */
-export class TupleType extends Type<[any, ...any[]], TupleOptions> {
+export class TupleType<T extends unknown[] = [any, ...any[]]> extends Type<T, TupleOptions> {
   static readonly NAME = 'tuple';
   readonly name = TupleType.NAME;
 
@@ -89,7 +89,7 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
       && slotAccepts(this.elements[i]!, v.type, scope));
   }
 
-  parse(json: unknown, scope?: TypeScope): Value<[any, ...any[]]> {
+  parse(json: unknown, scope?: TypeScope): Value<T> {
     if (!Array.isArray(json) || json.length !== this.elements.length) {
       throw new TypeError({
         path: [], code: 'tuple.invalid',
@@ -97,22 +97,27 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
         severity: 'error',
       });
     }
-    const raw = this.elements.map((e, i) => this.registry.parseValue(json[i], e, scope)) as [Value, ...Value[]];
+    const raw = this.elements.map((e, i) => this.registry.parseValue(json[i], e, scope));
     return new Value(this, raw);
   }
 
   /** Each positional value becomes a `JSONValue` envelope — or its bare
    *  logical form under `form:'logical'`. One walk, via `encodeAs`. */
-  encode(raw: [Value, ...Value[]], scope?: TypeScope): [JSONValue, ...JSONValue[]] {
-    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as [JSONValue, ...JSONValue[]];
+  encode(raw: RuntimeOf<T>, scope?: TypeScope): JSONOf<T> {
+    return this.encodeAs(raw, ENVELOPE_ENCODE, scope) as JSONOf<T>;
   }
 
-  encodeAs(raw: [Value, ...Value[]], opts: EncodeOptions, scope?: TypeScope): unknown {
+  encodeAs(raw: RuntimeOf<T>, opts: EncodeOptions, scope?: TypeScope): unknown {
+    // `RuntimeOf<T>` is one `Value` per position; `Array.isArray` is what
+    // lets TypeScript see that through the generic.
+    if (!Array.isArray(raw)) throw new TypeError({
+      path: [], code: 'tuple.invalid', message: 'tuple.encode: expected an array of cells', severity: 'error',
+    });
     return raw.map((v) => encodeSlot(v, opts, scope));
   }
 
-  create(): [Value, ...Value[]] {
-    return this.elements.map((e) => new Value(e, e.create())) as [Value, ...Value[]];
+  create(): RuntimeOf<T> {
+    return this.elements.map((e) => new Value(e, e.create())) as RuntimeOf<T>;
   }
 
   /** A `new tuple` payload is POSITIONAL: slot `i` is declared
@@ -138,8 +143,8 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return out;
   }
 
-  random(rnd: Rnd): [Value, ...Value[]] {
-    return this.elements.map((e) => new Value(e, e.random(rnd))) as [Value, ...Value[]];
+  random(rnd: Rnd): RuntimeOf<T> {
+    return this.elements.map((e) => new Value(e, e.random(rnd))) as RuntimeOf<T>;
   }
 
   like(other: Type): Type {
@@ -157,11 +162,11 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     return this.elements.every((e, i) => e.compatible(other.elements[i]!, opts, scope));
   }
 
-  or(other: Type<[any, ...any[]]>): Type<[any, ...any[]]> {
+  or(other: Type<T>): Type<T> {
     if (!(other instanceof TupleType) || other.elements.length !== this.elements.length) {
       return this;
     }
-    return new TupleType(
+    return new TupleType<T>(
       this.registry,
       this.elements.map((e, i) => e.or(other.elements[i]! as Type<any>)),
     );
@@ -226,8 +231,8 @@ export class TupleType extends Type<[any, ...any[]], TupleOptions> {
     };
   }
 
-  clone(): TupleType {
-    return new TupleType(this.registry, this.elements.map((e) => e.clone()));
+  clone(): TupleType<T> {
+    return new TupleType<T>(this.registry, this.elements.map((e) => e.clone()));
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {

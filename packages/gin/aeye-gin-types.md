@@ -48,50 +48,152 @@ just runs `T.parse(value)`. `duration` and `color` ship with `init`.
 ## Building types programmatically (`TypeBuilder`)
 
 The `Registry` implements `TypeBuilder`; these return runtime `Type` instances
-(sugar over JSON `parse`). Real signatures:
+(sugar over JSON `parse`). **Every builder returns its concrete class carrying
+the TypeScript value it describes**, so the gin type is the one source of truth
+for the runtime contract AND the static one — change a field and every
+TypeScript use of the inferred value follows:
 
 ```ts
-r.any(); r.void(); r.null();
-r.bool(options?: { trueText?; falseText? });
-r.num(options?: { min?; max?; whole?; minPrecision?; maxPrecision?; prefix?; suffix? });
-r.text(options?: { minLength?; maxLength?; pattern?; flags? });
+import { createRegistry, type Infer } from '@aeye/gin';
+const r = createRegistry();
 
-r.list<V>(item: Type<V>, options?: { minLength?; maxLength? });   // list<V>
-r.map<K,V>(key: Type<K>, value: Type<V>);                          // map<K,V>
-r.tuple([Type, Type, ...]);                                        // tuple<...>
-r.obj({ name: { type: r.text() }, age: { type: r.optional(r.num()) } }); // optional field = optional<T>
+const Read = r.obj({
+  path: r.text({ minLength: 1 }),
+  offset: r.optional(r.num({ min: 0, whole: true })),
+  mode: r.field(r.enum(['text', 'bytes']), { docs: 'How to return the content.' }),
+});
+type Read = Infer<typeof Read>;
+// { path: string; mode: 'text' | 'bytes'; offset?: number | undefined }
 
-
-r.optional<T>(inner);   // T or absent
-r.nullable<T>(inner);   // T or null
-r.not(excluded);
-r.or([Type, ...]);      // union
-r.and([Type, ...]);     // intersection — see "Intersections (`and`)"
-r.enum(values: Record<string, V>, valueType: Type<V>);  // prints `enum<text>{low, medium}`
-                                                        // when value === label — see Codegen
-r.literal(inner: Type<T>, value: T);
-
-r.date(options?: { min?; max?; utc? });
-r.timestamp(options?: { min?; max?; utc?; precision?: 'ms'|'s'|'us' });
-r.duration();
-r.color(options?: { hasAlpha? });
-
-// function type — NOTE: a single options object, not positional args
-r.fn({ args: Type, returns?: Type, throws?: Type, generic?: Record<string,Type>, call?: Expr });
-
-r.iface({ props?, get?, call? });   // structural interface
-r.alias(name);                      // bare-name ref / generic placeholder
-r.typ(constraint: Type);            // "a type that satisfies <constraint>"
-
-// prop builders (cut boilerplate when defining a type's surface)
-r.prop(type: Type, nativeId: string, docs?);
-r.method(args: Record<string, Type>, returns: Type, nativeId: string,
-         options?: { docs?; generic?: Record<string, Type> });
+const args: Read = Read.parse({ path: 'a.txt', mode: 'text' }).toLogical();
 ```
+
+| Builder | Returns | `Infer<…>` |
+|---|---|---|
+| `any()` / `void()` / `null()` | `AnyType` / `VoidType` / `NullType` | `any` / `void` / `null` |
+| `bool(o?)` / `num(o?)` / `text(o?)` | `BoolType` / `NumType` / `TextType` | `boolean` / `number` / `string` |
+| `date(o?)` / `timestamp(o?)` | `DateType` / `TimestampType` | `Date` |
+| `duration()` / `color(o?)` | `DurationType` / `ColorType` | `number` (ms / packed rgb) |
+| `list(item, o?)` | `ListType<V>` | `V[]` |
+| `map(key, value)` | `MapType<K, V>` | `Map<K, V>` |
+| `tuple([a, b, …])` | `TupleType<[A, B, …]>` | `[A, B, …]` |
+| `obj({ k: field, … })` | `ObjType<…>` | `{ k: … }`; an `optional<T>` field is an optional key |
+| `field(type, { docs?, default? })` | `FieldSpec<X>` | (a field of `obj` / `iface` / `extend`) |
+| `optional(t)` / `nullable(t)` | `OptionalType<T>` / `NullableType<T>` | `T \| undefined` / `T \| null` |
+| `or([a, b, …])` | `OrType<A \| B \| …>` | the union |
+| `and([a, b, …])` | `AndType<A & B & …>` | the intersection (a `Type[]` of unknown length infers `any`) |
+| `enum(['a', 'b'])` | `EnumType<'a' \| 'b', string>` | `'a' \| 'b'` — labels are their own values |
+| `enum({ low: 1, high: 9 }, num())` | `EnumType<1 \| 9, number>` | `1 \| 9` |
+| `literal('x')` / `literal(3)` / `literal(true)` | `LiteralType<'x', string>` … | the constant; the inner type is picked from it |
+| `literal(inner, value)` | `LiteralType<V, B>` | `V` |
+| `fn({ args, returns?, throws?, generic?, call? })` | `FnType<A, R, E>` | `FnValue<A, R>`; read the signature with `FnArgs` / `FnReturns` / `FnThrows` |
+| `iface({ props?, get?, call? })` | `IfaceType<…>` | its **data** props (methods are surface on the satisfying type) |
+| `alias<T = unknown>(name)` | `AliasType<T>` | `T` — a name resolves at use time, so say what it stands for |
+| `typ(constraint)` | `TypType<T>` | `Type` (a type as a value) |
+| `extend(base, { name, props?, … })` | `Extension<…>` | the base value plus the stored-data props added |
+| `extend('text', { … })` | `Extension<string>` | a built-in class name types as that class; any other name is `unknown` |
+| `prop(type, nativeId, docs?)` / `method(args, returns, nativeId, o?)` | `ComputedProp<…>` | (surface: a computed read / a method) |
+
+Fields of `obj`, `iface` and `extend` may each be written three ways — a bare
+`Type` (the shorthand), a `PropSpec` (`{ type, docs?, default?, get?, set? }`)
+or a `Prop` — and `field(type, options)` is the PropSpec that keeps its exact
+type. A `default` is an `Expr` / `ExprDef`, filled in by `new` when the payload
+omits the field.
+
+**Data and surface.** A field with a `get` expression, or whose type is a `fn`,
+is SURFACE — computed or callable, never stored. It is left out of the inferred
+value of an `iface` and of the fields an `extend` adds, matching what `parse`,
+`valid` and `toValueSchema` do at run time.
+
+```ts
+const Customer = r.extend(r.obj({ id: r.text() }), {
+  name: 'Customer',
+  docs: 'A paying customer.',
+  props: {
+    email: r.text(),                                                 // data
+    upgrade: r.method({ plan: r.text() }, r.bool(), 'Customer.upgrade'), // surface
+  },
+});
+type Customer = Infer<typeof Customer>;   // { id: string; email: string }
+```
+
+**Everything else gin has is reachable from the same builder**: constraints are
+each class's options (`num{min,max,whole,…}`, `text{minLength,maxLength,pattern,flags}`,
+`list{minLength,maxLength}`, `date{min,max,utc}`, …) and an extension's
+`constraint` Expr; defaults and per-field docs ride `field`; generics are a fn's
+`generic` (declared, with `alias('T')` placeholders) and an extension's `generic`
+(bound with `specialize`); methods are `method` props, on an extension or added
+to any existing type with `r.augment(name, { props })`.
+
+### Inference helpers
+
+| Export | What it is |
+|---|---|
+| `Infer<X>` | The logical value of a `Type`. Read from a phantom slot (`ValueSlot`), never from the methods, so `JSONOf` / `RuntimeOf` never leak in. |
+| `ObjValue<Fields>` | The value of `obj(fields)` for a fields record. |
+| `DataFields<Fields>` / `IsSurfaceField<F>` / `IsOptionalField<F>` | The data / surface / optional split the builders use. |
+| `TupleValue<E>` / `IntersectValues<V>` / `WithData<T, Fields>` / `NamedValue<N>` | The values of `tuple`, `and`, `extend` and a built-in class name. |
+| `FnValue<A, R>`, `FnArgs<F>` / `FnReturns<F>` / `FnThrows<F>` | A fn value (a callable over `Value`s, a lambda `ExprDef`, or a native ref) and a fn type's signature. |
+
+### Plain values: `Value.toLogical()`
+
+`value.toLogical()` is the value as `Infer` describes it — plain JS, with every
+nested `Value` cell unwrapped, a `map` as a `Map`, `date` / `timestamp` as
+`Date`. It is the form to hand to code that consumes a value gin has checked:
+
+```ts
+const checked = registry.parseValue(json, Read).toLogical();   // Read's Infer
+```
+
+It differs from `encodeLogical()`, which is logical **JSON** (ISO strings for
+timestamps, `[{key, value}]` for maps).
 
 > Gotcha: `r.fn(...)` takes ONE options object (`{ args, returns? }`), and
 > `r.method(args, ...)` takes `args` as a plain `Record<string, Type>` (each
 > entry becomes an obj field) — not an obj type.
+
+## Named type references (`references`, `closure`)
+
+A def that names a type it does not define — `{name: 'Customer'}`,
+`extends: 'Customer'`, `satisfies: ['Comparable']` — only parses to the intended
+type where that name resolves. A process that receives defs from elsewhere asks
+gin which names it needs, fetches those, binds them in a scope, and parses:
+
+```ts
+import { typeReferences, typeClosure } from '@aeye/gin';
+
+typeReferences(def, registry);
+// { refs: ['Customer', 'Order'], defines: [] }   — direct references
+
+const { order, defs, missing } = typeClosure([def], registry, (name) => fetched[name]);
+const scope = registry.scope();
+for (const name of order) scope.bind(name, scope.parse(defs.get(name)!));   // dependencies first
+const type = scope.parse(def);
+```
+
+On a live type, `type.references()` and `type.closure(scope = type.scope)` do the
+same over `type.toDefinitionJSON()` — so a registered named type the type reaches
+is reported as a reference, and its definition is resolved through the scope.
+
+What counts:
+
+- **References**: any name that is not a built-in class, in a type position
+  (a bare or use-site name, `extends`, `satisfies`), anywhere in the def — field
+  types, generic arguments, `options` child defs (`tuple`, `or`, `and`, `not`),
+  `get` / `call` / `init` signatures, and types inside expressions (`new`,
+  `lambda`, `define`, `native`, a call step's `generic`, a `typ` value).
+- **Not references**: built-in class names; type parameters a fn or an extension
+  declares (also inside their own constraints, so `R: R` is fine); a call's
+  `types` aliases; names the def defines inline (`{name, extends, …}`), which are
+  reported in `defines` instead; enum / literal constants and `new` payload keys.
+- `typeClosure` follows each reference through the resolver. `order` lists the
+  resolved names dependencies-first (a cycle keeps first-seen order — gin
+  resolves the forward reference lazily); `missing` is what the resolver did not
+  know.
+
+Two `TypeClass` flags drive the walk without inspecting class names:
+`declaresGenerics` (set on `fn`) and `valuesAreTypes` (set on `typ`).
+`registry.typeClass(name)` returns the class registered under a name.
 
 ## The `TypeDef` wire format, and strict parsing
 
@@ -300,6 +402,10 @@ i.e. `b` is assignable to `a`. Convenience wrappers:
 - **`or` on the RIGHT (0.4.4)**: descended for EVERY `a`, since a union is
   assignable exactly when all of its variants are —
   `a.compatible(or<X, Y>)` is `a.compatible(X) && a.compatible(Y)`.
+- **`and` on the RIGHT**: when `a`'s own check does not recognise the
+  intersection, it is assignable wherever ONE part is, or wherever its single
+  equivalent is (`and<obj{a}, obj{b}>` → `obj{a, b}`). Before, no type — not even
+  the same `and` re-parsed from its own JSON — accepted an `and`.
 
 ```ts
 num.compatible(or<num, num>)    // true   — every value of the union IS a num

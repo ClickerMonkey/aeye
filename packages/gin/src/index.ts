@@ -36,6 +36,8 @@ export { LocalScope, type TypeScope } from './type-scope';
 export * from './type';
 export * from './extension';
 export * from './builder';
+export * from './infer';
+export * from './refs';
 export * from './registry';
 export * from './flow-control';
 export { Path, PathStep, PropStep, IndexStep, CallStep, walkPath, type PathMode } from './path';

@@ -26,7 +26,12 @@ import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
  * an optional default implementation satisfying types inherit unless
  * they override.
  */
-export class IfaceType extends Type<any, Record<string, never>> {
+/**
+ * `T` is what TypeScript can say about a value satisfying the interface: its
+ * stored-data props. Methods and computed props are surface — they live on
+ * the satisfying TYPE, not on the value — so they do not appear in `T`.
+ */
+export class IfaceType<T = any> extends Type<T, Record<string, never>> {
   static readonly NAME = 'interface';
   /** iface's contract IS its structure — props/get/call are natively consumed. */
   static readonly consumes = ['props', 'get', 'call'] as const;
@@ -199,12 +204,12 @@ export class IfaceType extends Type<any, Record<string, never>> {
     };
   }
 
-  clone(): IfaceType {
+  clone(): IfaceType<T> {
     const p: Record<string, PropSpec> = {};
     for (const [name, prop] of Object.entries(this._props)) {
       p[name] = { ...prop, type: prop.type.clone() };
     }
-    return new IfaceType(this.registry, { props: p, get: this._get, call: this._call });
+    return new IfaceType<T>(this.registry, { props: p, get: this._get, call: this._call });
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {

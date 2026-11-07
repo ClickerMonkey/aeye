@@ -19,6 +19,22 @@ export class Value<T = any> {
   }
 
   /**
+   * The LOGICAL value — plain JS, `T` itself: every nested `Value` cell is
+   * unwrapped, a `map` becomes a `Map` of logical keys to logical values,
+   * and leaves stay as their type keeps them (`Date` for `date` /
+   * `timestamp`, numbers for `duration` and `color`, a `Type` for `typ`, a
+   * fn's callable / lambda / native ref as is).
+   *
+   * This is the form to hand to code that consumes a value gin has already
+   * checked — `registry.parseValue(json, type).toLogical()`.
+   */
+  toLogical(): T {
+    // `T` is what `RuntimeOf<T>` is the cell-wrapped form of; `logical` is
+    // the inverse of that wrapping, so the result is `T` by construction.
+    return logical(this.raw) as T;
+  }
+
+  /**
    * Serialize just the raw to its JSON envelope form — the `value` side of
    * a full envelope. Each nested composite slot is itself a `JSONValue`,
    * so per-element concrete types round-trip. Useful when you have the
@@ -99,6 +115,37 @@ export class Value<T = any> {
   toJSONLogical(): JSONValue<T> {
     return this.toJSON(LOGICAL_ENCODE);
   }
+}
+
+/** Unwraps runtime cells: the inverse of `RuntimeOf`. */
+function logical(raw: unknown): unknown {
+  if (raw instanceof Value) return raw.toLogical();
+  if (Array.isArray(raw)) return raw.map(logical);
+  if (raw instanceof Map) {
+    const out = new Map<unknown, unknown>();
+    for (const entry of raw.values()) {
+      if (isCellPair(entry)) out.set(entry[0].toLogical(), entry[1].toLogical());
+    }
+    return out;
+  }
+  if (isPlainObject(raw)) {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(raw)) out[key] = logical(value);
+    return out;
+  }
+  return raw;
+}
+
+/** A runtime `map` entry: `[Value<K>, Value<V>]`. */
+function isCellPair(entry: unknown): entry is [Value, Value] {
+  return Array.isArray(entry) && entry.length === 2 && entry[0] instanceof Value && entry[1] instanceof Value;
+}
+
+/** A plain record — not a `Date`, `Type`, `Map` or any other class instance. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 /** The options {@link Value.encodeLogical} runs under. */

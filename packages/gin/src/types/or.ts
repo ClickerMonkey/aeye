@@ -24,7 +24,11 @@ export interface OrOptions {
  *
  * The engine dispatches to the ACTIVE variant at runtime (via valid() on each).
  */
-export class OrType extends Type<any, OrOptions> {
+/**
+ * `T` is the union of the variants' values — the builder infers it
+ * (`r.or([r.text(), r.num()])` is `OrType<string | number>`).
+ */
+export class OrType<T = any> extends Type<T, OrOptions> {
   static readonly NAME = 'or';
   readonly name = OrType.NAME;
 
@@ -200,8 +204,8 @@ export class OrType extends Type<any, OrOptions> {
     };
   }
 
-  clone(): OrType {
-    return new OrType(this.registry, this.variants.map((v) => v.clone()));
+  clone(): OrType<T> {
+    return new OrType<T>(this.registry, this.variants.map((v) => v.clone()));
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {

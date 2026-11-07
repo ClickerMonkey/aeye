@@ -7,7 +7,7 @@ inheritance) plus an expression language serialized as plain JSON. It is the
 **runtime an LLM writes programs for** — not a model wrapper, not a prompt library.
 
 ```bash
-npm install @aeye/gin zod      # zod 4.x is a peer/runtime dependency
+npm install @aeye/gin zod      # zod 4.6+ is a runtime dependency
 ```
 
 ```ts
@@ -108,7 +108,9 @@ Key shapes to internalize:
 | `Registry` | Implements `TypeBuilder` (`r.num()`, `r.list(...)`, ...) + parsing + registration. |
 | `Engine` | `run`, `validate`, `typeOf`, `toCode`, `toGinCode`, `toJSONCode`, `validateValue`. |
 | `buildSchemas(registry, overrides?)` | Zod schemas (`.Type`, `.Expr`) describing valid programs for an LLM. |
-| `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. `encodeLogical` / `toJSONLogical` / `toJSONRefs` / `toJSON` are its four wire forms. |
+| `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. `toLogical()` is the plain JS value (`T`); `encodeLogical` / `toJSONLogical` / `toJSONRefs` / `toJSON` are its four wire forms. |
+| `Infer<X>`, `ObjValue`, `FnArgs` / `FnReturns`, … | Static inference: the TypeScript value every builder's type describes — see [building types](./aeye-gin-types.md#building-types-programmatically-typebuilder). |
+| `typeReferences(def, r)`, `typeClosure(defs, r, resolve)`, `type.references()`, `type.closure()` | The named types a def depends on, direct and transitive — see [named type references](./aeye-gin-types.md#named-type-references-references-closure). |
 | `Type`, `Prop`, `GetSet`, `Call`, `Init` | Type-system runtime classes. |
 | `TypeScope`, `LocalScope` | Type-NAME resolution. `registry.scope({X})` layers an overlay above the registry: `X` resolves for that session and still serializes as `{name:'X'}`. |
 | `Expr` + `NewExpr` ... `NativeExpr` | Abstract expr base + the 12 concrete classes. |

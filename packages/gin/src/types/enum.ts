@@ -14,11 +14,12 @@ export interface EnumOptions<V = unknown> {
 }
 
 /**
- * EnumType<V> — a named set of constants of some value type V.
- * The inner type V lives in generic.V (e.g. text, num).
- * Options carry the {key → value} constants the enum allows.
+ * EnumType<V, B> — a named set of constants of some value type.
+ * The inner (member) type lives in generic.V (e.g. text, num); its value
+ * is `B`. Options carry the {key → value} constants the enum allows, and
+ * `V` is the union of those constants (`'low' | 'high'` over `B = string`).
  */
-export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
+export class EnumType<V = any, B = V> extends Type<V, EnumOptions<V>> {
   static readonly NAME = 'enum';
   readonly name = EnumType.NAME;
 
@@ -45,12 +46,13 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     return z.union([z.string(), z.number()]);
   }
 
-  constructor(scope: TypeScope, value: Type<V>, options: EnumOptions<V>) {
+  constructor(scope: TypeScope, value: Type<B>, options: EnumOptions<V>) {
     super(scope, options, { V: value });
   }
 
-  get value(): Type<V> {
-    return this.generic.V as Type<V>;
+  /** The member type — what every constant is a value of. */
+  get value(): Type<B> {
+    return this.generic.V as Type<B>;
   }
 
   valid(raw: unknown, scope?: TypeScope): raw is RuntimeOf<V> {
@@ -71,23 +73,24 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
   }
 
   encode(raw: RuntimeOf<V>, scope?: TypeScope): JSONOf<V> {
-    return this.value.encode(raw, scope);
+    // A member IS a value of the member type (`V extends B`).
+    return this.value.encode(raw as RuntimeOf<B>, scope) as JSONOf<V>;
   }
 
   /** The member's own type does the walk — an enum constrains WHICH value,
    *  never how it serializes. */
   encodeAs(raw: RuntimeOf<V>, opts: EncodeOptions, scope?: TypeScope): unknown {
-    return this.value.encodeAs(raw, opts, scope);
+    return this.value.encodeAs(raw as RuntimeOf<B>, opts, scope);
   }
 
   create(): RuntimeOf<V> {
     const first = Object.values(this.options.values)[0];
-    return first !== undefined ? (first as RuntimeOf<V>) : this.value.create();
+    return first !== undefined ? (first as RuntimeOf<V>) : this.value.create() as RuntimeOf<V>;
   }
 
   random(rnd: Rnd): RuntimeOf<V> {
     const vals = Object.values(this.options.values);
-    if (vals.length === 0) return this.value.random(rnd);
+    if (vals.length === 0) return this.value.random(rnd) as RuntimeOf<V>;
     return vals[rnd(0, vals.length - 1, true)] as RuntimeOf<V>;
   }
 
@@ -95,10 +98,7 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     if (!(other instanceof EnumType)) return this;
     const inner = this.registry.like(other.value);
     if (inner.name === 'null') return this.registry.null();
-    return this.registry.enum(
-      other.options.values as Record<string, V>,
-      inner as Type<V>,
-    );
+    return this.registry.enum(other.options.values, inner);
   }
 
   compatibleType(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
@@ -113,9 +113,9 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
 
   or(other: Type<V>): Type<V> {
     if (!(other instanceof EnumType)) return this;
-    return new EnumType(
+    return new EnumType<V, B>(
       this.registry,
-      this.value.or(other.value as Type<V>),
+      this.value.or(other.value as Type<B>),
       { values: { ...other.options.values, ...this.options.values } },
     );
   }
@@ -157,10 +157,10 @@ export class EnumType<V = unknown> extends Type<V, EnumOptions<V>> {
     };
   }
 
-  clone(): EnumType<V> {
-    return new EnumType(
+  clone(): EnumType<V, B> {
+    return new EnumType<V, B>(
       this.registry,
-      this.value.clone() as Type<V>,
+      this.value.clone(),
       { values: { ...this.options.values } },
     );
   }

@@ -1,18 +1,13 @@
 import type { ExprDef, TypeDef } from './schema';
 import { Call, GetSet, Init, Prop, type PropSpec, Type, slotAccepts } from './type';
 import { Extension, type ExtensionLocal, sameOptions } from './extension';
-import {
-  type BoolOptions,
-  type ColorOptions,
-  type DateOptions,
-  type IfaceSpec,
-  type ListOptions,
-  type NumOptions,
-  type ObjPropsInput,
-  type TextOptions,
-  type TimestampOptions,
-  type TypeBuilder,
+import type {
+  BoolOptions, ColorOptions, ComputedProp, DateOptions, ExtendLocal, FieldOptions, FieldSpec, FnSpec,
+  IfaceSpec, ListOptions, NumOptions, TextOptions, TimestampOptions, TypeBuilder, Widen,
 } from './builder';
+import type {
+  DataFields, FieldsInput, FnValue, Infer, IntersectValues, NamedValue, ObjValue, TupleValue, WithData,
+} from './infer';
 import { Expr, type ExprClass } from './expr';
 import type { CodeOptions, SchemaOptions } from './node';
 import type { Code } from './code';
@@ -92,6 +87,18 @@ export interface TypeClass {
    * DECLARED by the def rather than fixed by the class.
    */
   readonly genericKeys?: readonly string[];
+  /**
+   * True when `TypeDef.generic` on this class DECLARES type parameters
+   * (`fn`'s `<R>`), rather than binding fixed ones (`list`'s `V`). Read by
+   * the reference walk (`refs.ts`): a declared name is local, not a
+   * reference to a named type.
+   */
+  readonly declaresGenerics?: boolean;
+  /**
+   * True when a value of this class IS a type (`typ`), so a `new` payload
+   * of it is a `TypeDef` — read by the reference walk.
+   */
+  readonly valuesAreTypes?: boolean;
   /** Build a Type from its JSON. `scope` is the type-name resolution
    *  scope (Registry as the root, LocalScope layers above for fn
    *  generics / call.types aliases). Use `scope.registry` to access
@@ -386,6 +393,11 @@ export class Registry implements TypeBuilder, TypeScope {
   /** Enumerate every registered Type class (used by schema builders). */
   typeClasses(): TypeClass[] {
     return Array.from(this.classes.values());
+  }
+
+  /** The built-in (or `define`d) class registered under `name`, if any. */
+  typeClass(name: string): TypeClass | undefined {
+    return this.classes.get(name);
   }
 
   /** Enumerate every programmatically-registered named Type instance
@@ -985,77 +997,92 @@ export class Registry implements TypeBuilder, TypeScope {
 
   // ─── TYPE BUILDER IMPL ───────────────────────────────────────────────────
 
-  any()  { return new AnyType(this, {}); }
-  void() { return new VoidType(this, {}); }
-  null() { return new NullType(this, {}); }
+  any(): AnyType { return new AnyType(this, {}); }
+  void(): VoidType { return new VoidType(this, {}); }
+  null(): NullType { return new NullType(this, {}); }
 
-  bool(options?: BoolOptions) { return new BoolType(this, options ?? {}); }
-  num(options?: NumOptions)   { return new NumType(this, options ?? {}); }
-  text(options?: TextOptions) { return new TextType(this, options ?? {}); }
+  bool(options?: BoolOptions): BoolType { return new BoolType(this, options ?? {}); }
+  num(options?: NumOptions): NumType { return new NumType(this, options ?? {}); }
+  text(options?: TextOptions): TextType { return new TextType(this, options ?? {}); }
 
-  list<V>(item: Type<V>, options?: ListOptions) {
+  list<V>(item: Type<V>, options?: ListOptions): ListType<V> {
     return new ListType<V>(this, item, options ?? {});
   }
-  map<K, V>(key: Type<K>, value: Type<V>) {
+  map<K, V>(key: Type<K>, value: Type<V>): MapType<K, V> {
     return new MapType<K, V>(this, key, value);
   }
-  tuple<T extends any[]>(elements: { [I in keyof T]: Type<T[I]> }) {
-    return new TupleType(this, elements as unknown as Type[]) as unknown as Type<T>;
+  tuple<const E extends readonly Type[]>(elements: E): TupleType<TupleValue<E>> {
+    return new TupleType<TupleValue<E>>(this, [...elements]);
   }
-  obj<T extends object = Record<string, any>>(props: ObjPropsInput): Type<T> {
-    return new ObjType<T>(this, props);
+  obj<const P extends FieldsInput>(props: P): ObjType<ObjValue<P>> {
+    return new ObjType<ObjValue<P>>(this, props);
   }
-
-  optional<T>(inner: Type<T>) { return new OptionalType<T>(this, inner); }
-  nullable<T>(inner: Type<T>) { return new NullableType<T>(this, inner); }
-  not(excluded: Type)         { return new NotType(this, excluded); }
-
-  or(variants: Type[])        { return new OrType(this, variants); }
-  and(parts: Type[])          { return new AndType(this, parts); }
-
-  enum<V>(values: Record<string, V>, value: Type<V>) {
-    return new EnumType<V>(this, value, { values });
+  field<X extends Type>(type: X, options?: FieldOptions): FieldSpec<X> {
+    return {
+      type,
+      docs: options?.docs,
+      default: options?.default === undefined ? undefined : this.parseExpr(options.default),
+    };
   }
 
-  literal<T>(inner: Type<T>, value: T) {
-    return new LiteralType<T>(this, inner, value);
+  optional<T>(inner: Type<T>): OptionalType<T> { return new OptionalType<T>(this, inner); }
+  nullable<T>(inner: Type<T>): NullableType<T> { return new NullableType<T>(this, inner); }
+  not(excluded: Type): NotType { return new NotType(this, excluded); }
+
+  or<const V extends readonly Type[]>(variants: V): OrType<Infer<V[number]>> {
+    return new OrType<Infer<V[number]>>(this, [...variants]);
+  }
+  and<const V extends readonly Type[]>(parts: V): AndType<IntersectValues<V>> {
+    return new AndType<IntersectValues<V>>(this, [...parts]);
   }
 
-  date(options?: DateOptions)           { return new DateType(this, options ?? {}); }
-  timestamp(options?: TimestampOptions) { return new TimestampType(this, options ?? {}); }
-  duration()                            { return new DurationType(this, {}); }
+  enum<const E extends Record<string, B>, B>(values: E, value: Type<B>): EnumType<E[keyof E], B>;
+  enum<const L extends readonly string[]>(labels: L): EnumType<L[number], string>;
+  enum(values: Record<string, unknown> | readonly string[], value?: Type): EnumType {
+    if (isLabelList(values)) {
+      return new EnumType(this, this.text(), { values: Object.fromEntries(values.map((l) => [l, l])) });
+    }
+    return new EnumType(this, value ?? this.text(), { values });
+  }
 
-  color(options?: ColorOptions) { return new ColorType(this, options ?? {}); }
+  literal<const T extends B, B>(inner: Type<B>, value: T): LiteralType<T, B>;
+  literal<const T extends string | number | boolean>(value: T): LiteralType<T, Widen<T>>;
+  literal(innerOrValue: Type | string | number | boolean, value?: unknown): LiteralType {
+    if (innerOrValue instanceof Type) return new LiteralType(this, innerOrValue, value);
+    const inner: Type = this.primitiveOf(innerOrValue);
+    return new LiteralType(this, inner, innerOrValue);
+  }
 
-  fn<A extends object = any, R = any, E = any>(opts: {
-    args: Type<A>;
-    returns?: Type<R>;
-    throws?: Type<E>;
-    /** Generic declarations local to this fn. Each entry's value is
-     *  the binding constraint that call-site bindings must satisfy. */
-    generic?: Record<string, Type>;
-    /** Optional pre-parsed `call.get` body. Use for fn types whose
-     *  invocation dispatches to a known native — the Expr's effects
-     *  flow up to `Call.effects()` and then into `GetExpr.effects()`
-     *  via `Path.validateWalk`'s cache, so callers see the call as
-     *  EXTERNAL / SYSTEM / etc. automatically. */
-    call?: Expr;
-  }) {
-    return new FnType(
+  /** The built-in type a primitive JS value belongs to. */
+  private primitiveOf(value: string | number | boolean): TextType | NumType | BoolType {
+    switch (typeof value) {
+      case 'string': return this.text();
+      case 'number': return this.num();
+      case 'boolean': return this.bool();
+    }
+  }
+
+  date(options?: DateOptions): DateType { return new DateType(this, options ?? {}); }
+  timestamp(options?: TimestampOptions): TimestampType { return new TimestampType(this, options ?? {}); }
+  duration(): DurationType { return new DurationType(this, {}); }
+
+  color(options?: ColorOptions): ColorType { return new ColorType(this, options ?? {}); }
+
+  fn<A extends object, R = void, E = never>(opts: FnSpec<A, R, E>): FnType<A, R, E> {
+    return new FnType<A, R, E>(
       this,
       { args: opts.args, returns: opts.returns, throws: opts.throws, get: opts.call },
       opts.generic ?? {},
     );
   }
 
-  iface(spec: IfaceSpec) {
-    return new IfaceType(this, {
+  iface<const P extends FieldsInput = {}>(spec: IfaceSpec<P>): IfaceType<ObjValue<DataFields<P>>> {
+    return new IfaceType<ObjValue<DataFields<P>>>(this, {
       props: spec.props ? Prop.fromMap(spec.props, this) : {},
       get: spec.get ? GetSet.from(spec.get, this) : undefined,
       call: spec.call ? Call.from(spec.call, this) : undefined,
     });
   }
-
 
   /** Bare-name reference / generic-parameter placeholder.
    *  JSON form is `{name: 'X'}` — interpretation depends on scope:
@@ -1063,10 +1090,12 @@ export class Registry implements TypeBuilder, TypeScope {
    *  generic placeholder bound on the enclosing fn, or a `call.types`
    *  alias. Call-site specialization (e.g. path-step `<R: num>`)
    *  passes an extra `TypeScope` at access time; AliasType.resolve
-   *  consults it before its captured scope. No type-tree rebuild. */
-  alias(name: string) { return new AliasType(this, { name }); }
+   *  consults it before its captured scope. No type-tree rebuild.
+   *  `T` is the value the name stands for: TypeScript cannot see
+   *  through a name, so it defaults to `unknown`. */
+  alias<T = unknown>(name: string): AliasType<T> { return new AliasType<T>(this, { name }); }
 
-  typ<T = any>(constraint: Type<T>): TypType<T> {
+  typ<T>(constraint: Type<T>): TypType<T> {
     return new TypType<T>(this, constraint);
   }
 
@@ -1132,11 +1161,19 @@ export class Registry implements TypeBuilder, TypeScope {
     return this.or(narrowed);
   }
 
-  extend<T, O>(base: Type<T> | string, local: ExtensionLocal<T, O>): Extension<T, O> {
+  extend<T, O, const P extends FieldsInput = {}>(
+    base: Type<T, O>,
+    local: ExtendLocal<T, O, P>,
+  ): Extension<WithData<T, P>, O>;
+  extend<const N extends string, const P extends FieldsInput = {}>(
+    base: N,
+    local: ExtendLocal<NamedValue<N>, any, P>,
+  ): Extension<WithData<NamedValue<N>, P>>;
+  extend(base: Type | string, local: ExtensionLocal): Extension {
     const baseType = typeof base === 'string'
       ? this.lookup(base) ?? (() => { throw new Error(`extend: unknown base '${base}'`); })()
       : base;
-    return new Extension<T, O>(this, baseType as Type<T>, local);
+    return new Extension(this, baseType, local);
   }
 
   // ─── PROP BUILDERS ───────────────────────────────────────────────────────
@@ -1153,24 +1190,37 @@ export class Registry implements TypeBuilder, TypeScope {
     return this.parseExpr({ kind: 'native', id });
   }
 
-  prop(type: Type, nativeId: string, docs?: string): Prop {
-    return new Prop({ type, get: this.nativeExpr(nativeId), docs });
+  prop<T>(type: Type<T>, nativeId: string, docs?: string): ComputedProp<T> {
+    return computed(new Prop<T>({ type, get: this.nativeExpr(nativeId), docs }));
   }
 
-  method<A extends Record<string, Type>>(
+  method<const A extends Record<string, Type>, R>(
     args: A,
-    returns: Type,
+    returns: Type<R>,
     nativeId: string,
     options?: { docs?: string; generic?: Record<string, Type> },
-  ): Prop {
-    const argFields: ObjPropsInput = {};
-    for (const [k, t] of Object.entries(args)) argFields[k] = { type: t };
-    return new Prop({
-      type: this.fn({ args: this.obj(argFields), returns, generic: options?.generic }),
+  ): ComputedProp<FnValue<ObjValue<A>, R>> {
+    return computed(new Prop({
+      type: this.fn({ args: this.obj(args), returns, generic: options?.generic }),
       get: this.nativeExpr(nativeId),
       docs: options?.docs,
-    });
+    }));
   }
+}
+
+/** A label list (`['low', 'high']`) rather than a `{label: value}` record. */
+function isLabelList(values: Record<string, unknown> | readonly string[]): values is readonly string[] {
+  return Array.isArray(values);
+}
+
+/** A prop that carries its `get` — checked, so `ComputedProp` is never a promise unkept. */
+function computed<T>(prop: Prop<T>): ComputedProp<T> {
+  if (!hasGet(prop)) throw new Error('registry: a computed prop must carry a get expression');
+  return prop;
+}
+
+function hasGet<T>(prop: Prop<T>): prop is ComputedProp<T> {
+  return prop.get !== undefined;
 }
 
 // ─── BUILT-IN REGISTRATION ────────────────────────────────────────────────

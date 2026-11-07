@@ -27,7 +27,11 @@ export interface AndOptions {
  *   call()   = union of args, intersection of returns (take-first)
  *   init()   = first part's init
  */
-export class AndType extends Type<any, AndOptions> {
+/**
+ * `T` is the intersection of the parts' values — the builder infers it
+ * (`r.and([objA, objB])` is `AndType<A & B>`).
+ */
+export class AndType<T = any> extends Type<T, AndOptions> {
   static readonly NAME = 'and';
   readonly name = AndType.NAME;
 
@@ -286,8 +290,8 @@ export class AndType extends Type<any, AndOptions> {
     };
   }
 
-  clone(): AndType {
-    return new AndType(this.registry, this.parts.map((p) => p.clone()));
+  clone(): AndType<T> {
+    return new AndType<T>(this.registry, this.parts.map((p) => p.clone()));
   }
 
   toCode(_registry?: Registry, options?: CodeOptions): string {

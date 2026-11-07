@@ -21,6 +21,7 @@ const engine = createEngine(r);
 | `parseValue(json, expectedType?, scope?)` | `{type,value}` envelope, live `Value`, or raw → `Value`. `expectedType` is the type DECLARED for the slot and is **enforced** — see [slot reconciliation](#a-slot-enforces-its-declared-type). |
 | `lookup(name)` | `Type` by name (registered instance → built-in fallback). |
 | `define(cls)` | Register a built-in Type **class** for JSON dispatch. Declare `optionKeys` / `genericKeys` on it to opt into strict parsing. |
+| `typeClass(name)` | The class registered under `name` (or `undefined`). Its `declaresGenerics` / `valuesAreTypes` flags drive the [reference walk](./aeye-gin-types.md#named-type-references-references-closure). |
 | `register(type)` | Register a named Type **instance** (typically an Extension). Resolves to the INSTANCE, whose `toJSON()` inlines the definition — see [type scopes](#type-scopes--register-vs-the-overlay). |
 | `scope(bindings?)` | A `LocalScope` OVERLAY above this registry: names that resolve for one session, and still round-trip as `{name}`. Does not mutate the registry. |
 | `extend(base, local)` | Create a named Extension (real subtype); `base` is a `Type` or name. Declare type parameters with `generic`, and bind them at a use site with `Extension.specialize({ … })` — or by parsing `{name, generic:{…}}`. |
@@ -37,6 +38,8 @@ const engine = createEngine(r);
 
 Type builders (`r.num()`, `r.list(...)`, `r.obj({...})`, `r.fn({...})`, ...) are
 documented in the [type system doc](./aeye-gin-types.md#building-types-programmatically-typebuilder).
+Each returns its concrete class carrying the TypeScript value it describes
+(`Infer<typeof t>`), so a registry can be used directly as a typed builder.
 
 ## Engine — key methods
 
