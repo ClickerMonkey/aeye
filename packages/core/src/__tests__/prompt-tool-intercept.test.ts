@@ -377,3 +377,85 @@ describe('Prompt onToolIntercept', () => {
     expect(byId['c2']).toBe(JSON.stringify(7));
   });
 });
+
+describe('tool call ids reach the interceptor and the tool events', () => {
+  const makeEcho = () => new Tool({
+    name: 'echo',
+    description: 'Echo',
+    instructions: 'Echo',
+    schema: z.object({ text: z.string() }),
+    call: ({ text }) => text,
+  });
+
+  it('passes each call to the interceptor, so two calls of one tool are told apart', async () => {
+    const seen: Array<{ id: string; name: string; args: unknown }> = [];
+    const prompt = new Prompt({
+      name: 'ids',
+      description: 'Ids',
+      content: 'Echo',
+      tools: [makeEcho()],
+      onToolIntercept: (_tool, args, _ctx, toolCall) => {
+        seen.push({ id: toolCall.id, name: toolCall.name, args });
+        return false;
+      },
+    });
+
+    await runToolCalls(prompt, [call('c1', 'echo', { text: 'a' }), call('c2', 'echo', { text: 'b' })]);
+
+    expect(seen.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
+      { id: 'c1', name: 'echo', args: { text: 'a' } },
+      { id: 'c2', name: 'echo', args: { text: 'b' } },
+    ]);
+  });
+
+  it('puts the tool call id on toolStart, toolOutput, toolSuspend and toolError', async () => {
+    const prompt = new Prompt({
+      name: 'event-ids',
+      description: 'Event ids',
+      content: 'Echo',
+      tools: [makeEcho()],
+      onToolIntercept: (_tool, args) => {
+        if ((args as { text: string }).text === 'boom') throw new Error('boom');
+        return false;
+      },
+    });
+    const { events } = await runToolCalls(prompt, [call('ok1', 'echo', { text: 'a' }), call('bad1', 'echo', { text: 'boom' })]);
+    const ids = (type: string) => events
+      .filter((e) => e.type === type)
+      .map((e) => (e as { toolCallId?: string }).toolCallId)
+      .sort();
+    expect(ids('toolStart')).toEqual(['bad1', 'ok1']);
+    expect(ids('toolOutput')).toEqual(['ok1']);
+    expect(ids('toolError')).toEqual(['bad1']);
+
+    const suspending = new Prompt({
+      name: 'suspend-ids',
+      description: 'Suspend ids',
+      content: 'Echo',
+      tools: [makeEcho()],
+      onToolIntercept: () => { throw new PromptSuspend('later'); },
+    });
+    const suspended = await runToolCalls(suspending, [call('s1', 'echo', { text: 'a' })]);
+    expect(suspended.events.filter((e) => e.type === 'toolSuspend').map((e) => (e as { toolCallId?: string }).toolCallId)).toEqual(['s1']);
+  });
+
+  it('tells a valid sibling of a call to an unknown tool that it was not run, rather than aborted', async () => {
+    const handler = jest.fn(({ text }: { text: string }) => text);
+    const echo = new Tool({ name: 'echo', description: 'Echo', instructions: 'Echo', schema: z.object({ text: z.string() }), call: handler });
+    const prompt = new Prompt({ name: 'siblings', description: 'Siblings', content: 'Echo', tools: [echo], toolExecution: 'sequential' });
+    const executor = createMockExecutor({
+      responses: [
+        { content: '', finishReason: 'tool_calls', toolCalls: [call('good', 'echo', { text: 'a' }), call('bad', 'missing_tool', {})] },
+        { content: 'Done', finishReason: 'stop' },
+      ],
+    });
+    const messages: Message[] = [];
+    for await (const event of prompt.get('stream', {}, { execute: executor, messages: [] })) {
+      if ((event as Ev).type === 'message') messages.push((event as Extract<Ev, { type: 'message' }>).message);
+    }
+    const replies = Object.fromEntries(messages.filter((m) => m.role === 'tool').map((m) => [m.toolCallId, String(m.content)]));
+    expect(handler).not.toHaveBeenCalled();
+    expect(replies['good']).toBe('[not run: another call in this batch was invalid; call it again]');
+    expect(replies['bad']).toMatch(/Tool not found: missing_tool/);
+  });
+});

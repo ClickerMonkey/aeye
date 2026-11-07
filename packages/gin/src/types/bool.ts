@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
@@ -112,10 +113,10 @@ export class BoolType extends Type<boolean, BoolOptions> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: BoolType.NAME,
       options: Object.keys(this.options).length > 0 ? { ...this.options } : undefined,
-    };
+    });
   }
 
   clone(): BoolType {

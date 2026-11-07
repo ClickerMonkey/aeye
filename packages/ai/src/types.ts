@@ -1103,6 +1103,12 @@ export interface ModelSource {
  * Providers implement the actual communication with AI services (OpenAI, Anthropic, etc.).
  * They expose methods for different capabilities (chat, images, speech, etc.).
  *
+ * Every optional member is `T | undefined`: a capability a provider does not
+ * offer may be left out or set to `undefined` (a subclass switching off an
+ * inherited capability does the latter), so a provider class is a `Provider`
+ * as it stands under `exactOptionalPropertyTypes` too. Callers test a
+ * capability with `provider.x?.(…)` / `provider.x !== undefined`.
+ *
  * @template TConfig - Provider-specific configuration type
  *
  * @example
@@ -1139,106 +1145,106 @@ export interface Provider<TConfig = any> {
   // Provider configuration
   config: TConfig;
   // Provider priority for model selection, 0=highest priority, default priority=10
-  priority?: number;
+  priority?: number | undefined;
   // Default metadata for all requests to this provider
-  defaultMetadata?: Partial<AIBaseMetadata<any>>;
+  defaultMetadata?: Partial<AIBaseMetadata<any>> | undefined;
 
   // List models available from this provider
-  listModels?(config?: TConfig): Promise<ModelInfo[]>;
+  listModels?: ((config?: TConfig) => Promise<ModelInfo[]>) | undefined;
   // Health check for provider availability
   checkHealth(config?: TConfig): Promise<boolean>;
 
-  createExecutor?(
+  createExecutor?: ((
     config?: TConfig
-  ): Executor<AIContextAny, AIMetadataAny>;
+  ) => Executor<AIContextAny, AIMetadataAny>) | undefined;
 
-  createStreamer?(
+  createStreamer?: ((
     config?: TConfig
-  ): Streamer<AIContextAny, AIMetadataAny>;
+  ) => Streamer<AIContextAny, AIMetadataAny>) | undefined;
 
-  generateImage?(
+  generateImage?: ((
     request: ImageGenerationRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<ImageGenerationResponse>;
+  ) => Promise<ImageGenerationResponse>) | undefined;
 
-  generateImageStream?(
+  generateImageStream?: ((
     request: ImageGenerationRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): AsyncIterable<ImageGenerationChunk>;
+  ) => AsyncIterable<ImageGenerationChunk>) | undefined;
 
-  editImage?(
+  editImage?: ((
     request: ImageEditRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<ImageGenerationResponse>;
+  ) => Promise<ImageGenerationResponse>) | undefined;
 
-  editImageStream?(
+  editImageStream?: ((
     request: ImageEditRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): AsyncIterable<ImageGenerationChunk>;
+  ) => AsyncIterable<ImageGenerationChunk>) | undefined;
 
-  transcribe?(
+  transcribe?: ((
     request: TranscriptionRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<TranscriptionResponse>;
+  ) => Promise<TranscriptionResponse>) | undefined;
 
-  transcribeStream?(
+  transcribeStream?: ((
     request: TranscriptionRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): AsyncIterable<TranscriptionChunk>;
+  ) => AsyncIterable<TranscriptionChunk>) | undefined;
 
-  speech?(
+  speech?: ((
     request: SpeechRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<SpeechResponse>;
+  ) => Promise<SpeechResponse>) | undefined;
 
-  embed?(
+  embed?: ((
     request: EmbeddingRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<EmbeddingResponse>;
+  ) => Promise<EmbeddingResponse>) | undefined;
 
-  rerank?(
+  rerank?: ((
     request: RerankRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<RerankResponse>;
+  ) => Promise<RerankResponse>) | undefined;
 
-  decide?(
+  decide?: ((
     request: DecisionRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<DecisionResponse>;
+  ) => Promise<DecisionResponse>) | undefined;
 
-  analyzeImage?(
+  analyzeImage?: ((
     request: ImageAnalyzeRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<Response>;
+  ) => Promise<Response>) | undefined;
 
-  analyzeImageStream?(
+  analyzeImageStream?: ((
     request: ImageAnalyzeRequest,
     ctx: AIContextAny,
     config?: TConfig
-  ): AsyncIterable<Chunk>;
+  ) => AsyncIterable<Chunk>) | undefined;
 
-  submitBatch?(
+  submitBatch?: ((
     requests: Request[],
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<BatchJob>;
+  ) => Promise<BatchJob>) | undefined;
 
-  getBatch?(
+  getBatch?: ((
     job: BatchJob,
     ctx: AIContextAny,
     config?: TConfig
-  ): Promise<BatchJob>;
+  ) => Promise<BatchJob>) | undefined;
 }
 
 // ============================================================================

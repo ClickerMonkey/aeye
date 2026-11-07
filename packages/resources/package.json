@@ -17,6 +17,17 @@
       },
       "default": "./dist/index.js"
     },
+    "./section-keys": {
+      "import": {
+        "types": "./dist/section-keys.d.ts",
+        "default": "./dist/section-keys.js"
+      },
+      "require": {
+        "types": "./dist/section-keys.d.ts",
+        "default": "./dist/section-keys.js"
+      },
+      "default": "./dist/section-keys.js"
+    },
     "./default": {
       "import": {
         "types": "./dist/default.d.ts",

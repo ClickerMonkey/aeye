@@ -74,9 +74,13 @@ describe('encodeLogical — the envelope-free form', () => {
     expect(t.parse(v.encodeLogical()).encodeLogical()).toEqual(v.encodeLogical());
   });
 
-  test('an absent optional is null, as everywhere else in gin', () => {
+  test('an absent optional field is left out; a bare absent optional is null', () => {
+    // A field key with `null` would be refused by the obj's own value schema
+    // (`optional` schemas `undefined`, not `null`), so the key is omitted.
     const t = r.obj({ maybe: { type: r.optional(r.text()) } });
-    expect(t.parse({}).encodeLogical()).toEqual({ maybe: null });
+    expect(t.parse({}).encodeLogical()).toEqual({});
+    expect(t.toValueSchema().safeParse(t.parse({}).encodeLogical()).success).toBe(true);
+    expect(r.optional(r.text()).parse(undefined).encodeLogical()).toBeNull();
   });
 
   test('it costs exactly the logical JSON — that is the whole point', () => {

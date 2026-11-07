@@ -21,7 +21,7 @@ class Tool<TContext = {}, TMetadata = {}, TName extends string = string,
 | `name` | `TName` | Shown to the model; unique per request. |
 | `description` | `string` | Shown to the model. |
 | `descriptionFn?` | `Fn<string, [ctx]>` | Refine description from context. |
-| `instructions?` | `string` | Handlebars usage instructions. |
+| `instructions?` | `string` | Handlebars usage instructions. Optional: a tool without them is still offered (from its description and schema) and adds nothing to the prompt's tools section. |
 | `instructionsFn?` | `Fn<string, [ctx]>` | Context-derived instructions. |
 | `input?` | `Fn<Record<string,any>, [ctx]>` | Variables for the instructions template. |
 | `schema` | `Fn<ZodType<TParams> \| undefined, [ctx]>` | **Required.** Param schema; may depend on ctx. `undefined` ⇒ unavailable. |

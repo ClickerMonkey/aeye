@@ -4,7 +4,7 @@ import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
 import {
   type CompatOptions, GetSet, type NewSlotVisitor, Prop, type PropSpec, type Rnd, Type,
-  ENVELOPE_ENCODE, embeddedExpr, encodeSlot, indentOf, isRecordPayload, joinAuto, slotAccepts,
+  ENVELOPE_ENCODE, embeddedExpr, encodeField, indentOf, isRecordPayload, joinAuto, slotAccepts,
 } from '../type';
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
@@ -102,8 +102,7 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     const fields = raw as Record<string, Value>;
     const out: Record<string, unknown> = {};
     for (const [name] of Object.entries(this.fields)) {
-      const v = fields[name];
-      if (v) out[name] = encodeSlot(v, opts, scope);
+      encodeField(out, name, fields[name], opts, scope);
     }
     return out;
   }

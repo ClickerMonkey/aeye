@@ -38,8 +38,9 @@ segments. No structural context.
 Heading-aware. Detects `#`–`######` headings (ignoring `#` lines inside `` ``` `` / `~~~` code
 fences), builds a heading breadcrumb (`slice.context.headings`, e.g. `Intro > Details`), then
 segments each section. Text before the first heading is its own section with no headings, so the
-slices always cover the whole text. `slice.sectionId` = `<part>#section/<n>`.
-`splitMarkdownSections(text)` is exported.
+slices always cover the whole text. `slice.sectionId` = `<part>#section/<key>`, where the key comes
+from the heading path (see [Stable section keys](#stable-section-keys)).
+`splitMarkdownSections(text)` is exported and returns `{ start, end, headings, key }` per section.
 - Default boundaries: `["\n\n", "\n", ". ", " "]` (sentence-aware).
 - Per-slice links: markdown `[](…)` links + bare URLs. Used for HTML too (HTML is parsed to markdown).
 
@@ -52,9 +53,36 @@ Declaration-aware. Splits at top-level (unindented) declarations and attaches im
   lua, shell, sql, graphql; other languages use a generic pattern (class/struct/fn/func/def/…).
 - `slice.context.declaration` = the declaration line (undefined for the preamble);
   `slice.context.prefixes` = the first `maxImportPrefixes` import lines.
-- `slice.sectionId` = `<part>#block/<n>`. `splitCodeBlocks(text, type, codeOptions)` is exported.
+- `slice.sectionId` = `<part>#block/<key>`, where the key comes from the declared name (see
+  [Stable section keys](#stable-section-keys)). `splitCodeBlocks(text, type, codeOptions)` is
+  exported and returns `{ start, end, declaration?, name?, path, key }` per block.
+- The declared name is the identifier after the declaration keyword (`function add`, `class Store`,
+  `func (s *Server) Serve`, `impl<T> Store<T>`, `declare module "x"`), or group 1 of the type's
+  `CODE_NAME_PATTERNS` entry (`shell`: `deploy()` / `function deploy`; `sql`: `create table users`).
+  `declarationName(line, pattern, type?)` is exported. A nameless declaration (`export default
+  function () {}`) is keyed by its declaration line.
 - Default boundaries: `["\n\n", "\n", " "]`.
 - Per-slice links: the part's links that appear in the slice + import/require specifiers + bare URLs.
+
+## Stable section keys
+
+A section's key comes from its place in the structure, never from its position, so it stays the
+same when text is added or moved around it. That keeps `sectionId`s (and the section summaries
+cached under them) valid across edits.
+
+```ts
+import { sectionKeys, ROOT_SECTION_KEY, SECTION_PATH_SEPARATOR } from "@aeye/resources";
+// or, with no node imports (safe in a browser): from "@aeye/resources/section-keys"
+
+sectionKeys([[], ["Guide"], ["Guide", "Usage"], ["Guide"]]);
+// → ["(root)", "Guide", "Guide > Usage", "Guide ~2"]
+```
+
+- A key is the path joined with `SECTION_PATH_SEPARATOR` (`" > "`); an empty path (text before
+  the first heading or declaration) is `ROOT_SECTION_KEY` (`"(root)"`).
+- A path seen before in the same document gets ` ~2`, ` ~3`, … so keys stay unique.
+- The markdown slicer's path is the heading breadcrumb; the code slicer's is the declared name (else
+  the declaration line). Use `sectionKeys` for your own slicers so their keys follow the same rules.
 
 Every slicer de-duplicates a slice's links by value, so the `Links:` line in `embedText` lists each
 link once, and only links that are in that slice.

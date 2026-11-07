@@ -5,6 +5,24 @@ commits); this file starts here and is the place to look from now on.
 
 ## Unreleased
 
+### Namespaced type names
+
+A type name may be namespaced with `/` (`fs/Entry`, `my-app/billing/Invoice`).
+`registry.parse` (`name`, `extends`, `satisfies`) and the extension schema used
+to refuse everything but `w+`, so a host loading types from several sources had
+to escape names into `w+` and back around every call. One rule, `TYPE_NAME` /
+`isTypeName` (exported), now governs every check.
+
+### Plain JSON out
+
+- `type.toJSON()` (and every `PropDef` / `GetSetDef` / `CallDef` / `InitDef` in
+  it) no longer writes keys whose value is `undefined` (`docs`, `get`, `set`,
+  `default`, `options`, `extends`, …).
+- An absent `optional` field of an `obj` or an Extension's stored prop is left
+  out when encoding instead of written as `null`. `null` was refused by the
+  type's own `toValueSchema()`, so `encodeLogical()` produced JSON its own
+  schema rejected. `parse` still reads `null` as absent.
+
 ### The type builder infers TypeScript values
 
 Every `TypeBuilder` method returns its concrete class carrying the logical value

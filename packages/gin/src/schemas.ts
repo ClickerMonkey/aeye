@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Registry } from './registry';
+import { TYPE_NAME } from './type-name';
 import type { SchemaOptions } from './node';
 import type { Expr } from './expr';
 import type { Type } from './type';
@@ -154,11 +155,11 @@ export function extensionSchemaNarrowed(
   const extendsEnum = allowedNames.length > 0
     ? z.enum(allowedNames as [string, ...string[]])
     : z.never();
-  // Type names are identifiers — letters, digits, underscore. No
-  // whitespace, no punctuation, no spaces. Catching this at the schema
-  // layer surfaces a precise zod path ("name: ...") instead of a
+  // Type names follow TYPE_NAME — an identifier, optionally namespaced
+  // (`ns/Name`). No whitespace, no other punctuation. Catching this at the
+  // schema layer surfaces a precise zod path ("name: ...") instead of a
   // baffling structural-match failure deep inside `registry.parse`.
-  const identifier = z.string().regex(/^\w+$/, 'must be a /\\w+/ identifier');
+  const identifier = z.string().regex(TYPE_NAME, 'must be a type name: an identifier, optionally namespaced as ns/Name');
   return z.object({
     name: identifier,
     extends: extendsEnum,

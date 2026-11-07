@@ -1,3 +1,4 @@
+import { defined } from './defined';
 import type { Registry } from './registry';
 import { LocalScope, scopeKey, type TypeScope } from './type-scope';
 import type { ExprDef, TypeDef, PathDef, PathStepDef, PropDef, GetSetDef, CallDef } from './schema';
@@ -153,6 +154,18 @@ export function encodeSlot(v: Value, opts: EncodeOptions, scope?: TypeScope): un
   const inner = v.type.encodeAs(v.raw, opts, scope);
   return opts.form === 'logical' ? inner : { type: v.type.toJSONRef(opts), value: inner };
 }
+/**
+ * Write one field of a record-shaped value (an `obj`, or a stored prop an
+ * Extension adds) into `out`. A field whose slot holds nothing — an
+ * `optional` field left out — is left out of the JSON too, the way a JSON
+ * object omits a key it has no value for. Writing `null` instead made the
+ * encoding disagree with the type's own value schema, which refuses `null`
+ * for an optional field: `encodeLogical()` produced JSON that
+ * `toValueSchema()` rejected.
+ */
+export function encodeField(out: Record<string, unknown>, name: string, slot: unknown, opts: EncodeOptions, scope?: TypeScope): void {
+  if (slot instanceof Value && slot.raw !== undefined) out[name] = encodeSlot(slot, opts, scope);
+}
 
 /** The options `encode()` / `toJSON()` have always implied. Named so the
  *  equivalence between the two paths is stated rather than assumed. */
@@ -279,13 +292,13 @@ export class Prop<T = any> {
 
   /** Serialize to PropDef JSON. Inverse of `Prop.from`. */
   toJSON(): PropDef {
-    return {
+    return defined({
       docs: this.docs,
       type: this.type.toJSON(),
       get: this.get?.toJSON(),
       default: this.default?.toJSON(),
       set: this.set?.toJSON(),
-    };
+    });
   }
 
   // ─── runtime ops (called by Path.walk) ─────────────────────────────────
@@ -504,7 +517,7 @@ export class GetSet<K = any, V = any> {
 
   /** Serialize to GetSetDef JSON. Inverse of `GetSet.from`. */
   toJSON(): GetSetDef {
-    return {
+    return defined({
       docs: this.docs,
       key: this.key.toJSON(),
       value: this.value.toJSON(),
@@ -512,7 +525,7 @@ export class GetSet<K = any, V = any> {
       set: this.set?.toJSON(),
       loop: this.loop?.toJSON(),
       loopDynamic: this.loopDynamic,
-    };
+    });
   }
 
   /** Read this[key]: runs get Expr with {this, key, super?}. */
@@ -654,7 +667,7 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
           Object.entries(this.types).map(([k, t]) => [k, t.toJSON()]),
         )
       : undefined;
-    return {
+    return defined({
       docs: this.docs,
       types,
       args: this.args.toJSON(),
@@ -662,7 +675,7 @@ export class Call<TArgs extends object = any, TResult = any, TError = any> {
       throws: this.throws?.toJSON(),
       get: this.get?.toJSON(),
       set: this.set?.toJSON(),
-    };
+    });
   }
 
   /**
@@ -729,11 +742,11 @@ export class Init<TArgs extends object = any> {
 
   /** Serialize to InitDef JSON. Inverse of `Init.from`. */
   toJSON(): NonNullable<TypeDef['init']> {
-    return {
+    return defined({
       docs: this.docs,
       args: this.args.toJSON(),
       run: this.run.toJSON(),
-    };
+    });
   }
 }
 

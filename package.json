@@ -30,7 +30,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "update:versions": "node scripts/update-versions.js",
     "update:versions:patch": "node scripts/update-versions-patch.js",
-    "release": "node scripts/release.js"
+    "release": "node scripts/release.js",
+    "test:types": "tsc -p tsconfig.typetest.json"
   },
   "keywords": [
     "ai",

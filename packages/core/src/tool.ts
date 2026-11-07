@@ -467,7 +467,12 @@ export class Tool<
    * This creates the format needed to pass tool information to AI models.
    *
    * @param ctx - The context for compilation.
-   * @returns A tuple of [instructions, toolDefinition] or undefined if not applicable.
+   * A tool with no instructions still compiles: its instructions are `''`
+   * (nothing is added to the prompt's tools section) and the model learns the
+   * tool from its description and schema. Only a tool whose schema resolves
+   * to nothing is left out; use `applicable` to hide a tool.
+   *
+   * @returns A tuple of [instructions, toolDefinition], or undefined when the tool has no schema.
    */
   async compile(ctx: Context<TContext, TMetadata>): Promise<readonly [string, ToolDefinition] | undefined> {
     const parameters = await this.schema(ctx);
@@ -480,14 +485,11 @@ export class Tool<
       ? await this.instructionsFn(ctx) 
       : this.instructions;
 
-    // If no instructions function/template, return undefined
-    if (!instructionsTemplate) {
-      return undefined;
-    }
-
-    // Get template variables if input function is provided
-    const templateVars = await this.translate(ctx) || {};
-    const instructions = instructionsTemplate(templateVars)
+    // Without instructions the tool is still offered; it adds nothing to the
+    // prompt's tools section.
+    const instructions = instructionsTemplate
+      ? instructionsTemplate(await this.translate(ctx) || {})
+      : '';
     
     // Get dynamic description if function is provided
     const description = await this.descriptionFn(ctx) || this.input.description;

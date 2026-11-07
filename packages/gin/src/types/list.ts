@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
@@ -251,11 +252,11 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: ListType.NAME,
       generic: { V: this.item.toJSON() },
       options: Object.keys(this.options).length > 0 ? { ...this.options } : undefined,
-    };
+    });
   }
 
   clone(): ListType<V> {

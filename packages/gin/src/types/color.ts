@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
@@ -127,10 +128,10 @@ export class ColorType extends Type<number, ColorOptions> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: ColorType.NAME,
       options: Object.keys(this.options).length > 0 ? { ...this.options } : undefined,
-    };
+    });
   }
 
   clone(): ColorType {

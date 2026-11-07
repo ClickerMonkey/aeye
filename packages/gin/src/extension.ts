@@ -1,3 +1,4 @@
+import { defined } from './defined';
 import type { Registry, TypeAugmentation } from './registry';
 import { LocalScope, type TypeScope } from './type-scope';
 import type { PropDef, TypeDef } from './schema';
@@ -16,7 +17,7 @@ import {
   Type,
   ENVELOPE_ENCODE,
   slotAccepts,
-  encodeSlot,
+  encodeField,
   isRecordPayload,
 } from './type';
 import type { Scope } from './scope';
@@ -317,8 +318,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     const rec = raw as Record<string, unknown>;
     const out: Record<string, unknown> = { ...(encoded as Record<string, unknown>) };
     for (const [name] of locals) {
-      const slot = rec[name];
-      if (slot instanceof Value) out[name] = encodeSlot(slot, opts, bound);
+      encodeField(out, name, rec[name], opts, bound);
     }
     return out;
   }
@@ -521,7 +521,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
         mergedGeneric[k] = t.toJSON();
       }
     }
-    return {
+    return defined({
       name: this.name,
       extends: crossExtend ? this.original.name : undefined,
       docs: this.docs,
@@ -552,7 +552,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       call: (this.local.call ?? (crossExtend ? this.original.refCall() : undefined))?.toJSON(),
       init: this.local.init?.toJSON(),
       constraint: this.local.constraint ? this.local.constraint.toJSON() : undefined,
-    };
+    });
   }
 
   clone(): Extension<T, O> {

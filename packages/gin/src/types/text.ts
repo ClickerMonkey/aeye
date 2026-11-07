@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
@@ -209,10 +210,10 @@ export class TextType extends Type<string, TextOptions> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: TextType.NAME,
       options: Object.keys(this.options).length > 0 ? { ...this.options } : undefined,
-    };
+    });
   }
 
   clone(): TextType {

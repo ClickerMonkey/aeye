@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
@@ -116,10 +117,10 @@ export class TimestampType extends Type<Date, TimestampOptions> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: TimestampType.NAME,
       options: Object.keys(this.options).length > 0 ? { ...this.options } : undefined,
-    };
+    });
   }
 
   clone(): TimestampType {

@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { TypeDef } from '../schema';
 import type { Registry } from '../registry';
@@ -196,12 +197,12 @@ export class IfaceType<T = any> extends Type<T, Record<string, never>> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: IfaceType.NAME,
       props: Object.keys(this._props).length > 0 ? Prop.toJSONMap(this._props) : undefined,
       get: this._get?.toJSON(),
       call: this._call?.toJSON(),
-    };
+    });
   }
 
   clone(): IfaceType<T> {

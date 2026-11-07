@@ -28,7 +28,9 @@ interface ResourceResolver {
   (`bundle.zip#entry/doc.md`) and links **relative to another entry** (`./other.md`, `../assets/x.png`,
   `/root.md`) within the same archive. Registered first so entry-relative links beat file/url.
 - **fileResolver** — absolute paths, `file://` URLs, and relative paths against a non-web,
-  non-zip `baseLocation`. Sets `modifiedAt`/`size` from `fs.stat`.
+  non-zip `baseLocation`. Sets `modifiedAt`/`size` from `fs.stat`. When the base is a script
+  (`javascript`, `typescript`, `jsx`, `tsx`), links are imports: see
+  [Script imports](#script-imports).
 - **urlResolver** — http(s) URLs, plus relative/root-relative/protocol-relative links resolved
   against an http(s) `baseLocation` (via `new URL`). Sets `modifiedAt` (`Last-Modified`) and `size`
   (`Content-Length`); `stat` uses a `HEAD` request.
@@ -42,6 +44,32 @@ const src = await registry.resolveLink("./child.md", { baseLocation: parent.loca
 // Cheap probe for dedup / staleness, without downloading:
 const stat = await registry.statLink("./child.md", { baseLocation: parent.location });
 // → { location, modifiedAt?, size?, mimeType?, type? } | undefined
+```
+
+### Script imports
+
+From a script base, the file resolver follows node and TypeScript module resolution:
+
+- Only a relative specifier (`./a`, `../a`, `/a`, `.`, `..`) names a file. A bare one (`react`,
+  `node:fs`, `@scope/pkg`) names a package, so `canResolve` is `false` and the graph records the
+  edge as `unresolved`.
+- A relative import resolves to the first of its candidates that is a file: the path as written,
+  the TypeScript source its extension stands for (`./a.js` → `a.ts`, `a.tsx`; `.jsx` → `.tsx`;
+  `.mjs` → `.mts`; `.cjs` → `.cts`), the path plus each of `IMPORT_EXTENSIONS`
+  (`.ts .tsx .d.ts .mts .cts .js .jsx .mjs .cjs .json`), then `<path>/index` plus each of them.
+  With no candidate on disk, `stat` returns `undefined` and `resolve` resolves nothing.
+
+The same steps are exported for code that checks files its own way (a sandbox, a virtual file
+system):
+
+```ts
+import { importCandidates, isRelativeSpecifier, isScriptType, resolveImportPath, SCRIPT_TYPES } from "@aeye/resources";
+
+isScriptType("tsx");                       // true — one of SCRIPT_TYPES
+isRelativeSpecifier("./store");            // true; "react" → false
+importCandidates("/src/store.js");         // ["/src/store.js", "/src/store.ts", "/src/store.tsx", "/src/store.js.ts", …]
+await resolveImportPath("/src/lib");       // "/src/lib/index.ts" — the first candidate that is a file on disk
+await resolveImportPath("/src/lib", isFile); // with your own (path) => Promise<boolean>
 ```
 
 ## Locations: "know exactly how to get it"

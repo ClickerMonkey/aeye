@@ -4,8 +4,16 @@ import { Readable } from "node:stream";
 import path from "node:path";
 import type { ResolverContext, ResourceResolver } from "../types";
 import { assertNotAborted, hasUriScheme, isHttpUrl, isZipEntryLocation, toFilePath } from "../utils";
+import { isRelativeSpecifier, isScriptType, resolveImportPath } from "../imports";
 
-function resolveFilePath(link: string, context: ResolverContext): string | undefined {
+/** Whether links from the base are script imports (the base is javascript or typescript), so module resolution applies. */
+function isScriptImport(context: ResolverContext): boolean {
+  const baseLocation = context.options.baseLocation;
+  return baseLocation !== undefined && isScriptType(context.registry.inferType(baseLocation));
+}
+
+/** The path a link names: `file://` and absolute paths as they are, relative ones against the base's folder. */
+function linkedPath(link: string, context: ResolverContext): string | undefined {
   const baseLocation = context.options.baseLocation;
   if (link.startsWith("file://")) {
     return toFilePath(link);
@@ -14,6 +22,19 @@ function resolveFilePath(link: string, context: ResolverContext): string | undef
     return link;
   }
   return baseLocation ? path.resolve(path.dirname(toFilePath(baseLocation)), link) : undefined;
+}
+
+/**
+ * The file a link names. A relative import in a script is resolved the way node and TypeScript resolve it, against
+ * the files that exist (`./store` → `store.ts`, `./store.js` → `store.ts`, `./lib` → `lib/index.ts`), and names
+ * nothing when no candidate exists.
+ */
+async function resolveFilePath(link: string, context: ResolverContext): Promise<string | undefined> {
+  const linked = linkedPath(link, context);
+  if (linked === undefined || !isRelativeSpecifier(link) || !isScriptImport(context)) {
+    return linked;
+  }
+  return resolveImportPath(linked);
 }
 
 export const fileResolver: ResourceResolver = {
@@ -37,12 +58,13 @@ export const fileResolver: ResourceResolver = {
       return true;
     }
 
-    // Relative link: resolvable only against a (non-web) base, and not if it carries its own scheme.
-    return Boolean(baseLocation && !hasUriScheme(link) && !link.startsWith("//"));
+    // Relative link: resolvable only against a (non-web) base, and not if it carries its own scheme. In a script only a
+    // relative specifier names a file; a bare one (`react`) names a package.
+    return Boolean(baseLocation && !hasUriScheme(link) && !link.startsWith("//") && (isRelativeSpecifier(link) || !isScriptImport(context)));
   },
   async resolve(link, context) {
     assertNotAborted(context.options.signal);
-    const resolvedPath = resolveFilePath(link, context);
+    const resolvedPath = await resolveFilePath(link, context);
 
     if (!resolvedPath) {
       return undefined;
@@ -62,7 +84,7 @@ export const fileResolver: ResourceResolver = {
   },
   async stat(link, context) {
     assertNotAborted(context.options.signal);
-    const resolvedPath = resolveFilePath(link, context);
+    const resolvedPath = await resolveFilePath(link, context);
     if (!resolvedPath) {
       return undefined;
     }

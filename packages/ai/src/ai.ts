@@ -800,7 +800,7 @@ export class AI<T extends AIBaseTypes> {
         return r(output, await getContext(ctxPartial));
       })),
       review: review && (async (output, context) => review(output, { ...context, ctx: await getContext(context.ctx) })),
-      onToolIntercept: onToolIntercept && (async (tool, args, ctxPartial) => onToolIntercept(tool, args, await getContext(ctxPartial))),
+      onToolIntercept: onToolIntercept && (async (tool, args, ctxPartial, call) => onToolIntercept(tool, args, await getContext(ctxPartial), call)),
       applicable: hydrateFn(applicable, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
       })),

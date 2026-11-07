@@ -10,6 +10,7 @@ import {
   toHeadingContext,
 } from "../utils";
 import { defaultTextSegmenter } from "../segmenters";
+import { sectionKeys } from "../section-keys";
 
 const DEFAULT_MARKDOWN_BOUNDARIES = ["\n\n", "\n", ". ", " "];
 
@@ -18,6 +19,8 @@ export interface MarkdownSection {
   end: number;
   /** Heading path for the section (empty for text before the first heading). */
   headings: string[];
+  /** The section's stable key, from its heading path (see {@link sectionKeys}). */
+  key: string;
 }
 
 const HEADING_PATTERN = /^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$/;
@@ -26,12 +29,13 @@ const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
 /**
  * Splits markdown into sections at ATX headings. Headings inside fenced code blocks are ignored, and
  * any text before the first heading becomes its own section, so the sections cover the whole text.
+ * Each section's key comes from its heading path, so it stays the same when text moves around it.
  */
 export function splitMarkdownSections(text: string): MarkdownSection[] {
-  const sections: MarkdownSection[] = [];
+  const sections: Array<Omit<MarkdownSection, "key">> = [];
   const stack: string[] = [];
   let fence: { char: string; length: number } | undefined;
-  let current: MarkdownSection = { start: 0, end: text.length, headings: [] };
+  let current: Omit<MarkdownSection, "key"> = { start: 0, end: text.length, headings: [] };
   let offset = 0;
 
   for (const rawLine of text.split(/(?<=\n)/)) {
@@ -62,7 +66,8 @@ export function splitMarkdownSections(text: string): MarkdownSection[] {
   if (current.end > current.start || sections.length === 0) {
     sections.push(current);
   }
-  return sections;
+  const keys = sectionKeys(sections.map((section) => section.headings));
+  return sections.map((section, index) => ({ ...section, key: keys[index] }));
 }
 
 export const markdownSlicer: ResourceSlicer = {
@@ -81,9 +86,9 @@ export const markdownSlicer: ResourceSlicer = {
       }
 
       const text = part.text;
-      for (const [sectionIndex, section] of splitMarkdownSections(text).entries()) {
+      for (const section of splitMarkdownSections(text)) {
         const sectionText = text.slice(section.start, section.end);
-        const sectionId = `${part.location}#section/${sectionIndex}`;
+        const sectionId = `${part.location}#section/${section.key}`;
         const segments = await segment(sectionText, {
           maxChars,
           minChars,

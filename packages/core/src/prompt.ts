@@ -317,7 +317,9 @@ export interface PromptInput<
    *
    * `tool` is the matched Tool instance (`tool.name` discriminates which
    * tool was called); `args` is the parsed tool arguments; `ctx` is the
-   * prompt's context. Runs once per tool call, before parsing errors are
+   * prompt's context; `call` is the model's tool call (its `id` pairs the
+   * call with the `role: 'tool'` reply and with the tool events'
+   * `toolCallId`). Runs once per tool call, before parsing errors are
    * only reached when the args parsed successfully (an invalid tool call
    * never reaches execution, so the interceptor isn't consulted for it).
    */
@@ -325,6 +327,7 @@ export interface PromptInput<
     tool: PromptTools<TTools>,
     args: unknown,
     ctx: Context<TContext, TMetadata>,
+    call: ToolCall,
   ) => unknown | false | Promise<unknown | false>;
   /**
    * Optional custom parser that REPLACES Zod validation of the model's
@@ -447,22 +450,26 @@ export type PromptTools<TTools extends AnyTool[]> =
 /**
  * Converts TTools into tool-related events:
  * 
- * { type: 'toolStart', tool: TTool, args: any } |
- * { type: 'toolOutput', tool: TTool, args: any, result: TOutput, toModel: unknown } |
- * { type: 'toolError', tool: TTool, args: any, error: string, failure: ToolFailure }
+ * { type: 'toolStart', tool: TTool, toolCallId: string, args: any } |
+ * { type: 'toolOutput', tool: TTool, toolCallId: string, args: any, result: TOutput, toModel: unknown } |
+ * { type: 'toolError', tool: TTool, toolCallId: string, args: any, error: string, failure: ToolFailure }
+ *
+ * `toolCallId` is the id of the model's tool call the event is about (the id
+ * its `role: 'tool'` reply carries), so a consumer can tell apart two calls
+ * of the same tool in one batch.
  */
 export type PromptToolEvents<TTools extends Tuple<AnyTool>> =
   TTools extends Array<infer TTool>
     ? TTool extends Tool<infer t0, infer t1, infer t2, infer t3, infer TOutput, infer t4, infer t5>
-      ? { type: 'toolStart', tool: TTool, args: any, request: Request }
+      ? { type: 'toolStart', tool: TTool, toolCallId: string, args: any, request: Request }
       // `result` is the RAW tool output; `toModel` is the value actually
       // presented to the model (equal to `result` unless a prompt's
       // `onToolResult` transformer changed it). See PromptInput.onToolResult.
-      | { type: 'toolOutput', tool: TTool, args: any, result: Resolved<TOutput>, toModel: unknown, request: Request }
-      | { type: 'toolInterrupt', tool: TTool, args: any, request: Request }
-      | { type: 'toolSuspend', tool: TTool, args: any, request: Request }
+      | { type: 'toolOutput', tool: TTool, toolCallId: string, args: any, result: Resolved<TOutput>, toModel: unknown, request: Request }
+      | { type: 'toolInterrupt', tool: TTool, toolCallId: string, args: any, request: Request }
+      | { type: 'toolSuspend', tool: TTool, toolCallId: string, args: any, request: Request }
       // `failure.kind` says who caused it: `model` for a bad call, `tool` for the tool's own error.
-      | { type: 'toolError', tool: TTool, args: any, error: string, failure: ToolFailure, rawArgs?: string, request: Request }
+      | { type: 'toolError', tool: TTool, toolCallId: string, args: any, error: string, failure: ToolFailure, rawArgs?: string, request: Request }
       : never
     : never;
 
@@ -933,24 +940,25 @@ export class Prompt<
     // The events a tool execution is ready to emit, each emitted once.
     const toolEvents = function* (te: ToolExecution<PromptTools<TTools>>) {
       const { tool, args } = te;
+      const toolCallId = te.toolCall.id;
       if (te.emitRepairAttempt()) {
         yield emit({ type: 'toolArgRepairAttempt', tool: tool!, fields: te.repairAttempt!.fields, success: te.repairAttempt!.success, request });
       }
       if (te.emitStart()) {
-        yield emitTool({ type: 'toolStart', tool: tool!, args, request });
+        yield emitTool({ type: 'toolStart', tool: tool!, toolCallId, args, request });
       }
       if (te.emitOutput()) {
-        yield emitTool({ type: 'toolOutput', tool: tool!, args, result: te.result, toModel: te.toModel, request });
+        yield emitTool({ type: 'toolOutput', tool: tool!, toolCallId, args, result: te.result, toModel: te.toModel, request });
       }
       if (te.emitInterrupt()) {
-        yield emitTool({ type: 'toolInterrupt', tool: tool!, args, request });
+        yield emitTool({ type: 'toolInterrupt', tool: tool!, toolCallId, args, request });
       }
       if (te.emitSuspend()) {
-        yield emitTool({ type: 'toolSuspend', tool: tool!, args, request });
+        yield emitTool({ type: 'toolSuspend', tool: tool!, toolCallId, args, request });
       }
       if (te.emitError()) {
         const failure = te.error!;
-        yield emitTool({ type: 'toolError', tool: tool!, args, error: failure.message, failure, rawArgs: failure instanceof ToolInputError ? failure.rawArgs : undefined, request });
+        yield emitTool({ type: 'toolError', tool: tool!, toolCallId, args, error: failure.message, failure, rawArgs: failure instanceof ToolInputError ? failure.rawArgs : undefined, request });
       }
     };
 
@@ -1074,7 +1082,7 @@ export class Prompt<
             // value short-circuits, false/undefined proceeds, a throw
             // propagates through run()'s existing catch (interrupt/suspend/error).
             onToolIntercept && toolInfo
-              ? (args) => onToolIntercept(toolInfo.tool, args, ctx)
+              ? (args, call) => onToolIntercept(toolInfo.tool, args, ctx, call)
               : undefined,
           );
           toolExecutors.push(toolExecutor);
@@ -1191,8 +1199,16 @@ export class Prompt<
           yield* toolEvents(toolExecutor);
         }
 
-        // The execution mode for this iteration.
+        // The execution mode for this iteration. Skipping leaves every valid
+        // sibling unrun, and its reply says so.
         const iterationMode = skip ? 'skip' : toolMode;
+        if (skip) {
+          for (const toolExecutor of toolExecutors) {
+            // Only a call that has not started: under 'immediate' a valid call may
+            // already be running, and its reply is its real outcome.
+            if (!toolExecutor.error && (toolExecutor.status === 'ready' || toolExecutor.status === 'parsed')) toolExecutor.skipped = true;
+          }
+        }
 
         // All tool calls are valid, lets start this!
         switch (iterationMode) {
@@ -1744,7 +1760,8 @@ export class Prompt<
     }
 
     // Each tool with its compiled instructions and definition; a tool that
-    // doesn't compile (no schema or no instructions) is left out
+    // doesn't compile (no schema) is left out, and one without instructions
+    // adds nothing to the tools section
     const compiled = selectedTools && selectedTools.length > 0
       ? (await Promise.all(selectedTools.map(async (tool) => ({ tool, compiled: await tool.compile(ctx) }))))
           .flatMap(({ tool, compiled }) => compiled ? [{ tool, instructions: compiled[0], definition: compiled[1] }] : [])
@@ -1818,7 +1835,8 @@ export class Prompt<
    * `ToolInterrupt` cutting a parallel batch short) or a tool errored
    * before its content could be accumulated.
    *
-   * The marker prefix (`[aborted: …]`, `[interrupted]`, `[error: …]`)
+   * The marker prefix (`[aborted: …]`, `[interrupted]`, `[error: …]`,
+   * `[not run: …]` for a valid call skipped because a sibling was invalid)
    * gives the model a clear cue and lets callers detect synthesized
    * replies by inspecting the message content if they need to
    * differentiate. Suspended tools are intentionally NOT routed
@@ -1832,6 +1850,9 @@ export class Prompt<
   protected synthesizeUnpairedResult<T extends ToolCompatible<any, any>>(
     te: ToolExecution<T>,
   ): string {
+    if (te.skipped) {
+      return '[not run: another call in this batch was invalid; call it again]';
+    }
     switch (te.status) {
       case 'interrupted':
         return te.error
@@ -1866,12 +1887,22 @@ export class Prompt<
    * 2. A token estimation function is provided in the context (we can estimate token counts)
    * 3. Messages already have token counts assigned (we can use these directly)
    * 
+   * What is removed, oldest first, is whole groups: a message together with
+   * the `role: 'tool'` replies that follow it, so an assistant's
+   * `tool_calls` never lose their replies (providers reject that history).
+   * System messages and the last user message are always kept. Groups after
+   * the last user message (an agent's tool loop) are removed too when the
+   * earlier history is not enough, except the most recent group.
+   *
+   * `protected` so a subclass can replace it, for example to summarize the
+   * removed history instead of dropping it.
+   *
    * @param request - The original request with messages.
    * @param ctx - The context containing message history and token estimation.
    * @param usage - The current token usage.
    * @returns The trimmed array of messages.
    */
-  private forget(request: Request, ctx: Context<TContext, TMetadata>, usage?: Usage): Message[] {
+  protected forget(request: Request, ctx: Context<TContext, TMetadata>, usage?: Usage): Message[] {
     const model = getModel(request.model);
     // Calculate total tokens from usage structure
     const totalTokens = usage ? getTotalTokens(usage) : undefined;
@@ -1948,30 +1979,37 @@ export class Prompt<
     
     const removeTokens = totalMessageTokensFinal - maxInput;
 
-    // Calculate where to start trimming and where to stop
-    const messageMinIndex = request.messages.findIndex(m => m.role === 'system') + 1; // inclusive
-    let messageMaxIndex = request.messages.findLastIndex(m => m.role === 'user'); // exclusive
-    if (messageMaxIndex === -1) {
-      messageMaxIndex = request.messages.length;
-    }
-
-    const trimmedMessages = request.messages.slice(0, messageMinIndex);
-    let removesRemaining = removeTokens;
-    let messageIndex = messageMinIndex;
-    while (removesRemaining > 0 && messageIndex < messageMaxIndex) {
-      const message = request.messages[messageIndex];
-      if (message.role === 'system') {
-        trimmedMessages.push(message);
-        messageIndex++;
+    // Group the history: each message with the tool replies that follow it.
+    const messages = request.messages;
+    const groups: Array<{ start: number; end: number }> = [];
+    for (let i = 0; i < messages.length; i++) {
+      const last = groups[groups.length - 1];
+      if (messages[i].role === 'tool' && last) {
+        last.end = i + 1;
       } else {
-        removesRemaining -= messageTokens[messageIndex] || 0;
-        messageIndex++;
+        groups.push({ start: i, end: i + 1 });
+      }
+    }
+    const lastUser = messages.findLastIndex(m => m.role === 'user');
+    const finalGroup = groups[groups.length - 1];
+    const removable = (group: { start: number }) => {
+      const first = messages[group.start];
+      return first.role !== 'system' && group.start !== lastUser && group !== finalGroup;
+    };
+    // Oldest first: the history before the last user message, then the tool loop after it.
+    const order = groups.filter(removable);
+
+    const removed = new Set<number>();
+    let removesRemaining = removeTokens;
+    for (const group of order) {
+      if (removesRemaining <= 0) break;
+      for (let i = group.start; i < group.end; i++) {
+        removed.add(i);
+        removesRemaining -= messageTokens[i] || 0;
       }
     }
 
-    trimmedMessages.push(...request.messages.slice(messageIndex));
-
-    return trimmedMessages;
+    return messages.filter((_, i) => !removed.has(i));
   }
 }
 
@@ -2002,6 +2040,11 @@ type ToolExecution<T> = {
    *  `onToolResult` transformer changed it. Only set once the tool reaches
    *  `success` (transforms run on success results only in v1). */
   toModel?: any;
+  /** Set when the call was valid but deliberately not run because another
+   *  call in the same batch was invalid, such as a call to an unknown tool (the batch is skipped and
+   *  the model retries). Its reply then tells the model to call it again,
+   *  rather than claiming the request was cancelled. */
+  skipped?: boolean;
   /** Why the call failed: a `ToolInputError` the model caused (its
    *  `rawArgs` keep the untruncated arguments for log post-mortems) or a
    *  `ToolExecutionError` from the tool's own code. */
@@ -2066,7 +2109,7 @@ function newToolExecution<T extends AnyTool>(
   present?: (result: any, args: any) => unknown | Promise<unknown>,
   // Optional per-prompt tool interceptor (PromptInput.onToolIntercept),
   // pre-bound by the loop with the matched Tool instance + ctx so this
-  // function only needs the parsed args. Runs INSIDE run() BEFORE the tool's
+  // function only needs the parsed args and the tool call. Runs INSIDE run() BEFORE the tool's
   // own handler. A returned VALUE short-circuits and becomes `result` (the
   // handler is skipped, then the normal present/success path runs). Returning
   // `false`/`undefined` means "not intercepted" — the real handler runs. A
@@ -2074,7 +2117,7 @@ function newToolExecution<T extends AnyTool>(
   // identically to a throw from the handler (PromptSuspend ⇒ suspended,
   // ToolInterrupt ⇒ interrupted, anything else ⇒ tool error). Absent ⇒ the
   // handler always runs.
-  intercept?: (args: any) => unknown | false | Promise<unknown | false>,
+  intercept?: (args: any, call: ToolCall) => unknown | false | Promise<unknown | false>,
 ) {
   const start = emitter();
   const output = emitter();
@@ -2165,7 +2208,7 @@ function newToolExecution<T extends AnyTool>(
         // is intentionally NOT caught here — it flows to the catch below and
         // is routed exactly like a throw from the handler (ToolInterrupt ⇒
         // interrupted, PromptSuspend ⇒ suspended, else ⇒ tool error).
-        const intercepted = intercept ? await intercept(execution.args) : false;
+        const intercepted = intercept ? await intercept(execution.args, execution.toolCall) : false;
         execution.result = intercepted === false || intercepted === undefined
           ? await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }))
           : intercepted;

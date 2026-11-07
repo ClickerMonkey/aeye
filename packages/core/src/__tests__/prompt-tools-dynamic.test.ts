@@ -816,8 +816,33 @@ describe('Prompt dynamic', () => {
 });
 
 describe('tools that do not compile', () => {
-  it('leaves out a tool without instructions and still runs the next one', async () => {
-    const hidden = new Tool({ name: 'hidden', description: 'Hidden', schema: z.object({}), call: () => 'never' });
+  it('offers a tool without instructions, adding nothing to the tools section', async () => {
+    const plain = new Tool({ name: 'plain', description: 'Plain', schema: z.object({}), call: () => 'plain ran' });
+    const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: z.object({}), call: () => 'ran' });
+    const prompt = new Prompt({ name: 'pairs', description: 'Pairs', content: 'Use tools.\n{{tools}}', tools: [plain, shown] });
+    const execute = createMockExecutor({ responses: [
+      { content: '', finishReason: 'tool_calls', toolCalls: [{ id: '1', name: 'plain', arguments: '{}' }, { id: '2', name: 'shown', arguments: '{}' }] },
+      { content: 'done' },
+    ] });
+
+    const results: string[] = [];
+    for await (const event of prompt.get('stream', {}, { execute })) {
+      if (event.type === 'toolOutput') {
+        results.push(`${event.tool.name}=${event.result}`);
+      }
+    }
+
+    const request = execute.mock.calls[0][0];
+    expect(request.tools?.map(t => t.name)).toEqual(['plain', 'shown']);
+    expect(request.tools?.[0]?.description).toBe('Plain');
+    const system = String(request.messages[0]?.content);
+    expect(system).toContain('Use shown');
+    expect(system).toMatch(/^Use tools\.\nUse shown$/);
+    expect(results.sort()).toEqual(['plain=plain ran', 'shown=ran']);
+  });
+
+  it('leaves out a tool whose schema resolves to nothing and still runs the next one', async () => {
+    const hidden = new Tool({ name: 'hidden', description: 'Hidden', instructions: 'Hidden', schema: () => undefined, call: () => 'never' });
     const shown = new Tool({ name: 'shown', description: 'Shown', instructions: 'Use shown', schema: z.object({}), call: () => 'ran' });
     const prompt = new Prompt({ name: 'pairs', description: 'Pairs', content: 'Use tools.', tools: [hidden, shown] });
     const execute = createMockExecutor({ responses: [

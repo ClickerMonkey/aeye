@@ -17,6 +17,7 @@ import { Problems } from './problem';
 import { Effects } from './effects';
 import { didYouMean } from './aids';
 import { checkWireKeys } from './wire';
+import { TYPE_NAME, isTypeName } from './type-name';
 import type { z } from 'zod';
 
 import { AnyType } from './types/any';
@@ -650,22 +651,22 @@ export class Registry implements TypeBuilder, TypeScope {
       );
     }
     const def = json as TypeDef;
-    // Type names must be \w+ (letters, digits, underscore — no
-    // whitespace, no punctuation). LLM-emitted TypeDefs sometimes
-    // arrive with leading whitespace or other junk in the name; the
-    // downstream "claims to satisfy X but does not structurally
+    // Type names follow TYPE_NAME: an identifier, optionally namespaced as
+    // `ns/Name`, with no whitespace and no other punctuation. LLM-emitted
+    // TypeDefs sometimes arrive with leading whitespace or other junk in the
+    // name; the downstream "claims to satisfy X but does not structurally
     // match" error is baffling because the offending whitespace is
     // invisible. Reject explicitly here with a precise pointer.
-    if (typeof def.name !== 'string' || !/^\w+$/.test(def.name)) {
-      throw new Error(`registry.parse: type 'name' must match /^\\w+$/, got ${JSON.stringify(def.name)}`);
+    if (!isTypeName(def.name)) {
+      throw new Error(`registry.parse: type 'name' must match ${TYPE_NAME}, got ${JSON.stringify(def.name)}`);
     }
-    if (def.extends !== undefined && (typeof def.extends !== 'string' || !/^\w+$/.test(def.extends))) {
-      throw new Error(`registry.parse: type 'extends' must match /^\\w+$/, got ${JSON.stringify(def.extends)}`);
+    if (def.extends !== undefined && !isTypeName(def.extends)) {
+      throw new Error(`registry.parse: type 'extends' must match ${TYPE_NAME}, got ${JSON.stringify(def.extends)}`);
     }
     if (def.satisfies) {
       for (const ifaceName of def.satisfies) {
-        if (typeof ifaceName !== 'string' || !/^\w+$/.test(ifaceName)) {
-          throw new Error(`registry.parse: 'satisfies' entries must match /^\\w+$/, got ${JSON.stringify(ifaceName)}`);
+        if (!isTypeName(ifaceName)) {
+          throw new Error(`registry.parse: 'satisfies' entries must match ${TYPE_NAME}, got ${JSON.stringify(ifaceName)}`);
         }
       }
     }

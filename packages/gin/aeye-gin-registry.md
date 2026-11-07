@@ -93,6 +93,16 @@ another with `new LocalScope(scope, {…})`, add bindings in dependency order wi
 `registry.parse(def, scope)`, `type.valid(raw, scope)`, `type.compatible(other,
 opts, scope)`, `type.toValueSchema({ scope })`.
 
+### Type names, and namespaced ones
+
+A type's `name` (and `extends`, and each `satisfies` entry) is an identifier,
+optionally namespaced with `/`: `Entry`, `fs/Entry`, `my-app/billing/Invoice`
+(`TYPE_NAME`, `isTypeName`). A host that loads types from several sources
+keeps them apart by qualifying them and hands gin the qualified names as they
+stand: `registry.parse`, `scope.bind`, `typeReferences` and `typeClosure` all
+take them. Whitespace and other punctuation are refused with a pointer to the
+rule.
+
 ## A slot enforces its declared type
 
 A composite holds a `Value` per slot, each carrying its own concrete type — so
@@ -178,6 +188,11 @@ All four are read back by `registry.parseValue` — the last three directly, and
 (`type.parse(logical)`). `typeRefs:'name'` requires the consumer to share the
 registry: a name it has not registered parses to an unbound alias, which is
 universal. That is why it is opt-in.
+
+An `obj` field (or an Extension's stored prop) whose `optional` slot holds
+nothing is left out of every form, the way a JSON object omits a key it has no
+value for, so `encodeLogical()` passes the type's own `toValueSchema()`. A bare
+absent `optional` (not in a field) still encodes as `null`.
 
 **New in 0.4.1.** `encodeLogical` closes a real gap: there used to be exactly
 two ways to hold a typed value — the live `Value` or the full envelope — and no

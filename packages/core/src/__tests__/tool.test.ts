@@ -822,7 +822,7 @@ describe('Tool', () => {
   });
 
   describe('Compile', () => {
-    it('should return undefined when instructions are empty', async () => {
+    it('compiles a tool without instructions, with empty instructions', async () => {
       const tool = new Tool({
         name: 'no-instructions',
         description: 'No instructions',
@@ -834,7 +834,8 @@ describe('Tool', () => {
       const ctx = {} as Context<{}, {}>;
       const compiled = await tool.compile(ctx);
 
-      expect(compiled).toBeUndefined();
+      expect(compiled?.[0]).toBe('');
+      expect(compiled?.[1]).toMatchObject({ name: 'no-instructions', description: 'No instructions' });
     });
 
     it('should compile successfully with instructions', async () => {

@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
@@ -244,10 +245,10 @@ export class NumType extends Type<number, NumOptions> {
   }
 
   toJSON(): TypeDef {
-    return {
+    return defined({
       name: NumType.NAME,
       options: Object.keys(this.options).length > 0 ? { ...this.options } : undefined,
-    };
+    });
   }
 
   clone(): NumType {

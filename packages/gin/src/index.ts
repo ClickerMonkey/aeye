@@ -12,6 +12,7 @@ export {
 export type { JSONValue, JSONOf, RuntimeOf, EncodeOptions } from './json-type';
 export type { Node, CodeOptions, SchemaOptions } from './node';
 export { buildSchemas } from './schemas';
+export { TYPE_NAME, isTypeName } from './type-name';
 
 // Core
 export { didYouMean, nearest, editDistance, suggestionBudget, deepSuggest, alignSegments } from './aids';

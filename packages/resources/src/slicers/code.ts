@@ -11,6 +11,7 @@ import {
   normalizeDeclaration,
 } from "../utils";
 import { defaultTextSegmenter } from "../segmenters";
+import { sectionKeys } from "../section-keys";
 
 const JS_DECLARATION_PATTERN = /^(export\s+)?(default\s+)?(declare\s+)?(abstract\s+)?(async\s+)?(function\*?|class|interface|type|enum|const|let|var|namespace|module)\b/;
 const GENERIC_DECLARATION_PATTERN = /^((public|private|protected|internal|static|final|abstract|sealed|open|override|data|export|async|suspend|inline|extern|pub)\s+)*(function|class|interface|enum|struct|record|object|trait|fun|func|def|fn|protocol|extension|namespace|module|typedef|template|impl)\b/;
@@ -41,16 +42,48 @@ function isLeadingLine(trimmed: string, type: ResourceType): boolean {
   return /^(@|\/\/|\/\*|\*|#\[|--)/.test(trimmed) || (HASH_COMMENT_TYPES.has(type) && trimmed.startsWith("#"));
 }
 
-interface CodeBlock {
+export interface CodeBlock {
   start: number;
   end: number;
+  /** The declaration line (whitespace collapsed); undefined for the text before the first declaration. */
   declaration?: string;
+  /** The declared name (`add` for `export function add(`); undefined for the preamble or a nameless declaration. */
+  name?: string;
+  /** The block's outline path: its name, else its declaration line, else empty (the preamble). */
+  path: string[];
+  /** The block's stable key, from its path (see {@link sectionKeys}). */
+  key: string;
+}
+
+/** An identifier or quoted name right after a declaration keyword, past a Go receiver or generic parameters. */
+const NAME_AFTER_KEYWORD = /^[\s*]*(?:\([^)]*\)\s*)?(?:<[^>]*>\s*)?(?:(["'`])([^"'`]+)\1|([A-Za-z_$][\w$]*))/;
+
+/** Where a language's declarations put their name somewhere other than right after the keyword (group 1). */
+export const CODE_NAME_PATTERNS: Partial<Record<ResourceType, RegExp>> = {
+  shell: /^(?:function\s+)?([\w-]+)/,
+  sql: /^(?:create|alter|drop)\s+(?:or\s+replace\s+)?(?:temp(?:orary)?\s+)?(?:table|view|index|function|procedure|trigger|type|schema|sequence)\s+(?:if\s+(?:not\s+)?exists\s+)?([\w."]+)/i,
+};
+
+/**
+ * The name a declaration line declares: group 1 of the type's {@link CODE_NAME_PATTERNS} entry when it has one, else
+ * the identifier after the matched keyword (`function add`, `class Store`, `func (r *R) Serve`, `module "x"`).
+ * Undefined for a nameless declaration (`export default function () {`, `select …`).
+ */
+export function declarationName(line: string, pattern: RegExp, type?: ResourceType): string | undefined {
+  const namePattern = type === undefined ? undefined : CODE_NAME_PATTERNS[type];
+  if (namePattern) {
+    return namePattern.exec(line)?.[1];
+  }
+  const match = new RegExp(pattern.source, pattern.flags.replace("g", "")).exec(line);
+  const after = match ? NAME_AFTER_KEYWORD.exec(line.slice(match.index + match[0].length)) : null;
+  return after ? after[2] ?? after[3] : undefined;
 }
 
 /**
  * Splits code into blocks at top-level declarations. Text before the first declaration (license
  * header, imports) is its own block, so the blocks cover the whole text. Doc comments and decorators
- * directly above a declaration stay with it.
+ * directly above a declaration stay with it. Each block's key comes from the name it declares, so it
+ * stays the same when code moves around it.
  */
 export function splitCodeBlocks(text: string, type: ResourceType, options: CodeParserOptions = {}): CodeBlock[] {
   const pattern = options.declarationPattern ?? CODE_DECLARATION_PATTERNS[type] ?? GENERIC_DECLARATION_PATTERN;
@@ -63,7 +96,7 @@ export function splitCodeBlocks(text: string, type: ResourceType, options: CodeP
     offset += line.length;
   }
 
-  const starts: Array<{ start: number; declaration: string }> = [];
+  const starts: Array<{ start: number; declaration: string; name: string | undefined }> = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (topLevelOnly && /^\s/.test(line)) {
@@ -80,21 +113,24 @@ export function splitCodeBlocks(text: string, type: ResourceType, options: CodeP
       if (!above || !isLeadingLine(above, type)) break;
       first--;
     }
-    starts.push({ start: offsets[first], declaration: normalizeDeclaration(trimmed) });
+    starts.push({ start: offsets[first], declaration: normalizeDeclaration(trimmed), name: declarationName(trimmed, pattern, type) });
   }
 
-  if (starts.length === 0) {
-    return [{ start: 0, end: text.length }];
-  }
-
-  const blocks: CodeBlock[] = [];
-  if (starts[0].start > 0) {
-    blocks.push({ start: 0, end: starts[0].start });
+  const blocks: Array<Omit<CodeBlock, "key">> = [];
+  if (starts.length === 0 || starts[0].start > 0) {
+    blocks.push({ start: 0, end: starts[0]?.start ?? text.length, path: [] });
   }
   starts.forEach((entry, index) => {
-    blocks.push({ start: entry.start, end: starts[index + 1]?.start ?? text.length, declaration: entry.declaration });
+    blocks.push({
+      start: entry.start,
+      end: starts[index + 1]?.start ?? text.length,
+      declaration: entry.declaration,
+      ...(entry.name === undefined ? {} : { name: entry.name }),
+      path: [entry.name ?? entry.declaration],
+    });
   });
-  return blocks;
+  const keys = sectionKeys(blocks.map((block) => block.path));
+  return blocks.map((block, index) => ({ ...block, key: keys[index] }));
 }
 
 export const codeSlicer: ResourceSlicer = {
@@ -122,9 +158,9 @@ export const codeSlicer: ResourceSlicer = {
         .filter((line) => importPattern.test(line))
         .map(normalizeDeclaration);
 
-      for (const [index, block] of splitCodeBlocks(text, resource.type, codeOpts).entries()) {
+      for (const block of splitCodeBlocks(text, resource.type, codeOpts)) {
         const blockText = text.slice(block.start, block.end);
-        const sectionId = `${part.location}#block/${index}`;
+        const sectionId = `${part.location}#block/${block.key}`;
         const segments = await segment(blockText, {
           maxChars,
           minChars,

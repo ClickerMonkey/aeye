@@ -101,7 +101,7 @@ Every event carries `request: Request`. Types:
 - `request` (`+ iterations`), `textPartial`, `text`, `textComplete`, `textReset` (`+ reason?`)
 - `refusal`, `reason` / `reasonPartial` (reasoning trace)
 - `toolParseName`, `toolParseArguments` (`+ args`), `toolArgRepairAttempt` (`+ fields, success`)
-- tool lifecycle: `toolStart`, `toolOutput` (`+ result` raw, `+ toModel` presented value), `toolInterrupt`, `toolSuspend`, `toolError` (`+ error, rawArgs?`) — each carries `tool` + `args`
+- tool lifecycle: `toolStart`, `toolOutput` (`+ result` raw, `+ toModel` presented value), `toolInterrupt`, `toolSuspend`, `toolError` (`+ error, rawArgs?`) — each carries `tool`, `toolCallId` (the model's call id, also on its `role: 'tool'` reply) and `args`. `onToolIntercept(tool, args, ctx, call)` gets the `ToolCall` too. A valid call left unrun because a sibling in the batch was invalid (an unknown tool) is answered `[not run: …; call it again]`
 - `message` (`+ message`), `suspend`, `complete` (`+ output`)
 - `requestUsage`, `responseTokens`, `usage` (`+ usage`)
 
@@ -156,7 +156,7 @@ Compile-time safety: referencing a non-existent tool name, or accessing a field 
 
 ## Token / context-window management
 
-When the rendered messages plus reserved output tokens exceed the window, the prompt trims older messages and retries (`forgetRetries`). Supply `estimateUsage` for accuracy:
+When the rendered messages plus reserved output tokens exceed the window, the prompt trims older messages and retries (`forgetRetries`). It removes whole groups, oldest first: a message with the `role: 'tool'` replies after it, so tool calls never lose their replies. System messages, the last user message and the most recent group stay; an agent's tool loop after the last user message is trimmed too. `forget` is `protected`, so a subclass can summarize instead of drop. Supply `estimateUsage` for accuracy:
 
 ```typescript
 await prompt.get('result', { text }, {

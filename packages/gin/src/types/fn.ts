@@ -1,3 +1,4 @@
+import { defined } from '../defined';
 import type { ExprDef, TypeDef } from '../schema';
 import type { Registry } from '../registry';
 import { Value } from '../value';
@@ -209,11 +210,11 @@ export class FnType<A extends object = any, R = any, E = any> extends Type<FnVal
     const generic = genericKeys.length === 0
       ? undefined
       : Object.fromEntries(genericKeys.map((k) => [k, this.generic[k]!.toJSON()]));
-    return {
+    return defined({
       name: FnType.NAME,
       call: this._call.toJSON(),
       generic,
-    };
+    });
   }
 
   clone(): FnType<A, R, E> {
