@@ -2,7 +2,7 @@
  * Tables from delimited text and from sheets of rows: an RFC 4180 csv reader (quoted fields, doubled quotes, line
  * breaks inside quotes, CRLF, a byte order mark) and the split of a sheet's rows into tables at blank rows.
  */
-import type { Table } from "./versions";
+import type { Table } from "./versions.js";
 
 /** Delimiters a csv file may use, most likely first. */
 const CSV_DELIMITERS = [",", ";", "\t", "|"] as const;

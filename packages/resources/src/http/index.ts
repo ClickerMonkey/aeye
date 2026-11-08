@@ -5,7 +5,7 @@ export {
   fetchResource,
   looksScriptRendered,
   statUrl,
-} from "./loader";
-export type { DetectedBy, HttpFetchOptions, HttpResource, TypeInference } from "./loader";
-export { decodeText, isGenericMimeType, isUtf8Charset, looksBinary, parseContentType, sniffMagic, sniffText } from "./sniff";
-export type { ContentType, DecodedText, Magic } from "./sniff";
+} from "./loader.js";
+export type { DetectedBy, HttpFetchOptions, HttpResource, TypeInference } from "./loader.js";
+export { decodeText, isGenericMimeType, isUtf8Charset, looksBinary, parseContentType, sniffMagic, sniffText } from "./sniff.js";
+export type { ContentType, DecodedText, Magic } from "./sniff.js";

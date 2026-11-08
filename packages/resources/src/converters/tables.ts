@@ -1,10 +1,10 @@
 /** Converters to tables: csv and tsv (read here, no dependency) and workbooks (through xlsx, an optional peer). */
 import { Buffer } from "node:buffer";
-import { missingDependency, optionalModule } from "../optional";
-import { detectDelimiter, parseDelimited, tablesFromRows } from "../tables";
-import type { ResourceConverter } from "../types";
-import { assertNotAborted, basenameFromLocation, collectInput } from "../utils";
-import type { ResourceVersionOf, Table } from "../versions";
+import { missingDependency, optionalModule } from "../optional.js";
+import { detectDelimiter, parseDelimited, tablesFromRows } from "../tables.js";
+import type { ResourceConverter } from "../types.js";
+import { assertNotAborted, basenameFromLocation, collectInput } from "../utils.js";
+import type { ResourceVersionOf, Table } from "../versions.js";
 
 /** Loads xlsx (an optional peer dependency) for workbooks. */
 const loadXlsx = optionalModule(async (): Promise<typeof import("xlsx")> => import("xlsx"));

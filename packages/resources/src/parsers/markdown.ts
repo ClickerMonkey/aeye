@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { createParsedResource } from "../registry";
-import type { ResourceParser, ResourcePart } from "../types";
+import { createParsedResource } from "../registry.js";
+import type { ResourceParser, ResourcePart } from "../types.js";
 import {
   assertNotAborted,
   collectInput,
@@ -8,7 +8,7 @@ import {
   dedupeLinks,
   extractLinksFromMarkdown,
   extractLinksFromText,
-} from "../utils";
+} from "../utils.js";
 
 export const markdownParser: ResourceParser = {
   id: "markdown-parser",

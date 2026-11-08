@@ -3,9 +3,9 @@
  * keyed by structure, never position ({@link sectionKeys}): a markdown version by heading path, a table version by
  * sheet and table name, a pages version by page number, a code version by top-level key, a text version whole.
  */
-import { sectionKeys } from "./section-keys";
-import { splitMarkdownSections } from "./slicers/markdown";
-import { BLOCK_SEPARATOR, PAGE_BREAK, type ResourceVersion, tableBlock, versionText } from "./versions";
+import { sectionKeys } from "./section-keys.js";
+import { splitMarkdownSections } from "./slicers/markdown.js";
+import { BLOCK_SEPARATOR, PAGE_BREAK, type ResourceVersion, tableBlock, versionText } from "./versions.js";
 
 /** A section of a version: a span of its text with a key that comes from structure. */
 export interface VersionSection {

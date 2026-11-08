@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pdfConverter } from "../converters/pdf";
-import { createParsedResource } from "../registry";
-import type { ParsedResource, ResourceParser, ResourcePart, SupportContext } from "../types";
+import { pdfConverter } from "../converters/pdf.js";
+import { createParsedResource } from "../registry.js";
+import type { ParsedResource, ResourceParser, ResourcePart, SupportContext } from "../types.js";
 import {
   assertNotAborted,
   createPartId,
@@ -11,8 +11,8 @@ import {
   extractLinksFromText,
   isAbortError,
   withLocalFile,
-} from "../utils";
-import { createVersionParser } from "./version";
+} from "../utils.js";
+import { createVersionParser } from "./version.js";
 
 /**
  * Higher-priority PDF parser that renders pages to images (and optionally transcribes them).

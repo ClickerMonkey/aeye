@@ -1,8 +1,8 @@
-import { delimitedConverter, workbookConverter } from "../converters/tables";
-import type { ResourceParser, SupportContext } from "../types";
-import { assertNotAborted } from "../utils";
-import { parseViaPdf } from "./convert";
-import { createVersionParser } from "./version";
+import { delimitedConverter, workbookConverter } from "../converters/tables.js";
+import type { ResourceParser, SupportContext } from "../types.js";
+import { assertNotAborted } from "../utils.js";
+import { parseViaPdf } from "./convert.js";
+import { createVersionParser } from "./version.js";
 
 /**
  * Higher-priority spreadsheet parser that converts to PDF and delegates to the PDF parser stack when

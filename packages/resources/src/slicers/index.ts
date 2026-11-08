@@ -1,3 +1,3 @@
-export { textSlicer } from "./text";
-export { markdownSlicer } from "./markdown";
-export { codeSlicer } from "./code";
+export { textSlicer } from "./text.js";
+export { markdownSlicer } from "./markdown.js";
+export { codeSlicer } from "./code.js";

@@ -4,9 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { parseHtmlAttributes } from "./html/dom";
-import { type HtmlToMarkdownOptions, htmlToCleanMarkdown } from "./html/markdown";
-import type { EmbedTextContext, LoadResourceOptions, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types";
+import { parseHtmlAttributes } from "./html/dom.js";
+import { type HtmlToMarkdownOptions, htmlToCleanMarkdown } from "./html/markdown.js";
+import { isGenericMimeType } from "./http/sniff.js";
+import type { EmbedTextContext, LoadResourceOptions, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types.js";
 
 export const DEFAULT_MAX_CHARS = 2000;
 export const DEFAULT_MIN_CHARS = 400;
@@ -340,9 +341,29 @@ export function inferTypeFromMimePatterns(mimeType: string | undefined, patterns
   return undefined;
 }
 
+/** The type any `text/*` mime type without a more exact rule maps to: it says only that the content is text. */
+export const GENERIC_TEXT_TYPE: ResourceType = "text";
+
+/**
+ * Infers a resource type from a location and a mime type with the given rules. A mime type that maps to a specific
+ * type wins (`text/markdown` on `notes.txt` is markdown); one that maps only to {@link GENERIC_TEXT_TYPE}
+ * (`text/typescript`, `text/plain`) yields to the extension (`a.ts` is typescript), and is the answer when the
+ * extension names nothing. With no mime match, the extension decides.
+ */
+export function inferTypeFromRules(
+  location: string,
+  mimeType: string | undefined,
+  patterns: Array<[RegExp, ResourceType]>,
+  extensionTypes: Map<string, ResourceType>,
+): ResourceType | undefined {
+  const byMime = inferTypeFromMimePatterns(mimeType, patterns);
+  if (byMime !== undefined && byMime !== GENERIC_TEXT_TYPE) return byMime;
+  return inferTypeFromExtension(location, extensionTypes) ?? byMime;
+}
+
+/** Infers a resource type from a location and mime type with the default rules (see {@link inferTypeFromRules}). */
 export function inferTypeFromLocation(location: string, mimeType?: string): ResourceType | undefined {
-  return inferTypeFromMimePatterns(mimeType, DEFAULT_MIME_TYPE_PATTERNS)
-    ?? inferTypeFromExtension(location, DEFAULT_EXTENSION_TYPE_MAP);
+  return inferTypeFromRules(location, mimeType, DEFAULT_MIME_TYPE_PATTERNS, DEFAULT_EXTENSION_TYPE_MAP);
 }
 
 export function inferTypeFromMimeType(mimeType?: string): ResourceType | undefined {
@@ -763,6 +784,45 @@ export const DEFAULT_IMAGE_EXTENSION_MIME: Record<string, string> = {
   tiff: "image/tiff",
   svg: "image/svg+xml",
 };
+
+/**
+ * Default resource type → mime type mappings: the mime type content of each type is labelled with when its server or
+ * source named none, or only a generic one (see {@link effectiveMimeType}). Types not here are labelled `text/plain`
+ * when they are text and `application/octet-stream` when they are binary; images by their extension.
+ */
+export const DEFAULT_TYPE_MIME_TYPES: Readonly<Record<ResourceType, string>> = {
+  html: "text/html",
+  markdown: "text/markdown",
+  text: "text/plain",
+  json: "application/json",
+  yaml: "text/yaml",
+  xml: "application/xml",
+  svg: "image/svg+xml",
+  csv: "text/csv",
+  tsv: "text/tab-separated-values",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  excel: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+/**
+ * The mime type to label content with: a specific declared one as it is (`application/javascript`); else the
+ * type's, from {@link DEFAULT_TYPE_MIME_TYPES} (an image's from its location's extension); else `text/plain` for text
+ * and `application/octet-stream` for binary content. A declared mime type that says nothing
+ * ({@link isGenericMimeType}: `application/octet-stream`, `text/plain`) is not specific.
+ */
+export function effectiveMimeType(
+  type: ResourceType | undefined,
+  declared: string | undefined,
+  options: { location?: string; binary: boolean },
+): string {
+  if (declared !== undefined && !isGenericMimeType(declared)) return declared;
+  if (type === "image" && options.location !== undefined) return imageMimeTypeFromLocation(options.location, declared ?? "application/octet-stream");
+  const known = type === undefined ? undefined : DEFAULT_TYPE_MIME_TYPES[type];
+  if (known !== undefined) return known;
+  return options.binary ? "application/octet-stream" : "text/plain";
+}
 
 /** Resolves an image mime type from a file name's extension, falling back to image/png. */
 export function imageMimeTypeFromLocation(fileName: string, fallback = "image/png"): string {

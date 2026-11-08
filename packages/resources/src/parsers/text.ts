@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { createParsedResource } from "../registry";
-import type { ResourceParser, ResourcePart } from "../types";
+import { createParsedResource } from "../registry.js";
+import type { ResourceParser, ResourcePart } from "../types.js";
 import {
   DEFAULT_MARKUP_TYPES,
   assertNotAborted,
@@ -9,7 +9,7 @@ import {
   dedupeLinks,
   extractLinksFromHtml,
   extractLinksFromText,
-} from "../utils";
+} from "../utils.js";
 
 export const TEXT_LIKE_TYPES = [
   "text",

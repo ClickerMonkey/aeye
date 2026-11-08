@@ -1,5 +1,5 @@
-import { jsonConverter, yamlConverter } from "../converters/data";
-import { createVersionParser } from "./version";
+import { jsonConverter, yamlConverter } from "../converters/data.js";
+import { createVersionParser } from "./version.js";
 
 /**
  * Json through its pretty form (see {@link jsonConverter}). It declines when the json is already pretty or does not

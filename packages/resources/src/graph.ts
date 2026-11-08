@@ -1,4 +1,4 @@
-import type { ResourceRegistry } from "./registry";
+import type { ResourceRegistry } from "./registry.js";
 import type {
   LoadResourceOptions,
   ParsedResource,
@@ -6,9 +6,9 @@ import type {
   ResourceLocation,
   ResourceSlice,
   ResourceSource,
-} from "./types";
-import { createLimiter } from "./summaries";
-import { assertNotAborted, isHttpUrl, resolveAgainstUrl } from "./utils";
+} from "./types.js";
+import { createLimiter } from "./summaries.js";
+import { assertNotAborted, isHttpUrl, resolveAgainstUrl } from "./utils.js";
 
 /** Default cap on graph size, so a crawl can't run away. Pass `Infinity` to lift it. */
 export const DEFAULT_GRAPH_MAX_RESOURCES = 1000;

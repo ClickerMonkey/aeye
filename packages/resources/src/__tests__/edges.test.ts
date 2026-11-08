@@ -3,16 +3,16 @@ import { Buffer } from "node:buffer";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pdfPageText } from "../converters/pdf";
-import { formatSize } from "../converters/folder";
-import { createDefaultResourceRegistry } from "../default";
-import { parseHtml, textContent } from "../html/dom";
-import { htmlToCleanMarkdown } from "../html/markdown";
-import { decodeText, isGenericMimeType, sniffMagic } from "../http/sniff";
-import { optionalModule } from "../optional";
-import { ResourceRegistry } from "../registry";
-import { TypeStack, runStack } from "../stack";
-import { htmlToMarkdown, mergeOptions } from "../utils";
+import { pdfPageText } from "../converters/pdf.js";
+import { formatSize } from "../converters/folder.js";
+import { createDefaultResourceRegistry } from "../default.js";
+import { parseHtml, textContent } from "../html/dom.js";
+import { htmlToCleanMarkdown } from "../html/markdown.js";
+import { decodeText, isGenericMimeType, sniffMagic } from "../http/sniff.js";
+import { optionalModule } from "../optional.js";
+import { ResourceRegistry } from "../registry.js";
+import { TypeStack, runStack } from "../stack.js";
+import { htmlToMarkdown, mergeOptions } from "../utils.js";
 
 /** A fake pdf.js page holding text items. */
 const page = (items: unknown[]) => ({ getTextContent: async () => ({ items }) });

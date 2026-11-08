@@ -1,5 +1,5 @@
-import type { ResourceType, SegmentContext, TextSegment, TextSegmenter } from "../types";
-import { assertNotAborted } from "../utils";
+import type { ResourceType, SegmentContext, TextSegment, TextSegmenter } from "../types.js";
+import { assertNotAborted } from "../utils.js";
 
 let textSplitters: any;
 

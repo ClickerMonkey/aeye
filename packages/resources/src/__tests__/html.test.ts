@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
-import { decodeHtmlEntities } from "../html/entities";
-import { type HtmlElement, findElement, parseHtml, parseHtmlAttributes, textContent } from "../html/dom";
-import { htmlToCleanMarkdown, htmlVisibleTextLength } from "../html/markdown";
+import { decodeHtmlEntities } from "../html/entities.js";
+import { type HtmlElement, findElement, parseHtml, parseHtmlAttributes, textContent } from "../html/dom.js";
+import { htmlToCleanMarkdown, htmlVisibleTextLength } from "../html/markdown.js";
 
 /** The markdown of html, with defaults. */
 const md = (html: string, options?: Parameters<typeof htmlToCleanMarkdown>[1]) => htmlToCleanMarkdown(html, options).markdown;

@@ -125,7 +125,7 @@ const page = await fetchResource("https://site.dev/docs", registry, {
   renderer,         // PageRenderer, optional
   render: "auto",   // "never" | "auto" | "always"
 });
-page.source;        // { location: final URL, input: Uint8Array, type, mimeType, size, modifiedAt?, metadata }
+page.source;        // { location: final URL, input: Uint8Array, type?, mimeType (always), size, modifiedAt?, metadata }
 page.detectedBy;    // "content" | "header" | "extension" | "text" | "default"
 page.charset; page.renderedBy; page.renderError; page.requestedUrl; page.url; page.status;
 ```
@@ -133,12 +133,39 @@ page.charset; page.renderedBy; page.renderError; page.requestedUrl; page.url; pa
 - **Type detection** (`detectType`): magic numbers first (pdf, png, jpeg, gif, webp, bmp, ico; zips
   told apart as docx or workbook by their entry names), then a specific `Content-Type`, then the URL
   path's extension, then how the text starts (html, svg, xml, json), else `text`, or no type for
-  binary bytes. Generic types (`application/octet-stream`, `text/plain`) are looked past.
+  binary bytes. Generic types (`application/octet-stream`, `text/plain`) are looked past, and so is
+  a `text/*` type with no rule of its own (`text/typescript` says only `text`, so `a.ts` is
+  `typescript` by its extension; with no extension it labels plain `text`).
+- **Mime type**: `source.mimeType` is always set. A specific declared mime type is kept as it is
+  (`application/javascript`); else the detected type's from `DEFAULT_TYPE_MIME_TYPES` (`markdown` →
+  `text/markdown`, `docx` → the wordprocessingml type, an image's by its extension); else
+  `text/plain` for text and `application/octet-stream` for binary bytes (`effectiveMimeType`).
 - **Text** is decoded by BOM, declared charset, or (html) `<meta charset>`, and stored as utf-8
   (`metadata.charset` keeps the original).
 - **Redirects** are followed; the source is located at the final URL (`metadata.requestedUrl` keeps the
   asked one). Non-2xx, timeouts and bodies over `maxBytes` throw; aborts throw an `AbortError`.
 - `statUrl` probes with HEAD for type, size and modified time (falls back to the URL itself).
+
+### Content sniffing helpers
+
+The pieces `detectType` is made of are exported for code that fetches its own way:
+
+```ts
+import {
+  detectType, parseContentType, isGenericMimeType, sniffMagic, sniffText, looksBinary, decodeText, isUtf8Charset,
+  effectiveMimeType, DEFAULT_TYPE_MIME_TYPES,
+} from "@aeye/resources";
+
+detectType(registry, url, bytes, parseContentType(header)); // { type?, mimeType, detectedBy, binary }
+parseContentType("Text/HTML; charset=UTF-8"); // { mimeType: "text/html", charset: "utf-8" }; undefined for none
+isGenericMimeType("application/octet-stream"); // true (also text/plain, binary/octet-stream, application/unknown, …)
+sniffMagic(bytes);                // { type: "pdf", mimeType: "application/pdf" } by the first bytes, or undefined
+sniffText(text);                  // { type: "html" | "svg" | "xml" | "json", mimeType } by how the text starts, or undefined
+looksBinary(bytes);               // true for a NUL byte, or many control characters, in the first 1024 bytes
+decodeText(bytes, charset?, html?); // { text, charset }: BOM, then the declared charset, then <meta charset> for html
+isUtf8Charset("us-ascii");        // true for utf-8 or ascii (no transcoding needed)
+effectiveMimeType("markdown", "text/plain", { location: "/a.md", binary: false }); // "text/markdown"
+```
 
 ### Page renderers
 

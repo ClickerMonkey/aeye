@@ -1,4 +1,4 @@
-import type { ResourceSlice, ResourceSlicer } from "../types";
+import type { ResourceSlice, ResourceSlicer } from "../types.js";
 import {
   DEFAULT_MAX_CHARS,
   DEFAULT_MIN_CHARS,
@@ -6,8 +6,8 @@ import {
   dedupeSliceLinks,
   extractLinksFromText,
   finalizeSlice,
-} from "../utils";
-import { defaultTextSegmenter } from "../segmenters";
+} from "../utils.js";
+import { defaultTextSegmenter } from "../segmenters/index.js";
 
 export const textSlicer: ResourceSlicer = {
   id: "text",

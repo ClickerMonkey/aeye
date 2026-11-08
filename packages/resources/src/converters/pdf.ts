@@ -1,8 +1,8 @@
 /** Pdf to page text, through pdf-parse (an optional peer dependency). Scanned pages without a text layer come out empty. */
 import { z } from "zod";
-import { missingDependency, optionalModule } from "../optional";
-import type { ResourceConverter } from "../types";
-import { assertNotAborted, collectInput } from "../utils";
+import { missingDependency, optionalModule } from "../optional.js";
+import type { ResourceConverter } from "../types.js";
+import { assertNotAborted, collectInput } from "../utils.js";
 
 /** What the pdf converter calls pdf-parse with and reads back. */
 interface PdfTextExtractor {

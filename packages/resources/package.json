@@ -52,7 +52,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/smoke-dist.mjs",
+    "smoke": "node scripts/smoke-dist.mjs",
     "test": "jest",
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",

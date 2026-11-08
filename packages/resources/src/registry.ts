@@ -21,7 +21,7 @@ import type {
   ResourceType,
   SliceOptions,
   SupportContext
-} from "./types";
+} from "./types.js";
 import {
   DEFAULT_EXTENSION_TYPES,
   DEFAULT_MIME_TYPE_PATTERNS,
@@ -31,16 +31,15 @@ import {
   createResourceId,
   dedupeLinks,
   isReplayableInput,
-  inferTypeFromExtension,
+  inferTypeFromRules,
   inferTypeFromLocation,
-  inferTypeFromMimePatterns,
   isSelfContainedLocation,
   mergeOptions
-} from "./utils";
-import { applySummaries } from "./summaries";
-import { TypeStack, runStack } from "./stack";
-import { type VersionSection, type VersionSectioner, DEFAULT_VERSION_SECTIONERS } from "./sections";
-import type { ResourceVersion } from "./versions";
+} from "./utils.js";
+import { applySummaries } from "./summaries.js";
+import { TypeStack, runStack } from "./stack.js";
+import { type VersionSection, type VersionSectioner, DEFAULT_VERSION_SECTIONERS } from "./sections.js";
+import type { ResourceVersion } from "./versions.js";
 
 /** Options for placing a converter in a type's stack. */
 export interface RegisterConverterOptions {
@@ -152,9 +151,12 @@ export class ResourceRegistry implements ResourceRegistryLike {
     return this;
   }
 
+  /**
+   * The type of a location with an optional mime type, by the registered rules: a mime type that maps to a specific
+   * type wins, a catch-all `text/*` match yields to the extension (see {@link inferTypeFromRules}).
+   */
   inferType(location: string, mimeType?: string): ResourceType | undefined {
-    return inferTypeFromMimePatterns(mimeType, this.mimeTypePatterns)
-      ?? inferTypeFromExtension(location, this.extensionTypes);
+    return inferTypeFromRules(location, mimeType, this.mimeTypePatterns, this.extensionTypes);
   }
 
   /** Maps a file extension (with or without leading dot) to a resource type. */

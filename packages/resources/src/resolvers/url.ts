@@ -1,6 +1,6 @@
-import { fetchResource, statUrl } from "../http/loader";
-import type { ResolverContext, ResourceResolver } from "../types";
-import { assertNotAborted, hasUriScheme, isHttpUrl, resolveAgainstUrl } from "../utils";
+import { fetchResource, statUrl } from "../http/loader.js";
+import type { ResolverContext, ResourceResolver } from "../types.js";
+import { assertNotAborted, hasUriScheme, isHttpUrl, resolveAgainstUrl } from "../utils.js";
 
 /** The absolute URL a link names: itself when absolute, else against the (web) base. */
 function absoluteUrl(link: string, context: ResolverContext): string {

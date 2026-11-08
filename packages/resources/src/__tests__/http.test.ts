@@ -1,9 +1,10 @@
 import { describe, expect, it } from "@jest/globals";
 import { Buffer } from "node:buffer";
-import { createDefaultResourceRegistry } from "../default";
-import { detectType, fetchResource, looksScriptRendered, statUrl } from "../http/loader";
-import { decodeText, looksBinary, parseContentType, sniffMagic, sniffText } from "../http/sniff";
-import type { FetchFn, PageRenderer } from "../types";
+import { createDefaultResourceRegistry } from "../default.js";
+import { detectType, fetchResource, looksScriptRendered, statUrl } from "../http/loader.js";
+import { decodeText, looksBinary, parseContentType, sniffMagic, sniffText } from "../http/sniff.js";
+import type { FetchFn, PageRenderer } from "../types.js";
+import { inferTypeFromLocation } from "../utils.js";
 
 const registry = createDefaultResourceRegistry();
 
@@ -93,6 +94,35 @@ describe("content sniffing", () => {
     expect(detect("https://a.dev/blob", Uint8Array.from([1, 0, 2]), "application/octet-stream")).toMatchObject({ type: undefined, binary: true });
     const officeZip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from("\0\0data")]);
     expect(detect("https://a.dev/report.xlsx", officeZip, "application/octet-stream")).toMatchObject({ type: "excel", detectedBy: "header" });
+  });
+
+  it("always gives a mime type: a specific declared one, else the detected type's", () => {
+    const detect = (url: string, body: string | Uint8Array, contentType?: string) =>
+      detectType(registry, url, typeof body === "string" ? Buffer.from(body) : body, parseContentType(contentType));
+    const officeZip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from("\0\0data")]);
+    expect(detect("https://a.dev/report.xlsx", officeZip, "application/octet-stream").mimeType).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(detect("https://a.dev/readme.md", "# hi", "text/plain")).toMatchObject({ type: "markdown", mimeType: "text/markdown" });
+    expect(detect("https://a.dev/page.html", "hello", undefined)).toMatchObject({ type: "html", mimeType: "text/html", detectedBy: "extension" });
+    expect(detect("https://a.dev/app.js", "let a = 1;", "application/javascript")).toMatchObject({ type: "javascript", mimeType: "application/javascript" });
+    expect(detect("https://a.dev/app.ts", "let a = 1;", "application/octet-stream")).toMatchObject({ type: "typescript", mimeType: "text/plain" });
+    expect(detect("https://a.dev/a.png", Uint8Array.from([1, 0, 2]), "application/octet-stream")).toMatchObject({ type: "image", mimeType: "image/png" });
+    expect(detect("https://a.dev/blob", Uint8Array.from([1, 0, 2]), undefined)).toMatchObject({ type: undefined, mimeType: "application/octet-stream" });
+    expect(detect("https://a.dev/notes", "words", undefined)).toMatchObject({ type: "text", mimeType: "text/plain", detectedBy: "default" });
+    // a text/* type with no rule of its own says only "text": the extension is more exact, else it labels plain text
+    expect(detect("https://a.dev/a.ts", "let a = 1;", "text/typescript")).toMatchObject({ type: "typescript", mimeType: "text/typescript", detectedBy: "extension" });
+    expect(detect("https://a.dev/source", "let a = 1;", "text/x-unknown")).toMatchObject({ type: "text", mimeType: "text/x-unknown", detectedBy: "header" });
+    expect(detect("https://a.dev/source", "{\"a\":1}", "text/x-unknown")).toMatchObject({ type: "json", mimeType: "application/json", detectedBy: "text" });
+  });
+
+  it("lets a catch-all text/* mime type yield to a specific extension, and a specific mime type win", () => {
+    expect(registry.inferType("a.ts", "text/typescript")).toBe("typescript");
+    expect(registry.inferType("a.ts", "text/plain")).toBe("typescript");
+    expect(registry.inferType("a", "text/typescript")).toBe("text");
+    expect(registry.inferType("notes.txt", "text/markdown")).toBe("markdown");
+    expect(registry.inferType("a.ts", "application/json")).toBe("json");
+    expect(registry.inferType("a.ts", "application/octet-stream")).toBe("typescript");
+    expect(inferTypeFromLocation("a.py", "text/x-python")).toBe("python");
+    expect(inferTypeFromLocation("a", "text/x-python")).toBe("text");
   });
 
   it("spots pages built by scripts", () => {

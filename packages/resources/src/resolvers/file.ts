@@ -2,9 +2,9 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import path from "node:path";
-import type { ResolverContext, ResourceResolver } from "../types";
-import { assertNotAborted, hasUriScheme, isHttpUrl, isZipEntryLocation, toFilePath } from "../utils";
-import { isRelativeSpecifier, isScriptType, resolveImportPath } from "../imports";
+import type { ResolverContext, ResourceResolver } from "../types.js";
+import { assertNotAborted, hasUriScheme, isHttpUrl, isZipEntryLocation, toFilePath } from "../utils.js";
+import { isRelativeSpecifier, isScriptType, resolveImportPath } from "../imports.js";
 
 /** Whether links from the base are script imports (the base is javascript or typescript), so module resolution applies. */
 function isScriptImport(context: ResolverContext): boolean {

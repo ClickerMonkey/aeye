@@ -1,4 +1,4 @@
-import { ResourceRegistry } from "./registry";
+import { ResourceRegistry } from "./registry.js";
 import {
   textParser,
   markdownParser,
@@ -16,19 +16,19 @@ import {
   yamlParser,
   folderParser,
   zipParser,
-} from "./parsers";
+} from "./parsers/index.js";
 import {
   textSlicer,
   markdownSlicer,
   codeSlicer,
-} from "./slicers";
+} from "./slicers/index.js";
 import {
   fileResolver,
   folderResolver,
   urlResolver,
   zipResolver,
-} from "./resolvers";
-import { DEFAULT_CONVERTERS } from "./converters";
+} from "./resolvers/index.js";
+import { DEFAULT_CONVERTERS } from "./converters/index.js";
 
 export {
   textParser,

@@ -5,10 +5,10 @@
  */
 import { lstat, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import type { FolderOptions, ResolverContext, ResourceResolver } from "../types";
-import { assertNotAborted } from "../utils";
-import type { FolderEntry, FolderListing } from "../versions";
-import { fileResolver, resolveFilePath } from "./file";
+import type { FolderOptions, ResolverContext, ResourceResolver } from "../types.js";
+import { assertNotAborted } from "../utils.js";
+import type { FolderEntry, FolderListing } from "../versions.js";
+import { fileResolver, resolveFilePath } from "./file.js";
 
 /** The resource type of a folder. */
 export const FOLDER_TYPE = "folder";

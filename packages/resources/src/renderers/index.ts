@@ -2,8 +2,8 @@ export {
   createPopplerRenderer,
   isPopplerAvailable,
   orderRenderedPages,
-} from "./poppler";
+} from "./poppler.js";
 export type {
   PopplerImageFormat,
   PopplerRendererOptions,
-} from "./poppler";
+} from "./poppler.js";

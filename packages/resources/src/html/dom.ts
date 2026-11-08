@@ -3,7 +3,7 @@
  * elements, raw text in `<script>`/`<style>`, implied end tags for paragraphs, list items, table rows and cells),
  * so converters can walk structure instead of scanning tags. It is not a full html5 tree builder; it never throws.
  */
-import { decodeHtmlEntities } from "./entities";
+import { decodeHtmlEntities } from "./entities.js";
 
 /** An element: its lower-case tag name, attributes (names lower-cased, values decoded) and children. */
 export interface HtmlElement {

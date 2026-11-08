@@ -1,8 +1,8 @@
-import { docxConverter } from "../converters/markup";
-import type { ResourceParser, SupportContext } from "../types";
-import { assertNotAborted } from "../utils";
-import { parseViaPdf } from "./convert";
-import { createVersionParser } from "./version";
+import { docxConverter } from "../converters/markup.js";
+import type { ResourceParser, SupportContext } from "../types.js";
+import { assertNotAborted } from "../utils.js";
+import { parseViaPdf } from "./convert.js";
+import { createVersionParser } from "./version.js";
 
 /**
  * Higher-priority DOCX parser that converts the document to PDF and delegates to the PDF parser stack

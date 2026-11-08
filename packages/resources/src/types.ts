@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream";
-import type { HtmlToMarkdownOptions } from "./html/markdown";
-import type { ResourceVersion, Table } from "./versions";
+import type { HtmlToMarkdownOptions } from "./html/markdown.js";
+import type { ResourceVersion, Table } from "./versions.js";
 
 export type ResourceType = string;
 export type ResourceInput = string | Uint8Array | ArrayBuffer | URL | Readable | ReadableStream<Uint8Array> | AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array> | (() => AsyncIterable<Uint8Array>);

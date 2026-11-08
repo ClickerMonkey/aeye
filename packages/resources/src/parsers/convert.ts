@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import path from "node:path";
-import type { ParsedResource, ParserContext, ResourceSource } from "../types";
-import { withLocalFile } from "../utils";
+import type { ParsedResource, ParserContext, ResourceSource } from "../types.js";
+import { withLocalFile } from "../utils.js";
 
 const DEFAULT_EXTENSIONS: Record<string, string> = {
   docx: ".docx",

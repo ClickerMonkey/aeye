@@ -5,7 +5,7 @@
  * markdown: headings, paragraphs, nested lists, tables, fenced code with its language, quotes, links and images
  * (made absolute against the page's URL), emphasis and definitions.
  */
-import { type HtmlElement, type HtmlNode, descendants, findElement, parseHtml, textContent } from "./dom";
+import { type HtmlElement, type HtmlNode, descendants, findElement, parseHtml, textContent } from "./dom.js";
 
 /** How html is turned into markdown. */
 export interface HtmlToMarkdownOptions {

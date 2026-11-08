@@ -1,9 +1,9 @@
-export { defaultTextSegmenter } from "./default";
+export { defaultTextSegmenter } from "./default.js";
 export {
   createLangchainSegmenter,
   isLangchainSplittersAvailable,
-} from "./langchain";
+} from "./langchain.js";
 export type {
   LangchainSegmenterMode,
   LangchainSegmenterOptions,
-} from "./langchain";
+} from "./langchain.js";

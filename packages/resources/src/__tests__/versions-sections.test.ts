@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
-import { ResourceRegistry } from "../registry";
-import { ROOT_SECTION_KEY } from "../section-keys";
-import { DEFAULT_VERSION_SECTIONERS, type VersionSectioner, sectionVersion } from "../sections";
+import { ResourceRegistry } from "../registry.js";
+import { ROOT_SECTION_KEY } from "../section-keys.js";
+import { DEFAULT_VERSION_SECTIONERS, type VersionSectioner, sectionVersion } from "../sections.js";
 import {
   PAGE_BREAK,
   RESOURCE_VERSION_KINDS,
@@ -12,7 +12,7 @@ import {
   tableToMarkdown,
   versionMimeType,
   versionText,
-} from "../versions";
+} from "../versions.js";
 
 const tableVersion: ResourceVersion = {
   kind: "table",

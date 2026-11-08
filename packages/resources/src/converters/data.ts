@@ -4,10 +4,10 @@
  * the raw text stands as the LLM-ready form.
  */
 import { Buffer } from "node:buffer";
-import { optionalModule } from "../optional";
-import type { ResourceConverter, ResourceSource } from "../types";
-import { assertNotAborted, collectInput } from "../utils";
-import type { ResourceVersionOf } from "../versions";
+import { optionalModule } from "../optional.js";
+import type { ResourceConverter, ResourceSource } from "../types.js";
+import { assertNotAborted, collectInput } from "../utils.js";
+import type { ResourceVersionOf } from "../versions.js";
 
 /** Loads js-yaml (an optional peer dependency) for yaml. */
 const loadYaml = optionalModule(async () => (await import("js-yaml")).default);

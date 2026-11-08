@@ -4,10 +4,10 @@
  * sectioning both work from the converted form. The version is kept on the resource (`resource.version`).
  */
 import { Buffer } from "node:buffer";
-import { createParsedResource } from "../registry";
-import type { ParsedResource, ParserContext, ResourceConverter, ResourceLink, ResourceParser, ResourcePart, ResourceSource, ResourceType } from "../types";
-import { assertNotAborted, collectInput, createPartId, dedupeLinks, extractLinksFromMarkdown, extractLinksFromText } from "../utils";
-import { BLOCK_SEPARATOR, type ResourceVersion, type Table, tableBlock, versionText } from "../versions";
+import { createParsedResource } from "../registry.js";
+import type { ParsedResource, ParserContext, ResourceConverter, ResourceLink, ResourceParser, ResourcePart, ResourceSource, ResourceType } from "../types.js";
+import { assertNotAborted, collectInput, createPartId, dedupeLinks, extractLinksFromMarkdown, extractLinksFromText } from "../utils.js";
+import { BLOCK_SEPARATOR, type ResourceVersion, type Table, tableBlock, versionText } from "../versions.js";
 
 /** What a part's links are found from. */
 export interface PartLinkContext {

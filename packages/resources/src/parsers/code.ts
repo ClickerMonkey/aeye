@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
-import { createParsedResource } from "../registry";
-import type { ResourceParser, ResourcePart } from "../types";
+import { createParsedResource } from "../registry.js";
+import type { ResourceParser, ResourcePart } from "../types.js";
 import {
   CODE_TYPES,
   assertNotAborted,
@@ -9,7 +9,7 @@ import {
   dedupeLinks,
   extractLinksFromCode,
   extractLinksFromText,
-} from "../utils";
+} from "../utils.js";
 
 export const codeParser: ResourceParser = {
   id: "code-parser",

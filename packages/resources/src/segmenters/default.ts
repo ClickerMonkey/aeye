@@ -1,5 +1,5 @@
-import type { TextSegmenter } from "../types";
-import { splitTextByBoundaries } from "../utils";
+import type { TextSegmenter } from "../types.js";
+import { splitTextByBoundaries } from "../utils.js";
 
 /**
  * The built-in segmenter: splits on boundary strings, producing contiguous, non-overlapping segments

@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { ResolverContext, ResourceResolver, ResourceSource, ResourceStat } from "../types";
+import type { ResolverContext, ResourceResolver, ResourceSource, ResourceStat } from "../types.js";
 import {
   assertNotAborted,
   basenameFromLocation,
@@ -10,8 +10,8 @@ import {
   parseZipEntryLocation,
   resolveZipEntryName,
   toFilePath,
-} from "../utils";
-import { ZIP_LIMITS, getCachedZip } from "../zip-internal";
+} from "../utils.js";
+import { ZIP_LIMITS, getCachedZip } from "../zip-internal.js";
 
 interface ZipTarget {
   zipLocation: string;

@@ -1,4 +1,4 @@
-import type { CodeParserOptions, ResourceSlice, ResourceSlicer, ResourceType } from "../types";
+import type { CodeParserOptions, ResourceSlice, ResourceSlicer, ResourceType } from "../types.js";
 import {
   CODE_TYPES,
   DEFAULT_MAX_CHARS,
@@ -9,9 +9,9 @@ import {
   extractLinksFromText,
   finalizeSlice,
   normalizeDeclaration,
-} from "../utils";
-import { defaultTextSegmenter } from "../segmenters";
-import { sectionKeys } from "../section-keys";
+} from "../utils.js";
+import { defaultTextSegmenter } from "../segmenters/index.js";
+import { sectionKeys } from "../section-keys.js";
 
 const JS_DECLARATION_PATTERN = /^(export\s+)?(default\s+)?(declare\s+)?(abstract\s+)?(async\s+)?(function\*?|class|interface|type|enum|const|let|var|namespace|module)\b/;
 const GENERIC_DECLARATION_PATTERN = /^((public|private|protected|internal|static|final|abstract|sealed|open|override|data|export|async|suspend|inline|extern|pub)\s+)*(function|class|interface|enum|struct|record|object|trait|fun|func|def|fn|protocol|extension|namespace|module|typedef|template|impl)\b/;

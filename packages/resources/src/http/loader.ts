@@ -5,10 +5,10 @@
  * pluggable {@link PageRenderer} (a headless browser) for the html after the scripts ran.
  */
 import { Buffer } from "node:buffer";
-import { htmlVisibleTextLength } from "../html/markdown";
-import type { FetchFn, PageRenderer, RenderMode, ResolveOptions, ResourceRegistryLike, ResourceSource, ResourceStat, ResourceType } from "../types";
-import { assertNotAborted, basenameFromLocation, isAbortError } from "../utils";
-import { type ContentType, decodeText, isGenericMimeType, isUtf8Charset, looksBinary, parseContentType, sniffMagic, sniffText } from "./sniff";
+import { htmlVisibleTextLength } from "../html/markdown.js";
+import type { FetchFn, PageRenderer, RenderMode, ResolveOptions, ResourceRegistryLike, ResourceSource, ResourceStat, ResourceType } from "../types.js";
+import { GENERIC_TEXT_TYPE, assertNotAborted, basenameFromLocation, effectiveMimeType, isAbortError } from "../utils.js";
+import { type ContentType, decodeText, isGenericMimeType, isUtf8Charset, looksBinary, parseContentType, sniffMagic, sniffText } from "./sniff.js";
 
 /** Default URL fetch timeout (headers and body), in milliseconds. */
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -27,8 +27,11 @@ export type HttpFetchOptions = Pick<ResolveOptions, "signal" | "headers" | "time
 
 /** A fetched URL as a resource source, with what the fetch found out. */
 export interface HttpResource {
-  /** The resource: located at the final URL, its input the body's bytes (utf-8 for text), its type detected. */
-  source: ResourceSource & { input: Uint8Array };
+  /**
+   * The resource: located at the final URL, its input the body's bytes (utf-8 for text), its type detected and its
+   * mime type always given (a specific declared one, else the detected type's).
+   */
+  source: ResourceSource & { input: Uint8Array; mimeType: string };
   /** The URL that was asked for. */
   requestedUrl: string;
   /** The URL the content came from, after redirects (and after a renderer's navigation). */
@@ -95,44 +98,50 @@ function parseContentLength(value: string | null): number | undefined {
 /** A type and mime type, and how they were found. */
 interface Detection {
   readonly type: ResourceType | undefined;
-  readonly mimeType: string | undefined;
+  /** The mime type to label the content with (see {@link effectiveMimeType}): always one. */
+  readonly mimeType: string;
   readonly detectedBy: DetectedBy;
   /** True for binary content, which is kept as it is; text is decoded (and transcoded to utf-8). */
   readonly binary: boolean;
 }
 
+/** A URL's path, for its extension (the URL itself when it doesn't parse). */
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}
+
 /**
  * Works out the type of fetched bytes. Magic numbers win (a pdf served as `application/octet-stream` is a pdf); then
- * a specific declared mime type; then the URL's extension; then how the text starts; then plain text, or nothing for
- * bytes that look binary.
+ * a declared mime type that names a specific type; then the URL's extension; then how the text starts; then plain
+ * text (labelled with a declared `text/*` type, which then counts as the header's answer), or nothing for bytes that
+ * look binary. The mime type is always one: a specific declared one, else the detected type's (see
+ * {@link effectiveMimeType}).
  */
 export function detectType(registry: TypeInference, url: string, bytes: Uint8Array, declared: ContentType | undefined): Detection {
+  const path = pathOf(url);
+  const mimeOf = (type: ResourceType | undefined, binary: boolean, found = declared?.mimeType): string =>
+    effectiveMimeType(type, found, { location: path, binary });
   const magic = sniffMagic(bytes);
   if (magic) {
     // A declared or named office type refines a plain zip (old xls/doc files are not zips at all).
-    const named = magic.type === "zip" ? registry.inferType(url, declared?.mimeType) : undefined;
+    const named = magic.type === "zip" ? registry.inferType(path, declared?.mimeType) : undefined;
     return named === "docx" || named === "excel"
-      ? { type: named, mimeType: declared?.mimeType, detectedBy: "header", binary: true }
+      ? { type: named, mimeType: mimeOf(named, true), detectedBy: "header", binary: true }
       : { type: magic.type, mimeType: magic.mimeType, detectedBy: "content", binary: true };
   }
   const binary = looksBinary(bytes);
-  if (declared && !isGenericMimeType(declared.mimeType)) {
-    const type = registry.inferType("", declared.mimeType);
-    if (type !== undefined) return { type, mimeType: declared.mimeType, detectedBy: "header", binary };
-  }
-  const path = (() => {
-    try {
-      return new URL(url).pathname;
-    } catch {
-      return url;
-    }
-  })();
+  const byHeader = declared && !isGenericMimeType(declared.mimeType) ? registry.inferType("", declared.mimeType) : undefined;
+  if (byHeader !== undefined && byHeader !== GENERIC_TEXT_TYPE) return { type: byHeader, mimeType: mimeOf(byHeader, binary), detectedBy: "header", binary };
   const byExtension = registry.inferType(path);
-  if (byExtension !== undefined) return { type: byExtension, mimeType: declared?.mimeType, detectedBy: "extension", binary };
-  if (binary) return { type: undefined, mimeType: declared?.mimeType, detectedBy: "default", binary };
+  if (byExtension !== undefined) return { type: byExtension, mimeType: mimeOf(byExtension, binary), detectedBy: "extension", binary };
+  if (binary) return { type: undefined, mimeType: mimeOf(undefined, true), detectedBy: "default", binary };
   const text = sniffText(Buffer.from(bytes.subarray(0, 256 * 1024)).toString("utf8"));
-  if (text) return { type: text.type, mimeType: text.mimeType, detectedBy: "text", binary };
-  return { type: "text", mimeType: declared?.mimeType ?? "text/plain", detectedBy: "default", binary };
+  if (text) return { type: text.type, mimeType: mimeOf(text.type, false, text.mimeType), detectedBy: "text", binary };
+  return { type: GENERIC_TEXT_TYPE, mimeType: mimeOf(GENERIC_TEXT_TYPE, false), detectedBy: byHeader === undefined ? "default" : "header", binary };
 }
 
 /** Patterns of pages whose content is built by scripts. */
@@ -208,7 +217,7 @@ export async function fetchResource(url: string, registry: TypeInference, option
     url: finalUrl,
     status: response.status,
     detectedBy: detection.detectedBy,
-    source: { location: finalUrl, input: bytes },
+    source: { location: finalUrl, input: bytes, mimeType: detection.mimeType },
     ...(declared ? { declared } : {}),
   };
 
@@ -242,7 +251,7 @@ export async function fetchResource(url: string, registry: TypeInference, option
     size: bytes.byteLength,
     metadata,
     ...(detection.type !== undefined ? { type: detection.type } : {}),
-    ...(detection.mimeType !== undefined ? { mimeType: detection.mimeType } : {}),
+    mimeType: detection.mimeType,
     ...(modifiedAt !== undefined ? { modifiedAt } : {}),
   };
   return result;

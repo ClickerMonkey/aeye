@@ -3,8 +3,8 @@
  * highest priority to lowest (ties to the most recently registered), and a run tries them in that order until one
  * gives a result, falling back past those that decline or throw.
  */
-import type { ResourceType } from "./types";
-import { assertNotAborted, isAbortError } from "./utils";
+import type { ResourceType } from "./types.js";
+import { assertNotAborted, isAbortError } from "./utils.js";
 
 /** Something that can sit in a {@link TypeStack}. */
 export interface StackMember {

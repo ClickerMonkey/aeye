@@ -2,12 +2,12 @@ import { describe, expect, it } from "@jest/globals";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createDefaultResourceRegistry } from "../default";
-import { buildResourceGraph } from "../graph";
-import { importCandidates, isRelativeSpecifier, isScriptType, resolveImportPath } from "../imports";
-import { ROOT_SECTION_KEY, sectionKeys } from "../section-keys";
-import { CODE_DECLARATION_PATTERNS, declarationName, splitCodeBlocks } from "../slicers/code";
-import { splitMarkdownSections } from "../slicers/markdown";
+import { createDefaultResourceRegistry } from "../default.js";
+import { buildResourceGraph } from "../graph.js";
+import { diskIsFile, importCandidates, isRelativeSpecifier, isScriptType, resolveImportPath } from "../imports.js";
+import { ROOT_SECTION_KEY, sectionKeys } from "../section-keys.js";
+import { CODE_DECLARATION_PATTERNS, declarationName, splitCodeBlocks } from "../slicers/code.js";
+import { splitMarkdownSections } from "../slicers/markdown.js";
 
 const registry = createDefaultResourceRegistry();
 
@@ -111,6 +111,20 @@ describe("import resolution", () => {
     expect(found).toBe("/w/x.tsx");
     expect(asked).toEqual(["/w/x", "/w/x.ts", "/w/x.tsx"]);
     expect(await resolveImportPath("/w/none", async () => false)).toBeUndefined();
+  });
+
+  it("checks files on disk by default: files only, never folders or missing paths", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "is-file-"));
+    try {
+      await mkdir(path.join(dir, "lib"));
+      await writeFile(path.join(dir, "lib", "index.ts"), "export const lib = 1;\n");
+      expect(await diskIsFile(path.join(dir, "lib", "index.ts"))).toBe(true);
+      expect(await diskIsFile(path.join(dir, "lib"))).toBe(false);
+      expect(await diskIsFile(path.join(dir, "missing.ts"))).toBe(false);
+      expect(await resolveImportPath(path.join(dir, "lib"))).toBe(path.join(dir, "lib", "index.ts"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("lets the file resolver and the graph follow TS imports", async () => {

@@ -5,12 +5,12 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { createDefaultResourceRegistry } from "../default";
-import { buildResourceGraph, DEFAULT_GRAPH_MAX_RESOURCES } from "../graph";
-import { ResourceRegistry, createParsedResource } from "../registry";
-import { textSlicer } from "../slicers";
-import { collectInput, extractLinksFromText } from "../utils";
-import type { RenderPdfPagesFn, ResourceParser, ResourceResolver, SummaryRequest } from "../types";
+import { createDefaultResourceRegistry } from "../default.js";
+import { buildResourceGraph, DEFAULT_GRAPH_MAX_RESOURCES } from "../graph.js";
+import { ResourceRegistry, createParsedResource } from "../registry.js";
+import { textSlicer } from "../slicers/index.js";
+import { collectInput, extractLinksFromText } from "../utils.js";
+import type { RenderPdfPagesFn, ResourceParser, ResourceResolver, SummaryRequest } from "../types.js";
 
 const registry = createDefaultResourceRegistry();
 

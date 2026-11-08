@@ -1,7 +1,7 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { RenderedPage, RenderPdfPagesFn } from "../types";
-import { assertNotAborted } from "../utils";
+import type { RenderedPage, RenderPdfPagesFn } from "../types.js";
+import { assertNotAborted } from "../utils.js";
 
 type PopplerInstance = {
   pdfToPpm: (file: string, outputPath: string, options?: Record<string, unknown>) => Promise<string>;

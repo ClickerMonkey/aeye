@@ -1,4 +1,4 @@
-import type { ResourceSlice, ResourceSlicer } from "../types";
+import type { ResourceSlice, ResourceSlicer } from "../types.js";
 import {
   DEFAULT_MAX_CHARS,
   DEFAULT_MIN_CHARS,
@@ -8,9 +8,9 @@ import {
   extractLinksFromText,
   finalizeSlice,
   toHeadingContext,
-} from "../utils";
-import { defaultTextSegmenter } from "../segmenters";
-import { sectionKeys } from "../section-keys";
+} from "../utils.js";
+import { defaultTextSegmenter } from "../segmenters/index.js";
+import { sectionKeys } from "../section-keys.js";
 
 const DEFAULT_MARKDOWN_BOUNDARIES = ["\n\n", "\n", ". ", " "];
 

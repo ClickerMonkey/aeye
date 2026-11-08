@@ -70,13 +70,14 @@ The same steps are exported for code that checks files its own way (a sandbox, a
 system):
 
 ```ts
-import { importCandidates, isRelativeSpecifier, isScriptType, resolveImportPath, SCRIPT_TYPES } from "@aeye/resources";
+import { diskIsFile, importCandidates, isRelativeSpecifier, isScriptType, resolveImportPath, SCRIPT_TYPES } from "@aeye/resources";
 
 isScriptType("tsx");                       // true — one of SCRIPT_TYPES
 isRelativeSpecifier("./store");            // true; "react" → false
 importCandidates("/src/store.js");         // ["/src/store.js", "/src/store.ts", "/src/store.tsx", "/src/store.js.ts", …]
 await resolveImportPath("/src/lib");       // "/src/lib/index.ts" — the first candidate that is a file on disk
-await resolveImportPath("/src/lib", isFile); // with your own (path) => Promise<boolean>
+await resolveImportPath("/src/lib", isFile); // with your own IsFile: (path) => Promise<boolean>
+await diskIsFile("/src/lib/index.ts");     // true — the default IsFile: a file on disk (false for folders and missing paths)
 ```
 
 ## Locations: "know exactly how to get it"

@@ -1,10 +1,10 @@
 /** Converters to markdown: html pages, and word documents by way of the html mammoth makes of them. */
 import { Buffer } from "node:buffer";
-import { htmlToCleanMarkdown, type HtmlMarkdown, type HtmlToMarkdownOptions } from "../html/markdown";
-import { missingDependency, optionalModule } from "../optional";
-import type { ResourceConverter, ResourceSource } from "../types";
-import { assertNotAborted, collectInput, isHttpUrl } from "../utils";
-import type { ResourceVersionOf } from "../versions";
+import { htmlToCleanMarkdown, type HtmlMarkdown, type HtmlToMarkdownOptions } from "../html/markdown.js";
+import { missingDependency, optionalModule } from "../optional.js";
+import type { ResourceConverter, ResourceSource } from "../types.js";
+import { assertNotAborted, collectInput, isHttpUrl } from "../utils.js";
+import type { ResourceVersionOf } from "../versions.js";
 
 /** The part of mammoth the docx converter uses. */
 interface DocxToHtml {

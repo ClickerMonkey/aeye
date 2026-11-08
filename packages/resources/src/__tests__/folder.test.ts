@@ -3,10 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createDefaultResourceRegistry } from "../default";
-import { buildResourceGraph } from "../graph";
-import { FOLDER_MIME_TYPE, FOLDER_TYPE } from "../resolvers/folder";
-import { folderListingSchema, versionText } from "../versions";
+import { createDefaultResourceRegistry } from "../default.js";
+import { buildResourceGraph } from "../graph.js";
+import { FOLDER_MIME_TYPE, FOLDER_TYPE } from "../resolvers/folder.js";
+import { folderListingSchema, versionText } from "../versions.js";
 
 const registry = createDefaultResourceRegistry();
 let root = "";

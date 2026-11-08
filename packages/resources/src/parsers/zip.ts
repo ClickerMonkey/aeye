@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { createParsedResource } from "../registry";
-import type { ParsedResource, ResourceParser, ResourcePart, ResourceSource, SupportContext } from "../types";
+import { createParsedResource } from "../registry.js";
+import type { ParsedResource, ResourceParser, ResourcePart, ResourceSource, SupportContext } from "../types.js";
 import {
   assertNotAborted,
   buildZipEntryLocation,
@@ -14,8 +14,8 @@ import {
   isHttpUrl,
   isZipEntryLocation,
   toFilePath,
-} from "../utils";
-import { ZIP_LIMITS, getCachedZip, loadJSZip } from "../zip-internal";
+} from "../utils.js";
+import { ZIP_LIMITS, getCachedZip, loadJSZip } from "../zip-internal.js";
 
 export const zipParser: ResourceParser = {
   id: "zip-parser",

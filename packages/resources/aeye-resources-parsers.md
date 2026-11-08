@@ -160,15 +160,21 @@ registry.inferType("/x/a.ipynb");                       // "notebook"
 registry.inferType("/x/y", "application/x-ipynb+json"); // "notebook"
 ```
 
-- Mime patterns take precedence over extensions; newly registered patterns are checked first.
+- A mime type that maps to a specific type takes precedence over the extension
+  (`inferType("notes.txt", "text/markdown")` is `markdown`). One that matches only the catch-all
+  `^text/` pattern (`GENERIC_TEXT_TYPE`, `"text"`: `text/typescript`, `text/plain`) yields to the
+  extension (`inferType("a.ts", "text/typescript")` is `typescript`) and is the answer only when the
+  extension names nothing. Newly registered patterns are checked first.
 - Extension matching scans suffixes longest-first, so **compound extensions** like `.tar.gz` and
   `.test.ts` resolve correctly. Dockerfiles are detected by name.
 - Each registry instance has its own maps (no global leakage).
 
 Standalone helpers (operate on the default maps): `inferTypeFromLocation`,
-`inferTypeFromMimeType`, `inferTypeFromExtension(loc, map)`, `inferTypeFromMimePatterns(mime, list)`.
+`inferTypeFromMimeType`, `inferTypeFromExtension(loc, map)`, `inferTypeFromMimePatterns(mime, list)`,
+and `inferTypeFromRules(loc, mime, patterns, map)` (the precedence above, on your own tables).
 Exposed default tables: `DEFAULT_EXTENSION_TYPES`, `DEFAULT_MIME_TYPE_PATTERNS`, `CODE_TYPES`,
-`DEFAULT_MARKUP_TYPES`, `DEFAULT_IMAGE_EXTENSION_MIME` (+ `imageMimeTypeFromLocation`).
+`DEFAULT_MARKUP_TYPES`, `DEFAULT_IMAGE_EXTENSION_MIME` (+ `imageMimeTypeFromLocation`),
+`DEFAULT_TYPE_MIME_TYPES` (type → mime, + `effectiveMimeType`), `GENERIC_TEXT_TYPE`.
 
 ## Parse options (selected `ParseOptions` fields)
 

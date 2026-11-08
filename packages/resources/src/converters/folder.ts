@@ -1,8 +1,8 @@
 /** Folder listings to markdown: one line per entry, folders first, with each entry's type and size. */
 import { Buffer } from "node:buffer";
-import type { ResourceConverter, ResourceSource } from "../types";
-import { assertNotAborted, basenameFromLocation, collectInput } from "../utils";
-import { type FolderEntry, type FolderListing, folderListingSchema } from "../versions";
+import type { ResourceConverter, ResourceSource } from "../types.js";
+import { assertNotAborted, basenameFromLocation, collectInput } from "../utils.js";
+import { type FolderEntry, type FolderListing, folderListingSchema } from "../versions.js";
 
 /** A folder listing from the bytes of its raw form (json, checked against {@link folderListingSchema}). */
 export function parseFolderListing(raw: Uint8Array): FolderListing {

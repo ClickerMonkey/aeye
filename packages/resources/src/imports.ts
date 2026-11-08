@@ -1,6 +1,6 @@
 import path from "node:path";
 import { stat } from "node:fs/promises";
-import type { ResourceType } from "./types";
+import type { ResourceType } from "./types.js";
 
 /**
  * Node and TypeScript module resolution for relative imports: which files a specifier such as `./store`,

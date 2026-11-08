@@ -1,12 +1,12 @@
-import { createParsedResource } from "../registry";
-import type { ResourceParser, ResourcePart } from "../types";
+import { createParsedResource } from "../registry.js";
+import type { ResourceParser, ResourcePart } from "../types.js";
 import {
   assertNotAborted,
   collectInput,
   createPartId,
   dedupeLinks,
   extractLinksFromText,
-} from "../utils";
+} from "../utils.js";
 
 export const imageParser: ResourceParser = {
   id: "image-parser",

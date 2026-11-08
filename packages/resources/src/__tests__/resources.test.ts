@@ -3,13 +3,13 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { ResourceRegistry } from "../registry";
-import { createDefaultResourceRegistry } from "../default";
-import { createPopplerRenderer, isPopplerAvailable, orderRenderedPages } from "../renderers";
-import { buildResourceGraph } from "../graph";
-import { createLangchainSegmenter, defaultTextSegmenter, isLangchainSplittersAvailable } from "../segmenters";
-import { buildZipEntryLocation, inferLocationScheme, isSelfContainedLocation, resolveZipEntryName } from "../utils";
-import type { ParsedResource, ResourceParser, ResourceSlicer } from "../types";
+import { ResourceRegistry } from "../registry.js";
+import { createDefaultResourceRegistry } from "../default.js";
+import { createPopplerRenderer, isPopplerAvailable, orderRenderedPages } from "../renderers/index.js";
+import { buildResourceGraph } from "../graph.js";
+import { createLangchainSegmenter, defaultTextSegmenter, isLangchainSplittersAvailable } from "../segmenters/index.js";
+import { buildZipEntryLocation, inferLocationScheme, isSelfContainedLocation, resolveZipEntryName } from "../utils.js";
+import type { ParsedResource, ResourceParser, ResourceSlicer } from "../types.js";
 
 const registry = createDefaultResourceRegistry();
 

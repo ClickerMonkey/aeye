@@ -36,7 +36,9 @@ module.exports = {
   },
   globals: {
     'ts-jest': {
-      isolatedModules: true
+      isolatedModules: true,
+      // tests run as CommonJS; the build itself emits Node ESM (NodeNext, .js extensions)
+      tsconfig: { module: 'commonjs', moduleResolution: 'node10' }
     }
   }
 };

@@ -1,5 +1,5 @@
-import type { ParsedResource, ResourcePart, ResourceSlice, SliceOptions } from "./types";
-import { assertNotAborted, finalizeSlice } from "./utils";
+import type { ParsedResource, ResourcePart, ResourceSlice, SliceOptions } from "./types.js";
+import { assertNotAborted, finalizeSlice } from "./utils.js";
 
 const DEFAULT_SUMMARY_CONCURRENCY = 4;
 
