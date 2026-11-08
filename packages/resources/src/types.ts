@@ -1,12 +1,59 @@
 import type { Readable } from "node:stream";
+import type { HtmlToMarkdownOptions } from "./html/markdown";
+import type { ResourceVersion, Table } from "./versions";
 
 export type ResourceType = string;
 export type ResourceInput = string | Uint8Array | ArrayBuffer | URL | Readable | ReadableStream<Uint8Array> | AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array> | (() => AsyncIterable<Uint8Array>);
 export type ResourceLocation = string;
 export type ResourcePartKind = "text" | "image";
 
-/** A function that renders a URL to HTML (e.g. using puppeteer). */
-export type RenderUrlFn = (url: string, signal?: AbortSignal) => Promise<string>;
+/** What a {@link PageRenderer} is asked to render. */
+export interface RenderRequest {
+  /** The page's URL (after redirects). */
+  url: string;
+  /** The html the server sent, before any script ran. */
+  html: string;
+  /** Request headers the page was fetched with. */
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+/** A page after a {@link PageRenderer} ran it. */
+export interface RenderedHtml {
+  /** The html after scripts ran (the live document, serialized). */
+  html: string;
+  /** The URL the page ended up at, when the page navigated. */
+  url?: string;
+}
+
+/**
+ * Runs a web page's scripts and returns the resulting html, for pages whose content is built in the browser. The
+ * library ships none; plug in a headless browser (puppeteer, playwright) through this interface.
+ */
+export interface PageRenderer {
+  /** Names the renderer in a source's metadata (`metadata.renderedBy`). */
+  readonly id: string;
+  render(request: RenderRequest): Promise<RenderedHtml>;
+}
+
+/**
+ * When fetched html pages go through the {@link PageRenderer}: `never`, `always`, or `auto` (the default), only
+ * when the fetched page looks built by scripts (see `looksScriptRendered`).
+ */
+export type RenderMode = "never" | "auto" | "always";
+
+/** The fetch function the url loader calls; the global `fetch` by default. Inject one to test or to proxy. */
+export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
+
+/** How a folder is listed by the folder resolver. */
+export interface FolderOptions {
+  /** List entries whose names start with a dot. Defaults to false. */
+  includeHidden?: boolean;
+  /** Entry names to leave out. Defaults to `DEFAULT_FOLDER_IGNORE` (`.git`, `node_modules`). */
+  ignore?: readonly string[];
+  /** The most entries listed; the rest are counted but left out. Defaults to 1000. */
+  maxEntries?: number;
+}
 
 /**
  * Renders all pages of a PDF to image files in a directory. Receives the PDF file path, an output
@@ -65,6 +112,11 @@ export interface ResourcePart {
 
 export interface ParsedResource {
   id: string;
+  /**
+   * The LLM-ready version the resource's parts were built from (markdown for html, tables for a spreadsheet, pages for
+   * a pdf), when its type has a converter. Absent when the raw text is already LLM-ready (markdown, code, plain text).
+   */
+  version?: ResourceVersion;
   location: ResourceLocation;
   type: ResourceType;
   name: string;
@@ -208,26 +260,15 @@ export interface RenderedPage {
   mimeType: string;
 }
 
-/** Structured table extracted from tabular data. */
-export interface ExtractedTable {
-  /** Optional name/title for the table. */
-  name?: string;
-  /** Column headers. */
-  headers: string[];
-  /** Rows of data (each row is an array of cell values). */
-  rows: string[][];
-  /** Sheet name if from a multi-sheet source. */
-  sheetName?: string;
-  /** 0-based sheet index if from a multi-sheet source. */
-  sheetIndex?: number;
-}
+/** A table extracted from tabular data; see {@link Table}. */
+export type ExtractedTable = Table;
 
 export interface ParseOptions {
   signal?: AbortSignal;
   describeImage?: (image: Uint8Array, part: ResourcePart, source: ResourceSource) => Promise<string | undefined>;
   transcribeImage?: (image: Uint8Array, part: ResourcePart, source: ResourceSource) => Promise<string | undefined>;
-  /** Renders a URL to final HTML (e.g. after JS executes). Used for html resources when provided. */
-  renderUrl?: RenderUrlFn;
+  /** How html becomes markdown. `baseUrl` defaults to the resource's location when it is a URL. */
+  html?: HtmlToMarkdownOptions;
   /** Options for code parsing/slicing behavior. */
   code?: CodeParserOptions;
   /** Options for PDF parsing behavior. */
@@ -296,6 +337,14 @@ export interface ResolveOptions {
   timeoutMs?: number;
   /** Maximum bytes to download for a URL. Defaults to 50 MiB. 0 disables. */
   maxBytes?: number;
+  /** The fetch function URLs are fetched with. Defaults to the global `fetch`. */
+  fetch?: FetchFn;
+  /** Runs script-built web pages; see {@link PageRenderer}. */
+  renderer?: PageRenderer;
+  /** When fetched html goes through {@link ResolveOptions.renderer}. Defaults to `auto`. */
+  render?: RenderMode;
+  /** How folders are listed. */
+  folder?: FolderOptions;
 }
 
 export interface LoadResourceOptions extends ParseOptions, SliceOptions, ResolveOptions {
@@ -327,6 +376,13 @@ export interface ResourceRegistryLike {
   resolveLink(link: string, options?: ResolveOptions): Promise<ResourceSource>;
   /** Runs the parser stack for an already-resolved source, falling back through registered parsers. */
   parseSource(source: ResourceSource, options?: ParseOptions): Promise<ParsedResource>;
+  /** True when a converter is registered for the type. */
+  hasConverter(type: ResourceType): boolean;
+  /**
+   * Runs the converter stack for an already-resolved source: the LLM-ready version of it, or undefined when no
+   * converter is registered for its type (its raw text is the LLM-ready form).
+   */
+  convertSource(source: ResourceSource, options?: ParseOptions): Promise<ResourceVersion | undefined>;
 }
 
 export interface SupportContext {
@@ -372,6 +428,27 @@ export interface ResourceParser {
 export interface RegisterParserOptions {
   /** Overrides the parser's own `priority`. Higher is attempted first. Defaults to the parser's priority or 0. */
   priority?: number;
+}
+
+/** What a converter is given besides the source. */
+export interface ConverterContext {
+  registry: ResourceRegistryLike;
+  options: ParseOptions;
+}
+
+/**
+ * Turns a raw resource into its LLM-ready version ({@link ResourceVersion}): html into clean markdown, a spreadsheet
+ * into tables, a pdf into page text. Converters for a type form a stack like parsers do: the highest priority is
+ * tried first, and one that declines (returns undefined) or throws falls back to the next.
+ */
+export interface ResourceConverter {
+  id: string;
+  supportedTypes: ResourceType[];
+  /** Order within a type's stack: higher first, ties to the most recently registered. Defaults to 0. */
+  priority?: number;
+  /** Whether the converter can run here (its optional dependency is installed). Defaults to true. */
+  isSupported?: (type: ResourceType, context: SupportContext) => boolean | Promise<boolean>;
+  convert: (source: ResourceSource, context: ConverterContext) => Promise<ResourceVersion | undefined>;
 }
 
 export interface ResourceSlicer {

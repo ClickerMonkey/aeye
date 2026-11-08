@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { parseHtmlAttributes } from "./html/dom";
+import { type HtmlToMarkdownOptions, htmlToCleanMarkdown } from "./html/markdown";
 import type { EmbedTextContext, LoadResourceOptions, ParsedResource, ResourceInput, ResourceLink, ResourcePart, ResourceSlice, ResourceSource, ResourceType, SliceContext, SliceOptions } from "./types";
 
 export const DEFAULT_MAX_CHARS = 2000;
@@ -158,6 +160,12 @@ export function mergeOptions<T extends Partial<LoadResourceOptions>>(base: T | u
   }
   if (base.code || overrides.code) {
     merged.code = { ...base.code, ...overrides.code };
+  }
+  if (base.html || overrides.html) {
+    merged.html = { ...base.html, ...overrides.html };
+  }
+  if (base.folder || overrides.folder) {
+    merged.folder = { ...base.folder, ...overrides.folder };
   }
   return merged;
 }
@@ -566,51 +574,6 @@ function readQuotedValue(text: string, start: number): { value: string; end: num
   };
 }
 
-function parseHtmlAttributes(input: string): Record<string, string> {
-  const attributes: Record<string, string> = {};
-  let cursor = 0;
-
-  while (cursor < input.length) {
-    while (cursor < input.length && /\s/.test(input[cursor])) {
-      cursor++;
-    }
-
-    if (cursor >= input.length) {
-      break;
-    }
-
-    let nameEnd = cursor;
-    while (nameEnd < input.length && /[^\s=]/.test(input[nameEnd])) {
-      nameEnd++;
-    }
-
-    const name = input.slice(cursor, nameEnd).toLowerCase();
-    cursor = nameEnd;
-    while (cursor < input.length && /\s/.test(input[cursor])) {
-      cursor++;
-    }
-
-    if (input[cursor] !== "=") {
-      continue;
-    }
-
-    cursor++;
-    while (cursor < input.length && /\s/.test(input[cursor])) {
-      cursor++;
-    }
-
-    const quoted = readQuotedValue(input, cursor);
-    if (!quoted) {
-      continue;
-    }
-
-    attributes[name] = quoted.value;
-    cursor = quoted.end + 1;
-  }
-
-  return attributes;
-}
-
 function forEachHtmlTag(text: string, onTag: (tag: { name: string; closing: boolean; attributes: Record<string, string> }) => void): void {
   let cursor = 0;
   while (cursor < text.length) {
@@ -744,74 +707,9 @@ export function resolveAgainstUrl(link: string, baseUrl: string): string {
   return new URL(link, baseUrl).toString();
 }
 
-export function htmlToMarkdown(html: string): string {
-  const safeHtml = stripHtmlBlocks(html, ["script", "style"]);
-  const parts: string[] = [];
-  let cursor = 0;
-
-  while (cursor < safeHtml.length) {
-    const tagStart = safeHtml.indexOf("<", cursor);
-    if (tagStart === -1) {
-      parts.push(safeHtml.slice(cursor));
-      break;
-    }
-
-    parts.push(safeHtml.slice(cursor, tagStart));
-    const tagEnd = safeHtml.indexOf(">", tagStart + 1);
-    if (tagEnd === -1) {
-      break;
-    }
-
-    const rawTag = safeHtml.slice(tagStart + 1, tagEnd).trim();
-    const closing = rawTag.startsWith("/");
-    const normalized = closing ? rawTag.slice(1).trim() : rawTag;
-    const name = normalized.split(/\s+/, 1)[0]?.toLowerCase();
-    const attributes = parseHtmlAttributes(normalized.slice(name?.length ?? 0));
-
-    if (name) {
-      if (!closing && /^h[1-6]$/.test(name)) {
-        parts.push(`\n\n${"#".repeat(Number(name[1]))} `);
-      } else if (!closing && name === "li") {
-        parts.push("\n- ");
-      } else if (!closing && name === "br") {
-        parts.push("\n");
-      } else if (!closing && name === "img" && attributes.src) {
-        parts.push(`![${attributes.alt || attributes.src}](${attributes.src})`);
-      } else if (closing && /^h[1-6]$/.test(name)) {
-        parts.push("\n\n");
-      } else if (closing && ["p", "div", "section", "article", "header", "footer", "ul", "ol", "li"].includes(name)) {
-        parts.push("\n\n");
-      }
-    }
-
-    cursor = tagEnd + 1;
-  }
-
-  return collapseWhitespace(decodeHtmlEntities(parts.join(""))).trim();
-}
-
-export function stripTags(value: string): string {
-  let output = "";
-  let insideTag = false;
-
-  for (const character of value) {
-    if (character === "<") {
-      insideTag = true;
-      output += " ";
-      continue;
-    }
-
-    if (character === ">") {
-      insideTag = false;
-      continue;
-    }
-
-    if (!insideTag) {
-      output += character;
-    }
-  }
-
-  return collapseInlineWhitespace(decodeHtmlEntities(output)).trim();
+/** Html as clean markdown (see {@link htmlToCleanMarkdown}), without the page facts. */
+export function htmlToMarkdown(html: string, options?: HtmlToMarkdownOptions): string {
+  return htmlToCleanMarkdown(html, options).markdown;
 }
 
 export function toFilePath(location: string): string {
@@ -923,71 +821,4 @@ export function toHeadingContext(pathSegments: string[]): SliceContext | undefin
   }
 
   return { headings: pathSegments.slice() };
-}
-
-function stripHtmlBlocks(html: string, tagNames: string[]): string {
-  const lower = html.toLowerCase();
-  let result = "";
-  let cursor = 0;
-
-  while (cursor < html.length) {
-    let matchedTag: string | undefined;
-    let matchedStart = html.length;
-
-    for (const tagName of tagNames) {
-      const candidate = lower.indexOf(`<${tagName}`, cursor);
-      if (candidate !== -1 && candidate < matchedStart) {
-        matchedStart = candidate;
-        matchedTag = tagName;
-      }
-    }
-
-    if (!matchedTag) {
-      result += html.slice(cursor);
-      break;
-    }
-
-    result += html.slice(cursor, matchedStart);
-    const openEnd = html.indexOf(">", matchedStart);
-    if (openEnd === -1) {
-      break;
-    }
-
-    const closeTagStart = lower.indexOf(`</${matchedTag}`, openEnd + 1);
-    if (closeTagStart === -1) {
-      cursor = openEnd + 1;
-      continue;
-    }
-
-    const closeTagEnd = html.indexOf(">", closeTagStart + matchedTag.length + 2);
-    if (closeTagEnd === -1) {
-      break;
-    }
-
-    cursor = closeTagEnd + 1;
-  }
-
-  return result;
-}
-
-function collapseWhitespace(text: string): string {
-  return text
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-    .replace(/\n{3,}/g, "\n\n");
-}
-
-function collapseInlineWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ");
-}
-
-function decodeHtmlEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
 }

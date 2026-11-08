@@ -1,7 +1,7 @@
 {
   "name": "@aeye/resources",
   "version": "0.3.9",
-  "description": "Extensible resource parsing, slicing, and resolution utilities",
+  "description": "Extensible resource loading, conversion, parsing, sectioning and slicing",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,6 +27,17 @@
         "default": "./dist/section-keys.js"
       },
       "default": "./dist/section-keys.js"
+    },
+    "./versions": {
+      "import": {
+        "types": "./dist/versions.d.ts",
+        "default": "./dist/versions.js"
+      },
+      "require": {
+        "types": "./dist/versions.d.ts",
+        "default": "./dist/versions.js"
+      },
+      "default": "./dist/versions.js"
     },
     "./default": {
       "import": {
@@ -67,8 +78,12 @@
     "LICENSE",
     "aeye-*.md"
   ],
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
   "peerDependencies": {
     "@langchain/textsplitters": "^0.1.0",
+    "js-yaml": "^3.14.0 || ^4.1.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.9.1",
     "node-poppler": "^8.0.4",
@@ -77,6 +92,9 @@
   },
   "peerDependenciesMeta": {
     "@langchain/textsplitters": {
+      "optional": true
+    },
+    "js-yaml": {
       "optional": true
     },
     "jszip": {

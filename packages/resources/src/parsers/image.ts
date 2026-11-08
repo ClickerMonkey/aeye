@@ -1,5 +1,5 @@
 import { createParsedResource } from "../registry";
-import type { ResourceParser, ResourcePart, SupportContext } from "../types";
+import type { ResourceParser, ResourcePart } from "../types";
 import {
   assertNotAborted,
   collectInput,

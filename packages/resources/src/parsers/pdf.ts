@@ -1,31 +1,18 @@
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pdfConverter } from "../converters/pdf";
 import { createParsedResource } from "../registry";
 import type { ParsedResource, ResourceParser, ResourcePart, SupportContext } from "../types";
 import {
   assertNotAborted,
   createPartId,
   dedupeLinks,
-  collectInput,
   extractLinksFromText,
   isAbortError,
   withLocalFile,
 } from "../utils";
-
-let pdfParse: ((buffer: Uint8Array) => Promise<{ text: string; numpages: number }>) | undefined;
-
-async function loadPdfParse(): Promise<typeof pdfParse> {
-  if (pdfParse) return pdfParse;
-  try {
-    const mod = await import("pdf-parse");
-    // Typed for Buffer, but pdf.js reads any Uint8Array (and needs one starting at offset 0).
-    pdfParse = (mod.default ?? mod) as unknown as typeof pdfParse;
-    return pdfParse;
-  } catch {
-    return undefined;
-  }
-}
+import { createVersionParser } from "./version";
 
 /**
  * Higher-priority PDF parser that renders pages to images (and optionally transcribes them).
@@ -166,41 +153,10 @@ export const pdfRenderParser: ResourceParser = {
   }
 };
 
-/** Base PDF parser that extracts text via pdf-parse. Acts as the fallback in the PDF parser stack. */
-export const pdfParser: ResourceParser = {
+/** Pdfs as text page by page (see {@link pdfConverter}), one part per page. The fallback in the PDF parser stack. */
+export const pdfParser = createVersionParser({
   id: "pdf-parser",
   supportedTypes: ["pdf"],
   defaultSlicer: "text",
-  async isSupported(_type: string, _context: SupportContext) {
-    return Boolean(await loadPdfParse());
-  },
-  async parse(source, context) {
-    assertNotAborted(context.options.signal);
-    const parse = await loadPdfParse();
-    if (!parse) {
-      throw new Error("pdf-parse is not installed. Install it to parse PDF resources: npm install pdf-parse");
-    }
-
-    const resource = createParsedResource(source);
-    resource.defaultSlicer = "text";
-
-    // Read the source's own bytes so URL, zip-entry and in-memory PDFs work, not just local files.
-    // pdf.js ignores a view's byteOffset, so small (pooled) Buffers would be read from the wrong
-    // position; hand it a standalone copy that starts at offset 0 of its own ArrayBuffer.
-    const pdfResult = await parse(new Uint8Array(await collectInput(source.input)));
-
-    const part: ResourcePart = {
-      id: createPartId(resource, 0),
-      location: `${resource.location}#part/0`,
-      kind: "text",
-      text: pdfResult.text,
-      metadata: { pages: pdfResult.numpages },
-      links: dedupeLinks([
-        ...extractLinksFromText(pdfResult.text, `${resource.location}#part/0`)
-      ])
-    };
-    resource.parts.push(part);
-    resource.links = part.links ?? [];
-    return resource;
-  }
-};
+  fallback: pdfConverter,
+});

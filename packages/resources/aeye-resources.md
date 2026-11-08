@@ -12,6 +12,8 @@ embedding, follow links between them, and incrementally rebuild when sources cha
 > - [aeye-resources-parsers.md](./aeye-resources-parsers.md) — parsers, parser stacking, per-type config, PDF rendering, type inference.
 > - [aeye-resources-slicers.md](./aeye-resources-slicers.md) — slicers, slice options, pluggable segmenters (LangChain).
 > - [aeye-resources-graph.md](./aeye-resources-graph.md) — resolvers, locations, `modifiedAt`, the resource graph.
+> - [aeye-resources-converters.md](./aeye-resources-converters.md) — LLM-ready versions (converters), sectioning
+>   versions, fetching URLs (type detection, page renderers), folders.
 
 ## Install / import
 
@@ -26,7 +28,7 @@ import { createDefaultResourceRegistry, defaultResourceRegistry } from "@aeye/re
 ```
 
 Optional peer dependencies are loaded lazily and only needed for specific formats/features:
-`pdf-parse` (PDF text), `mammoth` (DOCX), `xlsx` (Excel/CSV), `jszip` (ZIP), `node-poppler`
+`pdf-parse` (PDF text), `mammoth` (DOCX), `xlsx` (Excel; csv/tsv need nothing), `js-yaml` (yaml pretty form), `jszip` (ZIP), `node-poppler`
 (PDF page rendering), `@langchain/textsplitters` (overlap/token/language-aware chunking). If a
 dependency is missing, the relevant parser/feature simply declines or reports unsupported.
 
@@ -34,10 +36,14 @@ dependency is missing, the relevant parser/feature simply declines or reports un
 
 ```
 input (path | URL | ResourceSource)
-   └─ resolve   → ResourceSource          (resolvers: zip, file, url)
-   └─ parse     → ParsedResource          (parser stack per type → parts, links, children)
+   └─ resolve   → ResourceSource          (resolvers: zip, folder, file, url)
+   └─ convert   → ResourceVersion         (converter stack per type → markdown, tables, pages, pretty code)
+   └─ parse     → ParsedResource          (parser stack per type → parts cut from the version, links, children)
    └─ slice     → ResourceSlice[]         (slicer per type → chunks + embedText)
 ```
+
+`convert()` resolves and converts only (the raw source plus its LLM-ready version, for storing both);
+`sectionVersion()` cuts a version into sections keyed by structure.
 
 `load()` does all three; `parse()` and `slice()` are also available individually.
 
@@ -63,6 +69,7 @@ interface ParsedResource {
   id: string;                 // `${location}::${type}`
   location: string;           // canonical, self-contained location
   type: string;               // e.g. "markdown", "pdf", "typescript"
+  version?: ResourceVersion;  // the LLM-ready version the parts were cut from (html, docx, sheets, pdf, …)
   name: string;
   mimeType?: string;
   modifiedAt?: number;        // epoch ms — for staleness/incremental rebuilds
@@ -150,12 +157,14 @@ registry.configureType("markdown", { maxChars: 1200, minChars: 200 });
 
 `createDefaultResourceRegistry()` registers:
 
+- **Converters** (`DEFAULT_CONVERTERS`): html → markdown, docx → markdown, csv/tsv → tables, workbooks →
+  tables, pdf → pages, json → pretty json, yaml → even yaml, folder → markdown listing.
 - **Parsers** (stacked where useful): `textParser` (text/json/csv/tsv/yaml/xml/svg/toml/ini),
   `markdownParser`, `htmlParser`, `codeParser` (all `CODE_TYPES`), `imageParser`,
-  `pdfRenderParser`→`pdfParser`, `excelPdfParser`→`excelParser`, `docxPdfParser`→`docxParser`,
-  `zipParser`.
+  `pdfRenderParser`→`pdfParser`, `excelPdfParser`→`excelParser`, `delimitedParser` (csv/tsv),
+  `docxPdfParser`→`docxParser`, `jsonParser`/`yamlParser`→`textParser`, `folderParser`, `zipParser`.
 - **Slicers**: `textSlicer` (`*`), `markdownSlicer` (markdown/html), `codeSlicer` (code types).
-- **Resolvers** (tried in order): `zipResolver`, `fileResolver`, `urlResolver`.
+- **Resolvers** (tried in order): `zipResolver`, `folderResolver`, `fileResolver`, `urlResolver`.
 
 All are exported individually too, so you can compose a custom registry.
 

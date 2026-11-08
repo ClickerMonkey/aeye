@@ -64,22 +64,31 @@ registry.registerParser(csvSummaryParser);
 
 ## Built-in parsers
 
+Parsers for formats with a **converter** (html, docx, csv/tsv, workbooks, pdf, json, yaml, folders) are
+*version parsers* (`createVersionParser`): they convert the source to its LLM-ready version through the
+registry's converter stack and cut their parts from it, keeping it on `resource.version`. See
+[aeye-resources-converters.md](./aeye-resources-converters.md).
+
 - **textParser** — `text, json, csv, tsv, yaml, xml, svg, toml, ini`. Decodes UTF-8 into one text
   part. Extracts bare URLs; for **markup types** (`markupTypes`, default `xml`/`svg`) also extracts
-  `href`/`src` links.
+  `href`/`src` links. The fallback for json and yaml that are already pretty.
 - **markdownParser** — `markdown`. Extracts markdown links + URLs. Default slicer `markdown`.
-- **htmlParser** — `html`. Converts HTML → markdown (`htmlToMarkdown`), extracts `href`/`src` + URLs.
-  Honors `options.renderUrl(url, signal)` to fetch rendered HTML (e.g. via headless browser) when the
-  source is an http(s) URL.
+- **htmlParser** — `html`. One part from the clean markdown version (main content, absolute links);
+  links come from the raw html (every `href`/`src`, navigation included) so crawls see them. Rendering
+  script-built pages happens when fetching (see `renderer` in the converters doc).
+- **jsonParser / yamlParser** — json and yaml through their pretty forms; they decline (falling back to
+  textParser) when the file is already pretty, does not parse, or (yaml) has comments.
+- **folderParser** — `folder` (from the folder resolver). A markdown listing; every entry is a link.
 - **codeParser** — all `CODE_TYPES` (ts, js, py, go, rust, …). Extracts import/require + URLs.
   Default slicer `code`.
 - **imageParser** — `image`. Stores image bytes as an image part; optionally adds text parts from
   `options.transcribeImage` and `options.describeImage`.
 - **pdfRenderParser / pdfParser** — see PDF section.
-- **excelPdfParser / excelParser** — Excel/CSV/TSV. Base parser uses `xlsx`, detects multiple table
-  regions per sheet, renders markdown tables, and stores structured tables in
-  `resource.metadata.structuredTables`.
-- **docxPdfParser / docxParser** — DOCX. Base parser uses `mammoth` → markdown.
+- **excelPdfParser / excelParser / delimitedParser** — workbooks through `xlsx`; csv/tsv read in-house
+  (no dependency). Blank rows split a sheet into tables; the table version is on `resource.version`
+  (`tables`, typed with `columnKinds` / `tableRecords`), one part per sheet (`#sheet/<i>`).
+- **pdfParser** — page text through `pdf-parse`, one part per page (`#page/<n>`, `pageNumber` set).
+- **docxPdfParser / docxParser** — DOCX. Base parser: `mammoth` → html → clean markdown.
 - **zipParser** — `zip`. Lists entries and parses each entry **through the registry** so its links
   become part of the graph (see graph doc); entries that can't be parsed in-memory fall back to a raw
   representation. Children carry `modifiedAt` from the zip entry date.
@@ -172,7 +181,7 @@ Exposed default tables: `DEFAULT_EXTENSION_TYPES`, `DEFAULT_MIME_TYPE_PATTERNS`,
 | `pdf` | `PdfParseOptions` (see above) |
 | `renderPdfPages`, `convertToPdf` | PDF render / doc→pdf conversion functions |
 | `transcribeImage`, `describeImage` | vision callbacks for images & PDF pages |
-| `renderUrl` | render an http(s) URL to HTML for the html parser |
+| `html` | `HtmlToMarkdownOptions`: `baseUrl` (defaults to the resource's URL), `content` (`main`/`body`), `links`, `images`, `dropTags` |
 | `markupTypes` | which types get `href`/`src` extraction (default xml/svg) |
 
 All of these can be set per type via `configureType` or passed per call.

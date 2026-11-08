@@ -29,7 +29,7 @@ function linkedPath(link: string, context: ResolverContext): string | undefined 
  * the files that exist (`./store` → `store.ts`, `./store.js` → `store.ts`, `./lib` → `lib/index.ts`), and names
  * nothing when no candidate exists.
  */
-async function resolveFilePath(link: string, context: ResolverContext): Promise<string | undefined> {
+export async function resolveFilePath(link: string, context: ResolverContext): Promise<string | undefined> {
   const linked = linkedPath(link, context);
   if (linked === undefined || !isRelativeSpecifier(link) || !isScriptImport(context)) {
     return linked;

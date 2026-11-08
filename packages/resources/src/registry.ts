@@ -2,12 +2,14 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
+  ConverterContext,
   LoadedResource,
   LoadResourceOptions,
   ParsedResource,
   ParseOptions,
   RegisterParserOptions,
   ResolveOptions,
+  ResourceConverter,
   ResourceParser,
   ResourceRegistryLike,
   ResourceResolver,
@@ -28,7 +30,6 @@ import {
   collectInput,
   createResourceId,
   dedupeLinks,
-  isAbortError,
   isReplayableInput,
   inferTypeFromExtension,
   inferTypeFromLocation,
@@ -37,11 +38,14 @@ import {
   mergeOptions
 } from "./utils";
 import { applySummaries } from "./summaries";
+import { TypeStack, runStack } from "./stack";
+import { type VersionSection, type VersionSectioner, DEFAULT_VERSION_SECTIONERS } from "./sections";
+import type { ResourceVersion } from "./versions";
 
-interface ParserEntry {
-  id: string;
-  priority: number;
-  order: number;
+/** Options for placing a converter in a type's stack. */
+export interface RegisterConverterOptions {
+  /** Overrides the converter's own `priority`. Higher is tried first. */
+  priority?: number;
 }
 
 /** Declarative definition of how a resource type is detected, registered on the registry. */
@@ -54,30 +58,57 @@ export interface ResourceTypeDefinition {
 }
 
 export class ResourceRegistry implements ResourceRegistryLike {
-  private readonly parsers = new Map<string, ResourceParser>();
+  private readonly parsers = new TypeStack<ResourceParser>();
+  private readonly converters = new TypeStack<ResourceConverter>();
+  private readonly sectioners: VersionSectioner[] = [...DEFAULT_VERSION_SECTIONERS];
   private readonly slicers = new Map<string, ResourceSlicer>();
   private readonly resolvers: ResourceResolver[] = [];
-  private readonly parserTypes = new Map<ResourceType, ParserEntry[]>();
   private readonly slicerTypes = new Map<ResourceType, string>();
   private readonly typeConfigs = new Map<ResourceType, Partial<LoadResourceOptions>>();
   private readonly extensionTypes = new Map<string, ResourceType>(Object.entries(DEFAULT_EXTENSION_TYPES));
   private readonly mimeTypePatterns: Array<[RegExp, ResourceType]> = [...DEFAULT_MIME_TYPE_PATTERNS];
-  private parserOrder = 0;
 
   registerParser(parser: ResourceParser, options: RegisterParserOptions = {}): this {
-    this.parsers.set(parser.id, parser);
-    const priority = options.priority ?? parser.priority ?? 0;
-
-    for (const type of parser.supportedTypes) {
-      const entries = (this.parserTypes.get(type) ?? []).filter((entry) => entry.id !== parser.id);
-      entries.push({ id: parser.id, priority, order: this.parserOrder++ });
-      // Higher priority first; ties broken by most-recent registration so later parsers override earlier ones.
-      entries.sort((a, b) => b.priority - a.priority || b.order - a.order);
-      this.parserTypes.set(type, entries);
+    for (const type of this.parsers.register(parser, options.priority)) {
       this.recomputeDefaultSlicer(type);
     }
-
     return this;
+  }
+
+  /**
+   * Adds a converter to the stacks of the types it supports (see {@link ResourceConverter}). A converter with the id
+   * of one already registered replaces it.
+   */
+  registerConverter(converter: ResourceConverter, options: RegisterConverterOptions = {}): this {
+    this.converters.register(converter, options.priority);
+    return this;
+  }
+
+  /** The converters registered for a type, first tried first. */
+  getConverters(type: ResourceType): ResourceConverter[] {
+    return this.converters.get(type);
+  }
+
+  hasConverter(type: ResourceType): boolean {
+    return this.converters.has(type);
+  }
+
+  /**
+   * Adds a sectioner for converted versions. Sectioners are asked newest first, so a later one overrides the defaults
+   * for the versions it supports.
+   */
+  registerSectioner(sectioner: VersionSectioner): this {
+    this.sectioners.unshift(sectioner);
+    return this;
+  }
+
+  /**
+   * Cuts a converted version into sections keyed by structure (heading paths, sheet and table names, page numbers,
+   * top-level keys), with offsets into its text (`versionText`), using the newest sectioner that supports it.
+   */
+  sectionVersion(version: ResourceVersion): VersionSection[] {
+    const sectioner = this.sectioners.find((candidate) => candidate.supports(version));
+    return sectioner ? sectioner.sections(version) : [];
   }
 
   /**
@@ -98,8 +129,7 @@ export class ResourceRegistry implements ResourceRegistryLike {
 
   /** Returns the parsers registered for a type, ordered from highest to lowest priority. */
   getParsers(type: ResourceType): ResourceParser[] {
-    const entries = this.parserTypes.get(type) ?? [];
-    return entries.map((entry) => this.parsers.get(entry.id)).filter((parser): parser is ResourceParser => Boolean(parser));
+    return this.parsers.get(type);
   }
 
   private recomputeDefaultSlicer(type: ResourceType): void {
@@ -288,39 +318,52 @@ export class ResourceRegistry implements ResourceRegistryLike {
 
     const mergedOptions = mergeOptions(this.typeConfigs.get(type), options);
     const context = { registry: this, options: mergedOptions };
-    const errors: unknown[] = [];
+    const replayable = await replayableSource(source, parsers.length);
+    const outcome = await runStack(parsers, (parser) => parser.parse(replayable, context), mergedOptions.signal, `parsers for resource type: ${type}`);
+    switch (outcome.status) {
+      case "done":
+        outcome.result.links = dedupeLinks(outcome.result.links);
+        return outcome.result;
+      case "failed":
+        throw outcome.error;
+      case "declined":
+        throw new Error(`No parser could parse resource type: ${type} (all parsers declined)`);
+    }
+  }
 
-    // A parser that reads a one-shot stream and then declines or throws would leave nothing for the
-    // next parser, so buffer such input once when there is a fallback.
-    if (parsers.length > 1 && !isReplayableInput(source.input)) {
-      source = { ...source, input: await collectInput(source.input) };
+  /**
+   * Runs the converter stack for an already-resolved source (see {@link ResourceConverter}). Undefined when no
+   * converter is registered for its type or every one declines: the raw text is then the LLM-ready form. Throws when
+   * converters threw and none succeeded.
+   */
+  async convertSource(source: ResourceSource, options: ParseOptions = {}): Promise<ResourceVersion | undefined> {
+    const type = source.type;
+    if (type === undefined) {
+      throw new Error(`Resource type is not known for ${source.location}; resolve or parse it first`);
     }
+    const converters = this.converters.get(type);
+    if (converters.length === 0) return undefined;
+    const context: ConverterContext = { registry: this, options: mergeOptions(this.typeConfigs.get(type), options) };
+    const replayable = await replayableSource(source, converters.length);
+    const outcome = await runStack(converters, (converter) => converter.convert(replayable, context), context.options.signal, `converters for resource type: ${type}`);
+    switch (outcome.status) {
+      case "done":
+        return outcome.result;
+      case "failed":
+        throw outcome.error;
+      case "declined":
+        return undefined;
+    }
+  }
 
-    for (const parser of parsers) {
-      assertNotAborted(mergedOptions.signal);
-      try {
-        const resource = await parser.parse(source, context);
-        if (resource) {
-          resource.links = dedupeLinks(resource.links);
-          return resource;
-        }
-        // Parser declined; fall through to the next one in the stack.
-      } catch (error) {
-        // Never swallow aborts — propagate immediately rather than falling back.
-        if (mergedOptions.signal?.aborted || isAbortError(error)) {
-          throw error;
-        }
-        errors.push(error);
-      }
-    }
-
-    if (errors.length === 1) {
-      throw errors[0];
-    }
-    if (errors.length > 1) {
-      throw new AggregateError(errors, `All ${errors.length} parsers failed for resource type: ${type}`);
-    }
-    throw new Error(`No parser could parse resource type: ${type} (all parsers declined)`);
+  /**
+   * Resolves (when given a link) and converts a resource; see {@link convertSource}. The returned source's input is
+   * buffered, so it can still be stored or parsed.
+   */
+  async convert(input: string | ResourceSource, options: LoadResourceOptions = {}): Promise<{ source: ResourceSource; version: ResourceVersion | undefined }> {
+    const resolved = typeof input === "string" ? await this.resolveLink(input, options) : await this.normalizeSource(input, options);
+    const source = await replayableSource(resolved, 2);
+    return { source, version: await this.convertSource(source, options) };
   }
 
   async slice(resource: ParsedResource, options: SliceOptions = {}): Promise<ResourceSlice[]> {
@@ -374,6 +417,14 @@ export class ResourceRegistry implements ResourceRegistryLike {
       }
     };
   }
+}
+
+/**
+ * The source with its input buffered when several handlers may read it and it can only be read once, so a handler
+ * that reads it and then declines leaves it for the next.
+ */
+async function replayableSource(source: ResourceSource, readers: number): Promise<ResourceSource> {
+  return readers > 1 && !isReplayableInput(source.input) ? { ...source, input: await collectInput(source.input) } : source;
 }
 
 export async function createFileResourceSource(filePath: string, type?: ResourceType): Promise<ResourceSource> {

@@ -31,6 +31,13 @@ interface ResourceResolver {
   non-zip `baseLocation`. Sets `modifiedAt`/`size` from `fs.stat`. When the base is a script
   (`javascript`, `typescript`, `jsx`, `tsx`), links are imports: see
   [Script imports](#script-imports).
+- **folderResolver** — absolute paths, `file://` URLs and relative links (against a local base) that name an
+  existing **folder**. It resolves to a `folder` resource whose raw form is its listing (json,
+  `folderListingSchema`): entries folders-first, each with location, kind, detected type, size and
+  modified time. `options.folder`: `includeHidden` (default false), `ignore` (default `.git`,
+  `node_modules`), `maxEntries` (default 1000; the rest are counted, `truncated` set). A script's
+  relative import of a folder (`./lib`) is not taken: module resolution gives its index file. Registered
+  ahead of the file resolver.
 - **urlResolver** — http(s) URLs, plus relative/root-relative/protocol-relative links resolved
   against an http(s) `baseLocation` (via `new URL`). Sets `modifiedAt` (`Last-Modified`) and `size`
   (`Content-Length`); `stat` uses a `HEAD` request.
