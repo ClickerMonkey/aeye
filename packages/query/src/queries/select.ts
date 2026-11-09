@@ -1100,19 +1100,6 @@ export class SelectQuery extends Query {
     return this.from.fromSQL(dialect, ctx);
   }
 
-  /** One ORDER BY clause `<key> ASC|DESC [NULLS FIRST|LAST]` from a resolved key + dir/nulls. */
-  private orderClauseSQL(
-    key: SqlText,
-    dir: 'asc' | 'desc',
-    nulls: 'first' | 'last' | undefined,
-  ): SqlText {
-    return SqlText.concat([
-      key,
-      SqlText.raw(` ${dir.toUpperCase()}`),
-      nulls ? SqlText.raw(` NULLS ${nulls.toUpperCase()}`) : SqlText.empty(),
-    ]);
-  }
-
   /**
    * One ORDER BY term: `<expr> ASC|DESC [NULLS FIRST|LAST]`. A RELATION term
    * expands to ONE clause per key column (each inheriting the term's direction
@@ -1122,7 +1109,7 @@ export class SelectQuery extends Query {
   private orderTermSQL(dialect: Dialect, ctx: SqlContext, o: QueryOrder): SqlText[] {
     const keys = relationKeySqls(o.expr, dialect, ctx);
     const sqls = keys ?? [o.expr.toSQL(dialect, ctx)];
-    return sqls.map((s) => this.orderClauseSQL(s, o.dir, o.nulls));
+    return sqls.map((s) => dialect.orderTerm(s, o.dir, o.nulls));
   }
 
   /**
@@ -1185,13 +1172,13 @@ export class SelectQuery extends Query {
     const def = this.effectiveDefaultOrder(engine, isRoot);
     if (def) {
       orderSqls = resolveDefaultOrderSql(def, this.from.alias, outCtx).map((t) =>
-        this.orderClauseSQL(t.sql, t.dir, t.nulls),
+        dialect.orderTerm(t.sql, t.dir, t.nulls),
       );
     }
 
     // 5. FROM + LIMIT/OFFSET.
     const fromSql = this.fromSQL(dialect, selCtx);
-    const lo = dialect.limitOffset(boundSQL(this.limit, selCtx), boundSQL(this.offset, selCtx));
+    const lo = dialect.limitOffset(boundSQL(this.limit, selCtx), boundSQL(this.offset, selCtx), orderSqls.length > 0);
 
     // The core scan (FROM + planned JOINs + WHERE + GROUP BY + HAVING), shared by
     // the body and — under DISTINCT — the `$total` counting subquery.

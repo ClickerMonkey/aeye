@@ -12,8 +12,9 @@
 import type { FieldType } from '../field-type';
 import { QueryTypeError } from '../problem';
 import type { JsonValue } from '../schema';
-import { SqlText } from './emit';
+import { SqlText, type SqlValue } from './emit';
 import type { DialectEntry } from '../registry';
+import { AnsiDdl, type DdlWriter } from '../ddl/writer';
 
 /** The abstract SQL-dialect contract; concrete dialects override the engine-specific points. */
 /**
@@ -173,12 +174,63 @@ export abstract class Dialect implements DialectEntry {
   /**
    * The LIMIT / OFFSET clause for the (already-emitted) limit / offset
    * fragments. Returns empty when both are absent. ANSI `LIMIT n OFFSET m`.
+   *
+   * `ordered` says whether the statement already has an `ORDER BY`: a dialect
+   * whose paging needs one (SQL Server's `OFFSET … FETCH`) supplies a neutral
+   * order when it has none. Defaults to `true` for callers that predate it.
    */
-  limitOffset(limit: SqlText | undefined, offset: SqlText | undefined): SqlText {
+  limitOffset(limit: SqlText | undefined, offset: SqlText | undefined, _ordered: boolean = true): SqlText {
     const parts: SqlText[] = [];
     if (limit) parts.push(SqlText.concat([SqlText.raw('LIMIT '), limit]));
     if (offset) parts.push(SqlText.concat([SqlText.raw('OFFSET '), offset]));
     return SqlText.join(parts, ' ');
+  }
+
+  /**
+   * One `ORDER BY` term: `<key> ASC|DESC [NULLS FIRST|LAST]`. A dialect with no
+   * `NULLS` clause (SQL Server) overrides to order by a null flag first.
+   */
+  orderTerm(key: SqlText, dir: 'asc' | 'desc', nulls: 'first' | 'last' | undefined): SqlText {
+    return SqlText.concat([
+      key,
+      SqlText.raw(` ${dir.toUpperCase()}`),
+      nulls ? SqlText.raw(` NULLS ${nulls.toUpperCase()}`) : SqlText.empty(),
+    ]);
+  }
+
+  /** A predicate that is always true (`TRUE`; SQL Server has no boolean literal). */
+  trueSql(): SqlText {
+    return SqlText.raw('TRUE');
+  }
+
+  /** A predicate that is always false (`FALSE`; SQL Server has no boolean literal). */
+  falseSql(): SqlText {
+    return SqlText.raw('FALSE');
+  }
+
+  /**
+   * The value a driver is handed for a bound parameter. Identity by default; a
+   * dialect whose driver cannot bind a JS boolean (SQLite) maps it to `1` / `0`.
+   */
+  encodeParam(value: SqlValue): SqlValue {
+    return value;
+  }
+
+  /**
+   * This dialect's DDL writer: native column types, reading an introspected
+   * type back, `CREATE TABLE`, and the ordered `ALTER` steps from one table
+   * shape to another. Made once per dialect instance.
+   */
+  get ddl(): DdlWriter {
+    this.ddlWriter ??= this.makeDdl();
+    return this.ddlWriter;
+  }
+
+  private ddlWriter: DdlWriter | undefined;
+
+  /** Build this dialect's DDL writer (ANSI by default). */
+  protected makeDdl(): DdlWriter {
+    return new AnsiDdl(this);
   }
 
   /**

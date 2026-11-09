@@ -314,7 +314,7 @@ export class SetOperationQuery extends Query {
       const terms = this.order.map((o) => this.orderTermSQL(dialect, ctx, o));
       parts.push(SqlText.raw(' ORDER BY '), SqlText.join(terms, ', '));
     }
-    const lo = dialect.limitOffset(boundSQL(this.limit, ctx), boundSQL(this.offset, ctx));
+    const lo = dialect.limitOffset(boundSQL(this.limit, ctx), boundSQL(this.offset, ctx), this.order.length > 0);
     if (!lo.isEmpty()) parts.push(SqlText.raw(' '), lo);
     return SqlText.concat(parts);
   }
@@ -324,11 +324,7 @@ export class SetOperationQuery extends Query {
     // A set op's ORDER BY can only name output columns, so a field-ref emits its
     // bare (unqualified) field name; any other expr falls back to its own SQL.
     const col = o.expr instanceof FieldRefExpr ? dialect.ident(o.expr.field) : o.expr.toSQL(dialect, ctx);
-    return SqlText.concat([
-      col,
-      SqlText.raw(` ${o.dir.toUpperCase()}`),
-      o.nulls ? SqlText.raw(` NULLS ${o.nulls.toUpperCase()}`) : SqlText.empty(),
-    ]);
+    return dialect.orderTerm(col, o.dir, o.nulls);
   }
 
   /** Serialize back to a `SetOperationDef`, omitting empty / default fields. */

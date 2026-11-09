@@ -71,7 +71,7 @@ export function rlsPredicate(
     switch (acc.kind) {
       case 'deny':
         // No rows for this occurrence, regardless of any provider predicate.
-        return SqlText.raw('FALSE');
+        return ctx.dialect.falseSql();
       case 'predicate':
         parts.push(acc.sql);
         break;

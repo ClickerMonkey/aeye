@@ -442,6 +442,31 @@ usual gate.
   2. **Embed** each returned term (the caller's model/network call) and fill a `text → vector` cache — a `ReadonlyMap<string, readonly number[]>` (a resolver function `(text) => readonly number[] | undefined` is accepted too; both are the `SemanticEmbeddings` type).
   3. **Build** — `engine.toSQL(query, dialect, { embeddings })` looks each term up, formats it with `toVectorText`, and binds `$n::vector` (all sync). A needed term MISSING from the cache **throws** (fail loud) rather than mis-binding; with NO cache a plain-text term likewise throws. A **pre-embedded `'[…]'` vector-text term / param is bound as-is** (never looked up), and a `vectorField` backing (query vector already a `$n::vector` param) is unchanged. The SAME `embeddings` cache is accepted by `engine.run(query, { embeddings })` for in-memory scoring (no embedder required). Helpers: `toVectorText(number[]) → '[…]'`, `parseVectorText('[…]') → number[]`, `isVectorText(string)`. (Replaces the former `convertSemanticText` seam + `toSQLAsync` — with vectors precomputed, nothing in `toSQL` is async.)
 
+### Dialects
+
+Four ship registered: `base` (ANSI), `postgres`, `sqlite`, `sqlserver`. A dialect owns quoting, placeholders, paging (`limitOffset(limit, offset, ordered)`), `ORDER BY` terms (`orderTerm`), the boolean constants (`trueSql` / `falseSql`), how a param reaches the driver (`encodeParam`), JSON, arrays, lateral joins and builtin spellings.
+
+| | sqlite | sqlserver |
+|---|---|---|
+| identifiers / params | `"x"`, `?` | `[x]`, `@p1, @p2, …` (the `mssql` driver's `request.input('p1', …)`) |
+| paging | `LIMIT n OFFSET m` (`LIMIT -1` for an offset alone) | `OFFSET m ROWS FETCH NEXT n ROWS ONLY`, with `ORDER BY (SELECT NULL)` when unordered |
+| `ilike` | `LOWER(a) LIKE LOWER(b)` | the same |
+| booleans | bound as `1` / `0` | `bit`; `TRUE`/`FALSE` predicates become `(1 = 1)` / `(1 = 0)`; `NULLS FIRST/LAST` emulated with a null flag |
+| JSON / arrays | `json_object`, `json_array_length`, `json_each` | `JSON_OBJECT('k': v)`, `OPENJSON` |
+| dates | `CAST(strftime(…) AS INTEGER)` | `DATEPART` / `DATEADD` / `DATETRUNC` |
+| lateral | refused (`lateral.unsupported-dialect`) | `OUTER APPLY` / `CROSS APPLY` |
+
+Not covered on SQL Server: a predicate projected as a column (T-SQL has no boolean values) and `RETURNING` (T-SQL spells it `OUTPUT`).
+
+### DDL (`dialect.ddl`)
+
+`TableSpec` (zod: columns with a portable `ColumnType`, nullability, defaults, `generated`, a closed set of `values`; the primary key, foreign keys, unique sets; optional constraint names as a database reports them) is the one shape for a table read from a database and a table wanted. Each dialect's `DdlWriter` gives:
+
+- `columnType(type)` / `readColumnType(native)` / `readDefault(sql)` — native spellings both ways (a schema reader turns `information_schema` / `PRAGMA` rows into a `TableSpec` with these), and `canonicalType(type)` (what the database reports back, so comparisons never plan a change for a spelling).
+- `createTable(table)`, `dropTable(table)`, `alterTable(current, wanted)` — `DdlStep`s (`action`, `table`, `target`, `sql[]`, `irreversible`, `summary`), ordered so no constraint trips: drop changed constraints, drop columns, add columns, alter columns, add constraints. Drops and narrowing type changes are `irreversible`. SQLite does plain adds/drops in place and rebuilds the table (create, copy, drop, rename) for anything else. A rename is not planned (`DdlError`).
+
+Bridges: `tableToGinType(table)` (the row's gin `obj`: `nullable<…>`, `enum` for `values`, defaults as `new`, docs for keys, references and database-assigned values; a foreign key stays its scalar), `ginTypeToTable(name, def, { current, primaryKey, foreignKeys, resolveTable })` (keeps every physical detail of `current` the type does not change, so an enriched type plans no change; a prop typed as another table's type becomes a foreign key), and `tableToQueryType(table, { typeName, tables })` (the query `TypeDef`: single-column foreign keys onto a key become `relation` fields, the key is the identity).
+
 ## The LLM tool
 
 The parse+validate pipeline is exposed **standalone**, so you can validate a query without building a `Tool` just to call `.parse` on it. All three entries share ONE implementation:

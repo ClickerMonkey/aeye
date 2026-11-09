@@ -188,7 +188,7 @@ export class LogicalExpr extends BoolExpr {
   /** Emit as a parenthesized SqlText fragment (`NOT (...)`, or operands joined by `AND` / `OR`). */
   toSQL(dialect: Dialect, ctx: SqlContext): SqlText {
     if (this.op === 'not') {
-      const inner = this.operands[0]?.toSQL(dialect, ctx) ?? SqlText.raw('TRUE');
+      const inner = this.operands[0]?.toSQL(dialect, ctx) ?? dialect.trueSql();
       return SqlText.concat([SqlText.raw('NOT '), inner.parens()]);
     }
     const sep = this.op === 'and' ? ' AND ' : ' OR ';

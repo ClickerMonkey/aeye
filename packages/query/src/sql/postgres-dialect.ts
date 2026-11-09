@@ -9,6 +9,8 @@
 import { BaseDialect } from './base-dialect';
 import { jsonObjectArgs, type ValueSite } from './dialect';
 import { SqlText } from './emit';
+import type { DdlWriter } from '../ddl/writer';
+import { PostgresDdl } from '../ddl/dialects';
 import type { FieldType } from '../field-type';
 import type { JsonValue } from '../schema';
 import {
@@ -21,6 +23,11 @@ import {
 export class PostgresDialect extends BaseDialect {
   /** This dialect's name (`'postgres'`). */
   override readonly name: string = 'postgres';
+
+  /** Postgres DDL: native types, identity columns, `ALTER COLUMN … TYPE … USING`. */
+  protected override makeDdl(): DdlWriter {
+    return new PostgresDdl(this);
+  }
 
   /** Postgres numbered placeholders are 1-based. */
   override bindPlaceholder(index: number): string {

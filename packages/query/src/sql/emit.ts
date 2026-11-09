@@ -126,7 +126,7 @@ export class SqlText {
         sql += seg.text;
       } else {
         sql += dialect.bindPlaceholder(params.length);
-        params.push(seg.value);
+        params.push(dialect.encodeParam(seg.value));
       }
     }
     return { sql, params };

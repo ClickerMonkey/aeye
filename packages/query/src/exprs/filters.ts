@@ -169,7 +169,7 @@ export class FiltersExpr extends BoolExpr {
     const expr = ctx.filtersFor(this.source);
     // No supplied expr ⇒ a vacuously-true predicate (so a WHERE over only filters
     // is well-formed SQL).
-    if (!expr) return SqlText.raw('TRUE');
+    if (!expr) return dialect.trueSql();
     return expr.toSQL(dialect, ctx);
   }
 

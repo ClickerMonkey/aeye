@@ -409,12 +409,17 @@ export {
   type ValueSite,
   BaseDialect,
   PostgresDialect,
+  SqliteDialect,
+  SqlServerDialect,
   JoinCtePlanner,
   type JoinRequest,
   type RlsProvider,
   rlsPredicate,
   builtinDialects,
 } from './sql/index';
+
+// DDL: table shapes, per-dialect DDL writers, tables as gin types
+export * from './ddl/index';
 
 // Utilities
 export { inferType, type InferOptions } from './util/infer-type';

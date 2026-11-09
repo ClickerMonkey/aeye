@@ -129,7 +129,7 @@ export function defaultConditionPredicatesSql(
   for (const { alias, cond } of active) {
     const acc = resolveDefaultConditionSql(cond, alias, ctx);
     if (acc.kind === 'predicate') preds.push(acc.sql);
-    else if (acc.kind === 'deny') preds.push(SqlText.raw('FALSE'));
+    else if (acc.kind === 'deny') preds.push(ctx.dialect.falseSql());
     // 'allow' / 'noop' ⇒ nothing to AND in.
   }
   return preds;
