@@ -199,6 +199,11 @@ export interface AWSBedrockHooks {
  * };
  * ```
  *
+ * @example With a Bedrock API key
+ * ```typescript
+ * const config: AWSBedrockConfig = { region: 'us-east-1', apiKey: process.env.AWS_BEARER_TOKEN_BEDROCK! };
+ * ```
+ *
  * @example With explicit credentials
  * ```typescript
  * const config: AWSBedrockConfig = {
@@ -219,6 +224,12 @@ export interface AWSBedrockConfig {
     secretAccessKey?: string;
     sessionToken?: string;
   };
+  // Optional Bedrock API key, sent as `Authorization: Bearer <key>` (the SDK's
+  // httpBearerAuth scheme) instead of signing with access keys. Wins over
+  // `credentials` when both are given.
+  apiKey?: string;
+  // Optional HTTP handler for both Bedrock clients (a proxy, or a fake in tests)
+  requestHandler?: BedrockClientConfig['requestHandler'];
   // Optional prefix for cross-region inference (e.g., 'us.', 'eu.', 'global.').
   // Without one, models Bedrock serves only through inference profiles use
   // the profile for the region's geography, or the global one.
@@ -303,6 +314,14 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
     const clientConfig: BedrockClientConfig = {
       region: config.region || process.env.AWS_REGION || 'us-east-1',
     };
+    if (config.requestHandler) {
+      clientConfig.requestHandler = config.requestHandler;
+    }
+    if (config.apiKey) {
+      clientConfig.token = { token: config.apiKey };
+      clientConfig.authSchemePreference = ['httpBearerAuth'];
+      return clientConfig;
+    }
     if (config.credentials && config.credentials.accessKeyId && config.credentials.secretAccessKey) {
       clientConfig.credentials = {
         accessKeyId: config.credentials.accessKeyId,

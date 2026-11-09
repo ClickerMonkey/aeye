@@ -90,12 +90,23 @@ const aws = new AWSBedrockProvider({
 });
 ```
 
+### Bedrock API key
+
+A Bedrock API key (short- or long-term) replaces the key pair: set `apiKey` and the clients send it as
+`Authorization: Bearer <key>` (the SDK's `httpBearerAuth` scheme) instead of signing. It wins over `credentials`.
+
+```typescript
+const aws = new AWSBedrockProvider({ region: 'us-east-1', apiKey: process.env.AWS_BEARER_TOKEN_BEDROCK! });
+```
+
 ## Configuration (`AWSBedrockConfig`)
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `region` | `string` | AWS region; defaults to `AWS_REGION` then `us-east-1` |
 | `credentials` | `{ accessKeyId?, secretAccessKey?, sessionToken? }` | Only used when access key + secret are both set |
+| `apiKey` | `string` | Bedrock API key, sent as a bearer token; wins over `credentials` |
+| `requestHandler` | `BedrockClientConfig['requestHandler']` | HTTP handler for both clients (a proxy, or a fake in tests) |
 | `modelPrefix` | `string` | Inference profile prefix prepended to every model id (`'us.'`, `'eu.'`, `'apac.'`, `'global.'`); without one, profile-only models use the region's profile automatically |
 | `latency` | `'standard' | 'optimized'` | Converse `performanceConfig.latency`, for models that offer latency-optimized inference |
 | `guardrail` | `GuardrailStreamConfiguration` | Guardrail on every chat request (`guardrailIdentifier`, `guardrailVersion`, `trace`; `streamProcessingMode` applies to streams) |
