@@ -32,3 +32,22 @@ export {
 export { PostgresDdl, SqliteDdl, SqlServerDdl } from './dialects';
 export { UUID_PATTERN, tableToGinType, ginTypeToTable, ginToColumnType, scalarType, type GinTableOptions } from './gin';
 export { tableToQueryType, scalarFieldType, type QueryTypeOptions } from './query-type';
+export {
+  tableFns,
+  tableFnQuery,
+  tableSchemaHash,
+  canCompare,
+  ratio,
+  derivedFieldType,
+  TableFnSchema,
+  TableFnError,
+  type TableFn,
+  type TableFnKind,
+  type TableFnList,
+  type TableFnMode,
+  type TableFnOp,
+  type TableFnOptions,
+  type DerivedField,
+  type DerivedMeaning,
+  type DerivedMeasure,
+} from './table-fns';

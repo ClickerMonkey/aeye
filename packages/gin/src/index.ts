@@ -63,3 +63,14 @@ export * from './types';
 
 // Native implementations
 export { registerBuiltinNatives } from './natives';
+export {
+  typeSurface,
+  disclose,
+  missingArgs,
+  argProblems,
+  exprProblems,
+  TYPE_SURFACE_CHARS,
+  type TypeSurface,
+  type Disclosure,
+  type ExprCheck,
+} from './authoring';

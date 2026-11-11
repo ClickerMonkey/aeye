@@ -429,3 +429,14 @@ export * from './transforms/index';
 
 // LLM tooling (Phase 6) — schemas, describe, type-selection, query tool
 export * from './llm/index';
+
+// The query-as-fn signature: args type, call-args check and one-line signature.
+export {
+  fieldTypeToGin,
+  queryArgsType,
+  queryArgProblems,
+  withArgDefaults,
+  signatureText,
+  type QueryArgsOptions,
+  type QueryPaging,
+} from './signature';

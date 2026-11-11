@@ -139,6 +139,10 @@ export class SqliteDialect extends BaseDialect {
     if (name === 'dateDiff' && args.length === 3) {
       return SqlText.concat([SqlText.raw('('), strftimeInt(args[0]!, args[2]!), SqlText.raw(' - '), strftimeInt(args[0]!, args[1]!), SqlText.raw(')')]);
     }
+    if (name === 'dateTrunc' && args.length === 2) {
+      const truncated = dateTrunc(args[0]!, args[1]!);
+      if (truncated) return truncated;
+    }
     if (name === 'boolAnd' && args.length === 1) return SqlText.concat([SqlText.raw('(MIN(CASE WHEN '), args[0]!, SqlText.raw(' THEN 1 ELSE 0 END) = 1)')]);
     if (name === 'boolOr' && args.length === 1) return SqlText.concat([SqlText.raw('(MAX(CASE WHEN '), args[0]!, SqlText.raw(' THEN 1 ELSE 0 END) = 1)')]);
     if (name === 'arrayAgg' && args.length === 1) return SqlText.concat([SqlText.raw('json_group_array('), args[0]!, SqlText.raw(')')]);
@@ -150,6 +154,33 @@ export class SqliteDialect extends BaseDialect {
 
   protected override makeDdl(): DdlWriter {
     return new SqliteDdl(this);
+  }
+}
+
+/**
+ * `dateTrunc(field, d)` through SQLite's date modifiers: the start of the year,
+ * month, ISO week (Monday) or day, or the hour or minute as a timestamp text.
+ * `field` arrives as its `strftime` format (`rawArgLiteral`); undefined for a
+ * field it can't truncate to (the base dialect's degrade then applies).
+ */
+function dateTrunc(field: SqlText, date: SqlText): SqlText | undefined {
+  const token = field.segments.length === 1 && field.segments[0]!.kind === 'raw' ? field.segments[0]!.text : '';
+  const wrap = (open: string, close: string): SqlText => SqlText.concat([SqlText.raw(open), date, SqlText.raw(close)]);
+  switch (token) {
+    case "'%Y'":
+      return wrap('date(', ", 'start of year')");
+    case "'%m'":
+      return wrap('date(', ", 'start of month')");
+    case "'%W'":
+      return wrap('date(', ", '-6 days', 'weekday 1')");
+    case "'%d'":
+      return wrap('date(', ')');
+    case "'%H'":
+      return wrap("strftime('%Y-%m-%d %H:00:00', ", ')');
+    case "'%M'":
+      return wrap("strftime('%Y-%m-%d %H:%M:00', ", ')');
+    default:
+      return undefined;
   }
 }
 
