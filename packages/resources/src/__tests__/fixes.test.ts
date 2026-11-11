@@ -281,6 +281,44 @@ describe("graph safety defaults", () => {
   });
 });
 
+describe("graph node fetch facts and bytes", () => {
+  it("records the final URL, status and rendering, and keeps the raw bytes or a ref to them", async () => {
+    await withServer((req, res) => {
+      if (req.url === "/start") {
+        res.statusCode = 302;
+        res.setHeader("location", "/page.html");
+        res.end();
+        return;
+      }
+      res.setHeader("content-type", "text/html");
+      res.end(req.url === "/page.html" ? "<a href=\"/leaf.html\">leaf</a>" : "<p>leaf</p>");
+    }, async (port) => {
+      const start = `http://127.0.0.1:${port}/start`;
+      const page = `http://127.0.0.1:${port}/page.html`;
+      const kept = await buildResourceGraph(registry, start, { keepBytes: true });
+      const root = kept.nodes.get(page)!;
+      expect(root.fetch).toEqual({ requestedUrl: start, url: page, status: 200, rendered: false });
+      expect(Buffer.from(root.bytes!).toString("utf8")).toBe("<a href=\"/leaf.html\">leaf</a>");
+      expect(kept.nodes.get(`http://127.0.0.1:${port}/leaf.html`)?.fetch?.requestedUrl).toBe(`http://127.0.0.1:${port}/leaf.html`);
+
+      const stored: string[] = [];
+      const refs = await buildResourceGraph(registry, page, {
+        keepBytes: async ({ location, bytes }) => {
+          stored.push(location);
+          return `ref:${bytes.byteLength}`;
+        },
+      });
+      expect(refs.nodes.get(page)?.contentRef).toBe("ref:29");
+      expect(refs.nodes.get(page)?.bytes).toBeUndefined();
+      expect(stored.sort()).toEqual([page, `http://127.0.0.1:${port}/leaf.html`].sort());
+
+      const plain = await buildResourceGraph(registry, page);
+      expect(plain.nodes.get(page)?.bytes).toBeUndefined();
+      expect(plain.nodes.get(page)?.fetch?.status).toBe(200);
+    });
+  });
+});
+
 describe("graph concurrency", () => {
   function memRegistry(delayMs: number) {
     const stats = { active: 0, maxActive: 0, parses: new Map<string, number>() };

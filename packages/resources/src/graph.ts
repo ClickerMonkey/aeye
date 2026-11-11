@@ -8,7 +8,7 @@ import type {
   ResourceSource,
 } from "./types.js";
 import { createLimiter } from "./summaries.js";
-import { assertNotAborted, isHttpUrl, resolveAgainstUrl } from "./utils.js";
+import { assertNotAborted, collectInput, isHttpUrl, resolveAgainstUrl } from "./utils.js";
 
 /** Default cap on graph size, so a crawl can't run away. Pass `Infinity` to lift it. */
 export const DEFAULT_GRAPH_MAX_RESOURCES = 1000;
@@ -42,6 +42,30 @@ export interface ResourceGraphEdge {
   error?: string;
 }
 
+/** What fetching a web node found out (http(s) nodes only). */
+export interface GraphNodeFetch {
+  /** The URL that was asked for. */
+  requestedUrl: string;
+  /** The URL the content came from, after redirects and a renderer's navigation (the node's `location`). */
+  url: string;
+  /** The response's status. */
+  status: number;
+  /** Whether a page renderer ran the page's scripts before it was parsed. */
+  rendered: boolean;
+  /** The renderer that ran the page, when one did. */
+  renderedBy?: string;
+  /** Why rendering failed, when it was tried and failed (the fetched html was parsed instead). */
+  renderError?: string;
+}
+
+/** What a stored node's bytes are, passed to {@link BuildGraphOptions.keepBytes} when it is a function. */
+export interface GraphNodeBytes {
+  location: ResourceLocation;
+  type: string;
+  mimeType?: string;
+  bytes: Uint8Array;
+}
+
 export interface ResourceGraphNode {
   id: string;
   location: ResourceLocation;
@@ -51,6 +75,12 @@ export interface ResourceGraphNode {
   /** Estimated last-modified time of the underlying source, in epoch milliseconds, if known. */
   modifiedAt?: number;
   resource: ParsedResource;
+  /** What the fetch found out, for nodes fetched over http(s) (not for reused or child nodes). */
+  fetch?: GraphNodeFetch;
+  /** The raw bytes the resource was parsed from, with `keepBytes: true` (not for reused or child nodes). */
+  bytes?: Uint8Array;
+  /** The ref `keepBytes` returned when it stored the raw bytes itself (not for reused or child nodes). */
+  contentRef?: string;
   /** Slices for this resource, if `includeSlices` was enabled. */
   slices?: ResourceSlice[];
   /** True when the resource was reused from the caller's cache rather than freshly parsed. */
@@ -105,6 +135,12 @@ export interface BuildGraphOptions extends LoadResourceOptions {
    * with `followExternal`. Defaults to true.
    */
   sameOrigin?: boolean;
+  /**
+   * Keep each loaded node's raw bytes (what was fetched or read, before parsing). `true` puts them on
+   * {@link ResourceGraphNode.bytes}; a function stores them and the ref it returns goes on
+   * {@link ResourceGraphNode.contentRef}, so a big crawl does not hold every page in memory. Defaults to false.
+   */
+  keepBytes?: boolean | ((bytes: GraphNodeBytes) => Promise<string>);
   /** Also slice each loaded resource and attach the slices to its node. Defaults to false. */
   includeSlices?: boolean;
   /** Per-link filter; return false to skip following a link. */
@@ -166,7 +202,18 @@ export async function buildResourceGraph(
     }
   };
 
-  const registerNode = async (resource: ParsedResource, depth: number, reused: boolean): Promise<ResourceGraphNode> => {
+  /** Resolves and parses one input, keeping its bytes first when `keepBytes` asks for them. */
+  const loadInput = async (input: string | ResourceSource, loadOptions: LoadResourceOptions): Promise<Loaded> => {
+    if (!options.keepBytes) {
+      return registry.parse(input, loadOptions);
+    }
+    const resolved = typeof input === "string" ? await registry.resolveLink(input, loadOptions) : input;
+    const bytes = await collectInput(resolved.input);
+    const { source, resource } = await registry.parse({ ...resolved, input: bytes }, loadOptions);
+    return { source, resource, bytes };
+  };
+
+  const registerNode = async (resource: ParsedResource, depth: number, reused: boolean, loaded?: Loaded): Promise<ResourceGraphNode> => {
     const existing = nodes.get(resource.location);
     if (existing) {
       existing.depth = Math.min(existing.depth, depth);
@@ -184,9 +231,18 @@ export async function buildResourceGraph(
       children: [],
       parents: [],
     };
+    const fetched = loaded ? fetchOf(loaded.source) : undefined;
+    if (fetched) node.fetch = fetched;
     // Claim the location before any await so concurrent loads see it.
     nodes.set(node.location, node);
     discovered.push(node);
+    if (loaded?.bytes) {
+      if (typeof options.keepBytes === "function") {
+        node.contentRef = await options.keepBytes({ location: node.location, type: node.type, ...(resource.mimeType !== undefined ? { mimeType: resource.mimeType } : {}), bytes: loaded.bytes });
+      } else {
+        node.bytes = loaded.bytes;
+      }
+    }
     if (options.includeSlices) {
       node.slices = await registry.slice(resource, options);
     }
@@ -198,8 +254,8 @@ export async function buildResourceGraph(
   const rootInputs = Array.isArray(inputs) ? inputs : [inputs];
   const rootNodes = await Promise.all(rootInputs.map((input) => limit(async () => {
     assertNotAborted(options.signal);
-    const { resource } = await registry.parse(input, options);
-    return registerNode(resource, 0, false);
+    const loaded = await loadInput(input, options);
+    return registerNode(loaded.resource, 0, false, loaded);
   })));
   for (const node of rootNodes) {
     if (!roots.includes(node.location)) {
@@ -328,10 +384,10 @@ export async function buildResourceGraph(
     // Without a probed location the load can't be shared; key it uniquely so it still counts as pending.
     const key = probedLocation ?? `\0link:${from.location}:${link.id}`;
     const load = (async () => {
-      const { resource } = await registry.parse(link.value, linkOptions);
+      const loaded = await loadInput(link.value, linkOptions);
       // registerNode claims the location synchronously, so the node takes over from the reservation.
       pending.delete(key);
-      return registerNode(resource, targetDepth, false);
+      return registerNode(loaded.resource, targetDepth, false, loaded);
     })();
     pending.set(key, load);
 
@@ -350,4 +406,28 @@ export async function buildResourceGraph(
       pending.delete(key);
     }
   }
+}
+
+/** One parsed input, with its raw bytes when they were kept. */
+interface Loaded {
+  source: ResourceSource;
+  resource: ParsedResource;
+  bytes?: Uint8Array;
+}
+
+/** The fetch facts the url resolver records in a web source's metadata, when the source came from http(s). */
+function fetchOf(source: ResourceSource): GraphNodeFetch | undefined {
+  const status = source.metadata?.status;
+  if (!isHttpUrl(source.location) || typeof status !== "number") return undefined;
+  const requested = source.metadata?.requestedUrl;
+  const renderedBy = source.metadata?.renderedBy;
+  const renderError = source.metadata?.renderError;
+  return {
+    requestedUrl: typeof requested === "string" ? requested : source.location,
+    url: source.location,
+    status,
+    rendered: typeof renderedBy === "string",
+    ...(typeof renderedBy === "string" ? { renderedBy } : {}),
+    ...(typeof renderError === "string" ? { renderError } : {}),
+  };
 }

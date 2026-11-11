@@ -136,6 +136,9 @@ interface ResourceGraph { roots: string[]; nodes: Map<string, ResourceGraphNode>
 interface ResourceGraphNode {
   id; location; type; depth;
   modifiedAt?; resource: ParsedResource;
+  fetch?: GraphNodeFetch;     // web nodes: { requestedUrl, url (final, = location), status, rendered, renderedBy?, renderError? }
+  bytes?: Uint8Array;         // the raw bytes parsed, with keepBytes: true
+  contentRef?: string;        // the ref keepBytes(fn) returned after storing them
   slices?: ResourceSlice[];   // present if includeSlices
   reused: boolean;            // true if served from cache (incremental)
   edges: ResourceGraphEdge[]; // outgoing links
@@ -164,6 +167,7 @@ interface ResourceGraphEdge {
 | `followExternal` | `false` | follow external links: http links from local files, or links to another site |
 | `followResourceLinks` | `true` | follow internal/relative links (includes same-site links on web pages) |
 | `sameOrigin` | `true` | with `followExternal`, a link found on a web page is only followed to the same origin (else `cross-origin`); local files can still link out to any site |
+| `keepBytes` | `false` | keep each loaded node's raw bytes: `true` → `node.bytes`; `async ({location, type, mimeType?, bytes}) => ref` stores them and puts the ref on `node.contentRef` (reused and child nodes carry none) |
 | `includeSlices` | `false` | also slice each resource → `node.slices` |
 | `shouldFollow(link, from)` | — | per-link filter |
 | `shouldLoad(target)` | — | incremental: return false to skip parsing (target = `{location, modifiedAt, link, depth}`) |
