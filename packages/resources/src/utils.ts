@@ -556,10 +556,19 @@ export function extractLinksFromMarkdown(text: string, location: string): Resour
   return links;
 }
 
+/**
+ * Every `href` and `src` in html, as written. Each link's `metadata` says which tag it came from (`tag`: `a`, `img`,
+ * `link`, `script`, `base`, …) and its `rel` words when it has any (`nofollow`, `stylesheet`), so a crawler can follow
+ * only anchors, skip `nofollow`, and resolve against the page's `<base href>`.
+ */
 export function extractLinksFromHtml(text: string, location: string): ResourceLink[] {
   const links: ResourceLink[] = [];
   let index = 0;
-  forEachHtmlTag(text, ({ attributes }) => {
+  forEachHtmlTag(text, ({ name, closing, attributes }) => {
+    if (closing) {
+      return;
+    }
+    const rel = attributes.rel?.trim().toLowerCase().split(/\s+/).filter((word) => word !== "");
     for (const attribute of ["href", "src"]) {
       const value = attributes[attribute];
       if (!value) {
@@ -570,7 +579,8 @@ export function extractLinksFromHtml(text: string, location: string): ResourceLi
         id: createLinkId(location, value, index++),
         value,
         location,
-        kind: isExternalLink(value) ? "external" : "resource"
+        kind: isExternalLink(value) ? "external" : "resource",
+        metadata: { tag: name, ...(rel !== undefined && rel.length > 0 ? { rel } : {}) }
       });
     }
   });

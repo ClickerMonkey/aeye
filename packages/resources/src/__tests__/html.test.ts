@@ -2,6 +2,7 @@ import { describe, expect, it } from "@jest/globals";
 import { decodeHtmlEntities } from "../html/entities.js";
 import { type HtmlElement, findElement, parseHtml, parseHtmlAttributes, textContent } from "../html/dom.js";
 import { htmlToCleanMarkdown, htmlVisibleTextLength } from "../html/markdown.js";
+import { extractLinksFromHtml } from "../utils.js";
 
 /** The markdown of html, with defaults. */
 const md = (html: string, options?: Parameters<typeof htmlToCleanMarkdown>[1]) => htmlToCleanMarkdown(html, options).markdown;
@@ -130,5 +131,18 @@ describe("html to markdown", () => {
 
   it("counts visible text, ignoring scripts and styles", () => {
     expect(htmlVisibleTextLength("<body><script>var a = 'long long long';</script><style>p{}</style><p>Hi  there</p></body>")).toBe("Hi there".length);
+  });
+});
+
+describe("extractLinksFromHtml", () => {
+  it("says which tag each link came from and its rel words", () => {
+    const html = '<base href="/docs/"><a href="guide.html" rel="NoFollow external">Guide</a><img src="logo.png"><link rel="stylesheet" href="a.css"></a>';
+    const links = extractLinksFromHtml(html, "https://example.com/start");
+    expect(links.map((link) => [link.value, link.metadata])).toEqual([
+      ["/docs/", { tag: "base" }],
+      ["guide.html", { tag: "a", rel: ["nofollow", "external"] }],
+      ["logo.png", { tag: "img" }],
+      ["a.css", { tag: "link", rel: ["stylesheet"] }],
+    ]);
   });
 });

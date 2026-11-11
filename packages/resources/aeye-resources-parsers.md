@@ -74,7 +74,9 @@ registry's converter stack and cut their parts from it, keeping it on `resource.
   `href`/`src` links. The fallback for json and yaml that are already pretty.
 - **markdownParser** — `markdown`. Extracts markdown links + URLs. Default slicer `markdown`.
 - **htmlParser** — `html`. One part from the clean markdown version (main content, absolute links);
-  links come from the raw html (every `href`/`src`, navigation included) so crawls see them. Rendering
+  links come from the raw html (every `href`/`src`, navigation included) so crawls see them; each link's
+  `metadata` names its `tag` (`a`, `img`, `link`, `base`, …) and its `rel` words, so a crawl can follow anchors only,
+  skip `nofollow` and resolve against `<base href>` (`extractLinksFromHtml`). Rendering
   script-built pages happens when fetching (see `renderer` in the converters doc).
 - **jsonParser / yamlParser** — json and yaml through their pretty forms; they decline (falling back to
   textParser) when the file is already pretty, does not parse, or (yaml) has comments.
