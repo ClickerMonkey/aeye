@@ -102,6 +102,14 @@ export function typeClosure(
   return { order, defs, missing };
 }
 
+/**
+ * Classes whose `options` hold VALUES, never types: `enum.values` maps member
+ * names to constants and `literal.value` is one constant. A constant may be
+ * shaped like a def (an enum with a member called `name`, a literal object
+ * with a `name` field), so these are skipped rather than probed.
+ */
+const CONSTANT_OPTIONS: ReadonlySet<string> = new Set(['enum', 'literal']);
+
 /** Names bound as type parameters / call aliases where the walk currently is. */
 type Locals = ReadonlySet<string>;
 const EMPTY: Locals = new Set();
@@ -134,7 +142,7 @@ class RefWalker {
     const inner = declares && def.generic ? withNames(locals, Object.keys(def.generic)) : locals;
     for (const arg of Object.values(def.generic ?? {})) this.type(arg, inner);
 
-    this.options(def.options, inner);
+    if (!cls || !CONSTANT_OPTIONS.has(cls.NAME)) this.options(def.options, inner);
     for (const prop of Object.values(def.props ?? {})) this.prop(prop, inner);
     if (def.get) this.getSet(def.get, inner);
     if (def.call) this.call(def.call, inner);
@@ -160,10 +168,9 @@ class RefWalker {
 
   /**
    * `options` carry child TypeDefs for some classes (`tuple.elements`,
-   * `or` / `and` `types`, `not.excluded`) and plain constants for others
-   * (`enum.values`, `literal.value`). A child def is anything shaped like
-   * one, which a constant of those classes never is: enum values and
-   * literal values are scalars.
+   * `or` / `and` `types`, `not.excluded`). A child def is anything shaped
+   * like one. Classes whose options are constants ({@link CONSTANT_OPTIONS})
+   * never reach here.
    */
   private options(options: unknown, locals: Locals): void {
     if (!isRecord(options)) return;

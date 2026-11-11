@@ -11,6 +11,12 @@ const r = createRegistry();
 const refs = (def: TypeDef) => typeReferences(def, r).refs;
 
 describe('typeReferences — direct', () => {
+  test('enum members and literal values are constants, never references', () => {
+    const order: TypeDef = { name: 'enum', options: { values: { name: 'name', score: 'score' } } };
+    const literal: TypeDef = { name: 'literal', generic: { T: { name: 'Customer' } }, options: { value: { name: 'Order' } } };
+    expect(refs({ name: 'obj', props: { order: { type: order }, pick: { type: literal } } })).toEqual(['Customer']);
+  });
+
   test('built-in classes are not references', () => {
     expect(refs({ name: 'obj', props: { a: { type: { name: 'text' } }, b: { type: { name: 'list', generic: { V: { name: 'num' } } } } } })).toEqual([]);
   });
