@@ -12,6 +12,7 @@ import type { Code } from './code';
 import { ExitSignal } from './flow-control';
 import { typeOf as typeOfAnalysis, validate as validateAnalysis, type Locals } from './analysis';
 import { Problems } from './problem';
+import { RunControl, type RunOptions } from './run-control';
 
 /**
  * Global — a named value available in every root scope. Types are registered
@@ -62,8 +63,8 @@ export class Engine {
   }
 
   /** Build a root scope populated with registered globals plus any extras. */
-  createRootScope(extras?: Record<string, Value>): Scope {
-    const s = new ScopeClass(null);
+  createRootScope(extras?: Record<string, Value>, control?: RunControl): Scope {
+    const s = new ScopeClass(null, undefined, control);
     for (const [name, g] of this.globals) {
       s.vars.set(name, val(g.type, g.value));
     }
@@ -71,9 +72,16 @@ export class Engine {
     return s;
   }
 
-  /** Top-level entry: build a root scope and evaluate `expr`. */
-  async run(expr: ExprDef | Expr, extras?: Record<string, Value>): Promise<Value> {
-    const scope = this.createRootScope(extras);
+  /**
+   * Top-level entry: build a root scope and evaluate `expr`. With
+   * `options`, every loop round and fn call is a checkpoint: an aborted
+   * `signal` stops the run there, and a long run yields to the event loop
+   * every `slice` ms (see `RunOptions`).
+   */
+  async run(expr: ExprDef | Expr, extras?: Record<string, Value>, options?: RunOptions): Promise<Value> {
+    const control = options ? new RunControl(options) : undefined;
+    control?.check();
+    const scope = this.createRootScope(extras, control);
     try {
       return await this.evaluate(expr, scope);
     } catch (sig) {

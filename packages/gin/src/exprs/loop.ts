@@ -132,6 +132,7 @@ export class LoopExpr extends Expr {
         let current: Value = over;
         let iteration = 0;
         while (current.raw) {
+          await scope.checkpoint();
           const iter = scope.child({
             [keyName]: val(indexType, iteration),
             [valueName]: current,
@@ -163,6 +164,7 @@ export class LoopExpr extends Expr {
 
       const trySpawn = async (): Promise<boolean> => {
         if (broken) return false;
+        await scope.checkpoint();
         const current = await this.over.evaluate(engine, scope);
         if (!current.raw) return false;
         if (rateMs && rateMs > 0) {
@@ -516,6 +518,7 @@ async function runLoop(
   const wrappedYield = async (argsValue: Value): Promise<Value> => {
     const fields = argsValue.raw as Record<string, Value> | null | undefined;
     if (!fields) throw new Error('yield: missing args');
+    await loopScope.checkpoint();
     return yieldFn(fields['key']!, fields['value']!);
   };
   const yieldValue = new Value(yieldType, wrappedYield);

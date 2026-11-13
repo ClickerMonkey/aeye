@@ -1,4 +1,5 @@
 import type { Value } from './value';
+import type { RunControl } from './run-control';
 
 /**
  * Names gin's runtime injects into child scopes for specific
@@ -29,10 +30,22 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
 export class Scope {
   readonly parent: Scope | null;
   readonly vars: Map<string, Value>;
+  /** The run this scope belongs to (inherited from the parent), when the run can be stopped. */
+  readonly control: RunControl | undefined;
 
-  constructor(parent: Scope | null = null, vars?: Record<string, Value>) {
+  constructor(parent: Scope | null = null, vars?: Record<string, Value>, control?: RunControl) {
     this.parent = parent;
     this.vars = new Map(vars ? Object.entries(vars) : []);
+    this.control = control ?? parent?.control;
+  }
+
+  /**
+   * A loop round or fn call is about to start: throws when the run was
+   * stopped, and yields to the event loop when it has held the thread for a
+   * slice. A no-op outside a controlled run.
+   */
+  async checkpoint(): Promise<void> {
+    if (this.control) await this.control.checkpoint();
   }
 
   get(name: string): Value | undefined {

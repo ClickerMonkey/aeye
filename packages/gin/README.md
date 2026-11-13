@@ -744,6 +744,11 @@ What this exercises:
   that references those native ids dispatches through them.
 - `engine.run(program)` evaluates the JSON tree, validating types as
   it walks.
+- `engine.run(program, extras, { signal, slice })` makes the run
+  stoppable: every loop round and fn call is a checkpoint that throws
+  once `signal` aborts (its reason, else `RunStoppedError`), and a long
+  run yields to the event loop every `slice` ms (default 10) so timers,
+  I/O and an abort can land. Without options a run is never interrupted.
 
 Augmentations and extensions live on the registry. Pass that registry
 to the engine — and to any prompt schema generator (`buildSchemas(r)`)

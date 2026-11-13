@@ -75,6 +75,7 @@ export class LambdaExpr extends Expr {
     const constraint = this.constraint;
 
     const callable = async (args: Value): Promise<Value> => {
+      await lexical.checkpoint();
       const recurseValue = new Value(fnType, callable);
       const child = lexical.child({ args, recurse: recurseValue });
       if (constraint) {

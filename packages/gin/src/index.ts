@@ -33,6 +33,7 @@ export {
 } from './code';
 export * from './value';
 export * from './scope';
+export * from './run-control';
 export { LocalScope, type TypeScope } from './type-scope';
 export * from './type';
 export * from './extension';
