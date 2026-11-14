@@ -200,7 +200,13 @@ export function buildSchemas(registry: Registry, overrides: BuildSchemasOverride
     registry,
     newStrict: overrides.newStrict,
   };
+  // Each lazy keeps what it built until the registry gains types or expr classes: zod's JSON schema walk meets a
+  // recursive schema by identity, so a getter that built fresh schemas on every call recursed until the stack ran out.
+  let typeKept: { readonly count: number; readonly schema: z.ZodTypeAny } | undefined;
+  let exprKept: { readonly count: number; readonly schema: z.ZodTypeAny } | undefined;
   opts.Type = z.lazy(() => {
+    const count = registry.namedTypeList().length + registry.typeClasses().length + opts.types.length;
+    if (typeKept?.count === count) return typeKept.schema;
     // Named-instance branches come first so the LLM sees registered user
     // types (e.g. `Task`) as first-class choices. Dedup by name — explicit
     // `opts.types` wins over the registry's registered list.
@@ -219,15 +225,21 @@ export function buildSchemas(registry: Registry, overrides: BuildSchemasOverride
     const classBranches = registry.typeClasses().map((c) => c.toSchema(opts));
     // Extension branch — for the LLM to declare a NEW named type inline.
     const all = [...instanceBranches, ...classBranches, extensionSchema(registry, opts)];
-    return all.length > 1
+    const schema = all.length > 1
       ? (z.union(all as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
       : (all[0] ?? z.never());
+    typeKept = { count, schema };
+    return schema;
   }).meta({ aid: 'Type' });
   opts.Expr = z.lazy(() => {
+    const count = registry.exprClassList().length + registry.namedTypeList().length + registry.typeClasses().length + opts.exprs.length;
+    if (exprKept?.count === count) return exprKept.schema;
     const schemas = registry.exprClassList().map((c) => c.toSchema(opts));
-    return schemas.length > 1
+    const schema = schemas.length > 1
       ? (z.union(schemas as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
       : (schemas[0] ?? z.never());
+    exprKept = { count, schema };
+    return schema;
   }).meta({ aid: 'Expr' });
   return opts;
 }

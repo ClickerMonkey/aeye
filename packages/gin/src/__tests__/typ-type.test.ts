@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import { z } from 'zod';
 import { createRegistry } from '../registry';
 import { buildSchemas } from '../schemas';
 import { TypType } from '../types/typ';
@@ -194,5 +195,56 @@ describe('TypType + generics', () => {
     const local = new LocalScope(r, { R: r.num() });
     expect(t.parse({ name: 'list', generic: { V: { name: 'num' } } }, local).raw.name).toBe('list');
     expect(() => t.parse({ name: 'list', generic: { V: { name: 'text' } } }, local)).toThrow();
+  });
+});
+
+/**
+ * typ<T> as a tool parameter: its value schema is gin's strict TypeDef schema, so the JSON schema a model is sent
+ * says the TypeDef shape (not an empty schema), and a TypeDef that fits the shape but not the constraint is refused.
+ */
+describe('TypType value schema as a tool parameter', () => {
+  const row = {
+    name: 'obj',
+    props: {
+      id: { type: { name: 'num', options: { whole: true } } },
+      title: { type: { name: 'text' } },
+      due: { type: { name: 'optional', generic: { T: { name: 'date' } } } },
+    },
+  };
+
+  test('typ<obj> accepts an obj TypeDef with props and refuses the shapes models guess', () => {
+    const r = createRegistry();
+    const schema = r.typ(r.obj({})).toValueSchema({ includeDocs: 'all', unknownKeys: 'refuse' });
+    expect(schema.safeParse(row).success).toBe(true);
+    expect(schema.safeParse(null).success).toBe(false);
+    expect(schema.safeParse(JSON.stringify(row)).success).toBe(false);
+    expect(schema.safeParse([{ key: 'id', value: 'integer' }]).success).toBe(false);
+    expect(schema.safeParse({ id: 'integer', title: 'text' }).success).toBe(false);
+    expect(schema.safeParse({ name: 'num' }).success).toBe(false);
+    expect(schema.safeParse({ name: 'obj', props: { id: { type: { name: 'nope' } } } }).success).toBe(false);
+  });
+
+  test('typ<obj> converts to a JSON schema that names the obj shape, without recursing forever', () => {
+    const r = createRegistry();
+    const json = z.toJSONSchema(r.typ(r.obj({})).toValueSchema({ includeDocs: 'all' }), { unrepresentable: 'any', io: 'input' });
+    const text = JSON.stringify(json);
+    expect(text).toContain('"const":"obj"');
+    expect(text).toContain('props');
+    expect(json).not.toEqual({ $schema: 'https://json-schema.org/draft/2020-12/schema' });
+  });
+
+  test('typ<any> is the whole TypeDef schema', () => {
+    const r = createRegistry();
+    const schema = r.typ(r.any()).toValueSchema();
+    expect(schema.safeParse({ name: 'list', generic: { V: { name: 'num' } } }).success).toBe(true);
+    expect(schema.safeParse(row).success).toBe(true);
+    expect(schema.safeParse({ title: 'text' }).success).toBe(false);
+    const text = JSON.stringify(z.toJSONSchema(schema, { unrepresentable: 'any', io: 'input' }));
+    expect(text).toContain('"const":"num"');
+  });
+
+  test('buildSchemas Type converts to a JSON schema (its lazies keep what they built)', () => {
+    const r = createRegistry();
+    expect(() => z.toJSONSchema(buildSchemas(r).Type, { unrepresentable: 'any', io: 'input' })).not.toThrow();
   });
 });

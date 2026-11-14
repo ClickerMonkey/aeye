@@ -5,7 +5,21 @@ import type { TypeDef } from '../schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
-import { extensionSchemaNarrowed } from '../schemas';
+import { buildSchemas, extensionSchemaNarrowed } from '../schemas';
+
+/** The schema bag a typ builds its value schema from, per registry, when the caller passes none. */
+const bags = new WeakMap<Registry, SchemaOptions>();
+
+/** `opts` when it carries the meta-language schemas, else the registry's own (built once). */
+function schemaBag(registry: Registry, opts?: ValueSchemaOptions): SchemaOptions {
+  if (opts?.Type !== undefined && opts.Expr !== undefined && opts.registry !== undefined) return opts as SchemaOptions;
+  let bag = bags.get(registry);
+  if (bag === undefined) {
+    bag = buildSchemas(registry);
+    bags.set(registry, bag);
+  }
+  return bag;
+}
 
 /**
  * TypType<T> — values of this type ARE gin Type instances. The generic T
@@ -144,31 +158,40 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     return this.docsPrefix(options) + `typ<${this.constraint.toCode(undefined, options)}>`;
   }
 
+  /**
+   * The JSON TypeDefs this typ accepts, as gin's strict TypeDef schemas (`buildSchemas`): for `typ<any>` every
+   * TypeDef, otherwise the class schema of each built-in class compatible with the constraint (`obj` with its
+   * props, `num` with its options), a reference to each compatible named type, and an inline Extension of one of
+   * them. So a tool parameter of this type tells the model the TypeDef shape, rather than an empty schema. The
+   * schema bag comes from `opts` when it carries one, else it is built for this registry (and kept). A refinement
+   * then parses the TypeDef, so a definition that fits the shape but not the constraint is refused too.
+   */
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    const narrowed = this.registry.like(this.constraint);
+    const bag = schemaBag(this.registry, opts);
+    const compatible = this.registry.compatible(this.constraint);
     // If no registry type is compatible with the constraint, nothing can
     // pass — emit never so callers can't supply an arbitrary TypeDef.
-    if (narrowed.name === 'null') {
+    if (compatible.length === 0 && this.constraint.name !== 'any') {
       return this.describeType(z.never(), opts);
     }
-
-    const baseSchema = narrowed.toInstanceSchema();
-
-    const compatibleNames = this.registry
-      .compatible(this.constraint)
-      .map((t) => t.name);
-    // `extensionSchemaNarrowed` needs the full meta-language schema bag
-    // (`Type` + `Expr`). When toValueSchema is called with only the
-    // narrow ValueSchemaOptions, gracefully drop the inline-extension
-    // branch — the base instance schema is still correct.
-    const inlineExt = opts?.Type && opts?.Expr && compatibleNames.length > 0
-      ? extensionSchemaNarrowed(this.registry, opts as SchemaOptions, compatibleNames)
-      : null;
-
-    const schema = inlineExt
-      ? z.union([baseSchema as z.ZodTypeAny, inlineExt])
-      : baseSchema;
-
+    let shape: z.ZodTypeAny;
+    if (this.constraint.name === 'any') {
+      shape = bag.Type;
+    } else {
+      const branches = compatible.map((t) => {
+        const cls = this.registry.typeClass(t.name);
+        return cls !== undefined ? cls.toSchema(bag) : z.object({ name: z.literal(t.name) }).passthrough().meta({ aid: t.name });
+      });
+      branches.push(extensionSchemaNarrowed(this.registry, bag, compatible.map((t) => t.name)));
+      shape = branches.length > 1 ? z.union(branches as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]) : branches[0]!;
+    }
+    const schema = shape.superRefine((value, ctx) => {
+      try {
+        this.parse(value);
+      } catch (e) {
+        ctx.addIssue({ code: 'custom', message: e instanceof Error ? e.message : String(e) });
+      }
+    });
     return this.describeType(schema, opts);
   }
 
