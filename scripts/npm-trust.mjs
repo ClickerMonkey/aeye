@@ -11,7 +11,7 @@
  * a code prompt. Packages that already trust this repo's release.yml are skipped, so it's safe to
  * run again. A package has to exist on npm before it can trust anything: publish it once by hand.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -54,10 +54,23 @@ async function main() {
     mkdirSync(prefix, { recursive: true });
     execFileSync('npm', ['install', '--prefix', prefix, '--no-save', '--no-audit', '--no-fund', 'npm@latest'], { stdio: 'inherit', shell });
   }
+  /** Runs npm; with capture, its output is collected but any npmjs.com approval link is still printed as it comes. */
   const npm = (args, capture = false) =>
-    spawnSync(process.execPath, [import.meta.filename, '--npm-child', npmDir, ...args], {
-      stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
-      encoding: 'utf8',
+    new Promise((done) => {
+      const child = spawn(process.execPath, [import.meta.filename, '--npm-child', npmDir, ...args], {
+        stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+      });
+      let stdout = '';
+      const watch = (chunk) => {
+        const text = chunk.toString();
+        stdout += text;
+        for (const link of text.match(/https:\/\/www\.npmjs\.com\/(?:auth|login)\S+/g) ?? []) {
+          console.log(`Approve: ${link}`);
+        }
+      };
+      child.stdout?.on('data', watch);
+      child.stderr?.on('data', watch);
+      child.on('close', (status) => done({ status, stdout }));
     });
   const quiet = (args) => spawnSync('npm', args, { encoding: 'utf8', shell });
 
@@ -70,21 +83,21 @@ async function main() {
     return;
   }
 
-  if (npm(['whoami'], true).status !== 0) {
+  if ((await npm(['whoami'], true)).status !== 0) {
     console.log('\nLog in: open the link below and approve.');
-    if (npm(['login']).status !== 0) throw new Error('npm login failed');
+    if ((await npm(['login'])).status !== 0) throw new Error('npm login failed');
   }
 
   const failed = [];
   for (const name of todo) {
-    const list = npm(['trust', 'list', name, '--json'], true);
+    const list = await npm(['trust', 'list', name, '--json'], true);
     if (list.status === 0 && list.stdout.includes(repo) && list.stdout.includes(WORKFLOW)) {
       console.log(`= ${name}: already trusts ${repo} ${WORKFLOW}`);
       continue;
     }
     console.log(`\n+ ${name}: trusting ${repo} ${WORKFLOW} (environment ${ENVIRONMENT})`);
     const args = ['trust', 'github', name, '--file', WORKFLOW, '--repo', repo, '--env', ENVIRONMENT, '--allow-publish', '--yes'];
-    if (npm(args).status !== 0) failed.push(name);
+    if ((await npm(args)).status !== 0) failed.push(name);
   }
 
   if (failed.length) {
