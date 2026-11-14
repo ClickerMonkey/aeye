@@ -76,6 +76,11 @@ export function toJSONSchema(
   return result;
 }
 
+/** A def name safe as a `$ref` pointer segment: anything but letters, digits, `_`, `.` and `-` becomes `_`. */
+function defId(name: string): string {
+  return name.replace(/[^A-Za-z0-9_.-]/g, '_');
+}
+
 /**
  * Main recursive conversion function
  */
@@ -154,7 +159,11 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
   // is still computed, because the cycle-breaker's description names it, but
   // the definition is inlined at each use site, which is the only spelling that
   // dialect has for a shared node.
-  const id = (metadata.aid ? String(metadata.aid) : 0) || metadata.id || `__schema${context.refCounter++}`;
+  // A def name is a JSON-pointer segment in `#/$defs/<id>`: a `/` in an aid (a
+  // namespaced type name, `api/HttpHeader`) would point into a nested `$defs`
+  // entry that doesn't exist, so providers see an unresolvable ref. Keep ids to
+  // characters every provider takes in a ref.
+  const id = defId((metadata.aid ? String(metadata.aid) : 0) || metadata.id || `__schema${context.refCounter++}`);
   const save =
     !bypassCache
     && !!(metadata.aid || metadata.id)

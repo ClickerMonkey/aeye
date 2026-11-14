@@ -33,3 +33,14 @@ describe('records rebuilt from JSON schema', () => {
     expect(JSON.stringify(json)).toContain('"a"');
   });
 });
+
+describe('def names', () => {
+  it('a namespaced aid (api/HttpHeader) becomes a ref every provider can resolve', () => {
+    const header = z.object({ key: z.string() }).meta({ aid: 'api/HttpHeader' });
+    const json = toJSONSchema(z.object({ a: header, b: header }), OPENAI_STRICT);
+    const text = JSON.stringify(json);
+    expect(text).not.toContain('#/$defs/api/');
+    expect(text).toContain('#/$defs/api_HttpHeader');
+    expect(Object.keys(json.$defs ?? {})).toContain('api_HttpHeader');
+  });
+});
