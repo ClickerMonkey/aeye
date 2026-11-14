@@ -128,7 +128,10 @@ function strictifySimple(
     // it as an object with no properties and `additionalProperties: false`, so a
     // strict model could only ever send `{}`; encode it as the record it is.
     const tail = schema.def.catchall;
+    // An unknown / any tail is how an empty object (`z.object({})`, a tool with no
+    // args) comes back, so only a tail that says something about its values counts.
     if (Object.keys(schema.shape).length === 0 && tail !== undefined && !(tail instanceof z.ZodNever)
+      && !(tail instanceof z.ZodUnknown) && !(tail instanceof z.ZodAny)
       && descriptor.recordEncoding === 'array-of-pairs') {
       return transferMetadata(transform(z.record(z.string(), tail as z.ZodType)), schema);
     }

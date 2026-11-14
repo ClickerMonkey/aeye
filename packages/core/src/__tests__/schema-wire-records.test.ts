@@ -21,6 +21,12 @@ describe('records rebuilt from JSON schema', () => {
     expect(strict.parse({ props: [{ key: 'a', value: 1 }] })).toEqual({ props: { a: 1 } });
   });
 
+  it('leave an empty object (a tool with no args) an object', () => {
+    const wire = z.toJSONSchema(z.object({}), { io: 'input' });
+    const json = toJSONSchema(strictify(z.fromJSONSchema(wire as never) as z.ZodType, OPENAI_STRICT), OPENAI_STRICT);
+    expect(json.type).toBe('object');
+  });
+
   it('leave objects with fields alone', () => {
     const rebuilt = z.fromJSONSchema({ type: 'object', properties: { a: { type: 'number' } }, required: ['a'] } as never) as z.ZodType;
     const json = toJSONSchema(strictify(rebuilt, OPENAI_STRICT), OPENAI_STRICT);
