@@ -233,6 +233,14 @@ describe('TypType value schema as a tool parameter', () => {
     expect(json).not.toEqual({ $schema: 'https://json-schema.org/draft/2020-12/schema' });
   });
 
+  test('typ<T> takes a named type the scope resolves, and refuses a name nothing resolves', () => {
+    const r = createRegistry();
+    const scope = new LocalScope(r, { 'weather/Forecast': r.obj({ high: r.num() }) });
+    const schema = r.typ(r.obj({})).toValueSchema({ scope });
+    expect(schema.safeParse({ name: 'obj', props: { f: { type: { name: 'weather/Forecast' } } } }).success).toBe(true);
+    expect(schema.safeParse({ name: 'obj', props: { f: { type: { name: 'weather/Nope' } } } }).success).toBe(false);
+  });
+
   test('typ<any> is the whole TypeDef schema', () => {
     const r = createRegistry();
     const schema = r.typ(r.any()).toValueSchema();

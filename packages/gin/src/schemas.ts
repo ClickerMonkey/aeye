@@ -184,6 +184,11 @@ export interface BuildSchemasOverrides {
   types?: Type[];
   exprs?: Expr[];
   newStrict?: boolean;
+  /**
+   * Also accept a named type by its name alone (`{ name: 'ns/Name' }`), for types a scope resolves that the registry
+   * doesn't hold (a host's stored types). The name is checked when the TypeDef is parsed, not by the schema.
+   */
+  namedRefs?: boolean;
 }
 
 /**
@@ -225,6 +230,10 @@ export function buildSchemas(registry: Registry, overrides: BuildSchemasOverride
     const classBranches = registry.typeClasses().map((c) => c.toSchema(opts));
     // Extension branch — for the LLM to declare a NEW named type inline.
     const all = [...instanceBranches, ...classBranches, extensionSchema(registry, opts)];
+    if (overrides.namedRefs === true) {
+      all.push(z.object({ name: z.string().regex(TYPE_NAME, 'must be a type name: an identifier, optionally namespaced as ns/Name') })
+        .strict().describe('A named type, by its name.').meta({ aid: 'Type_ref' }));
+    }
     const schema = all.length > 1
       ? (z.union(all as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]))
       : (all[0] ?? z.never());

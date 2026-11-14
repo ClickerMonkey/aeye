@@ -6,6 +6,7 @@ import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
 import { buildSchemas, extensionSchemaNarrowed } from '../schemas';
+import { TYPE_NAME } from '../type-name';
 
 /** The schema bag a typ builds its value schema from, per registry, when the caller passes none. */
 const bags = new WeakMap<Registry, SchemaOptions>();
@@ -15,7 +16,7 @@ function schemaBag(registry: Registry, opts?: ValueSchemaOptions): SchemaOptions
   if (opts?.Type !== undefined && opts.Expr !== undefined && opts.registry !== undefined) return opts as SchemaOptions;
   let bag = bags.get(registry);
   if (bag === undefined) {
-    bag = buildSchemas(registry);
+    bag = buildSchemas(registry, { namedRefs: true });
     bags.set(registry, bag);
   }
   return bag;
@@ -182,12 +183,17 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
         const cls = this.registry.typeClass(t.name);
         return cls !== undefined ? cls.toSchema(bag) : z.object({ name: z.literal(t.name) }).passthrough().meta({ aid: t.name });
       });
+      // a named type the scope resolves but the registry doesn't hold; the refinement checks it fits
+      branches.push(z.object({ name: z.string().regex(TYPE_NAME) }).strict().describe('A named type, by its name.'));
       branches.push(extensionSchemaNarrowed(this.registry, bag, compatible.map((t) => t.name)));
       shape = branches.length > 1 ? z.union(branches as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]) : branches[0]!;
     }
     const schema = shape.superRefine((value, ctx) => {
       try {
-        this.parse(value);
+        const parsed = this.parse(value, opts?.scope).raw;
+        const lookup = opts?.scope ?? this.registry;
+        const unknown = parsed.references().refs.filter((name) => lookup.lookup(name) === undefined);
+        if (unknown.length > 0) ctx.addIssue({ code: 'custom', message: `no type named ${unknown.join(', ')}` });
       } catch (e) {
         ctx.addIssue({ code: 'custom', message: e instanceof Error ? e.message : String(e) });
       }
