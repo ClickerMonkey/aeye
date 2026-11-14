@@ -951,3 +951,18 @@ describe('describeTool', () => {
     expect(describeTool({ name: 'n', parameters: TEXT_TOOL_SCHEMA })).toBeUndefined();
   });
 });
+
+describe('Tool.parse under OpenAI strict', () => {
+  it('a null for a left-out optional field leaves no key, even nested', async () => {
+    const { OPENAI_STRICT } = await import('../schema/dialects/openai');
+    const tool = new Tool({
+      name: 'sig', description: 'd', instructions: 'i',
+      schema: z.object({ a: z.number(), b: z.string().optional(), inner: z.object({ c: z.number().optional(), d: z.string() }) }),
+      call: () => 'ok',
+    });
+    const parsed = await tool.parse({} as Context<{}, {}>, JSON.stringify({ a: 1, b: null, inner: { c: null, d: 'x' } }), undefined, OPENAI_STRICT) as Record<string, unknown>;
+    expect(parsed).toEqual({ a: 1, inner: { d: 'x' } });
+    expect('b' in parsed).toBe(false);
+    expect('c' in (parsed['inner'] as object)).toBe(false);
+  });
+});

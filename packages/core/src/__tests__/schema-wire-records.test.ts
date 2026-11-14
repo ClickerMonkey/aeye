@@ -55,3 +55,4 @@ describe('named recursive defs rebuilt from JSON schema', () => {
     expect(text).toContain('"inner":{"$ref":"#/$defs/Type"}');
   });
 });
+

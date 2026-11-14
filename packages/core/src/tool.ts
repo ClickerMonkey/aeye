@@ -450,6 +450,14 @@ export class Tool<
       }
     }
 
+    // A dialect that sends optional fields as nullable (OpenAI strict) gets
+    // `null` for a field the model left out; the field's preprocess makes it
+    // `undefined`, but zod keeps the KEY. The source schema means "absent", and
+    // a JSON check downstream refuses an undefined value, so drop such keys.
+    if (fd?.optionalAsNullable) {
+      parsed = withoutUndefinedKeys(parsed) as TParams;
+    }
+
     // With no custom `parse`, `TDecoded === TParams`, so the wire value is
     // the decoded value; `decoded` re-binds it to the `TDecoded` view.
     const decoded: TDecoded = parsed as TParams & TDecoded;
@@ -595,4 +603,26 @@ export class Tool<
     } as TMetadata));
   }
 
+}
+/**
+ * A parsed value with every key whose value is `undefined` removed, through
+ * plain objects and arrays (class instances and other values pass through).
+ * Returns the same value when there is nothing to remove.
+ */
+function withoutUndefinedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const items = value.map(withoutUndefinedKeys);
+    return items.some((item, i) => item !== value[i]) ? items : value;
+  }
+  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return value;
+  const entries = Object.entries(value as Record<string, unknown>);
+  let changed = false;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of entries) {
+    if (item === undefined) { changed = true; continue; }
+    const next = withoutUndefinedKeys(item);
+    if (next !== item) changed = true;
+    out[key] = next;
+  }
+  return changed ? out : value;
 }
