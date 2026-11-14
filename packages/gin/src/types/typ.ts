@@ -108,6 +108,12 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     if (!this.valid(parsed, scope)) {
       throw new Error(`typ.parse: Type '${parsed.name}' is not compatible with ${this.constraint.toCode()}`);
     }
+    // a name nothing resolves parses as an unbound alias, whose values are anything: refuse it here
+    const lookup = scope ?? this.registry;
+    const unknown = parsed.references().refs.filter((name) => lookup.lookup(name) === undefined);
+    if (unknown.length > 0) {
+      throw new Error(`typ.parse: no type named ${unknown.join(', ')}`);
+    }
     return new Value(this, parsed);
   }
 
@@ -191,10 +197,7 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     }
     const schema = shape.superRefine((value, ctx) => {
       try {
-        const parsed = this.parse(value, opts?.scope).raw;
-        const lookup = opts?.scope ?? this.registry;
-        const unknown = parsed.references().refs.filter((name) => lookup.lookup(name) === undefined);
-        if (unknown.length > 0) ctx.addIssue({ code: 'custom', message: `no type named ${unknown.join(', ')}` });
+        this.parse(value, opts?.scope);
       } catch (e) {
         ctx.addIssue({ code: 'custom', message: e instanceof Error ? e.message : String(e) });
       }
