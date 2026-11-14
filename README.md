@@ -867,13 +867,16 @@ aeye/
 
 ### Releasing
 
+Every `@aeye/*` package shares one version, so `@aeye/core@0.7.0` always goes with `@aeye/ai@0.7.0`. Each release bumps them all, changed or not.
+
 ```bash
-npm login
-npm run release              # publish every public package whose version isn't on npm yet
-npm run release -- --dry-run # build and pack without publishing
+npm run version:set -- minor   # or patch / major / 0.7.0: every package, its @aeye/* deps and the lockfile
+npm run build && npm run test:unit
+git commit -am "release: v0.7.0" && git push
+git tag v0.7.0 && git push origin v0.7.0
 ```
 
-Bump the versions of the packages you changed first. `scripts/release.js` finds the public packages whose versions npm doesn't have, clean-builds them and every internal package they build against, and publishes each after its dependencies. Nothing is published unless every build succeeds, and versions already on npm are skipped, so it's safe to run again.
+The tag starts the Release workflow (`.github/workflows/release.yml`), which publishes with npm trusted publishing and provenance; no npm token is stored anywhere. `scripts/release.js` refuses packages on different versions or a tag that doesn't match, clean-builds the packages and every internal package they build against, and publishes each after its dependencies. Nothing is published unless every build succeeds, and versions already on npm are skipped, so a re-run is safe. `npm run release -- --dry-run` does the same locally without publishing.
 
 ## Best Practices
 

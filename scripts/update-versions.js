@@ -7,7 +7,7 @@
  *
  * Usage:
  *   node scripts/update-versions.js [version]
- *   npm run update-versions [version]
+ *   npm run version:set -- [version]
  *
  * Examples:
  *   node scripts/update-versions.js          # Bumps to next patch version (e.g., 0.2.0 -> 0.2.1)
@@ -219,6 +219,13 @@ function main() {
     }
   }
 
+  // Keep package-lock.json's workspace versions in step, so npm ci accepts it
+  log(`\n${colors.bright}Refreshing package-lock.json...${colors.reset}`);
+  require('child_process').execSync('npm install --package-lock-only --ignore-scripts', {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'inherit',
+  });
+
   // Summary
   log(`\n${colors.bright}Summary:${colors.reset}`);
   log(`  ${colors.green}✓${colors.reset} Updated 1 root package`);
@@ -233,9 +240,8 @@ function main() {
   log(`Next steps:`, colors.cyan);
   log(`  1. Review the changes: ${colors.yellow}git diff${colors.reset}`);
   log(`  2. Commit the changes: ${colors.yellow}git add . && git commit -m "chore: bump version to ${targetVersion}"${colors.reset}`);
-  log(`  3. Create a git tag: ${colors.yellow}git tag v${targetVersion}${colors.reset}`);
-  log(`  4. Push changes: ${colors.yellow}git push && git push --tags${colors.reset}`);
-  log(`  5. Publish packages: ${colors.yellow}npm run release${colors.reset}\n`);
+  log(`  3. Push, then tag: ${colors.yellow}git push && git tag v${targetVersion} && git push origin v${targetVersion}${colors.reset}`);
+  log(`     The Release workflow publishes every package from the tag.\n`);
 }
 
 // Run the script

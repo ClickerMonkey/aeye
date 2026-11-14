@@ -10,6 +10,11 @@
  * would shadow a newer module), and nothing is published unless every build
  * succeeds. Versions already on npm are skipped, so it's safe to run again.
  *
+ * Every public package shares one version (set it with `npm run version:set`);
+ * the release refuses to run when they differ. In GitHub Actions (the Release
+ * workflow, started by a v* tag) it publishes with npm trusted publishing and
+ * provenance, and refuses a tag that doesn't match the version.
+ *
  * Usage:
  *   npm run release                  # Publish (run `npm login` first)
  *   npm run release -- --dry-run     # Build and pack without publishing
@@ -21,6 +26,7 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 const dryRun = process.argv.includes('--dry-run');
+const ci = process.env.GITHUB_ACTIONS === 'true';
 
 /** Runs a command with its output shown; whether it succeeded. */
 const run = (command) => spawnSync(command, { cwd: root, shell: true, stdio: 'inherit' }).status === 0;
@@ -48,6 +54,14 @@ for (const dir of fs.readdirSync(path.join(root, 'packages'))) {
   }
 }
 
+// One version for every package
+const versions = [...new Set([...packages.values()].map(({ json }) => json.version))];
+if (versions.length !== 1) {
+  fail(`Packages are on different versions (${versions.join(', ')}): run npm run version:set -- <version> first.`);
+}
+const tag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : '';
+if (tag && tag !== `v${versions[0]}`) fail(`Tag ${tag} doesn't match the package version ${versions[0]}.`);
+
 /** The internal packages a package builds and runs against. */
 const internal = (name) => {
   const { json } = packages.get(name);
@@ -73,7 +87,7 @@ if (!unpublished.length) {
 }
 console.log(`To publish: ${unpublished.map(name => `${name}@${version(name)}`).join(', ')}`);
 
-if (!dryRun && !quiet('npm whoami')) fail('Not logged in to npm: run npm login first.');
+if (!dryRun && !ci && !quiet('npm whoami')) fail('Not logged in to npm: run npm login first.');
 
 // The packages to publish and everything they build against
 const needed = new Set();
@@ -96,7 +110,7 @@ for (const name of order.filter(name => needed.has(name))) {
 
 for (const name of unpublished) {
   console.log(`\n=== publish ${name}@${version(name)}`);
-  if (!run(`npm publish -w ${name} --access public${dryRun ? ' --dry-run' : ''}`)) fail(`Publish failed: ${name}@${version(name)}`);
+  if (!run(`npm publish -w ${name} --access public${ci ? ' --provenance' : ''}${dryRun ? ' --dry-run' : ''}`)) fail(`Publish failed: ${name}@${version(name)}`);
 }
 
 console.log(dryRun ? '\nDry run complete: nothing was published.' : '\nPublished. npm can take a few minutes to show new versions.');

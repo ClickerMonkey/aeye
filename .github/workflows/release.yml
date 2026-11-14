@@ -1,0 +1,52 @@
+# Publishes every public @aeye/* package to npm with trusted publishing (no stored token).
+#
+# All packages share one version. To release:
+#   npm run version:set -- <patch|minor|major|x.y.z>   # every package + internal deps + lockfile
+#   npm run build && npm run test:unit                  # run locally; this workflow only builds
+#   commit, push main, then: git tag v<version> && git push origin v<version>
+#
+# scripts/release.js refuses mixed versions or a tag that doesn't match, clean-builds, and publishes
+# each package after its dependencies, skipping versions already on npm (so a re-run is safe).
+# Each package needs a trusted publisher on npmjs.com: repo ClickerMonkey/aeye, workflow release.yml,
+# environment npm.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and pack, but don't publish
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # trusted publishing and provenance
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # GitHub-hosted on purpose: npm trusted publishing only accepts OIDC tokens from cloud runners
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: npm with trusted publishing (11.5.1+)
+        run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+
+      - name: Build and publish
+        run: node scripts/release.js ${{ inputs.dry_run && '--dry-run' || '' }}

@@ -1,6 +1,6 @@
 {
   "name": "aeye-monorepo",
-  "version": "0.3.10",
+  "version": "0.7.0",
   "private": true,
   "description": "@aeye - AI TypeScript library collection",
   "workspaces": [
@@ -23,13 +23,12 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
-    "test:unit": "npm run test --workspaces --if-present --ignore @aeye/test-integration",
+    "test:unit": "node scripts/test-unit.js",
     "test:integration": "cd packages/test-integration && npm test",
     "coverage:report": "node scripts/merge-coverage.js",
     "clean": "npm run clean --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "update:versions": "node scripts/update-versions.js",
-    "update:versions:patch": "node scripts/update-versions-patch.js",
+    "version:set": "node scripts/update-versions.js",
     "release": "node scripts/release.js",
     "test:types": "tsc -p tsconfig.typetest.json"
   },
