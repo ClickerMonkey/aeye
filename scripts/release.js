@@ -110,7 +110,16 @@ for (const name of order.filter(name => needed.has(name))) {
 
 for (const name of unpublished) {
   console.log(`\n=== publish ${name}@${version(name)}`);
-  if (!run(`npm publish -w ${name} --access public${ci ? ' --provenance' : ''}${dryRun ? ' --dry-run' : ''}`)) fail(`Publish failed: ${name}@${version(name)}`);
+  const result = spawnSync(`npm publish -w ${name} --access public${ci ? ' --provenance' : ''}${dryRun ? ' --dry-run' : ''}`, {
+    cwd: root, shell: true, stdio: ['inherit', 'inherit', 'pipe'], encoding: 'utf8',
+  });
+  process.stderr.write(result.stderr);
+  // A version published moments ago sits staged for a few minutes, invisible to npm view: a re-run hits this
+  if (result.status !== 0 && /previously (staged|published) version/.test(result.stderr)) {
+    console.log(`${name}@${version(name)} is already on npm (maybe still staged): skipped`);
+    continue;
+  }
+  if (result.status !== 0) fail(`Publish failed: ${name}@${version(name)}`);
 }
 
 console.log(dryRun ? '\nDry run complete: nothing was published.' : '\nPublished. npm can take a few minutes to show new versions.');
