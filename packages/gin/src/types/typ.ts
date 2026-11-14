@@ -186,7 +186,8 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
       // a named type the scope resolves but the registry doesn't hold; the refinement checks it fits
       branches.push(z.object({ name: z.string().regex(TYPE_NAME) }).strict().describe('A named type, by its name.'));
       branches.push(extensionSchemaNarrowed(this.registry, bag, compatible.map((t) => t.name)));
-      shape = branches.length > 1 ? z.union(branches as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]]) : branches[0]!;
+      const error = `must be a gin type definition ({ "name": ..., ... }) whose type fits ${this.constraint.toCode()}${this.constraint.name === 'obj' ? ', such as { "name": "obj", "props": { "id": { "type": { "name": "num" } } } }' : ''}`;
+      shape = branches.length > 1 ? z.union(branches as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]], { error }) : branches[0]!;
     }
     const schema = shape.superRefine((value, ctx) => {
       try {
