@@ -127,6 +127,27 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
     }
 
     unwrappedSchema = schema.def.getter();
+
+    // A lazy that only forwards (a recursive `$ref` that zod's `fromJSONSchema`
+    // rebuilt, or any `z.lazy(() => named)`) carries no name of its own: its
+    // TARGET does. Without this, every such back-reference converted the target
+    // again as an anonymous inline node, so a named recursive union (gin's
+    // TypeDef `Type`) was spelled out at each use (60 KB, which a strict
+    // provider then fails to compile) instead of being one `$ref`.
+    // (A back-reference to the ROOT keeps its own spelling, below.)
+    const forwardsToRoot = unwrappedSchema === context.root;
+    const [targetJs, targetId] = forwardsToRoot ? [] : context.definitions.get(unwrappedSchema) || [];
+    if (targetJs && targetId) {
+      return emitCachedRef(unwrappedSchema, targetJs, targetId, context);
+    }
+    const targetAid = !aid && !forwardsToRoot && unwrappedSchema instanceof z.ZodType ? unwrappedSchema.meta()?.aid : undefined;
+    if (targetAid) {
+      for (const [cachedSchema, [js, jsId]] of context.definitions.entries()) {
+        if (cachedSchema instanceof z.ZodType && cachedSchema.meta()?.aid === targetAid && jsId && js) {
+          return emitCachedRef(schema, js, jsId, context);
+        }
+      }
+    }
   } else {
     // Check cache by object identity for non-lazy schemas
     const [js, jsId] = context.definitions.get(schema) || [];
@@ -149,6 +170,11 @@ function convert(schema: z.ZodType | z.core.$ZodType, context: ConversionContext
     if (!metadata.description && schema.description) {
       metadata.description = schema.description;
     }
+  }
+  // A forwarding lazy is named by its target (see the lazy branch above).
+  if (!metadata.aid && schema instanceof z.ZodLazy && unwrappedSchema !== context.root && unwrappedSchema instanceof z.ZodType) {
+    const targetAid = unwrappedSchema.meta()?.aid;
+    if (typeof targetAid === 'string') metadata.aid = targetAid;
   }
 
   // If the schema has an 'aid' or 'id' in meta, promote it to a definition.

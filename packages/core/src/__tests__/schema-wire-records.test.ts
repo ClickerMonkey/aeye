@@ -44,3 +44,14 @@ describe('def names', () => {
     expect(Object.keys(json.$defs ?? {})).toContain('api_HttpHeader');
   });
 });
+
+describe('named recursive defs rebuilt from JSON schema', () => {
+  it('a back-reference to a named union is one $ref, not the union again', () => {
+    const big = { anyOf: [{ type: 'object', properties: { name: { type: 'string', const: 'a' } }, required: ['name'] }, { type: 'object', properties: { name: { type: 'string', const: 'b' }, inner: { $ref: '#/$defs/T' } }, required: ['name', 'inner'] }] };
+    const wire = { type: 'object', properties: { x: { description: 'first', $ref: '#/$defs/T' }, y: { $ref: '#/$defs/T' } }, required: ['x', 'y'], $defs: { T: { aid: 'Type', $ref: '#/$defs/U' }, U: big } };
+    const json = toJSONSchema(strictify(z.fromJSONSchema(wire as never) as z.ZodType, OPENAI_STRICT), OPENAI_STRICT);
+    const text = JSON.stringify(json);
+    expect((text.match(/"anyOf"/g) ?? []).length).toBe(1);
+    expect(text).toContain('"inner":{"$ref":"#/$defs/Type"}');
+  });
+});
