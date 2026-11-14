@@ -122,6 +122,16 @@ function strictifySimple(
 
   // Handle ZodObject
   if (schema instanceof z.ZodObject) {
+    // An object with no fields and an open tail IS a record: it is what zod's
+    // `fromJSONSchema` rebuilds from `{ type: 'object', additionalProperties: X }`
+    // (a schema that crossed a JSON wire). A closing dialect would otherwise emit
+    // it as an object with no properties and `additionalProperties: false`, so a
+    // strict model could only ever send `{}`; encode it as the record it is.
+    const tail = schema.def.catchall;
+    if (Object.keys(schema.shape).length === 0 && tail !== undefined && !(tail instanceof z.ZodNever)
+      && descriptor.recordEncoding === 'array-of-pairs') {
+      return transferMetadata(transform(z.record(z.string(), tail as z.ZodType)), schema);
+    }
     const transformedShape: Record<string, z.ZodType> = {};
     for (const key in schema.shape) {
       transformedShape[key] = transform(schema.shape[key]);
