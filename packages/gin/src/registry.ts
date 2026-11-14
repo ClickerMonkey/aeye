@@ -577,8 +577,11 @@ export class Registry implements TypeBuilder, TypeScope {
       return expectedType.parse(json, scope);
     }
 
-    // 3. A value ENVELOPE — `{type, value}`.
-    if (json && typeof json === 'object' && 'type' in json && 'value' in json) {
+    // 3. A value ENVELOPE — `{type, value}` whose `type` is a TypeDef (an object
+    //    with a string `name`, as `Value.toJSON` writes it). Data that merely has
+    //    `type` and `value` keys — a stored record `{ type: 'todo/Todo', value }` —
+    //    is not one, and goes to the declared type in step 4.
+    if (json && typeof json === 'object' && 'type' in json && 'value' in json && this.typeDefShaped((json as { type: unknown }).type)) {
       // An `ExprDef` and a `JSONValue` are the same JSON shape once the
       // expression names a `type` and a `value` — `{kind:'new', type, value}`
       // is EXACTLY a value envelope with one extra key, and `kind` was simply
@@ -604,6 +607,11 @@ export class Registry implements TypeBuilder, TypeScope {
       throw new TypeError(`registry.parseValue: expected Value or JSONValue, got ${typeof json}`);
     }
     return expectedType.parse(json, scope);
+  }
+
+  /** An object with a string `name`: the shape of a TypeDef, and so of an envelope's `type`. */
+  private typeDefShaped(type: unknown): boolean {
+    return !!type && typeof type === 'object' && !Array.isArray(type) && typeof (type as { name?: unknown }).name === 'string';
   }
 
   /** A node carrying a `kind` that names a registered Expr class. The same

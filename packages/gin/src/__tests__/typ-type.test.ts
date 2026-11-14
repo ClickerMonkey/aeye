@@ -269,3 +269,18 @@ describe('FnType value schema as a tool parameter', () => {
     expect(text).toContain('"const":"new"');
   });
 });
+
+describe('parseValue and data with type and value keys', () => {
+  test('a record { type: "ns/T", value } in a list<obj> is data, not a value envelope', () => {
+    const r = createRegistry();
+    const record = r.obj({ id: r.text(), type: r.text(), value: r.any() });
+    const parsed = r.list(record).parse([{ id: 'rec_1', type: 'todo/Todo', value: { title: 'Milk', done: false } }]);
+    expect(parsed.toLogical()).toEqual([{ id: 'rec_1', type: 'todo/Todo', value: { title: 'Milk', done: false } }]);
+  });
+
+  test('a real envelope still parses as one', () => {
+    const r = createRegistry();
+    const parsed = r.list(r.num()).parse([{ type: { name: 'num' }, value: 5 }]);
+    expect(parsed.toLogical()).toEqual([5]);
+  });
+});
