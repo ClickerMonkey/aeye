@@ -95,15 +95,11 @@ describe('Type.compatible — an `or` on the RIGHT descends for every type', () 
     // union arm exactly as it answers alone:
     expect(positive.compatible(positive)).toBe(true);
     expect(positive.compatible(r.or([positive, positive]))).toBe(true);
-    // …including the case `compatible` still gets WRONG in the other
-    // direction. An Extension on the right is not descended (see
-    // `slotAccepts` in type.ts, which walks the Extension chain itself
-    // precisely because `compatible` does not), so this is `false` on its
-    // own and stays `false` as a union arm. Pinned so the two halves of the
-    // family are not silently conflated: fixing the Extension half is a
-    // separate change, and this line is what will fail when it lands.
-    expect(r.num().compatible(positive)).toBe(false);
-    expect(r.num().compatible(r.or([positive, positive]))).toBe(false);
+    // …and in the other direction: an Extension on the right is judged by
+    // its base (its values are its base's values, narrowed), so `num`
+    // accepts `positive`, alone and as a union arm alike.
+    expect(r.num().compatible(positive)).toBe(true);
+    expect(r.num().compatible(r.or([positive, positive]))).toBe(true);
   });
 
   test('or<> is the bottom type — no values, so everything accepts it', () => {

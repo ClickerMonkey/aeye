@@ -1082,7 +1082,7 @@ export abstract class Type<T = any, O = any> implements Node {
       const variants = orVariants(other);
       result = variants
         ? variants.every((v) => this.compatible(v, opts, scope))
-        : this.compatibleType(other, opts, scope) || this.compatibleWithParts(other, opts, scope);
+        : this.compatibleType(other, opts, scope) || this.compatibleWithParts(other, opts, scope) || this.compatibleWithBase(other, opts, scope);
       if (!result || c.lowWater >= depth) {
         let byOther = c.memo.get(this);
         if (!byOther) c.memo.set(this, byOther = new Map());
@@ -1100,6 +1100,19 @@ export abstract class Type<T = any, O = any> implements Node {
         c.lowWater = Infinity;
       }
     }
+  }
+
+  /**
+   * A named extension's values are values of its base (its constraint only
+   * narrows them, and fields it adds only widen an object, which a structural
+   * obj still accepts), so a type that accepts the base accepts the extension:
+   * `list<obj{key, value}>` takes a `list<api/HttpParam>` whose base is that
+   * obj. Not in `strict` or `exact` mode, which compare like with like.
+   */
+  private compatibleWithBase(other: Type, opts?: CompatOptions, scope?: TypeScope): boolean {
+    if (opts?.strict || opts?.exact) return false;
+    const base = (other as { base?: unknown }).base;
+    return base instanceof Type && base !== other && this.compatible(base, opts, scope);
   }
 
   /**

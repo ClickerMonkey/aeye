@@ -299,3 +299,16 @@ describe('strict new values', () => {
     expect(ok({ method: 'GET', url: '/repos', headers: ['a'] })).toBe(false);
   });
 });
+
+describe('compatibility with named extensions', () => {
+  test('a structural obj accepts a named extension of the same shape, through lists and optionals', () => {
+    const r = createRegistry();
+    const shape = () => r.obj({ key: r.text({ minLength: 1 }), value: r.any(), explode: r.optional(r.bool()) });
+    const named = r.extend(shape(), { name: 'Param' });
+    r.register(named);
+    expect(shape().compatible(named)).toBe(true);
+    expect(r.optional(r.list(shape())).compatible(r.list(named))).toBe(true);
+    expect(r.obj({ key: r.num() }).compatible(named)).toBe(false);
+    expect(shape().compatible(named, { strict: true })).toBe(false);
+  });
+});
