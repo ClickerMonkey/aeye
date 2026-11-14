@@ -284,3 +284,18 @@ describe('parseValue and data with type and value keys', () => {
     expect(parsed.toLogical()).toEqual([5]);
   });
 });
+
+describe('strict new values', () => {
+  test('a plain field of a named obj takes its value as is, or an expression; a composite field takes an expression', () => {
+    const r = createRegistry();
+    const Request = r.extend(r.obj({ method: r.enum(['GET', 'POST']), url: r.text(), tries: r.optional(r.num()), headers: r.list(r.text()) }), { name: 'Req' });
+    r.register(Request);
+    const { Expr } = buildSchemas(r, { newStrict: true });
+    const get = { kind: 'get', path: [{ prop: 'args' }, { prop: 'url' }] };
+    const ok = (value: unknown) => Expr.safeParse({ kind: 'new', type: { name: 'Req' }, value }).success;
+    expect(ok({ method: 'GET', url: '/repos', headers: { kind: 'new', type: { name: 'list', generic: { V: { name: 'text' } } }, value: [] } })).toBe(true);
+    expect(ok({ method: 'GET', url: get, tries: 2, headers: { kind: 'new', type: { name: 'list', generic: { V: { name: 'text' } } }, value: [] } })).toBe(true);
+    expect(ok({ method: 'PATCHY', url: '/repos', headers: { kind: 'new', type: { name: 'list', generic: { V: { name: 'text' } } }, value: [] } })).toBe(false);
+    expect(ok({ method: 'GET', url: '/repos', headers: ['a'] })).toBe(false);
+  });
+});

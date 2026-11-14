@@ -31,7 +31,7 @@ describe('Type.toNewSchema', () => {
     expect(s.safeParse([1, 2]).success).toBe(false);
   });
 
-  test('obj → each field is Expr', () => {
+  test('obj → each field is an Expr, and a plain field also its value as is', () => {
     const t = r.obj({
       x: { type: r.num() },
       y: { type: r.text() },
@@ -41,7 +41,9 @@ describe('Type.toNewSchema', () => {
       x: { kind: 'new', type: { name: 'num' }, value: 5 },
       y: { kind: 'new', type: { name: 'text' }, value: 'hi' },
     }).success).toBe(true);
-    expect(s.safeParse({ x: 5, y: 'hi' }).success).toBe(false);
+    // a plain field (num, text, …) takes its value as is too
+    expect(s.safeParse({ x: 5, y: 'hi' }).success).toBe(true);
+    expect(s.safeParse({ x: 'five', y: 'hi' }).success).toBe(false);
   });
 
   test('map → array of {key: Expr, value: Expr}', () => {
@@ -156,11 +158,16 @@ describe('NewExpr.toSchema strict mode', () => {
       },
     }).success).toBe(false);
 
-    // Bare primitive values where Expr is expected — rejected.
+    // Plain fields take their values as is, checked by the field's own schema.
     expect(newSchema.safeParse({
       kind: 'new',
       type: { name: 'Person' },
       value: { name: 'Alice', age: 30 },
+    }).success).toBe(true);
+    expect(newSchema.safeParse({
+      kind: 'new',
+      type: { name: 'Person' },
+      value: { name: 'Alice', age: -1 },
     }).success).toBe(false);
   });
 });

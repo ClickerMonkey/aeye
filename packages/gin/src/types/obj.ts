@@ -1,4 +1,5 @@
 import type { TypeScope } from '../type-scope';
+import { newSlotSchema } from '../new-slot';
 import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
@@ -323,11 +324,12 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
     const mode = opts.includeDocs ?? 'none';
-    // Each field accepts any Expr — Get, NewExpr, function-call path, etc.
+    // Each field accepts any Expr — Get, NewExpr, function-call path, etc. —
+    // and a plain field (text, num, enum, …) also its value as is.
     // Per-field type correctness is enforced at evaluate/validate time.
     const shape: Record<string, z.ZodTypeAny> = {};
     for (const [name, prop] of Object.entries(this.fields)) {
-      let slot: z.ZodTypeAny = opts.Expr;
+      let slot: z.ZodTypeAny = newSlotSchema(prop.type, opts);
       if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
       shape[name] = prop.type.isOptional() ? slot.optional() : slot;
     }

@@ -1,4 +1,5 @@
 import { defined } from './defined';
+import { newSlotSchema } from './new-slot';
 import type { Registry, TypeAugmentation } from './registry';
 import { LocalScope, type TypeScope } from './type-scope';
 import type { PropDef, TypeDef } from './schema';
@@ -747,9 +748,9 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   }
 
   toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Fields atop an object-shaped base accept any Expr.
+    // Fields atop an object-shaped base accept any Expr, and a plain field its value as is.
     let schema = this.base.toNewSchema(opts);
-    schema = this.mergeLocalPropsInto(schema, opts, () => opts.Expr);
+    schema = this.mergeLocalPropsInto(schema, opts, (p) => newSlotSchema(p.type, opts));
     return this.describeType(schema, opts, 'NewValue_');
   }
 
