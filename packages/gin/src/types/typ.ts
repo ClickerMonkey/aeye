@@ -5,22 +5,9 @@ import type { TypeDef } from '../schema';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
-import { buildSchemas, extensionSchemaNarrowed } from '../schemas';
+import { extensionSchemaNarrowed, schemaBag } from '../schemas';
 import { TYPE_NAME } from '../type-name';
 
-/** The schema bag a typ builds its value schema from, per registry, when the caller passes none. */
-const bags = new WeakMap<Registry, SchemaOptions>();
-
-/** `opts` when it carries the meta-language schemas, else the registry's own (built once). */
-function schemaBag(registry: Registry, opts?: ValueSchemaOptions): SchemaOptions {
-  if (opts?.Type !== undefined && opts.Expr !== undefined && opts.registry !== undefined) return opts as SchemaOptions;
-  let bag = bags.get(registry);
-  if (bag === undefined) {
-    bag = buildSchemas(registry, { namedRefs: true });
-    bags.set(registry, bag);
-  }
-  return bag;
-}
 
 /**
  * TypType<T> — values of this type ARE gin Type instances. The generic T

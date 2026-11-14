@@ -252,3 +252,21 @@ export function buildSchemas(registry: Registry, overrides: BuildSchemasOverride
   }).meta({ aid: 'Expr' });
   return opts;
 }
+
+/** The schema bags `schemaBag` built, per registry. */
+const bags = new WeakMap<Registry, SchemaOptions>();
+
+/**
+ * `opts` when it carries the meta-language schemas, else the registry's own (`buildSchemas` with named types by
+ * name, built once per registry). For value schemas whose values are themselves types or expressions (`typ`, `fn`),
+ * so they are gin's strict TypeDef / ExprDef schemas even when the caller passed none.
+ */
+export function schemaBag(registry: Registry, opts?: { Type?: z.ZodTypeAny; Expr?: z.ZodTypeAny; registry?: Registry }): SchemaOptions {
+  if (opts?.Type !== undefined && opts.Expr !== undefined && opts.registry !== undefined) return opts as SchemaOptions;
+  let bag = bags.get(registry);
+  if (bag === undefined) {
+    bag = buildSchemas(registry, { namedRefs: true });
+    bags.set(registry, bag);
+  }
+  return bag;
+}

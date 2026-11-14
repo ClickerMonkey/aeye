@@ -256,3 +256,16 @@ describe('TypType value schema as a tool parameter', () => {
     expect(() => z.toJSONSchema(buildSchemas(r).Type, { unrepresentable: 'any', io: 'input' })).not.toThrow();
   });
 });
+
+describe('FnType value schema as a tool parameter', () => {
+  test('a fn value is a native id or a strict ExprDef, not any object with a kind', () => {
+    const r = createRegistry();
+    const schema = r.fn({ args: r.obj({}), returns: r.bool() }).toValueSchema();
+    expect(schema.safeParse({ kind: 'new', type: { name: 'bool' }, value: true }).success).toBe(true);
+    expect(schema.safeParse('native/id').success).toBe(true);
+    expect(schema.safeParse({ kind: 'nope' }).success).toBe(false);
+    expect(schema.safeParse({ op: 'x' }).success).toBe(false);
+    const text = JSON.stringify(z.toJSONSchema(schema, { unrepresentable: 'any', io: 'input' }));
+    expect(text).toContain('"const":"new"');
+  });
+});

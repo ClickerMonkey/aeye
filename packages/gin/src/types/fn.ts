@@ -8,7 +8,7 @@ import type { JSONOf, RuntimeOf } from '../json-type';
 import { LocalScope, type TypeScope } from '../type-scope';
 import { z } from 'zod';
 import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import { callDefSchema } from '../schemas';
+import { callDefSchema, schemaBag } from '../schemas';
 
 /**
  * FnType — the universal callable. Its shape lives on the `_call` field
@@ -241,12 +241,10 @@ export class FnType<A extends object = any, R = any, E = any> extends Type<FnVal
 
   toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Functions aren't JSON-serializable. Accept a native id (string) or
-    // an inline lambda ExprDef (object with `kind`). LLMs shouldn't be
-    // generating raw function values — use native id strings.
-    return this.describeType(z.union([
-      z.string(),
-      z.object({ kind: z.string() }).passthrough(),
-    ]), opts);
+    // an inline lambda: gin's strict ExprDef schema (`buildSchemas`), so a
+    // tool parameter of this type tells the model the expression shape.
+    const bag = schemaBag(this.registry, opts);
+    return this.describeType(z.union([z.string(), bag.Expr]), opts);
   }
 
   toInstanceSchema(): z.ZodTypeAny {
