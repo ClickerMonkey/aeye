@@ -360,17 +360,23 @@ describe('gin → TypeScript: referenced types', () => {
     const { out, result } = await parity(e, def, { first: 'Ada', last: 'Lovelace' });
     expect(result).toBe('Ada Lovelace|true|Hello, Ada Lovelace!');
 
+    // Person splits in two: PersonData (the stored fields) and Person (the fields plus the members).
+    const data = out.types.get('PersonData')!;
+    expect(data).toContain('export type PersonData = {');
+    expect(data).toContain('/** Given name. */ firstName: string;');
+    expect(data).toContain('/** gin: num{min=0, whole=true} */ age: number;');
+    expect(data).toContain('nick?: string;');
+    expect(data).not.toContain('fullName');
     const person = out.types.get('Person')!;
-    expect(person).toMatch(/^\/\*\* Someone we know\. \*\/\nexport type Person = \{/);
-    expect(person).toContain('/** Given name. */ firstName: string;');
-    expect(person).toContain('age: number;');
-    expect(person).toContain('gin: num{min=0, whole=true}');
-    expect(person).toContain('nick?: string;');
+    expect(person.startsWith('/** Someone we know. */\nexport type Person = PersonData & {')).toBe(true);
     expect(person).toContain('/** First and last name. */ fullName: () => Promise<string>;');
     expect(person).toContain('readonly isAdult: boolean;');
     expect(person).toContain('greet: (args: { greeting: string }) => Promise<string>;');
-    expect(person).not.toContain('interface');
-    expect(out.helpers.get('makePerson')).toContain('function makePerson(data: Omit<Person, "fullName" | "isAdult" | "greet">): Person');
+    expect(person).not.toContain('firstName');
+    expect(person + data).not.toContain('interface');
+    const maker = out.helpers.get('makePerson')!;
+    expect(maker).toContain('function makePerson(data: PersonData): Person {');
+    expect(maker).not.toMatch(/Omit|as any|as unknown/);
   });
 
   test('a host-native method is a member the value carries', async () => {
@@ -381,11 +387,51 @@ describe('gin → TypeScript: referenced types', () => {
     ));
     const out = e.toTypeScript(def, { name: 'fn', export: true });
     expect(out.types.get('Customer')).toContain('/** Move to another plan. */ upgrade: (args: { plan: string }) => Promise<boolean>');
-    expect(out.types.get('Customer')).toContain('plan: "free" | "pro"');
+    expect(out.types.get('Customer')!.startsWith('export type Customer = CustomerData & {')).toBe(true);
+    expect(out.types.get('CustomerData')).toBe('/** The stored fields of Customer. */\nexport type CustomerData = { id: string; plan: "free" | "pro" };');
     expect(out.code).toContain('(await args.c.upgrade({ plan: "pro" }))');
     const mod = load(renderTypeScriptFile(out));
     const customer = { id: 'c1', plan: 'free', async upgrade(a: { plan: string }) { this.plan = a.plan; return true; } };
     expect(await mod.fn({ c: customer })).toBe('pro');
+  });
+
+  test('a derived type: its data extends the base data; its maker builds on the base maker', async () => {
+    const { e, r } = fixture();
+    r.register(r.extend(r.lookup('Person')!, {
+      name: 'Employee',
+      props: {
+        company: { type: r.text() },
+        badge: {
+          type: r.fn({ args: r.obj({}), returns: r.text() }),
+          get: r.parseExpr(tmpl('{n} @ {c}', {
+            kind: 'new', type: obj({ n: T('text'), c: T('text') }),
+            value: { n: get('this', 'fullName'), c: get('this', 'company') },
+          } as ExprDef)),
+        },
+        clockIn: r.method({}, r.bool(), 'Employee.clockIn'),
+      },
+    }));
+    const def = lambda({ emp: T('Employee') }, T('text'), get('args', 'emp', 'badge'));
+    const out = e.toTypeScript(def, { name: 'badgeOf', export: true });
+    expect(out.types.get('EmployeeData')).toContain('export type EmployeeData = PersonData & { company: string };');
+    expect(out.types.get('Employee')).toMatch(/^export type Employee = Person & EmployeeData & \{/);
+    const maker = out.helpers.get('makeEmployee')!;
+    // clockIn is a host member: the maker cannot attach it, so it asks for it with the data.
+    expect(maker).toContain('function makeEmployee(data: EmployeeData & { clockIn: () => Promise<boolean> }): Employee {');
+    expect(maker).toContain('const self = makePerson(data) as Employee;');
+    expect(maker).not.toMatch(/Omit|as any|as unknown/);
+
+    const mod = load(renderTypeScriptFile(out));
+    const emp = mod.makeEmployee({ firstName: 'Ada', lastName: 'L', age: 36, company: 'Acme', clockIn: async () => true });
+    expect(await mod.badgeOf({ emp })).toBe('Ada L @ Acme');
+    expect(emp.isAdult).toBe(true);
+
+    // `new Employee` in gin has no way to supply clockIn in TypeScript: reported, not cast away.
+    const hire = lambda({ name: T('text') }, T('Employee'), {
+      kind: 'new', type: T('Employee'),
+      value: { firstName: get('args', 'name'), lastName: 'Doe', age: 40, company: 'Acme' },
+    } as ExprDef);
+    expect(() => e.toTypeScript(hire)).toThrow(/host member clockIn cannot be supplied/);
   });
 
   test('generic named types declare their parameters', async () => {
@@ -415,7 +461,7 @@ describe('gin → TypeScript: referenced types', () => {
     };
     const outs = Object.entries(fns).map(([name, def]) => e.toTypeScript(def, { name, export: true }));
     const all = joinTypeScript(outs);
-    expect([...all.types.keys()].sort()).toEqual(['Customer', 'Person']);
+    expect([...all.types.keys()].sort()).toEqual(['Customer', 'CustomerData', 'Person', 'PersonData']);
     expect(all.helpers.has('makePerson')).toBe(true);
     const file = renderTypeScriptFile(all);
     expect(file.match(/export type Person =/g)).toHaveLength(1);

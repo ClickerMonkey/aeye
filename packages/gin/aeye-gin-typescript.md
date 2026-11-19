@@ -69,6 +69,22 @@ A named type's declaration lists what the gin definition shows
 (`toCodeDefinition`): data fields, methods as function-typed properties, computed
 props as `readonly` properties, a call signature. A named base is an intersection
 (`type Derived = Base & { … }`); a scalar extension is an alias (`type Email = string`).
+
+**An object type with members splits in two**: `XData`, its stored fields, and `X`,
+the fields plus the members. A type with fields only stays one type.
+
+```ts
+/** The stored fields of Person — what `makePerson` takes. */
+type PersonData = { firstName: string; lastName: string; /** gin: num{min=0} */ age: number };
+/** Someone we know. */
+type Person = PersonData & { fullName: () => Promise<string>; readonly isAdult: boolean };
+
+type EmployeeData = PersonData & { company: string };       // a base's data is included
+type Employee = Person & EmployeeData & { badge: () => Promise<string> };
+```
+
+`XData` is what a host fills in to build a value, and what `makeX` takes — no
+`Omit<…>` anywhere.
 Docs become `/** … */`, and constraints a TypeScript type cannot state become doc
 text: `/** gin: num{min=0, whole=true} */ age: number`. A namespaced name
 (`fs/Entry`) becomes an identifier (`fs_Entry`).
@@ -84,11 +100,15 @@ not look anything up.
 
 - **Written in gin** (a prop whose `get` is a gin expression): the type gets a
   `makeX(data)` helper that attaches the compiled bodies. A `new Person{…}` in gin
-  compiles to `makePerson({…})`; a host builds values the same way. Its parameter is
-  `Omit<Person, <the gin-written members>>`, and a derived type's maker calls its
-  base's. Method bodies see `this`, `args` and `recurse` only.
+  compiles to `makePerson({…})`; a host builds values the same way:
+  `makePerson(data: PersonData): Person`. A derived type's maker calls its base's
+  (`const self = makePerson(data) as Employee`). Method bodies see `this`, `args` and
+  `recurse` only.
 - **Host natives** (`r.method(…, 'Customer.upgrade')`): the value must carry them
-  — whoever builds a `Customer` attaches `upgrade`.
+  — whoever builds a `Customer` attaches `upgrade`. A maker cannot attach them, so it
+  asks for them alongside the data: `makeEmployee(data: EmployeeData & { clockIn: () =>
+  Promise<boolean> })`. For the same reason a gin `new` of a type with host members is
+  refused (below): build the value on the host and pass it in.
 - **Built-in natives** (`num.add`, `text.split`, `list.map`, …): inline TypeScript
   (`a + b`, `s.split(sep)`), or a prelude helper where the one-liner would differ
   from gin.
@@ -162,6 +182,7 @@ Each is a `TypeScriptExportError` problem rather than a guess:
   (`as<T>`) or type the variable.
 - A custom `loop` / `get` / `set` / `init` / call surface written in gin, a gin
   setter (`set` on a prop), assigning through a method call, `super`.
+- A `new` of a type with host members (nothing in TypeScript can supply them).
 - Members written in gin on a non-object type, or reading anything but `this` /
   `args` / `recurse` inside one.
 - `break` / `return` inside a `parallel` loop body, a parallel while-loop.

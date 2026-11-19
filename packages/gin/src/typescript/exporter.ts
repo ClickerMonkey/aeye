@@ -270,12 +270,18 @@ export class Exporter {
     return looked instanceof Extension && looked.name === t.name ? looked : t;
   }
 
-  private namedRef(t: Extension, g: Gen): string {
+  /**
+   * A reference to a named type. `data: true` names its fields-only type
+   * (`PersonData`) instead — the type itself when it has no members to split off.
+   */
+  private namedRef(t: Extension, g: Gen, data = false): string {
     // A use-site narrowing (`PlayerText{maxLength=40}`) is the target type.
-    if (t.local.useSite) return this.ref(t.original, g);
+    if (t.local.useSite) {
+      return t.original instanceof Extension ? this.namedRef(t.original, g, data) : this.ref(t.original, g);
+    }
     const decl = this.decl(t);
     this.define(decl);
-    const name = this.tsName(decl.name);
+    const name = data && this.splits(decl) ? this.dataName(decl) : this.tsName(decl.name);
     const params = Object.keys(decl.generic ?? {});
     if (params.length === 0) return name;
     const args = params.map((p) => {
@@ -291,16 +297,86 @@ export class Exporter {
     if (this.defined.has(decl.name)) return;
     this.defined.add(decl.name);
     const maker = this.maker(decl);
-    const text = this.declaration(decl, maker);
-    if (this.opt.types !== 'none') this.types.set(this.tsName(decl.name), text);
+    this.declaration(decl, maker);
   }
 
-  private declaration(decl: Extension, maker: MakerInfo | undefined): string {
+  /** The surface of a named type as its definition shows it. */
+  private surface(decl: Extension): Array<[string, Prop]> {
+    const props = (decl as unknown as { definitionProps(): Record<string, Prop | PropSpec> }).definitionProps();
+    return Object.entries(props).map(([k, p]) => [k, Prop.from(p)]);
+  }
+
+  private definitionCall(decl: Extension): Call | undefined {
+    return (decl as unknown as { definitionCall(): Call | undefined }).definitionCall();
+  }
+
+  /**
+   * Does this named type split into `XData` (its stored fields) and `X`
+   * (`XData` plus its members)? Yes for an object type with a method, a
+   * computed prop or a call signature — its own or inherited.
+   */
+  private splits(decl: Extension): boolean {
+    if (!isObjLike(decl.base)) return false;
+    if (this.definitionCall(decl) || this.surface(decl).some(([, p]) => isMember(p))) return true;
+    const original = decl.original;
+    return original instanceof Extension && !original.local.useSite && this.splits(this.decl(original));
+  }
+
+  /** Members of `decl` and its named bases with no gin body — the value must already carry them. */
+  private carriedMembers(decl: Extension): Array<[string, Prop]> {
+    const out = new Map<string, Prop>();
+    const seen = new Set<string>(); // a derived type's member shadows its base's
+    for (let t: Type = decl; t instanceof Extension && !t.local.useSite; t = t.original) {
+      for (const [k, p] of this.surface(this.decl(t))) {
+        if (seen.has(k)) continue;
+        seen.add(k);
+        if (isMember(p) && !(p.get && !(p.get instanceof NativeExpr))) out.set(k, p);
+      }
+    }
+    return [...out];
+  }
+
+  private dataName(decl: Extension): string {
+    return `${this.tsName(decl.name)}Data`;
+  }
+
+  /** Write the declaration of a named type — two (`XData`, `X`) when it {@link splits}. */
+  private declaration(decl: Extension, maker: MakerInfo | undefined): void {
+    if (this.opt.types === 'none') return;
     const name = this.tsName(decl.name);
     const generic = decl.generic ?? {};
     const g: Gen = { generics: new Set(Object.keys(generic)) };
     const params = this.genericParams(generic, g);
+    if (!this.splits(decl)) {
+      this.types.set(name, this.singleDeclaration(decl, maker));
+      return;
+    }
+    const targs = Object.keys(generic).length ? `<${Object.keys(generic).join(', ')}>` : '';
+    const original = decl.original;
+    const baseNamed = original instanceof Extension && !original.local.useSite;
+    const props = this.surface(decl);
+    const fields = this.members(props.filter(([, p]) => !isMember(p)), g, maker);
+    const members = this.members(props.filter(([, p]) => isMember(p)), g, maker);
+    const call = this.definitionCall(decl);
+    if (call) members.push(`(${this.params(call.args, g)}): ${this.returns(call, g, 'unknown')}`);
 
+    // PersonData — the stored fields, a base's included.
+    const dataName = this.dataName(decl);
+    const dataParts: string[] = [];
+    if (baseNamed) dataParts.push(this.namedRef(original, g, true));
+    if (fields.length || dataParts.length === 0) dataParts.push(braces(fields));
+    const dataDocs = [`The stored fields of ${name}${maker ? ` — what \`${maker.name}\` takes` : ''}.`];
+    this.types.set(dataName, `${this.docBlock(dataDocs)}${this.exp}type ${dataName}${params} = ${dataParts.join(' & ')};`);
+
+    // Person — the fields plus the members (a base's members come with the base).
+    const parts: string[] = [];
+    if (baseNamed) parts.push(this.namedRef(original, g));
+    parts.push(`${dataName}${targs}`);
+    if (members.length) parts.push(braces(members));
+    this.types.set(name, `${this.docBlock(this.typeDocs(decl))}${this.exp}type ${name}${params} = ${parts.join(' & ')};`);
+  }
+
+  private typeDocs(decl: Extension): string[] {
     const docs: string[] = [];
     if (decl.docs) docs.push(decl.docs);
     if (decl.local.options && Object.keys(decl.local.options).length > 0) {
@@ -309,15 +385,21 @@ export class Exporter {
     if (decl.local.constraint) {
       docs.push(`constraint: ${decl.local.constraint.toCode(this.registry, { expectsValue: true, includeComments: false })}`);
     }
+    return docs;
+  }
+
+  private singleDeclaration(decl: Extension, maker: MakerInfo | undefined): string {
+    const name = this.tsName(decl.name);
+    const generic = decl.generic ?? {};
+    const g: Gen = { generics: new Set(Object.keys(generic)) };
+    const params = this.genericParams(generic, g);
+    const docs = this.typeDocs(decl);
 
     const original = decl.original;
     const baseNamed = original instanceof Extension && !original.local.useSite;
     const objLike = isObjLike(decl.base);
-    const surface = (decl as unknown as { definitionProps(): Record<string, Prop | PropSpec> }).definitionProps();
-    const call = (decl as unknown as { definitionCall(): Call | undefined }).definitionCall();
-    const members = objLike || baseNamed
-      ? this.members(Object.entries(surface).map(([k, p]) => [k, Prop.from(p)]), g, maker)
-      : [];
+    const call = this.definitionCall(decl);
+    const members = objLike || baseNamed ? this.members(this.surface(decl), g, maker) : [];
     if (call) members.push(`(${this.params(call.args, g)}): ${this.returns(call, g, 'unknown')}`);
 
     let body: string;
@@ -471,7 +553,7 @@ export class Exporter {
     const self = 'self';
     const lines: string[] = [];
     lines.push(base
-      ? `const ${self} = ${base.name}(data as any) as unknown as ${typeName};`
+      ? `const ${self} = ${base.name}(data) as ${typeName};`
       : `const ${self} = data as ${typeName};`);
     for (const [k, p] of own) {
       const f = new Fn(false);
@@ -499,16 +581,18 @@ export class Exporter {
     lines.push(`return ${self};`);
     this.used.clear();
     for (const n of outerUsed) this.used.add(n);
-    const omit = [...info.members.keys()].map((k) => JSON.stringify(k)).join(' | ');
+    // Members the maker cannot attach (host natives, function-valued fields) come in with the data.
+    const carried = this.members(this.carriedMembers(decl), g, info);
+    const dataType = `${this.dataName(decl)}${targs}${carried.length ? ` & ${braces(carried)}` : ''}`;
     const code = [
       `/** Attach ${decl.name}'s gin-written members to its data. */`,
-      `${this.exp}function ${info.name}${tparams}(data: Omit<${typeName}, ${omit}>): ${typeName} {`,
+      `${this.exp}function ${info.name}${tparams}(data: ${dataType}): ${typeName} {`,
       ...indent(lines),
       '}',
     ].join('\n');
     this.helpers.set(info.name, code);
     // Re-render the declaration now the members' async flags are known.
-    if (this.opt.types !== 'none') this.types.set(this.tsName(decl.name), this.declaration(decl, info));
+    this.declaration(decl, info);
     return info;
   }
 
@@ -1078,6 +1162,13 @@ export class Exporter {
     const named = t instanceof Extension && !t.local.useSite ? this.decl(t) : undefined;
     if (named) {
       this.define(named);
+      // gin finds a host member in the registry; a TypeScript value has to carry it,
+      // and nothing here can supply it.
+      const carried = this.carriedMembers(named).map(([k]) => k);
+      if (carried.length) {
+        this.problem(`new ${named.name}: its host member${carried.length > 1 ? 's' : ''} ${carried.join(', ')} `
+          + `cannot be supplied in TypeScript — build the value on the host (\`make${this.tsName(named.name)}\` / \`${this.dataName(named)}\`) and pass it in`);
+      }
       const m = this.maker(named);
       if (m) return `${m.name}(${literal})`;
     }
@@ -1414,6 +1505,11 @@ function isAutoCallable(propType: Type): boolean {
   if (!call) return false;
   if (!(call.args instanceof ObjType)) return true;
   return Object.values(call.args.fields).every((p) => p.type.isOptional());
+}
+
+/** A member (method, computed prop, function-valued field) rather than a stored field. */
+function isMember(p: Prop): boolean {
+  return !!p.get || p.type instanceof FnType;
 }
 
 function isObjLike(t: Type): boolean {
