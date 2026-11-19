@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "seq": 20,
+  "readSeq": 19,
+  "answers": {
+    "api": {
+      "status": "answered",
+      "picked": [
+        "engine-method"
+      ],
+      "labels": [
+        "engine.toTypeScript + joinTypeScript + renderTypeScriptFile"
+      ],
+      "rev": "ylz8yy",
+      "at": "2026-11-19T04:50:18.855Z",
+      "seq": 1,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "args": {
+      "status": "answered",
+      "picked": [
+        "args-object"
+      ],
+      "labels": [
+        "One args object: (args: { plan: string }) => R"
+      ],
+      "rev": "hvsux5",
+      "at": "2026-11-19T04:50:42.154Z",
+      "seq": 2,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "async": {
+      "status": "answered",
+      "picked": [
+        "always-async"
+      ],
+      "labels": [
+        "Always async; every host/method call is awaited"
+      ],
+      "rev": "tt8hw5",
+      "at": "2026-11-19T04:50:54.285Z",
+      "seq": 3,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "scope": {
+      "status": "answered",
+      "picked": [
+        "ctx-param"
+      ],
+      "labels": [
+        "A typed context parameter: fn(args, ctx: Ctx)"
+      ],
+      "rev": "n5oop1",
+      "at": "2026-11-19T04:51:17.561Z",
+      "seq": 4,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "natives": {
+      "status": "answered",
+      "picked": [
+        "inline-plus-prelude"
+      ],
+      "labels": [
+        "Inline idiomatic TS + a small emitted prelude for the rest"
+      ],
+      "rev": "5wmqre",
+      "at": "2026-11-19T04:51:25.590Z",
+      "seq": 5,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "eq": {
+      "status": "answered",
+      "picked": [
+        "faithful"
+      ],
+      "labels": [
+        "Faithful (helper with gin's epsilon)"
+      ],
+      "rev": "1vtk9ay",
+      "at": "2026-11-19T04:51:34.958Z",
+      "seq": 6,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "methods": {
+      "status": "answered",
+      "picked": [
+        "host-provides"
+      ],
+      "labels": [
+        "The value already carries them; host attaches impls"
+      ],
+      "rev": "11fvlls",
+      "at": "2026-11-19T04:51:49.690Z",
+      "seq": 7,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "constraints": {
+      "status": "answered",
+      "picked": [
+        "doc-comments"
+      ],
+      "labels": [
+        "Plain aliases + constraints as /** */ doc comments"
+      ],
+      "rev": "1kxeu3e",
+      "at": "2026-11-19T04:52:01.408Z",
+      "seq": 8,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "runtime-types": {
+      "status": "answered",
+      "picked": [
+        "guards"
+      ],
+      "labels": [
+        "Emit a structural guard per type used (`isPerson(x)`)"
+      ],
+      "rev": "1spm8sm",
+      "at": "2026-11-19T04:52:06.957Z",
+      "seq": 9,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "exit": {
+      "status": "answered",
+      "picked": [
+        "exit-throw"
+      ],
+      "labels": [
+        "Throw a prelude ExitSignal caught by the outermost exported function"
+      ],
+      "rev": "1gpg24g",
+      "at": "2026-11-19T04:52:13.204Z",
+      "seq": 10,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "options": {
+      "status": "answered",
+      "picked": [
+        "referenced-types",
+        "docs",
+        "name",
+        "prelude-toggle",
+        "sync-option",
+        "export-kw"
+      ],
+      "labels": [
+        "types: 'referenced' | 'none' — emit every non-native type referenced, transitively",
+        "includeComments — gin docs as /** */",
+        "name — the exported function/const name for a top-level lambda",
+        "prelude: 'inline' | 'separate' — helpers in the code or as their own map entry",
+        "async: 'always' | 'auto' override",
+        "export keyword on emitted types/functions"
+      ],
+      "rev": "135y6rj",
+      "at": "2026-11-19T04:52:39.177Z",
+      "seq": 16,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "llm-test": {
+      "status": "answered",
+      "picked": [
+        "offline"
+      ],
+      "labels": [
+        "Offline test only: types file compiles standalone; a hand-written function against it compiles and runs"
+      ],
+      "rev": "1e65th",
+      "at": "2026-11-19T04:52:50.500Z",
+      "seq": 17,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "release": {
+      "status": "answered",
+      "picked": [
+        "commit-local"
+      ],
+      "labels": [
+        "Commit locally, I'll say when to push/release"
+      ],
+      "rev": "puf35j",
+      "at": "2026-11-19T04:52:54.930Z",
+      "seq": 18,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    },
+    "anything": {
+      "status": "skipped",
+      "rev": "gp7p1i",
+      "at": "2026-11-19T04:53:02.056Z",
+      "seq": 19,
+      "ack": {
+        "at": "2026-11-19T04:53:35.117Z",
+        "note": "Got it — building on these (incl. async 'auto' and export keyword options). Will commit locally only."
+      }
+    }
+  },
+  "threads": {}
+}

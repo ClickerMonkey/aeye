@@ -13,6 +13,7 @@ import { ExitSignal } from './flow-control';
 import { typeOf as typeOfAnalysis, validate as validateAnalysis, type Locals } from './analysis';
 import { Problems } from './problem';
 import { RunControl, type RunOptions } from './run-control';
+import { toTypeScript, type TypeScriptOptions, type TypeScriptOutput } from './typescript';
 
 /**
  * Global — a named value available in every root scope. Types are registered
@@ -146,6 +147,15 @@ export class Engine {
    */
   toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
     return this.registry.toJSONCode(expr, indent);
+  }
+
+  /**
+   * Compile an expression to runnable TypeScript plus the declarations of
+   * every non-native type it names. See `toTypeScript` in `./typescript`
+   * and `aeye-gin-typescript.md`.
+   */
+  toTypeScript(expr: ExprDef | Expr, options?: TypeScriptOptions): TypeScriptOutput {
+    return toTypeScript(this, expr, options);
   }
 
   /** A Locals seeded with the registered globals' declared types. */

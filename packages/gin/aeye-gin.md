@@ -106,7 +106,8 @@ Key shapes to internalize:
 | `createRegistry(): Registry` | Registry pre-loaded with all built-in types, natives, expr classes. |
 | `createEngine(registry): Engine` | Evaluation / validation / inference / rendering. |
 | `Registry` | Implements `TypeBuilder` (`r.num()`, `r.list(...)`, ...) + parsing + registration. |
-| `Engine` | `run`, `validate`, `typeOf`, `toCode`, `toGinCode`, `toJSONCode`, `validateValue`. |
+| `Engine` | `run`, `validate`, `typeOf`, `toCode`, `toGinCode`, `toJSONCode`, `toTypeScript`, `validateValue`. |
+| `toTypeScript`, `joinTypeScript`, `renderTypeScriptFile`, `renderTypeScriptTypes` | Compile programs to runnable TypeScript plus `type` declarations for every named type they reach — see [TypeScript export](./aeye-gin-typescript.md). |
 | `buildSchemas(registry, overrides?)` | Zod schemas (`.Type`, `.Expr`) describing valid programs for an LLM. |
 | `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. `toLogical()` is the plain JS value (`T`); `encodeLogical` / `toJSONLogical` / `toJSONRefs` / `toJSON` are its four wire forms. |
 | `Infer<X>`, `ObjValue`, `FnArgs` / `FnReturns`, … | Static inference: the TypeScript value every builder's type describes — see [building types](./aeye-gin-types.md#building-types-programmatically-typebuilder). |
@@ -126,5 +127,6 @@ Key shapes to internalize:
 - [Expressions](./aeye-gin-expressions.md) — the 12 kinds, path grammar, parsing model.
 - [Registry & Engine](./aeye-gin-registry.md) — builders, natives, scopes, globals, schema generation.
 - [Codegen & diagnostics](./aeye-gin-codegen.md) — `toCode` / `toGinCode` / `toJSONCode`, `Code`, `formatProblems`.
+- [TypeScript export](./aeye-gin-typescript.md) — `toTypeScript`: gin programs as runnable TypeScript, with their types.
 
 For a full application built on gin, see `@aeye/ginny`.

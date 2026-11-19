@@ -25,6 +25,9 @@ exactly what an LLM sees for each type in its prompt).
 > model authors `TypeDef` / `ExprDef` **JSON**, which `registry.parse` /
 > `registry.parseExpr` consume. The round trip that matters is
 > `registry.parse(type.toJSON())`, not `parse(print(t))`.
+>
+> For TypeScript that actually COMPILES and runs, use `engine.toTypeScript` —
+> see [TypeScript export](./aeye-gin-typescript.md).
 
 ## `CodeOptions`
 

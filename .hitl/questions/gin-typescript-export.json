@@ -1,0 +1,315 @@
+{
+  "$schema": "https://unpkg.com/hitloop/schema/questions.schema.json",
+  "title": "gin → runnable TypeScript export",
+  "created": "2026-11-19T04:46:36.647Z",
+  "sections": [
+    {
+      "id": "shape",
+      "title": "Output shape & calling convention",
+      "intro": "Plan: a new `toTypeScript(expr, options)` on Engine/Registry returning `{ code, types: Map<name, 'type X = …'> }`, plus `joinTypeScript(outputs)` that merges type maps (dedupe by name) and `renderTypeScriptFile(output)` that writes one file. Natively-TS types (string, number, boolean, Date, Map, arrays, tuples, unions) are inlined, never put in the map. Only `type` aliases, never `interface`. Tests compile the output with the `typescript` compiler, run the JS, and compare against `engine.run`.",
+      "questions": [
+        {
+          "id": "api",
+          "question": "What is the API surface?",
+          "blocking": true,
+          "options": [
+            {
+              "id": "engine-method",
+              "label": "engine.toTypeScript + joinTypeScript + renderTypeScriptFile",
+              "recommended": true,
+              "description": "Lives beside toCode/toGinCode. Output `{ code, types: Map<string,string>, prelude? }`. join merges maps; a name with two different bodies throws."
+            },
+            {
+              "id": "exporter-class",
+              "label": "A TypeScriptExporter class you add exprs to",
+              "description": "`const x = new TsExporter(engine); x.add('name', expr); x.file()` — accumulates types across calls itself."
+            },
+            {
+              "id": "both",
+              "label": "Both",
+              "description": "Free functions, plus a small accumulator built on them."
+            }
+          ],
+          "why": "Decides naming, docs, and how the 'joinable' requirement is met."
+        },
+        {
+          "id": "args",
+          "question": "gin calls take a named-args object (`x.add({other: 3})`, lambda `args.name`). How should methods and exported functions take parameters in TS?",
+          "blocking": true,
+          "options": [
+            {
+              "id": "args-object",
+              "label": "One args object: (args: { plan: string }) => R",
+              "recommended": true,
+              "description": "Mirrors gin 1:1 (optional args, defaults, generics just work); an LLM writing against the types sees exactly gin's contract. Built-in natives still compile to idiomatic TS (`a + b`, `s.toUpperCase()`)."
+            },
+            {
+              "id": "positional",
+              "label": "Positional: (plan: string) => R",
+              "description": "More idiomatic TS, but arg order must be fixed from declaration order and optional-in-the-middle gets awkward."
+            }
+          ],
+          "why": "Every exported type with a method, and every exported function signature, depends on it."
+        },
+        {
+          "id": "async",
+          "question": "gin evaluation is async (host natives can hit a DB/network). Should generated functions be async?",
+          "blocking": true,
+          "options": [
+            {
+              "id": "always-async",
+              "label": "Always async; every host/method call is awaited",
+              "recommended": true,
+              "description": "Simple and always correct. Methods on types are `(args) => Promise<R>`... or `R | Promise<R>`."
+            },
+            {
+              "id": "effects-based",
+              "label": "Async only where effects include EXTERNAL/SYSTEM",
+              "description": "Pure functions stay sync and nicer; relies on effects being declared correctly by hosts."
+            },
+            {
+              "id": "sync",
+              "label": "Always sync",
+              "description": "Host natives must be sync. Simplest output, limits real use."
+            }
+          ],
+          "why": "Changes every method signature in the types map and how an LLM must write code against them."
+        },
+        {
+          "id": "scope",
+          "question": "A function's free variables (globals registered on the engine, `extras` at run) — how do they reach the compiled code?",
+          "blocking": true,
+          "options": [
+            {
+              "id": "ctx-param",
+              "label": "A typed context parameter: fn(args, ctx: Ctx)",
+              "recommended": true,
+              "description": "Ctx type (only the globals actually referenced) goes in the types map. Pure, testable, no ambient state; the host passes real implementations."
+            },
+            {
+              "id": "declare-const",
+              "label": "`declare const pi: number` in the types file",
+              "description": "Code reads naturally (`pi`), host must provide them on globalThis or wrap in a module."
+            },
+            {
+              "id": "closure-factory",
+              "label": "Factory: makeFns(ctx) returns the functions",
+              "description": "Globals are closure vars; one ctx bound once for all exported functions."
+            }
+          ],
+          "why": "Defines what 'runnable' means — what a host does to actually call the JS."
+        }
+      ]
+    },
+    {
+      "id": "semantics",
+      "title": "Natives & runtime semantics",
+      "intro": "gin has ~200 built-in natives (num.add, text.split, list.map, date.addMonths, color.mix, …) plus host natives registered by id (e.g. `Customer.upgrade`) and methods implemented by gin exprs.",
+      "questions": [
+        {
+          "id": "natives",
+          "question": "How do built-in natives compile?",
+          "blocking": true,
+          "options": [
+            {
+              "id": "inline-plus-prelude",
+              "label": "Inline idiomatic TS + a small emitted prelude for the rest",
+              "recommended": true,
+              "description": "`a + b`, `s.toUpperCase()`, `xs.map(...)` inline; non-trivial ones (date.addMonths, color.mix, epsilon num.eq, duration math) become tiny helper functions emitted once in a `prelude` (only the ones used). Output file is self-contained, no gin dependency at run."
+            },
+            {
+              "id": "runtime-import",
+              "label": "Import a runtime from @aeye/gin (`$gin.num.add(a,b)`)",
+              "description": "Exact parity with gin's impls, uniform, but the compiled code depends on gin and reads worse."
+            },
+            {
+              "id": "inline-only",
+              "label": "Inline only; unsupported natives throw at export",
+              "description": "Smallest output; some programs won't export."
+            }
+          ],
+          "why": "Biggest chunk of work and decides whether output is standalone."
+        },
+        {
+          "id": "eq",
+          "question": "gin's `num.eq` is epsilon-approximate. Compiled equality should be…",
+          "options": [
+            {
+              "id": "faithful",
+              "label": "Faithful (helper with gin's epsilon)",
+              "recommended": true,
+              "description": "Compiled result always matches engine.run."
+            },
+            {
+              "id": "strict",
+              "label": "Plain ===",
+              "description": "Idiomatic; can differ from gin on float math."
+            }
+          ]
+        },
+        {
+          "id": "methods",
+          "question": "Methods on referenced types (e.g. Person.fullName implemented by a gin template expr, Customer.upgrade by a host native). In the types they are function-typed properties. Where do their implementations come from at run time?",
+          "blocking": true,
+          "options": [
+            {
+              "id": "host-provides",
+              "label": "The value already carries them; host attaches impls",
+              "recommended": true,
+              "description": "`type Person = { firstName: string; fullName: () => Promise<string> }`. Compiled code just calls `p.fullName()`. For expr-implemented methods we ALSO emit a constructor/helper (`makePerson(data)`) that attaches compiled bodies, so `new Person` in a program works."
+            },
+            {
+              "id": "free-functions",
+              "label": "Compile methods to free functions (Person_fullName(self))",
+              "description": "Values stay plain data (JSON-friendly); types file lists methods as functions not properties — contradicts 'methods are properties'."
+            }
+          ],
+          "why": "Decides how `new` of a user type and every method call compile."
+        },
+        {
+          "id": "constraints",
+          "question": "Type constraints (num{min=0, whole}, text{pattern}, list{max}) and named extensions (`Email extends text`):",
+          "options": [
+            {
+              "id": "doc-comments",
+              "label": "Plain aliases + constraints as /** */ doc comments",
+              "recommended": true,
+              "description": "`/** pattern: ^\\d+$ */ type Email = string`. Docs from gin go in too, so an LLM reading the types sees them."
+            },
+            {
+              "id": "branded",
+              "label": "Branded types (string & { __brand: 'Email' })",
+              "description": "Nominal safety, but LLM-written code needs casts everywhere."
+            },
+            {
+              "id": "drop",
+              "label": "Drop constraints entirely"
+            }
+          ]
+        },
+        {
+          "id": "runtime-types",
+          "question": "`any.is(T)` / `any.as(T)` / `typeOf` need runtime type checks. How?",
+          "options": [
+            {
+              "id": "guards",
+              "label": "Emit a structural guard per type used (`isPerson(x)`)",
+              "recommended": true,
+              "description": "Only for types actually checked; lives in the prelude."
+            },
+            {
+              "id": "unsupported",
+              "label": "Not supported: export reports a problem",
+              "description": "Keep v1 small."
+            }
+          ]
+        },
+        {
+          "id": "exit",
+          "question": "`flow: exit` (unwind to engine.run with a value) — compile as…",
+          "options": [
+            {
+              "id": "exit-throw",
+              "label": "Throw a prelude ExitSignal caught by the outermost exported function",
+              "recommended": true
+            },
+            {
+              "id": "exit-return",
+              "label": "Treat like return from the exported function"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scope-of-work",
+      "title": "Scope & testing",
+      "questions": [
+        {
+          "id": "options",
+          "question": "Which export options do you want in v1? (pick all)",
+          "type": "multi",
+          "recommended": [
+            "referenced-types",
+            "docs",
+            "name",
+            "prelude-toggle"
+          ],
+          "options": [
+            {
+              "id": "referenced-types",
+              "label": "types: 'referenced' | 'none' — emit every non-native type referenced, transitively",
+              "recommended": true
+            },
+            {
+              "id": "docs",
+              "label": "includeComments — gin docs as /** */",
+              "recommended": true
+            },
+            {
+              "id": "name",
+              "label": "name — the exported function/const name for a top-level lambda",
+              "recommended": true
+            },
+            {
+              "id": "prelude-toggle",
+              "label": "prelude: 'inline' | 'separate' — helpers in the code or as their own map entry",
+              "recommended": true
+            },
+            {
+              "id": "export-kw",
+              "label": "export keyword on emitted types/functions"
+            },
+            {
+              "id": "sync-option",
+              "label": "async: 'always' | 'auto' override"
+            }
+          ]
+        },
+        {
+          "id": "llm-test",
+          "question": "For the 'hand an LLM the types file' scenario, how far should v1 go?",
+          "options": [
+            {
+              "id": "offline",
+              "label": "Offline test only: types file compiles standalone; a hand-written function against it compiles and runs",
+              "recommended": true,
+              "description": "Proves the contract without spending model calls."
+            },
+            {
+              "id": "integration",
+              "label": "Also an integration script (like npm run integration) that asks a real model to write the function, compiles and runs it"
+            },
+            {
+              "id": "none",
+              "label": "Skip it; just exprs → TS parity tests"
+            }
+          ]
+        },
+        {
+          "id": "release",
+          "question": "When done: bump/commit/push?",
+          "options": [
+            {
+              "id": "commit-local",
+              "label": "Commit locally, I'll say when to push/release",
+              "recommended": true
+            },
+            {
+              "id": "push",
+              "label": "Commit and push (tag v* publishes)"
+            }
+          ]
+        },
+        {
+          "id": "anything",
+          "question": "Anything else — e.g. a real program/types (ginny tools?) you want as the showcase test?",
+          "type": "text",
+          "multiline": true
+        }
+      ]
+    }
+  ],
+  "from": "gin-ts-export session",
+  "updated": "2026-11-19T04:46:36.968Z"
+}

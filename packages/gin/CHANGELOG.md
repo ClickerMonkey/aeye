@@ -5,6 +5,24 @@ commits); this file starts here and is the place to look from now on.
 
 ## Unreleased
 
+### Export to runnable TypeScript
+
+`engine.toTypeScript(expr, options)` compiles a gin expression to a TypeScript
+function that does what `engine.run` does, plus a `type` declaration (never
+`interface`) for every non-native type it reaches. A lambda becomes
+`function name(args, ctx?)` — one args object, gin's calling convention — and any
+other expression `function name(ctx?)`; `ctx` carries the engine globals and run
+extras the code reads. Named types list their members as properties; members
+written in gin come with a `makeX(data)` constructor that attaches the compiled
+bodies, host natives are members the value carries. Built-in natives compile to
+inline TypeScript or to small prelude helpers that mirror gin (`$listGet`,
+`$numEq`, `$mapAsync`, …), so the output runs without gin. `joinTypeScript` merges
+outputs with each type and helper once; `renderTypeScriptFile` /
+`renderTypeScriptTypes` write the file / the declarations alone. Options: `name`,
+`types`, `includeComments`, `prelude`, `async` (`'always'` | `'auto'`), `export`,
+`scope`. Constructs with no TypeScript form throw `TypeScriptExportError` listing
+each. See [`aeye-gin-typescript.md`](./aeye-gin-typescript.md).
+
 ### Namespaced type names
 
 A type name may be namespaced with `/` (`fs/Entry`, `my-app/billing/Invoice`).

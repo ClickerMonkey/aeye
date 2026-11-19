@@ -59,6 +59,19 @@ export { TemplateExpr } from './exprs/template';
 export { FlowExpr } from './exprs/flow';
 export { NativeExpr } from './exprs/native';
 
+// gin → runnable TypeScript
+export {
+  toTypeScript,
+  joinTypeScript,
+  renderTypeScriptFile,
+  renderTypeScriptTypes,
+  TypeScriptExportError,
+  PRELUDE,
+  type TypeScriptOptions,
+  type TypeScriptOutput,
+  type PreludeHelper,
+} from './typescript';
+
 // Concrete types
 export * from './types';
 
