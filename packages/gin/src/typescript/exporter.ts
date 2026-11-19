@@ -43,6 +43,7 @@ import {
   OptionalType, OrType, TextType, TimestampType, TupleType, TypType, VoidType,
 } from '../types';
 import { PRELUDE } from './prelude';
+import { TypeNames } from './names';
 import { NATIVE_TS, INDEX_GET_TS, INDEX_SET_TS, access, isIdent, type NativeCtx } from './natives';
 
 // ─── options & output ──────────────────────────────────────────────────────
@@ -75,6 +76,8 @@ export interface TypeScriptOutput {
   types: Map<string, string>;
   /** Helpers the code calls: prelude functions, `makeX` constructors, guards. */
   helpers: Map<string, string>;
+  /** The functions `code` declares, by name. */
+  functions: string[];
 }
 
 export class TypeScriptExportError extends Error {
@@ -149,7 +152,7 @@ export class Exporter {
   private readonly opt: Required<Omit<TypeScriptOptions, 'scope' | 'name'>> & { scope: Record<string, Type> };
 
   /** gin type name → TypeScript identifier. */
-  private readonly tsNames = new Map<string, string>();
+  private readonly names: TypeNames;
   /** Named types whose declaration is done or under way. */
   private readonly defined = new Set<string>();
   private readonly makers = new Map<string, MakerInfo | null>();
@@ -169,6 +172,7 @@ export class Exporter {
       export: options.export ?? false,
       scope: options.scope ?? {},
     };
+    this.names = new TypeNames(this.registry, (t) => this.splits(this.decl(t)));
   }
 
   private get always(): boolean { return this.opt.async === 'always'; }
@@ -187,23 +191,17 @@ export class Exporter {
   private uniq(base: string): string {
     let b = base.replace(/[^\w$]/g, '_');
     if (!/^[A-Za-z_$]/.test(b)) b = '_' + b;
-    if (/^make[A-Z]/.test(b) || /^is[A-Z]/.test(b)) b = '_' + b;
+    // Keep clear of the value names helpers use: `makeX`, `$isX`, the `$…` prelude.
+    if (/^make[A-Z]/.test(b) || /^is[A-Z]/.test(b) || b.startsWith('$')) b = '_' + b;
     let name = TS_RESERVED.has(b) || this.used.has(b) ? `${b}_1` : b;
     for (let i = 2; this.used.has(name); i++) name = `${b}_${i}`;
     this.used.add(name);
     return name;
   }
 
+  /** The TypeScript name of a gin type — collision-free across the registry, see `names.ts`. */
   private tsName(ginName: string): string {
-    let n = this.tsNames.get(ginName);
-    if (!n) {
-      n = ginName.replace(/[^\w$]/g, '_');
-      if (!/^[A-Za-z_$]/.test(n)) n = '_' + n;
-      const taken = new Set(this.tsNames.values());
-      for (let i = 2; taken.has(n); i++) n = `${n}_${i}`;
-      this.tsNames.set(ginName, n);
-    }
-    return n;
+    return this.names.type(ginName);
   }
 
   helper(name: string): string {
@@ -337,7 +335,7 @@ export class Exporter {
   }
 
   private dataName(decl: Extension): string {
-    return `${this.tsName(decl.name)}Data`;
+    return this.names.dataName(decl.name);
   }
 
   /** Write the declaration of a named type — two (`XData`, `X`) when it {@link splits}. */
@@ -690,7 +688,7 @@ export class Exporter {
     }
     const isAsync = this.always || f.awaited;
     if (this.ctxVars.size > 0) {
-      const ctxType = `${pascal(name)}Ctx`;
+      const ctxType = this.names.fresh(`${pascal(name)}Ctx`);
       const fields = [...this.ctxVars].map(([k, t]) => {
         const gl = this.engine.getGlobal(k);
         const docs = gl?.docs ? [gl.docs] : [];

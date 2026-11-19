@@ -31,30 +31,40 @@ export { PRELUDE, type PreludeHelper } from './prelude';
 export function toTypeScript(engine: Engine, expr: Expr | ExprDef, options: TypeScriptOptions = {}): TypeScriptOutput {
   const parsed = engine.registry.parseExpr(expr as ExprDef);
   const ex = new Exporter(engine, options);
-  let code = ex.exportFunction(parsed, options.name ?? 'main');
+  const name = options.name ?? 'main';
+  let code = ex.exportFunction(parsed, name);
+  // The function shares the value namespace with the helpers (`makePerson`, `$listGet`, …).
+  if (ex.helpers.has(name)) ex.problem(`function name '${name}' is also the name of a helper the code needs — pick another`);
   ex.check();
   const helpers = new Map(ex.helpers);
   if (options.prelude === 'inline' && helpers.size > 0) {
     code = `${[...helpers.values()].join('\n\n')}\n\n${code}`;
     helpers.clear();
   }
-  return { code, types: new Map(ex.types), helpers };
+  return { code, types: new Map(ex.types), helpers, functions: [name] };
 }
 
 /**
  * Merge outputs into one: code joined in order, each type and helper kept
- * once. Two outputs declaring the same name differently is an error — it
- * means two different gin types share a name.
+ * once. Every collision is an error, never a silent overwrite:
+ *
+ *  - a type or helper name declared two different ways — the outputs come from
+ *    different registries, or from different `async` / `includeComments` /
+ *    `export` options (names themselves are stable within one registry);
+ *  - two functions with one name, or a function named like a helper.
  */
 export function joinTypeScript(outputs: Iterable<TypeScriptOutput>): TypeScriptOutput {
   const code: string[] = [];
   const types = new Map<string, string>();
   const helpers = new Map<string, string>();
+  const functions: string[] = [];
+  const problems: string[] = [];
   const merge = (into: Map<string, string>, from: Map<string, string>, what: string): void => {
     for (const [k, v] of from) {
       const had = into.get(k);
       if (had !== undefined && had !== v) {
-        throw new TypeScriptExportError([`joinTypeScript: ${what} '${k}' is declared two different ways`]);
+        problems.push(`${what} '${k}' is declared two different ways (outputs from different registries or options?)`);
+        continue;
       }
       into.set(k, v);
     }
@@ -63,8 +73,14 @@ export function joinTypeScript(outputs: Iterable<TypeScriptOutput>): TypeScriptO
     if (o.code) code.push(o.code);
     merge(types, o.types, 'type');
     merge(helpers, o.helpers, 'helper');
+    for (const f of o.functions) {
+      if (functions.includes(f)) problems.push(`two functions are named '${f}'`);
+      else functions.push(f);
+    }
   }
-  return { code: code.join('\n\n'), types, helpers };
+  for (const f of functions) if (helpers.has(f)) problems.push(`function '${f}' has the name of a helper`);
+  if (problems.length) throw new TypeScriptExportError(problems.map((p) => `joinTypeScript: ${p}`));
+  return { code: code.join('\n\n'), types, helpers, functions };
 }
 
 /** One TypeScript file: the types, then the helpers, then the code. */

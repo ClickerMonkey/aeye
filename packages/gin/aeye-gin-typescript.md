@@ -22,7 +22,7 @@ renderTypeScriptTypes(all);              // the types alone — type-checks on i
 | Export | What it does |
 |---|---|
 | `engine.toTypeScript(expr, options?)` / `toTypeScript(engine, expr, options?)` | One expression → `{ code, types, helpers }`. Throws `TypeScriptExportError` (with `.problems`) listing every construct with no TypeScript form. |
-| `joinTypeScript(outputs)` | Merge outputs: code in order, every type and helper once. The same name declared two different ways throws. |
+| `joinTypeScript(outputs)` | Merge outputs: code in order, every type and helper once. Any collision throws — see [names](#names-never-collide). |
 | `renderTypeScriptFile(output)` | Types, then helpers, then code. |
 | `renderTypeScriptTypes(output)` | The type declarations alone. |
 | `PRELUDE` | The helper sources (see below), keyed by name. |
@@ -85,6 +85,26 @@ type Employee = Person & EmployeeData & { badge: () => Promise<string> };
 
 `XData` is what a host fills in to build a value, and what `makeX` takes — no
 `Omit<…>` anywhere.
+
+### Names never collide
+
+Type names are handed out for the whole registry at once, in sorted order, so every
+export of one registry agrees on them and `joinTypeScript` can merge the outputs:
+
+1. A gin name that is already a usable identifier keeps it.
+2. Any other name is made one and numbered on a clash: `fs/Entry` → `fs_Entry`
+   (or `fs_Entry_2` if a type is really called `fs_Entry`); a TypeScript global
+   gets a trailing `_` (`Map` → `Map_`, `Date` → `Date_`).
+3. Derived names come last: if a gin type is really called `PersonData`, it keeps the
+   name and Person's fields-only type becomes `PersonData_2`; an export's `ctx` type
+   is numbered the same way (`FnCtx_2`).
+
+Values are kept apart too: a gin local never shadows a helper (`$listGet` →
+`_$listGet`, `makeX` → `_makeX`), a function named like a helper it needs is
+refused, and `joinTypeScript` refuses two functions with one name (`output.functions`
+lists them) and any type or helper declared two different ways — outputs from
+different registries, or from different `async` / `includeComments` / `export`
+options.
 Docs become `/** … */`, and constraints a TypeScript type cannot state become doc
 text: `/** gin: num{min=0, whole=true} */ age: number`. A namespaced name
 (`fs/Entry`) becomes an identifier (`fs_Entry`).

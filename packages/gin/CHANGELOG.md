@@ -10,7 +10,10 @@ commits); this file starts here and is the place to look from now on.
 `engine.toTypeScript(expr, options)` compiles a gin expression to a TypeScript
 function that does what `engine.run` does, plus a `type` declaration (never
 `interface`) for every non-native type it reaches. An object type with members
-splits into `XData` (its stored fields) and `X = XData & { members }`. A lambda becomes
+splits into `XData` (its stored fields) and `X = XData & { members }`. Type names
+are allocated registry-wide in sorted order, so they never collide (namespaced
+names, TypeScript globals like `Map`, a real `PersonData`, `ctx` types are
+numbered) and are the same in every export of one registry. A lambda becomes
 `function name(args, ctx?)` — one args object, gin's calling convention — and any
 other expression `function name(ctx?)`; `ctx` carries the engine globals and run
 extras the code reads. Named types list their members as properties; members

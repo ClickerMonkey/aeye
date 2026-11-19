@@ -434,6 +434,71 @@ describe('gin → TypeScript: referenced types', () => {
     expect(() => e.toTypeScript(hire)).toThrow(/host member clockIn cannot be supplied/);
   });
 
+  test('name collisions: real gin names win, derived and unusable names are numbered, the same in every export', async () => {
+    const { e, r } = fixture();
+    // A real type called PersonData (Person's fields-only type wants that name), a type
+    // called Map (a TypeScript global), two names that both become fs_Entry, and a type
+    // called FnCtx (what fn's ctx type wants to be called).
+    r.register(r.extend(r.obj({ note: { type: r.text() } }), { name: 'PersonData' }));
+    r.register(r.extend(r.obj({ size: { type: r.num() } }), { name: 'Map' }));
+    r.register(r.extend(r.obj({ path: { type: r.text() } }), { name: 'fs/Entry' }));
+    r.register(r.extend(r.obj({ other: { type: r.text() } }), { name: 'fs_Entry' }));
+    r.register(r.extend(r.obj({ x: { type: r.num() } }), { name: 'FnCtx' }));
+
+    const a = lambda({ p: T('Person'), d: T('PersonData'), m: T('Map') }, T('text'),
+      tmpl('{n} {note} {size}', {
+        kind: 'new', type: obj({ n: T('text'), note: T('text'), size: T('num') }),
+        value: { n: get('args', 'p', 'fullName'), note: get('args', 'd', 'note'), size: get('args', 'm', 'size') },
+      } as ExprDef));
+    const b = lambda({ e1: T('fs/Entry'), e2: T('fs_Entry'), c: T('FnCtx') }, T('num'),
+      get('args', 'c', 'x', 'mul', call({ other: get('taxRate') })));
+
+    const outA = e.toTypeScript(a, { name: 'describe', export: true });
+    const outB = e.toTypeScript(b, { name: 'fn', export: true });
+    expect([...outA.types.keys()].sort()).toEqual(['Map_', 'Person', 'PersonData', 'PersonData_2']);
+    expect(outA.types.get('PersonData')).toContain('note: string');            // the real gin type
+    expect(outA.types.get('PersonData_2')).toContain('firstName: string');     // Person's fields
+    expect(outA.types.get('Person')).toContain('= PersonData_2 & {');
+    expect(outA.helpers.get('makePerson')).toContain('(data: PersonData_2): Person');
+    expect(outA.code).toContain('m: Map_');
+    expect([...outB.types.keys()].sort()).toEqual(['FnCtx', 'FnCtx_2', 'fs_Entry', 'fs_Entry_2']);
+    expect(outB.types.get('fs_Entry')).toContain('other: string');             // the name that was already usable
+    expect(outB.types.get('fs_Entry_2')).toContain('path: string');            // fs/Entry
+    expect(outB.code).toContain('ctx: FnCtx_2');
+
+    // Names come from the registry, not from export order: exporting b first changes nothing.
+    const again = new Engine(r);
+    again.registerGlobal('taxRate', { type: r.num(), value: 0.25, docs: 'Sales tax as a fraction.' });
+    const bFirst = again.toTypeScript(b, { name: 'fn', export: true });
+    const aSecond = again.toTypeScript(a, { name: 'describe', export: true });
+    expect(bFirst.types).toEqual(outB.types);
+    expect(aSecond.types).toEqual(outA.types);
+    expect(aSecond.helpers).toEqual(outA.helpers);
+    const all = joinTypeScript([bFirst, aSecond]);
+    const mod = load(renderTypeScriptFile(all));
+    const p = mod.makePerson({ firstName: 'Ada', lastName: 'L', age: 1 });
+    expect(await mod.describe({ p, d: { note: 'hi' }, m: { size: 3 } })).toBe('Ada L hi 3');
+    expect(await mod.fn({ e1: { path: '/' }, e2: { other: '' }, c: { x: 8 } }, { taxRate: 0.25 })).toBe(2);
+  });
+
+  test('value-name collisions are refused: a function named like a helper, two functions with one name', () => {
+    const { e } = fixture();
+    const viaDefine = lambda({ n: T('text') }, T('text'), define([
+      ['p', { kind: 'new', type: T('Person'), value: { firstName: get('args', 'n'), lastName: '', age: 1 } } as ExprDef],
+    ], get('p', 'fullName')));
+    expect(() => e.toTypeScript(viaDefine, { name: 'makePerson' })).toThrow(/also the name of a helper/);
+    const one = e.toTypeScript(lambda({}, T('num'), num(1)), { name: 'same' });
+    expect(() => joinTypeScript([one, one])).toThrow(/two functions are named 'same'/);
+    // Different options declare a shared type differently: refused, not overwritten.
+    const always = e.toTypeScript(viaDefine, { name: 'a' });
+    const auto = e.toTypeScript(viaDefine, { name: 'b', async: 'auto' });
+    expect(() => joinTypeScript([always, auto])).toThrow(/declared two different ways/);
+    // A gin local named like a helper is renamed, never shadows it.
+    const shadow = e.toTypeScript(lambda({ xs: T('list', { generic: { V: T('num') } }) }, T('num'),
+      define([['$listGet', num(0)]], get('args', 'xs', { key: get('$listGet') }))), { name: 'pick', export: true });
+    expect(shadow.code).toContain('let _$listGet = 0;');
+  });
+
   test('generic named types declare their parameters', async () => {
     const { e } = fixture();
     const BoxNum = T('Box', { generic: { V: T('num') } });
