@@ -96,6 +96,7 @@ packages/docs/
 ├── providers/                # Per-provider usage guides
 │   ├── openai.md
 │   ├── openrouter.md
+│   ├── ollama.md
 │   ├── replicate.md
 │   ├── aws.md
 │   └── custom.md

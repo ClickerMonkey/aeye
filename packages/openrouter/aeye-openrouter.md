@@ -8,7 +8,7 @@ One-line purpose: OpenRouter provider for `@aeye/ai` — one API key, hundreds o
 - You need routing control (preferred providers, fallbacks, price/throughput/latency sorting) or Zero Data Retention.
 - You want a dynamic model registry with pricing/capabilities pulled from OpenRouter.
 
-It also serves image generation/editing (through chat with the image modality), speech, transcription, and embeddings (through OpenRouter's OpenAI-compatible endpoints). Image and transcription streaming are not offered; those fall back to the non-streaming methods.
+It also serves image generation/editing (through chat with the image modality), speech, transcription, and embeddings (through OpenRouter's OpenAI-compatible endpoints). An embeddings request with an image sends every input in OpenRouter's multimodal form (`{ content: [{ type: 'image_url', image_url: { url } }] }`, texts as `{ type: 'text' }` parts); embedding models whose input modalities include images get `imageEmbedding`, plus `crossModalEmbedding` when they also read text. Image and transcription streaming are not offered; those fall back to the non-streaming methods.
 
 ## Install / import
 

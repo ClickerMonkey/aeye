@@ -24,6 +24,7 @@
       "@aeye/ai": ["./packages/ai/src/index.ts"],
       "@aeye/openai": ["./packages/openai/src/index.ts"],
       "@aeye/openrouter": ["./packages/openrouter/src/index.ts"],
+      "@aeye/ollama": ["./packages/ollama/src/index.ts"],
       "@aeye/replicate": ["./packages/replicate/src/index.ts"],
       "@aeye/aws": ["./packages/aws/src/index.ts"],
       "@aeye/models": ["./packages/models/src/index.ts"],

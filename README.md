@@ -77,6 +77,7 @@ npm install @aeye/ai @aeye/core
 # Install provider packages as needed
 npm install @aeye/openai openai       # OpenAI
 npm install @aeye/openrouter          # OpenRouter (multi-provider)
+npm install @aeye/ollama              # Ollama (local models)
 npm install @aeye/replicate replicate # Replicate
 npm install @aeye/aws                 # AWS
 ```
@@ -213,6 +214,20 @@ npm install @aeye/openrouter
 - Strict tools and structured output kept strict for Anthropic upstreams
 - Reasoning replay, rerank, and batches
 
+#### [@aeye/ollama](./packages/ollama)
+Ollama provider for local (or cloud) models.
+
+```bash
+npm install @aeye/ollama
+```
+
+**Features:**
+- Chat and embeddings through Ollama's OpenAI-compatible `/v1`
+- System One decisions through `/v1/systemone`, with images and `keep_alive`
+- Model list and capabilities from `/api/tags` and `/api/show`
+- The context window each model is really served with
+- Decision limits (`maxQuestions`, `maxRequestBytes`): larger calls are refused, never split
+
 #### [@aeye/replicate](./packages/replicate)
 Replicate provider with flexible adapter system for running open-source AI models.
 
@@ -223,7 +238,7 @@ npm install @aeye/replicate replicate
 **Features:**
 - Thousands of open-source models
 - Model adapters for handling diverse schemas
-- Image generation, transcription, embeddings
+- Image generation, transcription, embeddings (CLIP-style models embed images too)
 - Custom model support
 
 #### [@aeye/aws](./packages/aws)
@@ -239,7 +254,7 @@ npm install @aeye/aws
 - Structured output and strict tools, prompt caching (cache points, read/write tokens)
 - Documents, video, audio and S3 content; guardrails, service tiers, inference profiles
 - Image generation (Stability AI)
-- Text embeddings (Amazon Titan)
+- Embeddings: Titan Text, Titan Multimodal, Nova Multimodal and Cohere Embed (texts and images)
 - Automatic AWS credential discovery
 
 ### Supporting Packages
@@ -714,6 +729,12 @@ const embeddingResponse = await ai.embed.get({
 embeddingResponse.embeddings.forEach((item, i) => {
   console.log(`Embedding ${i}:`, item.embedding.length, 'dimensions');
 });
+
+// Images: `inputs` mixes texts and images (one vector each, in order). Only models with the
+// `imageEmbedding` capability are chosen; `crossModalEmbedding` models put both in one space.
+const mixed = await ai.embed.get({
+  inputs: ['a red bicycle', { image: 'https://example.com/bike.jpg' }],
+});
 ```
 
 ### Context Management
@@ -849,6 +870,7 @@ aeye/
 │   ├── ai/            # Main AI library
 │   ├── openai/        # OpenAI provider
 │   ├── openrouter/    # OpenRouter provider
+│   ├── ollama/        # Ollama provider
 │   ├── replicate/     # Replicate provider
 │   ├── aws/           # AWS Bedrock provider
 │   ├── gin/           # JSON-typed program language for LLMs

@@ -110,6 +110,7 @@ export default defineConfig({
           items: [
             { text: 'OpenAI', link: '/providers/openai' },
             { text: 'OpenRouter', link: '/providers/openrouter' },
+            { text: 'Ollama', link: '/providers/ollama' },
             { text: 'Replicate', link: '/providers/replicate' },
             { text: 'AWS Bedrock', link: '/providers/aws' },
             { text: 'Custom Provider', link: '/providers/custom' },

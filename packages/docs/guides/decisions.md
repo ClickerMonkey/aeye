@@ -120,7 +120,36 @@ const { answers } = await ai.decide.get({
 | OpenAI | `/v1/decisions` | `gpt-6-luna` | `gpt-6-luna` |
 | OpenRouter | Alpha decisions endpoint | System One models (`typesafe/jev-1.14`, `jaredpalmer/kev-4b`), `openai/gpt-6-luna-decisions`, `liquid/d1`, `perplexity/pplx-decider-v1.2`, `upstage/solar-decide`, and others | `typesafe/jev-1.14` |
 
+| Ollama | `/v1/systemone` (v0.35+) | System One models such as `nimble`, or cloud ones such as `clef:cloud` | none |
+
 Set `defaultModels.decision` on the provider to change its default. OpenRouter's decisions endpoint is in alpha and sits outside its versioned API, so expect it to change. Replicate and AWS Bedrock don't offer decisions.
+
+## Images
+
+Decision models with vision take images shared by every question:
+
+```typescript
+const { answers } = await ai.decide.get({
+  input: 'A photo from the front door camera.',
+  images: [fs.readFileSync('door.jpg')],
+  questions: { person: { type: 'predicate', instructions: 'Is someone at the door?' } },
+});
+```
+
+A request with images needs a model with both the `decision` and `vision` capabilities. An image is any resource (a Buffer, a data URL, an http(s) or file URL); a plain string is read as text.
+
+## Limits
+
+A decision model may cap one call: `ModelInfo.maxQuestions` (questions per call) and `ModelInfo.maxRequestBytes` (bytes of input and questions per call, images aside). Ollama's System One models take 64 questions and 64 KiB. A call over a cap is refused with a `DecisionLimitError` before it is sent. @aeye never splits a call: split your questions into calls the model takes.
+
+```typescript
+const max = model.maxQuestions ?? Infinity;
+const names = Object.keys(questions);
+for (let i = 0; i < names.length; i += max) {
+  const batch = Object.fromEntries(names.slice(i, i + max).map(name => [name, questions[name]]));
+  const { answers } = await ai.decide.get({ input, questions: batch }, { metadata: { model: model.id } });
+}
+```
 
 ## Model Selection
 

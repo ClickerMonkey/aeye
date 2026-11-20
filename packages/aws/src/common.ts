@@ -1,5 +1,6 @@
 import { FoundationModelSummary } from "@aws-sdk/client-bedrock";
 import { ModelCapability, ModelInfo, ModelTier } from "@aeye/ai";
+import { awsEmbeddingCapabilities } from "./embeddings";
 
 export type AWSFamily = "anthropic" | "meta" | "mistral" | "cohere" | "ai21" | "amazon" | "stability" | "unknown";
 
@@ -64,12 +65,13 @@ export function detectAWSCapabilities(model: FoundationModelSummary): Set<ModelC
     capabilities.add('vision');
   }
   
-  // Embeddings
-  if (family === 'amazon' && modelId.includes('embed')) {
-    capabilities.add('embedding');
+  // Embeddings, and image embeddings in the space of the model's texts
+  if (family === 'amazon' || family === 'cohere') {
+    awsEmbeddingCapabilities(modelId).forEach(capability => capabilities.add(capability));
   }
-  if (family === 'cohere' && modelId.includes('embed')) {
-    capabilities.add('embedding');
+  if (capabilities.has('embedding') && model.inputModalities?.includes('IMAGE')) {
+    capabilities.add('imageEmbedding');
+    capabilities.add('crossModalEmbedding');
   }
   
   // Tool calling via the Converse API - supported by chat-capable models in these families
@@ -199,6 +201,10 @@ const MODEL_METADATA: Record<string, Partial<ModelInfo>> = {
   'cohere.command-light-text-v14': { pricing: { text: { input: 0.3, output: 0.6 } }, contextWindow: 128000, maxOutputTokens: 2048 },
   'cohere.command-r-v1:0': { pricing: { text: { input: 0.5, output: 1.5 } }, contextWindow: 128000, maxOutputTokens: 2048 },
   'cohere.command-r-plus-v1:0': { pricing: { text: { input: 3, output: 15 } }, contextWindow: 128000, maxOutputTokens: 2048 },
-  // Amazon Titan Text
+  // Amazon Titan Embeddings
   'amazon.titan-embed-text-v2:0': { pricing: { embeddings: { cost: 0.135 } }, contextWindow: 8000, maxOutputTokens: 0 },
+  'amazon.titan-embed-image-v1': { pricing: { embeddings: { cost: 0.8, perImage: 0.00006 } }, contextWindow: 128, maxOutputTokens: 0 },
+  // Cohere Embed v3
+  'cohere.embed-english-v3': { pricing: { embeddings: { cost: 0.1 } }, contextWindow: 512, maxOutputTokens: 0 },
+  'cohere.embed-multilingual-v3': { pricing: { embeddings: { cost: 0.1 } }, contextWindow: 512, maxOutputTokens: 0 },
 };

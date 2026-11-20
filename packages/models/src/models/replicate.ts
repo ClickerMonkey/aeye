@@ -399,7 +399,7 @@ export const replicateModels: ModelInfo[] = [{
   contextWindow: 77,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['embedding']),
+  capabilities: new Set(['embedding', 'imageEmbedding', 'crossModalEmbedding']),
   supportedParameters: new Set([]),
   pricing: {},
   metrics: {
@@ -2734,7 +2734,7 @@ export const replicateModels: ModelInfo[] = [{
   contextWindow: 0,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['embedding', 'vision', 'hearing']),
+  capabilities: new Set(['embedding', 'imageEmbedding', 'crossModalEmbedding', 'vision', 'hearing']),
   supportedParameters: new Set([]),
   pricing: {
     perRequest: 0.0003
@@ -4687,7 +4687,7 @@ export const replicateModels: ModelInfo[] = [{
   contextWindow: 77,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['embedding', 'vision']),
+  capabilities: new Set(['embedding', 'imageEmbedding', 'crossModalEmbedding', 'vision']),
   supportedParameters: new Set([]),
   pricing: {
     perRequest: 0.002
@@ -8946,7 +8946,7 @@ export const replicateModels: ModelInfo[] = [{
   contextWindow: 8192,
   tier: 'efficient',
   tokenizer: 'Other',
-  capabilities: new Set(['embedding', 'vision']),
+  capabilities: new Set(['embedding', 'imageEmbedding', 'crossModalEmbedding', 'vision']),
   supportedParameters: new Set(['embeddingDimensions']),
   pricing: {},
   metrics: {

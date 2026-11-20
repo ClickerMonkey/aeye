@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -17,7 +18,7 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => ({
-          texts: JSON.stringify(request.texts),
+          texts: JSON.stringify(embeddingTexts(request, 'nateraw/bge-large-en-v1.5')),
           ...request.extra,
         }),
         parseResponse: async (response: Schemas["Output"], ctx) => {

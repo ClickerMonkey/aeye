@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -19,7 +20,7 @@ export default {
           // We map the first text in the request to 'document'.
           // 'task' and 'query' can be passed via extra if needed for asymmetric tasks.
           return {
-            document: request.texts[0],
+            document: embeddingTexts(request, 'adirik/e5-mistral-7b-instruct')[0],
             ...request.extra,
           };
         },

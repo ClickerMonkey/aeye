@@ -517,6 +517,11 @@ export function finalizeSlice(resource: ParsedResource, part: ResourcePart, slic
   };
 }
 
+/**
+ * Every inline markdown link (`[label](target)`) and image (`![alt](src)`), as written. An image's link has
+ * `targetType` `image` and its alt text as its `title`, so a reader can tell the pictures a document shows from the
+ * pages it links to without guessing from the target's extension.
+ */
 export function extractLinksFromMarkdown(text: string, location: string): ResourceLink[] {
   const links: ResourceLink[] = [];
   let index = 0;
@@ -548,7 +553,8 @@ export function extractLinksFromMarkdown(text: string, location: string): Resour
       value,
       location,
       title: label || undefined,
-      kind: isExternalLink(value) ? "external" : "resource"
+      kind: isExternalLink(value) ? "external" : "resource",
+      ...(text[cursor - 1] === "!" ? { targetType: "image" } : {})
     });
     cursor = valueEnd;
   }

@@ -15,13 +15,13 @@
  *   forces regardless of strictness). See {@link OpenRouterConfig.defaultParams}.
  */
 
-import type { AIContextAny, BatchJob, DecisionAnswer, DecisionQuestion, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
-import { detectTier, INPUT_CAPABILITIES, OUTPUT_CAPABILITIES } from '@aeye/ai';
+import type { AIContextAny, BatchJob, EmbeddingInput, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageOutputOptions, Message, ModelCapability, ModelInfo, ModelParameter, ModelTokenizer, Provider } from '@aeye/ai';
+import { detectTier, embeddingImageURL, INPUT_CAPABILITIES, isEmbeddingImage, OUTPUT_CAPABILITIES } from '@aeye/ai';
 import { type Chunk, type DescriptorFamily, type GeneratedImage, type HostedTool, type MessageContent, type Reasoning, REASONING_EFFORTS, replaysTo, type Request, type Resource, type Response, type SchemaRejectedError, schemaRejection, type Usage, withAllowedTools } from '@aeye/core';
-import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, type SystemOneDecisionParams, toSystemOneQuestion } from '@aeye/openai';
+import { type BatchSubmission, type DefaultModels, OpenAIConfig, OpenAIProvider, type OperationRun, ProviderError, type RerankParams, fromSystemOneAnswers, toSystemOneParams } from '@aeye/openai';
 import OpenAI from 'openai';
 import { fetchModels, fetchZDRModels } from './source';
-import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterDecisionAnswer, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
+import type { OpenRouterBatch, OpenRouterChatChunk, OpenRouterDecision, OpenRouterEmbeddingInput, OpenRouterChatRequest, OpenRouterChatResponse, OpenRouterContentPart, OpenRouterImage, OpenRouterMetrics, OpenRouterModel, OpenRouterOutput, OpenRouterPlugin, OpenRouterProviderPreferences, OpenRouterRequestMessage, OpenRouterRerank, OpenRouterServerTool, OpenRouterUsage } from './types';
 
 /**
  * OpenRouter provider configuration. Requests always go through chat
@@ -163,6 +163,14 @@ function detectCapabilities(model: OpenRouterModel): Set<ModelCapability> {
   if (capabilities.has('chat')) {
     capabilities.add('streaming');
   }
+  // An embedding model that reads images embeds them, in the space of its text
+  const inputs = model.architecture.input_modalities;
+  if (capabilities.has('embedding') && inputs.includes('image')) {
+    capabilities.add('imageEmbedding');
+    if (inputs.includes('text')) {
+      capabilities.add('crossModalEmbedding');
+    }
+  }
   return capabilities;
 }
 
@@ -276,25 +284,6 @@ function aspectRatio(size: string): string {
   return ASPECT_RATIOS.reduce((best, r) =>
     Math.abs(ratio(r) - width / height) < Math.abs(ratio(best) - width / height) ? r : best
   );
-}
-
-/**
- * An answer in @aeye's shape, with score probabilities in level order.
- */
-function toDecisionAnswer(answer: OpenRouterDecisionAnswer): DecisionAnswer {
-  switch (answer.type) {
-    case 'noul':
-      return { type: 'predicate', probability: answer.noul };
-    case 'choice':
-      return answer;
-    case 'score':
-      return {
-        type: 'score',
-        score: answer.score,
-        probabilities: Object.entries(answer.probabilities).sort(([a], [b]) => Number(a) - Number(b)).map(([, probability]) => probability),
-        confidence: answer.confidence,
-      };
-  }
 }
 
 /**
@@ -635,6 +624,24 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
   }
 
   /**
+   * Embedding inputs: plain texts, or, when any input is an image, each
+   * input in OpenRouter's multimodal form (a `content` array of one text or
+   * `image_url` part).
+   */
+  protected override async convertEmbeddingInputs(inputs: EmbeddingInput[], model: string): Promise<OpenAI.EmbeddingCreateParams['input']> {
+    if (!inputs.some(isEmbeddingImage)) {
+      return super.convertEmbeddingInputs(inputs, model);
+    }
+    const multimodal = await Promise.all(inputs.map(async (input): Promise<OpenRouterEmbeddingInput> => ({
+      content: [isEmbeddingImage(input)
+        ? { type: 'image_url', image_url: { url: await embeddingImageURL(input) } }
+        : { type: 'text', text: input }],
+    })));
+    // The OpenAI SDK types `input` as text or tokens only
+    return multimodal as unknown as OpenAI.EmbeddingCreateParams['input'];
+  }
+
+  /**
    * Typed answers about an input, from System One models such as Jev and
    * Kev or other decision models. A conversation goes in as chat messages.
    * Decisions are an alpha endpoint, outside the versioned API.
@@ -646,16 +653,12 @@ export class OpenRouterProvider extends OpenAIProvider<OpenRouterConfig> impleme
    */
   override decide: Provider['decide'] = async (request, ctx, config?: OpenRouterConfig) => {
     const run = this.prepare('decide', request, ctx, undefined, config, undefined, 'decision');
-    const params: SystemOneDecisionParams = {
-      model: run.model.id,
-      state: typeof request.input === 'string' ? request.input : await this.convertMessages({ messages: request.input }, run.config),
-      questions: Object.fromEntries(Object.entries(request.questions).map(([name, question]) => [name, toSystemOneQuestion(question)])),
-      ...request.extra,
-    };
+    const state = typeof request.input === 'string' ? request.input : await this.convertMessages({ messages: request.input }, run.config);
+    const params = await toSystemOneParams(run.model.id, state, request);
     const url = new URL('../alpha/decisions', `${run.client.baseURL}/`).href;
     const result = await this.send('decide', run, request, params, (signal) => run.client.post<OpenRouterDecision>(url, { body: params, signal }));
     return this.finish('decide', run, request, params, {
-      answers: Object.fromEntries(Object.entries(result.answers).map(([name, answer]) => [name, toDecisionAnswer(answer)])),
+      answers: fromSystemOneAnswers(result.answers),
       model: run.model,
       usage: { text: { input: result.usage.input_tokens, output: result.usage.output_tokens || undefined }, cost: result.usage.cost },
     });

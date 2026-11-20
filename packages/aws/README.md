@@ -12,7 +12,7 @@ AWS Bedrock integration for the [@aeye](https://github.com/ClickerMonkey/aeye) f
 - 💾 **Prompt Caching** - Cache points from `cacheBreakpoint`, with cache read/write usage
 - 📄 **Documents, Images, Video** - Bytes or S3 locations
 - 🎨 **Image Generation** - Stability AI models for image creation
-- 📊 **Embeddings** - Amazon Titan embeddings for semantic search
+- 📊 **Embeddings** - Titan Text, Titan Multimodal, Nova Multimodal and Cohere Embed; texts and images (`inputs`)
 - 🔧 **Type-Safe** - Full TypeScript support with type inference
 - ⚡ **Regional Flexibility** - Deploy across any AWS region with Bedrock
 

@@ -76,6 +76,8 @@ const aws = new AWSBedrockProvider({
 | AI21 | Jurassic-2 | Chat |
 | Stability AI | SDXL, SD3 | Image Generation |
 | Amazon | Titan Text Embeddings | Embeddings |
+| Amazon | Titan Multimodal Embeddings, Nova Multimodal Embeddings | Text and image embeddings (one space) |
+| Cohere | Embed v3, Embed v4 | Text and image embeddings (one space) |
 
 ## Cross-Region Inference
 

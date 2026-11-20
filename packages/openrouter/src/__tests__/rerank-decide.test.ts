@@ -85,3 +85,34 @@ describe('hooks', () => {
     expect(calls).toEqual(['rerank cohere/rerank-v3.5', 'reranked 1', 'decide system-one']);
   });
 });
+
+describe('embed', () => {
+  // The mocked OpenAI client gains the embeddings endpoint
+  const create = jest.fn();
+
+  async function embed(inputs: Parameters<NonNullable<typeof provider.embed>>[0]['inputs']) {
+    create.mockResolvedValue({ data: (inputs ?? []).map((_, index) => ({ embedding: [index], index })), usage: { prompt_tokens: 9, total_tokens: 9 } });
+    const OpenAI = jest.requireMock('openai') as jest.Mock;
+    OpenAI.mockImplementation(() => ({ post: mockPost, baseURL: 'https://openrouter.ai/api/v1', embeddings: { create } }));
+    const fresh = new OpenRouterProvider({ apiKey: 'k' });
+    const response = await fresh.embed!({ inputs }, { ...ctx, metadata: { model: 'nvidia/llama-nemotron-embed-vl-1b-v2' } });
+    return { response, params: create.mock.calls[0][0] };
+  }
+
+  it('sends plain texts when there are no images', async () => {
+    const { params } = await embed(['a', 'b']);
+    expect(params.input).toEqual(['a', 'b']);
+  });
+
+  it('sends every input in the multimodal form when one is an image, and counts images', async () => {
+    const { params, response } = await embed(['a red bike', { image: 'https://example.com/bike.png' }, { image: new Uint8Array([1, 2, 3]), mimeType: 'image/jpeg' }]);
+    expect(params).toMatchObject({ model: 'nvidia/llama-nemotron-embed-vl-1b-v2' });
+    expect(params.input).toEqual([
+      { content: [{ type: 'text', text: 'a red bike' }] },
+      { content: [{ type: 'image_url', image_url: { url: 'https://example.com/bike.png' } }] },
+      { content: [{ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AQID' } }] },
+    ]);
+    expect(response.embeddings).toHaveLength(3);
+    expect(response.usage).toEqual({ embeddings: { count: 3, tokens: 9, images: 2 } });
+  });
+});

@@ -142,7 +142,7 @@ export interface ReplicateConfig {
 // Types from Replicate API
 // ============================================================================
 
-interface ReplicateModel {
+export interface ReplicateModel {
   url: string;
   owner: string;
   name: string;
@@ -201,7 +201,7 @@ function createClient(config: ReplicateConfig): Replicate {
 /**
  * Convert Replicate model to ModelInfo
  */
-function convertModel(model: ReplicateModel): ModelInfo {
+export function convertReplicateModel(model: ReplicateModel): ModelInfo {
   const modelId = `${model.owner}/${model.name}`;
 
   // Try to detect capabilities from schema
@@ -236,6 +236,12 @@ function convertModel(model: ReplicateModel): ModelInfo {
   if (lowerName.includes('embed') ||
       lowerDesc.includes('embedding')) {
     capabilities.add('embedding');
+    // An embedding model that reads images (CLIP and the like) embeds them
+    // in the space of its texts
+    if (lowerName.includes('clip') || capabilities.has('vision')) {
+      capabilities.add('imageEmbedding');
+      capabilities.add('crossModalEmbedding');
+    }
   }
 
   if (lowerName.includes('llm') ||
@@ -316,7 +322,7 @@ export class ReplicateProvider implements Provider<ReplicateConfig> {
           if (modelsIterator.models) {
             for (const model of modelsIterator.models) {
               try {
-                allModels.push(convertModel(model as ReplicateModel));
+                allModels.push(convertReplicateModel(model as ReplicateModel));
               } catch (error) {
                 console.warn(`Failed to convert Replicate model ${model.name}:`, error);
               }

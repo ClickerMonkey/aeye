@@ -15,6 +15,7 @@ import type {
   Response,
   Streamer
 } from '../../types';
+import { embeddingInputs } from '../../apis/embed';
 
 export interface MockProviderOptions {
   name?: string;
@@ -161,8 +162,9 @@ export const createMockProvider = (options?: MockProviderOptions): Provider => {
     },
 
     async embed(request, ctx, config) {
+      const inputs = embeddingInputs(request);
       return {
-        embeddings: request.texts.map((text, index) => ({
+        embeddings: inputs.map((input, index) => ({
           embedding: Array(1536).fill(0.1),
           index
         })),
@@ -171,8 +173,8 @@ export const createMockProvider = (options?: MockProviderOptions): Provider => {
           // Embedding endpoints report usage under `embeddings` rather than
           // `text` — the embed API expects this shape (count + tokens).
           embeddings: {
-            count: request.texts.length,
-            tokens: request.texts.length * 5,
+            count: inputs.length,
+            tokens: inputs.length * 5,
           },
         }
       };

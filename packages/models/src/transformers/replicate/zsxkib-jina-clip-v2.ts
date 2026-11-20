@@ -1,4 +1,4 @@
-import { toURL } from '@aeye/core';
+import { embeddingImageURL, isEmbeddingImage, singleEmbeddingInput } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -17,24 +17,18 @@ export default {
   "zsxkib/jina-clip-v2": (() => {
     const transformer: ReplicateTransformer = {
       embed: {
+        // One text or one image per call, both in Jina CLIP's shared space
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => {
-          const { image, ...restExtra } = request.extra || {};
-          const input: Schemas["Input"] = {
-            text: request.texts?.[0],
+          const input = singleEmbeddingInput(request, 'zsxkib/jina-clip-v2');
+          return {
+            ...(isEmbeddingImage(input) ? { image: await embeddingImageURL(input) } : { text: input }),
             embedding_dim: request.dimensions,
             output_format: "array",
-            ...restExtra,
+            ...request.extra,
           };
-
-          if (image) {
-            input.image = await toURL(image);
-          }
-
-          return input;
         },
         parseResponse: async (response: Schemas["Output"], ctx) => {
-          // response is (string | number[])[]
-          // We requested 'array', so we cast to number[]
+          // We requested 'array', so each embedding is number[]
           const embeddings = response.map((emb, index) => ({
             embedding: emb as number[],
             index,

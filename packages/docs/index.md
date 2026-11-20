@@ -75,6 +75,7 @@ console.log(result?.suggestion);
 | [`@aeye/ai`](/reference/ai/ai-class) | Main AI library with model selection, APIs (chat, images, speech, transcription, embeddings, reranking, decisions, batches), and hooks |
 | [`@aeye/openai`](/providers/openai) | OpenAI provider (chat, images, speech, transcription, embeddings, decisions, batches) |
 | [`@aeye/openrouter`](/providers/openrouter) | OpenRouter multi-provider gateway (plus reranking, decisions, batches) |
+| [`@aeye/ollama`](/providers/ollama) | Ollama provider (chat, embeddings, System One decisions) |
 | [`@aeye/replicate`](/providers/replicate) | Replicate open-source model provider |
 | [`@aeye/aws`](/providers/aws) | AWS Bedrock provider (Converse API) |
 | [`@aeye/gin`](/gin/) | JSON-based programming language and type system for LLM-authored programs |

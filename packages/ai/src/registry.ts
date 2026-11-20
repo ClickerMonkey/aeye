@@ -414,9 +414,12 @@ export function getProviderCapabilities(provider: Provider): Set<ModelCapability
     capabilities.add('hearing');
   }
 
-  // embedding - Text embeddings for semantic search
+  // embedding - Text embeddings for semantic search; whether a model also
+  // embeds images (in a space shared with text or not) is a model capability
   if (provider.embed !== undefined) {
     capabilities.add('embedding');
+    capabilities.add('imageEmbedding');
+    capabilities.add('crossModalEmbedding');
   }
 
   // rerank - Ordering documents by relevance

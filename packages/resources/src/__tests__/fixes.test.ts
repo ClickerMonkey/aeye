@@ -9,7 +9,7 @@ import { createDefaultResourceRegistry } from "../default.js";
 import { buildResourceGraph, DEFAULT_GRAPH_MAX_RESOURCES } from "../graph.js";
 import { ResourceRegistry, createParsedResource } from "../registry.js";
 import { textSlicer } from "../slicers/index.js";
-import { collectInput, extractLinksFromText } from "../utils.js";
+import { collectInput, extractLinksFromMarkdown, extractLinksFromText } from "../utils.js";
 import type { RenderPdfPagesFn, ResourceParser, ResourceResolver, SummaryRequest } from "../types.js";
 
 const registry = createDefaultResourceRegistry();
@@ -128,6 +128,21 @@ describe("link extraction", () => {
   it("drops sentence punctuation after bare URLs", () => {
     const values = extractLinksFromText("See https://x.com/a. Or (https://y.com/b), then https://z.com!", "loc").map((l) => l.value);
     expect(values).toEqual(["https://x.com/a", "https://y.com/b", "https://z.com"]);
+  });
+
+  it("marks markdown images as image links, titled by their alt text, whatever their target's extension", () => {
+    const links = extractLinksFromMarkdown("See [the guide](guide.md) and ![A red car](https://cdn.x.com/pic?id=7 \"Car\"), then ![](./plain.png).", "loc");
+    expect(links.map((l) => [l.value, l.title, l.targetType])).toEqual([
+      ["guide.md", "the guide", undefined],
+      ["https://cdn.x.com/pic?id=7", "A red car", "image"],
+      ["./plain.png", undefined, "image"],
+    ]);
+    expect(links[0]).not.toHaveProperty("targetType");
+  });
+
+  it("marks images through the markdown parser too", async () => {
+    const { resource } = await registry.parse({ location: "/virtual/pics.md", type: "markdown", input: "![Logo](https://x.com/logo)\n\n[Home](https://x.com/)" });
+    expect(resource.links.map((l) => [l.value, l.targetType])).toEqual(expect.arrayContaining([["https://x.com/logo", "image"], ["https://x.com/", undefined]]));
   });
 });
 

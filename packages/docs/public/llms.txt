@@ -233,7 +233,7 @@ interface Usage {
   audio?: { input?: number; output?: number; seconds?: number };
   image?: { input?: number; tokens?: number; output?: Array<{ quality: string; size: { width: number; height: number }; count: number }> };
   reasoning?: { input?: number; output?: number; cached?: number };
-  embeddings?: { count?: number; tokens?: number };
+  embeddings?: { count?: number; tokens?: number; images?: number };
   tools?: Partial<Record<HostedTool['type'], number>>; // hosted tool calls
   cost?: number;
 }
@@ -577,7 +577,7 @@ function isAsyncGenerator(value: any): value is AsyncGenerator;
 ### Model Types
 
 ```typescript
-type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict';
+type ModelCapability = 'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'imageEmbedding' | 'crossModalEmbedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict';
 type ModelTier = 'flagship' | 'efficient' | 'legacy' | 'experimental';
 type ModelTokenizer = 'gpt3' | 'gpt35turbo' | 'gpt4' | 'cl100k' | 'claude' | 'llama2' | 'mistral' | 'other';
 
@@ -593,7 +593,7 @@ interface ModelPricing {
   audio?: { input?: number; output?: number; perSecond?: number };
   image?: { input?: number; tokens?: number; output?: Array<{ quality: string; sizes: Array<{ width: number; height: number; cost: number }> }> };
   reasoning?: { input?: number; output?: number; cached?: number };
-  embeddings?: { cost?: number };
+  embeddings?: { cost?: number; perImage?: number };
   tools?: Partial<Record<HostedTool['type'], number>>; // $ per call
   perRequest?: number;
 }
@@ -761,9 +761,11 @@ interface SpeechResponse {
   model: ModelInput;
 }
 
+type EmbeddingInput = string | { image: Resource; mimeType?: string };
 interface EmbeddingRequest {
   model?: ModelInput;
-  texts: string[];
+  inputs?: EmbeddingInput[]; // images need 'imageEmbedding'; 'crossModalEmbedding' = one space with text
+  texts?: string[];          // text-only shorthand; give inputs or texts
   dimensions?: number;
   encodingFormat?: 'float' | 'base64';
 }
@@ -802,7 +804,9 @@ interface DecisionRequest {
   model?: ModelInput;
   input: string | Message[];
   questions: Record<string, DecisionQuestion>;
+  images?: Resource[]; // needs a vision decision model
 }
+// Over ModelInfo.maxQuestions / maxRequestBytes: DecisionLimitError, never split
 
 interface DecisionResponse {
   answers: Record<string, DecisionAnswer>;

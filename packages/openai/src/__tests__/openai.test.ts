@@ -537,6 +537,21 @@ describe('OpenAIProvider', () => {
       const callArgs = mockOpenAI.embeddings.create.mock.calls[0];
       expect(callArgs[0]).toMatchObject({ model: 'text-embedding-3-large' });
     });
+
+    it('sends text inputs as the embedding input', async () => {
+      mockOpenAI.embeddings.create.mockResolvedValue({ data: [{ embedding: [0], index: 0 }, { embedding: [1], index: 1 }], usage: { prompt_tokens: 4, total_tokens: 4 } });
+
+      const response = await provider.embed!({ inputs: ['a', 'b'] }, { metadata: { model: 'text-embedding-3-small' } } as any);
+
+      expect(mockOpenAI.embeddings.create.mock.calls[0][0]).toMatchObject({ input: ['a', 'b'] });
+      expect(response.usage).toEqual({ embeddings: { count: 2, tokens: 4 } });
+    });
+
+    it('refuses images, which OpenAI does not embed', async () => {
+      await expect(provider.embed!({ inputs: ['a', { image: 'https://example.com/a.png' }] }, { metadata: { model: 'text-embedding-3-small' } } as any))
+        .rejects.toThrow('embeds text only');
+      expect(mockOpenAI.embeddings.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('Provider Customization', () => {

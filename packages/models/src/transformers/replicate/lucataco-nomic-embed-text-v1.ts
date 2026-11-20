@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -13,7 +14,7 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx) => ({
-          sentences: request.texts.join('\n'),
+          sentences: embeddingTexts(request, 'lucataco/nomic-embed-text-v1').join('\n'),
           ...request.extra,
         }),
         parseResponse: async (response: number[][], ctx) => ({

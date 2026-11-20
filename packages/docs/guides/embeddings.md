@@ -1,6 +1,6 @@
 # Embeddings
 
-Generate vector embeddings for text, useful for semantic search, clustering, and similarity comparison.
+Generate vector embeddings for text and images, useful for semantic search, clustering, and similarity comparison.
 
 ## Basic Usage
 
@@ -21,8 +21,15 @@ response.embeddings.forEach((item, i) => {
 
 ```typescript
 interface EmbeddingRequest {
-  texts: string[];          // texts to embed
-  dimensions?: number;      // output dimensions (if supported)
+  inputs?: EmbeddingInput[]; // texts and images to embed, one vector each, in order
+  texts?: string[];          // text-only shorthand for inputs (give one or the other)
+  dimensions?: number;       // output dimensions (if supported)
+}
+
+type EmbeddingInput = string | EmbeddingImage;
+interface EmbeddingImage {
+  image: Resource;           // http(s)/data/file URL, bytes, Blob or stream, as in chat
+  mimeType?: string;         // for bytes that carry none (default image/png)
 }
 ```
 
@@ -62,12 +69,34 @@ console.log('Doc 1 similarity:', cosineSimilarity(query, doc1)); // ~0.92
 console.log('Doc 2 similarity:', cosineSimilarity(query, doc2)); // ~0.45
 ```
 
+## Images
+
+Models with the `imageEmbedding` capability embed images too. Give images in
+`inputs` beside texts; a request with an image selects only such models.
+Models with `crossModalEmbedding` put texts and images in one vector space, so
+a text query finds images; require it when you compare across the two.
+
+```typescript
+const { embeddings } = await ai.embed.get(
+  { inputs: ['a red bicycle', { image: 'https://example.com/bike.jpg' }, { image: pngBytes }] },
+  { metadata: { required: ['crossModalEmbedding'] } },
+);
+```
+
+A text-only model sent an image throws `ImageEmbeddingError` before calling
+its provider. Usage counts images in `usage.embeddings.images`, priced by
+`pricing.embeddings.perImage` where the provider bills per image; the
+estimate before a call counts text at about four characters a token.
+
 ## Provider Support
 
-| Provider | Models |
-|----------|--------|
-| OpenAI | text-embedding-3-small, text-embedding-3-large, text-embedding-ada-002 |
-| AWS Bedrock | Amazon Titan Text Embeddings, Cohere Embed |
+| Provider | Text | Images (one space with text) |
+|----------|------|------------------------------|
+| OpenAI | text-embedding-3-small/large, ada-002 | — |
+| AWS Bedrock | Titan Text Embeddings, Cohere Embed | Titan Multimodal Embeddings, Nova Multimodal Embeddings, Cohere Embed v3/v4 |
+| OpenRouter | Any embeddings model | Models whose input modalities include images (multimodal `content` input) |
+| Replicate | Text embedders with transformers | CLIP-style models (`krthr/clip-embeddings`, `andreasjansson/clip-features`, `zsxkib/jina-clip-v2`, `daanelson/imagebind`) |
+| Ollama | Embedding models | — (Ollama's embed endpoints take text only) |
 
 ## Model Selection
 

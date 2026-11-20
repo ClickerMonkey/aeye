@@ -32,11 +32,12 @@ import type {
   TranscriptionResponse,
   TranscriptionSegment
 } from '@aeye/ai';
-import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detectTier, isModelInfo } from '@aeye/ai';
+import { allocateToolDescriptors, buildSchemaBudget, clampReasoningEffort, detectTier, embeddingInputs, embeddingTexts, type EmbeddingInput, isEmbeddingImage, isModelInfo } from '@aeye/ai';
 import { type AudioFormat, BaseRequest, type Chunk, deliverSchema, describeTool, type DescriptorFamily, type Executor, type GeneratedImage, getModel, getResponseFromChunks, type MessageContent, type Model, ModelInput, type Request, type Response, type SchemaBudget, type SchemaRejectedError, schemaRejection, type Streamer, strictify, toBase64, toFile, toJSONSchema, type ToolCall, toText, toURL } from '@aeye/core';
 import OpenAI from 'openai';
 import { chatUsage, MODERATION_MODEL, responsesUsage, toChatAudioFormat, toCitation, toModeration, toServiceTier, transcriptionUsage } from './convert';
-import { type OpenAIDecision, type OpenAIDecisionParams, type SystemOneDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
+import { type OpenAIDecision, type OpenAIDecisionParams, toDecisionAnswer, toDecisionQuestion } from './decisions';
+import type { SystemOneDecisionParams } from './systemone';
 import { imageParams, imageUsage, partialImages } from './images';
 import { isResponsesOnly, outputItemChunk, responseChunks, responseEndChunk, textInput, toHostedTool, toInputContent, toReasoningItems } from './responses';
 import { isContextWindowError, parseContextWindowError, type RetryConfig, RetryContext, type RetryEvents, withRetry } from './retry';
@@ -512,6 +513,18 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     request: EmbeddingRequest,
     config: TConfig,
   ): void;
+
+  /**
+   * The `input` of an embeddings request. OpenAI embeds text only, so an
+   * image is refused; providers whose endpoint takes images override this.
+   *
+   * @param inputs The texts and images to embed, in order
+   * @param model The model's id
+   * @throws {ImageEmbeddingError} When an input is an image
+   */
+  protected async convertEmbeddingInputs(inputs: EmbeddingInput[], model: string): Promise<OpenAI.EmbeddingCreateParams['input']> {
+    return embeddingTexts({ inputs }, model);
+  }
 
   /**
    * Customize chat completion params before sending to API.
@@ -1786,7 +1799,8 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
   }
 
   /**
-   * Generate text embeddings for semantic search and similarity.
+   * Generate embeddings for semantic search and similarity: texts, and
+   * images where `convertEmbeddingInputs` takes them.
    *
    * @param request Embedding request parameters
    * @param ctx Context object
@@ -1800,9 +1814,11 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     config?: TConfig
   ): Promise<EmbeddingResponse> => {
     const run = this.prepare('embed', request, ctx, undefined, config, undefined, 'embedding');
+    const inputs = embeddingInputs(request);
+    const images = inputs.filter(isEmbeddingImage).length;
     const params: OpenAI.EmbeddingCreateParams = {
       model: run.model.id,
-      input: request.texts,
+      input: await this.convertEmbeddingInputs(inputs, run.model.id),
       dimensions: request.dimensions,
       encoding_format: request.encodingFormat,
       user: request.userIdentifier,
@@ -1814,7 +1830,7 @@ export class OpenAIProvider<TConfig extends OpenAIConfig = OpenAIConfig> impleme
     return this.finish('embed', run, request, params, {
       embeddings: result.data.map(({ embedding, index }) => ({ embedding, index })),
       model: run.model,
-      usage: { embeddings: { count: result.data.length, tokens: result.usage.prompt_tokens } },
+      usage: { embeddings: { count: result.data.length, tokens: result.usage?.prompt_tokens, ...(images ? { images } : {}) } },
     });
   }
 

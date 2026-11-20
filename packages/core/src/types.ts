@@ -793,6 +793,8 @@ export interface Usage
     count?: number;
     /** Total tokens processed for embeddings */
     tokens?: number;
+    /** Images embedded (priced by `ModelPricing.embeddings.perImage`) */
+    images?: number;
   };
   /** Hosted tool calls made by the provider, by tool type */
   tools?: Partial<Record<HostedToolType, number>>;

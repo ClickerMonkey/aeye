@@ -17,7 +17,9 @@ const { answers } = await ai.decide.get({
 });
 ```
 
-Selects a model with the `decision` capability. The usage estimate for selection and budgets counts the input and the questions.
+Selects a model with the `decision` capability (and `vision` when the request has images). The usage estimate for selection and budgets counts the input and the questions.
+
+A call with more questions than the selected model's `maxQuestions` is refused with a `DecisionLimitError` (`model`, `limit`, `max`, `actual`), never split. Providers also refuse calls over the model's `maxRequestBytes`. `checkDecisionLimits(model, questions, bytes?)` runs the same check.
 
 ## Request: `DecisionRequest`
 
@@ -25,6 +27,7 @@ Selects a model with the `decision` capability. The usage estimate for selection
 interface DecisionRequest {
   input: string | Message[];                   // the evidence: text, or a conversation
   questions: Record<string, DecisionQuestion>; // questions by name
+  images?: Resource[];                         // shared by every question; needs a `vision` decision model
   model?: ModelInput;
   extra?: Record<string, any>;                 // sent as-is in the request body
 }

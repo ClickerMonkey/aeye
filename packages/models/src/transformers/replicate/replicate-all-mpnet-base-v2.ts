@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -17,14 +18,15 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => {
-          if (request.texts.length > 1) {
+          const texts = embeddingTexts(request, 'replicate/all-mpnet-base-v2');
+          if (texts.length > 1) {
             return {
-              text_batch: JSON.stringify(request.texts),
+              text_batch: JSON.stringify(texts),
               ...request.extra,
             };
           }
           return {
-            text: request.texts[0],
+            text: texts[0],
             ...request.extra,
           };
         },

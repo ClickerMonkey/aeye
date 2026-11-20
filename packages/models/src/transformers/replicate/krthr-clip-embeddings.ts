@@ -1,4 +1,4 @@
-import { toURL } from '@aeye/core';
+import { embeddingImageURL, isEmbeddingImage, singleEmbeddingInput } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -16,19 +16,13 @@ export default {
   "krthr/clip-embeddings": (() => {
     const transformer: ReplicateTransformer = {
       embed: {
+        // One text or one image per call, both in CLIP's shared space
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => {
-          const input: Schemas["Input"] = {
+          const input = singleEmbeddingInput(request, 'krthr/clip-embeddings');
+          return {
+            ...(isEmbeddingImage(input) ? { image: await embeddingImageURL(input) } : { text: input }),
             ...request.extra,
           };
-          // Map the first text from the request to the model's text input
-          if (request.texts && request.texts.length > 0) {
-            input.text = request.texts[0];
-          }
-          // Handle image input if provided in extra (common for CLIP models)
-          if (request.extra?.image) {
-            input.image = await toURL(request.extra.image);
-          }
-          return input;
         },
         parseResponse: async (response: Schemas["Output"], ctx) => {
           return {

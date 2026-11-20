@@ -3,6 +3,7 @@
  */
 
 import { AI } from '../ai';
+import { checkDecisionLimits, DecisionLimitError } from '../apis/decide';
 import type { DecisionRequest, ModelInfo, RerankRequest } from '../types';
 import { createMockModels, createMockProvider } from './mocks/provider.mock';
 
@@ -66,5 +67,45 @@ describe('Decide API', () => {
 
     expect(decided).toHaveLength(1);
     expect(response.answers.billing).toEqual({ type: 'predicate', probability: 0.8 });
+  });
+
+  it('refuses more questions than the model takes, without splitting them', async () => {
+    const decided: DecisionRequest[] = [];
+    const capped: ModelInfo = { ...model('mock-capped', 'decision'), maxQuestions: 2 };
+    const provider = {
+      ...createMockProvider({ name: 'mock', models: [capped] }),
+      decide: async (request: DecisionRequest) => {
+        decided.push(request);
+        return { answers: {}, model: 'mock-capped' };
+      },
+    };
+    const ai = AI.with().providers({ mock: provider }).create({});
+    await ai.models.refresh();
+    const ask = (count: number) => ai.decide.get({
+      input: 'text',
+      questions: Object.fromEntries(Array.from({ length: count }, (_, i) => [`q${i}`, { type: 'predicate' as const, instructions: `Question ${i}?` }])),
+    });
+
+    await expect(ask(3)).rejects.toThrow('mock-capped takes at most 2 questions per decision call, and this one asks 3');
+    expect(decided).toHaveLength(0);
+    await ask(2);
+    expect(decided).toHaveLength(1);
+  });
+
+  it('needs a vision decision model when the call has images', async () => {
+    const { ai } = setup();
+    await ai.models.refresh();
+
+    await expect(ai.decide.get({ input: 'text', images: [Buffer.from('png')], questions: { cat: { type: 'predicate', instructions: 'A cat?' } } })).rejects.toThrow('No compatible model found for decisions');
+  });
+});
+
+describe('checkDecisionLimits', () => {
+  it('passes unset limits and refuses an over-size call', () => {
+    expect(() => checkDecisionLimits({ id: 'm' }, 1_000, 1_000_000)).not.toThrow();
+    expect(() => checkDecisionLimits({ id: 'm', maxQuestions: 64, maxRequestBytes: 10 }, 64, 10)).not.toThrow();
+    const error = (() => { try { checkDecisionLimits({ id: 'm', maxRequestBytes: 10 }, 1, 11); } catch (e) { return e; } })();
+    expect(error).toBeInstanceOf(DecisionLimitError);
+    expect(error).toMatchObject({ model: 'm', limit: 'maxRequestBytes', max: 10, actual: 11 });
   });
 });

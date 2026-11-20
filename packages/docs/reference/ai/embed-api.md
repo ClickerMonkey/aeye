@@ -1,6 +1,6 @@
 # EmbedAPI
 
-Text embedding API. Only supports `.get()` (no streaming).
+Text and image embedding API. Only supports `.get()` (no streaming).
 
 ## Methods
 
@@ -17,8 +17,15 @@ const response = await ai.embed.get({
 
 ```typescript
 interface EmbeddingRequest {
-  texts: string[];
-  dimensions?: number;
+  inputs?: EmbeddingInput[]; // texts and images to embed, one vector each, in order
+  texts?: string[];          // text-only shorthand for inputs (give one or the other)
+  dimensions?: number;       // output dimensions (if supported)
+}
+
+type EmbeddingInput = string | EmbeddingImage;
+interface EmbeddingImage {
+  image: Resource;           // http(s)/data/file URL, bytes, Blob or stream, as in chat
+  mimeType?: string;         // for bytes that carry none (default image/png)
 }
 ```
 
@@ -33,6 +40,8 @@ interface EmbeddingResponse {
   usage?: Usage;
 }
 ```
+
+Images need a model with `imageEmbedding` (selected automatically); `crossModalEmbedding` marks models whose text and image vectors share one space. Helpers: `embeddingInputs`, `embeddingTexts` (throws `ImageEmbeddingError` on images), `singleEmbeddingInput`, `isEmbeddingImage`, `embeddingImageURL`, `embeddingImageBase64`, `estimateEmbeddingUsage`.
 
 ::: warning
 Streaming is not supported for embeddings. Calling `ai.embed.stream()` will throw an error.

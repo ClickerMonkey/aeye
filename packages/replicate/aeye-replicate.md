@@ -77,7 +77,7 @@ A `ReplicateTransformer` is a `ModelTransformer` (from `@aeye/ai`) with one entr
 | image analyze | `imageAnalyze` | `convertRequest`, `parseResponse` |
 | `ai.transcribe` | `transcribe` | `convertRequest`, `parseResponse` |
 | `ai.speech` | `speech` | `convertRequest`, `parseResponse` |
-| `ai.embed` | `embed` | `convertRequest`, `parseResponse` |
+| `ai.embed` | `embed` | `convertRequest`, `parseResponse` (read inputs with `embeddingInputs`/`embeddingTexts`/`singleEmbeddingInput` from `@aeye/ai`; CLIP-style models embed `{ image }` inputs and carry `imageEmbedding` + `crossModalEmbedding`) |
 
 Minimal hand-written transformer for a chat model:
 

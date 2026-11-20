@@ -35,6 +35,7 @@ interface Provider<TConfig = any> {
 |----------|---------|-------------|
 | [OpenAI](/providers/openai) | `@aeye/openai` | Chat, Vision, Images, Speech, Transcription, Embeddings, Decisions, Batches, Reasoning |
 | [OpenRouter](/providers/openrouter) | `@aeye/openrouter` | Multi-provider access to hundreds of models, plus reranking, decisions, and batches |
+| [Ollama](/providers/ollama) | `@aeye/ollama` | Local models: chat, vision, embeddings, decisions (System One) |
 | [Replicate](/providers/replicate) | `@aeye/replicate` | Open-source models with adapter system |
 | [AWS Bedrock](/providers/aws) | `@aeye/aws` | Claude, Llama, Mistral, Titan, Stability AI |
 | [Custom](/providers/custom) | `@aeye/openai` | Any OpenAI-compatible API |

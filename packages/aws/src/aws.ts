@@ -16,7 +16,7 @@ import type {
   ModelInfo,
   Provider
 } from '@aeye/ai';
-import { allocateToolDescriptors, buildSchemaBudget, isModelInfo } from '@aeye/ai';
+import { allocateToolDescriptors, buildSchemaBudget, embeddingInputs, isEmbeddingImage, isModelInfo } from '@aeye/ai';
 import {
   Chunk,
   deliverSchema,
@@ -59,6 +59,7 @@ import {
   ToolChoice as BedrockToolChoice,
 } from '@aws-sdk/client-bedrock-runtime';
 import { convertAWSModel } from './common';
+import { awsEmbeddingCalls, parseAWSEmbeddings } from './embeddings';
 import {
   ALWAYS_THINKING_CLAUDE,
   BEDROCK_PROVIDER,
@@ -795,51 +796,64 @@ export class AWSBedrockProvider implements Provider<AWSBedrockConfig> {
   };
 
   // ============================================================================
-  // Embeddings (Amazon Titan)
+  // Embeddings (Titan, Titan Multimodal, Nova Multimodal, Cohere Embed)
   // ============================================================================
 
+  /**
+   * Embed texts and, with a multimodal model, images. A request becomes one
+   * InvokeModel call per input (Cohere: per batch of texts, per image); the
+   * hooks run around each call.
+   */
   embed: Provider['embed'] = async (request, ctx, config: AWSBedrockConfig) => {
     const effectiveConfig = { ...this.config, ...config };
-    const model = getModel(request.model || effectiveConfig.defaultModels?.embedding);
-    
+    const model = getModel(request.model || ctx.metadata?.model || effectiveConfig.defaultModels?.embedding);
+
     if (!model) {
       throw new AWSError('Model is required for embeddings');
     }
 
-    // AWS Titan embeddings expect a single text input
-    const body = {
-      inputText: request.texts[0] || '',
-    };
+    const inputs = embeddingInputs(request);
+    const calls = await awsEmbeddingCalls(model.id, inputs, request);
 
     try {
-      const command = new InvokeModelCommand({
-        modelId: this.applyModelPrefix(model.id),
-        contentType: 'application/json',
-        accept: 'application/json',
-        body: JSON.stringify(body),
-      });
+      const embeddings: EmbeddingResponse['embeddings'] = [];
+      let tokens: number | undefined;
+      for (const call of calls) {
+        const command = new InvokeModelCommand({
+          modelId: this.applyModelPrefix(model.id),
+          contentType: 'application/json',
+          accept: 'application/json',
+          body: JSON.stringify(call.body),
+        });
 
-      // Call pre-request hook with command
-      await effectiveConfig.hooks?.embed?.beforeRequest?.(request, command, ctx);
+        await effectiveConfig.hooks?.embed?.beforeRequest?.(request, command, ctx);
 
-      const response = await this.bedrockRuntimeClient.send(command);
-      const responseBody = JSON.parse(new TextDecoder().decode(response.body));
+        const response = await this.bedrockRuntimeClient.send(command);
+        const parsed = parseAWSEmbeddings(model.id, JSON.parse(new TextDecoder().decode(response.body)));
+        if (parsed.vectors.length !== call.indices.length) {
+          throw new AWSError(`Expected ${call.indices.length} embeddings from ${model.id}, got ${parsed.vectors.length}`);
+        }
+        parsed.vectors.forEach((embedding, i) => embeddings.push({ embedding, index: call.indices[i] }));
+        if (parsed.tokens !== undefined) {
+          tokens = (tokens ?? 0) + parsed.tokens;
+        }
 
-      // Handle multiple texts if provided
-      const embeddings = request.texts.map(() => responseBody.embedding);
+        const partial: EmbeddingResponse = { embeddings: [...embeddings], model };
+        await effectiveConfig.hooks?.embed?.afterRequest?.(request, command, partial, ctx);
+      }
 
-      const result = {
-        embeddings,
+      const images = inputs.filter(isEmbeddingImage).length;
+      const result: EmbeddingResponse = {
+        embeddings: embeddings.sort((a, b) => a.index - b.index),
         model,
         usage: {
           embeddings: {
-            tokens: responseBody.inputTextTokenCount ?? -1,
+            count: embeddings.length,
+            ...(tokens !== undefined ? { tokens } : {}),
+            ...(images ? { images } : {}),
           },
         },
       };
-
-      // Call post-request hook with command
-      await effectiveConfig.hooks?.embed?.afterRequest?.(request, command, result, ctx);
 
       return result;
     } catch (error: any) {

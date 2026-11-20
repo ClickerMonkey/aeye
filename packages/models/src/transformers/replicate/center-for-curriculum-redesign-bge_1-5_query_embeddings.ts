@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -20,7 +21,7 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => ({
-          query_texts: JSON.stringify(request.texts),
+          query_texts: JSON.stringify(embeddingTexts(request, 'center-for-curriculum-redesign/bge_1-5_query_embeddings')),
           ...request.extra,
         }),
         parseResponse: async (response: Schemas["Output"], ctx) => ({

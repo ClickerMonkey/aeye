@@ -101,6 +101,8 @@ Vision/audio capabilities are auto-required from message content (an `image` par
 ```typescript
 // Embeddings (get only)
 const e = await ai.embed.get({ texts: ['hello', 'world'], dimensions: 1536 });
+// Images too, on models with 'imageEmbedding' ('crossModalEmbedding': one space with text)
+const m = await ai.embed.get({ inputs: ['a bike', { image: 'https://example.com/bike.jpg' }] }, { metadata: { required: ['crossModalEmbedding'] } });
 e.embeddings.forEach(({ embedding, index }) => console.log(index, embedding.length));
 
 // Images
@@ -112,7 +114,9 @@ await ai.image.analyze.get({ prompt: 'describe this', images: ['https://...jpg']
 const speech = await ai.speech.get({ text: 'Hello there', voice: 'alloy', speed: 1.0 });
 const text = await ai.transcribe.get({ audio: audioBuf, language: 'en' });
 
-// Rerank (OpenRouter) / Decisions (OpenAI, OpenRouter)
+// Rerank (OpenRouter) / Decisions (OpenAI, OpenRouter, Ollama). A decision model may cap a call
+// (ModelInfo.maxQuestions / maxRequestBytes): an over-cap call throws DecisionLimitError, never split.
+// `images` on a decision request needs a `vision` decision model.
 const { results } = await ai.rerank.get({ query: 'capital of France', documents, topN: 1 });
 const { answers } = await ai.decide.get({ input: text, questions: { spam: { type: 'predicate', instructions: 'Is this spam?' } } });
 
@@ -139,7 +143,7 @@ ai.models.select(criteria)                     // SelectedModel | undefined
 await ai.models.refresh()                      // re-fetch from providers + modelSources
 ```
 
-`ModelCapability` = `'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict'`. `ModelTier` = `'flagship' | 'efficient' | 'legacy' | 'experimental'`.
+`ModelCapability` = `'chat' | 'tools' | 'vision' | 'files' | 'videoInput' | 'json' | 'structured' | 'streaming' | 'reasoning' | 'image' | 'audio' | 'hearing' | 'embedding' | 'imageEmbedding' | 'crossModalEmbedding' | 'rerank' | 'decision' | 'zdr' | 'toolsStrict'`. `ModelTier` = `'flagship' | 'efficient' | 'legacy' | 'experimental'`.
 
 ## Tools, prompts & agents
 
@@ -225,7 +229,7 @@ const chatAI = ai.extend<{ chatId: string }>({ defaultContext: {} });
 
 ## Gotchas
 
-- **`embed` has no `stream()`** — only `embed.get()`. Image/speech "streaming" may fall back to a single chunk if the provider lacks a true streamer (the base API converts executor↔streamer automatically).
+- **`embed` has no `stream()`** — only `embed.get()`. A request gives `inputs` or `texts`, never both; providers read it with `embeddingInputs(request)` (or `embeddingTexts(request, model)`, which throws `ImageEmbeddingError` on images). Image/speech "streaming" may fall back to a single chunk if the provider lacks a true streamer (the base API converts executor↔streamer automatically).
 - **Capabilities are per-provider AND per-model.** A required capability must be supported by both the model (`ModelInfo.capabilities`) and the provider (auto-detected from its methods), or the model is filtered out. Missing the right provider method → "No compatible model found".
 - **Models registered under two keys** (`id` and `provider/id`); colliding registrations are merged, not replaced. Use `provider/model` IDs to disambiguate across providers.
 - **`refresh()` clears and re-fetches** all models. Models passed via `config.models` are preserved because they are also added as an internal `'config'` model source.

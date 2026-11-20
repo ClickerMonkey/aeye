@@ -1,5 +1,5 @@
 import type { BatchStatus, ModelTokenizer } from '@aeye/ai';
-import type { BatchOutputLine } from '@aeye/openai';
+import type { BatchOutputLine, SystemOneAnswer, SystemOneDecision } from '@aeye/openai';
 import type { ReasoningDetail, ReasoningEffort } from '@aeye/core';
 import OpenAI from "openai";
 
@@ -346,6 +346,14 @@ export interface OpenRouterBatch {
 }
 
 /**
+ * One multimodal input of an embeddings request: text and image parts
+ * embedded together into one vector.
+ */
+export interface OpenRouterEmbeddingInput {
+  content: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }>;
+}
+
+/**
  * Documents by relevance, as OpenRouter's rerank endpoint returns them.
  */
 export interface OpenRouterRerank {
@@ -355,19 +363,14 @@ export interface OpenRouterRerank {
 }
 
 /**
- * An answer as OpenRouter's decisions endpoint returns it. Score
- * probabilities are keyed by level index.
+ * An answer as OpenRouter's decisions endpoint returns it: System One's.
  */
-export type OpenRouterDecisionAnswer =
-  | { type: 'noul'; noul: number }
-  | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number }
-  | { type: 'score'; score: number; probabilities: Record<string, number>; confidence: number };
+export type OpenRouterDecisionAnswer = SystemOneAnswer;
 
 /**
- * A decision as OpenRouter's decisions endpoint returns it.
+ * A decision as OpenRouter's decisions endpoint returns it: System One's,
+ * with its cost.
  */
-export interface OpenRouterDecision {
-  model: string;
-  answers: Record<string, OpenRouterDecisionAnswer>;
-  usage: { input_tokens: number; output_tokens: number; cost?: number };
+export interface OpenRouterDecision extends SystemOneDecision {
+  usage: SystemOneDecision['usage'] & { cost?: number };
 }

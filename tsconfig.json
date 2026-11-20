@@ -6,6 +6,7 @@
     { "path": "./packages/openai" },
     { "path": "./packages/replicate" },
     { "path": "./packages/openrouter" },
+    { "path": "./packages/ollama" },
     { "path": "./packages/aws" },
     { "path": "./packages/models" }
   ]

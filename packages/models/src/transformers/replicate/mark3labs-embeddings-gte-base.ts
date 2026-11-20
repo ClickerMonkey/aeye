@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -16,7 +17,7 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => ({
-          text: request.texts[0],
+          text: embeddingTexts(request, 'mark3labs/embeddings-gte-base')[0],
           ...request.extra,
         }),
         parseResponse: async (response: Schemas["Output"], ctx) => ({

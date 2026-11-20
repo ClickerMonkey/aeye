@@ -242,4 +242,13 @@ describe('convertOpenRouterModel', () => {
     expect([...as({ ...model.architecture, input_modalities: ['audio'], output_modalities: ['transcription'] })]).toEqual(['hearing']);
     expect([...as({ ...model.architecture, input_modalities: ['text'], output_modalities: ['embeddings'] })]).toEqual(['embedding']);
   });
+
+  it('recognizes image embedding models, sharing the text space when they read text', () => {
+    const as = (modality: OpenRouterModel['architecture']) => convertOpenRouterModel({ ...model, architecture: modality, supported_parameters: [] }, new Set()).capabilities;
+
+    expect([...as({ ...model.architecture, input_modalities: ['text', 'image'], output_modalities: ['embeddings'] })].sort())
+      .toEqual(['crossModalEmbedding', 'embedding', 'imageEmbedding', 'vision']);
+    expect([...as({ ...model.architecture, input_modalities: ['image'], output_modalities: ['embeddings'] })].sort())
+      .toEqual(['embedding', 'imageEmbedding', 'vision']);
+  });
 });

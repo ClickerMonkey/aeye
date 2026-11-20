@@ -239,8 +239,14 @@ interface SpeechResponse extends BaseResponse {
   audio: ReadableStream<any>;
   responseFormat?: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm';
 }
+// Read the inputs with embeddingInputs(request) (or embeddingTexts(request, modelId) for
+// text-only models, which refuses images); isEmbeddingImage(input) tells an image, and
+// embeddingImageURL(input) gives its URL (http(s) or data URL). All from '@aeye/ai'.
+interface EmbeddingImage { image: Resource; mimeType?: string }
+type EmbeddingInput = string | EmbeddingImage;
 interface EmbeddingRequest extends BaseRequest {
-  texts: string[];
+  inputs?: EmbeddingInput[];
+  texts?: string[];
   dimensions?: number;
   encodingFormat?: 'float' | 'base64';
   userIdentifier?: string;

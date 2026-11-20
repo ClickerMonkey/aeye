@@ -120,9 +120,14 @@ function detectCapabilities(model: ReplicateModelData): Set<ModelCapability> {
     capabilities.add('audio');
   }
 
-  // Embeddings
+  // Embeddings; an embedding model that reads images (CLIP and the like)
+  // embeds them in the space of its texts
   if (lowerName.includes('embed') || lowerDesc.includes('embedding')) {
     capabilities.add('embedding');
+    if (lowerName.includes('clip') || capabilities.has('vision')) {
+      capabilities.add('imageEmbedding');
+      capabilities.add('crossModalEmbedding');
+    }
   }
 
   // Chat/language models
@@ -366,6 +371,8 @@ The request parameters in the converted request should only be the properties th
         'audio',
         'hearing',
         'embedding',
+        'imageEmbedding',
+        'crossModalEmbedding',
         'zdr'
       ])).describe(`Set of capabilities this model supports:
 
@@ -380,6 +387,8 @@ The request parameters in the converted request should only be the properties th
   - audio: Audio output
   - hearing: Audio input
   - embedding: Text -> embedding generation
+  - imageEmbedding: Image -> embedding generation
+  - crossModalEmbedding: Text and image embeddings share one vector space (CLIP-like)
   - zdr: Supports zero-data-retention through a parameter`),
       tier: z.enum(['flagship', 'efficient', 'legacy', 'experimental']).describe(`Model performance and quality tiers.
   Used for categorizing models by their capabilities and cost.

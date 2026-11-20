@@ -675,6 +675,7 @@ export class AI<T extends AIBaseTypes> {
       perMillion(usage.reasoning?.output, reasoning.output ?? text.output) +
       perMillion(usage.reasoning?.cached, reasoning.cached ?? text.cached ?? text.input) +
       perMillion(usage.embeddings?.tokens, embeddings.cost) +
+      (usage.embeddings?.images ?? 0) * (embeddings.perImage ?? 0) +
       (pricing.perRequest ?? 0);
 
     // Generated images are priced per image by quality and size

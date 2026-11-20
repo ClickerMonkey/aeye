@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 type Schemas = {
@@ -14,7 +15,7 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx): Promise<Schemas["Input"]> => ({
-          texts: JSON.stringify(request.texts),
+          texts: JSON.stringify(embeddingTexts(request, 'beautyyuyanli/multilingual-e5-large')),
           batch_size: request.extra?.batch_size,
           normalize_embeddings: request.extra?.normalize_embeddings,
         }),

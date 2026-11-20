@@ -1,3 +1,4 @@
+import { embeddingTexts } from '@aeye/ai';
 import { ReplicateTransformer } from '@aeye/replicate';
 
 
@@ -7,7 +8,7 @@ export default {
     const transformer: ReplicateTransformer = {
       embed: {
         convertRequest: async (request, ctx) => ({
-          texts: JSON.stringify(request.texts),
+          texts: JSON.stringify(embeddingTexts(request, 'nateraw/jina-embeddings-v2-base-en')),
           ...request.extra,
         }),
         parseResponse: async (response, ctx) => ({

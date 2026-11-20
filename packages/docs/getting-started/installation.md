@@ -21,6 +21,9 @@ npm install @aeye/openai openai
 # OpenRouter (access hundreds of models from multiple providers)
 npm install @aeye/openrouter
 
+# Ollama (local models, embeddings, System One decisions)
+npm install @aeye/ollama openai
+
 # Replicate (open-source models)
 npm install @aeye/replicate replicate
 

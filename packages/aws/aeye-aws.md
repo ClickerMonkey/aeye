@@ -1,6 +1,6 @@
 # @aeye/aws
 
-One-line purpose: AWS Bedrock provider for `@aeye/ai` — chat (Claude, Llama, Mistral, Cohere, etc.) through the unified **Converse API**, plus Stability AI image generation and Amazon Titan embeddings, using AWS SDK v3 credential discovery.
+One-line purpose: AWS Bedrock provider for `@aeye/ai` — chat (Claude, Llama, Mistral, Cohere, etc.) through the unified **Converse API**, plus Stability AI image generation and text and image embeddings (Titan, Titan Multimodal, Nova Multimodal, Cohere Embed), using AWS SDK v3 credential discovery.
 
 ## When to use
 
@@ -137,7 +137,7 @@ Without a prefix, a model the registry marks `metadata.inRegion: false` is calle
 | Prompt caching | `cacheBreakpoint` → `cachePoint`; usage `cached` / `cacheWrite`. Left out for models whose registry pricing has no cache reads | Claude, Nova |
 | Other request fields | `serviceTier` (`fast` → `priority`, `scale` → `reserved`), `metadata` → `requestMetadata`, `extra` → `additionalModelRequestFields` | All Converse models |
 | Image generation | `InvokeModelCommand` | Stability AI (SDXL / SD3) |
-| Embeddings | `InvokeModelCommand` | Amazon Titan text embeddings |
+| Embeddings | `InvokeModelCommand`, one call per input (Cohere: per 96 texts, per image) | Titan Text; images on Titan Multimodal, Nova Multimodal, Cohere Embed v3/v4 (`imageEmbedding` + `crossModalEmbedding`) |
 
 There is **no** transcription or speech support in this provider.
 
@@ -165,6 +165,12 @@ const embeddings = await ai.embed.get(
   { texts: ['Hello world'] },
   { metadata: { model: 'amazon.titan-embed-text-v1' } }
 );
+
+// Text and image embeddings in one space (Nova Multimodal; extra merges into singleEmbeddingParams)
+const mixed = await ai.embed.get(
+  { inputs: ['a red bike', { image: pngBytes }], dimensions: 1024 },
+  { metadata: { model: 'amazon.nova-2-multimodal-embeddings-v1:0' } }
+);
 ```
 
 ## Error types
@@ -183,7 +189,7 @@ import {
 
 - **Claude thinking and forced tools don't mix.** A turn that forces a tool is sent with thinking disabled. Claude that always thinks (Opus 5.5, Sonnet 5.5, Fable) rejects both, so it is never sent `disabled`; a forced turn offers it only the forced tools with an automatic choice.
 - Efforts are clamped to what the model accepts (Claude 4.6 gets `high` for `xhigh`); Claude thinking clears `temperature`/`topP`, and Nova's `high` effort clears `maxTokens`.
-- **Titan embeddings only embed the first text.** The provider sends `request.texts[0]` and returns that single embedding duplicated once per input text. Call once per text if you need distinct vectors.
+- **Embeddings make one InvokeModel call per input** (Cohere batches up to 96 texts, and one image per call); `embed` hooks run around each call. `extra` merges into every body (Nova: into `singleEmbeddingParams`, e.g. `embeddingPurpose`; Cohere: e.g. `input_type: 'search_query'`, though images always go as `image`). Titan Text refuses images with `ImageEmbeddingError`. Cohere and Nova report no token counts, so usage falls back to the estimate.
 - **Model is always required** (no implicit default unless you set `defaultModels`); missing model throws `AWSError`.
 - Consecutive same-role messages are merged automatically (Converse requirement); an empty conversation gets a synthetic user message (`Perform the requested operation.`).
 - Image generation/embeddings use fixed defaults in the Stability payload (`cfg_scale: 7`, `steps: 30`); only `prompt`, `size`, and `seed` flow through.

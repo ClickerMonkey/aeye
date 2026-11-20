@@ -72,7 +72,8 @@ registry's converter stack and cut their parts from it, keeping it on `resource.
 - **textParser** — `text, json, csv, tsv, yaml, xml, svg, toml, ini`. Decodes UTF-8 into one text
   part. Extracts bare URLs; for **markup types** (`markupTypes`, default `xml`/`svg`) also extracts
   `href`/`src` links. The fallback for json and yaml that are already pretty.
-- **markdownParser** — `markdown`. Extracts markdown links + URLs. Default slicer `markdown`.
+- **markdownParser** — `markdown`. Extracts markdown links + URLs; an image (`![alt](src)`) is a link whose
+  `targetType` is `image`, titled by its alt text (`extractLinksFromMarkdown`). Default slicer `markdown`.
 - **htmlParser** — `html`. One part from the clean markdown version (main content, absolute links);
   links come from the raw html (every `href`/`src`, navigation included) so crawls see them; each link's
   `metadata` names its `tag` (`a`, `img`, `link`, `base`, …) and its `rel` words, so a crawl can follow anchors only,

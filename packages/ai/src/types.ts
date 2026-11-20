@@ -101,6 +101,8 @@ export type Providers = Record<string, Provider<any>>;
  * - audio: Audio output (text-to-speech, or a chat model that speaks)
  * - hearing: Audio input (speech-to-text, or a chat model that listens)
  * - embedding: Text embeddings
+ * - imageEmbedding: Image embeddings (`EmbeddingRequest.inputs` entries of `{ image }`)
+ * - crossModalEmbedding: Text and image embeddings share one vector space, so they compare
  * - rerank: Ordering documents by relevance to a query
  * - decision: Typed answers (probabilities, choices, scores) about an input
  * - zdr: Zero data retention
@@ -119,6 +121,8 @@ export type ModelCapability =
   | 'audio'
   | 'hearing'
   | 'embedding'
+  | 'imageEmbedding'
+  | 'crossModalEmbedding'
   | 'rerank'
   | 'decision'
   | 'zdr'
@@ -186,7 +190,10 @@ export interface ModelPricing {
     cached?: number;
   };
   embeddings?: {
+    // Per 1M input tokens
     cost?: number;
+    // Per embedded image, for models that bill images per image
+    perImage?: number;
   };
   // Cost per hosted tool call (not per 1M tokens), by tool type
   tools?: Partial<Record<HostedToolType, number>>;
@@ -240,6 +247,10 @@ export interface ModelInfo<TProvider extends string = string> extends Model {
   contextWindow: number;
   // Maximum output tokens (if different from context window)
   maxOutputTokens?: number;
+  // Most questions one decision call takes (decision models); larger calls are refused, never split
+  maxQuestions?: number;
+  // Most bytes of text and questions one request takes, images aside (decision models); larger calls are refused
+  maxRequestBytes?: number;
   // Performance metrics
   metrics?: ModelMetrics;
   // The tokenizer used by the model
@@ -795,11 +806,29 @@ export interface SpeechResponse extends BaseResponse {
 }
 
 /**
- * Request for generating text embeddings.
+ * An image to embed. `image` is a Resource as in chat: an http(s), data or
+ * file URL, bytes, a Blob, or a stream. `mimeType` names the type of bytes
+ * that carry none (default `image/png`).
+ */
+export interface EmbeddingImage {
+  image: Resource;
+  mimeType?: string;
+}
+
+/**
+ * One thing to embed: text, or an image (for models with `imageEmbedding`).
+ */
+export type EmbeddingInput = string | EmbeddingImage;
+
+/**
+ * Request for generating embeddings: one vector per input, in input order.
+ * Give `inputs`, or `texts` for text only; not both.
  */
 export interface EmbeddingRequest extends BaseRequest {
-  // Texts to embed
-  texts: string[];
+  // Texts and images to embed
+  inputs?: EmbeddingInput[];
+  // Texts to embed (text-only shorthand for `inputs`)
+  texts?: string[];
   // Output dimensions (if supported by model)
   dimensions?: number;
   // Encoding format
@@ -873,6 +902,8 @@ export interface DecisionRequest extends BaseRequest {
   input: string | Message[];
   // Questions by name
   questions: Record<string, DecisionQuestion>;
+  // Images shared by every question, for decision models with vision
+  images?: Resource[];
 }
 
 /**
