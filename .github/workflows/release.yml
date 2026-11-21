@@ -47,6 +47,8 @@ jobs:
         run: npm install -g npm@^11.5.1
 
       - run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip # the GPU binary isn't needed to build or publish
 
       - name: Build and publish
         run: node scripts/release.js ${{ inputs.dry_run && '--dry-run' || '' }}
