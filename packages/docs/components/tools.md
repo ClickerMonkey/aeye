@@ -67,8 +67,9 @@ const getWeather = ai.tool({
 | `format` | `ToolTextFormat` | Free-text input, optionally grammar-constrained; use `TEXT_TOOL_SCHEMA` as the schema. Providers without free-text tools send a one-field function with the grammar appended to its description (`describeTool`) |
 | `defer` | `boolean` | Load only when the model searches for it (OpenAI tool search) |
 | `async` | `boolean` | The model keeps working while the tool runs (OpenAI Responses) |
+| `parallelClaims` | `string[]` or `(input, ctx) => string[] \| undefined` | What a call operates on; parallel calls with a shared claim run one after another (`'*'` runs alone) |
 
-See [Tool Calling](/guides/tool-calling#free-text-and-grammar-tools) for free-text, deferred, and async tools.
+See [Tool Calling](/guides/tool-calling#free-text-and-grammar-tools) for free-text, deferred, and async tools, and [Parallel Claims](/guides/tool-calling#parallel-claims) for keeping overlapping calls apart.
 
 ## Instructions with Templates
 

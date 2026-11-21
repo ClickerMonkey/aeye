@@ -1,5 +1,6 @@
 import Handlebars from 'handlebars';
 import z, { ZodType } from 'zod';
+import { NO_CLAIMS, ToolClaims } from './claims';
 import { Fn, repairStringEncodedFields, resolveFn } from './common';
 import { FormatDescriptor, getDescriptorById, strictify, decodeWire } from './schema';
 import { Component, ComponentCompatible, Context, OptionalParams, Request, SchemaDelivery, ToolChoice, ToolDefinition, ToolTextFormat, Tuple } from './types';
@@ -160,6 +161,40 @@ export interface ToolInput<
   defer?: boolean;
   /** The model keeps working while the tool runs; see `ToolDefinition.async` */
   async?: boolean;
+  /**
+   * What a call of this tool operates on, so a parallel batch never runs two
+   * calls that touch the same thing at the same time.
+   *
+   * When a prompt runs tool calls in parallel (`toolExecution: 'parallel'` or
+   * `'immediate'`), a call whose claims conflict with an EARLIER call in the
+   * same batch (in the order the model made them) waits until that call has
+   * finished, however it finished, and then runs. Calls whose claims don't
+   * conflict still run together, so parallel calling stays fast where it is
+   * safe and turns sequential only where the calls overlap.
+   *
+   * Claims are plain strings compared by exact equality; two calls conflict
+   * when they share one. The claim `'*'` (`ALL_CLAIMS`) conflicts with every
+   * other call, claims or not: the call runs alone. A call with no claims
+   * (the default) conflicts with nothing but a `'*'`. See `claimsConflict`.
+   *
+   * Either a static list, or a function of the parsed input and the context
+   * the call itself gets (with `toolCallId`), run after the arguments parse
+   * and before the call starts. Returning `undefined` claims nothing. A
+   * function that throws fails this call with a `ToolExecutionError`, just
+   * like a throw from `call`; the other calls are unaffected.
+   *
+   * `toolExecution: 'sequential'` already runs one call at a time, so claims
+   * change nothing there.
+   *
+   * @example
+   * // Edits to one file run one after another; edits to different files run together.
+   * parallelClaims: (input) => [`file:${input.path}`],
+   *
+   * @example
+   * // A migration that must never overlap any other tool call.
+   * parallelClaims: ['*'],
+   */
+  parallelClaims?: Fn<ToolClaims | undefined, [TDecoded, Context<TContext, TMetadata>]>;
   /** Optional function to determine if the component is applicable in the given context */
   applicable?: <
     TRuntimeContext extends TContext, 
@@ -289,6 +324,7 @@ export class Tool<
     private descriptionFn = resolveFn(input.descriptionFn),
     private instructionsFn = resolveFn(input.instructionsFn, (r) => r ? Tool.compileInstructions(r, !!input.input) : undefined),
     private metadataFn = resolveFn(input.metadataFn),
+    private parallelClaims = resolveFn(input.parallelClaims),
   ) {
   }
 
@@ -568,6 +604,32 @@ export class Tool<
     }
 
     return await Promise.all(this.refs.map(ref => ref.applicable(ctx))).then(results => results.some(r => r));
+  }
+
+  /**
+   * Whether this tool declares `parallelClaims`. One that doesn't claims
+   * nothing for every call, so a scheduler needn't ask for its claims.
+   */
+  get hasParallelClaims(): boolean {
+    return this.input.parallelClaims !== undefined;
+  }
+
+  /**
+   * The claims of one call of this tool (see `ToolInput.parallelClaims`): the
+   * static list, or what the claims function returns for the parsed input and
+   * the call's context. Claims nothing when the tool declares none.
+   *
+   * @param input - The call's parsed (decoded) input.
+   * @param ctx - The context the call runs with.
+   * @returns The call's claims.
+   * @throws Whatever the claims function throws.
+   */
+  async claims<
+    TRuntimeContext extends TContext,
+    TRuntimeMetadata extends TMetadata,
+    TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
+  >(input: TDecoded, ctx: TCoreContext): Promise<ToolClaims> {
+    return await this.parallelClaims(input, ctx) ?? NO_CLAIMS;
   }
 
   /**

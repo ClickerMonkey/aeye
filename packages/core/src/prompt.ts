@@ -1,6 +1,7 @@
 import Handlebars from "handlebars";
 import { ZodString, ZodType } from 'zod';
 
+import { ALL_CLAIMS, claimsConflict, NO_CLAIMS, ToolClaims } from './claims';
 import { accumulateReasoning, accumulateUsage, extractJSONObject, Fn, getChunksFromResponse, getInputTokens, getModel, getOutputTokens, getTotalTokens, resolve, Resolved, resolveFn, yieldAll } from "./common";
 import { AnyTool, forcesTool, Tool, ToolCompatible, ToolInterrupt, PromptSuspend } from "./tool";
 import { Citation, Component, Context, Events, Executor, FinishReason, GeneratedAudio, GeneratedImage, Message, Moderation, Names, OptionalParams, Reasoning, Request, RequiredKeys, ResponseFormat, SchemaDelivery, SchemaFallback, SchemaTarget, Streamer, ToolCall, ToolDefinition, Tuple, Usage } from "./types";
@@ -209,6 +210,9 @@ export interface PromptInput<
   // - sequential: wait for each tool to finish before continuing
   // - parallel: start all tools at once and wait for all to finish
   // - immediate: start tools as soon as they are available
+  // Under parallel and immediate, a call whose `parallelClaims` conflict with
+  // an earlier call in the same batch waits for that call to finish first
+  // (see ToolInput.parallelClaims).
   toolExecution?: 'sequential' | 'parallel' | 'immediate';
   // Number of attempts to retry tool calls upon failure. Defaults to 2. */
   toolRetries?: number;
@@ -1084,6 +1088,9 @@ export class Prompt<
             onToolIntercept && toolInfo
               ? (args, call) => onToolIntercept(toolInfo.tool, args, ctx, call)
               : undefined,
+            // The calls the model made before this one in the batch, the
+            // ones its parallel claims may have it wait for.
+            toolExecutors.slice(),
           );
           toolExecutors.push(toolExecutor);
           toolExecutorMap.set(chunk.toolCallNamed.id, toolExecutor);
@@ -1206,7 +1213,12 @@ export class Prompt<
           for (const toolExecutor of toolExecutors) {
             // Only a call that has not started: under 'immediate' a valid call may
             // already be running, and its reply is its real outcome.
-            if (!toolExecutor.error && (toolExecutor.status === 'ready' || toolExecutor.status === 'parsed')) toolExecutor.skipped = true;
+            // A call still waiting on a conflicting sibling is 'parsed', so it
+            // is skipped too, and it never starts.
+            if (!toolExecutor.error && (toolExecutor.status === 'ready' || toolExecutor.status === 'parsed')) {
+              toolExecutor.skipped = true;
+              toolExecutor.release();
+            }
           }
         }
 
@@ -1223,7 +1235,7 @@ export class Prompt<
               // relay) because the relay's listener was already
               // removed by the time tool dispatch runs.
               if (ctx.signal?.aborted) break;
-              await toolExecutor.parse();
+              await toolExecutor.begin();
               yield* toolEvents(toolExecutor);
               await toolExecutor.run();
               yield* toolEvents(toolExecutor);
@@ -1231,7 +1243,10 @@ export class Prompt<
             break;
           case 'parallel':
           case 'immediate':
-            const parseRuns = toolExecutors.map(tc => [tc.parse(), tc.run()]).flat();
+            // `begin` settles when the call starts, after any wait on a
+            // conflicting sibling's claims, so its `toolStart` is emitted
+            // then rather than while it is queued.
+            const parseRuns = toolExecutors.map(tc => [tc.parse(), tc.begin(), tc.run()]).flat();
             for await (const { result: toolCallPromise } of yieldAll(parseRuns)) {
               // The promises in `parseRuns` were started eagerly, so
               // tools already in flight will keep running in the
@@ -1555,6 +1570,15 @@ export class Prompt<
           requestFailedNeedsRetry = true;
         } else {
           throw requestError;
+        }
+      } finally {
+        // However this iteration ends, every call in its batch settles, so a
+        // call waiting on a conflicting sibling that will never run (the
+        // batch was skipped or aborted, or the iteration ended early) stops
+        // waiting instead of hanging. A released call that hadn't started
+        // never starts.
+        for (const toolExecutor of toolExecutors) {
+          toolExecutor.release();
         }
       }
 
@@ -2032,7 +2056,22 @@ type ToolExecution<T> = {
    *  `emitRepaired` suggested success-only, which was wrong). */
   emitRepairAttempt(): boolean;
   parse: () => Promise<ToolExecution<T>>;
+  /** Parses, works out the call's claims, waits for the earlier calls in the
+   *  batch they conflict with, then starts the call (status `executing`)
+   *  unless something ruled it out meanwhile: it was skipped, its batch was
+   *  released, or the signal aborted while it waited. Settles either way. */
+  begin: () => Promise<ToolExecution<T>>;
+  /** Begins the call and, if it started, runs it to its outcome. */
   run: () => Promise<ToolExecution<T>>;
+  /** The call's claims once worked out, or none once the call settles
+   *  without them (it was invalid, skipped, or never began). */
+  claimed: Promise<ToolClaims>;
+  /** Resolves once the call can no longer be running: it finished, failed
+   *  before starting, was skipped, or its batch was released. */
+  settled: Promise<void>;
+  /** Settles the call. A call released before it started never starts.
+   *  Idempotent; every call in a batch is released when the batch ends. */
+  release(): void;
   args?: any;
   result?: any;
   /** The value actually presented to the model for this tool's
@@ -2071,6 +2110,41 @@ function once<R>(fn: () => Promise<R>): () => Promise<R> {
     }
     return promise;
   };
+}
+
+/**
+ * A promise with its resolver. Resolving again does nothing.
+ */
+function latch<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(r => { resolve = r; });
+  return { promise, resolve };
+}
+
+/**
+ * Waits until every earlier call in the batch whose claims conflict with
+ * these claims has settled. Only earlier calls are waited for, so waiting
+ * never deadlocks and conflicting calls run in model order. Returns whether
+ * anything was waited for.
+ */
+async function waitForConflicts(claims: ToolClaims, earlier: readonly ToolExecution<AnyTool>[]): Promise<boolean> {
+  // A call that runs alone conflicts with every earlier call whatever it
+  // claims, and a tool that declares no claims claims nothing, so in both
+  // cases there's no need to wait for the earlier call's claims.
+  const alone = claims.includes(ALL_CLAIMS);
+  let waited = false;
+  for (const prior of earlier) {
+    let priorClaims = NO_CLAIMS;
+    if (!alone && prior.tool?.hasParallelClaims) {
+      waited = true;
+      priorClaims = await prior.claimed;
+    }
+    if (claimsConflict(claims, priorClaims)) {
+      waited = true;
+      await prior.settled;
+    }
+  }
+  return waited;
 }
 
 function emitter() {
@@ -2118,7 +2192,15 @@ function newToolExecution<T extends AnyTool>(
   // ToolInterrupt ⇒ interrupted, anything else ⇒ tool error). Absent ⇒ the
   // handler always runs.
   intercept?: (args: any, call: ToolCall) => unknown | false | Promise<unknown | false>,
+  // The calls the model made before this one in the same batch, in model
+  // order: the only calls this one may wait for (ToolInput.parallelClaims).
+  earlier: readonly ToolExecution<T>[] = [],
 ) {
+  // The context the call runs with, which its claims are worked out with too.
+  const callCtx = { ...ctx, toolCallId: toolCall.id };
+  const claimed = latch<ToolClaims>();
+  const settled = latch<void>();
+  let released = false;
   const start = emitter();
   const output = emitter();
   const error = emitter();
@@ -2168,7 +2250,6 @@ function newToolExecution<T extends AnyTool>(
           },
         );
         execution.status = 'parsed';
-        start.ready = true;
       } catch (e: any) {
         execution.status = 'invalid';
         // Distinguish "model sent no arguments at all" from "model sent
@@ -2194,13 +2275,55 @@ function newToolExecution<T extends AnyTool>(
 
       return execution;
     }),
+    claimed: claimed.promise,
+    settled: settled.promise,
+    release: () => {
+      released = true;
+      claimed.resolve(NO_CLAIMS);
+      settled.resolve();
+    },
+    begin: once(async (): Promise<ToolExecution<T>> => {
+      try {
+        await execution.parse();
+        if (execution.status !== 'parsed') {
+          return execution;
+        }
+        let claims: ToolClaims;
+        try {
+          claims = await toolInfo!.tool.claims(execution.args, callCtx);
+        } catch (e: any) {
+          // A broken claims function fails this call alone, like a throw
+          // from the tool's own code.
+          execution.status = 'error';
+          execution.error = new ToolExecutionError(toolCall.name, `Error working out tool claims: ${e.message}, args: ${JSON.stringify(execution.args)}`, e);
+          error.ready = true;
+          return execution;
+        }
+        claimed.resolve(claims);
+        const waited = await waitForConflicts(claims, earlier);
+        // Waiting never starts anything. Once the wait is over the call
+        // starts only if nothing ruled it out meanwhile: skipping marks a
+        // waiting call (still 'parsed') skipped, a released batch has
+        // already answered it, and after an abort a call that had to wait
+        // stays unstarted, like the unstarted calls of a sequential batch.
+        if (execution.skipped || released || (waited && ctx.signal?.aborted)) {
+          return execution;
+        }
+        execution.status = 'executing';
+        start.ready = true;
+        return execution;
+      } finally {
+        if (execution.status !== 'executing') {
+          execution.release();
+        }
+      }
+    }),
     run: once(async (): Promise<ToolExecution<T>> => {
-      await execution.parse();
-      if (execution.status !== 'parsed') {
+      await execution.begin();
+      if (execution.status !== 'executing') {
         return execution;
       }
       try {
-        execution.status = 'executing';
         // Optional per-prompt interceptor (PromptInput.onToolIntercept) runs
         // BEFORE the tool's own handler. A returned value SHORT-CIRCUITS — it
         // becomes the result and the handler never runs. `false`/`undefined`
@@ -2210,7 +2333,7 @@ function newToolExecution<T extends AnyTool>(
         // interrupted, PromptSuspend ⇒ suspended, else ⇒ tool error).
         const intercepted = intercept ? await intercept(execution.args, execution.toolCall) : false;
         execution.result = intercepted === false || intercepted === undefined
-          ? await resolve(toolInfo!.tool.run(execution.args, { ...ctx, toolCallId: toolCall.id }))
+          ? await resolve(toolInfo!.tool.run(execution.args, callCtx))
           : intercepted;
         // Tool ran successfully. Apply the optional per-prompt result
         // transformer BEFORE marking success / arming the output emitter,
@@ -2242,6 +2365,8 @@ function newToolExecution<T extends AnyTool>(
           execution.error = new ToolExecutionError(toolCall.name, `Error executing tool: ${e.message}, args: ${JSON.stringify(execution.args)}`, e);
           error.ready = true;
         }
+      } finally {
+        execution.release();
       }
 
       return execution;

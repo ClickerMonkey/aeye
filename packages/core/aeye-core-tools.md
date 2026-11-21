@@ -32,6 +32,7 @@ class Tool<TContext = {}, TMetadata = {}, TName extends string = string,
 | `maxArgsLength?` | `number` | Reject raw args string over N chars before `JSON.parse` (guards against providers that corrupt large tool args). |
 | `applicable?` | `(ctx) => boolean \| Promise<boolean>` | Availability check. |
 | `metadata?` / `metadataFn?` | `TMetadata` / fn | Execution metadata. |
+| `parallelClaims?` | `Fn<ToolClaims \| undefined, [input, ctx]>` | What a call operates on (e.g. `` (i) => [`file:${i.path}`] ``), from the decoded input and the call's ctx (with `toolCallId`). Under `parallel`/`immediate`, a call whose claims conflict with an earlier call in the batch waits for it, then runs; others stay concurrent. Exact string equality; `'*'` (`ALL_CLAIMS`) runs alone; none ⇒ conflicts only with `'*'`. A throw fails that call (`ToolExecutionError`). The rule is exported as `claimsConflict` / `claimWaits` (`claims.ts`). |
 
 ### Methods
 
@@ -41,6 +42,8 @@ compile(ctx): Promise<readonly [string, ToolDefinition] | undefined>  // build A
 parse(ctx, args, schema?, descriptor?, onRepairAttempt?): Promise<...> // validate raw JSON args
 applicable(ctx?): Promise<boolean>
 metadata(input?, ctx?): TMetadata | Promise<TMetadata>
+claims(input, ctx): Promise<ToolClaims>                      // resolve parallelClaims ([] when none)
+hasParallelClaims: boolean                                   // whether parallelClaims is declared
 ```
 
 `compile` returns `undefined` when the tool isn't applicable / has no schema for the context. `parse` validates the model's JSON `arguments` string against the (descriptor-strictified) schema and runs `validate`; it tolerates one provider misbehavior — top-level JSON-stringified fields are re-parsed and `onRepairAttempt` fires for telemetry. When a custom `parse` is supplied (it REPLACES Zod validation), core first wire-decodes the args to the conceptual shape with the request's `FormatDescriptor` (`decodeWire` — array-of-pairs→record, null→undefined, numeric-key→tuple, …), so a custom parser is provider-agnostic and never sees a model family's wire quirks.

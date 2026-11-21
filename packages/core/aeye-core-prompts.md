@@ -29,7 +29,7 @@ A `Prompt` only does real work when the context supplies `execute` and/or `strea
 | `config?` | `Fn<Partial<Request> \| false, [TInput?, ctx]>` | Per-request overrides (temperature, model, toolChoice, …). `false` ⇒ prompt not compatible. |
 | `reconfig?` | `(stats: PromptReconfigInput, ctx) => PromptReconfig` | Adapt config after each iteration based on runtime stats. |
 | `tools?` | `TTools` | Tools the model may call. |
-| `toolExecution?` | `'sequential' \| 'parallel' \| 'immediate'` | Default `immediate`. |
+| `toolExecution?` | `'sequential' \| 'parallel' \| 'immediate'` | Default `immediate`. Under `parallel`/`immediate`, calls whose tools' `parallelClaims` conflict run one after another in model order (see [tools](./aeye-core-tools.md)). |
 | `toolRetries?` | `number` | Retry failed tool calls. Default 2. |
 | `toolIterations?` | `number` | Max tool-calling loop iterations. Default 3. |
 | `toolsMax?` | `number` | Stop sending tools after this many successes. |

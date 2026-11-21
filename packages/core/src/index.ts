@@ -12,6 +12,7 @@ export * from './to';
 export * from './schema';
 export * from './errors';
 export * from './delivery';
+export * from './claims';
 export * from './tool';
 export * from './prompt';
 export * from './agent';

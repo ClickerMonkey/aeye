@@ -7,6 +7,7 @@
 export * from './types';
 export * from './common';
 export * from './schema';
+export * from './claims';
 export * from './tool';
 export * from './prompt';
 export * from './agent';

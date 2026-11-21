@@ -284,6 +284,8 @@ const prompt = ai.prompt({ tools, toolExecution: 'sequential' });
 const prompt = ai.prompt({ tools, toolExecution: 'parallel' });
 ```
 
+Under `parallel` and `immediate`, calls whose tools' `parallelClaims` conflict run one after another, in model order, while the rest stay concurrent. See [Parallel Claims](/guides/tool-calling#parallel-claims).
+
 ### `retool` — Dynamic Tool Filtering
 
 Change which tools are available each iteration:

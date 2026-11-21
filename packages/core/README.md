@@ -275,6 +275,8 @@ const prompt = new Prompt({
 - **`parallel`** - Start all pending tools at once and wait for all to complete
 - **`immediate`** - Start each tool as soon as its call is received (default)
 
+Under `parallel` and `immediate`, a tool's `parallelClaims` (a list, or `(input, ctx) => string[]`) keeps overlapping calls apart: a call whose claims share a string with an earlier call in the batch waits for it to finish, and `'*'` runs alone. Calls that share nothing still run together.
+
 ## Advanced Features
 
 ### Context-Aware Tools

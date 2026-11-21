@@ -110,6 +110,40 @@ const prompt = ai.prompt({
 });
 ```
 
+### Parallel Claims
+
+Parallel calls are only safe when they don't touch the same things. A tool declares what each call operates on with `parallelClaims`, and under `parallel` and `immediate` a call whose claims conflict with an earlier call in the same batch waits for that call to finish, then runs. Calls that share nothing still run together, so a batch is only as sequential as its overlaps.
+
+```typescript
+const editFile = ai.tool({
+  name: 'editFile',
+  description: 'Edit a file',
+  schema: z.object({ path: z.string(), patch: z.string() }),
+  // Worked out from the parsed args and the call's context (which has toolCallId).
+  parallelClaims: (input, ctx) => [`file:${input.path}`],
+  call: async (input) => applyPatch(input.path, input.patch),
+});
+
+const migrate = ai.tool({
+  name: 'migrate',
+  description: 'Run the database migration',
+  schema: z.object({}),
+  parallelClaims: ['*'], // runs alone
+  call: async () => runMigration(),
+});
+```
+
+The rule is deliberately simple:
+
+- Claims are strings compared by exact equality; two calls conflict when they share one.
+- `'*'` (`ALL_CLAIMS`) conflicts with every other call, claims or not.
+- No claims (the default) conflicts with nothing but a `'*'`.
+- A call only waits for earlier calls, in the order the model made them, so conflicting calls run in model order and waiting can't deadlock.
+- A waiting call's `toolStart` is emitted when it actually starts. It never starts if the batch is skipped (another call was invalid) or the signal aborts while it waits; its reply says so as usual.
+- A claims function that throws fails that call with a `ToolExecutionError`; the others are unaffected.
+
+`claimsConflict(a, b)` and `claimWaits(claimsInOrder)` are exported, so other schedulers of tool calls can apply the same rule. `sequential` already runs one call at a time, so claims change nothing there.
+
 ## Tool Iterations
 
 By default, prompts allow 3 rounds of tool calls. Increase for complex workflows:
