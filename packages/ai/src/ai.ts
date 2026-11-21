@@ -854,7 +854,7 @@ export class AI<T extends AIBaseTypes> {
   >(
     options: AIToolInput<T, TName, TParams, TOutput, TRefs, TDecoded>
   ) {
-    const { input, schema, call, parse, validate, applicable, ...rest } = options;
+    const { input, schema, call, parse, validate, applicable, parallelClaims, ...rest } = options;
 
     const hydrateFn = <S, TResult>(optionWithInjection: S, getOptionWithoutInjection: (resolved: FnResolved<Exclude<S, undefined>>) => TResult) => {
       return typeof optionWithInjection === 'function'
@@ -902,6 +902,9 @@ export class AI<T extends AIBaseTypes> {
       })),
       applicable: hydrateFn(applicable, (r) => (async (ctxPartial) => {
         return r(await getContext(ctxPartial));
+      })),
+      parallelClaims: hydrateFn(parallelClaims, (r) => (async (params, ctxPartial) => {
+        return r(params, await getContext(ctxPartial));
       })),
     });
 
