@@ -17,13 +17,19 @@ During pass 2:
 
 > Let's make sure if too many tools request strict or anything about a request can't be supported we have proper degradation and not errors. Sometimes the tools are not known ahead of time and error when we don't have to is not good
 
+### Pass 4 (next): errors for the model
+
+> Oh yeah that's one thing I didn't explicitly state... But zods errors are terrible. I love what I have in gin and query where it outputs json with markers and did you mean support etc. let's have those same options specifiable so we feed back to the llm meaningful errors that are super clear and not huge even if the schema is huge. There should be an error format with options so on the tool and prompt definition they dev can specify how detailed they want the schema error feedback to the llm.
+
+Pass 3's benchmarks time the invalid-answer path (checking a wrong answer and building the message the model gets back) and record the message sizes, as the baseline for this pass (PERFORMANCE.md, "Errors").
+
 ## Status
 
 Three passes after the POC review:
 
 1. **The package (done).** Complete and production-quality, no longer a POC: request-wide budgets, an accurate per-provider profile table chosen from model capabilities, the Handlebars `{{encode}}` helper and value-only encoders, the remaining types (intersections, `not`, if/then/else, sibling-typed values, extra keys), `{input}`-wrapped roots, auto-repair, error classes, docs (`aeye-schema.md`, `README.md`) and tests for each. In the root workspaces, still `private`.
 2. **Every example ported as tests (done).** `src/__tests__/corpus/`: faithful ports of the real schemas of @aeye/query, product's query kind, gin, ginny, core, cletus and the other @aeye packages, and the harness — each checked for its static type, rendering on every profile family, decoding model-shaped answers with copy counts, errors with both paths, encoding and `{{encode}}`, examples and request budgets; query, product, gin and ginny are also checked value-for-value against the real zod/gin schemas. Plus Phil's request-degradation change (below).
-3. **Performance and memory notes vs zod.**
+3. **Performance and memory notes vs zod (done).** `bench/` and PERFORMANCE.md; summary below.
 
 Then integration: core (with core's own tests), gin and query, then the harness.
 
@@ -81,6 +87,33 @@ Then integration: core (with core's own tests), gin and query, then the harness.
 - product: the same check for `query_set` (`strict: true` + `maxEnumSize` 100 / 3 / 1, prefed and progressive catalogs) and for the open `type_compute` expr.
 - gin: every `TypeDef` kind against `registry.parse(def).toValueSchema()`, and the full grammar against `buildSchemas` with `newStrict` / `namedRefs`.
 
+### Pass 3: performance and memory
+
+`bench/` (`npm run bench`, `bench:memory`, `bench:equivalence`) compares `@aeye/schema` with today's zod path: strictify / toJSONSchema / safeParse over gin's `toValueSchema` and `buildSchemas` and query's `buildSchemas`. It runs on the corpus schemas, on OpenAI strict, Anthropic strict, Gemini and lenient. Every compared pair first gives the same verdict on the same wire value. The numbers and method are in PERFORMANCE.md.
+
+**Faster:**
+- Rendering again for the next request is memoized: ~0 µs. The zod path recomputes it every request: 10 µs for a small tool, 0.1–0.2 s for query, 2–3 s for query on Anthropic.
+- First renders are 2–20× faster, and 100–270× for query on Anthropic.
+- Big recursive answers decode 6–500× faster.
+- A wrong answer costs about the same as a right one, with a one-line message (41–185 characters). zod's message is the whole tree of failed union options: megabytes for query, and past V8's string limit for a 1k-row insert.
+
+**Slower:**
+- Small flat decodes are about 2× zod (0.5 µs against 0.25 µs). 1k flat rows take ~200 µs against ~75 µs, because zod 4 compiles a parser per shape.
+- Encoding into the strict wire shape is 2–10× `JSON.stringify`. The zod path has no wire encoder at all.
+- Small schemas keep 1.3–2× zod's memory once rendered: the memoized JSON and the nodes.
+
+**Fixed:**
+- `Rendered.nodeFor` recompiled on every call. Union encoding grew the compiler per value: 1k query rows never finished, and now take 3 ms.
+- Cached ref-free nodes kept the bind that first compiled them alive. They now compile in a per-profile shared compiler.
+- Decoding allocated per value. The path stacks are now indexed by depth, and 1k chart rows dropped from 817 KB to 260 KB of garbage.
+
+**Watch:**
+- A query bind on 4 profiles keeps 8.8 MB (closures per node). With the port's `cacheSize: 16` that can reach ~140 MB, so choose the integration's default with that in mind.
+
+**Outside this package:**
+- @aeye/query's `sharedIdRegistry` leaks ~2 MB per `buildSchemas` call, and product calls it per turn.
+- Core's `toJSONSchema` grows the heap per call on query schemas: ~2 MB on OpenAI and Gemini, ~250 MB on Anthropic.
+
 ## Summary
 
 - **`a`** works like zod's `z`. Every type is a class (`ObjectType<Shape>`, `RecordType<V>`, `RefType<Name>`, …). Static inference uses `a.infer<typeof X>`, and the inferred types match zod's exactly, recursion included. "Optional" means the key is absent (`?:`), never `undefined`.
@@ -102,7 +135,7 @@ Then integration: core (with core's own tests), gin and query, then the harness.
 - **Copying.** A subtree that doesn't change shape is checked and returned as the same reference, with zero allocations. The only allocations are real shape changes: one object per record sent as pairs, one array per tuple sent as an object, and one parse per piece of JSON text. The copy table below lists them, and tests assert the counts.
 - **Coverage.** Every real schema in @aeye/query, product's query kind, gin, ginny, core, cletus, the other @aeye packages and the harness is ported to `src/__tests__/corpus/` and tested for every piece of functionality. See the coverage table.
 - **Proof.**
-  - `npm test` in `packages/schema` runs vitest (980 runtime tests after pass 2; 156 after pass 1; 34 in the POC) and `tsc -p tsconfig.typetest.json`, which type-checks everything under `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`.
+  - `npm test` in `packages/schema` runs vitest (983 runtime tests after pass 3; 980 after pass 2; 156 after pass 1; 34 in the POC) and `tsc -p tsconfig.typetest.json`, which type-checks everything under `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`.
   - The package is `private: true` (in the root workspaces since pass 1), so nothing publishes.
 
 ## Concepts
