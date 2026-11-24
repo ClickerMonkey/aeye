@@ -170,6 +170,22 @@ export class Bundle<Out, A extends unknown[] = []> {
     return bound;
   };
 
+  /**
+   * The same bundle, bound from other arguments: `QueryModule.result(...)`
+   * takes `(catalog, options)`, a tool's schema takes `(ctx)` —
+   * `bundle.adapt((ctx: Ctx) => [ctx.catalog, { strict: true }])`. The bind
+   * cache keys on the mapped arguments.
+   */
+  adapt<B extends unknown[]>(map: (...args: B) => A): Bundle<Out, B> {
+    const dyn = this.dyn;
+    if (!dyn) return this as unknown as Bundle<Out, B>;
+    const key = dyn.opts.key;
+    return new Bundle<Out, B>(this.defs, this.root, {
+      fn: (...b: B) => dyn.fn(...map(...b)),
+      opts: { ...dyn.opts, ...(key ? { key: (...b: B) => key(...map(...b)) } : {}) } as DynamicOptions<B>,
+    });
+  }
+
   /** Shorthand for `bind(...args).render(profile)`. */
   render(profile: Profile, ...args: A): Rendered<Out> {
     return this.bind(...args).render(profile);
