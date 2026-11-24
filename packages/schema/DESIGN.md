@@ -17,7 +17,7 @@ During pass 2:
 
 > Let's make sure if too many tools request strict or anything about a request can't be supported we have proper degradation and not errors. Sometimes the tools are not known ahead of time and error when we don't have to is not good
 
-### Pass 4 (next): errors for the model
+### Pass 4: errors for the model
 
 > Oh yeah that's one thing I didn't explicitly state... But zods errors are terrible. I love what I have in gin and query where it outputs json with markers and did you mean support etc. let's have those same options specifiable so we feed back to the llm meaningful errors that are super clear and not huge even if the schema is huge. There should be an error format with options so on the tool and prompt definition they dev can specify how detailed they want the schema error feedback to the llm.
 
@@ -25,11 +25,12 @@ Pass 3's benchmarks time the invalid-answer path (checking a wrong answer and bu
 
 ## Status
 
-Three passes after the POC review:
+Four passes after the POC review:
 
 1. **The package (done).** Complete and production-quality, no longer a POC: request-wide budgets, an accurate per-provider profile table chosen from model capabilities, the Handlebars `{{encode}}` helper and value-only encoders, the remaining types (intersections, `not`, if/then/else, sibling-typed values, extra keys), `{input}`-wrapped roots, auto-repair, error classes, docs (`aeye-schema.md`, `README.md`) and tests for each. In the root workspaces, still `private`.
 2. **Every example ported as tests (done).** `src/__tests__/corpus/`: faithful ports of the real schemas of @aeye/query, product's query kind, gin, ginny, core, cletus and the other @aeye packages, and the harness — each checked for its static type, rendering on every profile family, decoding model-shaped answers with copy counts, errors with both paths, encoding and `{{encode}}`, examples and request budgets; query, product, gin and ginny are also checked value-for-value against the real zod/gin schemas. Plus Phil's request-degradation change (below).
 3. **Performance and memory notes vs zod (done).** `bench/` and PERFORMANCE.md; summary below.
+4. **Errors for the model (done).** gin's and query's diagnostics (the model's JSON with markers, "did you mean") as the native error output of every decode, with a detail level and a size cap set on the tool / prompt definition; below.
 
 Then integration: core (with core's own tests), gin and query, then the harness.
 
@@ -86,6 +87,37 @@ Then integration: core (with core's own tests), gin and query, then the harness.
 - query: for 24 depth/preset/selector/budget configurations over query's own fixtures (plus a capability-free registry and the PostGIS operator registry), every probe value gets the same verdict from the `a` port as from `@aeye/query`'s zod `buildSchemas`.
 - product: the same check for `query_set` (`strict: true` + `maxEnumSize` 100 / 3 / 1, prefed and progressive catalogs) and for the open `type_compute` expr.
 - gin: every `TypeDef` kind against `registry.parse(def).toValueSchema()`, and the full grammar against `buildSchemas` with `newStrict` / `namedRefs`.
+
+### Pass 4 decisions: errors for the model
+
+**Studied first.** gin and query share two pieces (query's are owned copies of gin's):
+
+- `Code.formatProblems` (`code.ts`, `json-source.ts`): the JSON is pretty-printed with a span per value, each problem's path resolves to its span, and the output is compiler-style: the lines around it, `^^^` under the value, `error: <message>` below, sections merged when their context overlaps, an optional line-number gutter, `maxProblems` with "… (N more problems suppressed)". Problems whose path matches no span fall back to a plain line.
+- `aids.ts`: `didYouMean` / `nearest` (Levenshtein, case-insensitive, a budget of `floor(len/3)` edits clamped to 1..3, ties by exact case then order), `expected <label>, got <kind>`, enum messages listing the values plus the suggestion, and `unknown <noun> kind \`x\` — did you mean \`y\`? (available: …)` for discriminators.
+
+**Built.** `src/feedback.ts` (the format) and `src/suggest.ts` (the ranking, ported algorithm-identical and tested against gin's and query's own exports). It is the native output of `Rendered.parse` / `parseText`, `RequestEntry.parse`, `RenderedRequest.decodeCall` and `SchemaParseError`:
+
+- **The model's shape.** The echo is the value the model sent: on failure the in-place decode is undone (a log of in-place writes, kept only when the format echoes; key order restored too), `parseText` re-reads its text. Paths are wire paths (`headers[1].key` of a pairs record, `body → JSON text → kind`), JSON text is shown parsed under `/* JSON text */`, a dispatcher call is labelled as the original tool (`the arguments of search_docs (called through run_tool)`).
+- **Trimmed.** Only the paths to problems are expanded. Siblings are kept up to `context` (short ones first) and summarized (`{… 4 keys}`, `[… 1000 items]`, `… 3 more keys`, `/* 999 */` before an item after a gap). A problem deeper than `depth` levels is echoed from there, under a header with its path; its marker names the rest (`….body.kind`).
+- **Grouped.** The same message at like paths (indexes aside) is one problem: `(the same at rows[3].id, rows[5].id and 997 more places)`. A misspelt key on a closed object (unknown + missing) is told once.
+- **Expected types.** From the JSON Schema the model was given at that spot (`{ key: string; value: Expr }[]`, `"table" | "compact" | "cards"`, `PathStep[]`), or the TypeScript type of a JSON-text spot; only where the message doesn't already say it.
+- **Did you mean** for enum values, literals and discriminator tags (also a string sent to a union of enums), unknown keys, a missing key the model misspelt (`Required — you wrote \`pth\`; did you mean \`path\`?`), the dispatcher's `tool`, and a tool name `decodeCall` doesn't know.
+- **A hard size cap.** `maxChars` (default 2000) is never exceeded. Steps, each tried also "terse" (value lists become a count, `one of 12 values — did you mean \`define\`?`; repeat paths become a count) before the next: no expected types, no context, fewer levels, fewer problems, `list`, fewer problems, `summary`; only then is the text cut.
+
+**Options** (`ErrorFormat`, or a detail level as shorthand) on the definition (`ToolItem.errorFormat`, `OutputItem.errorFormat`; core's `Tool` / `Prompt` in `proposal/core-api.ts`), the request (`RequestOptions.errorFormat`) and the call (`ParseOptions.errorFormat`); request < definition < call. `detail` (`'summary'` · `'list'` · `'markers'` · `'full'`, default `'full'`), `maxErrors` (5), `maxChars` (2000), `suggestions` (true), `expected` (on for `'full'`), `context` (3), `depth` (6), `header` (true). Documented in aeye-schema.md, "Errors for the model".
+
+**Decisions.**
+- The default is `'full'`: the richest message that fits 2000 characters. A tool that wants less says so (`errorFormat: 'summary'`).
+- `Issue` stays `{ path, codePath, message }` with the bare message (no suggestion in it); what a problem was about is kept beside it (`issueKind`, `suggestionFor`). `formatIssues` (the old `- at <path>: <message>` lines) stays for logs; tests that check paths and messages use it (`src/__tests__/_lines.ts`).
+- Enum and tag messages list at most 30 values (`… (170 more)`); "Did not match any of" is cut at 300 characters.
+- A pairs entry without its `key` is `Required.` (was `Expected a string, got undefined.`).
+- A dispatched tool called directly by its own name is decoded (its args are written as inside the dispatcher) rather than refused.
+- With `'summary'` / `'list'` nothing is logged, so a failed in-place decode may leave the value half-decoded (as before pass 4); echoing formats always leave it as sent.
+- The happy path does no new work but the undo log (echoing formats only: one entry per in-place write, ~0.3 µs on the MCP config on OpenAI strict). The failing node is found as the run unwinds (it claims its new issues), not tracked per value. Decoding valid answers got 0–19% faster than pass 3, because `Node.run` now skips the refinement step for schemas without refinements (PERFORMANCE.md).
+
+**Invalid-path cost kept bounded.** Union option trials no longer build issues at all (a count-only dry context: no path copies, no issue objects); suggestions and expected types are computed only for the problems shown; JSON texts are parsed once per message. `npm run bench:errors` times reject + message at each level next to zod's message size (PERFORMANCE.md, "Errors for the model").
+
+**The timing test.** `perf.test.ts` "encoding time is linear" timed wall clock and flaked under the full suite. It now counts work: node visits (`Node.prototype.encode` calls), compiles (must be 0) and allocations (`CopyStats`), which must grow exactly linearly with the rows (f(1000) − f(100) = 9 · (f(200) − f(100))). A second check does the same for a rejected answer's node runs, and that its message stays the same size.
 
 ### Pass 3: performance and memory
 
@@ -481,6 +513,8 @@ Settled since they were written: 1, 2, 4, 6, 7, 8 and 9 in pass 1. In pass 2, 10
 | `src/measure.ts` | measuring an emitted schema against limits |
 | `src/template.ts` | Handlebars helpers (`encode`, `schema`) |
 | `src/errors.ts` | `SchemaDefinitionError`, `SchemaParseError`, `RequestLimitError` |
+| `src/feedback.ts` | pass 4: errors for the model (`ErrorFormat`, `formatErrors`, the echo, expected types) |
+| `src/suggest.ts` | pass 4: "did you mean", gin's / query's ranking |
 | `src/proposal/core-api.ts` | the Tool/Prompt proposal |
 | `src/__tests__/chain.types.ts` | the type proofs |
 | `src/__tests__/render.test.ts` | the record example end to end + profiles |
@@ -488,5 +522,7 @@ Settled since they were written: 1, 2, 4, 6, 7, 8 and 9 in pass 1. In pass 2, 10
 | `src/__tests__/features.types.ts` | pass 1 type proofs |
 | `src/__tests__/corpus/*` | pass 2: the ported real schemas, one area per file (see the coverage table); `_check.ts` holds the shared per-profile checks and the independent JSON Schema validator |
 | `src/__tests__/request-degrade.test.ts` | pass 2: requests always degrade, never error |
+| `src/__tests__/feedback.test.ts` | pass 4: errors for the model on the real corpus, every level, vs zod |
+| `bench/errors.ts` | pass 4: message size and reject time per level, vs zod (`npm run bench:errors`) |
 
 Run with `npm test` (vitest + `tsc -p tsconfig.typetest.json`) from `packages/schema`, using node 22. User docs: `aeye-schema.md`.

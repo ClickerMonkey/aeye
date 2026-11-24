@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, PEOPLE, XAI_NON_STRICT, XAI_STRICT, schemaHelpers, type Profile } from '../../index';
 import { asTool, clone, profileProblems, unexplained } from './_check';
 import * as M from './harness-mcp';
+import { lines } from '../_lines';
 
 const tool = <T>(bound: { render(p: Profile): T }, p: Profile): T => bound.render(asTool(p));
 
@@ -24,7 +25,7 @@ describe('an elicitation\'s requested form (systems/mcp/server/elicitation.ts:44
     const res = form.render(PEOPLE).parse(answer);
     expect(res.ok && res.value).toBe(answer);
     const missing = form.render(PEOPLE).parse({});
-    expect(missing.ok ? '' : missing.message).toBe('- at project: Required.');
+    expect(lines(missing)).toBe('- at project: Required.');
   });
 });
 
@@ -53,7 +54,7 @@ describe('a mirrored server\'s tools (systems/mcp/server/mirror.ts:32, link.test
     expect(profileProblems(M.NoArgs.bind(), [{}])).toEqual([]);
     expect(profileProblems(M.IdInput.bind(), [{ id: 'T-1' }])).toEqual([]);
     const res = tool(M.IdInput.bind(), ANTHROPIC_STRICT).parse({});
-    expect(res.ok ? '' : res.message).toBe('- at id: Required.');
+    expect(lines(res)).toBe('- at id: Required.');
   });
 
   it('(was GAP) `{ type: "object" }` with no properties (boom, choose) means ANY object — imported closed, a model can send no args at all', () => {

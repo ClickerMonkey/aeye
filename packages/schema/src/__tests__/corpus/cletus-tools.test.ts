@@ -14,6 +14,7 @@ import {
 import { asTool, clone, MODEL_PROFILES, profileProblems, validate, unexplained } from './_check';
 import * as T from './cletus-tools';
 import type { CletusCtx, TypeDefinition } from './cletus-tools';
+import { lines } from '../_lines';
 
 const types: TypeDefinition[] = [
   {
@@ -311,7 +312,7 @@ describe('validation errors', () => {
   it('a header value of the wrong type: path is the pair, codePath the header name', () => {
     const res = T.WebApiCallArgs.render(tool(OPENAI_STRICT)).parse({ url: 'u', method: 'GET', headers: [{ key: 'Authorization', value: 5 }], body: null, requestType: null, responseType: null });
     expect(!res.ok && res.issues).toEqual([{ path: ['headers', 0, 'value'], codePath: ['headers', 'Authorization'], message: 'Expected a string, got number.' }]);
-    expect(!res.ok && res.message).toBe('- at headers[0].value: Expected a string, got number.');
+    expect(lines(res)).toBe('- at headers[0].value: Expected a string, got number.');
   });
 
   it('a type name not in ctx and a change of the wrong shape', () => {
@@ -324,21 +325,21 @@ describe('validation errors', () => {
       // Inside the non-null option of the `change` union.
       [['update', 'fields', 0, 'change', 'type'], ['update', 'fields', 0, 'change', 'type']],
     ]);
-    expect(!res.ok && res.message.split('\n')[0]).toBe('- at name: Expected one of: project, task.');
+    expect(lines(res).split('\n')[0]).toBe('- at name: Expected one of: project, task.');
   });
 
   it('ask: questions must have at least one item; method must be a listed verb', () => {
     const res = T.AskArgs.render(tool(OPENAI_STRICT)).parse({ questions: [] });
-    expect(!res.ok && res.message).toBe('- at questions: Must have at least 1 items.');
+    expect(lines(res)).toBe('- at questions: Must have at least 1 items.');
     const m = T.WebApiCallArgs.render(tool(ANTHROPIC_STRICT)).parse({ url: 'u', method: 'GETT' });
-    expect(!m.ok && m.message).toBe('- at method: Expected one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS.');
+    expect(lines(m)).toBe('- at method: Expected one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS.');
   });
 
   it('chart_display: both the plain z.union (literal chartGroup on every option) and the tagged form report inside the chosen group', () => {
     const answer = () => ({ input: { chartGroup: 'timeSeries', data: [{ name: 'x' }], title: null, variantOptions: null, defaultVariant: null } });
     const plain = T.ChartConfig.render(tool(OPENAI_STRICT)).parse(answer());
     expect(!plain.ok && plain.issues).toEqual([{ path: ['input', 'data', 0, 'value'], codePath: ['data', 0, 'value'], message: 'Required.' }]);
-    expect(!plain.ok && plain.message).toBe('- at input.data[0].value: Required.');
+    expect(lines(plain)).toBe('- at input.data[0].value: Required.');
     const tagged = T.ChartConfigTagged.render(tool(OPENAI_STRICT)).parse(answer());
     expect(!tagged.ok && tagged.issues).toEqual([{ path: ['input', 'data', 0, 'value'], codePath: ['data', 0, 'value'], message: 'Required.' }]);
   });

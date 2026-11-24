@@ -201,13 +201,14 @@ Custom dialects: `registerProfile(profile)` (lookup by id with `getProfile`, by 
 
 ```ts
 const req = profileFor(model).request([
-  { kind: 'tool', name: 'search', schema: Search, strict: 2 },
+  { kind: 'tool', name: 'search', schema: Search, strict: 2, errorFormat: 'list' },
   { kind: 'tool', name: 'rows', schema: Rows.bind(catalog) },   // dynamic bundles are bound first
   { kind: 'output', schema: Report },                            // name defaults to 'output'
 ]);
 req.get('search');   // RequestEntry<a.infer<typeof Search>> — typed by name
 req.sent;            // what to send: the direct tools (and the dispatcher, if any)
 req.decodeCall(name, args);   // { ok, tool, value } — a dispatcher call comes back as the original tool
+                              // { ok: false, tool, issues, message } — message speaks of the original tool
 req.encodeCall(tool, value);  // { name, args } as this model would call it
 req.degradations;    // everything that was degraded to fit, readable (informative, never thrown)
 req.assertNoDegradation();    // opt-in: throws RequestLimitError if anything was degraded
@@ -257,7 +258,8 @@ unwrapped on decode (no copy).
 | `jsonSchema` | the schema to send (`undefined` for prompt delivery) |
 | `promptText` | the schema as TypeScript-like text plus the family's JSON instruction |
 | `measure` | what it counts toward the limits (properties, depth, characters, enum values, optionals, unions) |
-| `parse` / `parseText` / `parseOrThrow` | decode the answer — through the same rendering |
+| `parse` / `parseText` / `parseOrThrow` | decode the answer — through the same rendering; a failure's `message` in the entry's `errorFormat` |
+| `errorFormat`, `label` | how a bad answer is told to the model (the request's format, then the item's), and what it is called |
 | `encode` / `encodeText` / `encoder` | code value → this model's wire shape |
 | `helpers()` | Handlebars helpers for this schema |
 
@@ -312,7 +314,7 @@ encode.wire({ query: 'x' });                 // the same, as a JSON value
 ## Decoding
 
 ```ts
-rendered.parse(wire, { inPlace?: true, repair?: true }): ParseResult<Out>
+rendered.parse(wire, { inPlace?: true, repair?: true, errorFormat?, label? }): ParseResult<Out>
 rendered.parseText(text)        // JSON.parse, then decode in place
 rendered.parseOrThrow(wire)     // throws SchemaParseError
 ```
@@ -320,7 +322,8 @@ rendered.parseOrThrow(wire)     // throws SchemaParseError
 `ParseResult` is `{ ok: true, value, stats } | { ok: false, issues, message, stats }`. Each
 `Issue` has `path` (where the MODEL wrote it, e.g. `['limits', 0, 'value']` or
 `['children', 0, '(json)', 'value']`), `codePath` (where the code sees it, `['limits', 'food']`)
-and `message`. `message` is the re-prompt text.
+and `message`. The result's `message` is the re-prompt text, in the call's `errorFormat` (below,
+"Errors for the model").
 
 **Repair** (default on): a container sent as a string of JSON text (also double-encoded) is
 parsed, and a value sent directly where JSON text was asked for is taken as is. Each repair is
@@ -346,11 +349,85 @@ Encoding never mutates the code value: where the wire shape is the code shape it
 value itself; otherwise only containers on the path to a change are new (`encode(value, stats)`
 counts them).
 
+## Errors for the model
+
+When an answer doesn't fit, `message` is what the model is told. It follows gin's and query's
+diagnostics (`Code.formatProblems`, `aids.ts`): the model's own JSON echoed back, trimmed around
+the problems, with a marker under each bad spot, the message at the marker, and "did you mean" for
+names it misspelt. It is always in the model's shape: the paths and JSON are what it wrote (pairs,
+`null` for absent, JSON text, a call through the dispatcher), never the code shape, and the
+expected type is read from the JSON Schema it was given.
+
+```
+2 problems in the arguments of web_api_call:
+
+{
+  "url": "https://api.example.com/v1/items",
+  "method": "PUTT",
+            ^^^^^^ method: Expected one of: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS — did you mean `PUT`?
+  "headers": [
+    {
+    ^ headers[0].key: Required.
+      expected: string
+      "name": "X-Id",
+      "value": "1"
+    }
+  ],
+  "body": null,
+  "requestType": null,
+  … 1 more key
+}
+```
+
+### `errorFormat`
+
+Set on a tool or prompt definition (`ToolItem.errorFormat`, `OutputItem.errorFormat`; core's
+`Tool` / `Prompt` take the same), for a whole request (`request(items, { errorFormat })`), or for
+one call (`parse(wire, { errorFormat })`, `decodeCall(name, args, { errorFormat })`). Later wins:
+request < definition < call. A detail level alone is shorthand: `errorFormat: 'summary'`.
+
+| Option | Default | What |
+|---|---|---|
+| `detail` | `'full'` | `'summary'`: one line, the first problem and how many more · `'list'`: one line per problem · `'markers'`: the echo with markers · `'full'`: markers plus the expected type |
+| `maxErrors` | `5` | distinct problems shown; the same mistake repeated counts once (`(the same at rows[3].id, rows[5].id and 997 more places)`); the rest are counted |
+| `maxChars` | `2000` | a hard cap. Detail is dropped step by step until it fits: expected types, context, levels, problems shown, then value lists become counts (`one of 12 values`, the suggestion kept), then `list`, then `summary`, and only then is the text cut |
+| `suggestions` | `true` | "did you mean" for enum values, literal and discriminator tags, unknown keys, a missing key the model misspelt (`Required — you wrote \`titel\`…`), tool names |
+| `expected` | on for `'full'` | a short TypeScript-like type of just that spot (`{ key: string; value: Expr }[]`), only where the message doesn't already say it |
+| `context` | `3` | sibling keys / items shown next to a bad spot (short ones first); the rest are summarized (`{… 4 keys}`, `[… 1000 items]`, `… 3 more keys`) |
+| `depth` | `6` | levels shown above a bad spot; a deeper one is echoed from there, under a header with its path (`at program.ifs[0]…:`), its marker naming the rest (`….body.kind`) |
+| `header` | `true` | the first line: how many problems, in what (`the arguments of search`, `your answer`) |
+
+`label` (a parse option) names what the model wrote; request entries set it (`the arguments of
+search`, `the arguments of search (called through run_tool)`, `your answer`).
+
+The ranking of "did you mean" is gin's and query's, ported algorithm-identical (`suggest.ts`;
+tested against both): Levenshtein, case-insensitive, within `floor(len / 3)` edits (1 to 3), ties
+by exact case then order. It fires on genuine typos only: a transposition is two edits, so `opne`
+is too far from `open` for a four-letter word.
+
+A misspelt key on a closed object is one mistake, told once (at the missing key). A tool name the
+request doesn't have gets the nearest name (`No tool named "serach_docs" in this request — did you
+mean \`search_docs\`?`), else the list; a tool behind the dispatcher called by its own name is
+decoded, not refused.
+
+On failure the answer is put back as the model sent it (in-place writes are logged and undone,
+key order included), so the echo is the wire. With `'summary'` or `'list'` nothing is logged and
+the value may be left half-decoded, as before. `parseText` re-reads its text instead.
+
+Cost: nothing on the happy path but, for an echoing format, one log entry per in-place write.
+On a failure, union option trials record nothing (count only), and suggestions and expected
+types are computed only for the problems shown.
+
+Lower level: `formatErrors(issues, wire, format, label)` formats any issues; `issueKind(issue)`
+(`'type'`, `'required'`, `'unknown-key'`, `'enum'`, `'tag'`, `'tool'`, `'rule'`, …) and
+`suggestionFor(issue)` read what an issue was about; `formatIssues(issues)` is the bare
+`- at <path>: <message>` list (logs, `SchemaParseError` without a format).
+
 ## Errors
 
 | Error | When |
 |---|---|
-| `SchemaParseError` | `parseOrThrow` failed; `issues` has both paths |
+| `SchemaParseError` | `parseOrThrow` failed; `issues` has both paths, `message` is the model's message |
 | `SchemaDefinitionError` | the code's own mistake the types couldn't catch: a missing ref at bind time, a dynamic step redefining a name, an example that doesn't fit its schema, encoding at a path that doesn't exist |
 | `RequestLimitError` | only on request: `assertNoDegradation()` / `{ failOnDegrade: true }`, with `problems` listing the degradations |
 

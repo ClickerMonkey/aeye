@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, XAI_STRICT, schemaHelpers } from '../../index';
 import { asTool, profileProblems, unexplained, validate } from './_check';
 import * as T from './test-integration';
+import { lines } from '../_lines';
 
 type J = any;
 const address = { street: '1 Main St', city: 'Springfield', postcode: '12345', country: 'US' as const };
@@ -149,12 +150,12 @@ describe('emitted JSON and model answers', () => {
     expect((T.NotBlack.render(asTool(OPENAI_STRICT)).jsonSchema as J).properties.color).toEqual({ type: 'string', description: 'Must not be: "black".' });
     expect((T.NotBlack.render(asTool(LENIENT)).jsonSchema as J).properties.color.not).toBeDefined();
     const res = T.NotBlack.render(asTool(OPENAI_STRICT)).parse({ color: 'black' });
-    expect(!res.ok && res.message).toBe('- at color: Must not be: "black".');
+    expect(lines(res)).toBe('- at color: Must not be: "black".');
   });
 
   it('city: a bad code at its path; encoded into a prompt in the model\'s shape', () => {
     const r = T.City.render(OPENAI_STRICT);
-    expect(r.parse({ city: 'Paris', code: 'XX' })).toMatchObject({ ok: false, message: '- at code: Expected one of: FR, DE, ES.' });
+    expect(lines(r.parse({ city: 'Paris', code: 'XX' }))).toBe('- at code: Expected one of: FR, DE, ES.');
     const t = Handlebars.compile('Like {{encode v}}', { noEscape: true });
     expect(t({ v: { city: 'Paris', code: 'FR' } }, { helpers: schemaHelpers(r) })).toBe('Like {"city":"Paris","code":"FR"}');
     expect(validate(r.jsonSchema, r.encode({ city: 'Paris', code: 'FR' }))).toEqual([]);

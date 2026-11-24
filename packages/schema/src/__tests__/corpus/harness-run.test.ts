@@ -8,6 +8,7 @@ import { a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRIC
 import { asTool, profileProblems, unexplained } from './_check';
 import { fnNameOf, modelFnNames, type ModelFnNamesLike, type QualifiedName } from './harness-fns';
 import * as R from './harness-run';
+import { lines } from '../_lines';
 
 const tool = <T>(bound: { render(p: Profile): T }, p: Profile): T => bound.render(asTool(p));
 const compile = (t: string) => Handlebars.compile(t, { noEscape: true });
@@ -93,7 +94,7 @@ describe('run (core/src/modes.ts:75 RunArgs), as the harness sends it', () => {
   it('`on` must be a machine name', () => {
     const res = tool(R.RunArgs, ANTHROPIC_STRICT).parse({ fn: 'fs__read', on: 'My Laptop' });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.message).toBe('- at on: Must match /^[a-z][a-z0-9-]*$/.');
+    if (!res.ok) expect(lines(res)).toBe('- at on: Must match /^[a-z][a-z0-9-]*$/.');
   });
 });
 
@@ -123,7 +124,7 @@ describe('run as `a` types it: args checked against the named fn\'s signature (R
     if (!wrong.ok) expect(wrong.issues).toEqual([{ path: ['args', 'status'], codePath: ['args', 'status'], message: 'Expected one of: open, paid.' }]);
     const missing = tool(bound, ANTHROPIC_STRICT).parse({ fn: 'nope__x', args: '{}' });
     expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.message).toBe('- at args: no fn of that name can run here');
+    if (!missing.ok) expect(lines(missing)).toBe('- at args: no fn of that name can run here');
     const machine = tool(bound, ANTHROPIC_STRICT).parse({ fn: 'fs__read', args: '{}', on: 'server' });
     expect(machine.ok).toBe(false);
   });

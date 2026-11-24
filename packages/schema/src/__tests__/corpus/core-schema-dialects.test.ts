@@ -17,6 +17,7 @@ import {
 } from '../../index';
 import { asTool, dialectProblems, MODEL_PROFILES, profileProblems, validate } from './_check';
 import * as S from './core-schema';
+import { lines } from '../_lines';
 
 type J = Record<string, any>;
 const props = (j: JsonSchema): J => j.properties as J;
@@ -308,7 +309,7 @@ describe('constraints per dialect (core:schema-formats.test.ts:394-454)', () => 
     // core dropped minItems too; `a` keeps minItems: 1 (Anthropic accepts 0 or 1).
     expect(props(render(S.BoundedTags, ANTHROPIC_STRICT)).tags).toEqual({ type: 'array', items: { type: 'string' }, minItems: 1, description: 'At most 10 items.' });
     const res = S.Age.render(ANTHROPIC_STRICT).parse({ age: 130 });
-    expect(!res.ok && res.message).toBe('- at age: Must be at most 120.');
+    expect(lines(res)).toBe('- at age: Must be at most 120.');
   });
   it('Gemini strict: range kept, string length said in words', () => {
     expect(props(render(S.Age, GOOGLE_STRICT)).age).toEqual({ type: 'number', minimum: 0, maximum: 120 });
@@ -518,7 +519,7 @@ describe('enum caps WIDEN, never truncate (core:schema-enum-cap.test.ts)', () =>
     const r = a.enum(S.MANY).render(CAPPED);
     expect(r.parse('name_19')).toMatchObject({ ok: true, value: 'name_19' });
     const bad = r.parse('nope');
-    expect(!bad.ok && bad.message.startsWith('- at (root): Expected one of: name_0, name_1')).toBe(true);
+    expect(lines(bad).startsWith('- at (root): Expected one of: name_0, name_1')).toBe(true);
   });
 
   it('a single literal is never widened', () => {

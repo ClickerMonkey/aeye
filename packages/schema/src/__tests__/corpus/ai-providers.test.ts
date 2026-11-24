@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, XAI_STRICT, profileFor, schemaHelpers } from '../../index';
 import { asTool, profileProblems, unexplained } from './_check';
 import * as P from './ai-providers';
+import { lines } from '../_lines';
 
 type J = any;
 
@@ -114,7 +115,7 @@ describe('ai schema-fallback.test.ts — unions and intersections per family', (
     const res = P.UnionValue.render(asTool(OPENAI_STRICT)).parse({ id: 'a', value: true });
     expect(!res.ok && res.issues[0]!.path).toEqual(['value']);
     const and = P.AllOfValue.render(asTool(OPENAI_STRICT)).parse({ id: 'a', value: { a: 'x' } });
-    expect(!and.ok && and.message).toBe('- at value.b: Required.');
+    expect(lines(and)).toBe('- at value.b: Required.');
   });
 });
 
@@ -138,7 +139,7 @@ describe('openai.test.ts:713 — weather tool in a request, encoded into instruc
     expect(unexplained(req)).toEqual([]);
     const t = Handlebars.compile('Example: {{encode e tool="get_weather"}}', { noEscape: true });
     expect(t({ e: { location: 'Paris', unit: 'celsius' } }, { helpers: req.helpers('output') })).toBe('Example: {"location":"Paris","unit":"celsius"}');
-    expect(req.get('get_weather').parse({ location: 'Paris', unit: 'kelvin' })).toMatchObject({ ok: false, message: '- at unit: Expected one of: celsius, fahrenheit.' });
+    expect(lines(req.get('get_weather').parse({ location: 'Paris', unit: 'kelvin' }))).toBe('- at unit: Expected one of: celsius, fahrenheit.');
     expect(Handlebars.compile('{{schema}}', { noEscape: true })({}, { helpers: schemaHelpers(P.WeatherArgs.render(LENIENT)) }))
       .toBe('{ location: string; unit: "celsius" | "fahrenheit" }');
   });

@@ -20,6 +20,7 @@ import {
   EXPR_KINDS, ExprSchema, QueryModule, QueryProseArgs, QuerySchema, QueryToolArgs, SelectSchema, depthOf, fieldValue, shouldUseStringSchema,
   type BuildOptions, type QueryCatalog,
 } from './query';
+import { lines } from '../_lines';
 
 const fx = fixtureRegistry();
 const catalog = catalogOf(fx);
@@ -420,7 +421,7 @@ describe('query: model-shaped answers', () => {
       // the sorter's `sorts` record went as pairs: the model wrote entry 1, the code sees the record
       [['query', 'order', 0, 'sorts', 1, 'key'], ['query', 'order', 0, 'sorts'], 'Duplicate key "s".'],
     ]);
-    expect(res.message).toBe('- at query.fields[0].expr.field: Expected one of: id, name, age, email, tags, orders.\n- at query.order[0].sorts[1].key: Duplicate key "s".');
+    expect(lines(res)).toBe('- at query.fields[0].expr.field: Expected one of: id, name, age, email, tags, orders.\n- at query.order[0].sorts[1].key: Duplicate key "s".');
   });
 
   it('a typed insert row: unknown field and wrong value are reported at the row\'s key', () => {

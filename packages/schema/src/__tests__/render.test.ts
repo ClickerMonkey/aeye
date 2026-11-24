@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, MINIMAL, OPENAI_STRICT, PEOPLE } from '../index';
+import { lines } from './_lines';
 
 // One schema; the prose about the record comes from the same place as its wire shape.
 const Budget = a.object({
@@ -78,7 +79,7 @@ describe('the record example', () => {
       [['limits', 0, 'value'], ['limits', 'food'], 'Must be at least 0.'],
       [['limits', 1, 'key'], ['limits'], 'Duplicate key "food".'],
     ]);
-    expect(strict.message).toBe('- at limits[0].value: Must be at least 0.\n- at limits[1].key: Duplicate key "food".');
+    expect(lines(strict)).toBe('- at limits[0].value: Must be at least 0.\n- at limits[1].key: Duplicate key "food".');
 
     const lenient = Budget.render(LENIENT).parse({ owner: 'ann', limits: { food: -5 } });
     expect(!lenient.ok && lenient.issues[0]!.path).toEqual(['limits', 'food']);
@@ -183,7 +184,7 @@ describe('profiles', () => {
     expect((an.properties as any).end).toEqual({ type: 'integer', description: 'At most 100.' });
     expect(an.description).toBe('Rules: start must not be after end.');
     const bad = Range.render(ANTHROPIC_STRICT).parse({ start: 5, end: 1 });
-    expect(!bad.ok && bad.message).toBe('- at (root): start must not be after end.');
+    expect(lines(bad)).toBe('- at (root): start must not be after end.');
   });
 
   it('people-only fields are invisible to and refused from models; people see everything', () => {
@@ -229,7 +230,7 @@ describe('profiles', () => {
     const P = a.object({ fn: FnName });
     const r = P.render(OPENAI_STRICT);
     expect(r.parse({ fn: 'sys__notes' })).toMatchObject({ ok: true, value: { fn: 'sys/notes' } });
-    expect(r.parse({ fn: 'bogus' })).toMatchObject({ ok: false, message: '- at fn: Unknown fn "bogus".' });
+    expect(lines(r.parse({ fn: 'bogus' }))).toBe('- at fn: Unknown fn "bogus".');
     expect(r.encode({ fn: 'sys/notes' })).toEqual({ fn: 'sys__notes' });
   });
 });

@@ -17,6 +17,7 @@ import {
   And, Any, Bool, DateT, Enum, FetchArgs, Literal, MapNum, MapText, Not, Null, Num, Or, PrimeFactorsArgs, PrimeFactorsDef,
   Task, TaskDef, Text, Timestamp, Void, type TaskT,
 } from './gin-values';
+import { lines } from '../_lines';
 
 const lenient = (s: AnySchema): Rendered<unknown> => (s as unknown as { render(p: typeof LENIENT): Rendered<unknown> }).render(LENIENT);
 
@@ -260,7 +261,7 @@ describe('decoding what models send', () => {
       [['title'], ['title']],
       [['weights', 1, 'value'], ['weights', 'bo']],
     ]);
-    expect(res.message).toBe('- at title: Must be at least 1 characters.\n- at weights[1].value: Expected a number, got string.');
+    expect(lines(res)).toBe('- at title: Must be at least 1 characters.\n- at weights[1].value: Expected a number, got string.');
   });
 });
 

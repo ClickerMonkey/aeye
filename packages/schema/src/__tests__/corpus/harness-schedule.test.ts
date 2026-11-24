@@ -9,6 +9,7 @@ import { asTool, clone, profileProblems } from './_check';
 import { modelFnNames } from './harness-fns';
 import type { ProgramSessionLike } from './harness-grammar';
 import * as S from './harness-schedule';
+import { lines } from '../_lines';
 
 const tool = <T>(bound: { render(p: Profile): T }, p: Profile): T => bound.render(asTool(p));
 const names = modelFnNames({ type: 'tools' });
@@ -81,7 +82,7 @@ describe('When (shared/types.ts:107)', () => {
       [{ dayOfWeek: [1], times: ['09:00', '09:00'] }, '09:00 is in `times` twice.'],
     ] as const) {
       const res = r.parse(clone(bad));
-      expect(res.ok ? undefined : res.message).toBe(`- at (root): ${message}`);
+      expect(lines(res)).toBe(`- at (root): ${message}`);
     }
     const fields = tool(S.When, ANTHROPIC_STRICT).parse({ dayOfWeek: [7], times: ['25:00'], bogus: 1 });
     expect(fields.ok).toBe(false);
@@ -105,7 +106,7 @@ describe('When (shared/types.ts:107)', () => {
     expect(r.parse('UTC').ok).toBe(true);
     for (const bad of ['Mars/Olympus', '+05:00', 'Eastern Time']) {
       const res = r.parse(bad);
-      expect(res.ok ? '' : res.message, bad).toBe('- at (root): an IANA time zone, such as America/New_York');
+      expect(lines(res), bad).toBe('- at (root): an IANA time zone, such as America/New_York');
     }
     expect(a.object({ zone: S.Zone }).render(OPENAI_STRICT).jsonSchema['properties']).toEqual({ zone: { type: 'string', description: 'Rules: an IANA time zone, such as America/New_York' } });
   });
@@ -168,7 +169,7 @@ describe('schedule/add, change, skip (shared/index.ts)', () => {
     expect(profileProblems(Limits, [{}, { minGap: 900_000, perPerson: 50, approvals: 'wait', keep: { perSchedule: 500, days: 180 } }])).toEqual([]);
     expect(Limits.render(PEOPLE).jsonSchema).toMatchObject({ properties: { minGap: { type: 'number', description: expect.stringContaining('The shortest gap between two firings of one schedule (default 15 minutes).') } } });
     const res = Limits.render(PEOPLE).parse({ perPerson: 0.5 });
-    expect(res.ok ? '' : res.message).toBe('- at perPerson: Expected a whole number.\n- at perPerson: Must be at least 1.');
+    expect(lines(res)).toBe('- at perPerson: Expected a whole number.\n- at perPerson: Must be at least 1.');
   });
 });
 

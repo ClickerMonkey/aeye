@@ -9,6 +9,7 @@ import {
   a, ANTHROPIC_STRICT, fromGin, GOOGLE_STRICT, LENIENT, MINIMAL, OPENAI_STRICT, PEOPLE, SchemaDefinitionError, SchemaParseError,
   XAI_STRICT, type AnySchema, type GinTypeDef,
 } from '../index';
+import { lines } from './_lines';
 
 describe('intersection (allOf, gin and)', () => {
   const Named = a.object({ name: a.string() });
@@ -24,7 +25,7 @@ describe('intersection (allOf, gin and)', () => {
     const r = Both.render(OPENAI_STRICT);
     expect(r.parse({ name: 'a', at: '2024-01-02', note: null })).toMatchObject({ ok: true, value: { name: 'a', at: '2024-01-02' } });
     const bad = r.parse({ name: 'a', at: '1999-01-02', note: null });
-    expect(!bad.ok && bad.message).toBe('- at (root): Dates after 2000.');
+    expect(lines(bad)).toBe('- at (root): Dates after 2000.');
   });
 
   it('merges through refs to named objects', () => {
@@ -58,7 +59,7 @@ describe('not and if/then/else', () => {
     const S = a.object({ v: a.not(a.literal('forbidden'), a.string()) });
     expect((S.render(OPENAI_STRICT).jsonSchema.properties as any).v).toEqual({ type: 'string', description: 'Must not be: "forbidden".' });
     expect((S.render(LENIENT).jsonSchema.properties as any).v).toEqual({ type: 'string', not: { type: 'string', enum: ['forbidden'] } });
-    expect(S.render(OPENAI_STRICT).parse({ v: 'forbidden' })).toMatchObject({ ok: false, message: '- at v: Must not be: "forbidden".' });
+    expect(lines(S.render(OPENAI_STRICT).parse({ v: 'forbidden' }))).toBe('- at v: Must not be: "forbidden".');
     expect(S.render(OPENAI_STRICT).parse({ v: 'fine' }).ok).toBe(true);
   });
 
@@ -140,7 +141,7 @@ describe('extra keys (rest / patternProperties)', () => {
     expect(Ext.render(LENIENT).parse({ id: 'a', 'x-y': 'z' }).ok).toBe(true);
     // Other keys are left alone (as on any object) unless the object is strict.
     expect(Ext.render(LENIENT).parse({ id: 'a', other: 1 }).ok).toBe(true);
-    expect(Ext.strict().render(LENIENT).parse({ id: 'a', other: 1 })).toMatchObject({ ok: false, message: '- at other: Unknown field "other".' });
+    expect(lines(Ext.strict().render(LENIENT).parse({ id: 'a', other: 1 }))).toBe('- at other: Unknown field "other".');
     expect((Ext.strict().render(LENIENT).jsonSchema as any).additionalProperties).toBe(false);
   });
 
@@ -187,7 +188,7 @@ describe('roots that are not objects', () => {
     expect(r.encode(['x'])).toEqual({ input: ['x'] });
     const bad = r.parse({ input: [1] });
     expect(!bad.ok && bad.issues[0]).toMatchObject({ path: ['input', 0], codePath: [0] });
-    expect(r.parse(['a'])).toMatchObject({ ok: false, message: '- at (root): Expected an object with an "input" field.' });
+    expect(lines(r.parse(['a']))).toBe('- at (root): Expected an object with an "input" field.');
   });
 
   it('stay as they are where any root is fine', () => {
@@ -255,7 +256,9 @@ describe('errors', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(SchemaParseError);
       expect((e as SchemaParseError).issues).toEqual([{ path: ['limits', 0, 'value'], codePath: ['limits', 'food'], message: 'Must be at least 0.' }]);
-      expect((e as Error).message).toBe('- at limits[0].value: Must be at least 0.');
+      // The error's message is the model's message (the default format: markers at the pair the model wrote).
+      expect((e as Error).message).toContain('limits[0].value: Must be at least 0.');
+      expect((e as Error).message).toContain('^');
     }
     expect(r.parseOrThrow({ limits: [] })).toEqual({ limits: {} });
   });

@@ -8,6 +8,7 @@ import { ANTHROPIC_STRICT, GOOGLE_OPENAPI, GOOGLE_STRICT, LENIENT, ModelProfile,
 import { asTool, clone, profileProblems } from './_check';
 import type { ProgramSessionLike } from './harness-grammar';
 import * as W from './harness-authoring';
+import { lines } from '../_lines';
 
 const tool = <T>(bound: { render(p: Profile): T }, p: Profile): T => bound.render(asTool(p));
 
@@ -65,7 +66,7 @@ describe('code and api drafts (systems/code, systems/api server/authoring.ts)', 
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.issues[0]?.path).toEqual(['program', 'path', 0]);
     const unnamed = tool(code, ANTHROPIC_STRICT).parse({ ...clone(openai), name: 'Price With Tax' });
-    expect(unnamed.ok ? '' : unnamed.message).toBe('- at name: Must match /^[a-z][a-z0-9_]*$/.');
+    expect(lines(unnamed)).toBe('- at name: Must match /^[a-z][a-z0-9_]*$/.');
   });
 
   it('the signature, load and search tools', () => {
@@ -222,7 +223,7 @@ describe('the widget proposal schema (sdk/src/widget-schema.ts, widgets.test.ts:
   it('the style rules: a whole-only style on a page of more rows', () => {
     const paged = W.WidgetProposal.bind({ ...input, facts: { ...input.facts, whole: false } });
     const res = tool(paged, LENIENT).parse({ ...clone(draft), choice: { visual: 'category', style: 'percent' } });
-    expect(res.ok ? '' : res.message).toBe('- at (root): Visual category: style percent only draws a whole result.');
+    expect(lines(res)).toBe('- at (root): Visual category: style percent only draws a whole result.');
   });
 
   it('decodes a strict model\'s proposal (OpenAI strict: nulls, the plan union by `show`)', () => {

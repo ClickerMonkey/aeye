@@ -12,6 +12,7 @@ import {
 import { compileTool, runToolCall } from '../../proposal/core-api';
 import { asTool, clone, MODEL_PROFILES, profileProblems, validate } from './_check';
 import * as C from './core-tools';
+import { lines } from '../_lines';
 
 const NO_COPIES = { objects: 0, arrays: 0, edits: 0, parsed: 0, repaired: 0 };
 const compile = (t: string) => Handlebars.compile(t, { noEscape: true });
@@ -233,7 +234,7 @@ describe('decoding what models send', () => {
 
   it('can turn repair off: the JSON string is then an error', () => {
     const res = C.ProgramArgs.render(asTool(OPENAI_STRICT)).parse({ program: '{"kind":"new","value":42}' }, { repair: false });
-    expect(!res.ok && res.message).toBe('- at program: Expected an object, got string.');
+    expect(lines(res)).toBe('- at program: Expected an object, got string.');
   });
 
   it('prompt-core-features.test.ts:180 — a prompt output parsed in the code shape', () => {
@@ -245,7 +246,7 @@ describe('decoding what models send', () => {
   it('manageData bound for a user: "delete" is not in the enum', () => {
     const r = C.ManageDataArgs.bind({ userRole: 'user', isAuthenticated: true }).render(asTool(ANTHROPIC_STRICT));
     const res = r.parse({ action: 'delete' });
-    expect(!res.ok && res.message).toBe('- at action: Expected one of: read.');
+    expect(lines(res)).toBe('- at action: Expected one of: read.');
   });
 
   it('prompt-modes-reconfig.test.ts:450 — the output schema follows the input', () => {
@@ -253,7 +254,7 @@ describe('decoding what models send', () => {
     expect(noAge.parseText('{"name":"Alice"}').ok).toBe(true);
     const withAge = C.PersonByInput.bind({}, { includeAge: true }).render(OPENAI_STRICT);
     const res = withAge.parseText('{"name":"Alice"}');
-    expect(!res.ok && res.message).toBe('- at age: Required.');
+    expect(lines(res)).toBe('- at age: Required.');
   });
 });
 
@@ -265,7 +266,7 @@ describe('validation errors: wire path, code path, re-prompt message', () => {
   it('records: an error inside a pair is at the pair on the wire and at the key in code', () => {
     const res = C.TaggedArgs.render(asTool(OPENAI_STRICT)).parse({ name: 'n', tags: [{ key: 'food', value: 3 }] });
     expect(!res.ok && res.issues).toEqual([{ path: ['tags', 0, 'value'], codePath: ['tags', 'food'], message: 'Expected a string, got number.' }]);
-    expect(!res.ok && res.message).toBe('- at tags[0].value: Expected a string, got number.');
+    expect(lines(res)).toBe('- at tags[0].value: Expected a string, got number.');
   });
 
   it.each([
@@ -278,12 +279,29 @@ describe('validation errors: wire path, code path, re-prompt message', () => {
     ['prompt-core-features:208 wrong type', a.object({ name: a.string(), age: a.number() }), { name: 'Alice', age: 'invalid' }, '- at age: Expected a number, got string.'],
   ])('%s', (_name, schema, wire, message) => {
     const res = (schema as unknown as typeof C.AddArgs).render(asTool(OPENAI_STRICT)).parse(wire);
-    expect(!res.ok && res.message).toBe(message);
+    expect(lines(res)).toBe(message);
   });
 
   it('runToolCall: a bad answer becomes a re-prompt, a good one reaches call() decoded', async () => {
     const bad = await runToolCall(C.calculator, {}, OPENAI_STRICT, () => '{"operation":"mul","a":1,"b":2}');
-    expect(bad).toEqual({ ok: false, reprompt: 'Fix these arguments:\n- at operation: Expected one of: add, subtract.' });
+    // The tool's error format (default 'full'): the model's JSON with a marker at `operation`.
+    expect(bad).toEqual({
+      ok: false,
+      reprompt: [
+        'Fix these arguments:',
+        '1 problem in the arguments of calculator:',
+        '',
+        '{',
+        '  "operation": "mul",',
+        '               ^^^^^ operation: Expected one of: add, subtract.',
+        '  "a": 1,',
+        '  "b": 2',
+        '}',
+      ].join('\n'),
+    });
+    // A tool that asks for one line gets one line.
+    const terse = await runToolCall({ ...C.calculator, errorFormat: 'summary' }, {}, OPENAI_STRICT, () => '{"operation":"mul","a":1,"b":2}');
+    expect(terse).toEqual({ ok: false, reprompt: 'Fix these arguments:\nA problem in the arguments of calculator: at operation: Expected one of: add, subtract.' });
     const good = await runToolCall(C.getWeather, {}, OPENAI_STRICT, () => '{"location":"Paris","units":null}');
     expect(good).toEqual({ ok: true, output: { temperature: 20, condition: 'sunny', units: 'celsius', location: 'Paris' } });
   });
@@ -442,12 +460,12 @@ describe('custom parse hooks as codecs', () => {
   it('tool.test.ts:483 — decodes to an array; a bad value is the codec\'s own message', () => {
     const r = C.CsvNumbers.render(OPENAI_STRICT);
     expect(r.parseText('{"csv":"1,2,3"}')).toMatchObject({ ok: true, value: [1, 2, 3] });
-    expect(r.parseText('{"csv":"1,x"}')).toMatchObject({ ok: false, message: '- at (root): "1,x" is not a comma-separated list of numbers.' });
+    expect(lines(r.parseText('{"csv":"1,x"}'))).toBe('- at (root): "1,x" is not a comma-separated list of numbers.');
   });
 
   it('prompt-output-custom-parse.test.ts:49 — a returned rich Error is the re-prompt message', () => {
     const res = C.RichErrorOutput.render(OPENAI_STRICT).parseText('{"value":1}');
-    expect(!res.ok && res.message).toBe('- at (root): nice compiler-style error ^^^ here');
+    expect(lines(res)).toBe('- at (root): nice compiler-style error ^^^ here');
   });
 
   it('DELIBERATE: prompt-output-custom-parse.test.ts:21 — core\'s parse REPLACED the schema check ({n:"5"} accepted); a codec checks the wire first', () => {

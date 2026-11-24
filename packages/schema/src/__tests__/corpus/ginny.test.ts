@@ -20,6 +20,7 @@ import {
   FindTypesArgs, FindVarsArgs, FinishArgs, NameArgs, PrintFnArgs, PROGRAMMER_TOOLS, ResearchArgs, ResearcherOut, SearchCatalogArgs,
   SearchTypesArgs, TestArgs, WebGetPageArgs, WebSearchArgs, WriteToolArgs, editType, type Ctx, type GinnyCtx,
 } from './ginny';
+import { lines } from '../_lines';
 
 // ---------------------------------------------------------------------------
 // A ginny ctx over gin's fixture registry
@@ -194,7 +195,7 @@ describe('test (args typed by ctx.targetFn)', () => {
     expect(res.ok && res.value).toEqual({ args: { n: 56 } });
     const bad = r.parseText('{"args":{"n":0},"expectError":null}');
     expect(!bad.ok && bad.issues.map((i) => [i.path, i.codePath])).toEqual([[['args', 'n'], ['args', 'n']]]);
-    expect(!bad.ok && bad.message).toBe('- at args.n: Must be at least 1.');
+    expect(lines(bad)).toBe('- at args.n: Must be at least 1.');
   });
 
   it('top level: an open record of scope values (pairs of JSON text on OpenAI strict)', () => {

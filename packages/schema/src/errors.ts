@@ -18,10 +18,10 @@ export class SchemaDefinitionError extends Error {
   }
 }
 
-/** A value did not match its schema (`parseOrThrow`). `issues` has both paths. */
+/** A value did not match its schema (`parseOrThrow`). `issues` has both paths; the message is the model's feedback. */
 export class SchemaParseError extends Error {
-  constructor(readonly issues: readonly Issue[]) {
-    super(formatIssues(issues));
+  constructor(readonly issues: readonly Issue[], message: string = formatIssues(issues)) {
+    super(message);
     this.name = 'SchemaParseError';
   }
 }

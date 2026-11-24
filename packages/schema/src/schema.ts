@@ -12,6 +12,7 @@ import type { Brand, JsonValue, Loose, RefMarker, Simplify } from './types';
 import type { View, Profile } from './profile';
 import { Cx, FAILED, Printer, newStats, readJsonText, type CopyStats, type Compiler, type JsonSchema, type Node, type PathSeg, type Rendered } from './render';
 import { staticBundle, type Bound } from './module';
+import type { IssueKind } from './feedback';
 
 /** Description text: plain, or computed from the model-facing view so prose matches the wire shape. */
 export type Text = string | ((view: View) => string);
@@ -269,10 +270,10 @@ export class StringType extends Schema<string> {
       },
       run: (v, cx) => {
         if (typeof v !== 'string') return fail(cx, v, `Expected a string, got ${kind(v)}.`);
-        if (o.minLength !== undefined && v.length < o.minLength) cx.fail(`Must be at least ${o.minLength} characters.`);
-        if (o.maxLength !== undefined && v.length > o.maxLength) cx.fail(`Must be at most ${o.maxLength} characters.`);
-        if (re && !re.test(v)) cx.fail(`Must match ${shown}.`);
-        if (fmt && !fmt.test(v)) cx.fail(`Must be a valid ${o.format}.`);
+        if (o.minLength !== undefined && v.length < o.minLength) cx.fail(`Must be at least ${o.minLength} characters.`, 'rule');
+        if (o.maxLength !== undefined && v.length > o.maxLength) cx.fail(`Must be at most ${o.maxLength} characters.`, 'rule');
+        if (re && !re.test(v)) cx.fail(`Must match ${shown}.`, 'rule');
+        if (fmt && !fmt.test(v)) cx.fail(`Must be a valid ${o.format}.`, 'rule');
         return v;
       },
       encode: (v) => v,
@@ -324,11 +325,11 @@ export class NumberType extends Schema<number> {
       },
       run: (v, cx) => {
         if (typeof v !== 'number' || !Number.isFinite(v)) return fail(cx, v, `Expected a number, got ${kind(v)}.`);
-        if (o.int && !Number.isInteger(v)) cx.fail('Expected a whole number.');
-        if (o.minimum !== undefined && v < o.minimum) cx.fail(`Must be at least ${o.minimum}.`);
-        if (o.exclusiveMinimum !== undefined && v <= o.exclusiveMinimum) cx.fail(`Must be greater than ${o.exclusiveMinimum}.`);
-        if (o.exclusiveMaximum !== undefined && v >= o.exclusiveMaximum) cx.fail(`Must be less than ${o.exclusiveMaximum}.`);
-        if (o.maximum !== undefined && v > o.maximum) cx.fail(`Must be at most ${o.maximum}.`);
+        if (o.int && !Number.isInteger(v)) cx.fail('Expected a whole number.', 'type');
+        if (o.minimum !== undefined && v < o.minimum) cx.fail(`Must be at least ${o.minimum}.`, 'rule');
+        if (o.exclusiveMinimum !== undefined && v <= o.exclusiveMinimum) cx.fail(`Must be greater than ${o.exclusiveMinimum}.`, 'rule');
+        if (o.exclusiveMaximum !== undefined && v >= o.exclusiveMaximum) cx.fail(`Must be less than ${o.exclusiveMaximum}.`, 'rule');
+        if (o.maximum !== undefined && v > o.maximum) cx.fail(`Must be at most ${o.maximum}.`, 'rule');
         return v;
       },
       encode: (v) => v,
@@ -375,7 +376,7 @@ export class LiteralType<V extends LiteralValue> extends Schema<V> {
     return c.node({
       hint: () => this.ruleHint(),
       emit: () => (v0 === null ? { type: 'null' } : { type: jsonType(v0), enum: [v0] }),
-      run: (v, cx) => (v === v0 ? v : fail(cx, v, `Expected ${JSON.stringify(v0)}.`)),
+      run: (v, cx) => (v === v0 ? v : fail(cx, v, `Expected ${JSON.stringify(v0)}.`, 'literal', typeof v0 === 'string' ? () => [v0] : undefined)),
       encode: (v) => v,
     });
   }
@@ -401,7 +402,7 @@ export class EnumType<V extends readonly [string, ...string[]]> extends Schema<V
       hint: () => this.hintOf(widened ? [`One of: ${values.join(', ')}.`] : []),
       emit: () => (widened ? { type: 'string' } : { type: 'string', enum: [...values] }),
       run: (v, cx) => {
-        if (typeof v !== 'string' || !set.has(v)) return fail(cx, v, `Expected one of: ${values.join(', ')}.`);
+        if (typeof v !== 'string' || !set.has(v)) return fail(cx, v, `Expected one of: ${listOf(values)}.`, 'enum', () => values);
         return v;
       },
       encode: (v) => v,
@@ -420,7 +421,7 @@ export class AnyType<Out = unknown> extends Schema<Out> {
       return c.node({
         hint: () => this.ruleHint(),
         emit: () => (mode === 'empty' ? {} : { anyOf: FLAT_ANY.map((b) => ({ ...b })) }),
-        run: (v, cx) => (v === undefined ? fail(cx, v, 'Required.') : v),
+        run: (v, cx) => (v === undefined ? fail(cx, v, 'Required.', 'required') : v),
         encode: (v) => v,
       });
     }
@@ -481,8 +482,8 @@ export class ArrayType<E extends AnySchema> extends Schema<OutOf<E>[], RefsOf<E>
       run: (v0, cx) => {
         const v = repairJson(v0, cx, 'array');
         if (!Array.isArray(v)) return fail(cx, v, `Expected a list, got ${kind(v)}.`);
-        if (o.minItems !== undefined && v.length < o.minItems) cx.fail(`Must have at least ${o.minItems} items.`);
-        if (o.maxItems !== undefined && v.length > o.maxItems) cx.fail(`Must have at most ${o.maxItems} items.`);
+        if (o.minItems !== undefined && v.length < o.minItems) cx.fail(`Must have at least ${o.minItems} items.`, 'rule');
+        if (o.maxItems !== undefined && v.length > o.maxItems) cx.fail(`Must have at most ${o.maxItems} items.`, 'rule');
         let out = v;
         for (let i = 0; i < v.length; i++) {
           cx.enter(i);
@@ -550,7 +551,7 @@ export class TupleType<T extends readonly [AnySchema, ...AnySchema[]]> extends S
         }
         const v = repairJson(v0, cx, 'array');
         if (!Array.isArray(v)) return fail(cx, v, `Expected a list of ${n} items.`);
-        if (v.length !== n) cx.fail(`Expected exactly ${n} items.`);
+        if (v.length !== n) cx.fail(`Expected exactly ${n} items.`, 'rule');
         return runItems(v, cx, (i) => i);
       },
       encode: (v, st) => {
@@ -737,7 +738,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
           const val = has ? obj[f.key] : undefined;
           if (val === undefined) {
             if (f.dflt) { if (!cx.dry) out = writeKey(out, obj, f.key, f.dflt.fresh(cx.stats), cx); }
-            else if (!f.optional) { cx.enter(f.key); cx.fail('Required.'); cx.leave(); }
+            else if (!f.optional) { cx.enter(f.key); cx.fail('Required.', 'required', undefined, () => Object.keys(obj).filter((k) => !known.has(k)), f.node); cx.leave(); }
             continue;
           }
           if (val === null && f.optional && nullMode && !f.nullable) {
@@ -757,7 +758,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
           const val = obj[f.key];
           if (val === undefined || (val === null && f.optional && nullMode)) {
             if (val === null && !cx.dry) out = deleteKey(out, obj, f.key, cx);
-            else if (!f.optional) { cx.enter(f.key); cx.fail('Required.'); cx.leave(); }
+            else if (!f.optional) { cx.enter(f.key); cx.fail('Required.', 'required', undefined, () => Object.keys(obj).filter((k) => !known.has(k)), f.node); cx.leave(); }
             continue;
           }
           cx.enter(f.key);
@@ -771,7 +772,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
           if (r !== val && !cx.dry) out = writeKey(out, obj, f.key, r, cx);
         }
         if (hidden.size) for (const key of hidden) {
-          if (Object.prototype.hasOwnProperty.call(obj, key)) { cx.enter(key); cx.fail('Not allowed.'); cx.leave(); }
+          if (Object.prototype.hasOwnProperty.call(obj, key)) { cx.enter(key); cx.fail('Not allowed.', 'not-allowed'); cx.leave(); }
         }
         if (extraMode === 'pairs') {
           const list = obj[extraKey];
@@ -784,12 +785,12 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
               for (let i = 0; i < entries.length; i++) {
                 const e = entries[i] as { key?: unknown; value?: unknown };
                 cx.enter(i, null);
-                if (!isObject(e) || typeof e.key !== 'string') { cx.fail('Expected a {key, value} entry with a string key.'); cx.leave(false); continue; }
+                if (!isObject(e) || typeof e.key !== 'string') { cx.fail('Expected a {key, value} entry with a string key.', 'type'); cx.leave(false); continue; }
                 const k = e.key;
-                if (known.has(k) || Object.prototype.hasOwnProperty.call(out, k)) { cx.enter('key', null); cx.fail(`Duplicate key "${k}".`); cx.leave(false); cx.leave(false); continue; }
+                if (known.has(k) || Object.prototype.hasOwnProperty.call(out, k)) { cx.enter('key', null); cx.fail(`Duplicate key "${k}".`, 'rule'); cx.leave(false); cx.leave(false); continue; }
                 const node = nodeForKey(k);
                 cx.enter('value', k);
-                const r = node ? node.run(e.value, cx) : this.closed ? fail(cx, e.value, `Key "${k}" is not allowed.`) : e.value;
+                const r = node ? node.run(e.value, cx) : this.closed ? fail(cx, e.value, `Key "${k}" is not allowed.`, 'not-allowed') : e.value;
                 cx.leave();
                 if (!cx.dry) out = writeKey(out, obj, k, r, cx);
                 cx.leave(false);
@@ -810,7 +811,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
               cx.leave();
               if (r !== obj[key] && !cx.dry) out = writeKey(out, obj, key, r, cx);
             } else if (this.closed) {
-              cx.enter(key); cx.fail(`Unknown field "${key}".`); cx.leave();
+              cx.enter(key); cx.fail(`Unknown field "${key}".`, 'unknown-key', key, () => [...known].filter((k) => !Object.prototype.hasOwnProperty.call(obj, k))); cx.leave();
             }
           }
         }
@@ -910,10 +911,11 @@ export class RecordType<V extends AnySchema, K extends string = string> extends 
             if (!isObject(e)) { fail(cx, e, 'Expected a {key, value} entry.'); cx.leave(false); continue; }
             const k = (e as { key?: unknown }).key;
             cx.enter('key', null);
-            key.run(k, cx);
+            if (k === undefined) cx.fail('Required.', 'required', undefined, () => Object.keys(e).filter((x) => x !== 'key' && x !== 'value'), key);
+            else key.run(k, cx);
             cx.leave(false);
             if (typeof k === 'string') {
-              if (Object.prototype.hasOwnProperty.call(rec, k)) { cx.enter('key', null); cx.fail(`Duplicate key "${k}".`); cx.leave(false); }
+              if (Object.prototype.hasOwnProperty.call(rec, k)) { cx.enter('key', null); cx.fail(`Duplicate key "${k}".`, 'rule'); cx.leave(false); }
               cx.enter('value', k);
               rec[k] = val.run((e as { value?: unknown }).value, cx);
               cx.leave();
@@ -1071,9 +1073,9 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
         if (tagged) {
           if (!isObject(v)) return fail(cx, v, `Expected an object with one of: ${labels.join(', ')}.`);
           const set = labels.filter((l) => (v as Record<string, unknown>)[l] != null);
-          if (set.length !== 1) return fail(cx, v, `Fill exactly one of: ${labels.join(', ')} (got ${set.length}).`);
+          if (set.length !== 1) return fail(cx, v, `Fill exactly one of: ${labels.join(', ')} (got ${set.length}).`, 'union');
           const i = labels.indexOf(set[0]!);
-          if (isNullOpt(i)) return (v as Record<string, unknown>)[set[0]!] === true ? null : fail(cx, v, `Set ${set[0]} to true for null.`);
+          if (isNullOpt(i)) return (v as Record<string, unknown>)[set[0]!] === true ? null : fail(cx, v, `Set ${set[0]} to true for null.`, 'literal');
           cx.enter(set[0]!, null);
           // The wrapper is dropped; the chosen value is returned as is.
           const out = nodes[i]!.run((v as Record<string, unknown>)[set[0]!], cx);
@@ -1084,14 +1086,15 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
         if (i < 0) {
           if (byTag && !index!.fallback.length && isObject(v) && (v as Record<string, unknown>)[tag!] !== undefined) {
             cx.enter(tag!);
-            cx.fail(`Expected ${tag} to be one of: ${[...byTag.keys()].map((k) => JSON.stringify(k)).join(', ')}.`);
+            const tagValue = (v as Record<string, unknown>)[tag!];
+            cx.fail(`Expected ${tag} to be one of: ${listOf([...byTag.keys()].map((k) => JSON.stringify(k)))}.`, 'tag', tagValue, () => [...byTag.keys()].filter((k): k is string => typeof k === 'string'));
             cx.leave();
             return v;
           }
           // One option whose literal fields (a `kind`) the value carries: its own errors say more.
           const best = closestOption(this.options, v, c.env);
           if (best >= 0) return nodes[best]!.run(v, cx);
-          return fail(cx, v, `Did not match any of: ${this.options.map((o) => o.print(printer())).join(' | ')}.`);
+          return fail(cx, v, `Did not match any of: ${clip(this.options.map((o) => o.print(printer())).join(' | '), 300)}.`, 'union', typeof v === 'string' ? () => stringValues(this.options, c.env) : undefined);
         }
         return nodes[i]!.run(v, cx);
       },
@@ -1129,7 +1132,7 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
     }
     const lenient = c.lenient();
     return this.options.findIndex((o) => {
-      const d = new Cx(false, true, newStats(), false);
+      const d = new Cx(false, true, newStats(), false, true);
       lenient.nodeFor(o).run(v, d);
       return d.errors.length === 0;
     });
@@ -1187,7 +1190,7 @@ export class IntersectionType<T extends readonly [AnySchema, ...AnySchema[]]> ex
         if (cx.errors.length !== before) return out;
         const lenient = c.lenient();
         for (const m of rest) {
-          const d = cx.dryRun();
+          const d = cx.dryRun(true);
           lenient.nodeFor(m).run(out, d);
           for (const e of d.errors) cx.errors.push(e);
         }
@@ -1220,7 +1223,7 @@ export class NotType<B extends AnySchema> extends Schema<OutOf<B>, RefsOf<B>> {
       run: (v, cx) => {
         const before = cx.errors.length;
         const out = base.run(v, cx);
-        if (cx.errors.length === before && matches(c, this.excluded, out)) cx.fail(`Must not be: ${this.excluded.print(new Printer(c.env))}.`);
+        if (cx.errors.length === before && matches(c, this.excluded, out)) cx.fail(`Must not be: ${this.excluded.print(new Printer(c.env))}.`, 'rule');
         return out;
       },
       encode: (v, st) => base.encode(v, st),
@@ -1260,7 +1263,7 @@ export class ConditionalType<B extends AnySchema> extends Schema<OutOf<B>, RefsO
         const out = base.run(v, cx);
         if (cx.errors.length !== before) return out;
         const branch = matches(c, this.when, out) ? this.then : this.otherwise;
-        if (branch && !matches(c, branch, out)) cx.fail(rule);
+        if (branch && !matches(c, branch, out)) cx.fail(rule, 'rule');
         return out;
       },
       encode: (v, st) => base.encode(v, st),
@@ -1356,7 +1359,7 @@ export class DispatchType extends Schema<{ tool: string; args: unknown }> {
         const i = typeof name === 'string' ? index.get(name) : undefined;
         if (i === undefined) {
           cx.enter(tagKey);
-          cx.fail(`Expected one of: ${names.join(', ')}.`);
+          cx.fail(`Expected one of: ${listOf(names)}.`, 'tool', name, () => names);
           cx.leave();
           return v;
         }
@@ -1367,7 +1370,7 @@ export class DispatchType extends Schema<{ tool: string; args: unknown }> {
           cx.enter(argsKey);
           cx.enter(name as string, null);
         } else cx.enter(argsKey);
-        const out = raw === undefined ? fail(cx, raw, 'Required.') : nodes[i]!.run(raw, cx);
+        const out = raw === undefined ? fail(cx, raw, 'Required.', 'required', nodes[i]) : nodes[i]!.run(raw, cx);
         if (tagged) cx.leave(false);
         cx.leave();
         if (out !== rec[argsKey] && !cx.dry) return writeKey(rec, rec, argsKey, out, cx);
@@ -1423,7 +1426,7 @@ function neverNode(c: Compiler, rules: () => string | undefined): Node {
   return c.node({
     hint: () => ['No value is allowed here.', rules()].filter(Boolean).join(' '),
     emit: () => (c.profile.conditionals ? { not: {} } : { type: 'null' }),
-    run: (v, cx) => fail(cx, v, 'No value is allowed here.'),
+    run: (v, cx) => fail(cx, v, 'No value is allowed here.', 'not-allowed'),
     encode: (v) => v,
   });
 }
@@ -1540,7 +1543,7 @@ export class CodecType<W extends AnySchema, Out> extends Schema<Out, RefsOf<W>> 
         const w = inner.run(v, cx);
         if (cx.errors.length !== before) return v;
         const out = this.codec.decode(w as OutOf<W>);
-        if (out instanceof Error) return fail(cx, v, out.message);
+        if (out instanceof Error) return fail(cx, v, out.message, 'other');
         return out;
       },
       encode: (v, st) => inner.encode(this.codec.encode(v as Out), st),
@@ -1564,9 +1567,20 @@ function jsonType(v: LiteralValue): string {
   return typeof v === 'string' ? 'string' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'boolean' : 'null';
 }
 
-function fail(cx: Cx, v: unknown, message: string): unknown {
-  cx.fail(message);
+/** Record a failure at the current path; `v` is what the model wrote there. */
+function fail(cx: Cx, v: unknown, message: string, kind: IssueKind = 'type', candidates?: (() => readonly string[]) | Node): unknown {
+  if (typeof candidates === 'function') cx.fail(message, kind, v, candidates);
+  else cx.fail(message, kind, v, undefined, candidates);
   return v;
+}
+
+/** At most `max` values, then how many more (a widened enum of thousands stays one line). */
+function listOf(values: readonly string[], max = 30): string {
+  return values.length <= max ? values.join(', ') : `${values.slice(0, max).join(', ')}, … (${values.length - max} more)`;
+}
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 /** The tag values an option can have at `key` (through refs and nested unions); undefined when not a fixed set. */
@@ -1588,6 +1602,18 @@ function tagValues(o: AnySchema | undefined, key: string, env: ReadonlyMap<strin
     return out;
   }
   return undefined;
+}
+
+/** The string values a union's enum and literal options allow (through refs and nested unions): what a misspelt string is compared with. */
+function stringValues(options: readonly AnySchema[], env: ReadonlyMap<string, AnySchema>, depth = 0): string[] {
+  const out: string[] = [];
+  for (const o of options) {
+    const d = deref(o, env);
+    if (d instanceof EnumType) out.push(...(d.values as readonly string[]));
+    else if (d instanceof LiteralType && typeof d.value === 'string') out.push(d.value);
+    else if (d instanceof UnionType && depth < 8) out.push(...stringValues(d.options, env, depth + 1));
+  }
+  return out;
 }
 
 /** The object keys an option has (first object reached through refs / nested unions). */
@@ -1687,7 +1713,7 @@ function deref(s: AnySchema | undefined, env: ReadonlyMap<string, AnySchema>): A
 
 /** Does a CODE value match a schema (its lenient rendering)? */
 function matches(c: Compiler, s: AnySchema, value: unknown): boolean {
-  const d = new Cx(false, true, newStats(), false);
+  const d = new Cx(false, true, newStats(), false, true);
   c.lenient().nodeFor(s).run(value, d);
   return d.errors.length === 0;
 }
@@ -1739,6 +1765,7 @@ function encodeItems(arr: unknown[], enc: (x: unknown, i: number) => unknown, st
 /** Write a decoded child into its parent: in place, or clone the parent once (copy-on-write). */
 function writeKey(out: Record<string, unknown>, orig: Record<string, unknown>, key: string, value: unknown, cx: Cx): Record<string, unknown> {
   if (cx.inPlace) {
+    cx.saving(orig, key);
     orig[key] = value;
     cx.stats.edits++;
     return orig;
@@ -1753,6 +1780,7 @@ function writeKey(out: Record<string, unknown>, orig: Record<string, unknown>, k
 
 function deleteKey(out: Record<string, unknown>, orig: Record<string, unknown>, key: string, cx: Cx): Record<string, unknown> {
   if (cx.inPlace) {
+    cx.saving(orig, key, true);
     delete orig[key];
     cx.stats.edits++;
     return orig;
@@ -1767,6 +1795,7 @@ function deleteKey(out: Record<string, unknown>, orig: Record<string, unknown>, 
 
 function writeIndex(out: unknown[], orig: unknown[], i: number, value: unknown, cx: Cx): unknown[] {
   if (cx.inPlace) {
+    cx.saving(orig, i);
     orig[i] = value;
     cx.stats.edits++;
     return orig;

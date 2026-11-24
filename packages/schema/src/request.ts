@@ -51,6 +51,8 @@ import type { CopyStats, EncodeTextOptions, Encoder, Issue, JsonSchema, ParseOpt
 import { addMeasures, overLimits, ZERO_MEASURE, type SchemaMeasure } from './measure';
 import { RequestLimitError } from './errors';
 import { schemaHelpers, type HelperSet } from './template';
+import { errorFormat, formatErrors, mergeErrorFormats, recordIssue, type ErrorFormat, type ErrorFormatInput } from './feedback';
+import { rankNear } from './suggest';
 import { AnyType, DispatchType, type AnySchema } from './schema';
 import type { ModelProfile } from './model';
 
@@ -68,6 +70,8 @@ export interface ToolItem<N extends string = string, Out = unknown> {
   readonly strict?: Strictness;
   /** Shown in the dispatcher's tool list if this tool ends up behind it. */
   readonly description?: string;
+  /** How a bad call is told to the model (the tool definition's choice; a call can override). */
+  readonly errorFormat?: ErrorFormatInput;
 }
 
 export interface OutputItem<N extends string = 'output', Out = unknown> {
@@ -79,6 +83,8 @@ export interface OutputItem<N extends string = 'output', Out = unknown> {
   readonly strict?: Strictness;
   /** `'prompt'` always sends the schema as prompt text; `'auto'` (default) only when it can't be structured. */
   readonly delivery?: 'auto' | 'structured' | 'prompt';
+  /** How a bad answer is told to the model (the prompt definition's choice; a call can override). */
+  readonly errorFormat?: ErrorFormatInput;
 }
 
 export type RequestItem = ToolItem<string, any> | OutputItem<string, any>;
@@ -88,6 +94,8 @@ export interface RequestOptions {
   readonly failOnDegrade?: boolean;
   /** The dispatcher tool's name (default `run_tool`, made unique among the tools). */
   readonly dispatcherName?: string;
+  /** The error format of every schema in the request; an item's own `errorFormat` wins over it. */
+  readonly errorFormat?: ErrorFormatInput;
 }
 
 /** The name an item is looked up by. */
@@ -149,6 +157,20 @@ export class RequestEntry<Out = unknown> {
     readonly boundSchema: Bound<Out> = undefined as never,
   ) {}
 
+  /** How a bad answer is told to the model: the request's format, then the item's (`ToolItem.errorFormat`). */
+  errorFormat: ErrorFormat | undefined;
+
+  /** What the model wrote, as the error message names it: `the arguments of search`, `your answer`. */
+  get label(): string {
+    if (this.kind === 'output') return 'your answer';
+    return this.via ? `the arguments of ${this.requestedName} (called through ${this.via})` : `the arguments of ${this.requestedName}`;
+  }
+
+  /** Parse options with this entry's error format and label (a call's own options win). */
+  private opts(opts: ParseOptions | undefined): ParseOptions {
+    return { ...opts, errorFormat: mergeErrorFormats(this.errorFormat, opts?.errorFormat), label: opts?.label ?? this.label };
+  }
+
   /** The JSON Schema to send; `undefined` when the schema goes as prompt text or through the dispatcher. */
   get jsonSchema(): JsonSchema | undefined {
     return this.delivery === 'structured' ? this.rendered.jsonSchema : undefined;
@@ -164,16 +186,17 @@ export class RequestEntry<Out = unknown> {
     return this.rendered.measure;
   }
 
+  /** Decode the model's answer; a failure's `message` is in this entry's error format. */
   parse(wire: unknown, opts?: ParseOptions): ParseResult<Out> {
-    return this.rendered.parse(wire, opts);
+    return this.rendered.parse(wire, this.opts(opts));
   }
 
   parseText(text: string, opts?: Omit<ParseOptions, 'inPlace'>): ParseResult<Out> {
-    return this.rendered.parseText(text, opts);
+    return this.rendered.parseText(text, this.opts(opts));
   }
 
   parseOrThrow(wire: unknown, opts?: ParseOptions): Out {
-    return this.rendered.parseOrThrow(wire, opts);
+    return this.rendered.parseOrThrow(wire, this.opts(opts));
   }
 
   /** A value as this model writes it for this schema. */
@@ -258,26 +281,44 @@ export class RenderedRequest<I extends readonly RequestItem[] = readonly Request
   decodeCall(name: string, args: unknown, opts?: ParseOptions): DecodedCall {
     const d = this.dispatcher;
     if (d && name === d.name) {
-      const res = d.parse(args, opts);
-      if (!res.ok) {
-        const tool = typeof (args as { tool?: unknown })?.tool === 'string' ? (args as { tool: string }).tool : undefined;
-        return { ok: false, tool: tool && this.byName.get(tool)?.requestedName, issues: res.issues, message: res.message };
-      }
+      // The message speaks of the tool the model meant (its own error format), not of the dispatcher.
+      const named = typeof (args as { tool?: unknown })?.tool === 'string' ? this.byName.get((args as { tool: string }).tool) : undefined;
+      const inner0 = named?.delivery === 'dispatched' ? named : undefined;
+      const res = d.parse(args, {
+        ...opts,
+        errorFormat: mergeErrorFormats(d.errorFormat, inner0?.errorFormat, opts?.errorFormat),
+        label: opts?.label ?? (inner0 ? inner0.label : `your call to ${d.name}`),
+      });
+      if (!res.ok) return { ok: false, tool: inner0?.requestedName, issues: res.issues, message: res.message };
       const inner = this.byName.get(res.value.tool)!;
       if (this.checkLater.has(inner.name)) {
-        const checked = innerLenient(inner).parse(res.value.args, opts);
+        const checked = innerLenient(inner).parse(res.value.args, { ...opts, errorFormat: mergeErrorFormats(inner.errorFormat, opts?.errorFormat), label: opts?.label ?? inner.label });
         if (!checked.ok) return { ok: false, tool: inner.requestedName, issues: checked.issues, message: checked.message };
         return { ok: true, tool: inner.requestedName, value: checked.value, via: d.name };
       }
       return { ok: true, tool: inner.requestedName, value: res.value.args, via: d.name };
     }
     const e = this.byName.get(name);
-    if (!e || e.kind !== 'tool') {
-      const issues = [{ path: [], codePath: [], message: `No tool named "${name}" in this request.` }];
-      return { ok: false, tool: undefined, issues, message: `- at (root): ${issues[0]!.message}` };
-    }
-    const res = e.parse(args, opts);
+    if (!e || e.kind !== 'tool') return this.unknownTool(name, opts);
+    // A tool behind the dispatcher called directly (its name is in the dispatcher's list): its args
+    // are written exactly as inside the dispatcher, so it is decoded, not refused.
+    const res = e.parse(args, e.delivery === 'dispatched' ? { ...opts, label: opts?.label ?? `the arguments of ${e.requestedName}` } : opts);
     return res.ok ? { ok: true, tool: e.requestedName, value: res.value } : { ok: false, tool: e.requestedName, issues: res.issues, message: res.message };
+  }
+
+  /** A call to a tool the request doesn't have: the nearest name, or the list. */
+  private unknownTool(name: string, opts: ParseOptions | undefined): DecodedCall {
+    const names = this.entries.filter((x) => x.kind === 'tool' && x !== this.dispatcher).map((x) => x.name);
+    const near = rankNear(name, names)[0];
+    const hint = near !== undefined
+      ? ` — did you mean \`${near}\`?`
+      : ` Tools: ${names.slice(0, 30).join(', ')}${names.length > 30 ? `, … (${names.length - 30} more)` : ''}.`;
+    const issue: Issue = { path: [], codePath: [], message: `No tool named "${name}" in this request.` };
+    recordIssue(issue, { kind: 'tool', received: name, candidates: () => names });
+    const f = errorFormat(opts?.errorFormat);
+    const text = near === undefined ? `${issue.message}${hint}` : f.suggestions ? `${issue.message.replace(/\.$/, '')}${hint}` : issue.message;
+    const message = text.length <= f.maxChars ? text : formatErrors([issue], undefined, { ...f, detail: 'summary' }, `your call to ${name}`);
+    return { ok: false, tool: undefined, issues: [issue], message };
   }
 
   /** A call to a tool as this model would make it: `{ name, args }` (through the dispatcher when the tool is behind it). */
@@ -542,6 +583,8 @@ export function planRequest<const I extends readonly RequestItem[]>(target: Mode
     }
   }
 
+  items.forEach((it, i) => (entries[i]!.errorFormat = mergeErrorFormats(opts.errorFormat, it.errorFormat)));
+  if (dispatcher) dispatcher.errorFormat = mergeErrorFormats(opts.errorFormat);
   const req = new RenderedRequest<I>(target, entries, used, strictTools, limits, degradations, dispatcher, checkLater);
   if (opts.failOnDegrade) req.assertNoDegradation();
   return req;

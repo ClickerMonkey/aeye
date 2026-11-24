@@ -36,6 +36,7 @@ import { LENIENT, viewOf } from './profile';
 import type { AnySchema, Text } from './schema';
 import { measureJson, type SchemaMeasure } from './measure';
 import { SchemaDefinitionError, SchemaParseError } from './errors';
+import { claimIssues, echoes, errorFormat, formatErrors, recordIssue, type ErrorFormatInput, type IssueKind } from './feedback';
 
 export type JsonSchema = { [key: string]: unknown };
 export type PathSeg = string | number;
@@ -75,6 +76,17 @@ export function formatPath(path: readonly PathSeg[]): string {
   return out || '(root)';
 }
 
+/** What a count-only dry run records for each failure (its only use is `errors.length`). */
+const COUNTED: Issue = Object.freeze({ path: [], codePath: [], message: '' });
+/** Dry runs never write their stats. */
+const DRY_STATS: CopyStats = newStats();
+/** Undo-log value of a key that was absent. */
+const ABSENT = Symbol('absent');
+/** Undo-log key of an object's key order, saved before its first delete. */
+const ORDER = Symbol('order');
+/** One spare undo log, reused by the next decode (a nested decode makes its own). */
+let spareUndo: unknown[] | undefined;
+
 /**
  * The walk context. Paths are stacks with explicit depths, so the happy path
  * allocates nothing: `push`/`pop` on a plain array let V8 shrink and regrow
@@ -82,6 +94,13 @@ export function formatPath(path: readonly PathSeg[]): string {
  */
 export class Cx {
   readonly errors: Issue[] = [];
+  /**
+   * In-place writes, as (container, key, old value) triples, so a failed
+   * decode can put the model's answer back as it was sent (the echo shows
+   * the wire, not a half-decoded mix). Only kept when the message echoes.
+   */
+  undo: unknown[] | undefined;
+  private undoN = 0;
   private readonly wire: PathSeg[] = [];
   private readonly code: PathSeg[] = [];
   private wd = 0;
@@ -94,9 +113,23 @@ export class Cx {
     readonly stats: CopyStats,
     /** Accept a container sent as JSON text, and a value sent where JSON text was asked for. */
     readonly repair = true,
+    /** Only whether it fails matters (union option trials): no issue objects, no paths. */
+    readonly countOnly = false,
   ) {}
-  fail(message: string): void {
-    this.errors.push({ path: this.wire.slice(0, this.wd), codePath: this.code.slice(0, this.cd), message });
+  /**
+   * Record a problem at the current path. `kind` and `candidates` drive the
+   * model's message ("did you mean"); `received` is what the model wrote
+   * there; `node` is the expected type when it isn't the failing node (which
+   * claims its issues as the run unwinds: nothing is tracked while it passes).
+   */
+  fail(message: string, kind: IssueKind = 'other', received?: unknown, candidates?: () => readonly string[], node?: Node): void {
+    if (this.countOnly) {
+      this.errors.push(COUNTED);
+      return;
+    }
+    const issue: Issue = { path: this.wire.slice(0, this.wd), codePath: this.code.slice(0, this.cd), message };
+    this.errors.push(issue);
+    recordIssue(issue, { kind, node, received, candidates });
   }
   enter(wire: PathSeg, code: PathSeg | null = wire): void {
     this.wire[this.wd++] = wire;
@@ -106,12 +139,71 @@ export class Cx {
     this.wd--;
     if (code) this.cd--;
   }
-  /** A dry sibling sharing the current paths (for union option tests). */
-  dryRun(): Cx {
-    const d = new Cx(false, true, newStats(), this.repair);
+  /**
+   * A dry sibling (for union option tests). Count-only by default: only
+   * whether it fails is read. With `issues`, its failures are real issues
+   * at the current paths (they are copied into this context).
+   */
+  dryRun(issues = false): Cx {
+    if (!issues) return new Cx(false, true, DRY_STATS, this.repair, true);
+    const d = new Cx(false, true, DRY_STATS, this.repair);
     for (let i = 0; i < this.wd; i++) d.wire[d.wd++] = this.wire[i]!;
     for (let i = 0; i < this.cd; i++) d.code[d.cd++] = this.code[i]!;
     return d;
+  }
+  /**
+   * Before an in-place write of `key`: remember its old value (when keeping
+   * the undo log). Before the first delete from an object, its key order too:
+   * a key put back after a delete would otherwise come last.
+   */
+  saving(container: object, key: PathSeg, deleting = false): void {
+    const u = this.undo;
+    if (!u) return;
+    if (deleting && this.ordered !== container) {
+      this.ordered = container;
+      u[this.undoN++] = container;
+      u[this.undoN++] = ORDER;
+      u[this.undoN++] = Object.keys(container);
+    }
+    const has = Object.prototype.hasOwnProperty.call(container, key);
+    u[this.undoN++] = container;
+    u[this.undoN++] = key;
+    u[this.undoN++] = has ? (container as Record<PathSeg, unknown>)[key] : ABSENT;
+  }
+  private ordered: object | undefined;
+  /** Put every in-place write back, newest first: the caller's value is as the model sent it. */
+  restore(): void {
+    const u = this.undo;
+    if (!u) return;
+    for (let i = this.undoN - 3; i >= 0; i -= 3) {
+      const c = u[i] as Record<PathSeg, unknown>;
+      const k = u[i + 1] as PathSeg | typeof ORDER;
+      const old = u[i + 2];
+      if (k === ORDER) {
+        // Re-insert in the order the model wrote (values are already restored).
+        for (const key of old as string[]) {
+          const v = c[key];
+          delete c[key];
+          c[key] = v;
+        }
+      } else if (old === ABSENT) delete c[k];
+      else c[k] = old;
+    }
+  }
+  /** Start keeping the undo log (a reused buffer). */
+  keepUndo(): void {
+    this.undo = spareUndo ?? [];
+    spareUndo = undefined;
+    this.undoN = 0;
+  }
+  /** Drop the undo log's references and hand the buffer back. */
+  releaseUndo(): void {
+    const u = this.undo;
+    if (!u) return;
+    for (let i = 0; i < this.undoN; i++) u[i] = undefined;
+    this.undo = undefined;
+    this.undoN = 0;
+    if (u.length <= 65536) spareUndo = u;
   }
 }
 
@@ -152,10 +244,16 @@ export class Node {
   }
 
   run(value: unknown, cx: Cx): unknown {
-    const before = cx.errors.length;
+    const errors = cx.errors;
+    const before = errors.length;
     const out = this.impl!.run(value, cx);
-    if (cx.errors.length === before) this.check(out, cx, this.schema);
-    if (cx.errors.length === before && this.outer) this.check(out, cx, this.outer);
+    if (errors.length === before) {
+      if (this.schema?.checks.length) this.check(out, cx, this.schema);
+      if (this.outer?.checks.length && errors.length === before) this.check(out, cx, this.outer);
+      if (errors.length === before) return out;
+    }
+    // The innermost failing node is the expected type of its new issues (failure path only).
+    if (!cx.countOnly) claimIssues(errors, before, this);
     return out;
   }
 
@@ -164,9 +262,14 @@ export class Node {
     for (const c of schema.checks) {
       const r = c.fn(value);
       if (r === true) continue;
-      if (Array.isArray(r)) { for (const m of r) cx.fail(m); continue; }
-      cx.fail(typeof r === 'string' ? r : c.message ?? 'Failed a check.');
+      if (Array.isArray(r)) { for (const m of r) cx.fail(m, 'rule'); continue; }
+      cx.fail(typeof r === 'string' ? r : c.message ?? 'Failed a check.', 'rule');
     }
+  }
+
+  /** This node's schema as TypeScript-like text (the code shape; for spots written as JSON text). */
+  typeText(): string {
+    return this.schema ? this.schema.print(new Printer(this.compiler.env)) : 'any JSON value';
   }
 
   encode(value: unknown, stats: CopyStats = newStats()): unknown {
@@ -613,7 +716,7 @@ export function readJsonText(v: unknown, cx: Cx): unknown {
       if (!cx.dry) cx.stats.repaired++;
       return v;
     }
-    cx.fail('Expected a string of JSON text.');
+    cx.fail('Expected a string of JSON text.', 'type');
     return FAILED;
   }
   try {
@@ -621,7 +724,7 @@ export function readJsonText(v: unknown, cx: Cx): unknown {
     if (!cx.dry) cx.stats.parsed++;
     return out;
   } catch (e) {
-    cx.fail(`Not valid JSON text: ${(e as Error).message}`);
+    cx.fail(`Not valid JSON text: ${(e as Error).message}`, 'json');
     return FAILED;
   }
 }
@@ -636,6 +739,14 @@ export interface ParseOptions {
    * where JSON text was asked for. Each is counted in `stats.repaired`.
    */
   readonly repair?: boolean;
+  /**
+   * How the failure `message` is written for the model: detail level, size
+   * cap, suggestions, expected types (feedback.ts). Default `'full'` within
+   * 2000 characters; a request entry passes its tool's / prompt's format.
+   */
+  readonly errorFormat?: ErrorFormatInput | undefined;
+  /** What the model wrote, for the message's first line (default `'your answer'`). */
+  readonly label?: string | undefined;
 }
 
 /** Successful or failed parse. */
@@ -720,15 +831,25 @@ export class Rendered<Out> {
   /**
    * Validate + decode the model's answer (already `JSON.parse`d). With
    * `inPlace` (default) the value is decoded in place and returned; see the
-   * copy rules at the top of this file.
+   * copy rules at the top of this file. On failure `message` is the feedback
+   * for the model (`opts.errorFormat`, see feedback.ts); with an echoing
+   * format (the default) the value is first put back as the model sent it.
    */
   parse(wire: unknown, opts?: ParseOptions): ParseResult<Out> {
+    return this.decode(wire, opts, undefined);
+  }
+
+  private decode(wire: unknown, opts: ParseOptions | undefined, original: (() => unknown) | undefined): ParseResult<Out> {
     const stats = newStats();
-    const cx = new Cx(opts?.inPlace ?? true, false, stats, opts?.repair ?? true);
+    const inPlace = opts?.inPlace ?? true;
+    const cx = new Cx(inPlace, false, stats, opts?.repair ?? true);
+    // An echoing message needs the answer as sent: in-place writes are logged and put back on failure.
+    const keep = inPlace && !original && echoes(opts?.errorFormat);
+    if (keep) cx.keepUndo();
     let value: unknown;
     if (this.wrapped) {
       if (typeof wire !== 'object' || wire === null || Array.isArray(wire) || !('input' in wire)) {
-        cx.fail('Expected an object with an "input" field.');
+        cx.fail('Expected an object with an "input" field.', 'type');
       } else {
         cx.enter('input', null);
         value = this.root.run((wire as { input: unknown }).input, cx);
@@ -737,26 +858,33 @@ export class Rendered<Out> {
     } else {
       value = this.root.run(wire, cx);
     }
-    if (cx.errors.length) return { ok: false, issues: cx.errors, message: formatIssues(cx.errors), stats };
+    if (cx.errors.length) {
+      cx.restore();
+      cx.releaseUndo();
+      const sent = original ? original() : wire;
+      return { ok: false, issues: cx.errors, message: formatErrors(cx.errors, sent, errorFormat(opts?.errorFormat), opts?.label), stats };
+    }
+    if (keep) cx.releaseUndo();
     return { ok: true, value: value as Out, stats };
   }
 
-  /** `JSON.parse` then decode in place (we own the parsed value). */
+  /** `JSON.parse` then decode in place (we own the parsed value; a failure's echo re-reads the text). */
   parseText(text: string, opts?: Omit<ParseOptions, 'inPlace'>): ParseResult<Out> {
     let wire: unknown;
     try {
       wire = JSON.parse(text);
     } catch (e) {
-      const issues = [{ path: [], codePath: [], message: `Not valid JSON: ${(e as Error).message}` }];
-      return { ok: false, issues, message: formatIssues(issues), stats: newStats() };
+      const issues: Issue[] = [{ path: [], codePath: [], message: `Not valid JSON: ${(e as Error).message}` }];
+      recordIssue(issues[0]!, { kind: 'json' });
+      return { ok: false, issues, message: formatErrors(issues, undefined, errorFormat(opts?.errorFormat), opts?.label), stats: newStats() };
     }
-    return this.parse(wire, opts);
+    return this.decode(wire, opts, () => JSON.parse(text));
   }
 
-  /** `parse`, throwing a `SchemaParseError` (with the issues) on failure. */
+  /** `parse`, throwing a `SchemaParseError` (with the issues and the model's message) on failure. */
   parseOrThrow(wire: unknown, opts?: ParseOptions): Out {
     const r = this.parse(wire, opts);
-    if (!r.ok) throw new SchemaParseError(r.issues);
+    if (!r.ok) throw new SchemaParseError(r.issues, r.message);
     return r.value;
   }
 
@@ -827,7 +955,11 @@ function splitPath(path: EncodeTextOptions['path']): PathSeg[] {
   return path.split('.').map((s) => (/^\d+$/.test(s) ? Number(s) : s));
 }
 
-/** The message a model is shown for its mistakes — paths are where IT wrote them. */
+/**
+ * Issues as bare lines, `- at <path>: <message>` (paths where the model wrote
+ * them). The model's message is `formatErrors` (feedback.ts), with markers,
+ * suggestions and a size cap.
+ */
 export function formatIssues(issues: readonly Issue[]): string {
   return issues.map((i) => `- at ${formatPath(i.path)}: ${i.message}`).join('\n');
 }

@@ -13,6 +13,7 @@ import {
 import { clone, MODEL_PROFILES, profileProblems, validate, unexplained } from './_check';
 import { GinGrammar, Program, TypeResult, WriteArgs } from './gin-grammar';
 import { asGrammarRegistry, BAD_PROGRAMS, t, everythingProgram, fixtureRegistry, lambdaProgram, loopProgram, personProgram, PROGRAMS, switchProgram, TYPEDEFS } from './gin-fixtures';
+import { lines } from '../_lines';
 
 const reg0 = fixtureRegistry();
 const reg = asGrammarRegistry(reg0);
@@ -248,13 +249,13 @@ describe('programs as models write them', () => {
       // PathStep is gin's plain (untagged) union: the one branch whose keys fit (`args`) reports inside itself.
       [['program', 'body', 'path', 3, 'args', 0, 'value', 'action'], ['program', 'body', 'path', 3, 'args', 'other', 'action']],
     ]);
-    expect(res.message).toContain('- at program.type.call.args.props[0].value.type.options.min: Expected a number');
-    expect(res.message).toContain('- at program.body.path[3].args[0].value.action:');
+    expect(lines(res)).toContain('- at program.type.call.args.props[0].value.type.options.min: Expected a number');
+    expect(lines(res)).toContain('- at program.body.path[3].args[0].value.action:');
   });
 
   it('errors: an unknown kind names every kind', () => {
     const res = Program.render(LENIENT, reg).parse({ kind: 'call', fn: 'x' });
-    expect(!res.ok && res.message).toBe('- at kind: Expected kind to be one of: "new", "get", "set", "define", "block", "if", "switch", "loop", "lambda", "template", "flow", "native".');
+    expect(lines(res)).toBe('- at kind: Expected kind to be one of: "new", "get", "set", "define", "block", "if", "switch", "loop", "lambda", "template", "flow", "native".');
   });
 
   // A step `{ args: [...] }` can only be the CALL branch (no other branch has `args`); reporting the

@@ -10,6 +10,7 @@ import {
 } from '../../index';
 import { asTool, clone, profileProblems, validate } from './_check';
 import * as H from './harness-fns';
+import { lines } from '../_lines';
 
 const compile = (t: string) => Handlebars.compile(t, { noEscape: true });
 const tool = <T>(bound: { render(p: Profile): T }, p: Profile): T => bound.render(asTool(p));
@@ -169,9 +170,9 @@ describe('UpdateMemoryArgs / RememberArgs (core/src/context-graph.ts:175,187)', 
     if (!res.ok) {
       expect(res.issues.map((i) => i.path)).toEqual([['about', 0, 'name'], ['about', 1, 'kind'], ['weight'], ['command'], ['name']]);
       expect(res.issues.every((i) => JSON.stringify(i.path) === JSON.stringify(i.codePath))).toBe(true);
-      expect(res.message).toContain('- at weight: Must be at most 2.');
-      expect(res.message).toContain('- at about[0].name: nope names no fn');
-      expect(res.message).toContain('- at name: Must match /^[a-z][a-z0-9-]*/.+$/.');
+      expect(lines(res)).toContain('- at weight: Must be at most 2.');
+      expect(lines(res)).toContain('- at about[0].name: nope names no fn');
+      expect(lines(res)).toContain('- at name: Must match /^[a-z][a-z0-9-]*/.+$/.');
     }
   });
 

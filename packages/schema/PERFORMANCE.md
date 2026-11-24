@@ -67,9 +67,9 @@ This compares `@aeye/schema` with what the monorepo does today, on the corpus's 
 | decode, 1k chart rows | ~200 µs | ~75 µs |
 | decode, gin 200-program block (OpenAI) | 5.6 ms | 33 ms |
 | decode, query insert 1k rows (paired, OpenAI) | 3.4 ms | 0.7 s |
-| reject + error message, small tool | 0.6–1.0 µs, 41 chars | 5.6–6.3 µs, 164 chars |
-| reject + error message, query paired rich select | 50 µs, **54 chars** | 0.27 s, **39 MB** |
-| reject, query paired insert 1k rows | 5 ms, 61 chars | 5 s, then reading the message **throws** (`RangeError: Invalid string length`) |
+| reject + error message, small tool (pass 4 default: JSON with markers) | 8–15 µs, 120–161 chars (as a `'list'`: 3–4 µs, 64–67 chars) | 5.6–6.3 µs, 161–164 chars |
+| reject + error message, query paired rich select | 59–79 µs, **334–336 chars** with markers and "did you mean" | 0.27 s, **39–179 MB** |
+| reject, query paired insert 1k rows | 1.7–2.0 ms, 371–410 chars | 5 s, then reading the message **throws** (`RangeError: Invalid string length`) |
 | 129-tool request (OpenAI): new tools / next turn | 21 ms / 0.66 ms | 111 ms / 9.5 ms (and sends all 129: over OpenAI's 128) |
 | query agent request (query_set + 4), next turn | 29 µs | 85 ms |
 | memory per query bind, 4 profiles, kept | 8.8 MB | 275 MB (most of it the Anthropic render's growth, below) |
@@ -87,12 +87,12 @@ This compares `@aeye/schema` with what the monorepo does today, on the corpus's 
   - A query bind with a new catalog costs 1–1.2 ms against `buildSchemas`' 2–15 ms. A cached bind costs under 1 µs.
 - **First render of large or recursive grammars.** 4–20× faster than the zod path on OpenAI, Gemini and lenient, and 100–270× on Anthropic. The zod converter re-walks recursive lazies and builds its cycle-breaker placeholders by calling the lazy getters again.
 - **Decoding big recursive answers.** 6–15× faster for gin programs. For query's paired grammar, 200–500×: the zod side tries every union option at every level and builds the nested failure for each.
-- **Errors.** Rejecting a wrong answer costs `a` the same as accepting a right one, and the message is one line per problem at the path the model wrote (41–185 characters here). zod's message for a union-heavy schema is the whole tree of failed options:
-  - 80 KB–10 MB for gin;
-  - 1–180 MB for query;
+- **Errors (pass 4).** The model gets its own JSON back with a marker under each mistake, "did you mean" and the expected type, under a 2000-character cap: 120–690 characters at the default `'full'` level on every corpus case, 56–215 as `'summary'` / `'list'`. Building it costs 5–70 µs on top of the reject (more only where the answer is huge: the decode dominates). zod's message for a union-heavy schema is the whole tree of failed options:
+  - 54 KB–10 MB for gin;
+  - 60 KB–180 MB for query;
   - for a 1k-row query insert, larger than V8's maximum string length, so reading `error.message` throws.
 
-  Pass 4 (errors for the model) starts from this baseline.
+  Details: "Errors for the model (pass 4)" below.
 
 **Where `a` is slower, and why:**
 - **Small flat decodes.**
@@ -116,7 +116,136 @@ This compares `@aeye/schema` with what the monorepo does today, on the corpus's 
 - **Allocations per decoded value.**
   - After this pass, ~250 bytes of short-lived garbage per 1k-row chart row on the hot path (zod ~130).
   - A 1k-row query insert: 5 MB, against zod's 88 MB.
-- **The invalid-answer path through untagged unions** (product `insert` with a bad enum value: 0.35 ms against 7 µs for the valid one). It tries each option to find the closest. That is fine at this size; pass 4 should keep it bounded when it adds "did you mean".
+- **The invalid-answer path through untagged unions** (product `insert` with a bad enum value: 0.28–0.30 ms with a list message, 0.31–0.32 ms with the full one; pass 3: 0.35 ms). It tries each option to find the closest. Pass 4 made the trials count-only (no issue objects, no path copies) and computes suggestions only for the problems shown.
+
+## Errors for the model (pass 4)
+
+`npm run bench:errors` (`bench/errors.ts`): every made-invalid answer of the corpus (the same answers and wires as the decode timings) at each detail level. Sizes are characters of the message the model gets back; "pass 3" is the one-line-per-problem message before this pass; times are reject + building the message (median, fresh wire per call); zod is the `ZodError.message` length for the same wire.
+
+- **Every message fits its cap** (2000 by default; `feedback.test.ts` checks caps down to 60 on 40-problem answers to the whole gin grammar).
+- **The echo is bounded by the problems, not the answer:** a 1k-row insert or a 200-program block gets the same size of message as a small one (only the path to the problem is expanded; siblings are summarized).
+- **The extra cost of the echo** over a list is 5–70 µs here: the undo of the in-place decode, the walk down the problem paths, the expected types. Suggestions are computed only for the problems shown.
+- The query rows below are on query's fixture catalog; the zod side's `buildSchemas` messages are 60 KB–180 MB.
+
+| case | profile | answer | pass 3 (lines) | summary | list | markers | **full** (default) | reject + full message | reject + list message | zod message |
+|---|---|---|---|---|---|---|---|---|---|---|
+| tool-small | openai-strict | args | 41 | 65 | 67 | 135 | 135 | 15 µs | 4 µs | 164 |
+| tool-small | anthropic-strict | args | 41 | 65 | 67 | 120 | 120 | 10 µs | 3 µs | 164 |
+| tool-small | gemini | args | 41 | 65 | 67 | 120 | 120 | 10 µs | 3 µs | 164 |
+| tool-small | lenient | args | 41 | 65 | 67 | 120 | 120 | 10 µs | 3 µs | 164 |
+| tool-defaults | openai-strict | args | 38 | 62 | 64 | 161 | 161 | 8 µs | 3 µs | 161 |
+| tool-defaults | anthropic-strict | args | 38 | 62 | 64 | 161 | 161 | 9 µs | 3 µs | 161 |
+| tool-defaults | gemini | args | 38 | 62 | 64 | 161 | 161 | 9 µs | 3 µs | 161 |
+| tool-defaults | lenient | args | 38 | 62 | 64 | 161 | 161 | 9 µs | 3 µs | 161 |
+| gin-value | openai-strict | task | 32 | 56 | 58 | 162 | 162 | 21 µs | 7 µs | 191 |
+| gin-value | anthropic-strict | task | 32 | 56 | 58 | 162 | 162 | 20 µs | 7 µs | 191 |
+| gin-value | gemini | task | 32 | 56 | 58 | 162 | 162 | 18 µs | 5 µs | 191 |
+| gin-value | lenient | task | 32 | 56 | 58 | 162 | 162 | 17 µs | 5 µs | 191 |
+| harness-fn | openai-strict | config | 54 | 78 | 80 | 302 | 302 | 33 µs | 9 µs | 224 |
+| harness-fn | anthropic-strict | config | 54 | 78 | 80 | 292 | 292 | 26 µs | 7 µs | 224 |
+| harness-fn | gemini | config | 54 | 78 | 80 | 314 | 314 | 24 µs | 6 µs | 224 |
+| harness-fn | lenient | config | 54 | 78 | 80 | 314 | 314 | 24 µs | 7 µs | 224 |
+| chart-1k | openai-strict | 10 rows | 50 | 74 | 76 | 302 | 302 | 20 µs | 7 µs | 188 |
+| chart-1k | openai-strict | 1k rows | 52 | 76 | 78 | 310 | 310 | 185 µs | 157 µs | 190 |
+| chart-1k | anthropic-strict | 10 rows | 50 | 74 | 76 | 287 | 287 | 17 µs | 6 µs | 188 |
+| chart-1k | anthropic-strict | 1k rows | 52 | 76 | 78 | 295 | 295 | 203 µs | 166 µs | 190 |
+| chart-1k | gemini | 10 rows | 50 | 74 | 76 | 287 | 287 | 17 µs | 6 µs | 188 |
+| chart-1k | gemini | 1k rows | 52 | 76 | 78 | 295 | 295 | 180 µs | 158 µs | 190 |
+| chart-1k | lenient | 10 rows | 50 | 74 | 76 | 287 | 287 | 17 µs | 6 µs | 188 |
+| chart-1k | lenient | 1k rows | 52 | 76 | 78 | 295 | 295 | 201 µs | 158 µs | 190 |
+| gin-grammar | openai-strict | everything program | 159 | 183 | 185 | 464 | 464 | 127 µs | 68 µs | 80709 |
+| gin-grammar | openai-strict | block of 200 programs | 175 | 199 | 201 | 631 | 631 | 5.9 ms | 4.5 ms | 458285 |
+| gin-grammar | openai-strict | if 60 deep | 174 | 198 | 200 | 588 | 588 | 111 µs | 47 µs | 150839 |
+| gin-grammar | anthropic-strict | everything program | 169 | 197 | 199 | 469 | 469 | 152 µs | 93 µs | 75953 |
+| gin-grammar | anthropic-strict | block of 200 programs | 185 | 213 | 215 | 629 | 629 | 4.5 ms | 4.3 ms | 666489 |
+| gin-grammar | anthropic-strict | if 60 deep | 184 | 212 | 214 | 690 | 690 | 471 µs | 212 µs | 54108 |
+| gin-grammar | gemini | everything program | 159 | 183 | 185 | 489 | 489 | 72 µs | 44 µs | 125232 |
+| gin-grammar | gemini | block of 200 programs | 185 | 213 | 215 | 629 | 629 | 4.6 ms | 4.2 ms | 10049689 |
+| gin-grammar | gemini | if 60 deep | 174 | 198 | 200 | 610 | 610 | 83 µs | 31 µs | 150839 |
+| gin-grammar | lenient | everything program | 159 | 183 | 185 | 439 | 439 | 74 µs | 46 µs | 80709 |
+| gin-grammar | lenient | block of 200 programs | 175 | 199 | 201 | 599 | 599 | 2.8 ms | 2.8 ms | 458285 |
+| gin-grammar | lenient | if 60 deep | 174 | 198 | 200 | 610 | 610 | 112 µs | 32 µs | 150839 |
+| query-open | openai-strict | rich select | 54 | 98 | 100 | 336 | 336 | 80 µs | 37 µs | 2899972 |
+| query-open | openai-strict | insert 1k rows | 74 | 98 | 100 | 273 | 332 | 4.0 ms | 3.5 ms | 59775 |
+| query-open | openai-strict | expr 100 deep | 71 | 95 | 97 | 666 | 666 | 200 µs | 151 µs | 8625689 |
+| query-open | anthropic-strict | rich select | 54 | 98 | 100 | 334 | 334 | 73 µs | 43 µs | 4523457 |
+| query-open | anthropic-strict | insert 1k rows | 74 | 98 | 100 | 234 | 293 | 4.3 ms | 3.7 ms | 59775 |
+| query-open | anthropic-strict | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 315 µs | 181 µs | 1031515 |
+| query-open | gemini | rich select | 54 | 98 | 100 | 334 | 334 | 64 µs | 38 µs | 15650235 |
+| query-open | gemini | insert 1k rows | 53 | 77 | 79 | 213 | 265 | 2.0 ms | 1.9 ms | 59775 |
+| query-open | gemini | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 313 µs | 185 µs | 1031515 |
+| query-open | lenient | rich select | 54 | 98 | 100 | 334 | 334 | 53 µs | 28 µs | 2884055 |
+| query-open | lenient | insert 1k rows | 53 | 77 | 79 | 213 | 265 | 2.0 ms | 1.9 ms | 59054 |
+| query-open | lenient | expr 100 deep | 71 | 95 | 97 | 647 | 647 | 146 µs | 102 µs | 8602054 |
+| query-names | openai-strict | rich select | 54 | 98 | 100 | 336 | 336 | 75 µs | 36 µs | 4557400 |
+| query-names | openai-strict | insert 1k rows | 74 | 98 | 100 | 273 | 332 | 4.2 ms | 3.6 ms | 59775 |
+| query-names | openai-strict | expr 100 deep | 71 | 95 | 97 | 666 | 666 | 182 µs | 126 µs | 14655115 |
+| query-names | anthropic-strict | rich select | 54 | 98 | 100 | 334 | 334 | 67 µs | 41 µs | 6744923 |
+| query-names | anthropic-strict | insert 1k rows | 74 | 98 | 100 | 234 | 293 | 4.2 ms | 4.1 ms | 59775 |
+| query-names | anthropic-strict | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 311 µs | 178 µs | 1595553 |
+| query-names | gemini | rich select | 54 | 98 | 100 | 334 | 334 | 63 µs | 37 µs | 23655825 |
+| query-names | gemini | insert 1k rows | 53 | 77 | 79 | 213 | 265 | 1.9 ms | 1.9 ms | 59775 |
+| query-names | gemini | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 309 µs | 176 µs | 1595553 |
+| query-names | lenient | rich select | 54 | 98 | 100 | 334 | 334 | 52 µs | 28 µs | 4541681 |
+| query-names | lenient | insert 1k rows | 53 | 77 | 79 | 213 | 265 | 1.9 ms | 1.8 ms | 59054 |
+| query-names | lenient | expr 100 deep | 71 | 95 | 97 | 647 | 647 | 149 µs | 107 µs | 14631942 |
+| query-typed | openai-strict | rich select | 54 | 98 | 100 | 336 | 336 | 76 µs | 37 µs | 28386885 |
+| query-typed | openai-strict | insert 1k rows | 74 | 98 | 100 | 273 | 332 | 4.0 ms | 3.6 ms | 514133 |
+| query-typed | openai-strict | expr 100 deep | 71 | 95 | 97 | 666 | 666 | 187 µs | 129 µs | 66218450 |
+| query-typed | anthropic-strict | rich select | 54 | 98 | 100 | 334 | 334 | 67 µs | 43 µs | 44277260 |
+| query-typed | anthropic-strict | insert 1k rows | 74 | 98 | 100 | 234 | 293 | 4.1 ms | 3.7 ms | 514133 |
+| query-typed | anthropic-strict | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 315 µs | 180 µs | 9965226 |
+| query-typed | gemini | rich select | 54 | 98 | 100 | 334 | 334 | 65 µs | 39 µs | 137889163 |
+| query-typed | gemini | insert 1k rows | 53 | 77 | 79 | 213 | 265 | 2.0 ms | 1.9 ms | 514133 |
+| query-typed | gemini | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 314 µs | 180 µs | 9965226 |
+| query-typed | lenient | rich select | 54 | 98 | 100 | 334 | 334 | 53 µs | 28 µs | 28303756 |
+| query-typed | lenient | insert 1k rows | 53 | 77 | 79 | 213 | 265 | 1.9 ms | 1.9 ms | 511438 |
+| query-typed | lenient | expr 100 deep | 71 | 95 | 97 | 647 | 647 | 147 µs | 103 µs | 66095891 |
+| query-paired | openai-strict | rich select | 54 | 98 | 100 | 336 | 336 | 79 µs | 40 µs | 39057959 |
+| query-paired | openai-strict | insert 1k rows | 61 | 85 | 87 | 365 | 410 | 1.9 ms | 1.8 ms | threw: Invalid string length |
+| query-paired | openai-strict | expr 100 deep | 71 | 95 | 97 | 666 | 666 | 191 µs | 132 µs | 68870787 |
+| query-paired | anthropic-strict | rich select | 54 | 98 | 100 | 334 | 334 | 72 µs | 45 µs | 56900977 |
+| query-paired | anthropic-strict | insert 1k rows | 61 | 85 | 87 | 326 | 371 | 1.7 ms | 1.7 ms | threw: Invalid string length |
+| query-paired | anthropic-strict | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 310 µs | 182 µs | 10244259 |
+| query-paired | gemini | rich select | 54 | 98 | 100 | 334 | 334 | 70 µs | 42 µs | 179299544 |
+| query-paired | gemini | insert 1k rows | 61 | 85 | 87 | 326 | 371 | 1.9 ms | 1.8 ms | threw: Invalid string length |
+| query-paired | gemini | expr 100 deep | 81 | 109 | 111 | 685 | 685 | 320 µs | 182 µs | 10244259 |
+| query-paired | lenient | rich select | 54 | 98 | 100 | 334 | 334 | 59 µs | 32 µs | 38946631 |
+| query-paired | lenient | insert 1k rows | 61 | 85 | 87 | 326 | 371 | 2.0 ms | 2.0 ms | threw: Invalid string length |
+| query-paired | lenient | expr 100 deep | 71 | 95 | 97 | 647 | 647 | 156 µs | 108 µs | 68747046 |
+| product-query-set | openai-strict | groupCount | 82 | 106 | 108 | 297 | 297 | 47 µs | 22 µs | 541847 |
+| product-query-set | openai-strict | insert | 72 | 96 | 98 | 401 | 460 | 322 µs | 289 µs | 4942413 |
+| product-query-set | anthropic-strict | groupCount | 82 | 106 | 108 | 354 | 354 | 38 µs | 18 µs | 541847 |
+| product-query-set | anthropic-strict | insert | 72 | 96 | 98 | 362 | 421 | 308 µs | 284 µs | 4941753 |
+| product-query-set | gemini | groupCount | 82 | 106 | 108 | 354 | 354 | 37 µs | 16 µs | 541847 |
+| product-query-set | gemini | insert | 72 | 96 | 98 | 362 | 421 | 308 µs | 285 µs | 4941753 |
+| product-query-set | lenient | groupCount | 82 | 106 | 108 | 354 | 354 | 37 µs | 17 µs | 539248 |
+| product-query-set | lenient | insert | 72 | 96 | 98 | 362 | 421 | 311 µs | 302 µs | 4921711 |
+
+**Decoding valid answers** did not get slower (`Node.run` now skips the refinement step for schemas without refinements; the failing node is found only on failure). Median of the best of three runs each, same machine, the pre-pass-4 source next to this one:
+
+| decode (valid answer) | before pass 4 | after | change |
+|---|---|---|---|
+| tool-small openai-strict | 1.0 µs | 1.0 µs | 0% |
+| harness-fn openai-strict | 4.1 µs | 4.1 µs | 0% |
+| chart 10 openai-strict | 3.2 µs | 2.9 µs | -9% |
+| chart 1k openai-strict | 174 µs | 140 µs | -19% |
+| gin everything openai-strict | 117 µs | 110 µs | -6% |
+| query-typed rich openai-strict | 14.8 µs | 14.7 µs | -1% |
+| tool-small anthropic-strict | 0.5 µs | 0.5 µs | 0% |
+| harness-fn anthropic-strict | 3.2 µs | 2.8 µs | -12% |
+| chart 10 anthropic-strict | 2.9 µs | 2.5 µs | -14% |
+| chart 1k anthropic-strict | 198 µs | 163 µs | -18% |
+| gin everything anthropic-strict | 124 µs | 110 µs | -11% |
+| query-typed rich anthropic-strict | 16.9 µs | 16.3 µs | -4% |
+| tool-small lenient | 0.6 µs | 0.5 µs | -17% |
+| harness-fn lenient | 2.7 µs | 2.5 µs | -7% |
+| chart 10 lenient | 2.9 µs | 2.5 µs | -14% |
+| chart 1k lenient | 201 µs | 166 µs | -18% |
+| gin everything lenient | 76.5 µs | 64.4 µs | -16% |
+| query-typed rich lenient | 11.9 µs | 10.7 µs | -10% |
+
+The undo log (echoing formats only, one entry per in-place write) is included in "after"; with `'list'` the OpenAI-strict MCP config decodes ~0.3 µs faster.
 
 ## Problems found and fixed in `packages/schema`
 
@@ -168,6 +297,7 @@ These are measured here, not fixed here.
 - It prints the tables and writes `bench/.results/timings.json` and `rows-<case>.json`. `--only` re-runs merge with the earlier rows.
 - `npm run bench:memory` writes `bench/.results/memory.json` (about 15 min). `-- --part=perCall` re-runs only the allocation counts.
 - `npm run bench:equivalence` checks that the two sides give the same verdicts.
+- `npm run bench:errors` measures the messages for the model (pass 4). `-- --show` prints each one, `-- --no-zod` skips the zod side, `-- --only=gin`, `-- --profile=openai-strict` filter.
 
 ## All memory numbers
 
@@ -707,7 +837,7 @@ Node v22.20.0, Intel(R) Core(TM) i7-9700 CPU @ 3.00GHz (8 threads), 48 GB, Windo
 | request-query-agent | lenient | new tools + plan | 151 µs (475 µs) | 51.6 ms (82.3 ms) | 341× |
 | request-query-agent | lenient | same tools, next turn | 10.0 µs (46 µs) | 14.0 ms (59.4 ms) | 1409× |
 
-### errors (size of the message the model gets back, characters)
+### errors (pass 3 baseline: size of the one-line-per-problem message, characters; pass 4's are above)
 
 | case | profile | answer | @aeye/schema | zod path |
 |---|---|---|---|---|

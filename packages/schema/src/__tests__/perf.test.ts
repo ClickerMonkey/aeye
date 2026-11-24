@@ -1,8 +1,8 @@
 /**
  * Performance and memory regressions found by the benchmarks (bench/, PERFORMANCE.md).
  */
-import { describe, expect, it } from 'vitest';
-import { a, LENIENT, OPENAI_STRICT, variant } from '../index';
+import { describe, expect, it, vi } from 'vitest';
+import { a, Compiler, LENIENT, newStats, Node, OPENAI_STRICT, variant } from '../index';
 
 /** A recursive grammar whose values go through UNTAGGED unions on encode (the option is found by checking the value). */
 const Grammar = a
@@ -34,17 +34,51 @@ describe('rendering keeps a fixed size however many values go through it', () =>
     expect(res.ok && res.value).toEqual(v);
   });
 
-  it('encoding time is linear in the value (1k rows is not 100× 100 rows)', () => {
+  // Counted, not timed: wall time flaked under the full suite's load. The work is node visits,
+  // compiles and allocations; each must grow exactly linearly with the rows (the rows are alike).
+  it('encoding work is linear in the value: node visits and allocations per row are constant, nothing compiles', () => {
     const r = Grammar.bind().render(variant(OPENAI_STRICT, { rootObject: true }));
     r.encode(rows(100));
-    const t = (n: number) => {
+    const work = (n: number) => {
       const v = rows(n);
-      const s = performance.now();
-      for (let i = 0; i < 3; i++) r.encode(v);
-      return performance.now() - s;
+      const visits = vi.spyOn(Node.prototype, 'encode');
+      const compiles = vi.spyOn(Compiler.prototype, 'compile');
+      const stats = newStats();
+      try {
+        r.encode(v, stats);
+        return { visits: visits.mock.calls.length, compiles: compiles.mock.calls.length, allocations: stats.objects + stats.arrays };
+      } finally {
+        visits.mockRestore();
+        compiles.mockRestore();
+      }
     };
-    const small = Math.max(t(100), 0.5);
-    expect(t(1000)).toBeLessThan(small * 40);
+    const [w100, w200, w1000] = [work(100), work(200), work(1000)];
+    expect([w100.compiles, w200.compiles, w1000.compiles]).toEqual([0, 0, 0]);
+    expect(w100.visits).toBeGreaterThan(100);
+    // f(1000) - f(100) = 9 · (f(200) - f(100)) exactly when f is linear in the rows.
+    expect(w1000.visits - w100.visits).toBe(9 * (w200.visits - w100.visits));
+    expect(w1000.allocations - w100.allocations).toBe(9 * (w200.allocations - w100.allocations));
+  });
+
+  it('a rejected answer costs work linear in the answer, and the message stays the same size', () => {
+    // The invalid-path cost (pass 4): suggestions and the echo are computed only for the problems shown.
+    const R = a.object({ rows: a.array(a.object({ id: a.int(), kind: a.enum(['open', 'closed', 'pending']) })) });
+    const r = R.render(variant(OPENAI_STRICT, { rootObject: true }));
+    const bad = (n: number) => ({ rows: Array.from({ length: n }, (_, i) => ({ id: i, kind: i % 2 ? 'opn' : 'open' })) });
+    const work = (n: number) => {
+      const visits = vi.spyOn(Node.prototype, 'run');
+      try {
+        const res = r.parse(bad(n));
+        return { visits: visits.mock.calls.length, message: res.ok ? '' : res.message };
+      } finally {
+        visits.mockRestore();
+      }
+    };
+    const [w100, w200, w1000] = [work(100), work(200), work(1000)];
+    expect(w1000.visits - w100.visits).toBe(9 * (w200.visits - w100.visits));
+    expect(w1000.message).toContain('did you mean `open`?');
+    expect(w1000.message).toContain('and 497 more places');
+    expect(w1000.message.length).toBe(w100.message.length + 3); // "50 problems" → "500", "47 more" → "497", "… 98 items" → "998"
   });
 });
 

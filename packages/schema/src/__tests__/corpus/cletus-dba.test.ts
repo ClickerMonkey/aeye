@@ -13,6 +13,7 @@ import {
 import { asTool, MODEL_PROFILES, profileProblems, validate } from './_check';
 import type { CletusCtx, TypeDefinition } from './cletus-tools';
 import { QUERY_STRING_DOC, QuerySchema, QueryOutput, QueryToolArgs, queryTool, type BooleanValue, type Comparison, type Query, type Value } from './cletus-dba';
+import { lines } from '../_lines';
 
 const t = (name: string, fields: string[]): TypeDefinition => ({
   name, friendlyName: name[0]!.toUpperCase() + name.slice(1), knowledgeTemplate: '',
@@ -278,7 +279,7 @@ describe('validation errors', () => {
       ['query', 'withs', 1, 'statement', 'from', 'table'],
       ['query', 'final', 'from', 'table'],
     ]);
-    expect(!res.ok && res.message.split('\n')[2]).toBe('- at query.final.from.table: Expected one of: users, orders, products, archive_users, temp_data, transactions, projects.');
+    expect(lines(res).split('\n')[2]).toBe('- at query.final.from.table: Expected one of: users, orders, products, archive_users, temp_data, transactions, projects.');
   });
 
   it('a column not in the typed table\'s enum (insert), and a JSON-text Value that is not JSON', () => {

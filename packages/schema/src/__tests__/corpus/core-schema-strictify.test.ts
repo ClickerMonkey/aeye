@@ -20,6 +20,7 @@ import {
 } from '../../index';
 import { asTool, clone, MODEL_PROFILES, profileProblems, validate } from './_check';
 import * as S from './core-schema';
+import { lines } from '../_lines';
 
 type J = Record<string, any>;
 const props = (j: JsonSchema): J => j.properties as J;
@@ -100,7 +101,7 @@ describe('optional fields (core:schema.test.ts:33-157, :766-885)', () => {
     const res = S.RequiredOptional.render(OPENAI_STRICT).parse({ optional: null });
     expect(res.ok).toBe(false);
     expect(!res.ok && res.issues).toEqual([{ path: ['required'], codePath: ['required'], message: 'Required.' }]);
-    expect(!res.ok && res.message).toBe('- at required: Required.');
+    expect(lines(res)).toBe('- at required: Required.');
   });
 
   it('a record of optional values: a null value means the key is absent (core:schema.test.ts:231)', () => {
@@ -257,7 +258,7 @@ describe('open objects / catchall (core:schema.test.ts:705-763)', () => {
   it('a typed rest validates through it', () => {
     expect(S.OpenNum.render(LENIENT).parse({ name: 'x', count: 2 })).toMatchObject({ ok: true, value: { name: 'x', count: 2 } });
     const bad = S.OpenNum.render(LENIENT).parse({ name: 'x', count: 'nope' });
-    expect(!bad.ok && bad.message).toBe('- at count: Expected a number, got string.');
+    expect(lines(bad)).toBe('- at count: Expected a number, got string.');
   });
 
   it('strict() rejects unknown keys', () => {
@@ -494,7 +495,7 @@ describe('decodeWire specifics (core:wire-decode.test.ts:313-372)', () => {
     const r = S.RecA.render(OPENAI_STRICT);
     for (const [wire, got] of [[12345, 'number'], [null, 'null'], ['a string', 'string']] as const) {
       const res = r.parse(wire);
-      expect(!res.ok && res.message).toBe(`- at (root): Expected an object, got ${got}.`);
+      expect(lines(res)).toBe(`- at (root): Expected an object, got ${got}.`);
     }
   });
 
@@ -517,7 +518,7 @@ describe('decodeWire specifics (core:wire-decode.test.ts:313-372)', () => {
 
   it('DELIBERATE: a pair missing its key is an error (core skipped the entry silently)', () => {
     const res = S.RecM.render(OPENAI_STRICT).parse({ m: [{ key: 'a', value: 1 }, { novalue: true }, { key: 'b', value: 2 }] });
-    expect(!res.ok && res.message).toBe('- at m[1].key: Expected a string, got undefined.');
+    expect(lines(res)).toBe('- at m[1].key: Required.');
   });
 
   it('numeric-key object → tuple; records inside arrays (core:wire-decode.test.ts:359, :365)', () => {
@@ -580,7 +581,7 @@ describe('symmetry: one code value, each profile\'s wire (core:wire-decode.test.
     const res = S.Symmetry.render(OPENAI_STRICT).parse({ id: 'x', scores: [{ key: 'a', value: '1' }], coord: { 0: 1, 1: 2 }, note: null, extra: null });
     expect(!res.ok && res.issues).toEqual([{ path: ['scores', 0, 'value'], codePath: ['scores', 'a'], message: 'Expected a number, got string.' }]);
     const t = S.Symmetry.render(ANTHROPIC_STRICT).parse({ id: 'x', scores: [{ key: 'a', value: 1 }], coord: [10, 'x'] });
-    expect(!t.ok && t.message).toBe('- at coord[1]: Expected a number, got string.');
+    expect(lines(t)).toBe('- at coord[1]: Expected a number, got string.');
   });
 
   it('an example in the code shape is shown in the shape of each model', () => {

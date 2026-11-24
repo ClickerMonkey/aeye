@@ -9,6 +9,7 @@ import { a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRIC
 import { asTool, dialectProblems, profileProblems, unexplained } from './_check';
 import * as O from './cletus-ops';
 import type { TypeDefinition } from './cletus-tools';
+import { lines } from '../_lines';
 
 const state = (existing: string[], discovered: string[], version: number, max?: number): O.ImportCtx => ({
   importState: {
@@ -82,7 +83,7 @@ describe('type_extractor tools: the enums follow the import state', () => {
     const r = O.UpdateFieldsArgs.bind(s1).render(asTool(ANTHROPIC_STRICT));
     const res = r.parse({ typeName: 'receipt', fields: [{ name: 'x', friendlyName: 'X', type: 'money' }, { name: 'y', remove: false }] });
     expect(!res.ok && res.issues.map((i) => i.path)).toEqual([['typeName'], ['fields', 0, 'type'], ['fields', 1, 'remove']]); // inside the chosen union option
-    expect(!res.ok && res.message.split('\n')[0]).toBe('- at typeName: Expected one of: project, invoice, vendor.');
+    expect(lines(res).split('\n')[0]).toBe('- at typeName: Expected one of: project, invoice, vendor.');
   });
 
   it('a request with all six tools fits Anthropic strict', () => {
@@ -161,7 +162,7 @@ describe('query_type_selector (dba.tsx:682) and unique fields (dba.tsx:1123)', (
     const b = O.TypeSelectorOutput.bind({}, { types: [task] });
     expect(profileProblems(b, [{ types: ['task'] }, { types: [] }], { tool: false })).toEqual([]);
     const res = b.render(ANTHROPIC_STRICT).parse({ types: ['task', 'user'] });
-    expect(!res.ok && res.message).toBe('- at types[1]: Expected one of: task.');
+    expect(lines(res)).toBe('- at types[1]: Expected one of: task.');
   });
 
   it('unique fields: strict structured output on OpenAI; on Claude without structured output it is prompt text', () => {

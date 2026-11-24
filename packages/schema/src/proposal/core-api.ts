@@ -18,10 +18,20 @@
  *   - "tool unavailable (undefined)" → `applicable(ctx)`,
  *   - "custom parse hook"            → `a.codec` / `.refine` on the schema itself,
  *   - strictify / decodeWire         → `bound.render(profile)` (JSON schema + codec).
+ *
+ * Errors for the model: a tool / prompt says how a bad answer is told to the
+ * model (`errorFormat`: detail level, size cap, suggestions, expected types).
+ * It travels into the request as `ToolItem.errorFormat` / `OutputItem.errorFormat`,
+ * and a single call can override it (`ParseOptions.errorFormat`), e.g. a retry
+ * loop asking for `'summary'` after the first full message didn't help.
+ * The precedence is request (`RequestOptions.errorFormat`, e.g. a model that
+ * does better with less) < definition < call.
  */
 import type { Bindable, Bound } from '../module';
-import type { ParseResult, Rendered } from '../render';
+import type { ParseOptions, ParseResult, Rendered } from '../render';
 import type { Profile } from '../profile';
+import type { ErrorFormatInput } from '../feedback';
+import { mergeErrorFormats } from '../feedback';
 
 /** Stand-in for core's Context<TContext, TMetadata>. */
 export type Context<TContext = {}> = TContext & { readonly signal?: AbortSignal };
@@ -37,6 +47,12 @@ export interface ToolInputV2<TContext, TName extends string, TParams, TOutput> {
   /** Strict policy and delivery stay as they are today. */
   strict?: boolean | number;
   schemaDelivery?: 'auto' | 'structured' | 'prompt';
+  /**
+   * How a call with bad arguments is told to the model. A detail level
+   * (`'summary'` · `'list'` · `'markers'` · `'full'`, the default) or the full
+   * options (`{ detail, maxErrors, maxChars, suggestions, expected, context, depth }`).
+   */
+  errorFormat?: ErrorFormatInput;
   /** Receives the DECODED code-shape value (records are records, absent is absent). */
   call: (input: TParams, ctx: Context<TContext>) => TOutput | Promise<TOutput>;
 }
@@ -46,6 +62,8 @@ export interface PromptInputV2<TContext, TName extends string, TInput, TOutput> 
   content: string;
   /** Output schema: static, or with dynamic parts bound from (ctx, input). Absent = text. */
   schema?: Bindable<TOutput, [ctx: Context<TContext>, input: TInput]>;
+  /** How an answer that doesn't fit `schema` is told to the model (as on a tool). */
+  errorFormat?: ErrorFormatInput;
 }
 
 /** Type-only constructors (the real ones are core's `Tool`/`Prompt` classes). */
@@ -72,8 +90,11 @@ export interface CompiledTool<TParams> {
   readonly rendered: Rendered<TParams>;
   /** Goes on the wire as the tool's `parameters`. */
   readonly parameters: Record<string, unknown>;
-  /** Parses the model's raw arguments; `message` (wire paths) is what the model is re-prompted with. */
-  parse(rawArgs: string): ParseResult<TParams>;
+  /**
+   * Parses the model's raw arguments. On failure `message` is what the model
+   * is re-prompted with, in the tool's `errorFormat` (a call's own options win).
+   */
+  parse(rawArgs: string, opts?: Pick<ParseOptions, 'errorFormat' | 'repair'>): ParseResult<TParams>;
 }
 
 export function compileTool<TContext, TParams>(
@@ -83,11 +104,12 @@ export function compileTool<TContext, TParams>(
 ): CompiledTool<TParams> {
   const bound = t.schema.bind(ctx);
   const rendered = bound.render(profile);
+  const label = `the arguments of ${t.name}`;
   return {
     bound,
     rendered,
     parameters: rendered.jsonSchema,
-    parse: (rawArgs) => rendered.parseText(rawArgs),
+    parse: (rawArgs, opts) => rendered.parseText(rawArgs, { ...opts, errorFormat: mergeErrorFormats(t.errorFormat, opts?.errorFormat), label }),
   };
 }
 

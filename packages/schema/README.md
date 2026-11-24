@@ -11,7 +11,7 @@ tool arguments and structured outputs.
 - **Request-wide budgets**: every schema of one request fitted together (Anthropic's 20 strict tools / 24 optional / 16 unions, OpenAI's size limits, 128 tools), each choice recorded
 - **One rendering for everything**: the JSON sent, decoding, error paths, examples and `{{encode value}}` in instructions all agree
 - **Copy-light decoding**: validated and decoded in one pass, in place; untouched subtrees are the same references
-- **Errors where the model wrote them**, plus the path the code sees
+- **Errors for the model**: its own JSON echoed back with a marker under each mistake, "did you mean", the expected type, a hard size cap; the detail level is set per tool / prompt
 - **Imports** JSON Schema (MCP, OpenAPI) and gin types
 
 ## Installation
@@ -35,7 +35,7 @@ const tool = req.get('set_budget');
 send({ parameters: tool.jsonSchema, strict: tool.strict });
 const res = tool.parseText(rawArgs);
 if (res.ok) console.log(res.value.limits.food);
-else reprompt(res.message);   // "- at limits[0].value: Must be at least 0."
+else reprompt(res.message);   // the model's JSON with "^^^ limits[0].value: Must be at least 0." under the bad value
 ```
 
 In instructions:
