@@ -167,7 +167,7 @@ describe('gin values on every profile', () => {
 
   // gin or<text, num, null>: on a dialect with no combinators the union is a tagged object; the null member
   // encodes as `null` in its slot, which reads back as "nothing filled".
-  it.fails('GAP: tagged-union-null-member — or<..., null> round-trips null on MINIMAL', () => {
+  it('(was GAP) tagged-union-null-member — or<..., null> round-trips null on MINIMAL', () => {
     expect(profileProblems(Or, [null], { tool: false, profiles: [MINIMAL] })).toEqual([]);
   });
 

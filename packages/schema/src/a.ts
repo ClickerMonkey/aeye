@@ -70,6 +70,8 @@ export function discriminatedUnion<const Tag extends string, const O extends rea
   tag: Tag,
   options: O & TagCheck<Tag, O>,
 ): UnionType<O>;
+/** Options that are named types (refs): each keeps its own `$defs` entry; checked when bound. */
+export function discriminatedUnion<const Tag extends string, const O extends readonly [AnySchema & { readonly kind: 'ref' }, ...(AnySchema & { readonly kind: 'ref' })[]]>(tag: Tag, options: O): UnionType<O>;
 export function discriminatedUnion<const Tag extends string, S extends ObjectType<{ readonly [K in Tag]: AnySchema }, any>>(tag: Tag, options: readonly S[]): UnionType<[S, ...S[]]>;
 export function discriminatedUnion(tag: string, options: readonly AnySchema[]): UnionType<[AnySchema, ...AnySchema[]]> {
   return new UnionType([...options] as [AnySchema, ...AnySchema[]], tag);

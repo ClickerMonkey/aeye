@@ -362,7 +362,7 @@ describe('the programmer\'s tools', () => {
     expect(unexplained(req)).toEqual([]);
     for (const e of req.entries) expect([e.name, e.strict]).toEqual([e.name, true]);
     const w = req.get('write');
-    // @ts-expect-error GAP request-computed-items: with a computed (filtered) item list, `get(name)` is typed RequestEntry<never>, so encode takes `never`.
+    // (was GAP request-computed-items) with a computed (filtered) item list, `get(name)` is typed RequestEntry<never>, so encode takes `never`.
     expect(w.parse(JSON.parse(JSON.stringify(w.encode({ program: switchProgram })))).ok).toBe(true);
     const tst = req.get('test');
     expect(tst.parseText('{"args":{"n":12},"expectError":null}')).toMatchObject({ ok: true, value: { args: { n: 12 } } });

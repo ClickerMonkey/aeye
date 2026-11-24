@@ -134,7 +134,7 @@ const comment = a.string().optional().describe(
  * (the runtime derefs refs fine), so this builds the class directly.
  */
 const byTag = <const O extends readonly [AnySchema, ...AnySchema[]]>(tag: string, options: O): UnionType<O> => new UnionType(options, tag);
-// @ts-expect-error GAP discriminated-union-refs: refs are not accepted as options.
+// (was GAP discriminated-union-refs) refs are accepted as options.
 a.discriminatedUnion('kind', [a.ref('Expr_get'), a.ref('Expr_set')]);
 
 const T = a.ref('TypeDef');

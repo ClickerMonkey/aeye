@@ -97,7 +97,7 @@ export type ItemName<I> = I extends { readonly kind: 'output' }
 /** The code-shape output of an item's schema (`unknown` when the item list is computed). */
 export type ItemOut<I> = I extends { readonly schema: { readonly _out: infer O } } ? (0 extends 1 & O ? unknown : O) : unknown;
 /** The item named `N` (an item whose name is only known as `string` may be any of them). */
-type ByName<I, N> = I extends unknown ? (ItemName<I> extends N ? I : string extends ItemName<I> ? I : never) : never;
+type ByName<I, N> = I extends unknown ? (N extends ItemName<I> ? I : string extends ItemName<I> ? I : never) : never;
 
 /** One change made to the model's profile (or the item) for this schema. */
 export type Adjustment =

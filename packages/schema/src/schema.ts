@@ -1021,6 +1021,7 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
     const byTag = index?.byTag;
     const tag = index?.tag;
     const labels = this.options.map((_, i) => this.label(i, c.env));
+    const isNullOpt = (i: number) => deref(this.options[i], c.env) instanceof NullType;
     const pick = (v: unknown, cx: Cx): number => {
       if (byTag && isObject(v)) {
         const i = byTag.get((v as Record<string, unknown>)[tag!]);
@@ -1055,7 +1056,8 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
       emit: () => {
         if (tagged) {
           const properties: Record<string, JsonSchema> = {};
-          nodes.forEach((n, i) => (properties[labels[i]!] = c.nullable(n.json())));
+          // A `null` option can't be "filled" with null: it is a `true` flag instead.
+          nodes.forEach((n, i) => (properties[labels[i]!] = c.nullable(isNullOpt(i) ? { type: 'boolean', enum: [true], description: 'true for null' } : n.json())));
           return c.object(properties, labels);
         }
         return { anyOf: nodes.map((n) => n.json()) };
@@ -1066,6 +1068,7 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
           const set = labels.filter((l) => (v as Record<string, unknown>)[l] != null);
           if (set.length !== 1) return fail(cx, v, `Fill exactly one of: ${labels.join(', ')} (got ${set.length}).`);
           const i = labels.indexOf(set[0]!);
+          if (isNullOpt(i)) return (v as Record<string, unknown>)[set[0]!] === true ? null : fail(cx, v, `Set ${set[0]} to true for null.`);
           cx.enter(set[0]!, null);
           // The wrapper is dropped; the chosen value is returned as is.
           const out = nodes[i]!.run((v as Record<string, unknown>)[set[0]!], cx);
@@ -1090,7 +1093,7 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
       encode: (v, st) => {
         const i = this.optionOf(v, c, byTag, tag);
         if (i < 0) return v;
-        const enc = nodes[i]!.encode(v, st);
+        const enc = isNullOpt(i) && tagged ? true : nodes[i]!.encode(v, st);
         if (!tagged) return enc;
         st.objects++;
         return Object.fromEntries(labels.map((l, j) => [l, j === i ? enc : null]));
