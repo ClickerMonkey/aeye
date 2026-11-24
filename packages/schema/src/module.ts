@@ -29,7 +29,12 @@ import { LENIENT, type Profile } from './profile';
 export type Defs = { readonly [name: string]: AnySchema };
 /** Name → unresolved output of each named type. */
 export type EnvOf<D extends Defs> = { [K in keyof D]: D[K]['_out'] };
-type DefRefs<D extends Defs> = { [K in keyof D]: D[K]['_refs'] }[keyof D];
+/**
+ * A schema typed loosely as `AnySchema` (refs `any`, e.g. built from runtime
+ * data) contributes no static refs; `Bound` still checks them at bind time.
+ */
+type KnownRefs<R> = 0 extends 1 & R ? never : R;
+type DefRefs<D extends Defs> = { [K in keyof D]: KnownRefs<D[K]['_refs']> }[keyof D];
 /** Refs used by the defs (or declared) but not defined yet. */
 export type Missing<D extends Defs, Decl> = Exclude<DefRefs<D> | (keyof Decl & string), keyof D> & string;
 
@@ -40,7 +45,7 @@ export type DynamicDefs<D extends Defs, Decl> =
 
 type Root<D extends Defs> = AnySchema | (keyof D & string);
 type RootOut<R> = R extends string ? RefMarker<R> : R extends AnySchema ? R['_out'] : never;
-type RootRefs<R> = R extends string ? R : R extends AnySchema ? R['_refs'] : never;
+type RootRefs<R> = R extends string ? R : R extends AnySchema ? KnownRefs<R['_refs']> : never;
 type Unresolved<D extends Defs, Decl, R> = Exclude<RootRefs<R>, keyof D> | Missing<D, Decl>;
 /** Declared refs whose RESOLVED type does not match the declaration. */
 type Mismatched<D extends Defs, Decl> = {

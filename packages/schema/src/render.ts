@@ -184,6 +184,17 @@ export class Printer {
 
 const CONTAINERS = new Set(['object', 'array', 'record', 'tuple']);
 
+const nesting = new WeakMap<AnySchema, number>();
+/** Container depth of a ref-free schema (memoized per instance). */
+function nestingOf(s: AnySchema): number {
+  let n = nesting.get(s);
+  if (n === undefined) {
+    n = (CONTAINERS.has(s.kind) ? 1 : 0) + Math.max(0, ...s.children().map(nestingOf));
+    nesting.set(s, n);
+  }
+  return n;
+}
+
 /**
  * Node cache for REF-FREE schemas, keyed by schema instance then profile id.
  * A ref-free subtree renders the same whatever the bound refs are, so it is
@@ -227,7 +238,9 @@ export class Compiler {
     if (container && this.profile.maxDepth !== undefined && this.depth >= this.profile.maxDepth) {
       return this.escape(s, `Nested too deep for this model to describe directly.`);
     }
-    const cacheable = !outer && this.profile.maxDepth === undefined && s.refNames().size === 0;
+    // Ref-free and certain not to hit the depth limit below here → the node is the same in every bind.
+    const cacheable = !outer && s.refNames().size === 0
+      && (this.profile.maxDepth === undefined || this.depth + nestingOf(s) < this.profile.maxDepth);
     if (cacheable) {
       const hit = refFreeCache.get(s)?.get(this.profile.id);
       if (hit) return hit;

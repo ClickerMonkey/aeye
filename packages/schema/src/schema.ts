@@ -45,7 +45,7 @@ export type SchemaKind =
  * the base during deep structural comparison.
  */
 export interface AnySchema {
-  readonly _out: any;
+  readonly _out: unknown;
   readonly _refs: any;
   readonly kind: SchemaKind;
   readonly meta: Meta;
@@ -58,6 +58,10 @@ export interface AnySchema {
   title(title: string): AnySchema;
   example(...values: any[]): AnySchema;
   refine(fn: (value: any) => boolean | string, message?: string, opts?: { visible?: boolean }): AnySchema;
+}
+/** `this` of a schema that uses no refs (so it can be bound without a chain). */
+export interface RefFree {
+  readonly _refs: never;
 }
 /** A schema whose code output is `Out`. */
 export type SchemaOf<Out> = AnySchema & { readonly _out: Out };
@@ -154,12 +158,13 @@ export abstract class Schema<Out = unknown, Refs extends string = never> {
   }
 
   /** A ref-free schema is its own static bundle. */
-  bind(this: Schema<Out, never>): Bound<Out> {
-    return staticBundle(this).bind();
+  bind(this: RefFree): Bound<Out> {
+    return staticBundle(this as unknown as Schema<Out, never>).bind();
   }
 
-  render(this: Schema<Out, never>, profile: Profile): Rendered<Out> {
-    return staticBundle(this).bind().render(profile);
+  /** Shorthand for `bind().render(profile)` (ref-free schemas only). */
+  render(this: RefFree, profile: Profile): Rendered<Out> {
+    return staticBundle(this as unknown as Schema<Out, never>).bind().render(profile);
   }
 
   /** Rules with messages, as model-facing text. */
@@ -669,16 +674,24 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
   children() { return this.options; }
   print(p: Printer) { return this.options.map((o) => p.print(o)).join(' | '); }
 
-  /** For a discriminated union: option index by tag value. */
-  private tagIndex(): Map<unknown, number> | undefined {
+  /**
+   * For a discriminated union: option index by tag value. A tag that is a
+   * ref (e.g. a dynamic enum of registered names) is resolved through the
+   * bound env. Options whose tag can't be indexed (a plain string) are the
+   * fallback, tried in order.
+   */
+  private tagIndex(env: ReadonlyMap<string, AnySchema>): { byTag: Map<unknown, number>; fallback: number[] } | undefined {
     if (!this.tag) return undefined;
-    const m = new Map<unknown, number>();
+    const byTag = new Map<unknown, number>();
+    const fallback: number[] = [];
     this.options.forEach((o, i) => {
-      const t = (o as unknown as ObjectType<Shape>).shape?.[this.tag!];
-      if (t instanceof LiteralType) m.set(t.value, i);
-      else if (t instanceof EnumType) for (const v of t.values) m.set(v, i);
+      let t: AnySchema | undefined = (o as unknown as ObjectType<Shape>).shape?.[this.tag!];
+      for (let hops = 0; t instanceof RefType && hops < 8; hops++) t = env.get(t.name);
+      if (t instanceof LiteralType) byTag.set(t.value, i);
+      else if (t instanceof EnumType) for (const v of t.values) { if (!byTag.has(v)) byTag.set(v, i); }
+      else fallback.push(i);
     });
-    return m;
+    return { byTag, fallback };
   }
 
   private label(i: number): string {
@@ -689,15 +702,16 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
 
   compile(c: Compiler): Node {
     const nodes = this.options.map((o) => c.compile(o));
-    const byTag = this.tagIndex();
+    const index = this.tagIndex(c.env);
+    const byTag = index?.byTag;
     const tagged = c.profile.unions === 'tagged';
     const labels = this.options.map((_, i) => this.label(i));
     const pick = (v: unknown, cx: Cx): number => {
       if (byTag && isObject(v)) {
         const i = byTag.get((v as Record<string, unknown>)[this.tag!]);
-        return i ?? -1;
+        if (i !== undefined) return i;
       }
-      for (let i = 0; i < nodes.length; i++) {
+      for (const i of index ? index.fallback : nodes.keys()) {
         const d = cx.dryRun();
         nodes[i]!.run(v, d);
         if (!d.errors.length) return i;
@@ -730,7 +744,7 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
         }
         const i = pick(v, cx);
         if (i < 0) {
-          if (byTag) {
+          if (byTag && !index!.fallback.length) {
             cx.enter(this.tag!);
             cx.fail(`Expected ${this.tag} to be one of: ${[...byTag.keys()].map((k) => JSON.stringify(k)).join(', ')}.`);
             cx.leave();
@@ -744,7 +758,7 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
         const lenient = c.lenient();
         let i = -1;
         if (byTag && isObject(v)) i = byTag.get((v as Record<string, unknown>)[this.tag!]) ?? -1;
-        else {
+        if (i < 0) {
           i = this.options.findIndex((o) => {
             const d = new Cx(false, true, { objects: 0, arrays: 0, edits: 0, parsed: 0 });
             lenient.nodeFor(o).run(v, d);
