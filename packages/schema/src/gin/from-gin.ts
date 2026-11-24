@@ -3,7 +3,7 @@
  *
  * In the real migration this lives in @aeye/gin as `Type.toA()` next to
  * (then replacing) `Type.toValueSchema()`; here it works on the TypeDef JSON
- * (structurally the same `TypeDef` gin serializes) so the POC needs no gin
+ * (structurally the same `TypeDef` gin serializes) so this package needs no gin
  * build. Two halves:
  *
  * - TYPE level: `GinSchema<T>` maps a `const` TypeDef literal to the exact
@@ -15,13 +15,13 @@
  *
  * Differences from `toValueSchema` (deliberate):
  * - `map<text, V>` is a RECORD in the code shape. The pairs encoding is the
- *   profile's job (strict models still see `[{key, value}]`); gin's runtime
+ *   profile's job (`[{key, value}]` only where the dialect forbids an open `additionalProperties`, e.g. OpenAI and Anthropic strict); gin's runtime
  *   reads a record. `map<K, V>` with a non-text key stays pairs in the code
  *   shape too (JSON has no non-string keys).
  * - Named types are refs into `$defs`, not `z.lazy` + `aid` meta.
  */
 import {
-  AnyType, ArrayType, BooleanType, EnumType, LiteralType, NullType, NullableType, NumberType, ObjectType,
+  AnyType, ArrayType, BooleanType, EnumType, IntersectionType, LiteralType, NotType, NullType, NullableType, NumberType, ObjectType,
   OptionalType, RecordType, RefType, StringType, TupleType, UnionType, type AnySchema, type LiteralValue, type SchemaOf,
 } from '../schema';
 
@@ -35,6 +35,9 @@ export interface GinTypeDef {
 }
 
 type Props<P> = { [K in keyof P]: P[K] extends { readonly type: infer T } ? GinSchema<T> : never };
+
+/** The `a` classes of a tuple of gin TypeDefs. */
+type GinParts<O extends readonly unknown[]> = O extends readonly [infer H, ...infer R] ? [GinSchema<H>, ...GinParts<R>] : [];
 
 /** The `a` class for a gin TypeDef literal. Unknown names are named types → refs. */
 export type GinSchema<T> =
@@ -54,6 +57,11 @@ export type GinSchema<T> =
   : T extends { readonly name: 'enum'; readonly options: { readonly values: infer V } } ? EnumType<[V[keyof V] & string, ...(V[keyof V] & string)[]]>
   : T extends { readonly name: 'literal'; readonly options: { readonly value: infer V extends LiteralValue } } ? LiteralType<V>
   : T extends { readonly name: 'or'; readonly options: { readonly types: infer O extends readonly unknown[] } } ? UnionType<{ [I in keyof O]: GinSchema<O[I]> } & [AnySchema, ...AnySchema[]]>
+  : T extends { readonly name: 'and'; readonly options: { readonly types: infer O extends readonly unknown[] } }
+    ? (GinParts<O> extends infer P extends readonly [AnySchema, ...AnySchema[]] ? IntersectionType<P> : AnyType<unknown>)
+  : T extends { readonly name: 'not'; readonly options: { readonly excluded: unknown } } ? NotType<AnyType<unknown>>
+  : T extends { readonly name: 'iface'; readonly props: infer P } ? ObjectType<Props<P>>
+  : T extends { readonly name: 'iface' } ? ObjectType<{}>
   : T extends { readonly name: 'typ' } ? RefType<'TypeDef'>
   : T extends { readonly name: 'fn' } ? RefType<'Expr'>
   : T extends { readonly name: infer N extends string } ? RefType<N>
@@ -63,7 +71,7 @@ export type GinSchema<T> =
 export const GIN_BUILTINS = new Set([
   'text', 'num', 'bool', 'null', 'void', 'any', 'date', 'timestamp', 'duration', 'color',
   'list', 'map', 'optional', 'nullable', 'obj', 'enum', 'literal', 'or', 'tuple', 'typ', 'fn',
-  'and', 'not', 'iface', 'alias',
+  'and', 'not', 'iface',
 ]);
 
 /** Convert one gin TypeDef. */
@@ -132,11 +140,24 @@ function convert(def: GinTypeDef): AnySchema {
     // A value that IS a gin type / program: a ref into the grammar module (see coverage/gin-grammar.ts).
     case 'typ': return new RefType('TypeDef');
     case 'fn': return new RefType('Expr');
-    case 'and':
-    case 'not':
-    case 'iface':
-      // Open question (DESIGN.md): intersections/negations/interfaces have no faithful JSON Schema in strict dialects.
-      return new AnyType().describe(`A value of gin type ${def.name}.`);
+    // An intersection: objects merge into one object (every dialect can say
+    // that), anything else is validated after the first part.
+    case 'and': {
+      const parts = ((o.types ?? []) as GinTypeDef[]).map((t) => fromGin(t));
+      return parts.length === 0 ? new AnyType() : parts.length === 1 ? parts[0]! : new IntersectionType(parts as unknown as [AnySchema, ...AnySchema[]]);
+    }
+    // Any value except the excluded type: said in words, checked on decode.
+    case 'not': return new NotType(o.excluded ? fromGin(o.excluded as GinTypeDef) : new AnyType(), new AnyType());
+    // A structural contract: an object with at least these props (wider values still satisfy it, as in gin).
+    case 'iface': {
+      const shape: Record<string, AnySchema> = {};
+      for (const [k, p] of Object.entries(def.props ?? {})) {
+        let s = fromGin(p.type);
+        if (p.docs) s = s.describe(p.docs);
+        shape[k] = s;
+      }
+      return new ObjectType(shape);
+    }
     default:
       return new RefType(def.name);
   }

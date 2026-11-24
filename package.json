@@ -4,6 +4,7 @@
   "private": true,
   "description": "@aeye - AI TypeScript library collection",
   "workspaces": [
+    "packages/schema",
     "packages/core",
     "packages/ai",
     "packages/openai",

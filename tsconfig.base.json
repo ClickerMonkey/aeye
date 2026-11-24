@@ -20,6 +20,7 @@
     "target": "es2024",
     "types": ["node"],
     "paths": {
+      "@aeye/schema": ["./packages/schema/src/index.ts"],
       "@aeye/core": ["./packages/core/src/index.ts"],
       "@aeye/ai": ["./packages/ai/src/index.ts"],
       "@aeye/openai": ["./packages/openai/src/index.ts"],

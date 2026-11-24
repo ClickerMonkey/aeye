@@ -1,5 +1,5 @@
 /**
- * PROPOSED @aeye/core API change (sketch; not wired into core in this POC).
+ * PROPOSED @aeye/core API change (sketch; core integration is the next step).
  *
  * Today:
  *   Tool.schema:   Fn<ZodType<TParams> | undefined, [ctx]>          // a schema OR a function returning one (rebuilt per call)

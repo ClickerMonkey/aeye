@@ -25,6 +25,7 @@ import { RefType, type AnySchema, type Schema, type SchemaOf } from './schema';
 import type { AllowRefs, Merge, RefMarker, Resolve, SchemaError } from './types';
 import { Compiler, Rendered } from './render';
 import { LENIENT, type Profile } from './profile';
+import { SchemaDefinitionError } from './errors';
 
 export type Defs = { readonly [name: string]: AnySchema };
 /** Name → unresolved output of each named type. */
@@ -77,7 +78,7 @@ export class Module<D extends Defs = {}, Decl = {}> {
   constructor(readonly defs: Readonly<Record<string, AnySchema>> = {}) {}
 
   define<const D2 extends Defs>(defs: D2 & NoRedefine<D, D2>): Module<Merge<D, D2>, Decl> {
-    for (const k of Object.keys(defs)) if (k in this.defs) throw new Error(`@aeye/schema: "${k}" is already defined.`);
+    for (const k of Object.keys(defs)) if (k in this.defs) throw new SchemaDefinitionError(`"${k}" is already defined.`);
     return new Module({ ...this.defs, ...defs });
   }
 
@@ -157,7 +158,7 @@ export class Bundle<Out, A extends unknown[] = []> {
     const extra = dyn.fn(...args);
     const env = new Map<string, AnySchema>(Object.entries(this.defs));
     for (const [k, s] of Object.entries(extra)) {
-      if (env.has(k)) throw new Error(`@aeye/schema: the dynamic step redefined "${k}".`);
+      if (env.has(k)) throw new SchemaDefinitionError(`the dynamic step redefined "${k}".`);
       env.set(k, s);
     }
     const bound = new Bound<Out>(env, this.root);
@@ -185,7 +186,7 @@ export class Bound<Out> {
     const check = (s: AnySchema) => { for (const n of s.refNames()) if (!env.has(n) && !missing.includes(n)) missing.push(n); };
     check(root);
     for (const s of env.values()) check(s);
-    if (missing.length) throw new Error(`@aeye/schema: unresolved ref(s) ${missing.join(', ')}.`);
+    if (missing.length) throw new SchemaDefinitionError(`unresolved ref(s) ${missing.join(', ')}.`);
   }
 
   /** The model-facing rendering for a profile, memoized on this bound instance. */

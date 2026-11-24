@@ -6,16 +6,17 @@
  *                shape in one walk, reporting errors at the path the model
  *                wrote (wire path) and the path the code sees (code path),
  * - `encode()` — turn a code-shape value into the wire shape (examples,
- *                few-shot messages, echoing prior arguments back).
+ *                few-shot messages, values shown in instructions, echoing
+ *                prior arguments back).
  *
  * The schema classes in `schema.ts` own their logic (`compile`); this file
  * holds the shared machinery: the compiler (refs, `$defs`, cycles, depth, the
  * JSON-text escape hatch), the walk context with copy accounting, and the
- * `Rendered` result that callers hold.
+ * `Rendered` result callers hold.
  *
- * COPY RULES (asserted in tests, tabled in DESIGN.md):
- * - A subtree whose node has `needs === false` is validated and returned as
- *   the SAME reference. No object or array is allocated for it.
+ * COPY RULES (asserted in tests, tabled in aeye-schema.md):
+ * - Decoding a subtree whose wire shape is its code shape allocates nothing:
+ *   it is validated and returned as the SAME reference.
  * - Default `inPlace: true` (the caller owns the `JSON.parse` result): a
  *   changed child is written back into its parent (`edits`), `null`-for-absent
  *   keys are deleted (`edits`). Parents are never copied.
@@ -24,12 +25,17 @@
  *   subtrees are shared, never cloned.
  * - The only unavoidable allocations are shape changes: a record sent as
  *   `[{key, value}]` becomes one new object (values moved, not copied); a
- *   tuple sent as `{"0":…}` becomes one new array; JSON text in an escape
- *   hatch is parsed once (`parsed`).
+ *   tuple sent as `{"0":…}` becomes one new array; JSON text is parsed once
+ *   (`parsed`); a container sent as a JSON string is parsed once (`repaired`).
+ * - Encoding never mutates the code value. A node whose wire shape is its
+ *   code shape (`needs === false`) returns the value itself; otherwise only
+ *   the containers on the path to a change are new.
  */
 import type { Profile, View } from './profile';
 import { LENIENT, viewOf } from './profile';
 import type { AnySchema, Text } from './schema';
+import { measureJson, type SchemaMeasure } from './measure';
+import { SchemaDefinitionError, SchemaParseError } from './errors';
 
 export type JsonSchema = { [key: string]: unknown };
 export type PathSeg = string | number;
@@ -43,16 +49,22 @@ export interface Issue {
   readonly message: string;
 }
 
-/** Allocation counters for one `parse`. */
+/** Allocation counters for one `parse` or `encode`. */
 export interface CopyStats {
-  /** Objects allocated (records from pairs, copy-on-write clones). */
+  /** Objects allocated (records from pairs, copy-on-write clones, encoded objects). */
   objects: number;
-  /** Arrays allocated (tuples from numeric-key objects, copy-on-write clones). */
+  /** Arrays allocated (tuples from numeric-key objects, copy-on-write clones, encoded arrays). */
   arrays: number;
   /** In-place writes/deletes into the caller's value. */
   edits: number;
   /** JSON texts parsed (escape hatches, `json-text` any). */
   parsed: number;
+  /** Values repaired: a container sent as a JSON string, or a value sent where JSON text was asked for. */
+  repaired: number;
+}
+
+export function newStats(): CopyStats {
+  return { objects: 0, arrays: 0, edits: 0, parsed: 0, repaired: 0 };
 }
 
 export function formatPath(path: readonly PathSeg[]): string {
@@ -74,6 +86,8 @@ export class Cx {
     /** Dry run: validate only, never write (used to pick a union option). */
     readonly dry: boolean,
     readonly stats: CopyStats,
+    /** Accept a container sent as JSON text, and a value sent where JSON text was asked for. */
+    readonly repair = true,
   ) {}
   fail(message: string): void {
     this.errors.push({ path: [...this.wire], codePath: [...this.code], message });
@@ -88,15 +102,11 @@ export class Cx {
   }
   /** A dry sibling sharing the current paths (for union option tests). */
   dryRun(): Cx {
-    const d = new Cx(false, true, newStats());
+    const d = new Cx(false, true, newStats(), this.repair);
     d.wire.push(...this.wire);
     d.code.push(...this.code);
     return d;
   }
-}
-
-export function newStats(): CopyStats {
-  return { objects: 0, arrays: 0, edits: 0, parsed: 0 };
 }
 
 /** What a schema class supplies to build its node. */
@@ -109,12 +119,15 @@ export interface NodeImpl {
   readonly hint?: (view: View) => string | undefined;
   emit(): JsonSchema;
   run(value: unknown, cx: Cx): unknown;
-  encode(value: unknown): unknown;
+  /** Code shape → wire shape. Only called when `needs` is true; must not mutate `value`. */
+  encode(value: unknown, stats: CopyStats): unknown;
+  /** The node of a child at a code-path segment (`'*'` for "any element"), for encoding a part. */
+  child?(seg: PathSeg): Node | undefined;
 }
 
 /** A compiled (schema, profile) node. */
 export class Node {
-  /** True when decoding may change this subtree (own change or any dependency's). */
+  /** True when decoding or encoding may change this subtree (its own change or any dependency's). */
   needs = false;
   schema: AnySchema | undefined;
   /** An outer wrapper (e.g. `.optional()` around a field) whose metadata also applies. */
@@ -147,8 +160,12 @@ export class Node {
     }
   }
 
-  encode(value: unknown): unknown {
-    return this.impl!.encode(value);
+  encode(value: unknown, stats: CopyStats = newStats()): unknown {
+    return this.needs ? this.impl!.encode(value, stats) : value;
+  }
+
+  child(seg: PathSeg): Node | undefined {
+    return this.impl?.child?.(seg);
   }
 }
 
@@ -184,6 +201,17 @@ export class Printer {
 
 const CONTAINERS = new Set(['object', 'array', 'record', 'tuple']);
 
+const dynamicBelow = new WeakMap<AnySchema, boolean>();
+/** A sibling-typed field below: its schema is made per decode and may name the bind's types, so its node isn't shared. */
+function hasDependent(s: AnySchema): boolean {
+  let d = dynamicBelow.get(s);
+  if (d === undefined) {
+    d = s.kind === 'dependent' || s.children().some(hasDependent);
+    dynamicBelow.set(s, d);
+  }
+  return d;
+}
+
 const nesting = new WeakMap<AnySchema, number>();
 /** Container depth of a ref-free schema (memoized per instance). */
 function nestingOf(s: AnySchema): number {
@@ -210,8 +238,11 @@ export class Compiler {
   /** Named types emitted into `$defs` (defs mode). */
   readonly defs = new Map<string, DefTarget>();
   readonly view: View;
-  private readonly stack: string[] = [];
+  /** Named types being compiled, with the guard level at their start. */
+  private readonly stack: { readonly name: string; readonly guard: number }[] = [];
   private depth = 0;
+  /** How many optional / nullable / may-be-empty containers enclose the current position. */
+  private guard = 0;
 
   constructor(
     readonly profile: Profile,
@@ -239,7 +270,7 @@ export class Compiler {
       return this.escape(s, `Nested too deep for this model to describe directly.`);
     }
     // Ref-free and certain not to hit the depth limit below here → the node is the same in every bind.
-    const cacheable = !outer && s.refNames().size === 0
+    const cacheable = !outer && s.refNames().size === 0 && !hasDependent(s)
       && (this.profile.maxDepth === undefined || this.depth + nestingOf(s) < this.profile.maxDepth);
     if (cacheable) {
       const hit = refFreeCache.get(s)?.get(this.profile.id);
@@ -259,13 +290,25 @@ export class Compiler {
     return n;
   }
 
+  /** Compile below a position the value may skip (optional, nullable, an array that may be empty). */
+  guarded(s: AnySchema, outer?: AnySchema): Node {
+    this.guard++;
+    try {
+      return this.compile(s, outer);
+    } finally {
+      this.guard--;
+    }
+  }
+
   /** A use of a named type. */
   ref(name: string): Node {
     const s = this.env.get(name);
-    if (!s) throw new Error(`@aeye/schema: ref "${name}" is not defined (the chain's types should have prevented this).`);
+    if (!s) throw new SchemaDefinitionError(`ref "${name}" is not defined (the chain's types should have prevented this).`);
     const p = this.profile;
-    if (this.stack.includes(name)) {
-      if (p.defs && p.recursion) return this.defRef(name, this.defs.get(name)!);
+    const open = this.stack.find((e) => e.name === name);
+    if (open) {
+      const allowed = p.defs && (p.recursion === true || (p.recursion === 'guarded' && this.guard > open.guard));
+      if (allowed) return this.defRef(name, this.defs.get(name)!);
       return this.escape(s, `"${name}" contains itself, which this model cannot describe directly.`, name);
     }
     if (p.defs) {
@@ -273,13 +316,13 @@ export class Compiler {
       if (existing) return this.defRef(name, existing);
       const target = new DefTarget(this);
       this.defs.set(name, target);
-      this.stack.push(name);
+      this.stack.push({ name, guard: this.guard });
       target.target = this.compile(s);
       this.stack.pop();
       this.nodes.push(target);
       return this.defRef(name, target);
     }
-    this.stack.push(name);
+    this.stack.push({ name, guard: this.guard });
     const n = this.compile(s);
     this.stack.pop();
     return n;
@@ -290,7 +333,8 @@ export class Compiler {
       deps: [def],
       emit: () => ({ $ref: `#/$defs/${name}` }),
       run: (v, cx) => def.run(v, cx),
-      encode: (v) => def.encode(v),
+      encode: (v, st) => def.encode(v, st),
+      child: (seg) => def.child(seg),
     });
     this.nodes.push(n);
     (n as RefNode).refName = name;
@@ -311,21 +355,10 @@ export class Compiler {
       own: true,
       emit: () => ({ type: 'string', description: `${why} Write it as JSON text of this TypeScript type:\n${shape}` }),
       run: (v, cx) => {
-        if (typeof v !== 'string') {
-          cx.fail('Expected a string of JSON text.');
-          return v;
-        }
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(v);
-        } catch (e) {
-          cx.fail(`Not valid JSON text: ${(e as Error).message}`);
-          return v;
-        }
-        cx.stats.parsed++;
+        const parsed = readJsonText(v, cx);
+        if (parsed === FAILED) return v;
         cx.enter('(json)', null);
-        const sub = cx.dry ? cx : cx;
-        const out = lenientNode().run(parsed, sub);
+        const out = lenientNode().run(parsed, cx);
         cx.leave(false);
         return out;
       },
@@ -335,7 +368,7 @@ export class Compiler {
     return n;
   }
 
-  /** A node for a ref-free subschema in this compiler, compiled on demand (after `finish`). */
+  /** A node for a subschema in this compiler, compiled on demand (after `finish`). */
   late(s: AnySchema): Node {
     const n = this.compile(s);
     this.finish();
@@ -361,6 +394,31 @@ export class Compiler {
     return t === undefined ? undefined : typeof t === 'function' ? t(this.view) : t;
   }
 
+  /** `T | null` in this profile's spelling. */
+  nullable(j: JsonSchema): JsonSchema {
+    const spelling = this.profile.nulls;
+    if (spelling === 'nullable') return { ...j, nullable: true };
+    if (spelling === 'type-array' && typeof j.type === 'string' && !('$ref' in j) && !('anyOf' in j)) {
+      const out: JsonSchema = { ...j, type: [j.type, 'null'] };
+      if (Array.isArray(j.enum)) out.enum = [...j.enum, null];
+      return out;
+    }
+    if (Array.isArray(j.anyOf) && !('$ref' in j)) {
+      if ((j.anyOf as JsonSchema[]).some((o) => o.type === 'null')) return j;
+      return { ...j, anyOf: [...(j.anyOf as JsonSchema[]), { type: 'null' }] };
+    }
+    const { description, ...rest } = j;
+    return description === undefined ? { anyOf: [rest, { type: 'null' }] } : { anyOf: [rest, { type: 'null' }], description };
+  }
+
+  /** An object schema, closed when the profile closes objects. */
+  object(properties: Record<string, JsonSchema>, required: readonly string[], closed = this.profile.closedObjects): JsonSchema {
+    const j: JsonSchema = { type: 'object', properties, required: [...required] };
+    if (closed) j.additionalProperties = false;
+    if (this.profile.propertyOrdering) j.propertyOrdering = Object.keys(properties);
+    return j;
+  }
+
   /** Add description, examples and title to an emitted schema. */
   decorate(node: Node, json: JsonSchema): JsonSchema {
     const parts: string[] = [];
@@ -372,7 +430,12 @@ export class Compiler {
       const d = this.text(m.description);
       if (d) parts.push(d);
       if (m.title) title = m.title;
-      if (m.examples) for (const e of m.examples) examples.push(node.encode(e));
+      if (m.examples) {
+        for (const e of m.examples) {
+          this.checkExample(node, e);
+          examples.push(node.encode(e));
+        }
+      }
     }
     const hint = node.impl?.hint?.(this.view);
     if (hint) parts.push(hint);
@@ -387,6 +450,17 @@ export class Compiler {
     }
     if (parts.length) out.description = parts.join('\n');
     return out;
+  }
+
+  /** An example is typed in the code shape; one that doesn't fit is a definition mistake, reported once. */
+  private checkExample(node: Node, example: unknown): void {
+    const s = node.schema;
+    if (!s) return;
+    const cx = new Cx(false, true, newStats(), false);
+    this.lenient().nodeFor(s).run(example, cx);
+    if (cx.errors.length) {
+      throw new SchemaDefinitionError(`example ${JSON.stringify(example)} does not fit its schema:\n${formatIssues(cx.errors)}`);
+    }
   }
 }
 
@@ -404,7 +478,47 @@ export class DefTarget extends Node {
   override get deps(): readonly Node[] { return this.target ? [this.target] : []; }
   override json(): JsonSchema { return this.target.json(); }
   override run(v: unknown, cx: Cx): unknown { return this.target.run(v, cx); }
-  override encode(v: unknown): unknown { return this.target.encode(v); }
+  override encode(v: unknown, stats: CopyStats = newStats()): unknown { return this.target.encode(v, stats); }
+  override child(seg: PathSeg): Node | undefined { return this.target.child(seg); }
+}
+
+/** Returned by `readJsonText` when the value was not usable. */
+export const FAILED: unique symbol = Symbol('failed');
+
+/**
+ * Read a value the model was asked to write as JSON text. With repair on, a
+ * value written directly (an object where a string of JSON was asked for) is
+ * taken as it is — models do this often, and it is unambiguous.
+ */
+export function readJsonText(v: unknown, cx: Cx): unknown {
+  if (typeof v !== 'string') {
+    if (cx.repair && v !== undefined) {
+      if (!cx.dry) cx.stats.repaired++;
+      return v;
+    }
+    cx.fail('Expected a string of JSON text.');
+    return FAILED;
+  }
+  try {
+    const out = JSON.parse(v);
+    if (!cx.dry) cx.stats.parsed++;
+    return out;
+  } catch (e) {
+    cx.fail(`Not valid JSON text: ${(e as Error).message}`);
+    return FAILED;
+  }
+}
+
+/** Options for `Rendered.parse`. */
+export interface ParseOptions {
+  /** Decode into the caller's value (default `true`), or copy-on-write. */
+  readonly inPlace?: boolean;
+  /**
+   * Accept common slips (default `true`): an object/array/record sent as a
+   * string of JSON text (also double-encoded), and a value sent directly
+   * where JSON text was asked for. Each is counted in `stats.repaired`.
+   */
+  readonly repair?: boolean;
 }
 
 /** Successful or failed parse. */
@@ -412,24 +526,73 @@ export type ParseResult<Out> =
   | { readonly ok: true; readonly value: Out; readonly stats: CopyStats }
   | { readonly ok: false; readonly issues: readonly Issue[]; readonly message: string; readonly stats: CopyStats };
 
+/** Options for `Rendered.encodeText` and the template helpers. */
+export interface EncodeTextOptions {
+  /** Indent the JSON (`true` = 2 spaces). */
+  readonly pretty?: boolean | number;
+  /**
+   * Encode a PART: the value given is what sits at this code path of the
+   * schema (`limits`, `rows.*.tags`; `*` is any element or key).
+   */
+  readonly path?: string | readonly PathSeg[];
+}
+
+/** Encode values in a rendering's wire shape, needing only the value. */
+export interface Encoder<Out> {
+  /** The value as the model would write it, as JSON text. */
+  (value: Out, opts?: EncodeTextOptions): string;
+  /** The value as the model would write it, as a JSON value. */
+  readonly wire: (value: Out, path?: EncodeTextOptions['path']) => unknown;
+}
+
 /** A schema rendered for one profile: JSON schema + codec + validation, memoized. */
 export class Rendered<Out> {
   declare readonly _out: Out;
   private _json: JsonSchema | undefined;
+  private _body: JsonSchema | undefined;
+  private _wrapped: boolean | undefined;
+  private _measure: SchemaMeasure | undefined;
+  private _encoder: Encoder<Out> | undefined;
+
   constructor(readonly compiler: Compiler, readonly root: Node) {}
 
   get profile(): Profile { return this.compiler.profile; }
 
-  /** The JSON Schema the model is given. A root ref is inlined (tool params must be an object). */
+  /** The root schema without `$defs` (a root ref is inlined). */
+  private body(): JsonSchema {
+    if (!this._body) {
+      const refName = (this.root as RefNode).refName;
+      this._body = refName ? this.compiler.defs.get(refName)!.json() : this.root.json();
+    }
+    return this._body;
+  }
+
+  /**
+   * True when the profile needs an object root and this schema's root isn't
+   * one: the model then writes `{ "input": … }`, unwrapped on decode.
+   */
+  get wrapped(): boolean {
+    if (this._wrapped === undefined) {
+      const b = this.body();
+      this._wrapped = this.profile.rootObject && !(b.type === 'object' && !('anyOf' in b));
+    }
+    return this._wrapped;
+  }
+
+  /** The JSON Schema the model is given. */
   get jsonSchema(): JsonSchema {
     if (this._json) return this._json;
-    const root = this.root;
-    const refName = (root as RefNode).refName;
-    const body = refName ? this.compiler.defs.get(refName)!.json() : root.json();
+    let body = this.body();
+    if (this.wrapped) body = this.compiler.object({ input: body }, ['input'], this.profile.closedObjects || this.profile.strict);
     const defs: Record<string, JsonSchema> = {};
     for (const [name, def] of this.compiler.defs) defs[name] = def.json();
     this._json = this.compiler.defs.size ? { ...body, $defs: defs } : body;
     return this._json;
+  }
+
+  /** Size of the emitted schema: properties, depth, enum values, optionals, unions (memoized). */
+  get measure(): SchemaMeasure {
+    return (this._measure ??= measureJson(this.jsonSchema));
   }
 
   /**
@@ -437,18 +600,27 @@ export class Rendered<Out> {
    * `inPlace` (default) the value is decoded in place and returned; see the
    * copy rules at the top of this file.
    */
-  parse(wire: unknown, opts?: { inPlace?: boolean }): ParseResult<Out> {
+  parse(wire: unknown, opts?: ParseOptions): ParseResult<Out> {
     const stats = newStats();
-    const cx = new Cx(opts?.inPlace ?? true, false, stats);
-    const value = this.root.run(wire, cx);
-    if (cx.errors.length) {
-      return { ok: false, issues: cx.errors, message: formatIssues(cx.errors), stats };
+    const cx = new Cx(opts?.inPlace ?? true, false, stats, opts?.repair ?? true);
+    let value: unknown;
+    if (this.wrapped) {
+      if (typeof wire !== 'object' || wire === null || Array.isArray(wire) || !('input' in wire)) {
+        cx.fail('Expected an object with an "input" field.');
+      } else {
+        cx.enter('input', null);
+        value = this.root.run((wire as { input: unknown }).input, cx);
+        cx.leave(false);
+      }
+    } else {
+      value = this.root.run(wire, cx);
     }
+    if (cx.errors.length) return { ok: false, issues: cx.errors, message: formatIssues(cx.errors), stats };
     return { ok: true, value: value as Out, stats };
   }
 
   /** `JSON.parse` then decode in place (we own the parsed value). */
-  parseText(text: string): ParseResult<Out> {
+  parseText(text: string, opts?: Omit<ParseOptions, 'inPlace'>): ParseResult<Out> {
     let wire: unknown;
     try {
       wire = JSON.parse(text);
@@ -456,12 +628,55 @@ export class Rendered<Out> {
       const issues = [{ path: [], codePath: [], message: `Not valid JSON: ${(e as Error).message}` }];
       return { ok: false, issues, message: formatIssues(issues), stats: newStats() };
     }
-    return this.parse(wire);
+    return this.parse(wire, opts);
   }
 
-  /** Code shape → the shape this model writes (few-shot examples, echoing prior args). */
-  encode(value: Out): unknown {
-    return this.root.encode(value);
+  /** `parse`, throwing a `SchemaParseError` (with the issues) on failure. */
+  parseOrThrow(wire: unknown, opts?: ParseOptions): Out {
+    const r = this.parse(wire, opts);
+    if (!r.ok) throw new SchemaParseError(r.issues);
+    return r.value;
+  }
+
+  /**
+   * Code shape → the shape this model writes (few-shot examples, values in
+   * instructions, echoing prior args). Never mutates `value`; untouched
+   * subtrees are shared. Pass `stats` to count what was allocated.
+   */
+  encode(value: Out, stats: CopyStats = newStats()): unknown {
+    const enc = this.root.encode(value, stats);
+    if (!this.wrapped) return enc;
+    stats.objects++;
+    return { input: enc };
+  }
+
+  /** `encode` of a part: `value` is the value at code path `path` (`'limits'`, `['rows', '*', 'tags']`). */
+  encodeAt(value: unknown, path: EncodeTextOptions['path'], stats: CopyStats = newStats()): unknown {
+    const segs = splitPath(path);
+    if (!segs.length) return this.encode(value as Out, stats);
+    let node: Node | undefined = this.root;
+    for (const seg of segs) {
+      node = node?.child(seg);
+      if (!node) throw new SchemaDefinitionError(`no schema at path ${formatPath(segs)}.`);
+    }
+    return node!.encode(value, stats);
+  }
+
+  /** `encode` as JSON text (of a part, with `opts.path`). */
+  encodeText(value: Out, opts: EncodeTextOptions = {}): string {
+    const wire = opts.path === undefined ? this.encode(value) : this.encodeAt(value, opts.path);
+    const indent = opts.pretty === true ? 2 : typeof opts.pretty === 'number' ? opts.pretty : undefined;
+    return JSON.stringify(wire, null, indent);
+  }
+
+  /** An encoder bound to this rendering: hand it to code that has only the value. */
+  get encoder(): Encoder<Out> {
+    if (!this._encoder) {
+      const fn = ((value: Out, opts?: EncodeTextOptions) => this.encodeText(value, opts)) as Encoder<Out>;
+      (fn as { wire: Encoder<Out>['wire'] }).wire = (value, path) => (path === undefined ? this.encode(value) : this.encodeAt(value, path));
+      this._encoder = Object.freeze(fn);
+    }
+    return this._encoder;
   }
 
   /** Node for a subschema in this rendering (escape hatches use the LENIENT one). */
@@ -476,22 +691,15 @@ export class Rendered<Out> {
   }
 }
 
+function splitPath(path: EncodeTextOptions['path']): PathSeg[] {
+  if (path === undefined || path === '') return [];
+  if (typeof path !== 'string') return [...path];
+  return path.split('.').map((s) => (/^\d+$/.test(s) ? Number(s) : s));
+}
+
 /** The message a model is shown for its mistakes — paths are where IT wrote them. */
 export function formatIssues(issues: readonly Issue[]): string {
   return issues.map((i) => `- at ${formatPath(i.path)}: ${i.message}`).join('\n');
-}
-
-/** Wrap an emitted schema so it also accepts `null`. */
-export function withNull(j: JsonSchema): JsonSchema {
-  if (typeof j.type === 'string' && !('$ref' in j) && !('anyOf' in j)) {
-    const out: JsonSchema = { ...j, type: [j.type, 'null'] };
-    if (Array.isArray(j.enum)) out.enum = [...j.enum, null];
-    return out;
-  }
-  const { description, ...rest } = j;
-  return description === undefined
-    ? { anyOf: [rest, { type: 'null' }] }
-    : { anyOf: [rest, { type: 'null' }], description };
 }
 
 export { LENIENT };

@@ -1,7 +1,16 @@
+/**
+ * @aeye/schema — the LLM-first schema builder. See aeye-schema.md.
+ */
 export * as a from './a';
 export * from './schema';
 export * from './module';
 export * from './render';
 export * from './profile';
+export * from './model';
+export * from './request';
+export * from './measure';
+export * from './template';
+export * from './errors';
 export * from './types';
-export { fromJSONSchema } from './json-schema';
+export { fromJSONSchema, type ImportReport } from './json-schema';
+export { fromGin, ginNamedTypes, GIN_BUILTINS, type GinSchema, type GinTypeDef, type GinRegistryLike } from './gin/from-gin';

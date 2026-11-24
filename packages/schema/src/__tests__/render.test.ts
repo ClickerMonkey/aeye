@@ -36,7 +36,8 @@ describe('the record example', () => {
             'A map written as a list of {key, value} entries; each key at most once.\n' +
             'Example: [{"key":"food","value":200},{"key":"travel","value":50}]',
         },
-        note: { type: ['string', 'null'], description: 'Anything else.\nWrite null to leave it out.' },
+        // OpenAI strict spells nullable as anyOf (o3 rejects type arrays in strict tools).
+        note: { anyOf: [{ type: 'string' }, { type: 'null' }], description: 'Anything else.\nWrite null to leave it out.' },
       },
       required: ['owner', 'limits', 'note'],
       additionalProperties: false,
@@ -50,7 +51,7 @@ describe('the record example', () => {
     expect(res.value).toBe(wire);
     expect(res.value).toEqual({ owner: 'ann', limits: { food: 200, fun: 10 } });
     expect('note' in res.value).toBe(false);
-    expect(res.stats).toEqual({ objects: 1, arrays: 0, edits: 2, parsed: 0 });
+    expect(res.stats).toEqual({ objects: 1, arrays: 0, edits: 2, parsed: 0, repaired: 0 });
   });
 
   it('non-strict (lenient/Google): open object on the wire, zero copies, same reference', () => {
@@ -65,7 +66,7 @@ describe('the record example', () => {
       const wire = { owner: 'ann', limits: { food: 200 } };
       const res = r.parse(wire);
       expect(res.ok && res.value).toBe(wire);
-      expect(res.stats).toEqual({ objects: 0, arrays: 0, edits: 0, parsed: 0 });
+      expect(res.stats).toEqual({ objects: 0, arrays: 0, edits: 0, parsed: 0, repaired: 0 });
     }
   });
 
@@ -92,7 +93,7 @@ describe('the record example', () => {
     expect(wire.note).toBeNull();
     expect(res.value).not.toBe(wire);
     expect((res.value as unknown as typeof wire).untouched).toBe(wire.untouched); // shared, not copied
-    expect(res.stats).toEqual({ objects: 2, arrays: 0, edits: 0, parsed: 0 }); // 1 record + 1 clone of the top object
+    expect(res.stats).toEqual({ objects: 2, arrays: 0, edits: 0, parsed: 0, repaired: 0 }); // 1 record + 1 clone of the top object
   });
 
   it('encode turns code values into each model shape (few-shot / echo)', () => {
@@ -108,7 +109,7 @@ describe('the record example', () => {
     const wire = { rows: Array.from({ length: 1000 }, (_, i) => ({ id: i, name: `n${i}`, tags: ['x'] })) };
     const res = Big.render(OPENAI_STRICT).parse(wire);
     expect(res.ok && res.value).toBe(wire);
-    expect(res.stats).toEqual({ objects: 0, arrays: 0, edits: 0, parsed: 0 });
+    expect(res.stats).toEqual({ objects: 0, arrays: 0, edits: 0, parsed: 0, repaired: 0 });
   });
 });
 
@@ -130,9 +131,10 @@ describe('profiles', () => {
     expect(!bad.ok && bad.message).toContain('Fill exactly one of: circle, rect');
   });
 
-  it('discriminated union errors point at the tag', () => {
-    const res = Shape.render(OPENAI_STRICT).parse({ kind: 'hex', r: 1 });
-    expect(!res.ok && res.issues[0]!.path).toEqual(['kind']);
+  it('discriminated union errors point at the tag (a union root is wrapped as {input} where the root must be an object)', () => {
+    const res = Shape.render(OPENAI_STRICT).parse({ input: { kind: 'hex', r: 1 } });
+    expect(!res.ok && res.issues[0]).toMatchObject({ path: ['input', 'kind'], codePath: ['kind'] });
+    expect(!Shape.render(LENIENT).parse({ kind: 'hex', r: 1 }).ok).toBe(true);
   });
 
   it('recursion: $ref where allowed, JSON-text escape where not (Anthropic), inline+escape with no $defs (MINIMAL)', () => {
@@ -152,7 +154,7 @@ describe('profiles', () => {
     expect(child.description).toContain('type Node = { value: number; tags: { [key: string]: string }; children: Node[] }');
     const res = an.parse({ value: 1, tags: [{ key: 'a', value: 'b' }], children: ['{"value":2,"tags":{"x":"y"},"children":[]}'] });
     expect(res.ok && res.value).toEqual({ value: 1, tags: { a: 'b' }, children: [{ value: 2, tags: { x: 'y' }, children: [] }] });
-    expect(res.stats).toEqual({ objects: 1, arrays: 0, edits: 2, parsed: 1 });
+    expect(res.stats).toEqual({ objects: 1, arrays: 0, edits: 2, parsed: 1, repaired: 0 });
     const bad = an.parse({ value: 1, tags: [], children: ['{"value":"two","tags":{},"children":[]}'] });
     expect(!bad.ok && bad.issues[0]).toMatchObject({ path: ['children', 0, '(json)', 'value'], codePath: ['children', 0, 'value'] });
 

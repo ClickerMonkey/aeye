@@ -1,10 +1,36 @@
-# @aeye/schema: design (POC)
+# @aeye/schema: design
 
 ## Phil's request (verbatim)
 
 > I want a zod alternate in a new aeye/schema package. Much of the logic from core schema logic would move to this. I want a solution with basically no data copying or as little as possible no matter what the model being used is. It should be as type safe as zod but designed for llms and parts of the schema that are dynamic. Like tool args and prompt structured output would change from an optional function to always one of these static instances but with dynamic parts. The code of the different types should be implemented using classes. Gin will need to be converted to generate these. These will be very similar, but the goal of this is to perfectly represent any schema to a model no matter what is supported. It generates correct json schema based on what's supported on demand. It should be first class to have named types and be able to use them. There should be an a export that is like z for zod. It should let you define the types (if named types are desired) with some that have a lazy definition. a.ref is used and resolved in later chain. Then the types that weren't defined in the chain can be dynamically be defined with a dynamic function that accepts any args but returns an object with the remaining refs to be defined. This makes it support query schemas or Ginny's which can be based on ctx. And finally whatever the result type should be, whether it's a ref to an object or a new object definition. Even with all of this complexity it should have a well defined return type. In every scenario. This will be complex typescript code to satisfy these requirements. Do a poc and prove it will work - mainly I'm interested in the interfaces and function signatures showing how it will be used and proving the type system will work. Show it to me in hitl when ready for review
 
 > Make sure it's crystal clear that the schemas in the harness, gin, query, etc should all be representable in this static but partially dynamic schema builder. It needs to cover all use cases.
+
+After the POC review:
+
+> - we'll want a handlebars function for instructions and prompt that takes a json value and passes it through the schema of the args or prompt. Also the Fn version of those should have function to encoded where just the value is required
+> - some profile stuff is complex because there are request wide restrictions so the schema that's finally determined per schema in a request needs to match what's used in the profile
+> - "strict models still see pairs" that applies for gpt models but not all, make sure that's understood
+> - make sure this is fully made and unit tested with all the examples we have across these packages and projects and sure each of those scenarios are tested for every piece of functionality including producing the expected type. The most complex example I can think of is in the 'product" repo the query builder has varying levels of strictness. I'm pretty sure that's in there - it's quite extensive. Create the new package and let me know when it's done and then we can integrate it into core and generate unit tests there as well. Then after that's good we'll integrate it with gin and query and test it. Then harness. I want notes on performance and memory usage etc. ideally comparing zod. I want this all feel native and meant to be together with the other libraries.
+
+## Status
+
+Three passes after the POC review:
+
+1. **The package (done).** Complete and production-quality, no longer a POC: request-wide budgets, an accurate per-provider profile table chosen from model capabilities, the Handlebars `{{encode}}` helper and value-only encoders, the remaining types (intersections, `not`, if/then/else, sibling-typed values, extra keys), `{input}`-wrapped roots, auto-repair, error classes, docs (`aeye-schema.md`, `README.md`) and tests for each. In the root workspaces, still `private`.
+2. **Every example ported as tests**: core, gin, query, product (the query builder's strictness levels), harness.
+3. **Performance and memory notes vs zod.**
+
+Then integration: core (with core's own tests), gin and query, then the harness.
+
+### Pass 1 decisions
+
+- **Request budget API.** `profileFor(model).request(items)` returns a `RenderedRequest`. Each `RequestEntry` records the exact profile it was rendered with (a memoized variant of the model's profile, e.g. `anthropic-strict[optional=null]`), its `adjustments`, `reasons`, `strict` and `delivery`. `parse`, `encode`, examples and the template helpers all go through the entry's one `Rendered`, so they match the JSON sent by construction. The fitting ladder (as is, then optionals as null, then widened enums, then deep nesting as JSON text, then not strict or prompt text) generalises core's `SchemaBudget`, measured on the emitted JSON instead of estimated from zod.
+- **Pairs.** Records are pairs only where the dialect forbids a schema-valued `additionalProperties` (OpenAI strict, Anthropic strict, Gemini's OpenAPI subset), not on every strict model: xAI strict and Gemini's JSON Schema mode see open objects. Tested per profile.
+- **OpenAI's size limits are per schema**, as OpenAI documents them. The request-level limits that exist are Anthropic's three totals and OpenAI's 128 tools. `RequestLimits.totals` takes any `SchemaLimits` field, so a provider that sums sizes over a request is one profile entry away.
+- **Profiles from capabilities.** `profileFor` mirrors `@aeye/ai`'s `resolveStrictFormat` and `buildSchemaBudget` on a structural `ModelLike` (no dependency on `@aeye/ai`).
+- **Handlebars.** `{{encode value [path= pretty= tool= output=]}}` and `{{schema}}`, supplied per render (`helpers: entry.helpers()`) or registered once (`registerSchemaHelpers` + `data: schemaData(entry)`). The value-only encoder for function-form instructions is `entry.encoder`.
+- **Open questions settled:** 1 (budgets: option (a), on the emitted JSON), 2 (`.dependent(key, on, fn)`, the sibling typed), 4 (and becomes a merged object or an intersection, not a rule, iface an open object), 6 (repair on by default, counted, `repair: false` turns it off), 7 (wrap as `{input}` when the profile needs an object root; tool parameters always), 8 (all four imported), 9 (kept: an optional nullable keeps `null` under null-for-absent; documented and tested). Still open: 3 (async codecs), 5 (`newStrict` size, now measurable), 10, 11.
 
 ## Summary
 
@@ -27,8 +53,8 @@
 - **Copying.** A subtree that doesn't change shape is checked and returned as the same reference, with zero allocations. The only allocations are real shape changes: one object per record sent as pairs, one array per tuple sent as an object, and one parse per piece of JSON text. The copy table below lists them, and tests assert the counts.
 - **Coverage.** Every schema use case in aeye core, gin, query, ginny and the harness is expressed in `src/coverage/`. Each compiles with type tests, and the hard ones have render/decode tests. See the coverage table.
 - **Proof.**
-  - `npm test` in `packages/schema` runs vitest (34 runtime tests) and `tsc -p tsconfig.typetest.json`, which type-checks everything under `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`.
-  - The package is `private: true` and not yet in the root workspaces, so nothing publishes.
+  - `npm test` in `packages/schema` runs vitest (156 runtime tests after pass 1; 34 in the POC) and `tsc -p tsconfig.typetest.json`, which type-checks everything under `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess`.
+  - The package is `private: true` (in the root workspaces since pass 1), so nothing publishes.
 
 ## Concepts
 
@@ -39,8 +65,9 @@
 | **Chain / Module** | Collects named types. Static ones come from `define`. Typed promises come from `declare`. Runtime ones come from `dynamic`. |
 | **Bundle<Out, Args>** | A finished chain, built once at module scope. `bind(...args)` supplies the dynamic part and returns a `Bound<Out>`. It is cached by `key`. |
 | **Bound<Out>** | Every ref resolved. `render(profile)` gives a `Rendered<Out>`, memoized per profile. |
-| **Profile** | A model's capabilities: optional as `omit` or `null`, closed objects, records as `open` or `pairs`, tuples, unions as `anyOf` or `tagged`, `$defs`, recursion, "any" spelling, constraints, where examples go, enum cap, max depth, audience. Built in: `LENIENT`, `PEOPLE`, `OPENAI_STRICT`, `ANTHROPIC_STRICT`, `GOOGLE_STRICT`, `MINIMAL`. |
-| **Rendered<Out>** | Holds `jsonSchema`, `parse(wire)`, `parseText(text)`, `encode(codeValue)` and `typescript()`. It holds nodes (proportional to schema size), never data. |
+| **Profile** | A model's capabilities: optional as `omit` or `null`, closed objects, records as `open` or `pairs`, tuples, unions as `anyOf` or `tagged`, `$defs`, recursion, "any" spelling, constraints, where examples go, enum cap, max depth, audience. Built in (the table is in aeye-schema.md): `LENIENT`, `PEOPLE`, `OPENAI_STRICT`/`_NON_STRICT`/`_FINETUNED_STRICT`, `ANTHROPIC_STRICT`/`_NON_STRICT`, `GOOGLE_STRICT`/`_NON_STRICT`/`_OPENAPI`, `XAI_STRICT`/`_NON_STRICT`, `OLLAMA`, `MINIMAL`. Chosen by `profileFor(model)`. |
+| **Rendered<Out>** | Holds `jsonSchema`, `measure`, `parse(wire)`, `parseText(text)`, `parseOrThrow`, `encode(codeValue)`, `encodeText`, `encoder` and `typescript()`. It holds nodes (proportional to schema size), never data. |
+| **RenderedRequest / RequestEntry** | Every schema of one request fitted together; each entry records its profile, adjustments and reasons, and is the one codec for that schema. |
 | **Node** | A compiled (schema, profile) unit with `json()`, `run()` (check + decode), `encode()` and `needs` (does decoding change this subtree?). |
 | **Escape hatch** | For what a profile can't express: a string holding JSON text in the code shape. It is described with a TypeScript type and validated by the LENIENT rendering of the same schema. |
 
@@ -247,7 +274,7 @@ The converter is in `src/gin/from-gin.ts`. In the real migration it becomes `Typ
 - **Registries.** `ginNamedTypes<{Task: Task}>(registry)` returns the registry's named types as defs for a dynamic step. The caller states the names its code relies on, and `Bound` checks they exist.
 - **The grammar.** In `src/coverage/gin-grammar.ts`, gin's `buildSchemas` (`opts.Type`/`opts.Expr`) becomes one module: a static TypeDef + Expr + PathStep + PropDef grammar, with a dynamic `NamedType` enum keyed by registry version. Tools pick results from it, and no `keptLazy` workaround is needed (a ref is not a lazy getter).
 - **Differences from `toValueSchema`.**
-  - `map<text,V>` is a **record** in the code shape. Pairs are now a rendering choice, so gin's runtime reads records and strict models still see pairs.
+  - `map<text,V>` is a **record** in the code shape. Pairs are now a rendering choice, so gin's runtime reads records. Only dialects that forbid an open `additionalProperties` (OpenAI strict, Anthropic strict, Gemini OpenAPI) show the model pairs; xAI strict and Gemini show an object.
   - Named types are `$defs` refs, not `z.lazy` + `aid`.
 
 ## Coverage table
@@ -261,30 +288,30 @@ The converter is in `src/gin/from-gin.ts`. In the real migration it becomes `Typ
 | Core Prompt structured output, static / `(input, ctx)` / `false` | core `prompt.ts` | `Bindable<Out, [ctx, input]>`; `false` → no schema or `applicable` | coverage/core-tools.ts T | — |
 | strictify: records → pairs, tuples → numeric keys, optional → nullable, default null | core `strictify.ts` | `profile.records/tuples/optional` in each class's `compile` | __tests__/render.test.ts R | — |
 | decodeWire / relaxValidation / custom `parse` | core `decode.ts`, `Tool.parse` | `rendered.parse` (one pass, in place); `a.codec` | render.test.ts R (copy counts) | — |
-| Dialects (openai, anthropic, google, xai, lenient), enum cap 40, size limits | core `dialects/*`, `descriptor.ts` | `Profile` + built-ins; enum widening; `maxDepth` → escape | render.test.ts R | xai profile not ported; per-schema size counts (5000 props, 120k chars) not yet measured from nodes (see open questions) |
+| Dialects (openai, anthropic, google, xai, lenient), enum cap 40, size limits | core `dialects/*`, `descriptor.ts` | `Profile` + built-ins; enum widening; `maxDepth` → escape | render.test.ts R | — (xAI ported; sizes measured on the emitted JSON in `measure.ts`; __tests__/profiles.test.ts, request.test.ts) |
 | Recursion where unsupported (Anthropic), `$defs`, cycle breaker | core `cycle-breaker.ts`, `to-json-schema.ts` | DFS back-edge → JSON-text escape with a TS type, validated by LENIENT | render.test.ts R, coverage.test.ts R | — |
-| "Any" encodings | core `any-value.ts` | `profile.any`: `{}` or JSON text | render.test.ts R | core's `recursive-strict` $defs/Any not ported (JSON text instead) |
-| Per-request strict budget, `canExpress`, prompt-text fallback | core `budget.ts`, `expressible.ts` | stays in core and picks the profile; `rendered.typescript()` gives prompt text | — | not ported (open question 1) |
-| Gin value types (every TypeDef kind) | gin `types/*` `toValueSchema` | `fromGin` / `GinSchema<T>` | gin/gin.test.ts R+T | `and`, `not`, `iface` (open question 4) |
+| "Any" encodings | core `any-value.ts` | `profile.any`: `{}` or JSON text | render.test.ts R | core's `recursive-strict` $defs/Any not ported (JSON text instead, which is unambiguous); xAI's flat any ported |
+| Per-request strict budget, `canExpress`, prompt-text fallback | core `budget.ts`, `expressible.ts` | `profileFor(model).request(items)` (request.ts): per-schema and request-wide limits, the fitting ladder, prompt-text delivery | __tests__/request.test.ts R, features.types.ts T | — |
+| Gin value types (every TypeDef kind) | gin `types/*` `toValueSchema` | `fromGin` / `GinSchema<T>` | gin/gin.test.ts R+T | — (`and` becomes a merged object or intersection, `not` a rule, `iface` an open object; __tests__/types.test.ts R, features.types.ts T) |
 | Gin named/registered types, generics `list<V>`, `map<V>` | gin registry, `alias.ts` z.lazy | `a.ref(name)` + `ginNamedTypes` in a dynamic step | gin/gin.test.ts R+T | — |
 | Gin grammar: TypeDef + Expr programs (recursive, registry leaves) | gin `buildSchemas` (`opts.Type`, `opts.Expr`, `aid`) | one module, many results; dynamic `NamedType` | coverage/gin-grammar.ts T, coverage.test.ts R | the reduced grammar models 11 expr kinds + TypeDef by class; `newStrict` per-type `value` (open question 5) |
 | Query schemas from DB tables (Source, paired FieldRef, filters, subqueries) | query `llm/schemas.ts`, `schema-build.ts` | static grammar + dynamic `Source`/`FieldRef` (discriminated union per table) | coverage/query.ts T, coverage.test.ts R | depth axes (`refs`/`functions` open vs typed) become variants of the dynamic step, not shown individually |
 | Query size fallback (`shouldUseStringSchema`, `maxEnumSize`) | query `llm/schemas.ts` | profile enum widening; `maxDepth` escape | coverage.test.ts R (60 tables on Google) | whole-schema size budget (open question 1) |
 | Saved query args from the compiled query | harness database `argsTypeOf` | dynamic step whose input is the saved query | coverage/query.ts T | — |
-| Ginny tools/prompts `schema: (ctx) => …` (write, edit_type, test, dba, architect, designer) | ginny `tools/*`, `prompts/*` | gin module results; `(ctx, input)` prompt bundles | coverage/gin-grammar.ts T, core-tools.ts T | `create_var` value typed by the sibling `type` (open question 2) |
+| Ginny tools/prompts `schema: (ctx) => …` (write, edit_type, test, dba, architect, designer) | ginny `tools/*`, `prompts/*` | gin module results; `(ctx, input)` prompt bundles | coverage/gin-grammar.ts T, core-tools.ts T | — (`.dependent('value', 'type', fn)`; __tests__/types.test.ts R) |
 | Harness fn args/returns via gin (`ginAs`, `ginOf`, `toolArgsOf`, catalog `signature()`) | sdk `zod-gin.ts`, hub `catalog.ts` | `fromGin` straight to `a`; no zod middle step, no marker-by-description | coverage/harness-fns.ts T, coverage.test.ts R | — |
 | `g.fnName()` model-name fields (two-way) | core `model-names.ts`, hub `readArgs` | `a.codec(a.string().pattern(…), {decode, encode})` | render.test.ts R, coverage.test.ts R | an async name registry that learns names (open question 3) |
-| `record<V>` | core `gin-record.ts` | `a.record(V)`; the profile picks pairs | render.test.ts R | `arg-repair` of records sent as JSON strings (open question 6) |
+| `record<V>` | core `gin-record.ts` | `a.record(V)`; the profile picks pairs | render.test.ts R | — (repair on by default, `stats.repaired`; __tests__/types.test.ts R) |
 | People-only fields, `forModels` narrower enums | core `people-only.ts` | `.forPeople()`, `.forModels(s)`; the `PEOPLE` profile for web | render.test.ts R, coverage.test.ts R | — |
-| Union-of-objects args (`toolArgsOf` flattening, `{input}` wrap) | sdk `zod-gin.ts` | the union stays a union inside an object field; anyOf or tagged per profile | coverage/harness-fns.ts T | a non-object root is still wrapped by the caller (open question 7) |
+| Union-of-objects args (`toolArgsOf` flattening, `{input}` wrap) | sdk `zod-gin.ts` | the union stays a union inside an object field; anyOf or tagged per profile | coverage/harness-fns.ts T | — (`{input}` wrap from the profile; __tests__/types.test.ts R) |
 | Static-mode `run({fn, args, on})`, `run_query {fn, args}`, `test` tools | hub `contextor/modes.ts` | dynamic discriminated union on `fn`, each option with that fn's args; codec for names; dynamic `on` enum | coverage/run-args.ts T, coverage.test.ts R | very large catalogs (open question 1) |
 | Fleet `on` instance enum | hub `modes.ts` `fleetArgs` | dynamic ref `Instance` | coverage/run-args.ts T | — |
-| Authoring drafts: code, api, schedule, program signature | sdk `authoring.ts`, `program/runtime.ts` `schemas()` | results of the gin module; session parts in the dynamic step | coverage/authoring.ts T | double-encoded drafts (open question 6) |
+| Authoring drafts: code, api, schedule, program signature | sdk `authoring.ts`, `program/runtime.ts` `schemas()` | results of the gin module; session parts in the dynamic step | coverage/authoring.ts T | — (double-encoded containers are repaired) |
 | Input forms (a TypeDef subset, recursive) | `systems/input` | a small static module; no lazy workaround | coverage/authoring.ts T | — |
 | Widgets: per-call enums, per-arg plans, `checkWidget` rule | sdk `widget-schema.ts` | dynamic `Column`/`Visual`/`Plans` + `.refine` with a message | coverage/authoring.ts T, coverage.test.ts R | — |
 | Schedule `When` (≈20 rules + superRefine), `Zone` brand, `SchedulePayload.args` program | `systems/schedule` | `.strict().refine(…)` ×3, `.refine().brand<'Zone'>()`, `a.ref('Expr')` | coverage/authoring.ts T, coverage.test.ts R | — |
 | Database tables-as-types, DDL `typ<obj>` rows, `EnrichmentAnswer`, `ResultData` | `systems/database` | `fromGin` of the table types; `a.ref('TypeDef')` for DDL | coverage/query.ts T (shape), gin.test.ts | not modelled one by one: same constructs as above |
-| MCP tool input/output schemas, elicitation forms | `systems/mcp/server/schema.ts` | `fromJSONSchema(json)` → a bundle (`$defs` → named types); unsupported keywords reported | coverage/mcp.ts T, coverage.test.ts R | `allOf` (more than one member), `if`/`then`/`else`, `not`, `patternProperties` (open question 8) |
+| MCP tool input/output schemas, elicitation forms | `systems/mcp/server/schema.ts` | `fromJSONSchema(json)` → a bundle (`$defs` → named types); unsupported keywords reported | coverage/mcp.ts T, coverage.test.ts R | — (all four imported; __tests__/import.test.ts R) |
 | Hub structured outputs (`structuredAnswer`) | hub `models/structured.ts` | plain static objects | coverage/harness-fns.ts T | — |
 | MCP-out (the hub as an MCP server) | sdk `server/mcp.ts` | `bound.render(LENIENT).jsonSchema` | — | trivial; not separately tested |
 | Injected context | hub `injections.ts` | only people-only `inject` + fn-name spelling (covered above) | — | — |
@@ -296,8 +323,8 @@ The converter is in `src/gin/from-gin.ts`. In the real migration it becomes `Typ
 | `descriptor.ts`, `dialects/*`, `registry.ts`, `consistency.ts` | `profile.ts`: `Profile` + built-ins. The registry of custom profiles moves too. `consistency` becomes checks on profile combinations (e.g. `any: 'json-text'` needs nothing). |
 | `strictify.ts`, `decode.ts`, `walk-key.ts`, `check-bag.ts` | each class's `compile()` (render.ts + schema.ts). There is no second zod schema per dialect. |
 | `to-json-schema.ts`, `json-schema.ts`, `enum-values.ts`, `any-value.ts`, `cycle-breaker.ts` | node `json()` + `Compiler.ref/escape` + `decorate` |
-| `analyze.ts` (features, size limits), `expressible.ts` (`canExpress`) | a walk over the rendered node tree, giving exact counts per profile instead of zod-side estimates. Not ported in the POC. |
-| `budget.ts` (`SchemaBudget`) | stays in core and decides which profile each tool/output gets |
+| `analyze.ts` (features, size limits), `expressible.ts` (`canExpress`) | `measure.ts`: exact counts on the emitted JSON, per profile |
+| `budget.ts` (`SchemaBudget`) | `request.ts` (`planRequest`, `RenderedRequest`): the whole request fitted at once, the choices recorded per schema |
 | `Tool.parse` / `Prompt` output parsing (strictify + decodeWire + repair) | `rendered.parse/parseText` |
 
 ## Migration steps
@@ -342,9 +369,16 @@ The converter is in `src/gin/from-gin.ts`. In the real migration it becomes `Typ
 | `src/profile.ts` | profiles |
 | `src/json-schema.ts` | `fromJSONSchema` |
 | `src/gin/from-gin.ts` | gin converter + `GinSchema<T>` |
+| `src/model.ts` | `ModelLike`, `familyOf`, `profileFor`, `ModelProfile` |
+| `src/request.ts` | `planRequest`, `RenderedRequest`, `RequestEntry` |
+| `src/measure.ts` | measuring an emitted schema against limits |
+| `src/template.ts` | Handlebars helpers (`encode`, `schema`) |
+| `src/errors.ts` | `SchemaDefinitionError`, `SchemaParseError`, `RequestLimitError` |
 | `src/proposal/core-api.ts` | the Tool/Prompt proposal |
 | `src/__tests__/chain.types.ts` | the type proofs |
 | `src/__tests__/render.test.ts` | the record example end to end + profiles |
+| `src/__tests__/{profiles,types,encode,request,template,import}.test.ts` | pass 1: the profile table, the new types, encoding copies, request budgets, Handlebars, JSON Schema import |
+| `src/__tests__/features.types.ts` | pass 1 type proofs |
 | `src/coverage/*` | the use-case inventory, as code |
 
-Run with `npm test` (vitest + `tsc -p tsconfig.typetest.json`) from `packages/schema`, using node 22.
+Run with `npm test` (vitest + `tsc -p tsconfig.typetest.json`) from `packages/schema`, using node 22. User docs: `aeye-schema.md`.

@@ -2,7 +2,7 @@
   "name": "@aeye/schema",
   "version": "0.8.1",
   "private": true,
-  "description": "@aeye/schema - LLM-first schema builder (`a`): named types, refs, dynamic parts, per-model rendering and copy-light decoding. POC.",
+  "description": "@aeye/schema - LLM-first schema builder: named and dynamic types, per-model rendering, request-wide budgets, copy-light decoding",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,20 +20,33 @@
     "build": "tsup src/index.ts --format esm --dts",
     "test": "vitest run && npm run test:types",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "test:types": "tsc -p tsconfig.typetest.json",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "ai",
+    "llm",
+    "schema",
+    "json-schema",
+    "structured-outputs",
+    "tools",
+    "typescript"
+  ],
+  "author": "ClickerMonkey",
   "dependencies": {},
   "devDependencies": {
     "expect-type": "^1.3.0",
+    "handlebars": "^4.7.0",
     "tsup": "^8.0.0",
-    "vitest": "^3.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
   },
   "files": [
     "dist",
-    "DESIGN.md"
+    "aeye-*.md"
   ],
   "license": "GPL-3.0",
   "repository": {

@@ -6,8 +6,8 @@
  *   type Task = a.infer<typeof Task>;
  */
 import {
-  AnyType, ArrayType, BooleanType, CodecType, EnumType, LiteralType, NullType, NullableType, NumberType,
-  ObjectType, OptionalType, RecordType, RefType, StringType, TupleType, UnionType,
+  AnyType, ArrayType, BooleanType, CodecType, ConditionalType, DependentType, EnumType, IntersectionType, LiteralType,
+  NotType, NullType, NullableType, NumberType, ObjectType, OptionalType, RecordType, RefType, StringType, TupleType, UnionType,
   type AnySchema, type LiteralValue, type OutOf, type Shape,
 } from './schema';
 import { Module, type Defs } from './module';
@@ -46,6 +46,27 @@ export const discriminatedUnion = <const Tag extends string, const O extends rea
   tag: Tag,
   options: O & { readonly [I in keyof O]: O[I] extends ObjectType<infer S> ? (Tag extends keyof S ? unknown : { readonly 'missing tag field': Tag }) : unknown },
 ): UnionType<O> => new UnionType(options as O, tag);
+
+/** Every member at once (`allOf`, gin's `and`): objects are merged, anything else is validated after the first. */
+export const intersection = <const T extends readonly [AnySchema, ...AnySchema[]]>(members: T): IntersectionType<T> => new IntersectionType(members);
+
+/** A value of `base` (default any JSON) that must NOT match `excluded` (gin's `not`, JSON Schema `not`). */
+export function not<B extends AnySchema = AnyType<unknown>>(excluded: AnySchema, base?: B): NotType<B> {
+  return new NotType(excluded, (base ?? new AnyType()) as B);
+}
+
+/** JSON Schema `if`/`then`/`else` over a value of `base`: said in words where unsupported, always validated. */
+export function conditional<B extends AnySchema>(base: B, rule: { if: AnySchema; then?: AnySchema; else?: AnySchema }): ConditionalType<B> {
+  return new ConditionalType(base, rule.if, rule.then, rule.else);
+}
+
+/**
+ * A field typed by a sibling field's decoded value; use inside `a.object`.
+ * `a.object({...}).dependent(key, on, fn)` types `fn`'s argument from the sibling.
+ */
+export function dependent<Out = unknown>(on: string, schemaFor: (sibling: unknown) => AnySchema | undefined, base?: AnySchema): DependentType<Out> {
+  return new DependentType<Out>(on, schemaFor, base);
+}
 
 export const optional = <T extends AnySchema>(inner: T): OptionalType<T> => new OptionalType(inner);
 export const nullable = <T extends AnySchema>(inner: T): NullableType<T> => new NullableType(inner);

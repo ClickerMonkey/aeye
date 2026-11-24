@@ -10,13 +10,15 @@
  * additionalProperties (record or closed), items/prefixItems, enum, const,
  * anyOf/oneOf, nullable via type ['x','null'], $ref to #/$defs|definitions
  * and '#', min/max constraints, description, title, examples.
- * Not covered (reported, falls back to any JSON with a description):
- * allOf with more than one member, if/then/else, not, patternProperties,
- * dependentSchemas. See DESIGN.md open questions.
+ * allOf (an intersection: objects merge), not, if/then/else (said in words
+ * where a dialect lacks them, always validated), patternProperties and a
+ * schema-valued additionalProperties next to properties (extra keys).
+ * Not covered (reported in `report.unsupported`, left unchecked):
+ * dependentSchemas, dependentRequired, external $refs.
  */
 import {
-  AnyType, ArrayType, BooleanType, EnumType, LiteralType, NullType, NullableType, NumberType, ObjectType,
-  OptionalType, RecordType, RefType, StringType, TupleType, UnionType, type AnySchema, type LiteralValue,
+  AnyType, ArrayType, BooleanType, ConditionalType, EnumType, IntersectionType, LiteralType, NotType, NullType, NullableType,
+  NumberType, ObjectType, OptionalType, RecordType, RefType, StringType, TupleType, UnionType, type AnySchema, type LiteralValue,
 } from './schema';
 import { Bundle } from './module';
 
@@ -43,7 +45,17 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
   const conv = (j: J): AnySchema => {
     if (j === true || j === undefined) return new AnyType();
     if (j === false) return new UnionType([new NullType()]).refine(() => false, 'No value is allowed here.');
-    let s = convBody(j);
+    const { allOf, not, if: cond, then, else: otherwise, ...rest } = j;
+    const bare = Object.keys(rest).every((k) => ['description', 'title', 'examples', '$comment', 'default'].includes(k));
+    let s: AnySchema = convBody(rest);
+    if (Array.isArray(allOf) && allOf.length) {
+      const members = (allOf as J[]).map(conv);
+      const all = bare ? members : [s, ...members];
+      s = all.length === 1 ? all[0]! : new IntersectionType(all as [AnySchema, ...AnySchema[]]);
+    }
+    if (not !== undefined) s = new NotType(conv(not), s);
+    if (cond !== undefined) s = new ConditionalType(s, conv(cond), then !== undefined ? conv(then) : undefined, otherwise !== undefined ? conv(otherwise) : undefined);
+    for (const k of ['dependentSchemas', 'dependentRequired']) if (k in j) report.unsupported.push(k);
     if (typeof j.description === 'string') s = s.describe(j.description);
     if (typeof j.title === 'string') s = s.title(j.title);
     if (Array.isArray(j.examples)) s = s.example(...j.examples);
@@ -69,12 +81,6 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
       const u = nonNull.length === 1 ? nonNull[0]! : new UnionType(nonNull as [AnySchema, ...AnySchema[]]);
       return nonNull.length < opts.length ? new NullableType(u) : u;
     }
-    if (Array.isArray(j.allOf)) {
-      if (j.allOf.length === 1) return conv(j.allOf[0]);
-      report.unsupported.push('allOf');
-      return new AnyType().describe('Must satisfy all of: ' + JSON.stringify(j.allOf));
-    }
-    for (const k of ['if', 'not', 'patternProperties', 'dependentSchemas']) if (k in j) report.unsupported.push(k);
     if (Array.isArray(j.type)) {
       const types = j.type as string[];
       const nonNull = types.filter((t) => t !== 'null');
@@ -82,7 +88,10 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
       const u = parts.length === 1 ? parts[0]! : parts.length ? new UnionType(parts as [AnySchema, ...AnySchema[]]) : new NullType();
       return types.includes('null') && parts.length ? new NullableType(u) : u;
     }
-    switch (j.type) {
+    // A type-less schema whose keywords only apply to one type (e.g. an allOf
+    // member `{ minLength: 2 }`) is read as that type.
+    const type = j.type ?? implied(j);
+    switch (type) {
       case 'string': {
         let s = new StringType();
         if (typeof j.minLength === 'number') s = s.min(j.minLength);
@@ -109,14 +118,19 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
       }
       case 'object':
       default: {
-        if (j.type === undefined && !j.properties && j.additionalProperties === undefined) return new AnyType();
+        if (type === undefined && !j.properties && !j.patternProperties && j.additionalProperties === undefined && !j.required) return new AnyType();
         const props: Record<string, J> = j.properties ?? {};
         const required = new Set<string>(j.required ?? []);
         const ap = j.additionalProperties;
-        if (!Object.keys(props).length && ap !== undefined && ap !== false) return new RecordType(conv(ap));
+        const pp = j.patternProperties as Record<string, J> | undefined;
+        if (!Object.keys(props).length && !pp && ap !== undefined && ap !== false && ap !== true) return new RecordType(conv(ap));
         const shape: Record<string, AnySchema> = {};
         for (const [k, p] of Object.entries(props)) shape[k] = required.has(k) ? conv(p) : new OptionalType(conv(p));
-        const o = new ObjectType(shape);
+        // `required` may name keys `properties` doesn't describe.
+        for (const k of required) if (!(k in shape)) shape[k] = new AnyType();
+        let o: ObjectType<any, any> = new ObjectType(shape);
+        if (pp) o = o.patterns(Object.fromEntries(Object.entries(pp).map(([p, v]) => [p, conv(v)])));
+        if (ap !== undefined && typeof ap === 'object') o = o.rest(conv(ap));
         return ap === false ? o.strict() : o;
       }
     }
@@ -129,4 +143,13 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
   if (report.unsupported.includes('$ref') || Object.values(defs).some(() => false)) defs.__any = new AnyType();
   for (const n of [top, ...Object.values(defs)].flatMap((s) => [...s.refNames()])) if (!(n in defs)) defs[n] = new AnyType().describe(`Unknown reference ${n}.`);
   return new Bundle<T, []>(defs, usesRoot ? new RefType('__root') : top);
+}
+
+/** The one JSON type a type-less schema's keywords apply to, if any. */
+function implied(j: { [key: string]: any }): string | undefined {
+  if (['minLength', 'maxLength', 'pattern', 'format'].some((k) => k in j)) return 'string';
+  if (['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'].some((k) => k in j)) return 'number';
+  if (['items', 'prefixItems', 'minItems', 'maxItems'].some((k) => k in j)) return 'array';
+  if (['properties', 'required', 'patternProperties', 'additionalProperties'].some((k) => k in j)) return 'object';
+  return undefined;
 }
