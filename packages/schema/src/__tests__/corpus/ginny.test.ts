@@ -141,7 +141,7 @@ describe('edit_type (buildSchemas(ctx.registry).Type)', () => {
   // branch `{ name: 'Task' }` (schemas.ts:231, passthrough). On a strict dialect that branch is a CLOSED object, so
   // the model must write the Extension branch (props as pairs); the decoder still dispatches on the tag to the
   // name-only branch, which accepts and keeps the unknown keys — the pairs and nulls come back undecoded.
-  it.fails('GAP: tag-dispatch-closed-branch — a registered type\'s full def decodes through the Extension branch on strict dialects', () => {
+  it('(was GAP) tag-dispatch-closed-branch — a registered type\'s full def decodes through the Extension branch on strict dialects', () => {
     const r = EditTypeArgs.render(OPENAI_STRICT, ctx);
     const wire = JSON.parse(JSON.stringify(projectWire).replaceAll('Project', 'Task'));
     expect(validate(r.jsonSchema, wire)).toEqual([]);
@@ -153,8 +153,8 @@ describe('edit_type (buildSchemas(ctx.registry).Type)', () => {
     const r = EditTypeArgs.render(OPENAI_STRICT, ctx);
     const res = r.parse({ name: 'Project', def: { ...clone(projectWire.def), extends: 'Ghost' } });
     expect(res.ok).toBe(false);
-    // The Extension is the union's fallback (its name is any type name), so the error is at the union (untagged-union-error-locality).
-    expect(!res.ok && res.issues.map((i) => i.path)).toEqual([['def']]);
+    // The Extension branch is the one whose keys fit: the error is at `extends`.
+    expect(!res.ok && res.issues.map((i) => i.path)).toEqual([['def', 'extends']]);
   });
 
   it('the proposed Tool API: compileTool / runToolCall bind the ctx and decode through the same rendering', async () => {

@@ -1024,7 +1024,19 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
     const pick = (v: unknown, cx: Cx): number => {
       if (byTag && isObject(v)) {
         const i = byTag.get((v as Record<string, unknown>)[tag!]);
-        if (i !== undefined) return i;
+        if (i !== undefined) {
+          // On a dialect with closed objects the model can't have sent keys the tagged option
+          // lacks: a value that has them was written for a fallback option sharing the tag value.
+          const own = new Set(optionKeys(this.options[i], c.env));
+          if (c.profile.closedObjects && own.size && index!.fallback.length && Object.keys(v).some((k) => !own.has(k))) {
+            for (const j of index!.fallback) {
+              const d = cx.dryRun();
+              nodes[j]!.run(v, d);
+              if (!d.errors.length) return j;
+            }
+          }
+          return i;
+        }
       }
       // No tag on the value (a JSON string to repair, an option written as JSON text): try every option.
       const untagged = !isObject(v) || (v as Record<string, unknown>)[tag!] === undefined;
@@ -1622,6 +1634,20 @@ function closestOption(options: readonly AnySchema[], v: unknown, env: ReadonlyM
     }
     if (score > bestScore) { best = i; bestScore = score; tie = false; }
     else if (score === bestScore && score > 0) tie = true;
+  });
+  if (!tie && best >= 0) return best;
+  // No literal to go by: the only option whose keys cover the value's keys (the most of them).
+  const keys = Object.keys(rec);
+  if (!keys.length) return -1;
+  best = -1;
+  bestScore = 0;
+  tie = false;
+  options.forEach((o, i) => {
+    const own = new Set(optionKeys(o, env));
+    if (!own.size || keys.some((k) => !own.has(k))) return;
+    const score = keys.length;
+    if (score > bestScore) { best = i; bestScore = score; tie = false; }
+    else if (score === bestScore) tie = true;
   });
   return tie ? -1 : best;
 }

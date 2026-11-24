@@ -245,11 +245,11 @@ describe('programs as models write them', () => {
     if (res.ok) return;
     expect(res.issues.map((i) => [i.path, i.codePath])).toEqual([
       [['program', 'type', 'call', 'args', 'props', 0, 'value', 'type', 'options', 'min'], ['program', 'type', 'call', 'args', 'props', 'x', 'type', 'options', 'min']],
-      // PathStep is gin's plain (untagged) z.union: the error is at the step, as zod's invalid_union is.
-      [['program', 'body', 'path', 3], ['program', 'body', 'path', 3]],
+      // PathStep is gin's plain (untagged) union: the one branch whose keys fit (`args`) reports inside itself.
+      [['program', 'body', 'path', 3, 'args', 0, 'value', 'action'], ['program', 'body', 'path', 3, 'args', 'other', 'action']],
     ]);
     expect(res.message).toContain('- at program.type.call.args.props[0].value.type.options.min: Expected a number');
-    expect(res.message).toContain('- at program.body.path[3]: Did not match any of: { prop: string } | { args: { [key: string]: Expr }; generic?: Generic; catch?: Expr } | { key: Expr }.');
+    expect(res.message).toContain('- at program.body.path[3].args[0].value.action:');
   });
 
   it('errors: an unknown kind names every kind', () => {
@@ -259,7 +259,7 @@ describe('programs as models write them', () => {
 
   // A step `{ args: [...] }` can only be the CALL branch (no other branch has `args`); reporting the
   // inner error (args[0].value.action) re-prompts far better than "Did not match any of".
-  it.fails('GAP: untagged-union-error-locality — an untagged union reports the error inside the only branch whose keys fit', () => {
+  it('(was GAP) untagged-union-error-locality — an untagged union reports the error inside the only branch whose keys fit', () => {
     const r = WriteArgs.render(OPENAI_STRICT, reg);
     const wire = r.encode({ program: clone(lambdaProgram) }) as any;
     wire.program.body.path[3].args[0].value = { kind: 'flow', action: 'goto', value: null, error: null };
