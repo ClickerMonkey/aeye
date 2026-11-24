@@ -198,6 +198,8 @@ export interface StringOptions {
   readonly maxLength?: number;
   readonly pattern?: string;
   readonly format?: string;
+  /** Regex flags (gin's `flags`, e.g. `'i'`). JSON Schema has none: a flagged pattern is said in words, and checked. */
+  readonly flags?: string;
 }
 
 /** Validators for the JSON Schema formats providers name; unknown formats are not checked. */
@@ -237,7 +239,10 @@ export class StringType extends Schema<string> {
   children() { return []; }
   min(n: number): this { return this.opts({ minLength: n }); }
   max(n: number): this { return this.opts({ maxLength: n }); }
-  pattern(re: RegExp | string): this { return this.opts({ pattern: typeof re === 'string' ? re : re.source }); }
+  pattern(re: RegExp | string, flags?: string): this {
+    const f = typeof re === 'string' ? flags : flags ?? (re.flags || undefined);
+    return this.opts({ pattern: typeof re === 'string' ? re : re.source, ...(f ? { flags: f } : {}) });
+  }
   format(f: string): this { return this.opts({ format: f }); }
   private opts(o: StringOptions): this {
     return this.with({ options: { ...this.options, ...o } });
@@ -246,7 +251,8 @@ export class StringType extends Schema<string> {
   compile(c: Compiler): Node {
     const o = this.options;
     const p = c.profile;
-    const re = o.pattern !== undefined ? new RegExp(o.pattern) : undefined;
+    const re = o.pattern !== undefined ? new RegExp(o.pattern, o.flags?.replace(/[gy]/g, '')) : undefined;
+    const shown = `/${o.pattern}/${o.flags ?? ''}`;
     const fmt = o.format !== undefined ? FORMATS[o.format] : undefined;
     const words: string[] = [];
     return c.node({
@@ -255,8 +261,8 @@ export class StringType extends Schema<string> {
         const j: JsonSchema = { type: 'string' };
         keyword(j, words, 'minLength', o.minLength, p.constraints.length, `At least ${o.minLength} characters.`);
         keyword(j, words, 'maxLength', o.maxLength, p.constraints.length, `At most ${o.maxLength} characters.`);
-        const patternOk = p.constraints.pattern === 'full' || (p.constraints.pattern === 'basic' && o.pattern !== undefined && isBasicPattern(o.pattern));
-        keyword(j, words, 'pattern', o.pattern, patternOk, `Must match /${o.pattern}/.`);
+        const patternOk = !o.flags && (p.constraints.pattern === 'full' || (p.constraints.pattern === 'basic' && o.pattern !== undefined && isBasicPattern(o.pattern)));
+        keyword(j, words, 'pattern', o.pattern, patternOk, `Must match ${shown}.`);
         keyword(j, words, 'format', o.format, p.formats === 'all' || (o.format !== undefined && p.formats.has(o.format)), `Format: ${o.format}.`);
         return j;
       },
@@ -264,7 +270,7 @@ export class StringType extends Schema<string> {
         if (typeof v !== 'string') return fail(cx, v, `Expected a string, got ${kind(v)}.`);
         if (o.minLength !== undefined && v.length < o.minLength) cx.fail(`Must be at least ${o.minLength} characters.`);
         if (o.maxLength !== undefined && v.length > o.maxLength) cx.fail(`Must be at most ${o.maxLength} characters.`);
-        if (re && !re.test(v)) cx.fail(`Must match /${o.pattern}/.`);
+        if (re && !re.test(v)) cx.fail(`Must match ${shown}.`);
         if (fmt && !fmt.test(v)) cx.fail(`Must be a valid ${o.format}.`);
         return v;
       },
