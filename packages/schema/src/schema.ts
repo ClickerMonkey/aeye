@@ -29,7 +29,8 @@ export interface Meta {
 }
 
 export interface Check {
-  readonly fn: (value: any) => boolean | string;
+  /** `true` passes; `false`, a message, or several messages (zod's `superRefine`) fail. */
+  readonly fn: (value: any) => boolean | string | readonly string[];
   readonly message?: string;
   /** Show the rule to the model in the description (default true when a message is given). */
   readonly visible?: boolean;
@@ -58,7 +59,7 @@ export interface AnySchema {
   describe(text: Text): this;
   title(title: string): this;
   example(...values: any[]): this;
-  refine(fn: (value: any) => boolean | string, message?: string, opts?: { visible?: boolean }): this;
+  refine(fn: (value: any) => boolean | string | readonly string[], message?: string, opts?: { visible?: boolean }): this;
 }
 /** `this` of a schema that uses no refs (so it can be bound without a chain). */
 export interface RefFree {
@@ -131,7 +132,7 @@ export abstract class Schema<Out = unknown, Refs extends string = never> {
    * the error path is where the model wrote it. With a message the rule is
    * also shown to the model (pass `{ visible: false }` to keep it quiet).
    */
-  refine(fn: (value: Loose<Out>) => boolean | string, message?: string, opts?: { visible?: boolean }): this {
+  refine(fn: (value: Loose<Out>) => boolean | string | readonly string[], message?: string, opts?: { visible?: boolean }): this {
     const check: Check = { fn, ...(message !== undefined ? { message } : {}), visible: opts?.visible ?? message !== undefined };
     return this.with({ checks: [...this.checks, check] });
   }
@@ -283,6 +284,10 @@ export interface NumberOptions {
   readonly int?: boolean;
   readonly minimum?: number;
   readonly maximum?: number;
+  /** Strictly greater than (zod `.gt` / `.positive()`). */
+  readonly exclusiveMinimum?: number;
+  /** Strictly less than (zod `.lt` / `.negative()`). */
+  readonly exclusiveMaximum?: number;
 }
 
 export class NumberType extends Schema<number> {
@@ -291,6 +296,13 @@ export class NumberType extends Schema<number> {
   children() { return []; }
   min(n: number): this { return this.opts({ minimum: n }); }
   max(n: number): this { return this.opts({ maximum: n }); }
+  /** Strictly greater than `n` (`exclusiveMinimum`). */
+  gt(n: number): this { return this.opts({ exclusiveMinimum: n }); }
+  /** Strictly less than `n` (`exclusiveMaximum`). */
+  lt(n: number): this { return this.opts({ exclusiveMaximum: n }); }
+  positive(): this { return this.gt(0); }
+  negative(): this { return this.lt(0); }
+  nonnegative(): this { return this.min(0); }
   int(): this { return this.opts({ int: true }); }
   private opts(o: NumberOptions): this {
     return this.with({ options: { ...this.options, ...o } });
@@ -306,12 +318,16 @@ export class NumberType extends Schema<number> {
         const j: JsonSchema = { type: o.int ? 'integer' : 'number' };
         keyword(j, words, 'minimum', o.minimum, range, `At least ${o.minimum}.`);
         keyword(j, words, 'maximum', o.maximum, range, `At most ${o.maximum}.`);
+        keyword(j, words, 'exclusiveMinimum', o.exclusiveMinimum, range, `Greater than ${o.exclusiveMinimum}.`);
+        keyword(j, words, 'exclusiveMaximum', o.exclusiveMaximum, range, `Less than ${o.exclusiveMaximum}.`);
         return j;
       },
       run: (v, cx) => {
         if (typeof v !== 'number' || !Number.isFinite(v)) return fail(cx, v, `Expected a number, got ${kind(v)}.`);
         if (o.int && !Number.isInteger(v)) cx.fail('Expected a whole number.');
         if (o.minimum !== undefined && v < o.minimum) cx.fail(`Must be at least ${o.minimum}.`);
+        if (o.exclusiveMinimum !== undefined && v <= o.exclusiveMinimum) cx.fail(`Must be greater than ${o.exclusiveMinimum}.`);
+        if (o.exclusiveMaximum !== undefined && v >= o.exclusiveMaximum) cx.fail(`Must be less than ${o.exclusiveMaximum}.`);
         if (o.maximum !== undefined && v > o.maximum) cx.fail(`Must be at most ${o.maximum}.`);
         return v;
       },
@@ -639,8 +655,11 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
     type Field = { key: string; optional: boolean; node: Node; nullable: boolean; dep?: DependentType<unknown>; dflt?: DefaultType<AnySchema> };
     const fields: Field[] = [];
     const hidden = new Set<string>();
-    for (const [key, s] of Object.entries(this.shape)) {
-      if (forModel && s.meta.audience === 'people') {
+    for (const [key, s0] of Object.entries(this.shape)) {
+      // A model sees a field's `forModels` variant, also when it is set on the optional wrapper.
+      const fm = forModel ? (s0.meta.forModels as AnySchema | undefined) : undefined;
+      const s = fm ? (fm.meta.description === undefined && s0.meta.description !== undefined ? fm.describe(s0.meta.description) : fm) : s0;
+      if (forModel && s0.meta.audience === 'people') {
         hidden.add(key);
         continue;
       }
@@ -857,7 +876,26 @@ export class RecordType<V extends AnySchema, K extends string = string> extends 
       run: (v0, cx) => {
         if (pairs) {
           const v = repairJson(v0, cx, 'array');
-          if (!Array.isArray(v)) return fail(cx, v, `Expected a list of {key, value} entries, got ${kind(v)}.`);
+          if (!Array.isArray(v)) {
+            // Repair: the record written as an object (or a JSON string of one) instead of pairs.
+            const o = cx.repair ? repairJson(v0, cx, 'object') : v0;
+            if (cx.repair && !cx.dry && isObject(o)) {
+              if (o === v0) cx.stats.repaired++;
+              // Written as an object, it is in the CODE shape: its values are read as such.
+              const obj = o as Record<string, unknown>;
+              const codeVal = c.lenient().nodeFor(this.value);
+              let out = obj;
+              for (const k of Object.keys(obj)) {
+                cx.enter(k);
+                key.run(k, cx);
+                const r = codeVal.run(obj[k], cx);
+                cx.leave();
+                if (r !== obj[k] && !cx.dry) out = writeKey(out, obj, k, r, cx);
+              }
+              return out;
+            }
+            return fail(cx, v, `Expected a list of {key, value} entries, got ${kind(v)}.`);
+          }
           // Shape change: ONE new object per record. Values are moved by reference.
           const rec: Record<string, unknown> = {};
           if (!cx.dry) cx.stats.objects++;
@@ -969,10 +1007,14 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
     const compiled = this.options.map((o) => c.compile(o));
     // Every option became JSON text (depth, recursion): the union itself is one JSON text.
     if (compiled.length > 1 && compiled.every((n) => n.jsonText)) return c.escape(this, 'Nested too deep for this model to describe directly.');
+    // Likewise a record written as pairs is a list: next to a list option it is wrapped as `{ "entries": [...] }`.
+    const kindOf = (o: AnySchema) => deref(o, c.env)?.kind;
+    const hasList = this.options.some((o) => kindOf(o) === 'array' || (kindOf(o) === 'tuple' && c.profile.tuples !== 'object'));
     const nodes = compiled.map((n, i, all) => {
-      if (tagged || all.length < 2 || !n.jsonText) return n;
-      wrapped.add(i);
-      return jsonWrapped(c, n);
+      if (tagged || all.length < 2) return n;
+      if (n.jsonText) { wrapped.add(i); return jsonWrapped(c, n); }
+      if (hasList && c.profile.records === 'pairs' && kindOf(this.options[i]!) === 'record') { wrapped.add(i); return jsonWrapped(c, n, 'entries'); }
+      return n;
     });
     // A wrapped option has no tag on the wire: it is found by trying it.
     const index = this.tagIndex(c.env, wrapped);
@@ -1585,19 +1627,19 @@ function closestOption(options: readonly AnySchema[], v: unknown, env: ReadonlyM
 }
 
 /** A JSON-text option inside a union, written as `{ "json": "…" }` so it can't be mistaken for a string option. */
-function jsonWrapped(c: Compiler, n: Node): Node {
+function jsonWrapped(c: Compiler, n: Node, key = 'json'): Node {
   const w = c.node({
     own: true,
     deps: [n],
-    emit: () => c.object({ json: n.json() }, ['json']),
+    emit: () => c.object({ [key]: n.json() }, [key]),
     run: (v, cx) => {
-      if (!isObject(v) || !('json' in v)) return fail(cx, v, 'Expected {"json": "<JSON text>"}.');
-      cx.enter('json', null);
-      const out = n.run((v as { json: unknown }).json, cx);
+      if (!isObject(v) || !(key in v)) return fail(cx, v, key === 'json' ? 'Expected {"json": "<JSON text>"}.' : `Expected {"${key}": [...]}.`);
+      cx.enter(key, null);
+      const out = n.run((v as Record<string, unknown>)[key], cx);
       cx.leave(false);
       return out;
     },
-    encode: (v, st) => { st.objects++; return { json: n.encode(v, st) }; },
+    encode: (v, st) => { st.objects++; return { [key]: n.encode(v, st) }; },
   });
   c.nodes.push(w);
   return w;

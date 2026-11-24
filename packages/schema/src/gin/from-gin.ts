@@ -64,6 +64,7 @@ type GinKnown<T> =
   : T extends { readonly name: 'map'; readonly generic: { readonly V: infer V; readonly K: { readonly name: 'text' } } } ? RecordType<GinSchema<V>>
   : T extends { readonly name: 'map'; readonly generic: { readonly V: infer V; readonly K: infer K } } ? ArrayType<ObjectType<{ key: GinSchema<K>; value: GinSchema<V> }>>
   : T extends { readonly name: 'map'; readonly generic: { readonly V: infer V } } ? RecordType<GinSchema<V>>
+  : T extends { readonly name: 'record'; readonly generic: { readonly V: infer V } } ? RecordType<GinSchema<V>>
   : T extends { readonly name: 'optional'; readonly generic: { readonly T: infer I } } ? OptionalType<GinSchema<I>>
   : T extends { readonly name: 'nullable'; readonly generic: { readonly T: infer I } } ? NullableType<GinSchema<I>>
   : T extends { readonly name: 'obj'; readonly props: infer P } ? ObjectType<Props<P>>
@@ -86,7 +87,7 @@ type GinKnown<T> =
 export const GIN_BUILTINS = new Set([
   'text', 'num', 'bool', 'null', 'void', 'any', 'date', 'timestamp', 'duration', 'color',
   'list', 'map', 'optional', 'nullable', 'obj', 'enum', 'literal', 'or', 'tuple', 'typ', 'fn',
-  'and', 'not', 'iface', 'interface',
+  'and', 'not', 'iface', 'interface', 'record',
 ]);
 
 /** gin types/date.ts: an ISO date PREFIX (a datetime passes too). */
@@ -190,6 +191,8 @@ function convert(def: GinTypeDef, opts: FromGinOptions): AnySchema {
       if (!g.K || g.K.name === 'text') return new RecordType(V);
       return new ArrayType(new ObjectType({ key: sub(g.K), value: V }));
     }
+    // The harness's gin `record<V>` (sdk gin-record.ts): string keys.
+    case 'record': return new RecordType(g.V ? sub(g.V) : new AnyType());
     case 'optional': return new OptionalType(g.T ? sub(g.T) : new AnyType());
     case 'nullable': return new NullableType(g.T ? sub(g.T) : new AnyType());
     case 'obj': return new ObjectType(propsShape(def.props, opts));

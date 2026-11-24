@@ -158,6 +158,7 @@ export class Node {
     for (const c of schema.checks) {
       const r = c.fn(value);
       if (r === true) continue;
+      if (Array.isArray(r)) { for (const m of r) cx.fail(m); continue; }
       cx.fail(typeof r === 'string' ? r : c.message ?? 'Failed a check.');
     }
   }
@@ -396,7 +397,8 @@ export class Compiler {
   private defRef(name: string, def: DefTarget): Node {
     const n = this.node({
       deps: [def],
-      emit: () => ({ $ref: `#/$defs/${name}` }),
+      // JSON Pointer escaping: a named type like `shop/Product` is `#/$defs/shop~1Product`.
+      emit: () => ({ $ref: `#/$defs/${name.replace(/~/g, '~0').replace(/\//g, '~1')}` }),
       run: (v, cx) => def.run(v, cx),
       encode: (v, st) => def.encode(v, st),
       child: (seg) => def.child(seg),
@@ -469,6 +471,8 @@ export class Compiler {
   /** `T | null` in this profile's spelling. */
   nullable(j: JsonSchema): JsonSchema {
     const spelling = this.profile.nulls;
+    // Already nullable (a nullable inside an optional, null-for-absent): once is enough.
+    if (j.nullable === true || (Array.isArray(j.type) && j.type.includes('null')) || j.type === 'null') return j;
     if (spelling === 'nullable') return { ...j, nullable: true };
     if (spelling === 'type-array' && typeof j.type === 'string' && !('$ref' in j) && !('anyOf' in j)) {
       const out: JsonSchema = { ...j, type: [j.type, 'null'] };

@@ -80,7 +80,7 @@ export function measureJson(schema: J): SchemaMeasure {
     if (!j || typeof j !== 'object' || Array.isArray(j)) return 0;
     const o = j as J;
     if (typeof o.$ref === 'string') {
-      const name = /^#\/\$defs\/(.+)$/.exec(o.$ref)?.[1];
+      const name = /^#\/\$defs\/(.+)$/.exec(o.$ref)?.[1]?.replace(/~1/g, '/').replace(/~0/g, '~');
       if (!name || open.has(name) || !defs[name]) return 0;
       open.add(name);
       const d = depthOf(defs[name], open);

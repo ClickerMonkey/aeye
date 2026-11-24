@@ -133,7 +133,7 @@ describe('rendering the grammar', () => {
   });
   // MINIMAL has no combinators and no recursion: a nullable slot whose value is written as JSON text
   // (New_nullable's `value?: Expr | null`) comes out as `anyOf [string|null, null]`.
-  it.fails('GAP: minimal-nullable-escape-anyOf — newStrict grammar on MINIMAL has no anyOf', () => {
+  it('(was GAP) minimal-nullable-escape-anyOf — newStrict grammar on MINIMAL has no anyOf', () => {
     expect(profileProblems(WriteArgs.bind(reg, { newStrict: true }), [{ program: personProgram }], { profiles: [MINIMAL] })).toEqual([]);
   });
   it('every profile: TypeDefs (as an output; OpenAI strict through a request, see the gap below)', () => {

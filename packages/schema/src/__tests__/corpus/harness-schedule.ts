@@ -111,9 +111,9 @@ export const When = a.object({
   exclude: a.array(OccurrenceKey).optional().describe('Skipped firings.'),
   include: a.array(OccurrenceKey).optional().describe('Extra firings.'),
 }).strict().refine((when) => {
-  // GAP (superRefine): zod adds one issue per problem; a refine gives one message.
+  // superRefine: one issue per problem (a refine may return several messages).
   const problems = whenRuleProblems(when as WhenFields);
-  return problems.length === 0 || problems.join(' ');
+  return problems.length === 0 || problems;
 }, WHEN_RULES);
 
 type EveryT = { every: number; offset?: number };
@@ -151,7 +151,7 @@ export const SchedulePayload = Grammar.result(a.object({
   notify: Notify.default('always'),
   overlap: Overlap.default('skip'),
   missed: Missed.default('latest'),
-  maxSpend: Usd.min(Number.MIN_VALUE).optional().describe('The most one firing may spend, in USD; it lowers the firing turn\'s per-turn budget.'),
+  maxSpend: Usd.positive().optional().describe('The most one firing may spend, in USD; it lowers the firing turn\'s per-turn budget.'),
   paused: a.object({ at: Timestamp, by: ActorId, until: LocalDay.optional() }).strict().optional().describe('Who paused it, when, and optionally until which day.'),
   runsAllowed: a.object({ at: Timestamp, by: ActorId }).strict().optional(),
 }).strict());

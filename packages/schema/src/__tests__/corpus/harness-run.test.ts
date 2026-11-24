@@ -85,7 +85,7 @@ describe('run (core/src/modes.ts:75 RunArgs), as the harness sends it', () => {
     }
   });
 
-  it.fails('GAP: repair on a pairs dialect — args sent as a JSON string of the OBJECT (as models do) should be read as the record', () => {
+  it('(was GAP) repair on a pairs dialect — args sent as a JSON string of the OBJECT (as models do) should be read as the record', () => {
     const res = tool(R.RunArgs, OPENAI_STRICT).parse({ fn: 'database__main__orders_by_status', args: '{"status": "paid"}', on: null });
     expect(res.ok && res.value).toEqual({ fn: 'database__main__orders_by_status', args: { status: 'paid' } });
   });

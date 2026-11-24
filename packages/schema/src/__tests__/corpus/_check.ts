@@ -64,6 +64,9 @@ function walk(root: J, visit: (node: J, path: string, parentKey: string | undefi
   go(root, '#', undefined);
 }
 
+/** A JSON Pointer token back to the name (`~1` is `/`, `~0` is `~`). */
+const unescapePointer = (t: string) => t.replace(/~1/g, '/').replace(/~0/g, '~');
+
 /** Named types that reach themselves through `$ref`. */
 function cyclicDefs(root: J): string[] {
   const defs = (isObj(root.$defs) ? root.$defs : {}) as Record<string, J>;
@@ -73,7 +76,7 @@ function cyclicDefs(root: J): string[] {
     JSON.stringify(d, (k, v) => {
       if (k === '$ref' && typeof v === 'string') {
         const m = /^#\/\$defs\/(.+)$/.exec(v);
-        if (m) out.add(m[1]!);
+        if (m) out.add(unescapePointer(m[1]!));
       }
       return v;
     });
@@ -124,7 +127,7 @@ export function dialectProblems(json: JsonSchema, profile: Profile): string[] {
     if (typeless && p.any !== 'empty') out.push(`${path}: empty ("any") schema, but "any" is ${p.any} here`);
     const c = p.constraints;
     if (!c.length && (has('minLength') || has('maxLength'))) out.push(`${path}: length bounds unsupported`);
-    if (!c.range && (has('minimum') || has('maximum'))) out.push(`${path}: range bounds unsupported`);
+    if (!c.range && (has('minimum') || has('maximum') || has('exclusiveMinimum') || has('exclusiveMaximum'))) out.push(`${path}: range bounds unsupported`);
     if (c.items === 'none' && (has('minItems') || has('maxItems'))) out.push(`${path}: item bounds unsupported`);
     if (c.items === 'min-0-1' && (has('maxItems') || (typeof n.minItems === 'number' && n.minItems > 1))) {
       // A tuple's exact length is only emitted with prefixItems, which these dialects lack.
@@ -157,7 +160,7 @@ export function validate(root: JsonSchema, value: unknown): string[] {
     if (!isObj(s)) return;
     if (typeof s.$ref === 'string') {
       const m = /^#\/\$defs\/(.+)$/.exec(s.$ref);
-      const d = m ? defs[m[1]!] : undefined;
+      const d = m ? defs[unescapePointer(m[1]!)] : undefined;
       if (!d) out.push(`${path}: unresolved ${s.$ref}`);
       else check(d, v, path, out);
     }
@@ -192,6 +195,8 @@ export function validate(root: JsonSchema, value: unknown): string[] {
     if (typeof v === 'number') {
       if (typeof s.minimum === 'number' && v < s.minimum) out.push(`${path}: below minimum`);
       if (typeof s.maximum === 'number' && v > s.maximum) out.push(`${path}: above maximum`);
+      if (typeof s.exclusiveMinimum === 'number' && v <= s.exclusiveMinimum) out.push(`${path}: not above exclusiveMinimum`);
+      if (typeof s.exclusiveMaximum === 'number' && v >= s.exclusiveMaximum) out.push(`${path}: not below exclusiveMaximum`);
     }
     if (Array.isArray(v)) {
       if (typeof s.minItems === 'number' && v.length < s.minItems) out.push(`${path}: too few items`);

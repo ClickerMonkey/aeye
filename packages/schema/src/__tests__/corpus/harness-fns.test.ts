@@ -130,7 +130,7 @@ describe('UpdateMemoryArgs / RememberArgs (core/src/context-graph.ts:175,187)', 
     if (!twoStars.ok) expect(twoStars.issues[0]).toMatchObject({ path: ['inject', 'into', 0], message: 'write one *' });
   });
 
-  it.fails('GAP: forModels on an optional wrapper (`z.array(…).optional()` as zod-gin marks it) — the model\'s `clear` should leave out `inject`', () => {
+  it('(was GAP) forModels on an optional wrapper (`z.array(…).optional()` as zod-gin marks it) — the model\'s `clear` should leave out `inject`', () => {
     const strict = tool(update, OPENAI_STRICT);
     expect(JSON.stringify(strict.jsonSchema['properties'])).not.toContain('"inject"');
     expect(strict.parse({ ...(strict.encode(samples[0]!) as object), clear: ['inject'] }).ok).toBe(false);
@@ -302,7 +302,7 @@ describe('ginOf\'s Shape, toolArgsOf (sdk/src/zod-gin.test.ts)', () => {
     expect(H.Weights.render(PEOPLE).jsonSchema).toMatchObject({ propertyNames: { enum: ['embedding', 'words'] } });
   });
 
-  it.fails('GAP: fromGin(record<V>) — the harness\'s gin `record` (gin-record.ts) should be a record, not a ref named "record"', () => {
+  it('(was GAP) fromGin(record<V>) — the harness\'s gin `record` (gin-record.ts) should be a record, not a ref named "record"', () => {
     const R = fromGin(H.RecordGinDef as GinTypeDef);
     expect([...R.refNames()]).toEqual([]);
     expect(a.module().result(R as AnySchema).bind().render(LENIENT).parse({ a: [1, 2], b: [] }).ok).toBe(true);
@@ -373,7 +373,7 @@ describe('catalog signature(): gin decls with the stored named types (hub/src/ca
     expect(tool(runtime, LENIENT).parse(sample).ok).toBe(true);
   });
 
-  it.fails('GAP: a $defs name with `/` (a qualified type name) must be escaped in $ref as a JSON pointer (`shop~1Product`)', () => {
+  it('(was GAP) a $defs name with `/` (a qualified type name) must be escaped in $ref as a JSON pointer (`shop~1Product`)', () => {
     const json = tool(H.OrdersPlaceArgs.bind(v1), OPENAI_STRICT).jsonSchema;
     expect(json).toMatchObject({ properties: { product: { $ref: '#/$defs/shop~1Product' } } });
   });
@@ -426,8 +426,8 @@ describe('constructs `a` lacked or approximates', () => {
     expect(res.ok && res.value).toEqual({ into: ['hub/chat*'], order: 100, requires: [] });
   });
 
-  it.fails('GAP: .positive() (exclusive minimum) — schedule `maxSpend: Usd.positive()` should say `exclusiveMinimum: 0`, not a minimum of the smallest double', () => {
-    const MaxSpend = a.object({ maxSpend: a.number().min(Number.MIN_VALUE).optional() });
+  it('(was GAP) .positive() (exclusive minimum) — schedule `maxSpend: Usd.positive()` should say `exclusiveMinimum: 0`, not a minimum of the smallest double', () => {
+    const MaxSpend = a.object({ maxSpend: a.number().positive().optional() });
     expect(MaxSpend.render(PEOPLE).jsonSchema).toMatchObject({ properties: { maxSpend: { exclusiveMinimum: 0 } } });
   });
 

@@ -56,13 +56,13 @@ describe('a mirrored server\'s tools (systems/mcp/server/mirror.ts:32, link.test
     expect(res.ok ? '' : res.message).toBe('- at id: Required.');
   });
 
-  it.fails('GAP: `{ type: "object" }` with no properties (boom, choose) means ANY object — imported closed, a model can send no args at all', () => {
+  it('(was GAP) `{ type: "object" }` with no properties (boom, choose) means ANY object — imported closed, a model can send no args at all', () => {
     const r = tool(M.ObjectInput.bind(), XAI_NON_STRICT);
     expect(r.jsonSchema['additionalProperties']).not.toBe(false);
     expect(r.parse({ anything: 1 }).ok).toBe(true);
   });
 
-  it.fails('GAP: a missing $ref (odd) should be reported (the harness degrades it to any JSON with a reason), not silently a JSON-text def', () => {
+  it('(was GAP) a missing $ref (odd) should be reported (the harness degrades it to any JSON with a reason), not silently a JSON-text def', () => {
     expect(M.OddInput.bind()).toBeDefined();
     expect(M.reports.odd.unsupported).not.toEqual([]);
   });
@@ -90,7 +90,7 @@ describe('the hub\'s own `run`, as its MCP server publishes it (zod 4 toJSONSche
     expect(tool(run, ANTHROPIC_STRICT).jsonSchema['description']).toBe('Named types used by the fields written as JSON text:\ntype __schema0 = string | number | boolean | __schema0[] | { [key: string]: __schema0 } | null');
   });
 
-  it.fails('GAP: a JSON value holding an object, inside a record, on a pairs dialect — z.json()\'s union of a list and a record-as-pairs is ambiguous (both arrays)', () => {
+  it('(was GAP) a JSON value holding an object, inside a record, on a pairs dialect — z.json()\'s union of a list and a record-as-pairs is ambiguous (both arrays)', () => {
     expect(profileProblems(run, [{ fn: 'fs__read', args: { path: 'x', deep: { a: [1, null] } } }])).toEqual([]);
   });
 

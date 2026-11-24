@@ -119,6 +119,8 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
       case 'object':
       default: {
         if (type === undefined && !j.properties && !j.patternProperties && j.additionalProperties === undefined && !j.required) return new AnyType();
+        // `{ type: 'object' }` and nothing else: ANY object (MCP tools with no declared args).
+        if (!j.properties && !j.patternProperties && j.additionalProperties === undefined && !j.required) return new RecordType(new AnyType());
         const props: Record<string, J> = j.properties ?? {};
         const required = new Set<string>(j.required ?? []);
         const ap = j.additionalProperties;
@@ -141,7 +143,11 @@ export function fromJSONSchema<T = unknown>(schema: J, report: ImportReport = { 
   const top = conv(body);
   if (usesRoot) defs.__root = top;
   if (report.unsupported.includes('$ref') || Object.values(defs).some(() => false)) defs.__any = new AnyType();
-  for (const n of [top, ...Object.values(defs)].flatMap((s) => [...s.refNames()])) if (!(n in defs)) defs[n] = new AnyType().describe(`Unknown reference ${n}.`);
+  for (const n of [top, ...Object.values(defs)].flatMap((s) => [...s.refNames()])) {
+    if (n in defs) continue;
+    if (!n.startsWith('__')) report.unsupported.push(`$ref to a missing definition "${n}" (any JSON instead)`);
+    defs[n] = new AnyType().describe(`Unknown reference ${n}.`);
+  }
   return new Bundle<T, []>(defs, usesRoot ? new RefType('__root') : top);
 }
 

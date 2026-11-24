@@ -69,10 +69,11 @@ describe('When (shared/types.ts:107)', () => {
     const both = r.parse({ on: '2026-12-01', dayOfWeek: [1], start: '2026-01-01' });
     expect(both.ok).toBe(false);
     if (!both.ok) {
-      expect(both.issues).toEqual([{
-        path: [], codePath: [],
-        message: '`on` is a one-off, so it can\'t have day rules too (dayOfWeek): give `on`, or the rules. `on` is a one-off, so it has no `start`, `end` or `maxOccurrences`.',
-      }]);
+      // one issue per problem, as zod's superRefine adds them
+      expect(both.issues).toEqual([
+        { path: [], codePath: [], message: '`on` is a one-off, so it can\'t have day rules too (dayOfWeek): give `on`, or the rules.' },
+        { path: [], codePath: [], message: '`on` is a one-off, so it has no `start`, `end` or `maxOccurrences`.' },
+      ]);
     }
     for (const [bad, message] of [
       [{ maxOccurrences: 3, dayOfWeek: [1] }, '`maxOccurrences` counts from `start`, so it needs `start`.'],
@@ -93,7 +94,7 @@ describe('When (shared/types.ts:107)', () => {
     }
   });
 
-  it.fails('GAP: superRefine — each rule\'s problem should be its own issue (zod: one ctx.addIssue per problem)', () => {
+  it('(was GAP) superRefine — each rule\'s problem should be its own issue (zod: one ctx.addIssue per problem)', () => {
     const res = S.When.render(LENIENT).parse({ on: '2026-12-01', dayOfWeek: [1], start: '2026-01-01' });
     expect(res.ok ? [] : res.issues).toHaveLength(2);
   });
