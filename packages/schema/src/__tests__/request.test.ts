@@ -29,7 +29,7 @@ describe('Anthropic: limits across every strict schema of the request', () => {
     expect(last.strict).toBe(false);
     expect(last.profile.id).toBe('anthropic'); // Anthropic's tool input_schema root is an object already
     expect(last.adjustments).toEqual([{ kind: 'not-strict', reason: '"t20": no strict tool slots left (limit 20)' }]);
-    expect(req.problems).toEqual([]);
+    expect(req.degradations).toEqual(['"t20": not strict ("t20": no strict tool slots left (limit 20))']);
   });
 
   it('24 optional parameters: over budget, absent optionals are written null instead (union types)', () => {
@@ -69,17 +69,25 @@ describe('Anthropic: limits across every strict schema of the request', () => {
     expect(req.entries.map((e) => e.name)).toEqual(['low', 'high']);
   });
 
-  it('strict:true is never degraded for the budget: the overflow is a problem, and assertFits throws', () => {
+  it('strict:true is the strongest preference, not a guarantee: past the budget it degrades (recorded), never throws', () => {
     const req = claude.request([tool('a', optionals(20), true), tool('b', optionals(20), true)]);
-    expect(req.get('b').strict).toBe(true);
-    expect(req.problems).toEqual(['"b" (strict: true) with the request so far: 40 optional properties (limit 24)']);
-    expect(() => req.assertFits()).toThrow(RequestLimitError);
-    // ...but a hard-strict schema that can't fit ANY request does degrade.
+    expect(req.get('a').strict).toBe(true);
+    const b = req.get('b');
+    // the ladder (optionals as null) would need 20 union params (limit 16): sent non-strict, validated on decode
+    expect([b.strict, b.adjustments.map((x) => x.kind)]).toEqual([false, ['not-strict']]);
+    expect(req.degradations).toHaveLength(1);
+    expect(req.degradations[0]).toMatch(/^"b": not strict \("b" with the request so far: 40 optional properties \(limit 24\)/);
+    expect(b.parse({ f0: 1 }).ok).toBe(false);
+    expect(() => req.assertNoDegradation()).toThrow(RequestLimitError);
+    expect(() => claude.request([tool('a', optionals(20), true), tool('b', optionals(20), true)], { failOnDegrade: true })).toThrow(RequestLimitError);
+    // a hard-strict schema that can't fit ANY request degrades too
     const alone = claude.request([tool('huge', optionals(30), true)]).get('huge');
-    expect(alone.strict).toBe(false);
-    expect(alone.reasons).toEqual([
-      '"huge" alone: 30 optional properties (limit 24)',
-    ]);
+    expect([alone.strict, alone.reasons]).toEqual([false, ['"huge" alone: 30 optional properties (limit 24)']]);
+    // 21 strict:true tools: the 21st goes non-strict, still validated by its schema
+    const many = claude.request(Array.from({ length: 21 }, (_, i) => tool(`t${i}`, Q, true)));
+    expect(many.strictTools).toBe(20);
+    expect(many.get('t20').strict).toBe(false);
+    expect(many.get('t20').parse({ q: 1 }).ok).toBe(false);
     // One that fits alone is kept as is, even under strict: true.
     expect(claude.request([tool('ok', optionals(16), true)]).get('ok').adjustments).toEqual([]);
   });
@@ -129,9 +137,11 @@ describe('OpenAI: per-schema limits, adjusted rather than abandoned', () => {
     expect(e.adjustments).toEqual([{ kind: 'enums-widened', maxEnumValues: 250 }]);
   });
 
-  it('128 tools per request: more is a problem no degrading can fix', () => {
+  it('128 tools per request: 127 stay tools, the rest go behind one dispatcher', () => {
     const req = gpt.request(Array.from({ length: 129 }, (_, i) => tool(`t${i}`)));
-    expect(req.problems).toEqual(['129 tools (limit 128)']);
+    expect(req.degradations).toEqual(['129 tools (limit 128): 2 go through "run_tool"']);
+    expect(req.sent.length).toBe(128);
+    expect(req.get('t128').delivery).toBe('dispatched');
   });
 
   it('a non-object tool root is wrapped as {input}, recorded, and unwrapped on parse', () => {
@@ -195,7 +205,8 @@ describe('delivery and families', () => {
   it('bound dynamic bundles and static schemas both go in; unknown names and duplicates are reported', () => {
     const Dyn = a.define({ Row: a.object({ f: a.ref('Field') }) }).dynamic((fields: [string, ...string[]]) => ({ Field: a.enum(fields) })).result('Row');
     const req = ModelProfile.of(OPENAI_STRICT).request([tool('rows', Dyn.bind(['x', 'y'])), tool('rows', Q)]);
-    expect(req.problems).toEqual(['two schemas are named "rows"']);
+    expect(req.degradations).toEqual(['"rows" is named twice; the second is "rows_2"']);
+    expect(req.entries.map((e) => [e.name, e.requestedName])).toEqual([['rows', 'rows'], ['rows_2', 'rows']]);
     expect(() => req.get('nope' as never)).toThrow('no schema named "nope"');
   });
 });

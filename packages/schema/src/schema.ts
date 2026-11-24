@@ -38,7 +38,7 @@ export interface Check {
 export type SchemaKind =
   | 'string' | 'number' | 'boolean' | 'null' | 'literal' | 'enum' | 'array' | 'tuple'
   | 'object' | 'record' | 'union' | 'optional' | 'nullable' | 'ref' | 'any' | 'codec'
-  | 'intersection' | 'not' | 'conditional' | 'dependent' | 'never' | 'default';
+  | 'intersection' | 'not' | 'conditional' | 'dependent' | 'never' | 'default' | 'dispatch';
 
 /**
  * Any schema, structurally. An interface (not `Schema<any, any>`) so class
@@ -1231,6 +1231,97 @@ export class DependentType<Out = unknown> extends Schema<Out> {
       emit: () => base.json(),
       run: (v, cx) => base.run(v, cx),
       encode: (v, st) => base.encode(v, st),
+    });
+  }
+}
+
+// ============================================================================
+// Dispatch: many tools behind one
+// ============================================================================
+
+/** One tool reachable through a dispatcher. */
+export interface DispatchCase {
+  readonly name: string;
+  readonly description?: string;
+  readonly schema: AnySchema;
+}
+
+/**
+ * `{ tool, args }` where `args` is typed by `tool`: the arguments of one of
+ * several tools, sent through ONE tool. A request with more tools than the
+ * provider allows sends the overflow this way (`planRequest`). The model
+ * sees the tool names as an enum and the arguments as the union of the
+ * tools' argument schemas (one nullable field per tool where the dialect has
+ * no unions); decoding picks the tool by name, never by trying shapes, and
+ * decodes `args` with that tool's own node.
+ */
+export class DispatchType extends Schema<{ tool: string; args: unknown }> {
+  readonly kind = 'dispatch' as const;
+  constructor(readonly cases: readonly DispatchCase[], readonly tagKey = 'tool', readonly argsKey = 'args') { super(); }
+  children() { return this.cases.map((x) => x.schema); }
+  print(p: Printer) {
+    return this.cases.map((x) => `{ ${this.tagKey}: ${JSON.stringify(x.name)}; ${this.argsKey}: ${p.print(x.schema)} }`).join(' | ');
+  }
+  compile(c: Compiler): Node {
+    const names = this.cases.map((x) => x.name);
+    const index = new Map(names.map((n, i) => [n, i]));
+    const nodes = this.cases.map((x) => c.compile(x.schema));
+    const tag = c.compile(new EnumType(names as unknown as [string, ...string[]]));
+    const tagged = c.profile.unions === 'tagged';
+    const { tagKey, argsKey } = this;
+    const list = this.cases.map((x) => `- ${x.name}${x.description ? `: ${x.description}` : ''}`).join('\n');
+    return c.node({
+      own: true,
+      deps: [tag, ...nodes],
+      hint: () => this.hintOf([`Set "${tagKey}" to the tool to run and "${argsKey}" to its arguments.`]),
+      emit: () => {
+        const toolJson = { ...tag.json(), description: [tag.json().description, `The tool to run:\n${list}`].filter(Boolean).join('\n') };
+        let args: JsonSchema;
+        if (tagged) {
+          const props: Record<string, JsonSchema> = {};
+          names.forEach((n, i) => (props[n] = c.nullable(nodes[i]!.json())));
+          args = { ...c.object(props, names), description: `Fill only the field named by "${tagKey}"; set the others to null.` };
+        } else {
+          args = nodes.length === 1 ? nodes[0]!.json() : { anyOf: nodes.map((n) => n.json()) };
+        }
+        return c.object({ [tagKey]: toolJson, [argsKey]: args }, [tagKey, argsKey]);
+      },
+      run: (v0, cx) => {
+        const v = repairJson(v0, cx, 'object');
+        if (!isObject(v)) return fail(cx, v, `Expected an object with "${tagKey}" and "${argsKey}".`);
+        const rec = v as Record<string, unknown>;
+        const name = rec[tagKey];
+        const i = typeof name === 'string' ? index.get(name) : undefined;
+        if (i === undefined) {
+          cx.enter(tagKey);
+          cx.fail(`Expected one of: ${names.join(', ')}.`);
+          cx.leave();
+          return v;
+        }
+        let raw = rec[argsKey];
+        if (tagged) {
+          const box = repairJson(raw, cx, 'object');
+          raw = isObject(box) ? (box as Record<string, unknown>)[name as string] : undefined;
+          cx.enter(argsKey);
+          cx.enter(name as string, null);
+        } else cx.enter(argsKey);
+        const out = raw === undefined ? fail(cx, raw, 'Required.') : nodes[i]!.run(raw, cx);
+        if (tagged) cx.leave(false);
+        cx.leave();
+        if (out !== rec[argsKey] && !cx.dry) return writeKey(rec, rec, argsKey, out, cx);
+        return rec;
+      },
+      encode: (v, st) => {
+        const rec = v as { tool?: unknown; args?: unknown } & Record<string, unknown>;
+        const name = rec[tagKey] as string;
+        const i = index.get(name);
+        if (i === undefined) return v;
+        const enc = nodes[i]!.encode(rec[argsKey], st);
+        st.objects++;
+        if (!tagged) return { [tagKey]: name, [argsKey]: enc };
+        st.objects++;
+        return { [tagKey]: name, [argsKey]: Object.fromEntries(names.map((n) => [n, n === name ? enc : null])) };
+      },
     });
   }
 }

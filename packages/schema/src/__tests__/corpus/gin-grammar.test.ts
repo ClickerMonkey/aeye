@@ -10,7 +10,7 @@ import { buildSchemas } from '@aeye/gin';
 import {
   a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT, PEOPLE, schemaHelpers, XAI_STRICT,
 } from '../../index';
-import { clone, MODEL_PROFILES, profileProblems, validate } from './_check';
+import { clone, MODEL_PROFILES, profileProblems, validate, unexplained } from './_check';
 import { GinGrammar, Program, TypeResult, WriteArgs } from './gin-grammar';
 import { asGrammarRegistry, BAD_PROGRAMS, t, everythingProgram, fixtureRegistry, lambdaProgram, loopProgram, personProgram, PROGRAMS, switchProgram, TYPEDEFS } from './gin-fixtures';
 
@@ -328,7 +328,7 @@ describe('binding and requests', () => {
       { kind: 'tool', name: 'write', schema: WriteArgs.bind(reg, { newStrict: true }) },
       { kind: 'tool', name: 'edit_type', schema: GinGrammar.result(a.object({ name: a.string(), def: a.ref('TypeDef') })).bind(reg) },
     ]);
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     for (const e of req.entries) expect([e.name, e.strict, e.adjustments]).toEqual([e.name, true, []]);
     const res = req.get('write').parse(req.get('write').encode({ program: personProgram }));
     expect(res.ok && res.value).toEqual({ program: personProgram });
@@ -339,7 +339,7 @@ describe('binding and requests', () => {
       { kind: 'tool', name: 'write', schema: WriteArgs.bind(reg, { newStrict: true }) },
       { kind: 'tool', name: 'edit_type', schema: GinGrammar.result(a.object({ name: a.string(), def: a.ref('TypeDef') })).bind(reg) },
     ]);
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     for (const e of req.entries) {
       // Either fitted strict, or fell back with a recorded reason.
       if (!e.strict) expect(e.reasons.length).toBeGreaterThan(0);

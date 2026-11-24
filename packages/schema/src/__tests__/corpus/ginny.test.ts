@@ -13,7 +13,7 @@ import {
   type Profile,
 } from '../../index';
 import { compileTool, runToolCall } from '../../proposal/core-api';
-import { clone, MODEL_PROFILES, profileProblems, validate } from './_check';
+import { clone, MODEL_PROFILES, profileProblems, validate, unexplained } from './_check';
 import { asGrammarRegistry, fixtureRegistry, personProgram, switchProgram, t, TYPEDEFS } from './gin-fixtures';
 import {
   ArchitectOut, AskArgs, CreateNewFnArgs, CreateVarArgs, DbaOut, DbaSearchVarsArgs, DesignerOut, EditFnArgs, EditTypeArgs, FindFnsArgs,
@@ -359,7 +359,7 @@ describe('the programmer\'s tools', () => {
 
   it('OpenAI strict: every applicable tool fits strict as is', () => {
     const req = ModelProfile.of(OPENAI_STRICT).request(items(authoringCtx));
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     for (const e of req.entries) expect([e.name, e.strict]).toEqual([e.name, true]);
     const w = req.get('write');
     // @ts-expect-error GAP request-computed-items: with a computed (filtered) item list, `get(name)` is typed RequestEntry<never>, so encode takes `never`.
@@ -370,7 +370,7 @@ describe('the programmer\'s tools', () => {
 
   it('Anthropic strict: the request budget (24 optionals, 16 unions) is spent in priority order', () => {
     const req = ModelProfile.of(ANTHROPIC_STRICT).request(items(authoringCtx));
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     expect(req.strictTools).toBeLessThanOrEqual(20);
     expect(req.used.optional).toBeLessThanOrEqual(24);
     expect(req.used.unions).toBeLessThanOrEqual(16);

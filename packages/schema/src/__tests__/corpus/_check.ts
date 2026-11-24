@@ -291,3 +291,16 @@ export function profileProblems(target: Target, samples: readonly unknown[], opt
 
 /** Deep clone a JSON value (answers are parsed in place). */
 export const clone = <T>(v: T): T => structuredClone(v);
+
+/**
+ * Degradations of a request that no entry records (each one should be
+ * explained by an entry's `adjustments`, a rename, or the dispatcher).
+ */
+export function unexplained(req: { readonly degradations: readonly string[]; readonly entries: readonly { readonly name: string; readonly adjustments: readonly { readonly kind: string }[] }[] }): string[] {
+  const adjusted = new Set(req.entries.filter((e) => e.adjustments.some((x) => x.kind !== 'root-wrapped')).map((e) => `"${e.name}"`));
+  return req.degradations.filter((d) => {
+    const m = /^"[^"]+"/.exec(d);
+    if (/ tools \(limit \d+\): /.test(d) || / is named twice/.test(d)) return false;
+    return !(m && adjusted.has(m[0]));
+  });
+}

@@ -15,7 +15,7 @@ import {
   a, ANTHROPIC_STRICT, GOOGLE_OPENAPI, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT, PEOPLE, XAI_STRICT,
   profileFor, schemaHelpers, staticBundle, type Schema,
 } from '../../index';
-import { asTool, clone, dialectProblems, profileProblems, validate } from './_check';
+import { asTool, clone, dialectProblems, profileProblems, validate, unexplained } from './_check';
 import {
   EXPR_KINDS, ExprSchema, QueryModule, QueryProseArgs, QuerySchema, QueryToolArgs, SelectSchema, depthOf, fieldValue, shouldUseStringSchema,
   type BuildOptions, type QueryCatalog,
@@ -481,7 +481,7 @@ describe('query: requests, fallback and caching', () => {
     expect(q.reasons).toEqual(['"query_set" alone: 140 optional properties (limit 24)', '"query_set" alone: 62 union-typed properties (limit 16)']);
     expect(q.measure.optional + req.get('system_set').measure.optional).toBeLessThanOrEqual(24);
     expect(req.used.unions).toBeLessThanOrEqual(16);
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     // parse and encode go through the entry's rendering: the query is JSON text inside `value`
     const wire = q.encode({ value: VALID.join! }) as { value: unknown };
     expect(typeof wire.value).toBe('string');
@@ -495,7 +495,7 @@ describe('query: requests, fallback and caching', () => {
     const req = profileFor({ id: 'gpt-5', provider: 'openai', capabilities: ['toolsStrict', 'structured'] })
       .request([{ kind: 'tool', name: 'query_set', schema: QueryModule.result(QuerySchemaValue).bind(catalog, { strict: true }) }]);
     const e = req.get('query_set');
-    expect([e.strict, e.adjustments, req.problems]).toEqual([true, [], []]);
+    expect([e.strict, e.adjustments, req.degradations]).toEqual([true, [], []]);
     expect(e.measure.depth).toBeLessThanOrEqual(10);
   });
 

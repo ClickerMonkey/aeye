@@ -29,7 +29,7 @@ export class SchemaParseError extends Error {
 /**
  * A request cannot fit its provider's limits whatever is degraded (too many
  * tools, or more hard-`strict: true` schemas than the budget allows).
- * Thrown by `RenderedRequest.assertFits()`; `problems` lists each one.
+ * Thrown only on request (`RenderedRequest.assertNoDegradation()` or `{ failOnDegrade: true }`); `problems` lists each degradation.
  */
 export class RequestLimitError extends Error {
   constructor(readonly problems: readonly string[]) {

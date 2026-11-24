@@ -6,9 +6,9 @@
  *   type Task = a.infer<typeof Task>;
  */
 import {
-  AnyType, ArrayType, BooleanType, CodecType, ConditionalType, DefaultType, DependentType, EnumType, IntersectionType, LiteralType,
+  AnyType, ArrayType, BooleanType, CodecType, ConditionalType, DefaultType, DependentType, DispatchType, EnumType, IntersectionType, LiteralType,
   NeverType, NotType, NullType, NullableType, NumberType, ObjectType, OptionalType, RecordType, RefType, StringType, TupleType, UnionType,
-  type AnySchema, type LiteralValue, type OutOf, type Shape,
+  type AnySchema, type DispatchCase, type LiteralValue, type OutOf, type Shape,
 } from './schema';
 import { Module, type Defs } from './module';
 import type { JsonValue } from './types';
@@ -118,6 +118,10 @@ export const codec = <W extends AnySchema, Out>(
   wire: W,
   codec: { decode: (wire: OutOf<W>) => Out | Error; encode: (value: Out) => OutOf<W> },
 ): CodecType<W, Out> => new CodecType(wire, codec);
+
+/** `{ tool, args }`: the arguments of one of several tools, picked by name (see `DispatchType`). */
+export const dispatch = (cases: readonly DispatchCase[], keys: { tag?: string; args?: string } = {}): DispatchType =>
+  new DispatchType(cases, keys.tag ?? 'tool', keys.args ?? 'args');
 
 /** Start a chain with named types. */
 export const define = <const D extends Defs>(defs: D): Module<D, {}> => new Module(defs);

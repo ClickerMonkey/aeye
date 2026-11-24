@@ -62,7 +62,7 @@ class Safe {
 }
 
 function isRequest(t: SchemaTarget): t is RenderedRequest<any> {
-  return 'entries' in t && 'problems' in t;
+  return 'entries' in t && 'degradations' in t;
 }
 
 /** Pick the rendering a helper call means. */

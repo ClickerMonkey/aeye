@@ -5,7 +5,7 @@
  * `buildSchemaBudget`, so a call site never picks a profile by hand.
  */
 import { familyProfile, OPENAI_FINETUNED_STRICT, type Profile, type ProfileFamily } from './profile';
-import { planRequest, type RenderedRequest, type RequestItem } from './request';
+import { planRequest, type RenderedRequest, type RequestItem, type RequestOptions } from './request';
 
 /**
  * A model, structurally — `@aeye/ai`'s `ModelInfo` (and `@aeye/models`'
@@ -73,8 +73,8 @@ export class ModelProfile {
    * fits this model's limits (see `planRequest`). Each entry records what
    * its schema was rendered with; parse and encode through the entry.
    */
-  request<const I extends readonly RequestItem[]>(items: I): RenderedRequest<I> {
-    return planRequest(this, items);
+  request<const I extends readonly RequestItem[]>(items: I, opts?: RequestOptions): RenderedRequest<I> {
+    return planRequest(this, items, opts);
   }
 
   /** Both kinds through one profile. */

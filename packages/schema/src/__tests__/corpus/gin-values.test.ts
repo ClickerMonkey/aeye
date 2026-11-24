@@ -12,7 +12,7 @@ import {
   a, ANTHROPIC_STRICT, fromGin, ginNamedTypes, GOOGLE_OPENAPI, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT,
   schemaHelpers, XAI_STRICT, type AnySchema, type GinRegistryLike, type GinTypeDef, type Rendered,
 } from '../../index';
-import { clone, MODEL_PROFILES, profileProblems, validate } from './_check';
+import { clone, MODEL_PROFILES, profileProblems, validate, unexplained } from './_check';
 import {
   And, Any, Bool, DateT, Enum, FetchArgs, Literal, MapNum, MapText, Not, Null, Num, Or, PrimeFactorsArgs, PrimeFactorsDef,
   Task, TaskDef, Text, Timestamp, Void, type TaskT,
@@ -312,7 +312,7 @@ describe('request budgets', () => {
       { kind: 'tool', name: 'fetch', schema: FetchArgs },
       { kind: 'tool', name: 'prime_factors', schema: PrimeFactorsArgs },
     ]);
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     for (const e of req.entries) expect(e.strict).toBe(true);
     expect(req.used.optional).toBe(2 + 3);
     const fetch = req.get('fetch');

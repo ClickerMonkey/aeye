@@ -5,7 +5,7 @@
 import Handlebars from 'handlebars';
 import { describe, expect, it } from 'vitest';
 import { ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, PEOPLE, XAI_NON_STRICT, XAI_STRICT, schemaHelpers, type Profile } from '../../index';
-import { asTool, clone, profileProblems } from './_check';
+import { asTool, clone, profileProblems, unexplained } from './_check';
 import * as M from './harness-mcp';
 
 const tool = <T>(bound: { render(p: Profile): T }, p: Profile): T => bound.render(asTool(p));
@@ -116,7 +116,7 @@ describe('the hub\'s own `run`, as its MCP server publishes it (zod 4 toJSONSche
       { kind: 'tool', name: 'add', schema: M.AddInput.bind() },
       { kind: 'tool', name: 'echo_text', schema: M.EchoInput.bind() },
     ]);
-    expect(claude.problems).toEqual([]);
+    expect(unexplained(claude)).toEqual([]);
     expect(claude.entries.every((e) => e.strict)).toBe(true);
     expect(claude.get('add').parse(clone({ a: 1, b: 2 })).ok).toBe(true);
     expect(LENIENT.id).toBe('lenient');

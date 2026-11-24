@@ -5,7 +5,7 @@
 import Handlebars from 'handlebars';
 import { describe, expect, it } from 'vitest';
 import { a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, XAI_STRICT, type AnySchema, type Profile } from '../../index';
-import { asTool, profileProblems } from './_check';
+import { asTool, profileProblems, unexplained } from './_check';
 import { fnNameOf, modelFnNames, type ModelFnNamesLike, type QualifiedName } from './harness-fns';
 import * as R from './harness-run';
 
@@ -157,7 +157,7 @@ describe('run as `a` types it: args checked against the named fn\'s signature (R
       { kind: 'tool', name: 'run', schema: bound },
     ] as const;
     const claude = ModelProfile.of(ANTHROPIC_STRICT).request(items);
-    expect(claude.problems).toEqual([]);
+    expect(unexplained(claude)).toEqual([]);
     expect(claude.entries.map((e) => [e.name, e.strict, e.adjustments])).toEqual([
       ['inspect', true, []], ['load', true, []], ['unload', true, []], ['run', true, []],
     ]);

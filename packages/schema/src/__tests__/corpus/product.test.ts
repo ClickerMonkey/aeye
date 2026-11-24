@@ -11,7 +11,7 @@ import Handlebars from 'handlebars';
 import { describe, expect, it } from 'vitest';
 import { buildSchemas, createRegistry, type QueryDef, type Registry, type TypeDef } from '@aeye/query';
 import { ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, XAI_STRICT, type RequestItem } from '../../index';
-import { asTool, clone, profileProblems } from './_check';
+import { asTool, clone, profileProblems, unexplained } from './_check';
 import {
   COUNT_ROWS, DbFnLoadArgs, FlowDeclineArgs, FlowFailuresArgs, FlowLoadArgs, FlowReuseArgs, FlowSearchArgs, IdentityReturnArgs, PopulateExpr,
   QUERY_SCHEMA_MAX_ENUM_SIZE_DEFAULT, QUERY_SET_EXAMPLES, QueryFnArgs, QuerySetArgs, QueryTestArgs, SearchArgs, SystemSetArgs, TypeComputeArgs,
@@ -325,7 +325,7 @@ describe('product: the whole query-agent request', () => {
 
   it('Anthropic strict: the totals are shared — query_set takes the ladder, the small tools stay exact', () => {
     const req = ModelProfile.of(ANTHROPIC_STRICT).request(tools(ctx()));
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     expect(req.used.optional).toBeLessThanOrEqual(24);
     expect(req.used.unions).toBeLessThanOrEqual(16);
     const q = req.get('query_set');
@@ -337,7 +337,7 @@ describe('product: the whole query-agent request', () => {
 
   it('Gemini: renders (no strict budgets), enums under the 40 cap stay enums', () => {
     const req = ModelProfile.of(GOOGLE_STRICT).request(tools(ctx()));
-    expect(req.problems).toEqual([]);
+    expect(unexplained(req)).toEqual([]);
     expect(req.get('query_set').strict).toBe(true);
   });
 });

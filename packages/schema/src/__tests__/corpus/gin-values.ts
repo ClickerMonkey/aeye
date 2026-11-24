@@ -246,6 +246,6 @@ expectTypeOf<a.infer<typeof FetchArgs>>().toEqualTypeOf<{
 
 /** What ginny's test tool converts (ctx.targetFn's args): a `GinTypeDef`, not a literal. */
 export function __runtimeDef(runtimeDef: GinTypeDef): void {
-  // @ts-expect-error GAP fromGin-widened-type: `fromGin(def: GinTypeDef)` is typed RefType<string> (the "named type" case), not a schema of unknown output.
+  // (was GAP fromGin-widened-type, fixed in pass 2) `fromGin(def: GinTypeDef)` is typed RefType<string> (the "named type" case), not a schema of unknown output.
   expectTypeOf(fromGin(runtimeDef)).toEqualTypeOf<AnySchema>();
 }
