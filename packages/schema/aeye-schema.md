@@ -73,6 +73,10 @@ a.not(excluded, base?)           // gin not / JSON Schema not
 a.conditional(base, { if, then, else })
 a.dependent(on, schemaFor, base?)  // a value typed by a sibling field
 a.ref('Name')  a.codec(wire, { decode, encode })
+a.refOf<Out>(name)               // a ref whose NAME is runtime data (`Fields_${table}`), typed by you, checked at bind
+a.never()                        // no value: an empty runtime list, a list that must stay empty
+a.default(T, value)              // = T.default(value): optional on the wire, required in code, filled in on decode
+a.dispatch([{ name, schema }])   // { tool, args }: args typed by tool, picked by name (the request dispatcher)
 a.define({...}) a.declare<{...}>() a.module() a.fromJSONSchema(json)
 type T = a.infer<typeof X>;
 ```
@@ -89,8 +93,14 @@ Modifiers (every class; all immutable — build schemas once, at module scope):
 | `.forPeople()` | Never shown to or accepted from a model (web forms, API callers see it). |
 | `.forModels(narrower)` | What a model sees instead (e.g. an enum minus people-only members). |
 | `.optional()` `.nullable()` | Optional means the key is ABSENT after decoding, never `undefined`. |
+| `.default(value)` | zod's `.default`: the model may leave it out (or write `null` where absent is null); the code type is required and the default is written in. The description says `Default when left out: …`. |
 
-Type-specific: `string().min/max/pattern/format`, `number().int/min/max`, `array().min/max`,
+`a.enum(list)`, `a.union(list)` and `a.discriminatedUnion(tag, list)` also take lists built at
+runtime (typed by the element; an empty list is `never`). A union whose options all carry a
+literal field with distinct values (a `kind`) is discriminated by it even when not declared so;
+errors land inside the chosen option. `.refine` may return several messages (zod's `superRefine`).
+
+Type-specific: `string().min/max/pattern(re, flags?)/format`, `number().int/min/max/gt/lt/positive/negative/nonnegative`, `array().min/max`,
 `object().strict()` (unknown keys are errors), `.extend(shape)`, `.rest(V)` (extra keys, zod's
 `catchall`), `.patterns({ '^x-': V })` (`patternProperties`), `.dependent(key, on, fn, base?)`.
 
@@ -196,11 +206,20 @@ const req = profileFor(model).request([
   { kind: 'output', schema: Report },                            // name defaults to 'output'
 ]);
 req.get('search');   // RequestEntry<a.infer<typeof Search>> — typed by name
-req.problems;        // limits no choice could fix (too many tools, hard-strict overflow)
-req.assertFits();    // throws RequestLimitError when problems isn't empty
+req.sent;            // what to send: the direct tools (and the dispatcher, if any)
+req.decodeCall(name, args);   // { ok, tool, value } — a dispatcher call comes back as the original tool
+req.encodeCall(tool, value);  // { name, args } as this model would call it
+req.degradations;    // everything that was degraded to fit, readable (informative, never thrown)
+req.assertNoDegradation();    // opt-in: throws RequestLimitError if anything was degraded
+profileFor(model).request(items, { failOnDegrade: true });       // the same, at planning time
 ```
 
-`strict` is core's tri-state: `true` requires, `false` refuses, a number > 0 prefers (default `1`).
+**A request always comes back sendable**, whatever its tools: tools are often not known ahead of
+time, and an error where a degradation works is worse than the degradation. Nothing is thrown by
+default; each compromise is recorded on its entry and listed in `degradations`.
+
+`strict` is core's tri-state: `true` is the strongest preference (not a guarantee), `false`
+refuses, a number > 0 prefers (default `1`).
 Items are fitted in priority order (`true` first, then higher numbers), so the most wanted
 schemas spend the budget first. For each schema the first choice that fits its per-schema limits
 AND what is left of the request's limits wins:
@@ -213,9 +232,16 @@ AND what is left of the request's limits wins:
 5. not strict: the family's loose profile — or, for an output whose family is always strict
    (Claude), prompt-text delivery.
 
-`strict: true` is never degraded for the BUDGET — an overflow goes in `problems` — only for a
-per-schema limit no request could meet. Tool parameters are always an object: a non-object root
-is wrapped as `{ input: … }` and unwrapped on decode (no copy).
+When the strict tool slots or the totals run out, the lowest-priority schemas go non-strict (the
+model isn't constrained; the answer is still validated by the same schema), each with its reason.
+Two items with one name: the second is renamed `name_2` (`requestedName` keeps the original).
+More tools than the provider takes (OpenAI 128): the highest-priority ones stay tools and the rest
+go behind ONE dispatcher tool, `run_tool({ tool, args })`, whose `tool` lists them (with their
+`description`s) and whose `args` are their own argument schemas (one nullable field per tool on a
+dialect without unions). `decodeCall('run_tool', args)` returns the original tool's name and
+decoded args; each dispatched tool keeps its own entry (`delivery: 'dispatched'`, `via`).
+Tool parameters are always an object: a non-object root is wrapped as `{ input: … }` and
+unwrapped on decode (no copy).
 
 ### `RequestEntry`
 
@@ -225,8 +251,8 @@ is wrapped as `{ input: … }` and unwrapped on decode (no copy).
 | `base` | the profile the model offers for this kind |
 | `profile` | exactly what the schema was rendered with (`base` + adjustments; a memoized variant like `anthropic-strict[optional=null]`) |
 | `strict` | send with `strict: true` / as strict structured output |
-| `delivery` | `'structured'` or `'prompt'` |
-| `adjustments` | `optional-as-null`, `enums-widened {maxEnumValues}`, `depth-limited {maxDepth}`, `root-wrapped`, `not-strict {reason}`, `prompt-text {reason}` |
+| `delivery` | `'structured'`, `'prompt'` or `'dispatched'` (reached through `via`, the dispatcher) |
+| `adjustments` | `optional-as-null`, `enums-widened {maxEnumValues}`, `depth-limited {maxDepth}`, `root-wrapped`, `not-strict {reason}`, `prompt-text {reason}`, `renamed {from}`, `dispatched {via, reason}` |
 | `reasons` | the limits that ruled out the earlier choices |
 | `jsonSchema` | the schema to send (`undefined` for prompt delivery) |
 | `promptText` | the schema as TypeScript-like text plus the family's JSON instruction |
@@ -235,8 +261,11 @@ is wrapped as `{ input: … }` and unwrapped on decode (no copy).
 | `encode` / `encodeText` / `encoder` | code value → this model's wire shape |
 | `helpers()` | Handlebars helpers for this schema |
 
-`RenderedRequest` also has `entries` (in the order given), `tools`, `output`, `used` (the strict
-totals), `strictTools`, `limits`, `helpers(defaultName)`.
+`RenderedRequest` also has `entries` (in the order given), `tools`, `sent`, `output`, `dispatcher`,
+`used` (the strict totals), `strictTools`, `limits`, `degradations`, `helpers(defaultName)`.
+
+A bundle whose dynamic step takes other arguments than a tool's ctx is adapted:
+`QueryModule.result(...).adapt((ctx: Ctx) => [ctx.catalog, { strict: true }])`.
 
 ## Values in instructions and prompts
 
@@ -323,7 +352,7 @@ counts them).
 |---|---|
 | `SchemaParseError` | `parseOrThrow` failed; `issues` has both paths |
 | `SchemaDefinitionError` | the code's own mistake the types couldn't catch: a missing ref at bind time, a dynamic step redefining a name, an example that doesn't fit its schema, encoding at a path that doesn't exist |
-| `RequestLimitError` | `RenderedRequest.assertFits()` with `problems` |
+| `RequestLimitError` | only on request: `assertNoDegradation()` / `{ failOnDegrade: true }`, with `problems` listing the degradations |
 
 Model mistakes are never thrown by `parse`; they come back as issues for a re-prompt.
 
@@ -357,3 +386,14 @@ of a dynamic step.
   `.strict()`; encoding keeps them too, except people-only fields, which are dropped.
 - `schemaFor` of a sibling-typed value should return cached schemas: a new instance is compiled
   on first use.
+- Where a union option is written as JSON text (an escape, or `a.json()` on a strict dialect) it
+  is sent as `{ "json": "…" }`, and a record written as pairs next to a list option as
+  `{ "entries": [...] }`, so neither can pass for another option.
+- JSON-text escapes name their type (`… JSON text of this TypeScript type: Expr …`); the
+  `type X = …` definitions are written once, in the description of the whole schema.
+- Without `$defs` (Gemini OpenAPI, MINIMAL) a big recursive grammar is written out once per
+  recursive named type, its later uses as JSON text (rather than inlined exponentially).
+- `render(profile)` is the raw rendering; only `request()` fits a schema to the provider's size
+  limits (a deep grammar can render past OpenAI's 10 levels on its own).
+- A record sent as an object (or a JSON string of one) where pairs were asked for is repaired:
+  its values are read in the code shape.
