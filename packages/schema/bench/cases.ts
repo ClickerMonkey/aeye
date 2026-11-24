@@ -290,7 +290,8 @@ export const CASES: readonly Case[] = [
   },
   {
     id: 'gin-grammar', label: 'gin grammar (write a program: TypeDef + Expr)', dynamic: true,
-    aBound: (fresh) => WriteArgs.bind(fresh ? { ...ginReg } : ginReg),
+    // gin binds are keyed by the registry's content: a fresh bind empties the bundle's bind cache first.
+    aBound: (fresh) => { if (fresh) (WriteArgs as unknown as { cache: Map<unknown, unknown> }).cache.clear(); return WriteArgs.bind(ginReg); },
     zod: () => z.object({ program: ginBuildSchemas(ginReg0).Expr }),
     answers: [
       { name: 'everything program', code: () => ({ program: everythingProgram }), invalid: [['program', 'lines', 0, 'kind'], 'nope'] },

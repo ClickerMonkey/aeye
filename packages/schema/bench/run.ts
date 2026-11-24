@@ -190,7 +190,11 @@ async function main() {
   for (const id of ids) {
     const out = fileURLToPath(new URL(`./.results/rows-${id}.json`, import.meta.url));
     execFileSync(process.execPath, ['--expose-gc', '--max-old-space-size=12288', '--import', 'tsx', self, `--child=${id}`, `--out=${out}`, ...(QUICK ? ['--quick'] : [])], { stdio: ['ignore', 'ignore', 'inherit'] });
-    rows.push(...(JSON.parse(readFileSync(out, 'utf8')) as Row[]));
+  }
+  // Every case's rows, including those of earlier runs (`--only` re-runs some).
+  for (const id of [...CASES.map((c) => c.id), 'requests']) {
+    const out = new URL(`./.results/rows-${id}.json`, import.meta.url);
+    try { rows.push(...(JSON.parse(readFileSync(out, 'utf8')) as Row[])); } catch { /* not run yet */ }
   }
   const env = { node: process.version, cpu: os.cpus()[0]?.model, cores: os.cpus().length, mem: `${(os.totalmem() / 2 ** 30).toFixed(0)} GB`, os: `${os.type()} ${os.release()}`, quick: QUICK, seconds: Math.round((performance.now() - t0) / 1000) };
   writeFileSync(new URL('./.results/timings.json', import.meta.url), JSON.stringify({ env, verdicts: vs.map(({ zodError, aError, ...v }) => v), rows }, null, 1));
@@ -206,7 +210,8 @@ export function markdown(env: Record<string, unknown>, rs: readonly Row[]): stri
     out.push(`### ${g}`, '', '| case | profile | operation | @aeye/schema median (p95) | zod path median (p95) | zod ÷ a |', '|---|---|---|---|---|---|');
     for (const r of gs) {
       const cell = (s?: Stat) => (s ? `${fmt(s.median)} (${fmt(s.p95)})` : '—');
-      const ratio = r.a && r.zod ? `${(r.zod.median / r.a.median).toFixed(r.zod.median / r.a.median >= 10 ? 0 : 1)}×` : '—';
+      const memo = r.a && r.a.median < 0.0005 && r.op === 'render again';
+      const ratio = memo ? 'memoized' : r.a && r.zod ? `${(r.zod.median / r.a.median).toFixed(r.zod.median / r.a.median >= 10 ? 0 : 1)}×` : '—';
       out.push(`| ${r.caseId} | ${r.profile} | ${r.op} | ${cell(r.a)} | ${cell(r.zod)} | ${ratio} |`);
     }
     out.push('');

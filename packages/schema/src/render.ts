@@ -75,11 +75,17 @@ export function formatPath(path: readonly PathSeg[]): string {
   return out || '(root)';
 }
 
-/** The walk context. Paths are push/pop stacks so the happy path allocates nothing. */
+/**
+ * The walk context. Paths are stacks with explicit depths, so the happy path
+ * allocates nothing: `push`/`pop` on a plain array let V8 shrink and regrow
+ * its storage at every level, an allocation per value decoded; these only grow.
+ */
 export class Cx {
   readonly errors: Issue[] = [];
-  readonly wire: PathSeg[] = [];
-  readonly code: PathSeg[] = [];
+  private readonly wire: PathSeg[] = [];
+  private readonly code: PathSeg[] = [];
+  private wd = 0;
+  private cd = 0;
   constructor(
     /** Mutate the caller's value (default) or copy-on-write. */
     readonly inPlace: boolean,
@@ -90,21 +96,21 @@ export class Cx {
     readonly repair = true,
   ) {}
   fail(message: string): void {
-    this.errors.push({ path: [...this.wire], codePath: [...this.code], message });
+    this.errors.push({ path: this.wire.slice(0, this.wd), codePath: this.code.slice(0, this.cd), message });
   }
   enter(wire: PathSeg, code: PathSeg | null = wire): void {
-    this.wire.push(wire);
-    if (code !== null) this.code.push(code);
+    this.wire[this.wd++] = wire;
+    if (code !== null) this.code[this.cd++] = code;
   }
   leave(code = true): void {
-    this.wire.pop();
-    if (code) this.code.pop();
+    this.wd--;
+    if (code) this.cd--;
   }
   /** A dry sibling sharing the current paths (for union option tests). */
   dryRun(): Cx {
     const d = new Cx(false, true, newStats(), this.repair);
-    d.wire.push(...this.wire);
-    d.code.push(...this.code);
+    for (let i = 0; i < this.wd; i++) d.wire[d.wd++] = this.wire[i]!;
+    for (let i = 0; i < this.cd; i++) d.code[d.cd++] = this.code[i]!;
     return d;
   }
 }

@@ -12,7 +12,7 @@
  *   snapshot   heap snapshot after `retained` for the biggest object kinds
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { PerformanceObserver } from 'node:perf_hooks';
 import v8 from 'node:v8';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,8 @@ new PerformanceObserver((l) => { gcs += l.getEntries().length; }).observe({ entr
 
 /** Bytes allocated per call of `fn` (no GC during the loop; fewer calls if one happened). */
 function garbage(fn: () => unknown, prep: () => unknown[] = () => [], k0 = 200): number {
+  // Warm up first: optimized code and feedback are heap too, and would be counted as the calls' garbage.
+  for (let i = 0; i < Math.max(30, k0 * 3); i++) (fn as (...a: unknown[]) => unknown)(...prep());
   for (let k = k0; k >= 1; k = Math.floor(k / 2)) {
     const inputs = Array.from({ length: k }, () => prep());
     fullGc();
@@ -202,6 +204,15 @@ if (mode === 'child') {
     const outp = execFileSync(process.execPath, ['--expose-gc', '--max-semi-space-size=256', '--max-old-space-size=12288', '--import', 'tsx', self, 'child', ...a], { encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
     return JSON.parse(outp.slice(outp.indexOf('{')));
   };
+  const part = process.argv.find((x) => x.startsWith('--part='))?.slice(7);
+  const file = new URL('./.results/memory.json', import.meta.url);
+  if (part === 'perCall') {
+    const prev = JSON.parse(readFileSync(file, 'utf8')) as Result;
+    prev.perCall = run('perCall');
+    writeFileSync(file, JSON.stringify(prev, null, 1));
+    console.log(JSON.stringify(prev.perCall, null, 1));
+    process.exit(0);
+  }
   const results: Result = { node: process.version };
   const ret: Result = {};
   for (const [id, n] of [['tool-small', 1000], ['harness-fn', 500], ['gin-value', 500], ['gin-grammar', 20], ['query-open', 10], ['query-paired', 10], ['product-query-set', 10]] as const) {

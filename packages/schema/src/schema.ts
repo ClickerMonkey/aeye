@@ -731,7 +731,8 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
         if (!isObject(v)) return fail(cx, v, `Expected an object, got ${kind(v)}.`);
         const obj = v as Record<string, unknown>;
         let out = obj;
-        for (const f of plain) {
+        for (let fi = 0; fi < plain.length; fi++) {
+          const f = plain[fi]!;
           const has = Object.prototype.hasOwnProperty.call(obj, f.key);
           const val = has ? obj[f.key] : undefined;
           if (val === undefined) {
@@ -751,7 +752,8 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
           if (r !== val && !cx.dry) out = writeKey(out, obj, f.key, r, cx);
         }
         // Dependent fields last: their schema comes from a sibling's decoded value.
-        for (const f of deps) {
+        for (let fi = 0; fi < deps.length; fi++) {
+          const f = deps[fi]!;
           const val = obj[f.key];
           if (val === undefined || (val === null && f.optional && nullMode)) {
             if (val === null && !cx.dry) out = deleteKey(out, obj, f.key, cx);
@@ -768,7 +770,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
           cx.leave();
           if (r !== val && !cx.dry) out = writeKey(out, obj, f.key, r, cx);
         }
-        for (const key of hidden) {
+        if (hidden.size) for (const key of hidden) {
           if (Object.prototype.hasOwnProperty.call(obj, key)) { cx.enter(key); cx.fail('Not allowed.'); cx.leave(); }
         }
         if (extraMode === 'pairs') {
@@ -795,8 +797,11 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
             }
             cx.leave(false);
           } else if (extraKey && list === null && !cx.dry) out = deleteKey(out, obj, extraKey, cx);
-        } else {
-          for (const key of Object.keys(obj)) {
+        } else if (extra || this.closed) {
+          // Unknown keys only matter when they have a schema or are not allowed.
+          const keys = Object.keys(obj);
+          for (let ki = 0; ki < keys.length; ki++) {
+            const key = keys[ki]!;
             if (known.has(key)) continue;
             const node = extra ? nodeForKey(key) : undefined;
             if (node) {
