@@ -256,6 +256,31 @@ function nestingOf(s: AnySchema): number {
  */
 const refFreeCache = new WeakMap<AnySchema, Map<string, Node>>();
 
+/**
+ * The compiler a ref-free node is compiled in, one per profile. A node keeps
+ * its compiler (for `json()` and its closures), so a cached node made by the
+ * compiler of some bind would keep that whole bind alive — its env, its nodes
+ * and every profile it rendered — for as long as the (usually static) schema
+ * lives. The shared compiler has no env, and forgets its nodes once their
+ * `needs` are known, so it holds nothing but the profile.
+ */
+const sharedCompilers = new WeakMap<Profile, Compiler>();
+function sharedCompiler(profile: Profile): Compiler {
+  let c = sharedCompilers.get(profile);
+  if (!c) sharedCompilers.set(profile, (c = new Compiler(profile, EMPTY_ENV, sharedLenient, false, true)));
+  return c;
+}
+const EMPTY_ENV: ReadonlyMap<string, AnySchema> = new Map();
+let sharedLenientRendered: Rendered<unknown> | undefined;
+/** The LENIENT rendering escape hatches and union checks use for ref-free schemas. */
+function sharedLenient(): Rendered<unknown> {
+  if (!sharedLenientRendered) {
+    const c = sharedCompiler(LENIENT);
+    sharedLenientRendered = new Rendered<unknown>(c, c.node({ emit: () => ({}), run: (v) => v, encode: (v) => v }));
+  }
+  return sharedLenientRendered;
+}
+
 /** Nodes an inlining (no `$defs`) compile may make before it restarts as `inlineOnce`. */
 export const INLINE_BUDGET = 4000;
 /** Thrown inside a compile that inlined past `INLINE_BUDGET`; `Bound.render` restarts it. */
@@ -290,6 +315,8 @@ export class Compiler {
      * named type is written out once, its later uses are JSON text of it.
      */
     readonly inlineOnce = false,
+    /** The per-profile compiler of ref-free nodes (`sharedCompiler`): it forgets its nodes after `finish`. */
+    readonly shared = false,
   ) {
     this.view = viewOf(profile);
   }
@@ -335,6 +362,12 @@ export class Compiler {
     if (cacheable) {
       const hit = refFreeCache.get(s)?.get(this.profile.id);
       if (hit) return hit;
+      if (!this.shared) {
+        const shared = sharedCompiler(this.profile);
+        const n = shared.compile(s);
+        shared.finish();
+        return n;
+      }
     }
     if (container) this.depth++;
     const n = s.compile(this);
@@ -461,6 +494,8 @@ export class Compiler {
         }
       }
     }
+    // The shared compiler's nodes are reached through `refFreeCache` (weakly, by schema); keeping them here would pin every schema it ever compiled.
+    if (this.shared) this.nodes.length = 0;
   }
 
   /** Text of a `Text` for this profile. */
@@ -760,10 +795,18 @@ export class Rendered<Out> {
     return this._encoder;
   }
 
-  /** Node for a subschema in this rendering (escape hatches use the LENIENT one). */
+  /**
+   * Node for a subschema in this rendering (escape hatches use the LENIENT one),
+   * compiled once per subschema instance: union encoding and checks ask for the
+   * same option nodes on every value, and a fresh compile each time grew the
+   * compiler (and its `needs` fixpoint) by the subschema's size per call.
+   */
   nodeFor(s: AnySchema): Node {
-    return this.compiler.late(s);
+    let n = this.lateNodes.get(s);
+    if (!n) this.lateNodes.set(s, (n = this.compiler.late(s)));
+    return n;
   }
+  private readonly lateNodes = new WeakMap<AnySchema, Node>();
 
   /** The whole shape as TypeScript-like text (prompt-text delivery). */
   typescript(): string {

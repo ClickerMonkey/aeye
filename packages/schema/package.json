@@ -24,7 +24,10 @@
     "typecheck": "tsc --noEmit",
     "test:types": "tsc -p tsconfig.typetest.json",
     "clean": "rimraf dist",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "bench": "node --expose-gc --max-old-space-size=8192 --import tsx bench/run.ts",
+    "bench:memory": "node --expose-gc --max-semi-space-size=256 --import tsx bench/memory.ts",
+    "bench:equivalence": "node --import tsx bench/equivalence.ts"
   },
   "keywords": [
     "ai",
@@ -38,11 +41,16 @@
   "author": "ClickerMonkey",
   "dependencies": {},
   "devDependencies": {
+    "@aeye/gin": "0.8.1",
+    "@aeye/query": "0.8.1",
     "expect-type": "^1.3.0",
     "handlebars": "^4.7.0",
+    "tinybench": "^2.9.0",
     "tsup": "^8.0.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "zod": "^4.6.7"
   },
   "files": [
     "dist",
