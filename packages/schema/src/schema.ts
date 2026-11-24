@@ -38,7 +38,7 @@ export interface Check {
 export type SchemaKind =
   | 'string' | 'number' | 'boolean' | 'null' | 'literal' | 'enum' | 'array' | 'tuple'
   | 'object' | 'record' | 'union' | 'optional' | 'nullable' | 'ref' | 'any' | 'codec'
-  | 'intersection' | 'not' | 'conditional' | 'dependent';
+  | 'intersection' | 'not' | 'conditional' | 'dependent' | 'never' | 'default';
 
 /**
  * Any schema, structurally. An interface (not `Schema<any, any>`) so class
@@ -55,10 +55,10 @@ export interface AnySchema {
   children(): readonly AnySchema[];
   compile(c: Compiler): Node;
   print(p: Printer): string;
-  describe(text: Text): AnySchema;
-  title(title: string): AnySchema;
-  example(...values: any[]): AnySchema;
-  refine(fn: (value: any) => boolean | string, message?: string, opts?: { visible?: boolean }): AnySchema;
+  describe(text: Text): this;
+  title(title: string): this;
+  example(...values: any[]): this;
+  refine(fn: (value: any) => boolean | string, message?: string, opts?: { visible?: boolean }): this;
 }
 /** `this` of a schema that uses no refs (so it can be bound without a chain). */
 export interface RefFree {
@@ -157,6 +157,11 @@ export abstract class Schema<Out = unknown, Refs extends string = never> {
 
   nullable(): NullableType<this> {
     return new NullableType(this);
+  }
+
+  /** May be left out; then decodes as `value` (zod's `.default`). Required in the code shape. */
+  default(value: Exclude<Loose<Out>, undefined>): DefaultType<this> {
+    return new DefaultType(this, value as never);
   }
 
   /** A ref-free schema is its own static bundle. */
@@ -358,9 +363,13 @@ export class EnumType<V extends readonly [string, ...string[]]> extends Schema<V
   readonly kind = 'enum' as const;
   constructor(readonly values: V) { super(); }
   children() { return []; }
-  print() { return this.values.map((v) => JSON.stringify(v)).join(' | '); }
+  print() { return this.values.length ? this.values.map((v) => JSON.stringify(v)).join(' | ') : 'never'; }
   compile(c: Compiler): Node {
     const values = this.values;
+    // An enum built from an empty runtime list (no functions selected, no
+    // permitted types) admits nothing: it is `never`, not an empty `enum`
+    // (which providers reject).
+    if (!values.length) return neverNode(c, () => this.ruleHint());
     const set = new Set<string>(values);
     const cap = c.profile.maxEnumValues;
     const widened = cap !== undefined && values.length > cap;
@@ -394,7 +403,7 @@ export class AnyType<Out = unknown> extends Schema<Out> {
       });
     }
     // No spelling for "any value" in this dialect: JSON text, parsed on decode.
-    return c.node({
+    return markJsonText(c.node({
       own: true,
       hint: () => this.hintOf(['Write the value as JSON text.']),
       emit: () => ({ type: 'string' }),
@@ -403,8 +412,13 @@ export class AnyType<Out = unknown> extends Schema<Out> {
         return out === FAILED ? v : out;
       },
       encode: (v) => JSON.stringify(v),
-    });
+    }));
   }
+}
+
+function markJsonText(n: Node): Node {
+  n.jsonText = true;
+  return n;
 }
 
 /** xAI's spelling of "any JSON value" (it rejects recursive `$defs`; objects must say they are open). */
@@ -428,7 +442,8 @@ export class ArrayType<E extends AnySchema> extends Schema<OutOf<E>[], RefsOf<E>
     return /[|&]/.test(inner) ? `(${inner})[]` : `${inner}[]`;
   }
   compile(c: Compiler): Node {
-    const o = this.options;
+    // A list of `never` can only be empty (query: `joins` when no type has a relation).
+    const o = isNever(this.element, c.env) ? { ...this.options, maxItems: 0 } : this.options;
     const el = (o.minItems ?? 0) > 0 ? c.compile(this.element) : c.guarded(this.element);
     const items = c.profile.constraints.items;
     const words: string[] = [];
@@ -593,8 +608,8 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
   }
   print(p: Printer) {
     const parts = Object.entries(this.shape).map(([k, s]) => {
-      const opt = s instanceof OptionalType;
-      return `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}${opt ? '?' : ''}: ${p.print(opt ? s.inner : s)}`;
+      const opt = s instanceof OptionalType || s instanceof DefaultType;
+      return `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k)}${opt ? '?' : ''}: ${p.print(opt ? (s as OptionalType<AnySchema>).inner : s)}`;
     });
     const extra = this.extraValue();
     if (extra) parts.push(`[key: string]: ${p.print(extra)}`);
@@ -615,7 +630,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
     const p = c.profile;
     const nullMode = p.optional === 'null';
     const forModel = p.audience !== 'people';
-    type Field = { key: string; optional: boolean; node: Node; nullable: boolean; dep?: DependentType<unknown> };
+    type Field = { key: string; optional: boolean; node: Node; nullable: boolean; dep?: DependentType<unknown>; dflt?: DefaultType<AnySchema> };
     const fields: Field[] = [];
     const hidden = new Set<string>();
     for (const [key, s] of Object.entries(this.shape)) {
@@ -623,10 +638,16 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
         hidden.add(key);
         continue;
       }
-      const optional = s instanceof OptionalType;
-      const inner = optional ? (s as OptionalType<AnySchema>).inner : s;
+      const dflt = s instanceof DefaultType ? (s as DefaultType<AnySchema>) : undefined;
+      const optional = s instanceof OptionalType || !!dflt;
+      const inner = s instanceof OptionalType ? (s as OptionalType<AnySchema>).inner : dflt ? dflt.inner : s;
+      // An optional field that admits nothing is not offered to the model (and refused if sent).
+      if (optional && isNever(inner, c.env)) {
+        hidden.add(key);
+        continue;
+      }
       const node = optional ? c.guarded(inner, s) : c.compile(inner);
-      fields.push({ key, optional, node, nullable: inner instanceof NullableType, ...(inner instanceof DependentType ? { dep: inner } : {}) });
+      fields.push({ key, optional, node, nullable: inner instanceof NullableType, ...(inner instanceof DependentType ? { dep: inner } : {}), ...(dflt ? { dflt } : {}) });
     }
     const plain = fields.filter((f) => !f.dep);
     const deps = fields.filter((f) => f.dep);
@@ -643,7 +664,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
     const nodeForKey = (k: string): Node | undefined => patterns.find((x) => x.re.test(k))?.node ?? restNode;
 
     return c.node({
-      own: (nullMode && fields.some((f) => f.optional && !f.nullable)) || hidden.size > 0 || extraMode === 'pairs',
+      own: (nullMode && fields.some((f) => f.optional && !f.nullable)) || hidden.size > 0 || extraMode === 'pairs' || fields.some((f) => f.dflt),
       deps: [...fields.map((f) => f.node), ...patterns.map((x) => x.node), ...(restNode ? [restNode] : []), ...(extraNode ? [extraNode] : [])],
       hint: () => this.hintOf(
         extraMode === 'pairs' ? [`Other keys go in "${extraKey}" as a list of {key, value} entries.`]
@@ -656,6 +677,7 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
         for (const f of fields) {
           let j = f.node.json();
           if (f.dep) j = { ...j, description: [j.description, `Its type is given by "${f.dep.on}".`].filter(Boolean).join('\n') };
+          if (f.dflt) j = { ...j, description: [j.description, `Default when left out: ${JSON.stringify(f.node.encode(f.dflt.value))}.`].filter(Boolean).join('\n') };
           if (f.optional && nullMode) {
             j = c.nullable(j);
             j.description = [j.description, 'Write null to leave it out.'].filter(Boolean).join('\n');
@@ -688,12 +710,14 @@ export class ObjectType<S extends Shape, R extends AnySchema | undefined = undef
           const has = Object.prototype.hasOwnProperty.call(obj, f.key);
           const val = has ? obj[f.key] : undefined;
           if (val === undefined) {
-            if (!f.optional) { cx.enter(f.key); cx.fail('Required.'); cx.leave(); }
+            if (f.dflt) { if (!cx.dry) out = writeKey(out, obj, f.key, f.dflt.fresh(cx.stats), cx); }
+            else if (!f.optional) { cx.enter(f.key); cx.fail('Required.'); cx.leave(); }
             continue;
           }
           if (val === null && f.optional && nullMode && !f.nullable) {
-            // Strict null means ABSENT in the code shape: the key goes, not `undefined`.
-            if (!cx.dry) out = deleteKey(out, obj, f.key, cx);
+            // Strict null means ABSENT in the code shape: the key goes, not `undefined`
+            // (or the default goes in).
+            if (!cx.dry) out = f.dflt ? writeKey(out, obj, f.key, f.dflt.fresh(cx.stats), cx) : deleteKey(out, obj, f.key, cx);
             continue;
           }
           cx.enter(f.key);
@@ -903,18 +927,17 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
    * bound env. Options whose tag can't be indexed (a plain string) are the
    * fallback, tried in order.
    */
-  private tagIndex(env: ReadonlyMap<string, AnySchema>): { byTag: Map<unknown, number>; fallback: number[] } | undefined {
-    if (!this.tag) return undefined;
+  private tagIndex(env: ReadonlyMap<string, AnySchema>, skip: ReadonlySet<number>): { tag: string; byTag: Map<unknown, number>; fallback: number[] } | undefined {
+    const tag = this.tag ?? autoTag(this.options, env);
+    if (!tag) return undefined;
     const byTag = new Map<unknown, number>();
     const fallback: number[] = [];
     this.options.forEach((o, i) => {
-      let t: AnySchema | undefined = (deref(o, env) as unknown as ObjectType<Shape>).shape?.[this.tag!];
-      t = deref(t, env);
-      if (t instanceof LiteralType) byTag.set(t.value, i);
-      else if (t instanceof EnumType) for (const v of t.values) { if (!byTag.has(v)) byTag.set(v, i); }
+      const values = skip.has(i) ? undefined : tagValues(o, tag, env);
+      if (values) { for (const v of values) if (!byTag.has(v)) byTag.set(v, i); }
       else fallback.push(i);
     });
-    return { byTag, fallback };
+    return { tag, byTag, fallback };
   }
 
   private label(i: number, env: ReadonlyMap<string, AnySchema>): string {
@@ -924,17 +947,40 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
   }
 
   compile(c: Compiler): Node {
-    const nodes = this.options.map((o) => c.compile(o));
-    const index = this.tagIndex(c.env);
-    const byTag = index?.byTag;
+    // Options that admit nothing (`never`, an empty enum) are left out; none left → never.
+    if (this.options.some((o) => isNever(o, c.env))) {
+      const live = this.options.filter((o) => !isNever(o, c.env));
+      if (!live.length) return neverNode(c, () => this.ruleHint());
+      const u = this.with({ options: live as unknown as O });
+      const n = u.compile(c);
+      return n;
+    }
     const tagged = c.profile.unions === 'tagged';
+    // An option written as JSON text (an escape, "any" on a strict dialect) is a
+    // string on the wire: next to other options it would be ambiguous (a plain
+    // string option matches it), so it is wrapped as `{ "json": "…" }`.
+    const wrapped = new Set<number>();
+    const compiled = this.options.map((o) => c.compile(o));
+    // Every option became JSON text (depth, recursion): the union itself is one JSON text.
+    if (compiled.length > 1 && compiled.every((n) => n.jsonText)) return c.escape(this, 'Nested too deep for this model to describe directly.');
+    const nodes = compiled.map((n, i, all) => {
+      if (tagged || all.length < 2 || !n.jsonText) return n;
+      wrapped.add(i);
+      return jsonWrapped(c, n);
+    });
+    // A wrapped option has no tag on the wire: it is found by trying it.
+    const index = this.tagIndex(c.env, wrapped);
+    const byTag = index?.byTag;
+    const tag = index?.tag;
     const labels = this.options.map((_, i) => this.label(i, c.env));
     const pick = (v: unknown, cx: Cx): number => {
       if (byTag && isObject(v)) {
-        const i = byTag.get((v as Record<string, unknown>)[this.tag!]);
+        const i = byTag.get((v as Record<string, unknown>)[tag!]);
         if (i !== undefined) return i;
       }
-      for (const i of index ? index.fallback : nodes.keys()) {
+      // No tag on the value (a JSON string to repair, an option written as JSON text): try every option.
+      const untagged = !isObject(v) || (v as Record<string, unknown>)[tag!] === undefined;
+      for (const i of index && !untagged ? index.fallback : nodes.keys()) {
         const d = cx.dryRun();
         nodes[i]!.run(v, d);
         if (!d.errors.length) return i;
@@ -968,31 +1014,49 @@ export class UnionType<O extends readonly [AnySchema, ...AnySchema[]]> extends S
         }
         const i = pick(v, cx);
         if (i < 0) {
-          if (byTag && !index!.fallback.length) {
-            cx.enter(this.tag!);
-            cx.fail(`Expected ${this.tag} to be one of: ${[...byTag.keys()].map((k) => JSON.stringify(k)).join(', ')}.`);
+          if (byTag && !index!.fallback.length && isObject(v) && (v as Record<string, unknown>)[tag!] !== undefined) {
+            cx.enter(tag!);
+            cx.fail(`Expected ${tag} to be one of: ${[...byTag.keys()].map((k) => JSON.stringify(k)).join(', ')}.`);
             cx.leave();
             return v;
           }
+          // One option whose literal fields (a `kind`) the value carries: its own errors say more.
+          const best = closestOption(this.options, v, c.env);
+          if (best >= 0) return nodes[best]!.run(v, cx);
           return fail(cx, v, `Did not match any of: ${this.options.map((o) => o.print(printer())).join(' | ')}.`);
         }
         return nodes[i]!.run(v, cx);
       },
       encode: (v, st) => {
-        const i = this.optionOf(v, c, byTag);
+        const i = this.optionOf(v, c, byTag, tag);
         if (i < 0) return v;
         const enc = nodes[i]!.encode(v, st);
         if (!tagged) return enc;
         st.objects++;
         return Object.fromEntries(labels.map((l, j) => [l, j === i ? enc : null]));
       },
+      // A part of a union: the options that have that part; which one is decided by the value encoded.
+      child: (seg) => {
+        const kids = nodes.map((n) => n.child(seg)).filter((k): k is Node => !!k);
+        if (kids.length <= 1) return kids[0];
+        const pickKid = (v: unknown) => kids.find((k) => !k.schema || matches(c, k.schema, v)) ?? kids[0]!;
+        const n = c.node({
+          deps: kids,
+          emit: () => ({ anyOf: kids.map((k) => k.json()) }),
+          run: (v, cx) => pickKid(v).run(v, cx),
+          encode: (v, st) => pickKid(v).encode(v, st),
+          child: (s) => kids[0]!.child(s),
+        });
+        n.needs = kids.some((k) => k.needs);
+        return n;
+      },
     });
   }
 
   /** Which option a CODE value belongs to (by tag, else the first whose code shape accepts it). */
-  private optionOf(v: unknown, c: Compiler, byTag: Map<unknown, number> | undefined): number {
+  private optionOf(v: unknown, c: Compiler, byTag: Map<unknown, number> | undefined, tag: string | undefined): number {
     if (byTag && isObject(v)) {
-      const i = byTag.get((v as Record<string, unknown>)[this.tag!]);
+      const i = byTag.get((v as Record<string, unknown>)[tag!]);
       if (i !== undefined) return i;
     }
     const lenient = c.lenient();
@@ -1166,8 +1230,82 @@ export class DependentType<Out = unknown> extends Schema<Out> {
 }
 
 // ============================================================================
+// Never
+// ============================================================================
+
+/**
+ * No value at all (zod's `never`). Used where a runtime list comes out empty:
+ * query's `joins` when no type has a relation, a function name when no
+ * function is selected. A union leaves never options out; a list of never
+ * must be empty; an optional object field of never is not shown to the
+ * model (and refused if sent).
+ */
+export class NeverType extends Schema<never> {
+  readonly kind = 'never' as const;
+  children() { return []; }
+  print() { return 'never'; }
+  compile(c: Compiler): Node {
+    return neverNode(c, () => this.ruleHint());
+  }
+}
+
+/** Does this schema (through refs) admit no value at all? */
+export function isNever(s: AnySchema | undefined, env: ReadonlyMap<string, AnySchema>): boolean {
+  const d = deref(s, env);
+  if (!d) return false;
+  if (d.kind === 'never') return true;
+  if (d instanceof EnumType) return d.values.length === 0;
+  if (d instanceof UnionType) return d.options.every((o: AnySchema) => isNever(o, env));
+  return false;
+}
+
+/** The node of a schema that admits nothing: `{not: {}}` where the dialect has `not`, else a null that is refused. */
+function neverNode(c: Compiler, rules: () => string | undefined): Node {
+  return c.node({
+    hint: () => ['No value is allowed here.', rules()].filter(Boolean).join(' '),
+    emit: () => (c.profile.conditionals ? { not: {} } : { type: 'null' }),
+    run: (v, cx) => fail(cx, v, 'No value is allowed here.'),
+    encode: (v) => v,
+  });
+}
+
+// ============================================================================
 // Wrappers
 // ============================================================================
+
+/**
+ * A value that may be left out and then reads as `value` (zod's `.default`).
+ * In an object the key is optional for the model (or `null` where absent is
+ * written null) and REQUIRED in the code shape: decoding writes the default
+ * in. Outside an object `undefined` decodes to the default.
+ */
+export class DefaultType<T extends AnySchema> extends Schema<Exclude<OutOf<T>, undefined>, RefsOf<T>> {
+  readonly kind = 'default' as const;
+  constructor(readonly inner: T, readonly value: Exclude<OutOf<T>, undefined>) { super(); }
+  children() { return [this.inner]; }
+  print(p: Printer) { return p.print(this.inner); }
+  /** A fresh copy of the default (containers are never shared between decoded values). */
+  fresh(stats?: CopyStats): unknown {
+    const v = this.value as unknown;
+    if (typeof v !== 'object' || v === null) return v;
+    if (stats) { if (Array.isArray(v)) stats.arrays++; else stats.objects++; }
+    return structuredClone(v);
+  }
+  compile(c: Compiler): Node {
+    const inner = c.guarded(this.inner, this);
+    const nullMode = c.profile.optional === 'null';
+    const nullable = this.inner instanceof NullableType;
+    return c.node({
+      own: true,
+      deps: [inner],
+      hint: () => this.hintOf([`Default when left out: ${JSON.stringify(inner.encode(this.value))}.`]),
+      emit: () => (nullMode && !nullable ? c.nullable(inner.json()) : inner.json()),
+      run: (v, cx) => (v === undefined || (v === null && nullMode && !nullable) ? this.fresh(cx.dry ? undefined : cx.stats) : inner.run(v, cx)),
+      encode: (v, st) => inner.encode(v, st),
+      child: (seg) => inner.child(seg),
+    });
+  }
+}
 
 export class OptionalType<T extends AnySchema> extends Schema<OutOf<T> | undefined, RefsOf<T>> {
   readonly kind = 'optional' as const;
@@ -1208,7 +1346,7 @@ export class NullableType<T extends AnySchema> extends Schema<OutOf<T> | null, R
 }
 
 /** A use of a named type, defined in the chain (statically or by the dynamic step). */
-export class RefType<N extends string> extends Schema<RefMarker<N>, N> {
+export class RefType<N extends string, Out = RefMarker<N>, R extends string = N> extends Schema<Out, R> {
   readonly kind = 'ref' as const;
   constructor(readonly name: N) { super(); }
   children() { return []; }
@@ -1270,6 +1408,102 @@ function jsonType(v: LiteralValue): string {
 function fail(cx: Cx, v: unknown, message: string): unknown {
   cx.fail(message);
   return v;
+}
+
+/** The tag values an option can have at `key` (through refs and nested unions); undefined when not a fixed set. */
+function tagValues(o: AnySchema | undefined, key: string, env: ReadonlyMap<string, AnySchema>, depth = 0): unknown[] | undefined {
+  const d = deref(o, env);
+  if (d instanceof ObjectType) {
+    const t = deref((d.shape as Shape)[key], env);
+    if (t instanceof LiteralType) return [t.value];
+    if (t instanceof EnumType) return [...t.values];
+    return undefined;
+  }
+  if (d instanceof UnionType && depth < 8) {
+    const out: unknown[] = [];
+    for (const x of d.options as readonly AnySchema[]) {
+      const v = tagValues(x, key, env, depth + 1);
+      if (!v) return undefined;
+      out.push(...v);
+    }
+    return out;
+  }
+  return undefined;
+}
+
+/** The object keys an option has (first object reached through refs / nested unions). */
+function optionKeys(o: AnySchema | undefined, env: ReadonlyMap<string, AnySchema>, depth = 0): string[] {
+  const d = deref(o, env);
+  if (d instanceof ObjectType) return Object.keys(d.shape);
+  if (d instanceof UnionType && depth < 8) return optionKeys((d.options as readonly AnySchema[])[0], env, depth + 1);
+  return [];
+}
+
+const autoTags = new WeakMap<readonly AnySchema[], WeakMap<object, string | null>>();
+/**
+ * A union whose options are all objects with a literal field (`kind`) of
+ * DISJOINT values is discriminated by it even when not declared so: decoding
+ * picks the option by tag (no trial parses) and reports errors inside it.
+ */
+function autoTag(options: readonly AnySchema[], env: ReadonlyMap<string, AnySchema>): string | undefined {
+  let byEnv = autoTags.get(options);
+  if (!byEnv) autoTags.set(options, (byEnv = new WeakMap()));
+  let found = byEnv.get(env);
+  if (found === undefined) {
+    found = null;
+    if (options.length > 1) {
+      for (const key of optionKeys(options[0], env)) {
+        const seen = new Set<unknown>();
+        let ok = true;
+        for (const o of options) {
+          const vs = tagValues(o, key, env);
+          if (!vs || vs.some((v) => seen.has(v))) { ok = false; break; }
+          for (const v of vs) seen.add(v);
+        }
+        if (ok) { found = key; break; }
+      }
+    }
+    byEnv.set(env, found);
+  }
+  return found ?? undefined;
+}
+
+/** The only option whose literal fields the value matches (the most of them), or -1. */
+function closestOption(options: readonly AnySchema[], v: unknown, env: ReadonlyMap<string, AnySchema>): number {
+  if (!isObject(v)) return -1;
+  const rec = v as Record<string, unknown>;
+  let best = -1;
+  let bestScore = 0;
+  let tie = false;
+  options.forEach((o, i) => {
+    let score = 0;
+    for (const k of optionKeys(o, env)) {
+      const vs = tagValues(o, k, env);
+      if (vs && k in rec) score += vs.includes(rec[k]) ? 1 : -1;
+    }
+    if (score > bestScore) { best = i; bestScore = score; tie = false; }
+    else if (score === bestScore && score > 0) tie = true;
+  });
+  return tie ? -1 : best;
+}
+
+/** A JSON-text option inside a union, written as `{ "json": "…" }` so it can't be mistaken for a string option. */
+function jsonWrapped(c: Compiler, n: Node): Node {
+  const w = c.node({
+    own: true,
+    deps: [n],
+    emit: () => c.object({ json: n.json() }, ['json']),
+    run: (v, cx) => {
+      if (!isObject(v) || !('json' in v)) return fail(cx, v, 'Expected {"json": "<JSON text>"}.');
+      cx.enter('json', null);
+      const out = n.run((v as { json: unknown }).json, cx);
+      cx.leave(false);
+      return out;
+    },
+    encode: (v, st) => { st.objects++; return { json: n.encode(v, st) }; },
+  });
+  c.nodes.push(w);
+  return w;
 }
 
 /** Follow refs to the schema they name (bounded). */

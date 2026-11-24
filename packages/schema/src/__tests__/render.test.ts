@@ -151,7 +151,9 @@ describe('profiles', () => {
     const an = Tree.render(ANTHROPIC_STRICT);
     const child = (an.jsonSchema.$defs as any).Node.properties.children.items;
     expect(child.type).toBe('string');
-    expect(child.description).toContain('type Node = { value: number; tags: { [key: string]: string }; children: Node[] }');
+    expect(child.description).toContain('Write it as JSON text of this TypeScript type: Node');
+    // The TypeScript definitions are written ONCE, in the whole schema's description.
+    expect(an.jsonSchema.description).toContain('type Node = { value: number; tags: { [key: string]: string }; children: Node[] }');
     const res = an.parse({ value: 1, tags: [{ key: 'a', value: 'b' }], children: ['{"value":2,"tags":{"x":"y"},"children":[]}'] });
     expect(res.ok && res.value).toEqual({ value: 1, tags: { a: 'b' }, children: [{ value: 2, tags: { x: 'y' }, children: [] }] });
     expect(res.stats).toEqual({ objects: 1, arrays: 0, edits: 2, parsed: 1, repaired: 0 });

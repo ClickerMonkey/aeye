@@ -132,6 +132,8 @@ export class Node {
   schema: AnySchema | undefined;
   /** An outer wrapper (e.g. `.optional()` around a field) whose metadata also applies. */
   outer: AnySchema | undefined;
+  /** The model writes this value as a string of JSON text (an escape, or "any" on a dialect without it). */
+  jsonText = false;
   private _json: JsonSchema | undefined;
   constructor(public impl: NodeImpl | undefined, readonly compiler: Compiler) {}
 
@@ -179,6 +181,27 @@ export class Printer {
   ref(name: string): string {
     this.names.add(name);
     return name;
+  }
+  /** The named types printed so far. */
+  used(): string[] {
+    return [...this.names];
+  }
+  /** `type X = …` for these named types and every named type they reach. */
+  definitions(names: Iterable<string>): string {
+    for (const n of names) this.names.add(n);
+    const lines: string[] = [];
+    const done = new Set<string>();
+    for (let again = true; again; ) {
+      again = false;
+      for (const n of [...this.names]) {
+        if (done.has(n)) continue;
+        done.add(n);
+        again = true;
+        const def = this.env.get(n);
+        if (def) lines.push(`type ${n} = ${def.print(this)}`);
+      }
+    }
+    return lines.join('\n');
   }
   /** The shape plus a `type X = …` line for every named type it reaches. */
   full(s: AnySchema): string {
@@ -232,11 +255,21 @@ function nestingOf(s: AnySchema): number {
  */
 const refFreeCache = new WeakMap<AnySchema, Map<string, Node>>();
 
+/** Nodes an inlining (no `$defs`) compile may make before it restarts as `inlineOnce`. */
+export const INLINE_BUDGET = 4000;
+/** Thrown inside a compile that inlined past `INLINE_BUDGET`; `Bound.render` restarts it. */
+export class InlineBudgetExceeded extends Error {}
+
 /** Compiles schemas for one (bound env, profile). */
 export class Compiler {
   readonly nodes: Node[] = [];
   /** Named types emitted into `$defs` (defs mode). */
   readonly defs = new Map<string, DefTarget>();
+  /** Named types the JSON-text escapes mention: defined once, in the root description. */
+  readonly glossary = new Set<string>();
+  /** Without `$defs`: recursive named types inlined so far (`inlineOnce` mode). */
+  private readonly inlined = new Set<string>();
+  private readonly recursive = new Map<string, boolean>();
   readonly view: View;
   /** Named types being compiled, with the guard level at their start. */
   private readonly stack: { readonly name: string; readonly guard: number }[] = [];
@@ -249,8 +282,34 @@ export class Compiler {
     readonly env: ReadonlyMap<string, AnySchema>,
     /** The LENIENT rendering of the same bound env (escape hatches validate against it). */
     readonly lenient: () => Rendered<unknown>,
+    /**
+     * Without `$defs` every use of a named type is inlined, which for a big
+     * recursive grammar (query's Expr ⇄ Query) grows exponentially. Past
+     * `INLINE_BUDGET` nodes the compile restarts in this mode: each recursive
+     * named type is written out once, its later uses are JSON text of it.
+     */
+    readonly inlineOnce = false,
   ) {
     this.view = viewOf(profile);
+  }
+
+  /** Does a named type reach itself? */
+  private isRecursive(name: string): boolean {
+    let r = this.recursive.get(name);
+    if (r === undefined) {
+      const seen = new Set<string>();
+      const stack = [...(this.env.get(name)?.refNames() ?? [])];
+      r = false;
+      while (stack.length) {
+        const n = stack.pop()!;
+        if (n === name) { r = true; break; }
+        if (seen.has(n)) continue;
+        seen.add(n);
+        stack.push(...(this.env.get(n)?.refNames() ?? []));
+      }
+      this.recursive.set(name, r);
+    }
+    return r;
   }
 
   node(impl: NodeImpl): Node {
@@ -322,6 +381,12 @@ export class Compiler {
       this.nodes.push(target);
       return this.defRef(name, target);
     }
+    if (this.inlineOnce && this.isRecursive(name)) {
+      if (this.inlined.has(name)) return this.escape(s, `"${name}" is written out once elsewhere in this schema.`, name);
+      this.inlined.add(name);
+    } else if (!this.inlineOnce && this.nodes.length > INLINE_BUDGET) {
+      throw new InlineBudgetExceeded();
+    }
     this.stack.push({ name, guard: this.guard });
     const n = this.compile(s);
     this.stack.pop();
@@ -348,12 +413,18 @@ export class Compiler {
    * schema, so nothing is lost — only moved into a string.
    */
   escape(s: AnySchema, why: string, name?: string): Node {
-    const shape = new Printer(this.env).full(name ? this.env.get(name)! : s);
+    // The shape is said by name; the named types it reaches are defined ONCE,
+    // in the root's description (`Rendered.jsonSchema`), not at every escape —
+    // a recursive grammar escapes at many places.
+    const printer = new Printer(this.env);
+    const shape = name ?? printer.print(s);
+    for (const n of name ? [name] : printer.used()) this.glossary.add(n);
+    const where = name || printer.used().length ? ' (its named types are defined in the description of the whole schema)' : '';
     let inner: Node | undefined;
     const lenientNode = () => (inner ??= this.lenient().nodeFor(s));
     const n = this.node({
       own: true,
-      emit: () => ({ type: 'string', description: `${why} Write it as JSON text of this TypeScript type:\n${shape}` }),
+      emit: () => ({ type: 'string', description: `${why} Write it as JSON text of this TypeScript type: ${shape}${where}.` }),
       run: (v, cx) => {
         const parsed = readJsonText(v, cx);
         if (parsed === FAILED) return v;
@@ -364,6 +435,7 @@ export class Compiler {
       },
       encode: (v) => JSON.stringify(v),
     });
+    n.jsonText = true;
     this.nodes.push(n);
     return n;
   }
@@ -584,6 +656,11 @@ export class Rendered<Out> {
     if (this._json) return this._json;
     let body = this.body();
     if (this.wrapped) body = this.compiler.object({ input: body }, ['input'], this.profile.closedObjects || this.profile.strict);
+    if (this.compiler.glossary.size) {
+      const defs = new Printer(this.compiler.env).definitions(this.compiler.glossary);
+      const note = `Named types used by the fields written as JSON text:\n${defs}`;
+      body = { ...body, description: typeof body.description === 'string' ? `${body.description}\n${note}` : note };
+    }
     const defs: Record<string, JsonSchema> = {};
     for (const [name, def] of this.compiler.defs) defs[name] = def.json();
     this._json = this.compiler.defs.size ? { ...body, $defs: defs } : body;

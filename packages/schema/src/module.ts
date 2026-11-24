@@ -23,7 +23,7 @@
  */
 import { RefType, type AnySchema, type Schema, type SchemaOf } from './schema';
 import type { AllowRefs, Merge, RefMarker, Resolve, SchemaError } from './types';
-import { Compiler, Rendered } from './render';
+import { Compiler, InlineBudgetExceeded, Rendered, type Node } from './render';
 import { LENIENT, type Profile } from './profile';
 import { SchemaDefinitionError } from './errors';
 
@@ -193,8 +193,17 @@ export class Bound<Out> {
   render(profile: Profile): Rendered<Out> {
     let r = this.rendered.get(profile.id);
     if (!r) {
-      const c = new Compiler(profile, this.env, () => this.render(LENIENT) as Rendered<unknown>);
-      const node = c.compile(this.root);
+      const lenient = () => this.render(LENIENT) as Rendered<unknown>;
+      let c = new Compiler(profile, this.env, lenient);
+      let node: Node;
+      try {
+        node = c.compile(this.root);
+      } catch (e) {
+        if (!(e instanceof InlineBudgetExceeded)) throw e;
+        // Inlining a big recursive grammar without `$defs` grew too large: write each recursive type out once.
+        c = new Compiler(profile, this.env, lenient, true);
+        node = c.compile(this.root);
+      }
       c.finish();
       r = new Rendered<Out>(c, node);
       this.rendered.set(profile.id, r);
