@@ -91,7 +91,7 @@ for a name you only want to resolve.
 another with `new LocalScope(scope, {…})`, add bindings in dependency order with
 `.bind(name, type)`, and pass a scope to anything that resolves names —
 `registry.parse(def, scope)`, `type.valid(raw, scope)`, `type.compatible(other,
-opts, scope)`, `type.toValueSchema({ scope })`.
+opts, scope)`, `type.toA({ scope })` / `ginValue(type, { scope })`.
 
 ### Type names, and namespaced ones
 
@@ -138,7 +138,7 @@ envelope's own type stands.
 
 Step 2 exists because a few types genuinely take an `ExprDef` as their value —
 `fn` above all, whose value IS an ExprDef (`FnType.parse`, `FnType.valid` and
-`FnType.toNewSchema` all say so). A `fn`-declared slot holding a `lambda` is
+`FnType.toNewA` all say so). A `fn`-declared slot holding a `lambda` is
 the ordinary case, not a smuggled expression. `Type.parsesExprValue()` declares
 it, so the rule travels with an `Extension` over `fn`, an `optional<fn>`, an
 `or<fn, text>`. `any` answers **false** on purpose: it accepts every value but
@@ -165,7 +165,7 @@ replacing the lambda with the literal its body constructs.
 `list<text>`, `valid()` returned `true` (each cell was asked whether it was
 valid BY ITS OWN LIGHTS, never against the declared element type),
 `validateValue()` reported nothing, and the only surface that noticed was a
-generated Zod schema — which is a prompt schema, not a validator.
+generated (zod) value schema — which is a prompt schema, not a validator.
 
 ## Value wire forms — what to serialize, and what it costs
 
@@ -191,7 +191,7 @@ universal. That is why it is opt-in.
 
 An `obj` field (or an Extension's stored prop) whose `optional` slot holds
 nothing is left out of every form, the way a JSON object omits a key it has no
-value for, so `encodeLogical()` passes the type's own `toValueSchema()`. A bare
+value for, so `encodeLogical()` passes the type's own value schema (`ginValue(type)`). A bare
 absent `optional` (not in a field) still encodes as `null`.
 
 **New in 0.4.1.** `encodeLogical` closes a real gap: there used to be exactly
@@ -321,10 +321,13 @@ render it with `Code.formatProblems` (`engine.toGinCode(expr).formatProblems(pro
 as ginny's `write` does. The two never overlap: the schema says what a program
 IS, gin says whether it makes sense.
 
-**Deprecated: the zod grammar.** `buildZodSchemas(registry, overrides?)` (the
-old `buildSchemas`, every class's `static toSchema` / `toNewSchema`) is kept
-only because `toValueSchema` (zod) needs it for `typ` / `fn` values. Nothing in
-aits gives it to a model. It goes once the harness moves to `a`.
+**The zod grammar is gone.** `buildZodSchemas` (the old `buildSchemas`, every
+class's `static toSchema` / `toNewSchema`) and the zod value schemas
+(`toValueSchema` and friends) were removed; gin no longer depends on `zod`.
+The grammar is `GinGrammar` / `buildSchemas`, a value's schema `toA` /
+`ginValue`, and a value check that isn't a model parses leniently:
+`ginValue(type).render(LENIENT).parse(v)` (see aeye-gin-types.md, "Value
+schemas"). A custom class's `static toSchema` becomes `static toA()`.
 
 ## End-to-end example
 

@@ -1,5 +1,5 @@
 import type { TypeScope } from '../type-scope';
-import { newSlotA, newSlotSchema } from '../new-slot';
+import { newSlotA } from '../new-slot';
 import type { Registry } from '../registry';
 import type { TypeDef, PropDef } from '../schema';
 import { Value } from '../value';
@@ -10,11 +10,9 @@ import {
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
-import { propDefSchema } from '../schemas';
 import type { FieldsInput } from '../infer';
 
 /**
@@ -38,19 +36,6 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
   static from(json: TypeDef, scope: TypeScope): ObjType {
     const fields = Prop.fromMap(json.props ?? {}, scope);
     return new ObjType(scope, fields);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('obj'),
-      props: z.record(z.string(), propDefSchema(opts)).optional(),
-    }).meta({ aid: 'Type_object' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Class-level: `Record<string, Expr>` — any field name / Expr value.
-    // Registered named objs narrow to a `z.object({per-field})` shape.
-    return z.record(z.string(), opts.Expr);
   }
 
   constructor(scope: TypeScope, fields: FieldsInput) {
@@ -312,17 +297,6 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
     return this.fields;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    const mode = opts?.includeDocs ?? 'none';
-    const shape: Record<string, z.ZodTypeAny> = {};
-    for (const [name, prop] of Object.entries(this.fields)) {
-      let field = prop.type.toValueSchema(opts);
-      if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
-      shape[name] = field;
-    }
-    return this.describeType(this.valueObject(shape, opts), opts);
-  }
-
   valueA(opts?: ValueSchemaOptions): AnySchema {
     const mode = opts?.includeDocs ?? 'none';
     const shape: Record<string, AnySchema> = {};
@@ -343,31 +317,6 @@ export class ObjType<T extends object = Record<string, any>> extends Type<T, Rec
       shape[name] = prop.type.isOptional() ? a.optional(slot) : slot;
     }
     return this.describeA(a.object(shape), opts);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const mode = opts.includeDocs ?? 'none';
-    // Each field accepts any Expr — Get, NewExpr, function-call path, etc. —
-    // and a plain field (text, num, enum, …) also its value as is.
-    // Per-field type correctness is enforced at evaluate/validate time.
-    const shape: Record<string, z.ZodTypeAny> = {};
-    for (const [name, prop] of Object.entries(this.fields)) {
-      let slot: z.ZodTypeAny = newSlotSchema(prop.type, opts);
-      if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
-      shape[name] = prop.type.isOptional() ? slot.optional() : slot;
-    }
-    return this.describeType(z.object(shape), opts, 'NewValue_');
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    const propShape: Record<string, z.ZodTypeAny> = {};
-    for (const [name, prop] of Object.entries(this.fields)) {
-      propShape[name] = z.object({ type: prop.type.toInstanceSchema() }).passthrough();
-    }
-    return z.object({
-      name: z.literal('obj'),
-      props: z.object(propShape).optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

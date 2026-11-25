@@ -6,9 +6,8 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { TimestampOptions } from '../builder';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -29,25 +28,6 @@ export class TimestampType extends Type<Date, TimestampOptions> {
   static from(json: TypeDef, scope: TypeScope): TimestampType {
     const registry = scope.registry;
     return new TimestampType(scope, (json.options ?? {}) as TimestampOptions);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('timestamp'),
-      options: z.object({
-        min: z.string().optional(),
-        max: z.string().optional(),
-        utc: z.boolean().optional(),
-        precision: z.enum(['ms', 's', 'us']).optional(),
-      }).optional(),
-    }).meta({ aid: 'Type_timestamp' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.string().regex(
-      /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/,
-      'expected ISO 8601 timestamp',
-    );
   }
 
   valid(raw: unknown): raw is Date {
@@ -130,35 +110,10 @@ export class TimestampType extends Type<Date, TimestampOptions> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'timestamp' + optionsCode(this.options); }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Dump form is ISO 8601 datetime with a REQUIRED time component:
-    //   YYYY-MM-DD[T or space]HH:MM[:SS[.fff]][Z|±HH:MM]
-    return this.describeType(z.string().regex(
-      /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/,
-      'expected ISO 8601 timestamp',
-    ), opts);
-  }
-
   valueA(): AnySchema {
     return a.string()
       .pattern('^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:?\\d{2})?$')
       .describe('An ISO 8601 timestamp (YYYY-MM-DD HH:MM[:SS][Z]).');
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    const { min, max, precision } = this.options;
-    const hasNarrowing = min !== undefined || max !== undefined || precision !== undefined;
-    const optionsShape: Record<string, z.ZodTypeAny> = {
-      min: min === undefined ? z.string().optional() : z.string().refine((v) => v >= min, { message: `min must be >= ${min}` }),
-      max: max === undefined ? z.string().optional() : z.string().refine((v) => v <= max, { message: `max must be <= ${max}` }),
-      utc: z.boolean().optional(),
-      precision: precision === undefined ? z.enum(['ms', 's', 'us']).optional() : z.literal(precision),
-    };
-    const optionsSchema = z.object(optionsShape);
-    return z.object({
-      name: z.literal('timestamp'),
-      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

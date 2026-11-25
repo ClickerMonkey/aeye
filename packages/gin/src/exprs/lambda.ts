@@ -9,10 +9,8 @@ import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, LAMBDA_COMPLEXITY_BASE, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { Code, code, span } from '../code';
-import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import { LocalScope, type TypeScope } from '../type-scope';
 import { Effects } from '../effects';
 
@@ -50,22 +48,6 @@ export class LambdaExpr extends Expr {
       ? registry.parseExpr(json.constraint, bodyScope)
       : undefined;
     return new LambdaExpr(fnType, body, constraint).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('lambda'),
-      ...baseExprFields,
-      type: opts.Type.describe(
-        'The lambda\'s function type — `{ name: "fn", call: { args, returns } }` (or a registered named fn type). The `args` obj defines what the body sees under the `args` scope variable; `returns` is what the body must produce.',
-      ),
-      body: opts.Expr.describe(
-        'The lambda body. At runtime, scope contains the lexical scope at definition site PLUS `args` (the call arguments) and `recurse` (this same lambda, for self-calls). Read params via `[{prop:"args"},{prop:"<name>"}]`.',
-      ),
-      constraint: opts.Expr.optional().describe(
-        'Optional bool-typed precondition evaluated before the body on every call (with `args` in scope). If it returns false, the call throws. Use for input invariants you want enforced regardless of caller.',
-      ),
-    }).meta({ aid: 'Expr_lambda' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

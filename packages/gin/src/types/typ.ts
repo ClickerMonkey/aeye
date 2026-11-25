@@ -1,13 +1,10 @@
 import type { TypeScope } from '../type-scope';
 import type { Registry } from '../registry';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
 import type { TypeDef } from '../schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { Value } from '../value';
-import { extensionSchemaNarrowed, schemaBag } from '../schemas';
-import { TYPE_NAME } from '../type-name';
 import { extensionA, namedRefA, typeBranchA } from '../grammar-parts';
 
 
@@ -23,7 +20,7 @@ import { extensionA, namedRefA, typeBranchA } from '../grammar-parts';
  * Consumers of a `typ` Value (e.g. the fetch/llm natives) can use `.raw`
  * directly as a Type — no `registry.parse` needed at each invocation.
  *
- * `toValueSchema()` still validates the INCOMING JSON TypeDef form (what the
+ * `toA()` (a ref to the grammar's `TypeDef`) still validates the INCOMING JSON TypeDef form (what the
  * LLM emits in ExprDef slots); `parse` does the one-time JSON→Type conversion.
  */
 export class TypType<T = any> extends Type<Type, Record<string, never>> {
@@ -38,18 +35,6 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
     const registry = scope.registry;
     const constraint = json.generic?.T ? scope.parse(json.generic.T) : registry.any();
     return new TypType(scope, constraint);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('typ'),
-      generic: z.object({ T: opts.Type }).optional(),
-    }).meta({ aid: 'Type_typ' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Class-level: any TypeDef JSON (the LLM writes JSON, not Type instances).
-    return opts.Type;
   }
 
   constructor(scope: TypeScope, readonly constraint: Type<T>) {
@@ -155,46 +140,6 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
   }
 
   /**
-   * The JSON TypeDefs this typ accepts, as gin's strict TypeDef schemas (`buildSchemas`): for `typ<any>` every
-   * TypeDef, otherwise the class schema of each built-in class compatible with the constraint (`obj` with its
-   * props, `num` with its options), a reference to each compatible named type, and an inline Extension of one of
-   * them. So a tool parameter of this type tells the model the TypeDef shape, rather than an empty schema. The
-   * schema bag comes from `opts` when it carries one, else it is built for this registry (and kept). A refinement
-   * then parses the TypeDef, so a definition that fits the shape but not the constraint is refused too.
-   */
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    const bag = schemaBag(this.registry, opts);
-    const compatible = this.registry.compatible(this.constraint);
-    // If no registry type is compatible with the constraint, nothing can
-    // pass — emit never so callers can't supply an arbitrary TypeDef.
-    if (compatible.length === 0 && this.constraint.name !== 'any') {
-      return this.describeType(z.never(), opts);
-    }
-    let shape: z.ZodTypeAny;
-    if (this.constraint.name === 'any') {
-      shape = bag.Type;
-    } else {
-      const branches = compatible.map((t) => {
-        const cls = this.registry.typeClass(t.name);
-        return cls !== undefined ? cls.toSchema(bag) : z.object({ name: z.literal(t.name) }).passthrough().meta({ aid: t.name });
-      });
-      // a named type the scope resolves but the registry doesn't hold; the refinement checks it fits
-      branches.push(z.object({ name: z.string().regex(TYPE_NAME) }).strict().describe('A named type, by its name.'));
-      branches.push(extensionSchemaNarrowed(this.registry, bag, compatible.map((t) => t.name)));
-      const error = `must be a gin type definition ({ "name": ..., ... }) whose type fits ${this.constraint.toCode()}${this.constraint.name === 'obj' ? ', such as { "name": "obj", "props": { "id": { "type": { "name": "num" } } } }' : ''}`;
-      shape = branches.length > 1 ? z.union(branches as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]], { error }) : branches[0]!;
-    }
-    const schema = shape.superRefine((value, ctx) => {
-      try {
-        this.parse(value, opts?.scope);
-      } catch (e) {
-        ctx.addIssue({ code: 'custom', message: e instanceof Error ? e.message : String(e) });
-      }
-    });
-    return this.describeType(schema, opts);
-  }
-
-  /**
    * A typ value IS a TypeDef: `a.ref('TypeDef')` from the grammar module
    * when unconstrained; else the TypeDef branches whose type fits the
    * constraint (classes, named types, a named type by name, an inline
@@ -224,8 +169,4 @@ export class TypType<T = any> extends Type<Type, Record<string, never>> {
   }
 
   toNewA(opts?: ValueSchemaOptions): AnySchema { return this.describeA(this.toA(opts), opts); }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(this.toValueSchema(opts), opts, 'NewValue_');
-  }
 }

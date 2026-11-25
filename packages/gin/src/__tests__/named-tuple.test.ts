@@ -1,20 +1,20 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, buildSchemas } from '../index';
-import { parsers } from './_a';
+import { createRegistry, buildSchemas, ginValue } from '../index';
+import { asParser, parsers } from './_a';
 import { TupleType } from '../types/tuple';
 
 /**
  * Registering a named tuple via Extension — e.g. `Pair = [string, number]` —
- * should preserve its positional shape end-to-end: toValueSchema, toJSON
+ * should preserve its positional shape end-to-end: toA, toJSON
  * round-trip, and the opts.Type union from buildSchemas.
  */
 describe('named tuple via Extension', () => {
-  test('toValueSchema enforces the positional shape', () => {
+  test('toA enforces the positional shape', () => {
     const r = createRegistry();
     const Pair = r.extend(r.tuple([r.text(), r.num()]), { name: 'Pair' });
     r.register(Pair);
 
-    const s = Pair.toValueSchema();
+    const s = asParser(ginValue(Pair));
     expect(s.safeParse(['hi', 42]).success).toBe(true);
     expect(s.safeParse([42, 'hi']).success).toBe(false); // wrong order
     expect(s.safeParse(['hi']).success).toBe(false);     // wrong length

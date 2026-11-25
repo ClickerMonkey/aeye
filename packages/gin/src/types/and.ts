@@ -8,9 +8,8 @@ import type { Scope } from '../scope';
 import type { EncodeOptions } from '../json-type';
 import { ObjType } from './obj';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 
 
 export interface AndOptions {
@@ -44,17 +43,6 @@ export class AndType<T = any> extends Type<T, AndOptions> {
     const registry = scope.registry;
     const parts = ((json.options?.types ?? []) as TypeDef[]).map((t) => scope.parse(t));
     return new AndType(scope, parts);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('and'),
-      options: z.object({ types: z.array(opts.Type) }),
-    }).meta({ aid: 'Type_and' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return opts.Expr;
   }
 
   constructor(scope: TypeScope, parts: Type[]) {
@@ -299,15 +287,6 @@ export class AndType<T = any> extends Type<T, AndOptions> {
     return this.docsPrefix(options) + `and<${this.parts.map((p) => p.toCode(undefined, options)).join(', ')}>`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    if (this.parts.length === 0) return this.describeType(z.unknown(), opts);
-    if (this.parts.length === 1) return this.describeType(this.parts[0]!.toValueSchema(opts), opts);
-    const s = this.parts
-      .map((p) => p.toValueSchema(opts))
-      .reduce((a, b) => z.intersection(a, b));
-    return this.describeType(s, opts);
-  }
-
   /** Object parts merge into one object (every dialect can say that); others are checked in turn. */
   valueA(opts?: ValueSchemaOptions): AnySchema {
     if (this.parts.length === 0) return a.unknown();
@@ -321,21 +300,4 @@ export class AndType<T = any> extends Type<T, AndOptions> {
     return this.describeA(a.intersection(this.parts.map((p) => p.toNewA(opts)) as [AnySchema, ...AnySchema[]]), opts);
   }
 
-  /** And's instance schema = intersection of each part's instance schema. */
-  toInstanceSchema(): z.ZodTypeAny {
-    if (this.parts.length === 0) return z.unknown();
-    if (this.parts.length === 1) return this.parts[0]!.toInstanceSchema();
-    return this.parts
-      .map((p) => p.toInstanceSchema())
-      .reduce((a, b) => z.intersection(a, b));
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    if (this.parts.length === 0) return this.describeType(z.unknown(), opts, 'NewValue_');
-    if (this.parts.length === 1) return this.describeType(this.parts[0]!.toNewSchema(opts), opts, 'NewValue_');
-    const s = this.parts
-      .map((p) => p.toNewSchema(opts))
-      .reduce((a, b) => z.intersection(a, b));
-    return this.describeType(s, opts, 'NewValue_');
-  }
 }

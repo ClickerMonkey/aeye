@@ -9,7 +9,7 @@ import type {
   DataFields, FieldsInput, FnValue, Infer, IntersectValues, NamedValue, ObjValue, TupleValue, WithData,
 } from './infer';
 import { Expr, type ExprClass } from './expr';
-import type { CodeOptions, SchemaOptions } from './node';
+import type { CodeOptions } from './node';
 import type { Code } from './code';
 import type { JSONValue } from './json-type';
 import type { Engine } from './engine';
@@ -18,7 +18,6 @@ import { Effects } from './effects';
 import { didYouMean } from './aids';
 import { checkWireKeys } from './wire';
 import { TYPE_NAME, isTypeName } from './type-name';
-import type { z } from 'zod';
 import type { AnySchema } from '@aeye/schema';
 
 import { AnyType } from './types/any';
@@ -108,20 +107,6 @@ export interface TypeClass {
    *  `scope.parse` (i.e. `scope.registry.parse(child, scope)`) to
    *  recursively parse children with the same scope. */
   from(json: TypeDef, scope: TypeScope): Type;
-  /** JSON-shape Zod schema for this Type's TypeDef. */
-  toSchema(opts: SchemaOptions): z.ZodTypeAny;
-  /**
-   * CLASS-level value schema used by `NewExpr.toSchema` strict mode when
-   * the LLM references this type's class (e.g. `{name:'num'}` or
-   * `{name:'list', generic: {...}}`). Represents the most-permissive
-   * value shape for ANY instance of the class:
-   *  - Primitives emit their concrete Zod (num → number, text → string).
-   *  - Composites emit `opts.Expr`-based shapes (list → `Expr[]`, map →
-   *    `{key:Expr, value:Expr}[]`, obj → `Record<string, Expr>`).
-   * Instance-specific tightenings (num with min/max, obj with declared
-   * fields) go through a named-instance branch instead.
-   */
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny;
   /**
    * This class's TypeDef branch as an `a` schema, for a class registered
    * beyond the built-ins (whose branches are the grammar's own defs). Refs
@@ -297,8 +282,8 @@ export class Registry implements TypeBuilder, TypeScope {
    * type's body — the definition body is always "what this type adds".
    *
    * Augmentation is REGISTRY-SIDE surface, never wire shape: it does
-   * not appear in `toJSON()` and does not enter `toValueSchema()` /
-   * `toNewSchema()`. That is what makes it the right slot for methods
+   * not appear in `toJSON()` and does not enter `toA()` /
+   * `toNewA()`. That is what makes it the right slot for methods
    * on a type whose value contract must stay closed (a bare `{ id }`
    * handle keeps parsing), and the reason the print is the only thing
    * that had to change.
@@ -568,7 +553,7 @@ export class Registry implements TypeBuilder, TypeScope {
    * Before, a value that arrived carrying its own type envelope was installed
    * on that type's say-so alone: `list<text>.parse([{type:{name:'num'},
    * value:5}])` produced a `num` inside a `list<text>`, `valid()` said true,
-   * `validateValue()` said nothing, and only a generated Zod schema — which
+   * `validateValue()` said nothing, and only a generated value schema — which
    * is not a validator — ever noticed. See {@link slotAccepts} for the rule; a
    * genuine subtype still lands, which is the whole point of per-slot types.
    *
@@ -589,7 +574,7 @@ export class Registry implements TypeBuilder, TypeScope {
 
     // 2. THE DECLARED TYPE, FIRST. A few types declare that an Expr node IS
     //    one of their values — `fn` above all, whose value is an ExprDef by
-    //    definition (`FnType.parse`/`valid`/`toNewSchema` all say so). For
+    //    definition (`FnType.parse`/`valid`/`toNewA` all say so). For
     //    those the node is DATA, and no shape test may overrule the
     //    declaration. Narrow on purpose: it fires only when the slot's type
     //    claims the form AND the node actually carries a registered expr
@@ -837,7 +822,7 @@ export class Registry implements TypeBuilder, TypeScope {
       // `extends:'obj'` type would parse every value to `{}`)". Since 0.4.1
       // `Extension.parse` DOES consult the local: a stored local prop is
       // filled, required by `valid`, emitted by `encode` and demanded by
-      // `toValueSchema` (see `Extension.storedLocalProps`). So data would no
+      // `toA` (see `Extension.storedLocalProps`). So data would no
       // longer vanish.
       //
       // What the fold costs is the open round-trip defect: it re-attributes an

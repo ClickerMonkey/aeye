@@ -1,13 +1,13 @@
 /**
- * `toValueSchema({ unknownKeys: 'refuse' })` — refusing a key the type does
+ * `toA({ unknownKeys: 'refuse' })` (and `ginValue(type, { unknownKeys: 'refuse' })`) — refusing a key the type does
  * not declare, at boundaries where an undeclared key is a TYPO.
  *
  * The measured hole: a settings payload validated through a generated value
  * schema parsed CLEAN with its mis-spelt knob silently gone.
  *
- *   obj{type: text, charThreshold: num}.toValueSchema()
+ *   obj{type: text, charThreshold: num} value schema
  *     .safeParse({type:'graph', charThreshold:5000, bogus:1})
- *   → success, data = {type:'graph', charThreshold:5000}
+ *   → success, and `parse` keeps {type:'graph', charThreshold:5000}
  *
  * A REQUIRED knob is safe (it fails as missing); a mis-spelt OPTIONAL one
  * disappears without a word, is stored, and does nothing — with no error at any
@@ -24,6 +24,8 @@
  * row flowing through a narrower view — and only the caller knows which.
  */
 import { describe, test, expect } from 'vitest';
+import { LENIENT } from '@aeye/schema';
+import { valueParser } from './_a';
 import { createRegistry, Value } from '../index';
 
 const r = createRegistry();
@@ -31,15 +33,15 @@ const r = createRegistry();
 /** The measured config: one required text, one required num. */
 const config = () => r.obj({ type: { type: r.text() }, charThreshold: { type: r.num() } });
 
-describe('the default is strip, and it matches the rest of the type system', () => {
-  test('an undeclared key is dropped — the behaviour that lost a knob', () => {
-    const got = config().toValueSchema().safeParse({ type: 'graph', charThreshold: 5000, bogus: 1 });
+describe('the default lets it through, and it matches the rest of the type system', () => {
+  test('an undeclared key passes the schema and gin drops it — the behaviour that lost a knob', () => {
+    const got = valueParser(config()).safeParse({ type: 'graph', charThreshold: 5000, bogus: 1 });
     expect(got.success).toBe(true);
-    expect(got.data).toEqual({ type: 'graph', charThreshold: 5000 });
+    expect(config().parse(got.data).toLogical()).toEqual({ type: 'graph', charThreshold: 5000 });
   });
 
   test('a REQUIRED knob is never the victim — it fails as missing', () => {
-    expect(config().toValueSchema().safeParse({ type: 'graph' }).success).toBe(false);
+    expect(valueParser(config()).safeParse({ type: 'graph' }).success).toBe(false);
   });
 
   test('why stripping is defensible: the type system is width-subtyped', () => {
@@ -59,14 +61,15 @@ describe('the default is strip, and it matches the rest of the type system', () 
 
 describe("unknownKeys: 'refuse'", () => {
   test('the typo is named, with its path', () => {
-    const got = config().toValueSchema({ unknownKeys: 'refuse' })
+    const got = valueParser(config(), { unknownKeys: 'refuse' })
       .safeParse({ type: 'graph', charThreshold: 5000, bogus: 1 });
     expect(got.success).toBe(false);
-    expect(got.error?.issues[0]).toMatchObject({ code: 'unrecognized_keys', keys: ['bogus'], path: [] });
+    expect(got.issues?.[0]).toMatchObject({ path: ['bogus'] });
+    expect(got.issues?.[0]?.message).toContain('bogus');
   });
 
   test('a legitimate payload is untouched', () => {
-    const got = config().toValueSchema({ unknownKeys: 'refuse' })
+    const got = valueParser(config(), { unknownKeys: 'refuse' })
       .safeParse({ type: 'graph', charThreshold: 5000 });
     expect(got.success).toBe(true);
     expect(got.data).toEqual({ type: 'graph', charThreshold: 5000 });
@@ -74,24 +77,29 @@ describe("unknownKeys: 'refuse'", () => {
 
   test('it reaches NESTED slots — one option, the whole payload', () => {
     const outer = r.obj({ inner: { type: config() }, items: { type: r.list(config()) } });
-    const schema = outer.toValueSchema({ unknownKeys: 'refuse' });
+    const schema = valueParser(outer, { unknownKeys: 'refuse' });
 
     expect(schema.safeParse({
       inner: { type: 'g', charThreshold: 1, bogus: 1 },
       items: [],
-    }).error?.issues[0]).toMatchObject({ code: 'unrecognized_keys', path: ['inner'] });
+    }).issues?.[0]).toMatchObject({ path: ['inner', 'bogus'] });
 
     expect(schema.safeParse({
       inner: { type: 'g', charThreshold: 1 },
       items: [{ type: 'g', charThreshold: 1, bogus: 1 }],
-    }).error?.issues[0]).toMatchObject({ code: 'unrecognized_keys', path: ['items', 0] });
+    }).issues?.[0]).toMatchObject({ path: ['items', 0, 'bogus'] });
   });
 
-  test("a map's entry envelope is checked too", () => {
-    const schema = r.map(r.text(), r.num()).toValueSchema({ unknownKeys: 'refuse' });
-    expect(schema.safeParse([{ key: 'k', value: 1 }]).success).toBe(true);
-    expect(schema.safeParse([{ key: 'k', value: 1, zz: 3 }]).error?.issues[0])
-      .toMatchObject({ code: 'unrecognized_keys', keys: ['zz'], path: [0] });
+  test("a map's values are checked too", () => {
+    // map<text, V> is a record in the code shape; map<num, V> is { key, value } pairs.
+    const schema = valueParser(r.map(r.text(), config()), { unknownKeys: 'refuse' });
+    expect(schema.safeParse({ k: { type: 'g', charThreshold: 1 } }).success).toBe(true);
+    expect(schema.safeParse({ k: { type: 'g', charThreshold: 1, zz: 3 } }).issues?.[0])
+      .toMatchObject({ path: ['k', 'zz'] });
+    const pairs = valueParser(r.map(r.num(), r.num()), { unknownKeys: 'refuse' });
+    expect(pairs.safeParse([{ key: 1, value: 1 }]).success).toBe(true);
+    expect(pairs.safeParse([{ key: 1, value: 1, zz: 3 }]).issues?.[0])
+      .toMatchObject({ path: [0, 'zz'] });
   });
 
   test("an Extension's local props are part of the declared set, not an extra", () => {
@@ -99,26 +107,26 @@ describe("unknownKeys: 'refuse'", () => {
       name: 'Settings',
       props: { c: { type: r.text() } },
     });
-    const schema = ext.toValueSchema({ unknownKeys: 'refuse' });
+    const schema = valueParser(ext, { unknownKeys: 'refuse' });
     expect(schema.safeParse({ a: 1, c: 'x' }).success).toBe(true);
-    expect(schema.safeParse({ a: 1, c: 'x', zz: 2 }).error?.issues[0])
-      .toMatchObject({ code: 'unrecognized_keys', keys: ['zz'] });
+    expect(schema.safeParse({ a: 1, c: 'x', zz: 2 }).issues?.[0])
+      .toMatchObject({ path: ['zz'] });
   });
 
   test('an interface passes width through by DEFAULT and refuses when asked', () => {
     // An interface is a contract — a value carrying more still satisfies it,
     // which is why this one is passthrough rather than strip.
     const iface = r.iface({ props: { a: { type: r.num() } } });
-    expect(iface.toValueSchema().safeParse({ a: 1, zz: 2 }).data).toEqual({ a: 1, zz: 2 });
-    expect(iface.toValueSchema({ unknownKeys: 'refuse' }).safeParse({ a: 1, zz: 2 }).success).toBe(false);
+    expect(valueParser(iface).safeParse({ a: 1, zz: 2 }).data).toEqual({ a: 1, zz: 2 });
+    expect(valueParser(iface, { unknownKeys: 'refuse' }).safeParse({ a: 1, zz: 2 }).success).toBe(false);
   });
 
   test('it composes with the other schema options rather than replacing them', () => {
     const documented = r.obj({ a: { type: r.num(), docs: 'the a' } });
-    const schema = documented.toValueSchema({ unknownKeys: 'refuse', includeDocs: 'all' });
+    const schema = valueParser(documented, { unknownKeys: 'refuse', includeDocs: 'all' });
     expect(schema.safeParse({ a: 1, zz: 2 }).success).toBe(false);
-    const shape = (schema as unknown as { shape: Record<string, { description?: string }> }).shape;
-    expect(shape.a!.description).toBe('the a');
+    const js = schema.bound.render(LENIENT).jsonSchema as { properties: Record<string, { description?: string }> };
+    expect(js.properties.a!.description).toBe('the a');
   });
 
   test('the WIRE side is not affected — a TypeDef key is refused either way', () => {

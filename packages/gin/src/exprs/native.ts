@@ -7,10 +7,8 @@ import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { Code } from '../code';
-import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 import { Effects } from '../effects';
 
@@ -38,19 +36,6 @@ export class NativeExpr extends Expr {
       json.type ? scope.registry.parse(json.type, scope) : undefined,
       scope.registry.nativeEffects(json.id),
     ).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('native'),
-      ...baseExprFields,
-      id: z.string().describe(
-        'Identifier of a native impl registered via `registry.setNative(id, fn)` (e.g. `list.push`, `num.add`). The model should NOT generate `native` expressions directly — methods on built-in types are reached via `get` paths, which gin resolves to natives internally.',
-      ),
-      type: opts.Type.optional().describe(
-        'Optional type to wrap the native\'s raw return value with when the impl returns a non-Value. Defaults to `any` if omitted.',
-      ),
-    }).meta({ aid: 'Expr_native' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

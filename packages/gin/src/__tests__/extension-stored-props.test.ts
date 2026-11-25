@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import { valueParser } from './_a';
 import { createRegistry } from '../index';
 import { Value } from '../value';
 
@@ -12,7 +13,7 @@ import { Value } from '../value';
  *
  *   const W = r.extend(r.obj({}), {name:'W', props:{id:{type:r.text()},
  *                                                   opt:{type:r.optional(r.text())}}});
- *   W.toValueSchema().safeParse({})   // FAILS: path ['id'] expected string
+ *   valueParser(W).safeParse({})   // FAILS: path ['id'] expected string
  *   W.parse({id:'i', opt:'o'}).raw    // {}      ← every field discarded
  *   W.valid({})                       // true    ← and the loss was blessed
  *   Object.keys(W.props())            // [... 'id', 'opt']  ← still advertised
@@ -25,7 +26,7 @@ import { Value } from '../value';
  * expression derives it from `this`, and a callable type carries its body in
  * `get`. Everything else is a field this type ADDS to its base, and the value
  * has to carry it. One predicate, consulted by `parse`, `valid`, `encode`,
- * `create`, `random` AND `toValueSchema`, so they cannot drift apart again.
+ * `create`, `random` AND the value schema (`toA`), so they cannot drift apart again.
  */
 
 describe('a STORED local prop is data the value carries', () => {
@@ -51,9 +52,9 @@ describe('a STORED local prop is data the value carries', () => {
     expect(W.parse(v.encodeLogical()).encodeLogical()).toEqual({ id: 'i', opt: 'o' });
   });
 
-  test('toValueSchema still requires it — schema and parse now AGREE', () => {
-    expect(W.toValueSchema().safeParse({}).success).toBe(false);
-    expect(W.toValueSchema().safeParse({ id: 'i' }).success).toBe(true);
+  test('the value schema still requires it — schema and parse now AGREE', () => {
+    expect(valueParser(W).safeParse({}).success).toBe(false);
+    expect(valueParser(W).safeParse({ id: 'i' }).success).toBe(true);
   });
 
   test('the prop reads back through the value', () => {
@@ -90,7 +91,7 @@ describe('a SURFACE local prop stays surface — no value carries a method', () 
     // server-side. When its four methods rode local props the value schema
     // demanded `url`, `markdown`, `thumbnail` and `contentType` on every
     // handle — which no caller can supply and no value of the type carries.
-    expect(res.toValueSchema().safeParse({ id: 'a' }).success).toBe(true);
+    expect(valueParser(res).safeParse({ id: 'a' }).success).toBe(true);
   });
 
   test('a COMPUTED prop is not required either', () => {
@@ -118,7 +119,7 @@ describe('the composition the product discovered by measurement still works', ()
     const v = project.parse({ id: 'p1', name: 'Apollo' });
     expect(v.encodeLogical()).toEqual({ id: 'p1', name: 'Apollo' });
     expect(project.valid(v.raw)).toBe(true);
-    expect(project.toValueSchema().safeParse({ id: 'p1', name: 'Apollo' }).success).toBe(true);
+    expect(valueParser(project).safeParse({ id: 'p1', name: 'Apollo' }).success).toBe(true);
   });
 
   test('an Extension over a NON-record base has nowhere to store one, and does not try', () => {
@@ -136,7 +137,7 @@ describe('the composition the product discovered by measurement still works', ()
     const v = odd.parse('abc');
     expect(v.raw).toBe('abc');
     expect(odd.valid(v.raw)).toBe(true);
-    expect(odd.toValueSchema().safeParse('abc').success).toBe(true);
+    expect(valueParser(odd).safeParse('abc').success).toBe(true);
     expect(odd.valid(odd.parse(odd.create()).raw)).toBe(true);
   });
 });

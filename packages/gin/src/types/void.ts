@@ -4,9 +4,8 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -25,13 +24,6 @@ export class VoidType extends Type<void, Record<string, never>> {
     const registry = scope.registry;
     return new VoidType(scope, {});
   }
-
-  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('void') })
-      .meta({ aid: 'Type_void' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.null(); }
 
   valid(raw: unknown): raw is void {
     return raw === undefined;
@@ -96,11 +88,5 @@ export class VoidType extends Type<void, Record<string, never>> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'void'; }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.null(), opts); }
-
   valueA(): AnySchema { return a.null(); }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({ name: z.literal('void') }).passthrough();
-  }
 }

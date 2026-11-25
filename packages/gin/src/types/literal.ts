@@ -4,9 +4,8 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type PropSpec, type Rnd, Type, optionsCode } from '../type';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -45,20 +44,6 @@ export class LiteralType<T = any, B = T> extends Type<T, LiteralOptions<T>> {
     const inner = json.generic?.T ? scope.parse(json.generic.T) : registry.any();
     const value = (json.options as { value?: unknown } | undefined)?.value;
     return new LiteralType(scope, inner, value);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('literal'),
-      generic: z.object({ T: opts.Type }).optional(),
-      options: z.object({ value: z.any() }),
-    }).meta({ aid: 'Type_literal' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    // The exact literal lives in the instance — at class level we accept
-    // any primitive and let runtime parse reject mismatches.
-    return z.any();
   }
 
   constructor(scope: TypeScope, inner: Type<B>, value: T) {
@@ -158,22 +143,5 @@ export class LiteralType<T = any, B = T> extends Type<T, LiteralOptions<T>> {
       + optionsCode({ value: this.literal });
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    return this.describeType(
-      z.literal(this.literal as string | number | boolean | null),
-      opts,
-    );
-  }
-
   valueA(): AnySchema { return a.literal(this.literal as string | number | boolean | null); }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('literal'),
-      options: z.object({
-        value: z.literal(this.literal as string | number | boolean | null),
-      }),
-      generic: z.object({ T: this.inner.toInstanceSchema() }).optional(),
-    }).passthrough();
-  }
 }

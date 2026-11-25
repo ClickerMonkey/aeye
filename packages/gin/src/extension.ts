@@ -1,5 +1,5 @@
 import { defined } from './defined';
-import { newSlotA, newSlotSchema } from './new-slot';
+import { newSlotA } from './new-slot';
 import { a, ObjectType, type AnySchema } from '@aeye/schema';
 import type { Registry, TypeAugmentation } from './registry';
 import { LocalScope, type TypeScope } from './type-scope';
@@ -25,8 +25,7 @@ import {
 import type { Scope } from './scope';
 import type { Engine } from './engine';
 import type { EncodeOptions, JSONOf, RuntimeOf } from './json-type';
-import { z } from 'zod';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from './node';
+import type { CodeOptions, ValueSchemaOptions } from './node';
 import type { Expr } from './expr';
 
 /**
@@ -60,7 +59,7 @@ export interface ExtensionLocal<T = any, O = any> {
    * Runtime predicate every value of this Extension must satisfy.
    * Evaluated with `this` bound to the value being validated; must return
    * bool. Runs via `Engine.validateValue(value)` — not from `Type.valid()`
-   * (which has no engine access). Also described in the Zod schema so
+   * (which has no engine access). Also described in the value schema so
    * LLMs see the constraint as part of the type's description.
    */
   constraint?: Expr;
@@ -236,7 +235,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
    * this type ADDS to its base, and a value of the type has to carry it.
    *
    * Until 0.4.1 nothing drew that line and every local prop was treated as
-   * surface by `parse`/`valid`/`encode` and as shape by `toValueSchema` — so
+   * surface by `parse`/`valid`/`encode` and as shape by the zod value schema (since removed) — so
    * three surfaces of one type disagreed:
    *
    *   const W = r.extend(r.obj({}), {name:'W', props:{id:{type:r.text()}}});
@@ -270,7 +269,7 @@ export class Extension<T = any, O = any> extends Type<T, O> {
     // creates the slot — and `valid` must agree, or the very first `parse`
     // would produce a value the type refuses and the Extension would be
     // uninhabitable. Every surface bails on the same condition:
-    // `mergeLocalPropsInto` needs a `ZodObject`, `encode` and `withLocalSlots`
+    // `mergeLocalPropsA` needs an object schema, `encode` and `withLocalSlots`
     // need a record.
     if (locals.length === 0 || !isRecordPayload(raw)) return true;
     const rec = raw as Record<string, unknown>;
@@ -731,24 +730,14 @@ export class Extension<T = any, O = any> extends Type<T, O> {
   /**
    * Collected constraints: this Extension's local constraint (if any)
    * prepended to the base's chain. Consumers (`Engine.validateValue`,
-   * `describeType`) evaluate/display them in that order.
+   * `describeA`) evaluate/display them in that order.
    */
   constraints(): Expr[] {
     const base = this.base.constraints();
     return this.local.constraint ? [this.local.constraint, ...base] : base;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Extensions normally delegate to base — but when `local.props` adds
-    // data fields atop an object-shaped base (obj/iface), those fields need
-    // to land in the value schema too. Nothing else in the pipeline pushes
-    // them down into base.fields.
-    let schema = this.base.toValueSchema(opts);
-    schema = this.mergeLocalPropsInto(schema, opts, (p) => p.type.toValueSchema(opts));
-    return this.describeType(schema, opts);
-  }
-
-  /** The base's own shape with the stored local props added (an object-shaped base), per `toValueSchema`. */
+  /** The base's own shape with the stored local props added (an object-shaped base). */
   valueA(opts?: ValueSchemaOptions): AnySchema {
     return this.mergeLocalPropsA(this.base.defineA(opts), opts, (p) => p.type.toA(opts));
   }
@@ -767,46 +756,6 @@ export class Extension<T = any, O = any> extends Type<T, O> {
       extra[name] = p.type.isOptional() && slot.kind !== 'optional' ? a.optional(slot) : slot;
     }
     return Object.keys(extra).length === 0 ? schema : (schema as ObjectType<any>).extend(extra);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Fields atop an object-shaped base accept any Expr, and a plain field its value as is.
-    let schema = this.base.toNewSchema(opts);
-    schema = this.mergeLocalPropsInto(schema, opts, (p) => newSlotSchema(p.type, opts));
-    return this.describeType(schema, opts, 'NewValue_');
-  }
-
-  /** By-name match — Extensions are identified uniquely by their name. */
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({ name: z.literal(this.name) }).passthrough();
-  }
-
-  /**
-   * Add the Extension's own STORED props to an object-shaped base schema.
-   *
-   * Stored only — a slot that is pure SURFACE must not be demanded of the
-   * model that emits a value. A `Resource` is supplied as a bare `{id}`
-   * handle and resolved server-side; when its four methods rode local props
-   * the value schema required `url`, `markdown`, `thumbnail` and
-   * `contentType` on every handle, which no caller can supply and no value
-   * of the type carries. Same line as {@link storedLocalProps}, so what
-   * `parse` fills and what the schema asks for cannot diverge.
-   */
-  private mergeLocalPropsInto(
-    schema: z.ZodTypeAny,
-    opts: ValueSchemaOptions | undefined,
-    slotFor: (prop: Prop) => z.ZodTypeAny,
-  ): z.ZodTypeAny {
-    if (!(schema instanceof z.ZodObject)) return schema;
-    const mode = opts?.includeDocs ?? 'none';
-    const extra: Record<string, z.ZodTypeAny> = {};
-    for (const [name, p] of this.storedLocalProps()) {
-      let slot = slotFor(p);
-      if (mode === 'all' && p.docs) slot = slot.describe(p.docs);
-      extra[name] = p.type.isOptional() ? slot.optional() : slot;
-    }
-    if (Object.keys(extra).length === 0) return schema;
-    return (schema as z.ZodObject<z.ZodRawShape>).extend(extra);
   }
 
   // ─── SUPER HOOKS (called polymorphically via Type.propSuperFor) ────────

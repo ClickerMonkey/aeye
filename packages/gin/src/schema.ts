@@ -160,7 +160,7 @@ export interface LambdaExprDef extends ExprDef {
   /**
    * Pre-call predicate. Evaluated BEFORE the body with `args` in scope;
    * must return bool. On false, the call fails. Runtime enforcement lives
-   * in `LambdaExpr.evaluate`; also appears in the fn's Zod description.
+   * in `LambdaExpr.evaluate`; also appears in the fn's schema description.
    */
   constraint?: ExprDef;
 }

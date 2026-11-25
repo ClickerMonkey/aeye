@@ -17,9 +17,8 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import type { EncodeOptions } from '../json-type';
 import type { TypeScope } from '../type-scope';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 
 /** Overlay names being resolved by `valueA` / `toNewA` right now (a recursive overlay type stops at itself). */
 const RESOLVING = new Set<string>();
@@ -92,19 +91,6 @@ export class AliasType<T = any> extends Type<T, AliasOptions> {
 
   static from(json: TypeDef, scope: TypeScope): AliasType {
     return new AliasType(scope, { name: json.name });
-  }
-
-  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    // AliasType isn't a normal Type-union branch — its JSON shape
-    // `{name: '<any>'}` collides with every named class. Schema
-    // consumers (LLM type union) don't surface AliasType directly;
-    // bare names route through the registered class / named-type
-    // branches at parse time. This stub exists for completeness.
-    return z.object({ name: z.string() }).passthrough();
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.any();
   }
 
   /** Resolve via `extra` (caller-supplied call-site scope) first, then
@@ -257,18 +243,6 @@ export class AliasType<T = any> extends Type<T, AliasOptions> {
       + optionsCode(this.options.options);
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // `opts.scope` is the call-site layer, consulted before the captured one
-    // exactly as in every other value-side op. Without it a name the
-    // schema-building registry does not hold falls to `z.any()` — a gate that
-    // accepts everything, with no parameter to fix it (see `ValueSchemaOptions.scope`).
-    // Lazy so recursive named types (Node → list<Node>) don't blow the stack.
-    return this.describeType(z.lazy(() => {
-      const t = this.resolve(opts?.scope);
-      return t ? t.toValueSchema(opts) : z.any();
-    }), opts);
-  }
-
   /**
    * The resolved target's schema (through `opts.scope` first, as every
    * value-side op). A name that resolves to nothing takes any value; a name
@@ -299,20 +273,4 @@ export class AliasType<T = any> extends Type<T, AliasOptions> {
     }
   }
 
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(z.lazy(() => {
-      const t = this.resolve(opts.scope);
-      return t ? t.toNewSchema(opts) : z.any();
-    }), opts, 'NewValue_');
-  }
-
-  /** An alias IS a name — instance schema is just `{name: <target>}`.
-   *  Lazy so self-referential named types (Node → list<Node>) don't
-   *  infinite-recurse. */
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.lazy(() => {
-      const t = this.resolve();
-      return t ? t.toInstanceSchema() : z.object({ name: z.literal(this.options.name) });
-    });
-  }
 }

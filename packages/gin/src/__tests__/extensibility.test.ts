@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'vitest';
-import { createRegistry, Engine, SchemaOptions } from '../index';
+import { a } from '@aeye/schema';
+import { createRegistry, Engine } from '../index';
 import type { ExprDef } from '../schema';
 import { Expr } from '../expr';
 import { val } from '../value';
 import type { Registry } from '../registry';
 import type { Scope } from '../scope';
-import { z } from 'zod';
  
 /**
  * No central switch on expr.kind or type.name: each piece dispatches through
@@ -31,10 +31,10 @@ describe('extensibility: user-defined expr class', () => {
         return new DoubleExpr(registry.parseExpr(json.input));
       }
 
-      static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-        return z.object({
-          kind: z.literal('test.double'),
-          input: z.lazy(() => opts.Expr),
+      static toA() {
+        return a.object({
+          kind: a.literal('test.double'),
+          input: a.ref('Expr'),
         });
       }
 

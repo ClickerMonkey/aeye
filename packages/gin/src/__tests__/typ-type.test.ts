@@ -1,9 +1,8 @@
 import { describe, test, expect } from 'vitest';
-import { z } from 'zod';
+import { LENIENT } from '@aeye/schema';
 import { createRegistry } from '../registry';
-import { buildZodSchemas } from '../schemas';
 import { buildSchemas } from '../grammar';
-import { parsers } from './_a';
+import { parsers, valueParser } from './_a';
 import { TypType } from '../types/typ';
 import { LocalScope } from '../type-scope';
 
@@ -103,33 +102,28 @@ describe('TypType', () => {
     expect(() => t.parse('not an object')).toThrow();
   });
 
-  test('toValueSchema (typ<num>) accepts {name:num} and rejects {name:text}', () => {
+  test('the value schema (typ<num>) accepts {name:num} and rejects {name:text}', () => {
     const r = createRegistry();
     const t = r.typ(r.num());
-    const schema = t.toValueSchema();
+    const schema = valueParser(t);
     expect(schema.safeParse({ name: 'num' }).success).toBe(true);
     expect(schema.safeParse({ name: 'text' }).success).toBe(false);
   });
 
-  test('toValueSchema (typ<num>) accepts registered Extension', () => {
+  test('the value schema (typ<num>) accepts registered Extension', () => {
     const r = createRegistry();
     const Positive = r.extend(r.num(), { name: 'Positive' });
     r.register(Positive);
 
-    const schema = r.typ(r.num()).toValueSchema();
+    const schema = valueParser(r.typ(r.num()));
     expect(schema.safeParse({ name: 'num' }).success).toBe(true);
     expect(schema.safeParse({ name: 'Positive' }).success).toBe(true);
     expect(schema.safeParse({ name: 'text' }).success).toBe(false);
   });
 
-  test('toValueSchema (typ<num>) accepts inline Extension whose extends is num', () => {
-    // The inline-Extension branch kicks in when typ<T>'s toValueSchema is
-    // invoked with `opts`. Without opts, only the registry.like branch is
-    // emitted (no inline path).
+  test('the value schema (typ<num>) accepts inline Extension whose extends is num', () => {
     const r = createRegistry();
-    const opts = buildZodSchemas(r);
-
-    const schema = r.typ(r.num()).toValueSchema(opts);
+    const schema = valueParser(r.typ(r.num()));
     // Inline Extension with `extends: 'num'` — valid.
     expect(schema.safeParse({ name: 'MyNum', extends: 'num' }).success).toBe(true);
     // Inline Extension with `extends: 'text'` — invalid (text isn't num-compatible).
@@ -216,10 +210,11 @@ describe('TypType value schema as a tool parameter', () => {
 
   test('typ<obj> accepts an obj TypeDef with props and refuses the shapes models guess', () => {
     const r = createRegistry();
-    const schema = r.typ(r.obj({})).toValueSchema({ includeDocs: 'all', unknownKeys: 'refuse' });
+    const schema = valueParser(r.typ(r.obj({})), { includeDocs: 'all', unknownKeys: 'refuse' });
     expect(schema.safeParse(row).success).toBe(true);
     expect(schema.safeParse(null).success).toBe(false);
-    expect(schema.safeParse(JSON.stringify(row)).success).toBe(false);
+    // A JSON-encoded answer is decoded by the lenient profile (the zod schema refused it).
+    expect(schema.safeParse(JSON.stringify(row)).success).toBe(true);
     expect(schema.safeParse([{ key: 'id', value: 'integer' }]).success).toBe(false);
     expect(schema.safeParse({ id: 'integer', title: 'text' }).success).toBe(false);
     expect(schema.safeParse({ name: 'num' }).success).toBe(false);
@@ -228,9 +223,9 @@ describe('TypType value schema as a tool parameter', () => {
 
   test('typ<obj> converts to a JSON schema that names the obj shape, without recursing forever', () => {
     const r = createRegistry();
-    const json = z.toJSONSchema(r.typ(r.obj({})).toValueSchema({ includeDocs: 'all' }), { unrepresentable: 'any', io: 'input' });
+    const json = valueParser(r.typ(r.obj({})), { includeDocs: 'all' }).bound.render(LENIENT).jsonSchema;
     const text = JSON.stringify(json);
-    expect(text).toContain('"const":"obj"');
+    expect(text).toContain('"enum":["obj"]');
     expect(text).toContain('props');
     expect(json).not.toEqual({ $schema: 'https://json-schema.org/draft/2020-12/schema' });
   });
@@ -238,37 +233,37 @@ describe('TypType value schema as a tool parameter', () => {
   test('typ<T> takes a named type the scope resolves, and refuses a name nothing resolves', () => {
     const r = createRegistry();
     const scope = new LocalScope(r, { 'weather/Forecast': r.obj({ high: r.num() }) });
-    const schema = r.typ(r.obj({})).toValueSchema({ scope });
+    const schema = valueParser(r.typ(r.obj({})), { scope });
     expect(schema.safeParse({ name: 'obj', props: { f: { type: { name: 'weather/Forecast' } } } }).success).toBe(true);
     expect(schema.safeParse({ name: 'obj', props: { f: { type: { name: 'weather/Nope' } } } }).success).toBe(false);
   });
 
   test('typ<any> is the whole TypeDef schema', () => {
     const r = createRegistry();
-    const schema = r.typ(r.any()).toValueSchema();
+    const schema = valueParser(r.typ(r.any()));
     expect(schema.safeParse({ name: 'list', generic: { V: { name: 'num' } } }).success).toBe(true);
     expect(schema.safeParse(row).success).toBe(true);
     expect(schema.safeParse({ title: 'text' }).success).toBe(false);
-    const text = JSON.stringify(z.toJSONSchema(schema, { unrepresentable: 'any', io: 'input' }));
-    expect(text).toContain('"const":"num"');
+    const text = JSON.stringify(schema.bound.render(LENIENT).jsonSchema);
+    expect(text).toContain('"enum":["num"]');
   });
 
-  test('buildSchemas Type converts to a JSON schema (its lazies keep what they built)', () => {
+  test('buildSchemas Type converts to a JSON schema', () => {
     const r = createRegistry();
-    expect(() => z.toJSONSchema(buildZodSchemas(r).Type, { unrepresentable: 'any', io: 'input' })).not.toThrow();
+    expect(() => buildSchemas(r).Type.render(LENIENT).jsonSchema).not.toThrow();
   });
 });
 
 describe('FnType value schema as a tool parameter', () => {
   test('a fn value is a native id or a strict ExprDef, not any object with a kind', () => {
     const r = createRegistry();
-    const schema = r.fn({ args: r.obj({}), returns: r.bool() }).toValueSchema();
+    const schema = valueParser(r.fn({ args: r.obj({}), returns: r.bool() }));
     expect(schema.safeParse({ kind: 'new', type: { name: 'bool' }, value: true }).success).toBe(true);
     expect(schema.safeParse('native/id').success).toBe(true);
     expect(schema.safeParse({ kind: 'nope' }).success).toBe(false);
     expect(schema.safeParse({ op: 'x' }).success).toBe(false);
-    const text = JSON.stringify(z.toJSONSchema(schema, { unrepresentable: 'any', io: 'input' }));
-    expect(text).toContain('"const":"new"');
+    const text = JSON.stringify(schema.bound.render(LENIENT).jsonSchema);
+    expect(text).toContain('"enum":["new"]');
   });
 });
 

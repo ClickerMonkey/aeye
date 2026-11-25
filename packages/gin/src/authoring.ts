@@ -17,6 +17,8 @@ import type { Engine } from './engine';
 import type { Locals } from './analysis';
 import { typeReferences, type TypeResolver } from './refs';
 import type { Registry } from './registry';
+import { ginValue } from './grammar';
+import { LENIENT } from '@aeye/schema';
 import type { ExprDef, TypeDef } from './schema';
 
 /** One type as a model sees it: its code, and the named types it refers to but does not print. */
@@ -112,9 +114,9 @@ export function argProblems(registry: Registry, type: TypeDef, args: unknown): s
   const missing = missingArgs(type, args);
   if (missing.length > 0) return missing.map((name) => `${name} is required: give a value for it.`);
   const parsed = registry.parse(type);
-  const shape = parsed.toValueSchema({ unknownKeys: 'refuse' }).safeParse(args);
-  if (!shape.success) {
-    return shape.error.issues.map((issue) => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message));
+  const shape = ginValue(parsed, { unknownKeys: 'refuse' }).render(LENIENT).parse(args);
+  if (!shape.ok) {
+    return shape.issues.map((issue) => (issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message));
   }
   try {
     parsed.parse(args);

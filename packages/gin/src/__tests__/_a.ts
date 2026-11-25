@@ -3,9 +3,11 @@
  * tests read `safeParse(v).success`. Decoding runs on the LENIENT rendering
  * (the code shape) on a copy of the value, unless a profile is given.
  */
-import { LENIENT, type AnySchema, type Bound, type Profile } from '@aeye/schema';
-import { GinGrammar, type BuildSchemasOverrides } from '../grammar';
+import { LENIENT, type AnySchema, type Bound, type Issue, type Profile } from '@aeye/schema';
+import { GinGrammar, ginValue, type BuildSchemasOverrides } from '../grammar';
 import type { Registry } from '../registry';
+import type { Type } from '../type';
+import type { ValueSchemaOptions } from '../node';
 
 type Bindable = Bound<unknown> | AnySchema;
 
@@ -25,9 +27,9 @@ export function asParser(s: Bindable, registry?: Registry, overrides?: BuildSche
   const run = (v: unknown) => bound.render(profile).parse(structuredClone(v));
   return {
     bound,
-    safeParse(v: unknown): { success: boolean; data?: unknown; message?: string } {
+    safeParse(v: unknown): { success: boolean; data?: unknown; message?: string; issues?: readonly Issue[] } {
       const r = run(v);
-      return r.ok ? { success: true, data: r.value } : { success: false, message: r.message };
+      return r.ok ? { success: true, data: r.value } : { success: false, message: r.message, issues: r.issues };
     },
     parse(v: unknown): unknown {
       const r = run(v);
@@ -36,6 +38,9 @@ export function asParser(s: Bindable, registry?: Registry, overrides?: BuildSche
     },
   };
 }
+
+/** A gin type's value schema (`ginValue(type, opts)`) as `safeParse`-shaped verdicts: what zod's `toValueSchema` was. */
+export const valueParser = (type: Type, opts?: ValueSchemaOptions) => asParser(ginValue(type, opts));
 
 /** Whether the schema accepts the value. */
 export const accepts = (s: Bindable, v: unknown, registry?: Registry, overrides?: BuildSchemasOverrides): boolean =>

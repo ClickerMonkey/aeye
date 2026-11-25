@@ -14,10 +14,8 @@ import {
   indentOf,
   joinAuto,
 } from '../type';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import { callDefSchema, getSetDefSchema, propDefSchema } from '../schemas';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 
 /**
  * IfaceType — a structural contract. A type T satisfies this interface
@@ -54,19 +52,6 @@ export class IfaceType<T = any> extends Type<T, Record<string, never>> {
       get: json.get ? GetSet.from(json.get, scope) : undefined,
       call: json.call ? Call.from(json.call, scope) : undefined,
     });
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('interface'),
-      props: z.record(z.string(), propDefSchema(opts)).optional(),
-      get: getSetDefSchema(opts).optional(),
-      call: callDefSchema(opts).optional(),
-    }).meta({ aid: 'Type_interface' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.record(z.string(), opts.Expr);
   }
 
   constructor(
@@ -258,25 +243,6 @@ export class IfaceType<T = any> extends Type<T, Record<string, never>> {
     return this._call;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    const mode = opts?.includeDocs ?? 'none';
-    // Structural: any object carrying the declared props is acceptable.
-    const shape: Record<string, z.ZodTypeAny> = {};
-    for (const [name, prop] of Object.entries(this._props)) {
-      let field = prop.type.toValueSchema(opts);
-      if (mode === 'all' && prop.docs) field = field.describe(prop.docs);
-      shape[name] = field;
-    }
-    // Passthrough by default — an interface is a contract, and a value that
-    // carries MORE than it declares still satisfies it. `unknownKeys:'refuse'`
-    // says the payload was authored against this declaration, where an
-    // undeclared key is a typo rather than legitimate width.
-    return this.describeType(
-      opts?.unknownKeys === 'refuse' ? this.valueObject(shape, opts) : z.object(shape).passthrough(),
-      opts,
-    );
-  }
-
   /** A structural contract: at least these props (wider values satisfy it; `unknownKeys: 'refuse'` closes it). */
   valueA(opts?: ValueSchemaOptions): AnySchema {
     const mode = opts?.includeDocs ?? 'none';
@@ -298,41 +264,5 @@ export class IfaceType<T = any> extends Type<T, Record<string, never>> {
       shape[name] = slot;
     }
     return this.describeA(a.object(shape), opts);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const mode = opts.includeDocs ?? 'none';
-    const shape: Record<string, z.ZodTypeAny> = {};
-    for (const [name, prop] of Object.entries(this._props)) {
-      let slot: z.ZodTypeAny = opts.Expr;
-      if (mode === 'all' && prop.docs) slot = slot.describe(prop.docs);
-      shape[name] = slot;
-    }
-    return this.describeType(z.object(shape).passthrough(), opts, 'NewValue_');
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    const propShape: Record<string, z.ZodTypeAny> = {};
-    for (const [name, prop] of Object.entries(this._props)) {
-      propShape[name] = z.object({ type: prop.type.toInstanceSchema() }).passthrough();
-    }
-    const shape: Record<string, z.ZodTypeAny> = {
-      name: z.literal('iface'),
-    };
-    if (Object.keys(propShape).length > 0) {
-      shape.props = z.object(propShape).optional();
-    }
-    if (this._get) {
-      shape.get = z.object({
-        key: this._get.key.toInstanceSchema(),
-        value: this._get.value.toInstanceSchema(),
-      }).passthrough().optional();
-    }
-    if (this._call) {
-      const callShape: Record<string, z.ZodTypeAny> = { args: this._call.args.toInstanceSchema() };
-      if (this._call.returns) callShape.returns = this._call.returns.toInstanceSchema();
-      shape.call = z.object(callShape).passthrough().optional();
-    }
-    return z.object(shape).passthrough();
   }
 }

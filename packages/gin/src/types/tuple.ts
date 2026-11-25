@@ -9,9 +9,8 @@ import {
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -59,20 +58,6 @@ export class TupleType<T extends unknown[] = [any, ...any[]]> extends Type<T, Tu
     const defs = ((json.options?.elements ?? []) as TypeDef[]);
     const elems = defs.map((d) => scope.parse(d));
     return new TupleType(scope, elems);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('tuple'),
-      options: z.object({ elements: z.array(opts.Type) }),
-    }).meta({ aid: 'Type_tuple' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Class-level: generic positional array of Exprs. LLM producing a
-    // tuple via the class branch specifies its positions in `options.elements`;
-    // per-position type checking lives on the registered named-instance branch.
-    return z.array(opts.Expr);
   }
 
   constructor(scope: TypeScope, elements: Type[]) {
@@ -240,15 +225,6 @@ export class TupleType<T extends unknown[] = [any, ...any[]]> extends Type<T, Tu
     return this.docsPrefix(options) + `tuple<${this.elements.map((e) => e.toCode(undefined, options)).join(', ')}>`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Tuples ARE positional by nature — emit z.tuple for fidelity. LLM
-    // consumers that struggle with positional arrays should use a different
-    // shape (obj with named fields); tuple type preserves the position
-    // contract.
-    const elems = this.elements.map((e) => e.toValueSchema(opts));
-    return this.describeType(z.tuple(elems as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts);
-  }
-
   valueA(opts?: ValueSchemaOptions): AnySchema {
     const elems = this.elements.map((e) => e.toA(opts));
     return elems.length > 0 ? a.tuple(elems as [AnySchema, ...AnySchema[]]) : a.array(a.unknown()).max(0);
@@ -257,21 +233,5 @@ export class TupleType<T extends unknown[] = [any, ...any[]]> extends Type<T, Tu
   toNewA(opts?: ValueSchemaOptions): AnySchema {
     const slots: AnySchema[] = this.elements.map(() => a.ref('Expr'));
     return this.describeA(slots.length > 0 ? a.tuple(slots as [AnySchema, ...AnySchema[]]) : a.array(a.ref('Expr')).max(0), opts);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Each position accepts any Expr. Per-position type-compat is enforced
-    // at evaluate/validate time.
-    const slots = this.elements.map(() => opts.Expr as z.ZodTypeAny);
-    return this.describeType(z.tuple(slots as [z.ZodTypeAny, ...z.ZodTypeAny[]]), opts, 'NewValue_');
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('tuple'),
-      options: z.object({
-        elements: z.tuple(this.elements.map((e) => e.toInstanceSchema()) as [z.ZodTypeAny, ...z.ZodTypeAny[]]),
-      }),
-    }).passthrough();
   }
 }

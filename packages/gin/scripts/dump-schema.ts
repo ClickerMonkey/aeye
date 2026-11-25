@@ -1,7 +1,7 @@
 /**
- * dump-schema.ts — build a full `{ expr, type }` Zod schema with a mix of
- * Extension examples over the built-in types, render them as core sends them
- * to an OpenAI strict model (core's zod bridge into @aeye/schema), and write the result to `schema-dump.json` (gitignored).
+ * dump-schema.ts — build a full `{ expr, type }` schema (`GinGrammar`) with a
+ * mix of Extension examples over the built-in types, render it as core sends
+ * it to an OpenAI strict model, and write the result to `schema-dump.json` (gitignored).
  *
  * Run with:  npm run dump-schema
  *

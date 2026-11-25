@@ -1,6 +1,7 @@
 /**
  * `Type.toA()` — every TypeDef kind's value schema as `a`, checked against
- * the zod `toValueSchema` value-for-value (the same verdict on every probe)
+ * the zod `toValueSchema` it replaced (frozen in
+ * packages/schema/bench/legacy-gin) value-for-value (the same verdict on every probe)
  * and against `fromGin` of the same def (the same JSON Schema on every
  * model profile), plus named types as refs, `toNewA`, docs, `unknownKeys`
  * and `ginValue`'s cache.
@@ -11,6 +12,8 @@ import {
 } from '@aeye/schema';
 import { createRegistry, ginValue, ginValueBundle, Prop, type Type } from '../index';
 import { accepts, asParser } from './_a';
+// @ts-ignore -- the frozen zod baseline is plain JS-typed source (@ts-nocheck)
+import * as legacy from '../../../schema/bench/legacy-gin';
 
 interface Case { readonly label: string; readonly def: GinTypeDef; readonly ok: readonly unknown[]; readonly bad: readonly unknown[] }
 
@@ -58,10 +61,11 @@ const PROFILES = [OPENAI_STRICT, ANTHROPIC_STRICT, GOOGLE_STRICT, GOOGLE_OPENAPI
 
 describe('Type.toA: every kind accepts exactly what toValueSchema accepts', () => {
   const r = createRegistry();
+  const zr = legacy.createRegistry();
   for (const c of CASES) {
     it(c.label, () => {
       const type = r.parse(c.def as never);
-      const zod = type.toValueSchema();
+      const zod = zr.parse(c.def as never).toValueSchema();
       const ours = ginValue(type).render(LENIENT);
       for (const v of c.ok) expect([zod.safeParse(v).success, ours.parse(structuredClone(v)).ok], `accepts ${JSON.stringify(v)}`).toEqual([true, true]);
       for (const v of c.bad) expect([zod.safeParse(v).success, ours.parse(structuredClone(v)).ok], `rejects ${JSON.stringify(v)}`).toEqual([false, false]);
@@ -70,7 +74,7 @@ describe('Type.toA: every kind accepts exactly what toValueSchema accepts', () =
 
   it('map<text, V> is a record in the code shape (gin\'s zod value is pairs; the profile writes pairs where it must)', () => {
     const type = r.map(r.text(), r.num());
-    expect(type.toValueSchema().safeParse([{ key: 'a', value: 1 }]).success).toBe(true);
+    expect(zr.map(zr.text(), zr.num()).toValueSchema().safeParse([{ key: 'a', value: 1 }]).success).toBe(true);
     const bound = ginValue(type);
     expect(bound.render(LENIENT).parse({ a: 1 }).ok).toBe(true);
     expect(bound.render(OPENAI_STRICT).encode({ a: 1 })).toEqual({ input: [{ key: 'a', value: 1 }] });
@@ -79,7 +83,7 @@ describe('Type.toA: every kind accepts exactly what toValueSchema accepts', () =
 
   it('DELIBERATE: a typ value with an unknown TypeDef key is refused (zod stripped the key before gin parsed it)', () => {
     const typ = r.typ(r.any());
-    expect(typ.toValueSchema().safeParse({ name: 'num', options: { bogus: 1 } }).success).toBe(true);
+    expect(zr.typ(zr.any()).toValueSchema().safeParse({ name: 'num', options: { bogus: 1 } }).success).toBe(true);
     const res = ginValue(typ).render(LENIENT).parse({ name: 'num', options: { bogus: 1 } });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain('bogus');
@@ -126,7 +130,10 @@ describe('named types are refs, defined once by the grammar', () => {
     const v = { label: 'a', kids: [{ label: 'b', kids: [] }] };
     expect(bound.render(LENIENT).parse(structuredClone(v)).ok).toBe(true);
     expect(bound.render(LENIENT).parse({ label: 'a', kids: [{ label: 1, kids: [] }] }).ok).toBe(false);
-    expect(TreeFull.toValueSchema().safeParse(v).success).toBe(true);
+    const zr = legacy.createRegistry();
+    const zTree = zr.parse({ name: 'Tree2', extends: 'obj', props: { label: { type: { name: 'text' } }, kids: { type: { name: 'list', generic: { V: { name: 'Tree2' } } } } } });
+    zr.register(zTree);
+    expect(zTree.toValueSchema().safeParse(v).success).toBe(true);
   });
 
   it('a value with typ / fn slots binds the grammar (namedRefs: a stored type by name)', () => {
@@ -137,7 +144,9 @@ describe('named types are refs, defined once by the grammar', () => {
     const stored = p.safeParse({ type: { name: 'ns/Stored' }, run: 'num.add' });
     expect(stored.success).toBe(false);
     expect(stored.message).toContain('ns/Stored');
-    expect(args.toValueSchema().safeParse({ type: { name: 'ns/Stored' }, run: 'num.add' }).success).toBe(false);
+    const zr = legacy.createRegistry();
+    const zArgs = zr.obj({ type: zr.typ(zr.any()), run: zr.fn({ args: zr.obj({}), returns: zr.num() }) });
+    expect(zArgs.toValueSchema().safeParse({ type: { name: 'ns/Stored' }, run: 'num.add' }).success).toBe(false);
     expect(p.safeParse({ type: { name: 'bogus thing' }, run: 'num.add' }).success).toBe(false);
   });
 });

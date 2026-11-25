@@ -6,9 +6,8 @@ import type { Registry } from './registry';
 import type { ExprDef } from './schema';
 import type { Locals } from './analysis';
 import { Problems } from './problem';
-import type { Node, CodeOptions, SchemaOptions } from './node';
+import type { Node, CodeOptions } from './node';
 import { Code, code, span } from './code';
-import type { z } from 'zod';
 import type { AnySchema } from '@aeye/schema';
 import type { TypeScope } from './type-scope';
 import type { Effects } from './effects';
@@ -364,8 +363,6 @@ export interface ExprClass {
    *  `lambda`, `native`, `define`). Use `scope.registry` to access the
    *  underlying Registry. */
   from(json: ExprDef, scope: TypeScope): Expr;
-  /** JSON-shape Zod schema for this Expr's ExprDef. */
-  toSchema(opts: SchemaOptions): z.ZodTypeAny;
   /**
    * This kind's ExprDef as an `a` schema, for a kind registered beyond the
    * built-ins (whose shapes are the grammar's own defs). Without it the

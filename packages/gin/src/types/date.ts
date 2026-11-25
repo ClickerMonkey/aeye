@@ -6,9 +6,8 @@ import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { DateOptions } from '../builder';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -25,21 +24,6 @@ export class DateType extends Type<Date, DateOptions> {
   static from(json: TypeDef, scope: TypeScope): DateType {
     const registry = scope.registry;
     return new DateType(scope, (json.options ?? {}) as DateOptions);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('date'),
-      options: z.object({
-        min: z.string().optional(),
-        max: z.string().optional(),
-        utc: z.boolean().optional(),
-      }).optional(),
-    }).meta({ aid: 'Type_date' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date');
   }
 
   private boundDate(s: string | undefined): Date | undefined {
@@ -153,33 +137,9 @@ export class DateType extends Type<Date, DateOptions> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'date' + optionsCode(this.options); }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Dump form is an ISO date string (YYYY-MM-DD).
-    return this.describeType(
-      z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'expected ISO 8601 date'),
-      opts,
-    );
-  }
-
-  /** An ISO date PREFIX, as `toValueSchema` (a datetime passes too). */
+  /** An ISO date PREFIX, as gin's value schema always was (a datetime passes too). */
   valueA(): AnySchema {
     return a.string().pattern('^\\d{4}-\\d{2}-\\d{2}').describe('An ISO 8601 date (YYYY-MM-DD).');
-  }
-
-  /** Narrow-match: accept date TypeDef whose bounds are strictly tighter. */
-  toInstanceSchema(): z.ZodTypeAny {
-    const { min, max } = this.options;
-    const hasNarrowing = min !== undefined || max !== undefined;
-    const optionsShape: Record<string, z.ZodTypeAny> = {
-      min: min === undefined ? z.string().optional() : z.string().refine((v) => v >= min, { message: `min must be >= ${min}` }),
-      max: max === undefined ? z.string().optional() : z.string().refine((v) => v <= max, { message: `max must be <= ${max}` }),
-      utc: z.boolean().optional(),
-    };
-    const optionsSchema = z.object(optionsShape);
-    return z.object({
-      name: z.literal('date'),
-      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

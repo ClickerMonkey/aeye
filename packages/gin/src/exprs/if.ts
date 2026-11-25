@@ -8,12 +8,10 @@ import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { indentCode, findEscapingFlow } from './code';
 import { Effects } from '../effects';
 import { Code, code, span } from '../code';
-import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 export interface IfBranch {
@@ -42,24 +40,6 @@ export class IfExpr extends Expr {
     }));
     return new IfExpr(ifs, json.else ? r.parseExpr(json.else, scope) : undefined)
       .withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('if'),
-      ...baseExprFields,
-      ifs: z
-        .array(z.object({
-          condition: opts.Expr.describe('Bool-typed expression. First branch whose condition is `true` wins; the rest are skipped.'),
-          body: opts.Expr.describe('Evaluated when this branch\'s condition is true. The if-expression\'s value is this body\'s value.'),
-        }))
-        .describe(
-          'Ordered list of `{condition, body}` branches — first true condition wins. Each `condition` must be bool-typed (warned otherwise). With multiple branches this is the gin equivalent of `if / else if / else if`.',
-        ),
-      else: opts.Expr.optional().describe(
-        'Optional fallback evaluated when every `ifs[i].condition` is false. Without an else, a no-match if-expression evaluates to void.',
-      ),
-    }).meta({ aid: 'Expr_if' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

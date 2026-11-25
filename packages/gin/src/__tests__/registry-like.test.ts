@@ -114,7 +114,7 @@ describe('registry.compatible / registry.like', () => {
     // registry — every primitive has its own class match. This is a smoke
     // test that the null path is reachable: we construct a fake match-less
     // scenario using a generic placeholder in a non-registered registry
-    // context. Better covered via typ<T>.toValueSchema → never check.
+    // context. Better covered via typ<T>'s value schema (toA) check.
     const r = createRegistry();
     const result = r.like(r.null());
     // `null`'s class is registered; it matches itself.

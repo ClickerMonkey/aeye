@@ -3,10 +3,9 @@ import { createRegistry, buildSchemas } from '../index';
 import { parsers } from './_a';
 
 /**
- * Every Type class and Expr class exposes a static toSchema(opts) that
- * returns a Zod schema for its JSON shape. buildSchemas(registry)
- * stitches them together into two top-level unions, Type and Expr,
- * referencing each other via z.lazy for recursive positions.
+ * The grammar (`GinGrammar`) covers every Type class and Expr class's JSON
+ * shape; buildSchemas(registry) binds its two roots, Type and Expr, which
+ * refer to each other for recursive positions.
  *
  * An LLM can be given these schemas and asked for a program.
  */

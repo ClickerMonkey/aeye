@@ -7,7 +7,7 @@ inheritance) plus an expression language serialized as plain JSON. It is the
 **runtime an LLM writes programs for** — not a model wrapper, not a prompt library.
 
 ```bash
-npm install @aeye/gin          # with @aeye/schema (model-facing schemas) and zod (deprecated value checks)
+npm install @aeye/gin          # with @aeye/schema (its schemas); no zod
 ```
 
 ```ts
@@ -111,7 +111,7 @@ Key shapes to internalize:
 | `Engine` | `run`, `validate`, `typeOf`, `toCode`, `toGinCode`, `toJSONCode`, `toTypeScript`, `validateValue`. |
 | `toTypeScript`, `joinTypeScript`, `renderTypeScriptFile`, `renderTypeScriptTypes` | Compile programs to runnable TypeScript plus `type` declarations for every named type they reach — see [TypeScript export](./aeye-gin-typescript.md). |
 | `buildSchemas(registry, overrides?)`, `GinGrammar`, `ginValue(type)` | `@aeye/schema` schemas a model writes against: `.Type`, `.Expr` (bound), the grammar module to compose tools from, a value of a type — see [schema generation](./aeye-gin-registry.md#schema-generation-for-llms). |
-| `type.toA(opts?)` / `type.toNewA(opts?)` | A value of the type / a `new` value slot, as `a`. |
+| `type.toA(opts?)` / `type.toNewA(opts?)`, `ValueSchemaOptions` | A value of the type / a `new` value slot, as `a`. The zod value schemas (`toValueSchema`, `buildZodSchemas`) are gone: check a value with `ginValue(type).render(LENIENT).parse(v)`. |
 | `Value<T>`, `val(type, raw)` | Runtime typed value; constructor helper. `toLogical()` is the plain JS value (`T`); `encodeLogical` / `toJSONLogical` / `toJSONRefs` / `toJSON` are its four wire forms. |
 | `Infer<X>`, `ObjValue`, `FnArgs` / `FnReturns`, … | Static inference: the TypeScript value every builder's type describes — see [building types](./aeye-gin-types.md#building-types-programmatically-typebuilder). |
 | `typeReferences(def, r)`, `typeClosure(defs, r, resolve)`, `type.references()`, `type.closure()` | The named types a def depends on, direct and transitive — see [named type references](./aeye-gin-types.md#named-type-references-references-closure). |

@@ -254,7 +254,7 @@ export const EXPR_KINDS = ['new', 'get', 'set', 'define', 'block', 'if', 'switch
 const DATE_RE = '^\\d{4}-\\d{2}-\\d{2}';
 const TIMESTAMP_RE = '^\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:?\\d{2})?$';
 
-/** Each built-in class's class-level `new` value (its static `toNewSchema`). */
+/** Each built-in class's class-level `new` value (what `toNewA` gives a class-level instance). */
 const CLASS_NEW_VALUE: { readonly [K in TypeClassName]: AnySchema } = {
   any: a.unknown(),
   void: a.null(),

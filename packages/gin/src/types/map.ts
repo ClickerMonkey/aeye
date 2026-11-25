@@ -9,9 +9,8 @@ import {
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, JSONValue } from '../json-type';
 
 
@@ -51,19 +50,6 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     const K = json.generic?.K ? scope.parse(json.generic.K) : registry.text();
     const V = json.generic?.V ? scope.parse(json.generic.V) : registry.any();
     return new MapType(scope, K, V);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('map'),
-      generic: z.object({ K: opts.Type, V: opts.Type }).optional(),
-    }).meta({ aid: 'Type_map' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Class-level: each entry is `{key: Expr, value: Expr}` — LLM-friendly
-    // shape that mirrors the instance method.
-    return z.array(z.object({ key: opts.Expr, value: opts.Expr }));
   }
 
   constructor(scope: TypeScope, key: Type<K>, value: Type<V>) {
@@ -262,15 +248,6 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
     return this.docsPrefix(options) + `map<${this.key.toCode(undefined, options)}, ${this.value.toCode(undefined, options)}>`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // LLM-friendly shape: an array of { key, value } objects. Not a
-    // positional tuple — LLMs handle object keys more reliably.
-    return this.describeType(z.array(this.valueObject({
-      key: this.key.toValueSchema(opts),
-      value: this.value.toValueSchema(opts),
-    }, opts)), opts);
-  }
-
   /**
    * A text-keyed map is a RECORD in the code shape (a model that can't write
    * open objects is shown `[{key, value}]` pairs by the renderer); any other
@@ -283,25 +260,6 @@ export class MapType<K = any, V = any> extends Type<Map<K, V>, Record<string, ne
 
   toNewA(opts?: ValueSchemaOptions): AnySchema {
     return this.describeA(a.array(a.object({ key: a.ref('Expr'), value: a.ref('Expr') })), opts);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Each entry's key and value accept any Expr; per-slot type-compat is
-    // enforced at evaluate/validate time.
-    return this.describeType(z.array(z.object({
-      key: opts.Expr,
-      value: opts.Expr,
-    })), opts, 'NewValue_');
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('map'),
-      generic: z.object({
-        K: this.key.toInstanceSchema(),
-        V: this.value.toInstanceSchema(),
-      }).optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

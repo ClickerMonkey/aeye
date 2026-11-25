@@ -10,8 +10,7 @@ export {
 // takes an `EncodeOptions`, so a consumer that could not name either had to
 // re-derive both — the module was simply never re-exported.
 export type { JSONValue, JSONOf, RuntimeOf, EncodeOptions } from './json-type';
-export type { Node, CodeOptions, SchemaOptions } from './node';
-export { buildZodSchemas, type ZodSchemasOverrides } from './schemas';
+export type { Node, CodeOptions, ValueSchemaOptions } from './node';
 export {
   buildSchemas, ginValue, ginValueBundle, grammarDefs, grammarKey, GinGrammar, GinGrammarStatic, TypeDefSchema, ExprSchema,
   TYPE_CLASS_NAMES, EXPR_KINDS, type BuildSchemasOverrides, type GinSchemas, type GrammarDeclared, type TypeClassName,

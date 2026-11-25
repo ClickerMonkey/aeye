@@ -5,9 +5,8 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { BoolOptions } from '../builder';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -25,18 +24,6 @@ export class BoolType extends Type<boolean, BoolOptions> {
     const registry = scope.registry;
     return new BoolType(scope, (json.options ?? {}) as BoolOptions);
   }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('bool'),
-      options: z.object({
-        trueText: z.string().optional(),
-        falseText: z.string().optional(),
-      }).optional(),
-    }).meta({ aid: 'Type_bool' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.boolean(); }
 
   valid(raw: unknown): raw is boolean {
     return typeof raw === 'boolean';
@@ -126,13 +113,7 @@ export class BoolType extends Type<boolean, BoolOptions> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'bool' + optionsCode(this.options); }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny { return this.describeType(z.boolean(), opts); }
-
   valueA(): AnySchema { return a.boolean(); }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({ name: z.literal('bool') }).passthrough();
-  }
 
   describe(data: unknown): Type | undefined {
     return typeof data === 'boolean' ? this : undefined;

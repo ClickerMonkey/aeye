@@ -103,7 +103,7 @@ omits the field.
 **Data and surface.** A field with a `get` expression, or whose type is a `fn`,
 is SURFACE — computed or callable, never stored. It is left out of the inferred
 value of an `iface` and of the fields an `extend` adds, matching what `parse`,
-`valid` and `toValueSchema` do at run time.
+`valid` and the value schema (`toA`) do at run time.
 
 ```ts
 const Customer = r.extend(r.obj({ id: r.text() }), {
@@ -450,71 +450,79 @@ is the same for the value slot of a `new` (composites take Exprs, a plain field
 its value or an Expr, a type with `init` its args). `override: (type) => schema | undefined`
 supplies the caller's own schema for the types it names, at any depth (the
 harness maps its fn-name texts to a per-prompt codec); `ginValue` doesn't
-memoize with it. The other options are those of
-`toValueSchema` below (`includeDocs`, `scope`, `unknownKeys`).
-
-Differences from `toValueSchema`, all deliberate: `map<text, V>` is a record;
-named types are refs (`$defs`), not inlined; a named type's definition always
-carries its docs (`includeDocs: 'all'`, since it is shared); a `typ` value with
-a key gin doesn't read is refused (zod stripped it before gin parsed the def).
-
-A third-party type class that doesn't override `valueA()` takes any JSON value.
-
-## Value schemas, zod (`toValueSchema`, deprecated for models)
-
-`type.toValueSchema(opts?)` builds the Zod schema for a **runtime value** of the
-type — the gate an incoming payload is checked against (gin's own authoring
-checks use it). Nothing in aits gives it to a model any more (`toA` is the
-model-facing form); it stays for gin's value checks and for the harness's
-zod-gin until that moves to `a`. (`toSchema` is the other direction: it schemas the `TypeDef`
-JSON. `toValueSchema` schemas the DATA.) `ValueSchemaOptions`:
+memoize with it.
 
 | Option | Default | What it does |
 |---|---|---|
 | `includeDocs` | `'none'` | `'type'` describes each type with its `docs`; `'all'` also describes each field / prop. |
 | `scope` | — | Type-name resolution scope, the same `TypeScope` `valid` / `parse` / `compatible` / `props` take. |
-| `unknownKeys` | `'strip'` | `'refuse'` rejects a key the type does not declare. |
+| `unknownKeys` | `'strip'` | `'refuse'` rejects a key the type does not declare (a strict object). |
+| `override` | — | `(type) => schema | undefined`: the caller's own schema for the types it names. |
+
+Compared with the zod value schema it replaced: `map<text, V>` is a record;
+named types are refs (`$defs`), not inlined; a named type's definition always
+carries its docs (`includeDocs: 'all'`, since it is shared); a `typ` value with
+a key gin doesn't read is refused (zod stripped it before gin parsed the def);
+an object passes an undeclared key through by default (gin's `parse` then drops
+it), where zod stripped it.
+
+A third-party type class that doesn't override `valueA()` takes any JSON value.
+
+**The zod value schemas are gone.** `toValueSchema`, `toNewSchema`,
+`toInstanceSchema`, the classes' static `toSchema` / `toNewSchema` and
+`buildZodSchemas` were removed, and gin no longer depends on `zod`. For a
+value check that isn't a model (an incoming payload, a settings bag, call
+args), parse the bound value schema leniently:
+
+```ts
+import { LENIENT } from '@aeye/schema';
+const res = ginValue(type, { unknownKeys: 'refuse' }).render(LENIENT).parse(value);
+if (!res.ok) res.issues;   // [{ path, codePath, message }], res.message for a model
+```
+
+(`argProblems` does exactly this.) The frozen zod path lives on in
+`packages/schema/bench/legacy-gin` only as the differential baseline for tests.
 
 **`scope` (0.4.0).** A schema built for a type that NAMES another type is only
 as good as the registry that resolved the name. A signature carrying
 `{name:'Deployment'}` built where that name is unknown resolves to an unbound
-alias, whose schema is `z.any()` — so a gate derived from it accepts everything,
+alias, whose schema is any value — so a gate derived from it accepts everything,
 silently. Pass the scope that knows the name:
 
 ```ts
 const session = registry.scope({ Deployment: deploymentType });
-fnType.call()!.args.toValueSchema({ scope: session });   // resolves; nested slots too
+ginValue(fnType.call()!.args, { scope: session });   // resolves; nested slots too
 ```
 
 It rides the options bag rather than a positional argument because a value
 schema recurses through slots that already thread `opts` verbatim — so every
 nested list element, obj field and map value inherits it.
 
-**`unknownKeys` (0.4.0).** The default `'strip'` drops an undeclared key, which
-is zod's default and gin's own value semantics: `ObjType.parse` copies the
-declared fields and nothing else, `valid` ignores extras, and `obj{a}` is
-`compatible` with `obj{a, zz}`. A value carrying more than the type declares IS
-a value of that type.
+**`unknownKeys` (0.4.0).** The default lets an undeclared key through, which
+is gin's own value semantics: `ObjType.parse` copies the declared fields and
+nothing else, `valid` ignores extras, and `obj{a}` is `compatible` with
+`obj{a, zz}`. A value carrying more than the type declares IS a value of that
+type.
 
 That is wrong at one specific kind of boundary, and it is measurable there: when
 the payload was AUTHORED against the declared type — a settings bag, a config
-object, an agent-supplied argument — an undeclared key is a typo, and stripping
-means a mis-spelt OPTIONAL knob disappears with no error at any layer. (A
+object, an agent-supplied argument — an undeclared key is a typo, and dropping
+it means a mis-spelt OPTIONAL knob disappears with no error at any layer. (A
 required knob is safe; it fails as missing.)
 
 ```ts
-cfg.toValueSchema().safeParse({ type: 'graph', charThreshold: 5000, bogus: 1 });
-// → success, data = { type: 'graph', charThreshold: 5000 }     `bogus` silently gone
+ginValue(cfg).render(LENIENT).parse({ type: 'graph', charThreshold: 5000, bogus: 1 });
+// → ok; cfg.parse(...) keeps { type: 'graph', charThreshold: 5000 }   `bogus` silently gone
 
-cfg.toValueSchema({ unknownKeys: 'refuse' }).safeParse({ …, bogus: 1 });
-// → issue: unrecognized_keys, keys: ['bogus'], path: []
+ginValue(cfg, { unknownKeys: 'refuse' }).render(LENIENT).parse({ …, bogus: 1 });
+// → issue at path ['bogus']: Unknown field "bogus".
 ```
 
 So it is the CALLER's choice, per boundary, not gin's — which is the difference
 between this and the wire side, where `registry.parse` refuses an unknown key
 outright with no opt-out. A def is gin's own format and an ignored key there is
 data loss; a value is yours. `'refuse'` reaches every nested object, an
-`Extension`'s local props, and a map's `{key, value}` entry envelope; an
+`Extension`'s local props, and a map's `{key, value}` pairs; an
 `interface`, which passes width through by default because a contract is
 satisfied by a wider value, refuses under it too.
 
@@ -546,18 +554,18 @@ A local prop is **surface** when something else computes it — it has a `get`
 expression, or its type is callable (a method carries its body in `get`).
 Everything else is **stored data**: a field this type ADDS to its base, which
 `parse` fills, `valid` requires, `encode` emits, `create` / `random` populate,
-and `toValueSchema` demands.
+and the value schema (`toA`) demands.
 
 ```ts
 const W = r.extend(r.obj({}), { name: 'W', props: { id: { type: r.text() } } });
 W.parse({ id: 'i' }).encodeLogical();   // { id: 'i' }
 W.valid({});                            // false — `id` is required
-W.toValueSchema().safeParse({});        // fails — and now AGREES with parse
+ginValue(W).render(LENIENT).parse({}).ok;   // false — and AGREES with parse
 
 const Res = r.extend(r.obj({ id: { type: r.text() } }), {
   name: 'Res', props: { url: { type: r.fn({ args: r.obj({}), returns: r.text() }) } },
 });
-Res.toValueSchema().safeParse({ id: 'a' });   // succeeds — a method is not data
+ginValue(Res).render(LENIENT).parse({ id: 'a' }).ok;   // true — a method is not data
 Res.toCodeDefinition();                       // still prints `url(): text`
 ```
 
@@ -565,7 +573,7 @@ Only meaningful over a record-shaped base — an `Extension` over `text` has
 nowhere to put an added field and does not try.
 
 **Changed in 0.4.1.** Before, nothing drew the line, so every local prop was
-surface to `parse`/`valid`/`encode` and shape to `toValueSchema`, and three
+surface to `parse`/`valid`/`encode` and shape to the value schema, and three
 surfaces of one type disagreed: the schema told a model to emit `{id}`, `parse`
 built that emission into a value with nothing in it (`.raw` was `{}`), and
 `valid({})` called the result legal. Reading the prop through the engine
@@ -607,7 +615,7 @@ before it, an Extension's augmented members were reachable at run time and absen
 from the definition a model reads.
 
 **Augmentation is registry-side surface, never wire shape** — it does not appear
-in `toJSON()` and does not enter `toValueSchema()` / `toNewSchema()`. That makes
+in `toJSON()` and does not enter `toA()` / `toNewA()`. That makes
 it the right slot for METHODS on a type whose value contract must stay closed: a
 handle that must keep parsing from a bare `{ id }` cannot declare its methods as
 local props (those land in the value schema), so it declares them here and they

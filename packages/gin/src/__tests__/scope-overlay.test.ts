@@ -16,12 +16,13 @@
  * database as an unrelated package's whole type definition. Wrong props, wrong
  * docs, no error at any layer.
  *
- * Second half: `toValueSchema` took no scope, unlike `valid` / `parse` /
+ * Second half: the (zod) value schema took no scope, unlike `valid` / `parse` /
  * `compatible` / `props`, so a signature naming a type the schema-building
  * registry does not hold produced a schema that accepts EVERY value — and
  * there was no parameter with which to fix it at the call site.
  */
 import { describe, test, expect } from 'vitest';
+import { valueParser } from './_a';
 import { createRegistry, LocalScope, type Type } from '../index';
 
 /** The type a package contributes — the shape whose definition leaked. */
@@ -101,7 +102,7 @@ describe('registry.scope — an overlay above the registry', () => {
   });
 });
 
-describe('toValueSchema(opts.scope)', () => {
+describe('toA(opts.scope)', () => {
   /** A stored signature that NAMES a type: the shape every fn argument gate is
    *  built from. Parsed in a registry that does not hold the name — which is
    *  the normal state of a bare revive registry. */
@@ -113,14 +114,14 @@ describe('toValueSchema(opts.scope)', () => {
   test('without a scope, an unbound name accepts EVERY value — the hole', () => {
     const { args } = signature();
     // Not a near miss: a string where an object was declared.
-    expect(args.toValueSchema().safeParse({ at: 'nonsense' }).success).toBe(true);
+    expect(valueParser(args).safeParse({ at: 'nonsense' }).success).toBe(true);
   });
 
   test('with a scope, the same schema enforces the resolved type', () => {
     const { r, args } = signature();
     const session = r.scope({ time: timeType(r) });
 
-    const schema = args.toValueSchema({ scope: session });
+    const schema = valueParser(args, { scope: session });
     expect(schema.safeParse({ at: 'nonsense' }).success).toBe(false);
     expect(schema.safeParse({ at: { value: 1, unit: 'h' } }).success).toBe(true);
     // Wrong shape THROUGH the resolved type, not merely wrong outer type.
@@ -137,11 +138,12 @@ describe('toValueSchema(opts.scope)', () => {
       generic: { V: { name: 'map', generic: { K: { name: 'text' }, V: { name: 'time' } } } },
     });
 
-    const schema = nested.toValueSchema({ scope: session });
-    expect(schema.safeParse([[{ key: 'a', value: { value: 1, unit: 'h' } }]]).success).toBe(true);
-    expect(schema.safeParse([[{ key: 'a', value: 'nonsense' }]]).success).toBe(false);
+    const schema = valueParser(nested, { scope: session });
+    // (a map<text, V> is a record in the code shape)
+    expect(schema.safeParse([{ a: { value: 1, unit: 'h' } }]).success).toBe(true);
+    expect(schema.safeParse([{ a: 'nonsense' }]).success).toBe(false);
     // …and without it, the same payload sails through.
-    expect(nested.toValueSchema().safeParse([[{ key: 'a', value: 'nonsense' }]]).success).toBe(true);
+    expect(valueParser(nested).safeParse([{ a: 'nonsense' }]).success).toBe(true);
   });
 
   test('a call-site scope beats the captured one, as it does for `valid` / `props`', () => {
@@ -149,8 +151,8 @@ describe('toValueSchema(opts.scope)', () => {
     const captured = r.scope({ T: r.num() });
     const alias = captured.parse({ name: 'T' });
 
-    expect(alias.toValueSchema().safeParse(1).success).toBe(true);
-    expect(alias.toValueSchema().safeParse('x').success).toBe(false);
-    expect(alias.toValueSchema({ scope: r.scope({ T: r.text() }) }).safeParse('x').success).toBe(true);
+    expect(valueParser(alias).safeParse(1).success).toBe(true);
+    expect(valueParser(alias).safeParse('x').success).toBe(false);
+    expect(valueParser(alias, { scope: r.scope({ T: r.text() }) }).safeParse('x').success).toBe(true);
   });
 });

@@ -121,7 +121,7 @@ r.lookup('resource')!.toCodeDefinition();
 Fixed in **0.3.13** — before it the Extension arm dropped augmented members from
 the print, so a type could answer `props()` with methods the definition a model
 reads never mentioned. Augmentation remains registry-side surface: it is absent
-from `toJSON()` and from `toValueSchema()` / `toNewSchema()`, which is what lets
+from `toJSON()` and from `toA()` / `toNewA()`, which is what lets
 a closed value contract (a handle parsed from a bare `{ id }`) carry methods at
 all.
 

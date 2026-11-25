@@ -6,9 +6,8 @@ import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { TextOptions } from '../builder';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -33,20 +32,6 @@ export class TextType extends Type<string, TextOptions> {
     const registry = scope.registry;
     return new TextType(scope, (json.options ?? {}) as TextOptions);
   }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('text'),
-      options: z.object({
-        minLength: z.number().optional().describe('Only set when a real lower bound is part of the spec — e.g. "non-empty input" → minLength: 1. Do NOT default to 0.'),
-        maxLength: z.number().optional().describe('Only set when there is an actual upper bound — a database column width, an API limit, an explicit "no longer than X chars" rule. Do NOT pick a generic ceiling like 100/200/1000 just to fill the field.'),
-        pattern: z.string().optional().describe('Only set for actual format constraints (UUID, ISO date, slug, etc.). Do NOT use ".*" or other accept-anything patterns — they add zero validation and clutter the schema.'),
-        flags: z.string().optional().describe('Regex flags (e.g. "i"). Omit unless `pattern` is set AND requires flags.'),
-      }).optional().describe('Omit entirely for ordinary strings. Only include when the value has a real, named constraint worth enforcing on every parse.'),
-    }).meta({ aid: 'Type_text' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.string(); }
 
   private regex(): RegExp | undefined {
     if (this._regex) return this._regex;
@@ -223,37 +208,12 @@ export class TextType extends Type<string, TextOptions> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'text' + optionsCode(this.options); }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    let s = z.string();
-    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
-    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
-    if (this.options.pattern) s = s.regex(new RegExp(this.options.pattern, this.options.flags));
-    return this.describeType(s, opts);
-  }
-
   valueA(): AnySchema {
     let s = a.string();
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
     if (this.options.pattern) s = s.pattern(this.options.pattern, this.options.flags);
     return s;
-  }
-
-  /** Narrow-match: accept a text TypeDef whose options are strictly tighter. */
-  toInstanceSchema(): z.ZodTypeAny {
-    const { minLength: minLen, maxLength: maxLen, pattern } = this.options;
-    const hasNarrowing = minLen !== undefined || maxLen !== undefined || pattern !== undefined;
-    const optionsShape: Record<string, z.ZodTypeAny> = {
-      minLength: minLen === undefined ? z.number().optional() : z.number().gte(minLen),
-      maxLength: maxLen === undefined ? z.number().optional() : z.number().lte(maxLen),
-      pattern:   z.string().optional(),
-      flags:     z.string().optional(),
-    };
-    const optionsSchema = z.object(optionsShape);
-    return z.object({
-      name: z.literal('text'),
-      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

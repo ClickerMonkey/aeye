@@ -1,47 +1,21 @@
 import type { Registry } from './registry';
 import type { Engine } from './engine';
 import type { Problems } from './problem';
-import type { z } from 'zod';
-import type { Expr } from './expr';
 import type { Type } from './type';
 import type { TypeScope } from './type-scope';
 import type { Code } from './code';
 import type { AnySchema } from '@aeye/schema';
 
 /**
- * Passed into each class's static `toSchema(opts)` so sub-fields that
- * reference "some Type" or "some Expr" can participate in the Zod union
- * via z.lazy. Callers typically use `buildSchemas(registry)` rather than
- * constructing this manually.
- *
- * Extras:
- *  - `types`   — specific Type INSTANCES available to LLM callers. Used
- *                by NewExpr's strict schema to lock its `type` field to
- *                one of these, giving the LLM an enumerated choice.
- *  - `exprs`   — specific Expr INSTANCES available as references (e.g.
- *                variables already bound in scope). Reserved for future
- *                constraining of GetExpr paths; not yet wired.
- *  - `newStrict` — when true, NewExpr.toSchema emits a discriminated
- *                union over `opts.types` instead of its generic shape.
- */
-/**
- * Options consumed by `Type.toValueSchema` (and the helpers it delegates
- * to like `describeType`). Deliberately narrower than `SchemaOptions`:
- * value-side schema generation never references `Type` / `Expr` /
- * `types` / `exprs` / `registry` / `newStrict`, so requiring them all
- * just to pass `{ includeDocs: 'all' }` is overkill — and forces every
- * caller to plumb the full meta-language schema bag through.
- *
- * Callers building a value-side schema for one Type (e.g. ginny's
- * `test()` tool deriving its `args` schema from a function's params)
- * can call `argsType.toValueSchema({ includeDocs: 'all' })` without
- * holding onto the full `SchemaOptions`. `SchemaOptions` extends this,
- * so existing call sites that already have the full bag still work.
+ * Options for a value schema of a type: `Type.toA(opts)` (and `defineA` /
+ * `valueA` / `toNewA`, `ginValue(type, opts)`). The meta-language schemas
+ * (TypeDef / Expr) are the grammar module's (`GinGrammar`, `buildSchemas`),
+ * so nothing here names them.
  */
 export interface ValueSchemaOptions {
   /**
-   * Control whether Type docstrings are attached to generated Zod schemas
-   * via `.describe(...)`. Useful for LLM prompting — docs become part of
+   * Control whether Type docstrings are attached to the value schema
+   * as descriptions. Useful for LLM prompting — docs become part of
    * the schema description the model sees.
    *
    *  - `'none'`  (default): ignore all docs.
@@ -53,18 +27,17 @@ export interface ValueSchemaOptions {
   /**
    * Type-name resolution scope for the schema being built — the same
    * `TypeScope` that `valid` / `parse` / `compatible` / `props` take as
-   * their trailing argument, and the one thing `toValueSchema` had no way
-   * to accept until 0.4.0.
+   * their trailing argument.
    *
    * It matters wherever a type is named rather than inlined. A signature
    * carrying `{name:'Deployment'}` built against a registry that does not
    * hold that name resolves to an unbound `AliasType`, whose value schema is
-   * `z.any()` — so the call-argument gate derived from it accepts every value
+   * any value — so the call-argument gate derived from it accepts every value
    * silently. Pass the scope that DOES know the name and the alias resolves:
    *
    * ```ts
    * const session = registry.scope({ Deployment: deploymentType });
-   * fnType.call()!.args.toValueSchema({ scope: session });
+   * fnType.call()!.args.toA({ scope: session });
    * ```
    *
    * It rides the options bag rather than a positional parameter because a
@@ -77,12 +50,11 @@ export interface ValueSchemaOptions {
   /**
    * What an object-shaped schema does with a key the type does not declare.
    *
-   *  - `'strip'` (default): drop it, which is zod's default and gin's own
-   *    value semantics — `ObjType.parse` copies the declared fields and
+   *  - `'strip'` (default): drop it, gin's own value semantics — `ObjType.parse` copies the declared fields and
    *    nothing else, `valid` ignores extras, and `obj{a}` is `compatible`
    *    with `obj{a, zz}` (width subtyping). A value carrying more than the
    *    type declares IS a value of that type.
-   *  - `'refuse'`: reject it, with zod's `unrecognized_keys` issue naming
+   *  - `'refuse'`: reject it (a strict object), with an issue naming
    *    the key and its path.
    *
    * `'refuse'` is opt-in — and it is a per-BOUNDARY choice, not a per-type
@@ -110,42 +82,6 @@ export interface ValueSchemaOptions {
    * `GinGrammar.result(type.toA({ override }))` instead.
    */
   override?: (type: Type) => AnySchema | undefined;
-  /**
-   * Optional pass-through to the full meta-language schema bag. Most
-   * `toValueSchema` paths never touch these — they're declared here so
-   * a `SchemaOptions` (where these are required) is structurally
-   * assignable to `ValueSchemaOptions` without casts, and so the rare
-   * type that DOES need them (e.g. `TypType.toValueSchema` building an
-   * inline-Extension branch) can read them off `opts` directly when
-   * present and gracefully degrade when not.
-   */
-  Type?: z.ZodTypeAny;
-  Expr?: z.ZodTypeAny;
-  types?: Type[];
-  exprs?: Expr[];
-  registry?: Registry;
-  newStrict?: boolean;
-}
-
-export interface SchemaOptions extends ValueSchemaOptions {
-  Type: z.ZodTypeAny;
-  Expr: z.ZodTypeAny;
-  types: Type[];
-  exprs: Expr[];
-  /**
-   * Registry reference so schema builders can enumerate classes and
-   * registered named types (e.g. `NewExpr.toSchema` strict mode builds a
-   * union with branches per built-in class + per named instance).
-   */
-  registry: Registry;
-  newStrict?: boolean;
-  /**
-   * Control whether Expr comments are attached via `.describe(...)`.
-   *  - `'none'` (default): ignore.
-   *  - `'all'`: describe an Expr instance's schema with its `comment`
-   *             field where a per-instance schema is produced.
-   */
-  includeComments?: 'none' | 'all';
 }
 
 /**

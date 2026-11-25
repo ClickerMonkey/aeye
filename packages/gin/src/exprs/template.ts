@@ -8,10 +8,9 @@ import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { NewExpr } from './new';
 import { Code } from '../code';
-import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
 import { Effects } from '../effects';
 
@@ -40,18 +39,6 @@ export class TemplateExpr extends Expr {
           } as NewExprDef, scope);
     const paramsExpr = json.params ? r.parseExpr(json.params, scope) : undefined;
     return new TemplateExpr(templateExpr, paramsExpr).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('template'),
-      template: z.union([opts.Expr, z.string()]).describe(
-        'The template string — either a literal string (auto-wrapped as `new text`) or an Expr that evaluates to text. Placeholders use `{name}` syntax; each `name` is looked up first in `params` (when supplied) and then in the surrounding scope.',
-      ),
-      params: opts.Expr.optional().describe(
-        'Optional obj-typed expression supplying placeholder values. When omitted or when a key is missing, `{name}` falls back to a scope lookup of the same name — so a `${baseUrl}` placeholder resolves to a surrounding `define baseUrl = ...`. Provide `params` only when placeholders need values not already in scope (or to override scope values).',
-      ),
-    }).meta({ aid: 'Expr_template' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

@@ -3,9 +3,8 @@ import type { Registry } from '../registry';
 import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, Init, type Prop, type Rnd, Type } from '../type';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -25,20 +24,6 @@ export class DurationType extends Type<number, Record<string, never>> {
   static from(_json: TypeDef, scope: TypeScope): DurationType {
     const registry = scope.registry;
     return new DurationType(scope, {});
-  }
-
-  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({ name: z.literal('duration') })
-      .meta({ aid: 'Type_duration' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Defer to the canonical instance — base `toNewSchema` already
-    // derives the right shape from `init.args` when a constructor is
-    // declared, so duration's `new` schema lines up with the runtime
-    // contract (an obj of {days?, hours?, minutes?, seconds?, ms?})
-    // instead of a bare number.
-    return new DurationType(opts.registry, {}).toNewSchema(opts);
   }
 
   valid(raw: unknown): raw is number {
@@ -120,15 +105,6 @@ export class DurationType extends Type<number, Record<string, never>> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + 'duration'; }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Dump form is a number of milliseconds.
-    return this.describeType(z.number(), opts);
-  }
-
   /** Dumped as milliseconds. */
   valueA(): AnySchema { return a.number().describe('A duration in milliseconds.'); }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({ name: z.literal('duration') }).passthrough();
-  }
 }

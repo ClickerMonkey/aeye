@@ -3,15 +3,14 @@ import { createRegistry, GinGrammar } from '../index';
 import { asParser } from './_a';
 
 /**
- * `Type.toNewSchema(opts)` describes the VALUE side of a `{ kind: 'new' }`
+ * `Type.toNewA(opts)` describes the VALUE side of a `{ kind: 'new' }`
  * Expr — primitives stay primitive, composite slots accept Exprs.
  *
- * `NewExpr.toSchema(opts)` honors `opts.newStrict`: when true, it emits
- * a discriminated union over `opts.types`, locking the LLM to one of the
- * pre-chosen type instances.
+ * The grammar's `new` expr honors `newStrict`: when true, it is a union
+ * over the registry's classes and named types, each with its own value.
  */
 
-describe('Type.toNewSchema', () => {
+describe('Type.toNewA', () => {
   const r = createRegistry();
   const nw = (type: { toNewA(): import('@aeye/schema').AnySchema }) => asParser(type.toNewA(), r);
 
@@ -64,21 +63,7 @@ describe('Type.toNewSchema', () => {
   });
 });
 
-describe('Type.toInstanceSchema', () => {
-  const r = createRegistry();
-
-  test('matches only THIS instance, not other types of the same class', () => {
-    const intT = r.num({ whole: true });
-    const s = intT.toInstanceSchema();
-    expect(s.safeParse(intT.toJSON()).success).toBe(true);
-    // A different num (no `whole`) does NOT match.
-    expect(s.safeParse(r.num().toJSON()).success).toBe(false);
-    // A different type doesn't match.
-    expect(s.safeParse(r.text().toJSON()).success).toBe(false);
-  });
-});
-
-describe('NewExpr.toSchema strict mode', () => {
+describe('NewExpr strict mode (newStrict)', () => {
   const r = createRegistry();
 
   test('non-strict: accepts any TypeDef + any value', () => {
@@ -123,7 +108,7 @@ describe('NewExpr.toSchema strict mode', () => {
 
   test('strict: named-instance branch enforces specific value shape', () => {
     // A named instance branch pairs a name-only type with a SPECIFIC value
-    // schema derived from that instance's `toNewSchema`. That's where the
+    // schema derived from that instance's `toNewA`. That's where the
     // LLM gets tight guidance for complex composites (obj fields, tuple
     // positions, etc.).
     const nameT = r.text();

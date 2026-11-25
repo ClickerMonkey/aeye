@@ -6,9 +6,8 @@ import { Value } from '../value';
 import { type CompatOptions, GetSet, type Prop, type Rnd, Type, optionsCode } from '../type';
 import type { NumOptions } from '../builder';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 
 
 /**
@@ -34,23 +33,6 @@ export class NumType extends Type<number, NumOptions> {
     const registry = scope.registry;
     return new NumType(scope, (json.options ?? {}) as NumOptions);
   }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('num'),
-      options: z.object({
-        min: z.number().optional().describe('Only set when a real lower bound is part of the spec — e.g. "positive count" → min: 1, "age" → min: 0. Do NOT add `min: 0` to every num just because most numbers happen to be non-negative.'),
-        max: z.number().optional().describe('Only set when there is an actual upper bound — a percentage capped at 100, a year capped at 9999. Do NOT pick a generic ceiling like 1000/9999 to fill the field.'),
-        whole: z.boolean().optional().describe('Only set to true when the value is genuinely integral (counts, indices, ids). Leave unset (allow fractions) for measurements, ratios, etc.'),
-        minPrecision: z.number().optional().describe('Decimal-place floor. Almost never needed; omit unless the spec explicitly requires N decimal places.'),
-        maxPrecision: z.number().optional().describe('Decimal-place ceiling. Same rule as minPrecision — omit unless explicitly required.'),
-        prefix: z.string().optional().describe('Display-only prefix (e.g. "$"). Has no effect on validation. Omit unless rendering needs it.'),
-        suffix: z.string().optional().describe('Display-only suffix (e.g. "%"). Same as prefix — omit unless rendering needs it.'),
-      }).optional().describe('Omit entirely for ordinary numbers. Only include when the value has a real, named constraint worth enforcing on every parse.'),
-    }).meta({ aid: 'Type_num' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.number(); }
 
   valid(raw: unknown): raw is number {
     if (typeof raw !== 'number' || Number.isNaN(raw)) return false;
@@ -269,42 +251,11 @@ export class NumType extends Type<number, NumOptions> {
     });
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    let s = this.options.whole ? z.number().int() : z.number();
-    if (this.options.min !== undefined) s = s.min(this.options.min);
-    if (this.options.max !== undefined) s = s.max(this.options.max);
-    return this.describeType(s, opts);
-  }
-
   valueA(): AnySchema {
     let s = this.options.whole ? a.int() : a.number();
     if (this.options.min !== undefined) s = s.min(this.options.min);
     if (this.options.max !== undefined) s = s.max(this.options.max);
     return s;
-  }
-
-  /** Narrow-match: accept a num TypeDef whose options are strictly tighter
-   *  than this one's (higher min, lower max, whole if this demands whole).
-   *  When `this` has any narrowing set, the incoming TypeDef MUST carry
-   *  options satisfying those narrowings — a plain `{name:'num'}` is looser,
-   *  so it's rejected. */
-  toInstanceSchema(): z.ZodTypeAny {
-    const { min, max, whole } = this.options;
-    const hasNarrowing = min !== undefined || max !== undefined || whole === true;
-    const optionsShape: Record<string, z.ZodTypeAny> = {
-      min:          min === undefined   ? z.number().optional()  : z.number().gte(min),
-      max:          max === undefined   ? z.number().optional()  : z.number().lte(max),
-      whole:        whole ? z.literal(true) : z.boolean().optional(),
-      minPrecision: z.number().optional(),
-      maxPrecision: z.number().optional(),
-      prefix:       z.string().optional(),
-      suffix:       z.string().optional(),
-    };
-    const optionsSchema = z.object(optionsShape);
-    return z.object({
-      name: z.literal('num'),
-      options: hasNarrowing ? optionsSchema : optionsSchema.optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

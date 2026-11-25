@@ -6,10 +6,8 @@ import { Call, type CallSpec, type CompatOptions, type Prop, type Rnd, Type } fr
 import type { FnValue } from '../infer';
 import type { JSONOf, RuntimeOf } from '../json-type';
 import { LocalScope, type TypeScope } from '../type-scope';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
-import { callDefSchema, schemaBag } from '../schemas';
+import type { CodeOptions } from '../node';
 
 /**
  * FnType — the universal callable. Its shape lives on the `_call` field
@@ -64,20 +62,6 @@ export class FnType<A extends object = any, R = any, E = any> extends Type<FnVal
     return new FnType(local, Call.from(json.call, local), generic);
   }
 
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('fn'),
-      call: callDefSchema(opts).optional(),
-    }).meta({ aid: 'Type_function' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return z.union([
-      z.string(),
-      z.object({ kind: z.string() }).passthrough(),
-    ]);
-  }
-
   constructor(
     scope: TypeScope,
     call: Call<A, R, E> | CallSpec<A, R, E>,
@@ -88,7 +72,7 @@ export class FnType<A extends object = any, R = any, E = any> extends Type<FnVal
   }
 
   /** An ExprDef IS a fn's value — see the three surfaces below that say so
-   *  (`valid`, `parse`, `toNewSchema`). This is what stops a composite slot
+   *  (`valid`, `parse`, `toNewA`). This is what stops a composite slot
    *  declared `fn` from reading its own body as a smuggled expression. */
   parsesExprValue(_scope?: TypeScope): boolean {
     return true;
@@ -240,26 +224,6 @@ export class FnType<A extends object = any, R = any, E = any> extends Type<FnVal
       + `${Type.renderGenerics(this.generic, options)}${this._call.renderTypes(options)}(${Type.formatParams(this._call.args, options)}): ${ret}`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Functions aren't JSON-serializable. Accept a native id (string) or
-    // an inline lambda: gin's strict ExprDef schema (`buildSchemas`), so a
-    // tool parameter of this type tells the model the expression shape.
-    const bag = schemaBag(this.registry, opts);
-    return this.describeType(z.union([z.string(), bag.Expr]), opts);
-  }
-
   /** A fn value: a function's name, or a program (`Expr`, from the grammar module). */
   valueA(): AnySchema { return a.union([a.string(), a.ref('Expr')]); }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    const callShape: Record<string, z.ZodTypeAny> = {
-      args: this._call.args.toInstanceSchema(),
-    };
-    if (this._call.returns) callShape.returns = this._call.returns.toInstanceSchema();
-    if (this._call.throws) callShape.throws = this._call.throws.toInstanceSchema();
-    return z.object({
-      name: z.literal('fn'),
-      call: z.object(callShape).passthrough(),
-    }).passthrough();
-  }
 }

@@ -5,9 +5,8 @@ import { Value } from '../value';
 import { Call, type CompatOptions, GetSet, type Prop, type PropSpec, type Rnd, Type } from '../type';
 import type { EncodeOptions } from '../json-type';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 
 
 export interface OrOptions {
@@ -41,17 +40,6 @@ export class OrType<T = any> extends Type<T, OrOptions> {
     const registry = scope.registry;
     const variants = ((json.options?.types ?? []) as TypeDef[]).map((t) => scope.parse(t));
     return new OrType(scope, variants);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('or'),
-      options: z.object({ types: z.array(opts.Type) }),
-    }).meta({ aid: 'Type_or' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return opts.Expr;
   }
 
   constructor(scope: TypeScope, variants: Type[]) {
@@ -213,13 +201,6 @@ export class OrType<T = any> extends Type<T, OrOptions> {
     return this.docsPrefix(options) + `or<${this.variants.map((v) => v.toCode(undefined, options)).join(', ')}>`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    if (this.variants.length === 0) return this.describeType(z.never(), opts);
-    if (this.variants.length === 1) return this.describeType(this.variants[0]!.toValueSchema(opts), opts);
-    const schemas = this.variants.map((v) => v.toValueSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-    return this.describeType(z.union(schemas), opts);
-  }
-
   valueA(opts?: ValueSchemaOptions): AnySchema {
     if (this.variants.length === 0) return a.never();
     if (this.variants.length === 1) return this.variants[0]!.toA(opts);
@@ -232,20 +213,4 @@ export class OrType<T = any> extends Type<T, OrOptions> {
     return this.describeA(a.union(this.variants.map((v) => v.toNewA(opts))), opts);
   }
 
-  /** Or's instance schema = union of each variant's instance schema. Makes
-   *  `typ<num>.toValueSchema()` (which runs `registry.like(num)` producing
-   *  `or<num, Positive>`) emit `{name:'num'} | {name:'Positive'}`. */
-  toInstanceSchema(): z.ZodTypeAny {
-    if (this.variants.length === 0) return z.never();
-    if (this.variants.length === 1) return this.variants[0]!.toInstanceSchema();
-    const schemas = this.variants.map((v) => v.toInstanceSchema()) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-    return z.union(schemas);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    if (this.variants.length === 0) return this.describeType(z.never(), opts, 'NewValue_');
-    if (this.variants.length === 1) return this.describeType(this.variants[0]!.toNewSchema(opts), opts, 'NewValue_');
-    const schemas = this.variants.map((v) => v.toNewSchema(opts)) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]];
-    return this.describeType(z.union(schemas), opts, 'NewValue_');
-  }
 }

@@ -8,11 +8,9 @@ import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { indentCode } from './code';
 import { Code, code, span, joinLines } from '../code';
-import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 import { Effects } from '../effects';
 
@@ -32,18 +30,6 @@ export class BlockExpr extends Expr {
   static from(json: BlockExprDef, scope: TypeScope): BlockExpr {
     const r = scope.registry;
     return new BlockExpr(json.lines.map((l) => r.parseExpr(l, scope))).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('block'),
-      ...baseExprFields,
-      lines: z
-        .array(opts.Expr)
-        .describe(
-          'Sequence of expressions evaluated in order. The block\'s value is the LAST line\'s value (an empty block returns void). Earlier lines run for their side effects (set, fns.fetch, etc.).',
-        ),
-    }).meta({ aid: 'Expr_block' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

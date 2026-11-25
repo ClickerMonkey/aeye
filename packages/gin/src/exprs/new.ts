@@ -8,9 +8,8 @@ import { joinAuto, type Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { Code, span } from '../code';
-import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
 import type { Effects } from '../effects';
 
@@ -41,75 +40,6 @@ export class NewExpr extends Expr {
 
   static from(json: NewExprDef, scope: TypeScope): NewExpr {
     return new NewExpr(scope.registry.parse(json.type, scope), json.value).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Strict mode: emit a discriminated union over every Type the LLM
-    // could legitimately `new`:
-    //   - One branch per built-in Type class: `type` is that class's full
-    //     TypeDef Zod (with options), `value` is any.
-    //   - One branch per registered named Type instance (or opts.types):
-    //     `type` is a name-only reference, `value` is that instance's
-    //     specific `toNewSchema(opts)`.
-    //
-    // Example for `{name:'Pair'}` (registered) vs `{name:'num', options}`:
-    //   ({ kind:'new', type:{name:'Pair'},                value:[…pair value…] }
-    //  | { kind:'new', type:{name:'num',  options:{min?, max?, …}}, value:number }
-    //  | …)
-    if (opts.newStrict) {
-      // Per-named-instance branches — specific value schemas.
-      const byName = new Map<string, Type>();
-      for (const t of opts.types) byName.set(t.name, t);
-      for (const t of opts.registry.namedTypeList()) {
-        if (!byName.has(t.name)) byName.set(t.name, t);
-      }
-      const instanceBranches = Array.from(byName.values()).map((t) =>
-        z.object({
-          kind: z.literal('new'),
-          type: z.object({ name: z.literal(t.name) }).passthrough().describe(
-            `Reference to the registered named type \`${t.name}\` — name-only, the registry resolves it to its full definition.`,
-          ),
-          value: t.toNewSchema(opts).optional().describe(
-            `Initial value for the new \`${t.name}\` instance. Each composite slot accepts an Expr (Get, NewExpr, etc.); per-slot type correctness is enforced at runtime.`,
-          ),
-        }).meta({ aid: `New_${t.name}` }),
-      );
-      // Per-built-in-class branches — full TypeDef shape + the class's
-      // static `toNewSchema(opts)` for the value slot. Each class declares
-      // its own class-level value shape (num → number, list → Expr[],
-      // map → {key:Expr,value:Expr}[], etc.). Instance-specific narrowing
-      // (num with min, obj with declared fields) belongs on a named
-      // registered type branch.
-      const classBranches = opts.registry.typeClasses().map((cls) =>
-        z.object({
-          kind: z.literal('new'),
-          type: cls.toSchema(opts).describe(
-            `Full TypeDef for a \`${cls.NAME}\` instance (name + options + per-class fields).`,
-          ),
-          value: cls.toNewSchema(opts).optional().describe(
-            `Initial value matching this \`${cls.NAME}\` instance. Composites accept Expr slots; primitives accept their raw form.`,
-          ),
-        }).meta({ aid: `New_${cls.NAME}` }),
-      );
-      const all = [...instanceBranches, ...classBranches];
-      if (all.length === 1) return all[0]!;
-      return z.union(all as unknown as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]])
-        .meta({ aid: 'Expr_new' });
-    }
-    // Default (non-strict): any TypeDef + any value.
-    return z.object({
-      kind: z.literal('new'),
-// no `comment` field — comment-spam on `new`/`get`/`flow` Exprs is
-      // pure noise (the literal/path/keyword already conveys intent), so
-      // strict-mode schema rejects them outright. Comments belong on
-      // statement-shaped Exprs (if/switch/define/block/lambda) only.
-      type: opts.Type.describe(
-        'TypeDef of the value being constructed. The `value` field is interpreted relative to this type — primitives take their raw form (`new num` → number), composites take Expr slots (`new list` → Expr[]).',
-      ),
-      value: z.any().optional().describe(
-        'Initial value matching `type`. Optional when the type has a defined `init` constructor or a sensible default (empty list, zero num with no constraints, etc.).',
-      ),
-    }).meta({ aid: 'Expr_new' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

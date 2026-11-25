@@ -9,12 +9,10 @@ import type { Locals } from '../analysis';
 import { checkBindingName, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, LOOP_COMPLEXITY_PENALTY, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { indentCode } from './code';
 import { Code } from '../code';
 import { Effects } from '../effects';
-import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 export interface LoopParallel {
@@ -54,42 +52,6 @@ export class LoopExpr extends Expr {
       json.value,
       parallel,
     ).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('loop'),
-      ...baseExprFields,
-      over: opts.Expr.describe(
-        'The iterable expression. Two evaluation modes: ' +
-        '(1) iterable types (list, map, etc. — anything whose `get().loop` is defined) iterate once; the expression is evaluated ONCE at the start. ' +
-        '(2) bool — while-loop semantics: the expression is RE-EVALUATED each iteration; the loop continues while the value is `true` and exits the moment it becomes `false`. ' +
-        'Use `flow:break` / `flow:continue` inside the body to control iteration regardless of mode.',
-      ),
-      body: opts.Expr.describe(
-        "Evaluated once per iteration with the current `key` and `value` bound in scope. Use `{kind:'flow', action:'break'}` or `'continue'` for early-exit. The loop expression itself returns void.",
-      ),
-      key: z.string().optional().describe(
-        'Override the scope-variable name the iteration index/key is bound under (default: `key`). Must NOT be reserved or shadow an outer scope var. Use to disambiguate when looping inside another loop.',
-      ),
-      value: z.string().optional().describe(
-        'Override the scope-variable name the iteration value is bound under (default: `value`). Same rules as `key`.',
-      ),
-      parallel: z
-        .object({
-          concurrent: opts.Expr.optional().describe(
-            'Max in-flight iterations as a num (omit / 1 → strictly sequential). Use when iterations are independent I/O — e.g. fetching N URLs concurrently.',
-          ),
-          rate: opts.Expr.optional().describe(
-            'Minimum interval between iteration starts. Accepts a num (milliseconds) or a duration. Use to rate-limit fan-out (e.g. avoid hammering an API).',
-          ),
-        })
-        .optional()
-        .describe(
-          'Opt-in parallelism. Both fields are optional and independent: `concurrent` caps fan-out width, `rate` paces start times. Iterations may finish out of order; the body should not assume sequential ordering. ' +
-          'Composes with dynamic (bool while-loop) iteration: the body fans out up to `concurrent`, and `over` is re-evaluated against the outer scope each time a task completes — so accumulating side effects of earlier tasks decide whether more tasks spawn.',
-        ),
-    }).meta({ aid: 'Expr_loop' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

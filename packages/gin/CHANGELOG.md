@@ -5,6 +5,25 @@ commits); this file starts here and is the place to look from now on.
 
 ## Unreleased
 
+### gin's zod is gone
+
+`toValueSchema`, `toNewSchema`, `toInstanceSchema`, `toNewExprSchema`, every
+type and expr class's static `toSchema` / `toNewSchema`, `buildZodSchemas` /
+`ZodSchemasOverrides` and `SchemaOptions` (the zod schema bag) are removed, with
+`schemas.ts`'s zod grammar and its helpers. gin no longer depends on `zod`.
+`ValueSchemaOptions` (`includeDocs`, `scope`, `unknownKeys`, `override`) is
+what `toA` takes, and is now exported.
+
+**Migrating.** A value check (not a model) parses the bound value schema
+leniently: `type.toValueSchema(opts).safeParse(v)` →
+`ginValue(type, opts).render(LENIENT).parse(v)` (`.ok`, `.value`, `.issues` with
+`path` / `message`, `.message`). `argProblems` does this now; its unknown-arg
+line reads `Unknown field "x".`. Differences: `map<text, V>` is a record, an
+object lets an undeclared key through unless `unknownKeys: 'refuse'` (gin's
+`parse` drops it), and LENIENT decodes a JSON-encoded answer. A custom class's
+`static toSchema` → `static toA()`. The old zod path is frozen in
+`packages/schema/bench/legacy-gin` as a test baseline.
+
 ### Model-facing schemas are `@aeye/schema` (`a`), not zod
 
 Everything a model writes against is now an `a` schema: rendered per model
@@ -35,9 +54,8 @@ Everything a model writes against is now an `a` schema: rendered per model
   `GinGrammar.result(a.object({ program: a.ref('Expr') })).adapt((ctx) => [ctx.registry])`.
 - `type.toValueSchema()` as a tool / prompt schema → `ginValue(type)` (or
   `type.toA()` inside a `GinGrammar.result`).
-- The zod grammar is `buildZodSchemas` (deprecated): it only backs
-  `toValueSchema`, which stays for gin's value checks and the harness's zod-gin
-  until the harness moves; then both go.
+- The zod grammar was `buildZodSchemas` (deprecated): it only backed
+  `toValueSchema`; both are now gone (see "gin's zod is gone" above).
 
 ### Export to runnable TypeScript
 

@@ -6,9 +6,8 @@ import { type CompatOptions, type NewSlotVisitor, type Prop, type Rnd, Type, ENV
 import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, JSONValue, RuntimeOf } from '../json-type';
 
 
@@ -31,17 +30,6 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
       ? scope.parse(json.generic.T)
       : registry.any();
     return new OptionalType(scope, inner);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('optional'),
-      generic: z.object({ T: opts.Type }).optional(),
-    }).meta({ aid: 'Type_optional' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return opts.Expr.optional();
   }
 
   constructor(scope: TypeScope, readonly inner: Type<T>) {
@@ -169,22 +157,7 @@ export class OptionalType<T = any> extends Type<T | undefined, Record<string, ne
     return this.docsPrefix(options) + `optional<${this.inner.toCode(undefined, options)}>`;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    return this.describeType(this.inner.toValueSchema(opts).optional(), opts);
-  }
-
   valueA(opts?: ValueSchemaOptions): AnySchema { return a.optional(this.inner.toA(opts)); }
 
   toNewA(opts?: ValueSchemaOptions): AnySchema { return this.describeA(a.optional(this.inner.toNewA(opts)), opts); }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return this.describeType(this.inner.toNewSchema(opts).optional(), opts, 'NewValue_');
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('optional'),
-      generic: z.object({ T: this.inner.toInstanceSchema() }).optional(),
-    }).passthrough();
-  }
 }

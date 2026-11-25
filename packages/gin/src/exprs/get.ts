@@ -9,10 +9,8 @@ import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { Code, code, span } from '../code';
-import { z } from 'zod';
-import { pathStepSchema } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 /**
@@ -29,17 +27,6 @@ export class GetExpr extends Expr {
 
   static from(json: GetExprDef, scope: TypeScope): GetExpr {
     return new GetExpr(Path.from(json.path, scope)).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('get'),
-      path: z
-        .array(pathStepSchema(opts))
-        .describe(
-          'Steps walked left-to-right starting from a scope variable. Step shapes: `{prop:"name"}` for prop/method access, `{args:{…}}` to call the previous step, `{key:Expr}` for index access. The first step MUST be a prop step (the scope-var name). A step names exactly ONE shape — a call is its own step, so a method with arguments is `[{"prop":"m"},{"args":{…}}]` and never `{"prop":"m","args":{…}}`. Result is the final step\'s value.',
-        ),
-    }).meta({ aid: 'Expr_get' });
   }
 
   async evaluate(_engine: Engine, scope: Scope): Promise<Value> {

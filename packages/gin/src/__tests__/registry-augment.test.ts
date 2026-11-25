@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import { asParser, valueParser } from './_a';
 import { createRegistry, Engine, Call, GetSet, Init, val, Value } from '../index';
 
 /**
@@ -269,7 +270,7 @@ describe('Registry.augment', () => {
     // The `value` slot of a `new T(args)` expression should match
     // `init.args` whenever T has init defined — augmented or
     // intrinsic. Verified by inspecting the Zod shape of the
-    // type's `toNewSchema()`.
+    // type's `toNewA()`.
     const r = createRegistry();
     r.augment('text', {
       init: new Init({
@@ -281,16 +282,7 @@ describe('Registry.augment', () => {
       }),
     });
 
-    // Build a synthetic SchemaOptions just rich enough for toNewSchema.
-    const opts = {
-      Type: r.any() as any,
-      Expr: r.any() as any,
-      types: [],
-      exprs: [],
-      registry: r,
-    } as any;
-
-    const schema = r.text().toNewSchema(opts);
+    const schema = asParser(r.text().toNewA(), r);
     // Should accept the init.args shape (and reject mismatched).
     expect(schema.safeParse({ name: 'World', count: 3 }).success).toBe(true);
     expect(schema.safeParse('plain string').success).toBe(false);
@@ -299,19 +291,14 @@ describe('Registry.augment', () => {
 
   test('intrinsic init also flows through (duration, color)', async () => {
     // `duration.init.args` is `{days?, hours?, minutes?, seconds?, ms?}`.
-    // After the base `Type.toNewSchema` change, both static AND instance
-    // schemas should reflect this — not the legacy bare-number form.
+    // The `new` value schema (`toNewA`) reflects this — not the bare-number form.
     const r = createRegistry();
-    const opts = {
-      Type: r.any() as any, Expr: r.any() as any,
-      types: [], exprs: [], registry: r,
-    } as any;
-    const dSchema = r.duration().toNewSchema(opts);
+    const dSchema = asParser(r.duration().toNewA(), r);
     expect(dSchema.safeParse({ days: 1, hours: 2 }).success).toBe(true);
     expect(dSchema.safeParse(1234).success).toBe(false);
 
     // Color too — init.args is {r, g, b, a?}.
-    const cSchema = r.color().toNewSchema(opts);
+    const cSchema = asParser(r.color().toNewA(), r);
     expect(cSchema.safeParse({ r: 255, g: 0, b: 0 }).success).toBe(true);
     expect(cSchema.safeParse(0xff0000ff).success).toBe(false);
   });
@@ -355,7 +342,7 @@ describe('Registry.augment', () => {
  *
  * Two properties constrain the fix and are pinned below: the body still
  * shows only what this type ADDS (a base's surface stays implicit under
- * `extends`), and `toJSON` / `toValueSchema` are untouched — an
+ * `extends`), and `toJSON` / the value schema are untouched — an
  * augmentation is registry-side surface, never wire shape.
  */
 describe('augmentation on a named Extension reaches the definition print', () => {
@@ -463,9 +450,9 @@ describe('augmentation on a named Extension reaches the definition print', () =>
     expect(back.toCodeDefinition()).toBe(resource.toCodeDefinition());
   });
 
-  test('toValueSchema accepts exactly what it accepted before — a bare handle', () => {
+  test('the value schema accepts exactly what it accepted before — a bare handle', () => {
     const { resource } = resourceFixture();
-    const schema = resource.toValueSchema();
+    const schema = valueParser(resource);
     // The bare `{ id }` handle is the value contract. This is the whole
     // reason the methods live on the augmentation and not in `local.props`
     // (a local method prop enters the value schema and breaks this), so

@@ -11,9 +11,8 @@ import type { Engine } from '../engine';
 import type { Scope } from '../scope';
 import type { ListOptions } from '../builder';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 import type { EncodeOptions, JSONOf, JSONValue } from '../json-type';
 
 
@@ -39,22 +38,6 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     const registry = scope.registry;
     const item = json.generic?.V ? scope.parse(json.generic.V) : registry.any();
     return new ListType(scope, item, (json.options ?? {}) as ListOptions);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('list'),
-      generic: z.object({ V: opts.Type }).optional(),
-      options: z.object({
-        minLength: z.number().optional(),
-        maxLength: z.number().optional(),
-      }).optional(),
-    }).meta({ aid: 'Type_list' });
-  }
-
-  static toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Class-level: `value: Expr[]`. Element type narrows per-instance.
-    return z.array(opts.Expr);
   }
 
   constructor(scope: TypeScope, item: Type<V>, options: ListOptions = {}) {
@@ -272,13 +255,6 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     });
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    let s = z.array(this.item.toValueSchema(opts));
-    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
-    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
-    return this.describeType(s, opts);
-  }
-
   valueA(opts?: ValueSchemaOptions): AnySchema {
     let s = a.array(this.item.toA(opts));
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
@@ -291,27 +267,6 @@ export class ListType<V = any> extends Type<V[], ListOptions> {
     if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
     if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
     return this.describeA(s, opts);
-  }
-
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Each element accepts any Expr; per-element type is enforced at
-    // evaluate/validate time.
-    let s = z.array(opts.Expr);
-    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
-    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
-    return this.describeType(s, opts, 'NewValue_');
-  }
-
-  /** Structural TypeDef match delegating the item's instance schema. */
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('list'),
-      generic: z.object({ V: this.item.toInstanceSchema() }).optional(),
-      options: z.object({
-        minLength: z.number().optional(),
-        maxLength: z.number().optional(),
-      }).optional(),
-    }).passthrough();
   }
 
   describe(data: unknown): Type | undefined {

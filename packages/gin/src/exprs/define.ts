@@ -9,11 +9,9 @@ import { checkBindingName, typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
 import { Code, code, span, joinLines } from '../code';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { indentCode } from './code';
-import { z } from 'zod';
 import { Effects } from '../effects';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 /**
@@ -45,29 +43,6 @@ export class DefineExpr extends Expr {
       value: r.parseExpr(v.value, scope),
     }));
     return new DefineExpr(vars, r.parseExpr(json.body, scope)).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('define'),
-      ...baseExprFields,
-      vars: z
-        .array(
-          z.object({
-            name: z.string().describe(
-              'Variable name. Must NOT be a reserved name (args, recurse, this, super, key, value, yield, error) and must NOT shadow anything already in scope.',
-            ),
-            type: opts.Type.optional().describe(
-              'Optional declared type. OMIT this field when the value already determines the type — every value Expr (`new`, `get`, `if`, ...) is typed, and the var inherits that type. Set this only when you need to widen / narrow / annotate beyond what the value alone produces; a mismatch with the value\'s inferred type is reported as `define.var.type-mismatch`.',
-            ),
-            value: opts.Expr.describe(
-              "The expression whose result is bound under `name`. May reference any earlier var in this define — each var is added to scope before the next var's value is evaluated.",
-            ),
-          }),
-        )
-        .describe('Bindings introduced before `body`. Evaluated sequentially, so `vars[i].value` may reference any of `vars[0..i-1]`.'),
-      body: opts.Expr,
-    }).meta({ aid: 'Expr_define' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

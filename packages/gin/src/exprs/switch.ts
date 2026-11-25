@@ -8,13 +8,11 @@ import type { Locals } from '../analysis';
 import { typeOf, walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { indentCode, findEscapingFlow } from './code';
 import { FlowExpr } from './flow';
 import { Effects } from '../effects';
 import { Code, code, span, joinLines } from '../code';
-import { z } from 'zod';
-import { baseExprFields } from '../schemas';
 import type { TypeScope } from '../type-scope';
 
 export interface SwitchCase {
@@ -49,27 +47,6 @@ export class SwitchExpr extends Expr {
       })),
       json.else ? r.parseExpr(json.else, scope) : undefined,
     ).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('switch'),
-      ...baseExprFields,
-      value: opts.Expr.describe(
-        'Expression whose result is compared against each case\'s `equals` candidates. Evaluated once.',
-      ),
-      cases: z
-        .array(z.object({
-          equals: z.array(opts.Expr).describe(
-            'Candidate values for this case. The case wins if `value` equals ANY one of them (logical OR). Each candidate\'s type must be compatible with `value`\'s type — checked as `switch.case.type`.',
-          ),
-          body: opts.Expr.describe('Evaluated when this case wins. The switch expression\'s value is this body\'s value.'),
-        }))
-        .describe('Ordered list of cases — first match wins. Cases are NOT fall-through; only the matching case\'s body runs.'),
-      else: opts.Expr.optional().describe(
-        'Optional fallback evaluated when no case matches. Without an else, a no-match switch evaluates to void.',
-      ),
-    }).meta({ aid: 'Expr_switch' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

@@ -4,9 +4,8 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, indentOf, joinAuto, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import type { EncodeOptions, JSONOf, RuntimeOf } from '../json-type';
 
 
@@ -32,19 +31,6 @@ export class EnumType<V = any, B = V> extends Type<V, EnumOptions<V>> {
     const V = json.generic?.V ? scope.parse(json.generic.V) : registry.text();
     const values = (json.options?.values ?? {}) as Record<string, unknown>;
     return new EnumType(scope, V, { values });
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('enum'),
-      generic: z.object({ V: opts.Type }).optional(),
-      options: z.object({ values: z.record(z.string(), z.any()) }),
-    }).meta({ aid: 'Type_enum' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    // Class-level: member value of any supported enum primitive.
-    return z.union([z.string(), z.number()]);
   }
 
   constructor(scope: TypeScope, value: Type<B>, options: EnumOptions<V>) {
@@ -172,26 +158,10 @@ export class EnumType<V = any, B = V> extends Type<V, EnumOptions<V>> {
     return this.docsPrefix(options) + body;
   }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    // Zod v4's z.enum accepts a Record — same shape as EnumOptions.values.
-    return this.describeType(
-      z.enum(this.options.values as Record<string, string | number>),
-      opts,
-    );
-  }
-
   valueA(): AnySchema {
     const values = Object.values(this.options.values as Record<string, unknown>);
     if (values.length > 0 && values.every((v) => typeof v === 'string')) return a.enum(values as string[]);
     return a.union(values.map((v) => a.literal(v as string | number)));
-  }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('enum'),
-      generic: z.object({ V: this.value.toInstanceSchema() }).optional(),
-      options: z.object({ values: z.record(z.string(), z.any()) }),
-    }).passthrough();
   }
 }
 

@@ -12,9 +12,8 @@ import { walkValidate } from './analysis';
 import { ReturnSignal } from './flow-control';
 import type { Scope } from './scope';
 import type { EncodeOptions, JSONOf, RuntimeOf } from './json-type';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { SchemaOptions, ValueSchemaOptions } from './node';
+import type { ValueSchemaOptions } from './node';
 import { Effects } from './effects';
 import { typeClosure, typeReferences, type TypeClosure, type TypeReferences } from './refs';
 import {
@@ -77,7 +76,7 @@ export interface NewSlotVisitor {
  * value:5}])` kept the ENVELOPE's type and produced a `num` sitting inside a
  * `list<text>`, which `valid()` then blessed (`ListType.valid` asked each cell
  * whether it was valid BY ITS OWN LIGHTS) and `validateValue()` reported
- * nothing about. The only surface that caught it was a generated Zod schema.
+ * nothing about. The only surface that caught it was a generated value schema.
  *
  * Reconciled here, in one function, so `Registry.parseValue`, every
  * composite's `valid` and `Extension`'s stored slots cannot answer it
@@ -162,7 +161,7 @@ export function encodeSlot(v: Value, opts: EncodeOptions, scope?: TypeScope): un
  * object omits a key it has no value for. Writing `null` instead made the
  * encoding disagree with the type's own value schema, which refuses `null`
  * for an optional field: `encodeLogical()` produced JSON that
- * `toValueSchema()` rejected.
+ * its value schema (`toA()`) rejected.
  */
 export function encodeField(out: Record<string, unknown>, name: string, slot: unknown, opts: EncodeOptions, scope?: TypeScope): void {
   if (slot instanceof Value && slot.raw !== undefined) out[name] = encodeSlot(slot, opts, scope);
@@ -884,9 +883,8 @@ export abstract class Type<T = any, O = any> implements Node {
    * value slot is an expression written where data goes, which is what
    * `Registry.parseValue` refuses. **`fn` is the exception, and it is not an
    * edge case: an ExprDef IS a fn's value.** `FnType.parse` and
-   * `FnType.valid` both accept a `{kind, …}` node, and `FnType.toNewSchema`
-   * describes exactly that to a model — `z.union([z.string(), z.object({kind:
-   * z.string()}).passthrough()])`. A fn-declared slot holding a `lambda` is
+   * `FnType.valid` both accept a `{kind, …}` node, and `FnType.toNewA`
+   * describes exactly that to a model — a fn name or an `Expr`. A fn-declared slot holding a `lambda` is
    * the ordinary case, not a mistake.
    *
    * Declared on the Type rather than tested by class, so the rule travels
@@ -1248,7 +1246,7 @@ export abstract class Type<T = any, O = any> implements Node {
    * satisfy, evaluated with `this` bound to the value. Base types have no
    * constraints (invariants live in `options`); `Extension` overrides to
    * include its local constraint and chain to the base. Consumed by
-   * `Engine.validateValue` and `describeType` (LLM schema description).
+   * `Engine.validateValue` and `describeA` (the value schema's description).
    */
   constraints(): Expr[] {
     return [];
@@ -1338,70 +1336,23 @@ export abstract class Type<T = any, O = any> implements Node {
   /** Deep copy this Type (NOT a raw value). */
   abstract clone(): Type<T, O>;
 
-  // ─── VALUE SCHEMA (Zod) ──────────────────────────────────────────────────
-
-  /**
-   * Produce a Zod schema for a PRIMITIVE JSON value that conforms to
-   * this type — i.e., the shape an LLM should produce when asked for a
-   * value of this type. Options on the type are folded in (num.min →
-   * `.min()`, text.pattern → `.regex()`, list.maxLength → `.max()`, etc.).
-   *
-   * Composites emit LLM-friendly shapes: `list<V>` → `z.array(V)`,
-   * `map<K,V>` → `z.array(z.object({ key, value }))` (NOT a `[K, V]`
-   * tuple — LLMs handle object keys more reliably than positional pairs),
-   * `obj` → `z.object({ per-field schemas })`, and so on.
-   *
-   * Distinct from `toSchema(opts)` (which schemas the TypeDef JSON for
-   * registry round-trip). `toValueSchema()` schemas the RUNTIME DATA.
-   *
-   * Opts honored:
-   *  - `includeDocs: 'type' | 'all'` — attach `.describe(this.docs)` if
-   *    set. 'all' also describes individual props / fields / get / call.
-   */
-  abstract toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny;
-
-  /**
-   * Produce a Zod schema for the VALUE side of a `{ kind: 'new' }` Expr of
-   * this type. Same as `toValueSchema()` for primitives (e.g. `new num`
-   * takes a bare number). Composites differ: each nested slot is any Expr
-   * (`opts.Expr`) — Get, NewExpr, function-call path, etc. — and per-slot
-   * type correctness is enforced at evaluate/validate time rather than in
-   * the Zod shape. So `new obj { x: text, y: num }` accepts
-   * `{ x: <any expr>, y: <any expr> }`.
-   *
-   * Default behaviour:
-   *   - When the type defines `init()` (a constructor), the value
-   *     slot IS the init's args obj. `new <T>(args)` literally calls
-   *     `init.run` with `args` parsed against `init.args`, so the
-   *     schema the LLM sees should be that args type.
-   *   - Otherwise fall through to `toValueSchema(opts)`.
-   *
-   * Composites still override (list / map / obj / tuple / typ / ...
-   * have richer Expr-slot shapes that don't fit the init mould).
-   */
-  toNewSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const init = this.init(opts.scope);
-    if (init) {
-      return this.describeType(init.args.toValueSchema(opts), opts, 'NewValue_');
-    }
-    return this.toValueSchema(opts);
-  }
-
   // ─── VALUE SCHEMA (`a`) ─────────────────────────────────────────────────
 
   /**
    * The schema of a VALUE of this type, as an `@aeye/schema` (`a`) schema:
    * what a model writes when asked for one (tool args, a prompt's output),
-   * rendered per model and decoded back into the code shape. Mirrors
-   * `toValueSchema` value-for-value, except that a `map<text, V>` is a
-   * record in the code shape (pairs are a rendering choice) and a
+   * rendered per model and decoded back into the code shape. Options on the
+   * type are folded in (`num.min`, `text.pattern`, `list.maxLength` …). A
+   * `map<text, V>` is a record in the code shape (pairs are a rendering
+   * choice; other maps are `{ key, value }` pairs), and a
    * registered named type is `a.ref(name)`, defined once by the grammar
    * module (`GinGrammar`). A `typ` value is `a.ref('TypeDef')`, a `fn`
    * value `a.ref('Expr')`; bind with `ginValue(type)` (or compose with
    * `GinGrammar.result(...)`).
    *
    * Opts: `includeDocs`, `scope`, `unknownKeys` (`'refuse'` makes object
-   * shapes strict) as for `toValueSchema`.
+   * shapes strict), `override`. For a value check (not a model), parse
+   * leniently: `ginValue(type).render(LENIENT).parse(v)`.
    */
   toA(opts?: ValueSchemaOptions): AnySchema {
     const own = opts?.override?.(this);
@@ -1429,7 +1380,7 @@ export abstract class Type<T = any, O = any> implements Node {
 
   /**
    * The schema of the VALUE slot of a `{ kind: 'new' }` of this type, as
-   * `a` (mirrors `toNewSchema`): the constructor's args when the type has
+   * `a`: the constructor's args when the type has
    * an `init`, else the value schema; composites take Expr slots
    * (`a.ref('Expr')`).
    */
@@ -1451,7 +1402,7 @@ export abstract class Type<T = any, O = any> implements Node {
     return opts?.unknownKeys === 'refuse' ? o.strict() : o;
   }
 
-  /** `describeType` for `a`: the docs (per `includeDocs`) and constraints as the description. */
+  /** The docs (per `includeDocs`) and constraints as the description. */
   protected describeA(schema: AnySchema, opts?: ValueSchemaOptions): AnySchema {
     const mode = opts?.includeDocs ?? 'none';
     const parts: string[] = [];
@@ -1704,91 +1655,6 @@ export abstract class Type<T = any, O = any> implements Node {
   async newFill(value: unknown, engine: Engine, scope: Scope): Promise<unknown> {
     const embedded = embeddedExpr(value, this.scope);
     return embedded ? embedded.evaluate(engine, scope) : value;
-  }
-
-  /**
-   * Build the `z.object` for a VALUE of an object-shaped type, honouring
-   * `opts.unknownKeys`. Every value-side object schema goes through here so
-   * the choice is made in one place — `z.object` strips, `z.strictObject`
-   * refuses with an `unrecognized_keys` issue naming the key.
-   *
-   * Only the value side: a schema for a `new` expression's slots
-   * (`toNewSchema`) or for the TypeDef wire form (`toSchema` /
-   * `toInstanceSchema`) is not the caller's payload, and the wire form has
-   * its own, non-optional refusal in `wire.ts`.
-   */
-  protected valueObject(
-    shape: Record<string, z.ZodTypeAny>,
-    opts?: ValueSchemaOptions,
-  ): z.ZodObject<z.ZodRawShape> {
-    return opts?.unknownKeys === 'refuse' ? z.strictObject(shape) : z.object(shape);
-  }
-
-  /**
-   * Attach the Type's own `.docs` as a Zod `.describe()` when opts ask for
-   * it, and optionally a stable `aid` so the schema lands in `$defs` under
-   * a readable name. `aidPrefix` distinguishes the value-schema aid
-   * (`Value_<name>`) from the new-schema aid (`NewValue_<name>`) — both
-   * call this helper, so without the prefix they collide. Anonymous class
-   * instances (e.g. `num({min:0})` without a name) skip the aid so
-   * differently-optioned instances don't collide.
-   */
-  protected describeType(
-    schema: z.ZodTypeAny,
-    opts?: ValueSchemaOptions,
-    aidPrefix: 'Value_' | 'NewValue_' | null = 'Value_',
-  ): z.ZodTypeAny {
-    const mode = opts?.includeDocs ?? 'none';
-    const parts: string[] = [];
-    if (mode !== 'none' && this.docs) parts.push(this.docs);
-    // Constraints always describe — they're runtime invariants the LLM
-    // must satisfy, separate from cosmetic docs.
-    const cs = this.constraints();
-    if (cs.length > 0) {
-      const text = cs
-        .map((c) => `must satisfy ${c.toCode(this.registry, { expectsValue: true })}`)
-        .join('; ');
-      parts.push(text);
-    }
-    let out = parts.length > 0 ? schema.describe(parts.join(' — ')) : schema;
-    if (aidPrefix) {
-      const isRegistered = this.registry.namedTypeList().some((t) => t.name === this.name);
-      if (isRegistered) out = out.meta({ aid: `${aidPrefix}${this.name}` });
-    }
-    return out;
-  }
-
-  /**
-   * Produce a Zod schema for a `{ kind: 'new' }` Expr that constructs a
-   * value of THIS specific type — `{ kind: 'new', type: <this type's
-   * literal>, value: <this type's new schema> }`. Used by composite
-   * `toNewSchema` overrides to recursively constrain nested slots, and by
-   * `NewExpr.toSchema` in strict mode.
-   */
-  toNewExprSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Match the type by NAME only (same matcher used by `opts.Type` and
-    // `NewExpr.toSchema` strict branches). Callers that need a strict
-    // deep-equal match should use `toInstanceSchema()` directly.
-    return z.object({
-      kind: z.literal('new'),
-      type: z.object({ name: z.literal(this.name) }).passthrough(),
-      value: this.toNewSchema(opts).optional(),
-    });
-  }
-
-  /**
-   * Produce a Zod schema that matches ONLY this specific Type instance's
-   * encoded TypeDef — used by NewExpr's strict schema to lock the `type`
-   * field to a pre-chosen instance. Implementation: deep-JSON equality
-   * against `this.toJSON()`.
-   */
-  toInstanceSchema(): z.ZodTypeAny {
-    const expected = JSON.stringify(this.toJSON());
-    const typeName = this.name;
-    return z.custom<unknown>(
-      (val) => JSON.stringify(val) === expected,
-      { message: `must match type '${typeName}'` },
-    );
   }
 
   // ─── CODE EMISSION ───────────────────────────────────────────────────────

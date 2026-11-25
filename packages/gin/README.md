@@ -74,7 +74,7 @@ the constructor packs the channels into a 32-bit integer.
 
 The `value` slot of a `new` expression automatically reflects
 `init.args` in the LLM-facing schema — devs don't write per-type
-`toNewSchema` overrides for that case.
+`toNewA` overrides for that case.
 
 ---
 
@@ -179,7 +179,7 @@ AND of a named Extension, alongside that Extension's own members
 print). No subclassing or wrapper required.
 
 Augmentation is REGISTRY-SIDE surface, never wire shape: it stays out
-of `toJSON()` and out of `toValueSchema()` / `toNewSchema()`. So it is
+of `toJSON()` and out of `toA()` / `toNewA()`. So it is
 the slot for methods on a type whose VALUE contract must stay closed —
 a `resource` handle that must keep parsing from a bare `{ id }` gets
 its `markdown()` / `url()` here, not as local props.
@@ -369,9 +369,12 @@ reference stays a reference. Contrast `register(X)`, where the name
 resolves to the instance and the next `toJSON()` writes the whole
 definition INLINE where the reference used to be. Use the overlay for
 a name that is true for one session, execution or request; use
-`register` for a type the registry owns. `toValueSchema({ scope })`
-takes the same scope, so a value gate built from a signature that
-names a type is actually enforced rather than degrading to `z.any()`.
+`register` for a type the registry owns. `toA({ scope })` /
+`ginValue(type, { scope })` take the same scope, so a value gate built
+from a signature that names a type is actually enforced rather than
+degrading to any value. (gin's zod value schemas, `toValueSchema` and
+`buildZodSchemas`, are gone; check a value with
+`ginValue(type).render(LENIENT).parse(v)`.)
 
 ---
 

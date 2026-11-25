@@ -4,9 +4,8 @@ import type { TypeDef } from '../schema';
 import { Value } from '../value';
 import { type CompatOptions, type Prop, type Rnd, Type } from '../type';
 import { TypeError } from '../problem';
-import { z } from 'zod';
 import { a, type AnySchema } from '@aeye/schema';
-import type { CodeOptions, SchemaOptions, ValueSchemaOptions } from '../node';
+import type { CodeOptions, ValueSchemaOptions } from '../node';
 
 
 export interface NotOptions {
@@ -32,15 +31,6 @@ export class NotType extends Type<any, NotOptions> {
       : registry.any();
     return new NotType(scope, excluded);
   }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('not'),
-      options: z.object({ excluded: opts.Type }),
-    }).meta({ aid: 'Type_not' });
-  }
-
-  static toNewSchema(_opts: SchemaOptions): z.ZodTypeAny { return z.any(); }
 
   constructor(scope: TypeScope, readonly excluded: Type) {
     super(scope, { excluded: excluded.toJSON() });
@@ -124,21 +114,6 @@ export class NotType extends Type<any, NotOptions> {
 
   toCode(_registry?: Registry, options?: CodeOptions): string { return this.docsPrefix(options) + `not<${this.excluded.toCode(undefined, options)}>`; }
 
-  toValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
-    const excluded = this.excluded.toValueSchema(opts);
-    return this.describeType(z.any().refine(
-      (v) => !excluded.safeParse(v).success,
-      { message: `must not match excluded type '${this.excluded.name}'` },
-    ), opts);
-  }
-
   /** Any value except the excluded type's: said in words, checked on decode. */
   valueA(opts?: ValueSchemaOptions): AnySchema { return a.not(this.excluded.toA(opts)); }
-
-  toInstanceSchema(): z.ZodTypeAny {
-    return z.object({
-      name: z.literal('not'),
-      options: z.object({ excluded: this.excluded.toInstanceSchema() }),
-    }).passthrough();
-  }
 }

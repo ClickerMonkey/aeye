@@ -301,8 +301,6 @@ describe('every legitimate wire shape still parses', () => {
     reg.define({
       NAME: 'thirdparty',
       from: (json, scope) => AnyClass.from(json, scope),
-      toSchema: AnyClass.toSchema,
-      toNewSchema: AnyClass.toNewSchema,
     });
     expect(() => reg.parse({ name: 'thirdparty', options: { whatever: 1 }, generic: { Z: { name: 'num' } } })).not.toThrow();
   });

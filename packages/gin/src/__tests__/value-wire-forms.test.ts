@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import { valueParser } from './_a';
 import { createRegistry } from '../index';
 import { Value } from '../value';
 import type { Type } from '../type';
@@ -79,7 +80,7 @@ describe('encodeLogical — the envelope-free form', () => {
     // (`optional` schemas `undefined`, not `null`), so the key is omitted.
     const t = r.obj({ maybe: { type: r.optional(r.text()) } });
     expect(t.parse({}).encodeLogical()).toEqual({});
-    expect(t.toValueSchema().safeParse(t.parse({}).encodeLogical()).success).toBe(true);
+    expect(valueParser(t).safeParse(t.parse({}).encodeLogical()).success).toBe(true);
     expect(r.optional(r.text()).parse(undefined).encodeLogical()).toBeNull();
   });
 

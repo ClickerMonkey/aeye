@@ -1,11 +1,13 @@
 import { describe, test, expect } from 'vitest';
+import { LENIENT } from '@aeye/schema';
+import { bindA } from './_a';
 import { createRegistry, Engine } from '../index';
 
 /**
  * Type-level constraints via Extension:
  *   - `Extension.local.constraint` is an Expr evaluated with `this` = value
  *   - `Engine.validateValue(value)` runs the constraint chain and returns Problems
- *   - `toValueSchema()` adds the constraint text to the Zod description
+ *   - `toA()` adds the constraint text to the value schema's description
  *
  * Lambda-level constraints:
  *   - `LambdaExpr.constraint` is a pre-call guard, evaluated with `args` in scope
@@ -51,7 +53,7 @@ describe('Type constraints (via Extension)', () => {
     expect(p.list.length).toBe(0);
   });
 
-  test('toValueSchema describes the constraint', () => {
+  test('toA describes the constraint', () => {
     const r = createRegistry();
     const nonEmpty = r.extend('text', {
       name: 'nonEmpty',
@@ -60,7 +62,7 @@ describe('Type constraints (via Extension)', () => {
         path: [{ prop: 'this' }, { prop: 'isNotEmpty' }, { args: {} }],
       }),
     });
-    const schema = nonEmpty.toValueSchema();
+    const schema = bindA(nonEmpty.toA()).render(LENIENT).jsonSchema as { description?: string };
     expect(schema.description).toContain('must satisfy');
     expect(schema.description).toContain('isNotEmpty');
   });

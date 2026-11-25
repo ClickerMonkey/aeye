@@ -8,10 +8,8 @@ import type { Type } from '../type';
 import type { Locals } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { Code, code, span } from '../code';
-import { z } from 'zod';
-import { baseExprFields, pathStepSchema } from '../schemas';
 import type { TypeScope } from '../type-scope';
 import { Effects, combine } from '../effects';
 
@@ -33,21 +31,6 @@ export class SetExpr extends Expr {
   static from(json: SetExprDef, scope: TypeScope): SetExpr {
     return new SetExpr(Path.from(json.path, scope), scope.registry.parseExpr(json.value, scope))
       .withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('set'),
-      ...baseExprFields,
-      path: z
-        .array(pathStepSchema(opts))
-        .describe(
-          'Steps walked left-to-right to a writable target. Single-step `[{prop:"x"}]` re-assigns scope variable `x`. Multi-step targets need the type to support set on the final step (a prop with a `set` ExprDef, an indexed slot, or a method whose call has `set:`).',
-        ),
-      value: opts.Expr.describe(
-        'The expression evaluated and assigned to the path target. Its type must be compatible with the target\'s declared type — checked statically as `set.type-mismatch`.',
-      ),
-    }).meta({ aid: 'Expr_set' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {

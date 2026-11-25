@@ -1,7 +1,7 @@
 import { describe, test, expect, expectTypeOf } from 'vitest';
-import { z } from 'zod';
+import { LENIENT } from '@aeye/schema';
 import {
-  createRegistry, Value, ObjType, ListType, MapType, TupleType, OrType, AndType, EnumType, LiteralType,
+  createRegistry, ginValue, Value, ObjType, ListType, MapType, TupleType, OrType, AndType, EnumType, LiteralType,
   FnType, IfaceType, AliasType, Extension, OptionalType, NullableType, TypType,
   type Infer, type FnArgs, type FnReturns, type FnThrows, type ObjValue, type FieldsInput, type Type,
 } from '../index';
@@ -82,11 +82,11 @@ describe('obj', () => {
   });
 
   test('the value schema accepts what the inferred type describes', () => {
-    const schema = Read.toValueSchema();
+    const schema = ginValue(Read).render(LENIENT);
     const ok: Infer<typeof Read> = { path: 'p', tags: [] };
-    expect(schema.safeParse(ok).success).toBe(true);
-    expect(schema.safeParse({ path: 1, tags: [] }).success).toBe(false);
-    const json = z.toJSONSchema(schema);
+    expect(schema.parse(ok).ok).toBe(true);
+    expect(schema.parse({ path: 1, tags: [] }).ok).toBe(false);
+    const json = schema.jsonSchema;
     expect(json).toMatchObject({ type: 'object', required: expect.arrayContaining(['path', 'tags']) });
   });
 

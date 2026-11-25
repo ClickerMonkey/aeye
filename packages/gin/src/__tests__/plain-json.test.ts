@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest';
+import { valueParser } from './_a';
 import { createRegistry, type Type } from '../index';
 
 /**
@@ -58,7 +59,7 @@ describe('encoded values leave absent optional fields out', () => {
     const encoded = T.parse({ a: 'x' }).encodeLogical();
     expect(encoded).toEqual({ a: 'x' });
     expect(Object.keys(encoded as object)).toEqual(['a']);
-    expect(T.toValueSchema().safeParse(encoded).success).toBe(true);
+    expect(valueParser(T).safeParse(encoded).success).toBe(true);
   });
 
   test('a present optional field is kept, and the encoding parses back to the same value', () => {
@@ -66,7 +67,7 @@ describe('encoded values leave absent optional fields out', () => {
     const value = T.parse({ a: 'x', b: 2, when });
     const encoded = value.encodeLogical();
     expect(encoded).toEqual({ a: 'x', b: 2, when: when.toISOString() });
-    expect(T.toValueSchema().safeParse(encoded).success).toBe(true);
+    expect(valueParser(T).safeParse(encoded).success).toBe(true);
     expect(T.parse(encoded).toLogical()).toEqual({ a: 'x', b: 2, when });
   });
 
@@ -81,13 +82,13 @@ describe('encoded values leave absent optional fields out', () => {
     const Outer = r.obj({ items: r.list(T), inner: r.optional(T) });
     const encoded = Outer.parse({ items: [{ a: 'x' }, { a: 'y', b: 1 }] }).encodeLogical();
     expect(encoded).toEqual({ items: [{ a: 'x' }, { a: 'y', b: 1 }] });
-    expect(Outer.toValueSchema().safeParse(encoded).success).toBe(true);
+    expect(valueParser(Outer).safeParse(encoded).success).toBe(true);
   });
 
   test('an Extension\'s own optional stored prop is left out when absent', () => {
     const Customer = r.extend(r.obj({ id: r.text() }), { name: 'PlainCustomer', props: { note: r.optional(r.text()) } });
     const encoded = Customer.parse({ id: '1' }).encodeLogical();
     expect(encoded).toEqual({ id: '1' });
-    expect(Customer.toValueSchema().safeParse(encoded).success).toBe(true);
+    expect(valueParser(Customer).safeParse(encoded).success).toBe(true);
   });
 });

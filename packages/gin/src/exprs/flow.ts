@@ -9,9 +9,8 @@ import type { Locals } from '../analysis';
 import { walkValidate } from '../analysis';
 import type { Problems } from '../problem';
 import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
-import type { CodeOptions, SchemaOptions } from '../node';
+import type { CodeOptions } from '../node';
 import { Code, code, span } from '../code';
-import { z } from 'zod';
 import type { TypeScope } from '../type-scope';
 import { Effects } from '../effects';
 
@@ -41,29 +40,6 @@ export class FlowExpr extends Expr {
       json.value ? r.parseExpr(json.value, scope) : undefined,
       json.error ? r.parseExpr(json.error, scope) : undefined,
     ).withComment(json.comment);
-  }
-
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return z.object({
-      kind: z.literal('flow'),
-      // No `comment` field — keywords (return/break/continue/throw/exit)
-      // already say what they do; comments are pure noise. Strict-mode
-      // schema rejects them. Comments belong on statement-shaped Exprs
-      // (if/switch/define/block/lambda) only.
-      action: z.enum(['break', 'continue', 'return', 'exit', 'throw']).describe(
-        'Which control-flow signal to raise. ' +
-        '`break`/`continue` only valid inside a loop. ' +
-        '`return` only valid inside a fn body / lambda; unwinds to the enclosing call with `value`. ' +
-        '`exit` unwinds all the way to `engine.run`, returning `value` as the program result. ' +
-        '`throw` raises `error` (caught by a path step\'s `catch:` handler).',
-      ),
-      value: opts.Expr.optional().describe(
-        'Required for `return` and `exit` (the value being returned). Ignored by `break` / `continue` / `throw`.',
-      ),
-      error: opts.Expr.optional().describe(
-        'Required for `throw` — the value to raise. Ignored otherwise.',
-      ),
-    }).meta({ aid: 'Expr_flow' });
   }
 
   async evaluate(engine: Engine, scope: Scope): Promise<Value> {
