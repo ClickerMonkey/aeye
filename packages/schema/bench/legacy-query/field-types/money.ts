@@ -1,0 +1,154 @@
+// @ts-nocheck — frozen zod-path baseline (see ./index.ts); compiled as it was in its own package, not under this one's stricter test flags.
+import { z } from 'zod';
+import type { FieldTypeDef, FieldValueDef, MoneyFieldTypeDef, NumberOptions } from '../schema';
+import type { SchemaOptions, ValueSchemaOptions } from '../node';
+import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
+import { refinementKeySchema } from '../refinement';
+import { QueryTypeError } from '../problem';
+import { meetExact } from './_meet';
+import {
+  NumberFieldType,
+  checkNumberValues,
+  compactNumberOptions,
+  meetNumberOptions,
+  numberOptionsSchema,
+  numberValueSchema,
+} from './number';
+
+/** Instance-side options for a money field type. */
+export interface MoneyOptions {
+  /** Numeric constraints applied to the underlying amount. */
+  number?: NumberOptions;
+  /** ISO 4217 currency code (e.g. `"USD"`). */
+  currency?: string;
+}
+
+function compact(o: MoneyOptions): MoneyOptions {
+  const out: MoneyOptions = {};
+  const num = o.number ? compactNumberOptions(o.number) : undefined;
+  if (num && Object.keys(num).length > 0) out.number = num;
+  if (o.currency !== undefined) out.currency = o.currency;
+  return out;
+}
+
+/**
+ * MoneyFieldType — a monetary amount: a number with an optional currency
+ * label. Resolves to the `money` category (numeric-comparable), and its
+ * value schema reuses the inner `NumberOptions`.
+ */
+export class MoneyFieldType extends FieldType {
+  /** Discriminant kind tag (`'money'`) shared by all instances. */
+  static readonly NAME = 'money' as const;
+  /** This instance's discriminant kind. */
+  readonly kind = MoneyFieldType.NAME;
+
+  constructor(
+    /** Numeric + currency options for this monetary field. */
+    readonly options: MoneyOptions = {},
+  ) {
+    super();
+  }
+
+  /**
+   * Reconstruct from a JSON def. Throws a `QueryTypeError` on a kind mismatch,
+   * and on an AMOUNT whose closed set holds a member its own bounds reject —
+   * reported at `number.values`, which is where a money def actually declares
+   * one.
+   */
+  static from(json: FieldTypeDef): MoneyFieldType {
+    if (json.kind !== 'money') {
+      throw new QueryTypeError({
+        path: [], code: 'field-type.mismatch', severity: 'error',
+        message: `MoneyFieldType.from: expected kind 'money', got '${json.kind}'`,
+      });
+    }
+    const options = compact({ number: json.number, currency: json.currency });
+    if (options.number) checkNumberValues('money', ['number', 'values'], options.number);
+    return new MoneyFieldType(options);
+  }
+
+  /** The Zod schema for this field type's JSON def. */
+  static toSchema(opts?: SchemaOptions): z.ZodTypeAny {
+    return z.object({
+      kind: z.literal('money'),
+      ...refinementKeySchema('money', opts),
+      number: numberOptionsSchema().optional().describe('Numeric constraints on the amount.'),
+      currency: z.string().optional().describe('ISO 4217 currency code (e.g. "USD").'),
+    }).meta({ aid: 'FieldType_money' }).describe('Monetary amount field type.');
+  }
+
+  /** Resolve to the `money` scalar comparison category. */
+  resolve(): ScalarKind {
+    return 'money';
+  }
+
+  /**
+   * The closed set the AMOUNT may hold, read through the inner numeric bag. It
+   * is the same declaration a `number` column makes, so it drives the same
+   * `eqSelectivity` / membership / meet behaviour — before this accessor existed
+   * a `money` column with a declared value set costed `= x` at the fixed guess,
+   * because the two classes that carried a set each answered for themselves.
+   */
+  override values(): readonly FieldValueDef[] | undefined {
+    return this.options.number?.values;
+  }
+
+  /**
+   * Meet with `money` (currencies must AGREE — there is no amount that is both
+   * USD and EUR) or with `number`, which constrains only the amount. `money` is
+   * the more specific side of the numeric family, so it answers for both
+   * directions (see `NumberFieldType.meetWith`).
+   */
+  protected override meetWith(other: FieldType): FieldType | undefined {
+    if (other instanceof MoneyFieldType) {
+      const currency = meetExact(this.options.currency, other.options.currency);
+      if (!currency.ok) return undefined;
+      const number = meetNumberOptions(this.options.number ?? {}, other.options.number ?? {});
+      return number === undefined ? undefined : new MoneyFieldType(compact({ number, currency: currency.value }));
+    }
+    if (!(other instanceof NumberFieldType)) return undefined;
+    const number = meetNumberOptions(this.options.number ?? {}, other.options);
+    return number === undefined ? undefined : new MoneyFieldType(compact({ number, currency: this.options.currency }));
+  }
+
+  /** Estimated average stored byte size. */
+  protected override builtinAvgBytes(): number {
+    return 8;
+  }
+
+  /** SQL column type for a monetary amount. */
+  toSQLType(): string {
+    return 'numeric';
+  }
+
+  /** Zod schema validating the amount, honoring the inner number options. */
+  protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
+    return numberValueSchema(this.options.number ?? {});
+  }
+
+  /** Serialize to its JSON def (flattening the compacted options). */
+  /** Serialize to its JSON def, carrying any `as` refinement (see `FieldType.toJSON`). */
+  override toJSON(): MoneyFieldTypeDef {
+    return this.withRefinementKey(this.builtinJSON());
+  }
+
+  protected override builtinJSON(): MoneyFieldTypeDef {
+    return { kind: MoneyFieldType.NAME, ...compact(this.options) };
+  }
+
+  /** A copy of this field type (cloning the options bag). */
+  /** A copy of this field type, refinement included (see `FieldType.clone`). */
+  override clone(): MoneyFieldType {
+    return this.sameRefinement(this.builtinClone());
+  }
+
+  protected override builtinClone(): MoneyFieldType {
+    return new MoneyFieldType({
+      number: this.options.number ? { ...this.options.number } : undefined,
+      currency: this.options.currency,
+    });
+  }
+}
+
+const _check: FieldTypeClass = MoneyFieldType;
+void _check;

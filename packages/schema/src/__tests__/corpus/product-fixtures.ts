@@ -2,7 +2,7 @@
  * product-shaped types in a real @aeye/query registry, the session ctx and the
  * model-written query_set answers (shared by product.test.ts and the bench).
  */
-import { createRegistry, type QueryDef, type Registry, type TypeDef } from '@aeye/query';
+import { createRegistry, type QueryDef, type Registry, type TypeDef } from '../../../bench/legacy-query';
 import { QUERY_SCHEMA_MAX_ENUM_SIZE_DEFAULT, QUERY_SET_EXAMPLES, COUNT_ROWS, type QuerySessionCtx } from './product';
 import { catalogOf } from './query-fixtures';
 

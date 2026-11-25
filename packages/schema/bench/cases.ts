@@ -13,13 +13,15 @@
  *
  * The zod path is core's schema module as it was before the core integration,
  * frozen in `bench/legacy-core/` (from 3a0cb37) so the comparison stays
- * reproducible after core moved to @aeye/schema.
+ * reproducible after core moved to @aeye/schema. gin's and query's zod grammars
+ * are frozen the same way (step 2 moved both to `a`): `bench/legacy-gin/` (gin
+ * at bae5424~1) and `bench/legacy-query/` (query at 0c4a94e~1).
  */
 import { releaseZodIds } from './zod-registries';
 import { z } from 'zod';
 import * as core from './legacy-core/index';
-import { buildSchemas as ginBuildSchemas, createRegistry as ginCreateRegistry } from '@aeye/gin';
-import { buildSchemas as queryBuildSchemas } from '@aeye/query';
+import { buildSchemas as ginBuildSchemas, createRegistry as ginCreateRegistry } from './legacy-gin/index';
+import { buildSchemas as queryBuildSchemas } from './legacy-query/index';
 import {
   ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, staticBundle, variant,
   type Bound, type Profile, type RequestItem,

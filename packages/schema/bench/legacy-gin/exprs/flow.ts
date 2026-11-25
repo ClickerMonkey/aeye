@@ -1,0 +1,199 @@
+// @ts-nocheck — frozen zod-path baseline (see ./index.ts); compiled as it was in its own package, not under this one's stricter test flags.
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
+import type { FlowExprDef } from '../schema';
+import type { Value } from '../value';
+import { BreakSignal, ContinueSignal, ExitSignal, ReturnSignal, ThrowSignal } from '../flow-control';
+import type { Registry } from '../registry';
+import type { Type } from '../type';
+import type { Locals } from '../analysis';
+import { walkValidate } from '../analysis';
+import type { Problems } from '../problem';
+import { Expr, type ValidateContext, type ChildVisitor } from '../expr';
+import type { CodeOptions, SchemaOptions } from '../node';
+import { Code, code, span } from '../code';
+import { z } from 'zod';
+import type { TypeScope } from '../type-scope';
+import { Effects } from '../effects';
+
+export type FlowAction = 'break' | 'return' | 'continue' | 'exit' | 'throw';
+
+/**
+ * FlowExpr — non-local control flow: break, continue, return, exit, throw.
+ */
+export class FlowExpr extends Expr {
+  static readonly KIND = 'flow';
+  readonly kind = FlowExpr.KIND;
+
+  constructor(
+    readonly action: FlowAction,
+    readonly value?: Expr,
+    readonly error?: Expr,
+  ) {
+    super();
+  }
+
+  protected useLineComment(options: CodeOptions = {}): boolean { return !options.expectsValue; }
+
+  static from(json: FlowExprDef, scope: TypeScope): FlowExpr {
+    const r = scope.registry;
+    return new FlowExpr(
+      json.action,
+      json.value ? r.parseExpr(json.value, scope) : undefined,
+      json.error ? r.parseExpr(json.error, scope) : undefined,
+    ).withComment(json.comment);
+  }
+
+  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({
+      kind: z.literal('flow'),
+      // No `comment` field — keywords (return/break/continue/throw/exit)
+      // already say what they do; comments are pure noise. Strict-mode
+      // schema rejects them. Comments belong on statement-shaped Exprs
+      // (if/switch/define/block/lambda) only.
+      action: z.enum(['break', 'continue', 'return', 'exit', 'throw']).describe(
+        'Which control-flow signal to raise. ' +
+        '`break`/`continue` only valid inside a loop. ' +
+        '`return` only valid inside a fn body / lambda; unwinds to the enclosing call with `value`. ' +
+        '`exit` unwinds all the way to `engine.run`, returning `value` as the program result. ' +
+        '`throw` raises `error` (caught by a path step\'s `catch:` handler).',
+      ),
+      value: opts.Expr.optional().describe(
+        'Required for `return` and `exit` (the value being returned). Ignored by `break` / `continue` / `throw`.',
+      ),
+      error: opts.Expr.optional().describe(
+        'Required for `throw` — the value to raise. Ignored otherwise.',
+      ),
+    }).meta({ aid: 'Expr_flow' });
+  }
+
+  async evaluate(engine: Engine, scope: Scope): Promise<Value> {
+    switch (this.action) {
+      case 'break':    throw new BreakSignal();
+      case 'continue': throw new ContinueSignal();
+      case 'return': {
+        const v = this.value ? await this.value.evaluate(engine, scope) : undefined;
+        throw new ReturnSignal(v);
+      }
+      case 'exit': {
+        const v = this.value ? await this.value.evaluate(engine, scope) : undefined;
+        throw new ExitSignal(v);
+      }
+      case 'throw': {
+        if (!this.error) throw new Error('flow.throw requires `error`');
+        const e = await this.error.evaluate(engine, scope);
+        throw new ThrowSignal(e);
+      }
+    }
+  }
+
+  typeOf(engine: Engine, _scope: Locals): Type {
+    return engine.registry.void();
+  }
+
+  validateWalk(engine: Engine, scope: Locals, p: Problems, ctx: ValidateContext): Type {
+    if ((this.action === 'break' || this.action === 'continue') && !ctx.inLoop) {
+      p.error('flow.outside-loop', `${this.action} used outside a loop`);
+    }
+    if (this.action === 'return' && !ctx.inLambda) {
+      p.warn('flow.outside-lambda', 'return used outside a lambda');
+    }
+    if (this.action === 'throw' && !this.error) {
+      p.error('flow.throw.no-error', 'throw requires an `error` expression');
+    }
+    if (this.value) p.at('value', () => walkValidate(engine, this.value!, scope, p, ctx));
+    if (this.error) p.at('error', () => walkValidate(engine, this.error!, scope, p, ctx));
+    return engine.registry.void();
+  }
+
+  /**
+   * Flow always renders as a statement — return/break/continue/throw/exit
+   * have non-local control flow that can't be faithfully represented in a
+   * ternary or IIFE. Callers that asked for a value-producing form should
+   * treat this as "never returns" semantically.
+   */
+  toGinCode(
+    registry?: Registry,
+    options: CodeOptions = {},
+    path: ReadonlyArray<string | number> = [],
+  ): Code {
+    const prefix = this.commentPrefix(options);
+    const valueOpts = { ...options, expectsValue: true };
+    let body: Code;
+    switch (this.action) {
+      case 'break':    body = new Code('break'); break;
+      case 'continue': body = new Code('continue'); break;
+      case 'return':
+        body = this.value
+          ? code`return ${this.value.toGinCode(registry, valueOpts, [...path, 'value'])}`
+          : new Code('return');
+        break;
+      case 'throw':
+        body = this.error
+          ? code`throw ${this.error.toGinCode(registry, valueOpts, [...path, 'error'])}`
+          : new Code('throw');
+        break;
+      case 'exit':
+        body = this.value
+          ? code`exit ${this.value.toGinCode(registry, valueOpts, [...path, 'value'])}`
+          : new Code('exit');
+        break;
+      default: body = new Code('');
+    }
+    return span(code`${prefix}${body}`, { path, expr: this });
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const valueCode = this.value
+      ? this.value.toJSONCode([...path, 'value'], indent, level + 1)
+      : undefined;
+    const errorCode = this.error
+      ? this.error.toJSONCode([...path, 'error'], indent, level + 1)
+      : undefined;
+    return Code.jsonObject(
+      [
+        { key: 'kind', value: Code.jsonString('flow') },
+        { key: 'action', value: Code.jsonString(this.action) },
+        { key: 'value', value: valueCode },
+        { key: 'error', value: errorCode },
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
+  }
+
+  toJSON(): FlowExprDef {
+    const out: FlowExprDef = { kind: 'flow', action: this.action };
+    if (this.value) out.value = this.value.toJSON();
+    if (this.error) out.error = this.error.toJSON();
+    return this.withCommentOn(out);
+  }
+
+  clone(): FlowExpr {
+    return new FlowExpr(this.action, this.value?.clone(), this.error?.clone()).withComment(this.comment);
+  }
+
+  forEachChild(visit: ChildVisitor): void {
+    if (this.value) visit(this.value, 'inherit');
+    if (this.error) visit(this.error, 'inherit');
+  }
+
+  /** Flow transfers control — always observable as program state. */
+  effects(): Effects {
+    return Effects.STATE
+      | (this.value?.effects() ?? Effects.NONE)
+      | (this.error?.effects() ?? Effects.NONE);
+  }
+
+  complexity(): number {
+    return 1
+      + (this.value?.complexity() ?? 0)
+      + (this.error?.complexity() ?? 0);
+  }
+}

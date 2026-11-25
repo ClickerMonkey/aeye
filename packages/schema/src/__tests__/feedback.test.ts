@@ -15,8 +15,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { buildSchemas as ginBuildSchemas, didYouMean as ginDidYouMean, nearest as ginNearest } from '@aeye/gin';
-import { buildSchemas as queryBuildSchemas, didYouMean as queryDidYouMean } from '@aeye/query';
+import { buildSchemas as ginBuildSchemas, didYouMean as ginDidYouMean, nearest as ginNearest } from '../../bench/legacy-gin';
+import { buildSchemas as queryBuildSchemas, didYouMean as queryDidYouMean } from '../../bench/legacy-query';
 import {
   a, ANTHROPIC_STRICT, didYouMean, errorFormat, formatErrors, GOOGLE_STRICT, issueKind, LENIENT, MINIMAL, ModelProfile, modelPath, nearest,
   OPENAI_STRICT, shortType, suggestionFor, variant, type ErrorDetail, type Profile, type RequestItem,

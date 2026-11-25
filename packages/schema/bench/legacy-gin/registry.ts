@@ -1,0 +1,1294 @@
+// @ts-nocheck — frozen zod-path baseline (see ./index.ts); compiled as it was in its own package, not under this one's stricter test flags.
+import type { ExprDef, TypeDef } from './schema';
+import { Call, GetSet, Init, Prop, type PropSpec, Type, slotAccepts } from './type';
+import { Extension, type ExtensionLocal, sameOptions } from './extension';
+import type {
+  BoolOptions, ColorOptions, ComputedProp, DateOptions, ExtendLocal, FieldOptions, FieldSpec, FnSpec,
+  IfaceSpec, ListOptions, NumOptions, TextOptions, TimestampOptions, TypeBuilder, Widen,
+} from './builder';
+import type {
+  DataFields, FieldsInput, FnValue, Infer, IntersectValues, NamedValue, ObjValue, TupleValue, WithData,
+} from './infer';
+import { Expr, type ExprClass } from './expr';
+import type { CodeOptions, SchemaOptions } from './node';
+import type { Code } from './code';
+import type { JSONValue } from './json-type';
+import type { Engine } from './engine';
+import { Problems } from './problem';
+import { Effects } from './effects';
+import { didYouMean } from './aids';
+import { checkWireKeys } from './wire';
+import { TYPE_NAME, isTypeName } from './type-name';
+import type { z } from 'zod';
+
+import { AnyType } from './types/any';
+import { AndType } from './types/and';
+import { AliasType } from './types/alias';
+import { BoolType } from './types/bool';
+import { ColorType } from './types/color';
+import { DateType } from './types/date';
+import { DurationType } from './types/duration';
+import { EnumType } from './types/enum';
+import { FnType } from './types/fn';
+import { IfaceType } from './types/iface';
+import { LiteralType } from './types/literal';
+import { ListType } from './types/list';
+import { MapType } from './types/map';
+import { NotType } from './types/not';
+import { NullType } from './types/null';
+import { NullableType } from './types/nullable';
+import { NumType } from './types/num';
+import { ObjType } from './types/obj';
+import { OptionalType } from './types/optional';
+import { OrType } from './types/or';
+import { TextType } from './types/text';
+import { TimestampType } from './types/timestamp';
+import { TupleType } from './types/tuple';
+import { TypType } from './types/typ';
+import { VoidType } from './types/void';
+import type { Scope } from './scope';
+import { LocalScope, type TypeScope } from './type-scope';
+import { Value } from './value';
+import { registerBuiltinNatives } from './natives';
+
+/**
+ * Type-class constructor — each built-in type exposes this static shape
+ * so the registry can dispatch JSON parsing by name.
+ *
+ * `consumes` lists TypeDef fields beyond the defaults (name, options,
+ * generic, docs, satisfies, extends) that this class natively handles
+ * as part of its STRUCTURAL definition. Anything OUTSIDE the consumed
+ * set (props / get / call / init on a class that doesn't list them)
+ * triggers an auto-Extension wrap during parse().
+ *
+ * Defaults: no custom fields consumed. Overrides:
+ *   ObjType    consumes: 'props'                  (obj's fields are its structure)
+ *   FnType     consumes: 'call'                   (fn's signature is its structure)
+ *   IfaceType  consumes: 'props', 'get', 'call'   (iface's contract is its structure)
+ */
+export interface TypeClass {
+  readonly NAME: string;
+  readonly consumes?: readonly CustomField[];
+  /**
+   * The keys this class reads out of `TypeDef.options`. Declaring it opts
+   * the class into the unknown-key refusal in `parse` (see `wire.ts`) —
+   * `{name:'list', options:{item: …}}` becomes an error instead of a silent
+   * `list<any>`. An EMPTY array means "takes no options" and is still
+   * checked; leaving it undefined means "unchecked" so a third-party class
+   * registered via `define(...)` keeps working until it opts in.
+   *
+   * These are WIRE keys — what `from` reads — which for `and` / `or` is not
+   * the same as the runtime options field (`options.types` on the wire,
+   * `parts` / `variants` in memory).
+   */
+  readonly optionKeys?: readonly string[];
+  /**
+   * The type-parameter names this class reads out of `TypeDef.generic`
+   * (`V` for list, `K`/`V` for map, …), with the same opt-in semantics as
+   * {@link TypeClass.optionKeys}. Left undefined by `fn`, whose generics are
+   * DECLARED by the def rather than fixed by the class.
+   */
+  readonly genericKeys?: readonly string[];
+  /**
+   * True when `TypeDef.generic` on this class DECLARES type parameters
+   * (`fn`'s `<R>`), rather than binding fixed ones (`list`'s `V`). Read by
+   * the reference walk (`refs.ts`): a declared name is local, not a
+   * reference to a named type.
+   */
+  readonly declaresGenerics?: boolean;
+  /**
+   * True when a value of this class IS a type (`typ`), so a `new` payload
+   * of it is a `TypeDef` — read by the reference walk.
+   */
+  readonly valuesAreTypes?: boolean;
+  /** Build a Type from its JSON. `scope` is the type-name resolution
+   *  scope (Registry as the root, LocalScope layers above for fn
+   *  generics / call.types aliases). Use `scope.registry` to access
+   *  the underlying Registry for child-type construction; use
+   *  `scope.parse` (i.e. `scope.registry.parse(child, scope)`) to
+   *  recursively parse children with the same scope. */
+  from(json: TypeDef, scope: TypeScope): Type;
+  /** JSON-shape Zod schema for this Type's TypeDef. */
+  toSchema(opts: SchemaOptions): z.ZodTypeAny;
+  /**
+   * CLASS-level value schema used by `NewExpr.toSchema` strict mode when
+   * the LLM references this type's class (e.g. `{name:'num'}` or
+   * `{name:'list', generic: {...}}`). Represents the most-permissive
+   * value shape for ANY instance of the class:
+   *  - Primitives emit their concrete Zod (num → number, text → string).
+   *  - Composites emit `opts.Expr`-based shapes (list → `Expr[]`, map →
+   *    `{key:Expr, value:Expr}[]`, obj → `Record<string, Expr>`).
+   * Instance-specific tightenings (num with min/max, obj with declared
+   * fields) go through a named-instance branch instead.
+   */
+  toNewSchema(opts: SchemaOptions): z.ZodTypeAny;
+}
+
+/** TypeDef fields that, unless `consumes`-d by the class, force Extension. */
+export type CustomField = 'props' | 'get' | 'call' | 'init';
+const ALL_CUSTOM_FIELDS: readonly CustomField[] = ['props', 'get', 'call', 'init'];
+
+/** Native implementation — the actual JS function that runs a native op.
+ *  Receives the current runtime scope plus the registry for convenient
+ *  access to built-in types when wrapping a returned raw back into a
+ *  Value. */
+export type NativeImpl = (scope: Scope, registry: Registry) => Value | unknown | Promise<Value | unknown>;
+
+/**
+ * Registry — central authority for the gin type system.
+ *
+ *  1. Map `name → Type class` for built-in JSON parse dispatch.
+ *  2. Map `name → Type instance` for user-registered named types
+ *     (typically Extensions), enabling ref() lookup and parse() resolution.
+ *  3. Map `id → NativeImpl` for native op defaults and overrides.
+ *  4. Implements TypeBuilder — the factory everyone uses to construct Types.
+ *
+ * No per-type inspection lives here. parse() dispatches by name, delegates
+ * to each class's static `from` method, and recurses through nested types
+ * via the same entry point.
+ */
+/**
+ * Augmentations a developer can attach to a Type by name (e.g. 'num',
+ * 'text', 'Email'). Stored on the Registry; consulted by every Type's
+ * `props()` / `get()` / `call()` / `init()` so the additions are
+ * visible at runtime path-walks, in static analysis, and in code
+ * rendering — without subclassing or wrapping the type in an
+ * Extension.
+ *
+ * Composition rules:
+ *   - `props`: ADDED to the type's intrinsic props. Intrinsic names
+ *     win on conflict (you can't replace `num.add` via augmentation).
+ *     Use this to introduce NEW methods / fields.
+ *   - `get` / `call` / `init`: applied IFF the type has none of its
+ *     own. Augmentation can introduce a missing surface (e.g. give
+ *     `date` a `get/loop`, make `timestamp` callable, give `text` an
+ *     init constructor) but does not override one the type already
+ *     declares.
+ *
+ * Augmentations are accumulated — multiple calls to `registry.augment`
+ * for the same name MERGE props. The first `get`/`call`/`init` that's
+ * defined wins (subsequent attempts to set the same field are no-ops).
+ */
+export interface TypeAugmentation {
+  props?: Record<string, Prop | PropSpec>;
+  get?: GetSet;
+  call?: Call;
+  init?: Init;
+}
+
+export class Registry implements TypeBuilder, TypeScope {
+  private readonly classes = new Map<string, TypeClass>();
+  private readonly namedTypes = new Map<string, Type>();
+  private readonly natives = new Map<string, NativeImpl>();
+  private readonly nativeEffectsMap = new Map<string, Effects>();
+  private readonly exprClasses = new Map<string, ExprClass>();
+  private readonly augments = new Map<string, TypeAugmentation>();
+
+  // ─── SCOPE INTERFACE ─────────────────────────────────────────────────────
+  /** Registry IS the root scope. */
+  readonly parent: undefined = undefined;
+  get registry(): Registry { return this; }
+
+  // ─── CLASS REGISTRATION ──────────────────────────────────────────────────
+
+  /** Register a built-in Type class for JSON parse dispatch. */
+  define(cls: TypeClass): this {
+    this.classes.set(cls.NAME, cls);
+    return this;
+  }
+
+  /**
+   * Register a named Type instance (typically an Extension).
+   *
+   * A registered name resolves to THE INSTANCE, and that instance's
+   * `toJSON()` emits its full definition — so a def that merely
+   * REFERENCED the name by `{name:'X'}` comes back out of a
+   * read-modify-write with the whole type INLINED where the reference
+   * used to be. That is correct for a type this registry owns and is
+   * the wrong tool for a name a caller only wants to RESOLVE: see
+   * {@link Registry.scope} for the overlay that resolves without
+   * claiming the name or rewriting the reference.
+   */
+  register(type: Type): this {
+    this.namedTypes.set(type.name, type);
+    return this;
+  }
+
+  /**
+   * A scope OVERLAY above this registry — names that resolve here and
+   * nowhere else, without mutating the registry.
+   *
+   * The distinction against {@link Registry.register} is the whole point,
+   * and `parseInner`'s bare-name arm is where it lives: a name bound in an
+   * overlay parses to an `AliasType`, which round-trips as `{name}` and
+   * delegates every value-side op to the target lazily; a name in
+   * `namedTypes` parses to the INSTANCE, whose `toJSON()` inlines the
+   * definition. Resolution WITHOUT inlining is what an overlay is for.
+   *
+   * ```ts
+   * const session = r.scope({ Time: timeType });   // this session only
+   * const sig = session.parse({ name: 'Time' });   // resolves — props, methods, all of it
+   * sig.toJSON();                                  // => { name: 'Time' }   (still a reference)
+   * r.lookup('Time');                              // => undefined — the registry is untouched
+   * ```
+   *
+   * Reach for this when a name is true for ONE session / execution / request
+   * rather than for the process: a type contributed by an installed package, a
+   * staged type being authored, a caller-supplied vocabulary. Registering
+   * those globally instead is how a stored `{name:'time'}` reference was
+   * rewritten, at an unrelated read-modify-write, into the full inline
+   * definition of a package type that had merely been registered at boot —
+   * wrong props, wrong docs, and no error anywhere.
+   *
+   * Layer another overlay with `new LocalScope(scope, {…})`, and add bindings
+   * in dependency order (a later binding may reference an earlier one).
+   */
+  scope(bindings?: Record<string, Type>): LocalScope {
+    return new LocalScope(this, { ...bindings });
+  }
+
+  /**
+   * Add methods / get / call / init to an existing type by name —
+   * works for both built-in classes (`'num'`, `'text'`, `'date'`,
+   * `'timestamp'`, ...) and named instances / Extensions you've
+   * registered. Repeated calls for the same name MERGE: props are
+   * accumulated, while get/call/init keep their first non-undefined
+   * value (subsequent attempts to redefine those are silently
+   * ignored — augmentations fill gaps, they don't override).
+   *
+   * Example — give `date` a `get/loop` so you can iterate over a
+   * range, and make `timestamp` callable as a fn:
+   * ```ts
+   *   registry.augment('date', { get: new GetSet({ key: registry.num(), value: registry.date(), loop: ... }) });
+   *   registry.augment('timestamp', { call: new Call({ args: ..., returns: ... }) });
+   * ```
+   *
+   * Augmented surface flows through every consumer: path-walker
+   * dispatches against augmented `props` / `get` / `call`,
+   * `validateWalk` static analysis sees them, and `toCodeDefinition`
+   * renders them in the type's surface block — for a built-in AND for
+   * a named `Extension`, where they print in the body alongside the
+   * Extension's own local members (base → augmentation → local, the
+   * order `props()` composes). Until 0.3.13 the Extension arm silently
+   * dropped them from the print, so a type could carry methods at run
+   * time that the definition a model reads never mentioned.
+   *
+   * An augmentation registered against the BASE's name stays implicit
+   * under the `extends` clause and is not re-listed in the deriving
+   * type's body — the definition body is always "what this type adds".
+   *
+   * Augmentation is REGISTRY-SIDE surface, never wire shape: it does
+   * not appear in `toJSON()` and does not enter `toValueSchema()` /
+   * `toNewSchema()`. That is what makes it the right slot for methods
+   * on a type whose value contract must stay closed (a bare `{ id }`
+   * handle keeps parsing), and the reason the print is the only thing
+   * that had to change.
+   */
+  augment(name: string, addition: TypeAugmentation): this {
+    // Normalize each field through the class `.from()` factories so
+    // loosely-typed callers passing ExprDef literals in get/set/loop/run
+    // end up with parsed Exprs in storage. Idempotent for
+    // already-canonical instances.
+    const normalized: TypeAugmentation = {
+      props: addition.props ? Prop.fromMap(addition.props, this) : undefined,
+      get: addition.get ? GetSet.from(addition.get, this) : undefined,
+      call: addition.call ? Call.from(addition.call, this) : undefined,
+      init: addition.init ? Init.from(addition.init, this) : undefined,
+    };
+
+    const cur = this.augments.get(name);
+    if (!cur) {
+      this.augments.set(name, {
+        props: normalized.props ? { ...normalized.props } : undefined,
+        get: normalized.get,
+        call: normalized.call,
+        init: normalized.init,
+      });
+      return this;
+    }
+    // Merge into the existing augmentation. Props additive (new wins
+    // on per-name conflict within augmentation itself, but intrinsic
+    // type props still win at consumption time). get/call/init are
+    // first-wins — once set, further attempts no-op.
+    this.augments.set(name, {
+      props: normalized.props ? { ...(cur.props ?? {}), ...normalized.props } : cur.props,
+      get: cur.get ?? normalized.get,
+      call: cur.call ?? normalized.call,
+      init: cur.init ?? normalized.init,
+    });
+    return this;
+  }
+
+  /** Read the registered augmentation for a type-by-name. Returns
+   *  undefined when nothing has been augmented. Used by `Type.props`
+   *  / `Type.get` / `Type.call` / `Type.init` to overlay additions. */
+  augmentation(name: string): TypeAugmentation | undefined {
+    return this.augments.get(name);
+  }
+
+  /** Look up a Type by name. Registered named instances win; falls back
+   *  to built-in classes (synthesized canonical instance). Returns
+   *  undefined for unknown names. Implements `TypeScope.lookup`. */
+  lookup(name: string): Type | undefined {
+    if (this.namedTypes.has(name)) return this.namedTypes.get(name);
+    const cls = this.classes.get(name);
+    if (cls) return cls.from({ name }, this);
+    return undefined;
+  }
+
+  /** Registry has no "local-above-root" layer. See TypeScope.localLookup. */
+  localLookup(_name: string): Type | undefined {
+    return undefined;
+  }
+
+  // ─── NATIVES ─────────────────────────────────────────────────────────────
+
+  /**
+   * Register a native implementation by id, with its declared effects.
+   *
+   * `effects` defaults to the maximally conservative `STATE|SYSTEM|EXTERNAL`
+   * because an unregistered or under-declared native is assumed worst-case
+   * — better to false-positive a no-effect warning than to miss a real
+   * side effect at static analysis time. Built-in pure natives (`num.add`,
+   * `bool.eq`, list/map/text accessors, etc.) MUST opt in to `Effects.NONE`
+   * so they don't contaminate the effect propagation in user code.
+   */
+  setNative(
+    id: string,
+    impl: NativeImpl,
+    effects: Effects = Effects.STATE | Effects.SYSTEM | Effects.EXTERNAL,
+  ): this {
+    this.natives.set(id, impl);
+    this.nativeEffectsMap.set(id, effects);
+    return this;
+  }
+
+  getNative(id: string): NativeImpl | undefined {
+    return this.natives.get(id);
+  }
+
+  /**
+   * Effects declared at `setNative(id, impl, effects)` time. Falls back to
+   * the same conservative default `setNative` uses when no entry exists
+   * — keeps `NativeExpr.effects()` truthy for any unregistered id rather
+   * than silently treating it as pure.
+   */
+  nativeEffects(id: string): Effects {
+    const e = this.nativeEffectsMap.get(id);
+    if (e !== undefined) return e;
+    return Effects.STATE | Effects.SYSTEM | Effects.EXTERNAL;
+  }
+
+  // ─── EXPR CLASSES ────────────────────────────────────────────────────────
+
+  /** Register an Expr class (one per ExprDef.kind). */
+  defineExpr(cls: ExprClass): this {
+    this.exprClasses.set(cls.KIND, cls);
+    return this;
+  }
+
+  /** Look up the Expr class for a given kind. */
+  exprClass(kind: string): ExprClass | undefined {
+    return this.exprClasses.get(kind);
+  }
+
+  /** Enumerate every registered Type class (used by schema builders). */
+  typeClasses(): TypeClass[] {
+    return Array.from(this.classes.values());
+  }
+
+  /** The built-in (or `define`d) class registered under `name`, if any. */
+  typeClass(name: string): TypeClass | undefined {
+    return this.classes.get(name);
+  }
+
+  /** Enumerate every programmatically-registered named Type instance
+   *  (typically Extensions created via `registry.register(ext)`). Used by
+   *  `buildSchemas` so named user types appear as first-class branches in
+   *  the Type union the LLM sees. */
+  namedTypeList(): Type[] {
+    return Array.from(this.namedTypes.values());
+  }
+
+  /** Enumerate every registered Expr class (used by schema builders). */
+  exprClassList(): ExprClass[] {
+    return Array.from(this.exprClasses.values());
+  }
+
+  /** Every resolvable type NAME — built-in class names plus every
+   *  programmatically-registered named type (Extensions, interfaces).
+   *  Feeds the "did you mean?" suggestion on an unknown-type / unknown-
+   *  interface parse error. */
+  private typeNameCandidates(): string[] {
+    return [
+      ...this.typeClasses().map((c) => c.NAME),
+      ...this.namedTypeList().map((t) => t.name),
+    ];
+  }
+
+  /**
+   * Parse anything Expr-shaped into an `Expr` instance — overloaded for
+   * three input families:
+   *
+   *   1. `Expr` instance → returned as-is (idempotent passthrough).
+   *   2. `ExprDef` JSON → dispatched to the matching Expr class's
+   *      `from(def, scope)`. Throws on unknown kinds or malformed
+   *      shapes.
+   *   3. `null` / `undefined` → returned as `undefined`. Lets callers
+   *      pass through optional fields (e.g. `Prop.get`) without
+   *      ceremony — no need to guard the call site or wrap with a
+   *      `parseExprMaybe`-style helper.
+   *
+   * Optional `scope` is a `TypeScope` (defaults to the registry itself)
+   * threaded through Expr.from so nested TypeDefs / ExprDefs (`new`,
+   * `lambda`, `native`, `define`) resolve against the right alias /
+   * generic bindings.
+   *
+   * Anything that's not Expr / ExprDef / null / undefined throws — bad
+   * shape is a programmer error, not silently absorbed.
+   */
+  parseExpr(json: Expr, scope?: TypeScope): Expr;
+  parseExpr(json: ExprDef, scope?: TypeScope): Expr;
+  parseExpr(json: null | undefined, scope?: TypeScope): undefined;
+  parseExpr(json: Expr | ExprDef | null | undefined, scope?: TypeScope): Expr | undefined;
+  parseExpr(json: unknown, scope: TypeScope = this): Expr | undefined {
+    if (json === null || json === undefined) return undefined;
+    if (json instanceof Expr) return json;
+    if (typeof json !== 'object' || !('kind' in (json as object))) {
+      throw new Error(`registry.parseExpr: expected ExprDef with kind, got ${typeof json}`);
+    }
+    const def = json as ExprDef;
+    const cls = this.exprClasses.get(def.kind);
+    if (!cls) throw new Error(`registry.parseExpr: unknown expr kind '${def.kind}'`);
+    return cls.from(def, scope);
+  }
+
+  /**
+   * Render an ExprDef (or parsed Expr) as TypeScript-like source text.
+   * Parses JSON lazily, then dispatches to the Expr instance's toCode().
+   */
+  toCode(expr: ExprDef | Expr, options?: CodeOptions): string {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toCode(this, options);
+  }
+
+  /**
+   * Render an ExprDef (or parsed Expr) as gin's TS-pseudocode form
+   * with span annotations. The result's `Code` carries spans that
+   * line up with `Problem.path` from `engine.validate(...)`, so a
+   * caller can pass both into `formatProblem` / `formatProblems` to
+   * produce compiler-style `^^^` underlines.
+   */
+  toGinCode(expr: ExprDef | Expr, options?: CodeOptions): Code {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toGinCode(this, options, []);
+  }
+
+  /**
+   * Render an ExprDef (or parsed Expr) as the JSON form (same shape
+   * as `JSON.stringify(expr.toJSON(), null, 2)`) with spans on each
+   * structural slot. Used by ginny's `write` tool to surface
+   * validation pointers in the JSON the LLM actually emitted.
+   */
+  toJSONCode(expr: ExprDef | Expr, indent: number = 2): Code {
+    const e = expr instanceof Expr ? expr : this.parseExpr(expr);
+    return e.toJSONCode([], indent);
+  }
+
+  /**
+   * Validate every user-supplied piece of type surface attached to this
+   * registry — every named type (registered via `register(...)` /
+   * `extend(...)`) AND every augmented built-in (registered via
+   * `augment(name, ...)`). Each type's full surface (props / get / call
+   * / init) is walked; embedded ExprDefs are parsed and validated with
+   * the runtime scope they'll see (`this` / `args` / `recurse` / etc.).
+   *
+   * Returns a single `Problems` bag with paths prefixed by the type's
+   * name. Run as a sweep step after registering custom types — surface
+   * issues at registration time rather than at runtime when the method
+   * is first called.
+   *
+   * Programs validated via `engine.validate(programExpr)` do NOT
+   * trigger this sweep; the two passes are intentionally separate so a
+   * program walk doesn't redo work for every type it touches.
+   */
+  validate(engine: Engine): Problems {
+    const out = new Problems();
+    const seen = new Set<string>();
+    const visit = (typeName: string, type: Type): void => {
+      if (seen.has(typeName)) return;
+      seen.add(typeName);
+      const sub = type.validate(engine);
+      for (const prob of sub.list) {
+        out.list.push({ ...prob, path: [typeName, ...prob.path] });
+      }
+    };
+    // Registered named types (Extensions and explicit `register(...)`).
+    for (const [name, type] of this.namedTypes) visit(name, type);
+    // Built-ins that have been augmented in place. Build a canonical
+    // instance via `lookup` so the surface walker sees the same
+    // type object the runtime would dispatch against.
+    for (const name of this.augments.keys()) {
+      const t = this.lookup(name);
+      if (t) visit(name, t);
+    }
+    return out;
+  }
+
+  // ─── JSON PARSE ──────────────────────────────────────────────────────────
+
+  /**
+   * Reconstruct a `Value` from its `JSONValue` envelope. Symmetric inverse
+   * of `Value.toJSON()` — decode the TypeDef via `parse`, then ask that
+   * Type to parse the dumped value.
+   *
+   * `expectedType` is the type DECLARED for the slot this value is landing
+   * in, and since 0.4.1 it is enforced rather than merely used as a fallback.
+   * Before, a value that arrived carrying its own type envelope was installed
+   * on that type's say-so alone: `list<text>.parse([{type:{name:'num'},
+   * value:5}])` produced a `num` inside a `list<text>`, `valid()` said true,
+   * `validateValue()` said nothing, and only a generated Zod schema — which
+   * is not a validator — ever noticed. See {@link slotAccepts} for the rule; a
+   * genuine subtype still lands, which is the whole point of per-slot types.
+   *
+   * **THE DISPATCH ORDER IS THE CONTRACT, and it is written out in the body
+   * below rather than left to fall out of the `if` chain.** Reading a node's
+   * SHAPE before asking the DECLARED type what it wants is what produced the
+   * defect 0.4.2 fixes: a `fn`-declared slot holding its own `{kind:'new',
+   * type, value}` body was refused as a smuggled expression one level inside
+   * a composite, while the identical node parsed fine standalone. A value
+   * that parses on its own and throws one level in is always a dispatch-order
+   * bug; keeping the order explicit is what stops the next one.
+   */
+  parseValue<T = any>(json: unknown, expectedType?: Type, scope: TypeScope = this): Value<T> {
+    // 1. An already-built `Value` — nothing to interpret, only to reconcile.
+    if (json instanceof Value) {
+      return this.checkSlot(json, expectedType, scope);
+    }
+
+    // 2. THE DECLARED TYPE, FIRST. A few types declare that an Expr node IS
+    //    one of their values — `fn` above all, whose value is an ExprDef by
+    //    definition (`FnType.parse`/`valid`/`toNewSchema` all say so). For
+    //    those the node is DATA, and no shape test may overrule the
+    //    declaration. Narrow on purpose: it fires only when the slot's type
+    //    claims the form AND the node actually carries a registered expr
+    //    `kind`, so a real `{type, value}` envelope landing in a `fn` slot
+    //    still round-trips through step 3.
+    if (expectedType?.parsesExprValue(scope) && this.exprShaped(json)) {
+      return expectedType.parse(json, scope);
+    }
+
+    // 3. A value ENVELOPE — `{type, value}` whose `type` is a TypeDef (an object
+    //    with a string `name`, as `Value.toJSON` writes it). Data that merely has
+    //    `type` and `value` keys — a stored record `{ type: 'todo/Todo', value }` —
+    //    is not one, and goes to the declared type in step 4.
+    if (json && typeof json === 'object' && 'type' in json && 'value' in json && this.typeDefShaped((json as { type: unknown }).type)) {
+      // An `ExprDef` and a `JSONValue` are the same JSON shape once the
+      // expression names a `type` and a `value` — `{kind:'new', type, value}`
+      // is EXACTLY a value envelope with one extra key, and `kind` was simply
+      // ignored, so an expression written into a value slot was installed as
+      // a literal of whatever type it named. `parseValue` has no engine and
+      // cannot evaluate one; say so instead of reinterpreting it. Step 2 has
+      // already let through every slot whose type genuinely takes an Expr.
+      const kind = (json as { kind?: unknown }).kind;
+      if (typeof kind === 'string' && this.exprClass(kind)) {
+        throw new TypeError(
+          `registry.parseValue: this node is an EXPRESSION (kind:'${kind}'), not a value envelope`
+          + ` — an Expr only evaluates inside a program (\`Engine.run\`/\`Engine.evaluate\`);`
+          + ` a bare \`parse\` takes data. Drop the \`kind\` to mean the literal`
+          + ` ${JSON.stringify((json as { type?: unknown }).type)} value.`
+          + (expectedType ? ` (This slot is declared \`${expectedType.toCode()}\`.)` : ''),
+        );
+      }
+      return this.checkSlot(this.parse(json.type, scope).parse(json.value, scope), expectedType, scope);
+    }
+
+    // 4. Plain logical data, judged by the declared type.
+    if (!expectedType) {
+      throw new TypeError(`registry.parseValue: expected Value or JSONValue, got ${typeof json}`);
+    }
+    return expectedType.parse(json, scope);
+  }
+
+  /** An object with a string `name`: the shape of a TypeDef, and so of an envelope's `type`. */
+  private typeDefShaped(type: unknown): boolean {
+    return !!type && typeof type === 'object' && !Array.isArray(type) && typeof (type as { name?: unknown }).name === 'string';
+  }
+
+  /** A node carrying a `kind` that names a registered Expr class. The same
+   *  probe step 3's refusal uses, so the two cannot drift apart — step 2 must
+   *  let through exactly what step 3 would otherwise reject. */
+  private exprShaped(json: unknown): boolean {
+    if (!json || typeof json !== 'object' || Array.isArray(json)) return false;
+    const kind = (json as { kind?: unknown }).kind;
+    return typeof kind === 'string' && !!this.exprClass(kind);
+  }
+
+  /**
+   * Reconcile a value that arrived with its OWN type against the type the
+   * slot declares. No declared type means no second opinion to reconcile
+   * against — the caller wanted whatever the envelope said.
+   */
+  private checkSlot<T>(value: Value<T>, expectedType: Type | undefined, scope: TypeScope): Value<T> {
+    if (!expectedType || slotAccepts(expectedType, value.type, scope)) return value;
+    throw new TypeError(
+      `registry.parseValue: this slot is declared \`${expectedType.toCode()}\``
+      + ` but the value carries \`${value.type.toCode()}\``,
+    );
+  }
+
+  parse(json: unknown, scope: TypeScope = this): Type {
+    if (!json || typeof json !== 'object') {
+      throw new Error(`registry.parse: expected object, got ${typeof json}`);
+    }
+    // A LIVE `Type`, not a wire def. `parse` takes the SERIALIZED form, and it is
+    // refused here rather than deliberately — a live instance is bound to the scope it
+    // was built against, so quietly accepting one would install a type resolved in the
+    // WRONG registry and fail later as a null value rather than an error.
+    //
+    // Refused *here* because the alternative is a diagnostic about gin's own
+    // bookkeeping: every `Type` carries a `scope`, so a live instance used to reach
+    // `checkWireKeys` and come back as `registry.parse: type 'alias' has unknown key
+    // 'scope'`. That is true and useless — it names an internal field, not the
+    // caller's mistake, and it cost a downstream team a whole debugging session
+    // (their jsonb read path had revived a stored `{kind:'new', type:{…}}` program's
+    // `type` slot into a live Type, and every stored program stopped parsing).
+    if (json instanceof Type) {
+      throw new Error(
+        `registry.parse: expected a serialized TypeDef, got a LIVE ${json.constructor.name}`
+        + ` instance (\`${json.name}\`) — pass \`type.toJSON()\`, or use the type as it stands.`,
+      );
+    }
+    const def = json as TypeDef;
+    // Type names follow TYPE_NAME: an identifier, optionally namespaced as
+    // `ns/Name`, with no whitespace and no other punctuation. LLM-emitted
+    // TypeDefs sometimes arrive with leading whitespace or other junk in the
+    // name; the downstream "claims to satisfy X but does not structurally
+    // match" error is baffling because the offending whitespace is
+    // invisible. Reject explicitly here with a precise pointer.
+    if (!isTypeName(def.name)) {
+      throw new Error(`registry.parse: type 'name' must match ${TYPE_NAME}, got ${JSON.stringify(def.name)}`);
+    }
+    if (def.extends !== undefined && !isTypeName(def.extends)) {
+      throw new Error(`registry.parse: type 'extends' must match ${TYPE_NAME}, got ${JSON.stringify(def.extends)}`);
+    }
+    if (def.satisfies) {
+      for (const ifaceName of def.satisfies) {
+        if (!isTypeName(ifaceName)) {
+          throw new Error(`registry.parse: 'satisfies' entries must match ${TYPE_NAME}, got ${JSON.stringify(ifaceName)}`);
+        }
+      }
+    }
+
+    // Refuse keys gin would IGNORE. Every slot below has a silent default
+    // (no `generic.V` → `list<any>`, no `options` → `{}`), so a mis-keyed def
+    // otherwise parses to a plausible, wrong type. See `wire.ts` for why this
+    // is a hard error rather than tolerated forward-compatibility. The class
+    // governing `options` is the `extends` target on an extension (whose
+    // options NARROW the base's) and the def's own name otherwise; a
+    // registered named type shadows its class and is resolved by identity, so
+    // its slots are not statically known and go unchecked.
+    const owner = def.extends ?? def.name;
+    const ownerCls = this.namedTypes.has(owner) ? undefined : this.classes.get(owner);
+    checkWireKeys(def, ownerCls, def.extends === undefined, this);
+
+    const result = this.parseInner(def, scope);
+
+    // `satisfies` claims: verify each against the named interface.
+    if (def.satisfies && def.satisfies.length > 0) {
+      for (const ifaceName of def.satisfies) {
+        const iface = scope.lookup(ifaceName) ?? this.lookup(ifaceName);
+        if (!iface) {
+          throw new Error(
+            `registry.parse: satisfies references unknown interface '${ifaceName}'${didYouMean(ifaceName, this.typeNameCandidates())}`,
+          );
+        }
+        if (!iface.compatible(result)) {
+          throw new Error(`registry.parse: type '${def.name}' claims to satisfy '${ifaceName}' but does not structurally match`);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /** True if `def` is a use-site reference: a name with `generic`
+   *  arguments and/or `options`, and no other structural peer. */
+  private isUseSiteDef(def: TypeDef): boolean {
+    if (def.generic === undefined && def.options === undefined) return false;
+    const others: ReadonlyArray<keyof TypeDef> = [
+      'extends', 'satisfies', 'init', 'props', 'get', 'call', 'constraint',
+    ];
+    return others.every((k) => (def as unknown as Record<string, unknown>)[k] === undefined);
+  }
+
+  /** Is `name` bound in a LocalScope between `scope` and this registry? */
+  private boundAboveRegistry(name: string, scope: TypeScope): boolean {
+    for (let s: TypeScope | undefined = scope; s && s !== this; s = s.parent) {
+      if (s.localLookup(name) !== undefined) return true;
+    }
+    return false;
+  }
+
+  private parseGenericArgs(def: TypeDef, scope: TypeScope): Record<string, Type> {
+    return Object.fromEntries(
+      Object.entries(def.generic ?? {}).map(([k, v]) => [k, this.parse(v, scope)]),
+    );
+  }
+
+  /** A lazy use-site reference — see {@link AliasType} "Use-site arguments". */
+  private useSiteAlias(def: TypeDef, scope: TypeScope): AliasType {
+    return new AliasType(
+      scope,
+      def.options !== undefined ? { name: def.name, options: def.options as Record<string, unknown> } : { name: def.name },
+      this.parseGenericArgs(def, scope),
+    );
+  }
+
+  /**
+   * `target` as written at a use site: specialized with `generic` (when it
+   * is a generic Extension), then narrowed by `options`. The narrowing is an
+   * Extension under the target's own name marked `useSite`, so it prints
+   * and serializes as `PlayerText{maxLength=40}` rather than as a new type.
+   */
+  applyUse(
+    target: Type,
+    generic: Record<string, Type>,
+    options?: Record<string, unknown>,
+    scope?: TypeScope,
+  ): Type {
+    let t = target;
+    if (Object.keys(generic).length > 0 && t instanceof Extension) t = t.specialize(generic);
+    // Options that narrow nothing (`{name:'Email', options:{pattern:'@'}}`
+    // restating Email's own) are no narrowing: the target keeps its identity.
+    if (options !== undefined && Object.keys(options).length > 0
+      && !sameOptions(t.narrow(options), t.options)) {
+      t = new Extension(this, t, {
+        name: t.name,
+        docs: t.docs,
+        options,
+        generic: t instanceof Extension ? t.local.generic : undefined,
+        useSite: true,
+      }, t instanceof Extension && t.bindings ? t.scope : undefined, scope);
+    }
+    return t;
+  }
+
+  /** A lowercase name within typo distance of a built-in class name. */
+  private nearBuiltin(name: string): boolean {
+    if (name[0] !== name[0]?.toLowerCase()) return false;
+    return didYouMean(name, this.typeClasses().map((c) => c.NAME)) !== '';
+  }
+
+  /** True if `def` is a bare-name shape: only `name` (and optionally
+   *  `docs`), no structural peers. Bare-name defs route through scope
+   *  lookup → AliasType / registered named type / canonical class. */
+  private isBareNameDef(def: TypeDef): boolean {
+    const peers: ReadonlyArray<keyof TypeDef> = [
+      'extends', 'satisfies', 'generic', 'options',
+      'init', 'props', 'get', 'call', 'constraint',
+    ];
+    for (const k of peers) {
+      if ((def as unknown as Record<string, unknown>)[k] !== undefined) return false;
+    }
+    return true;
+  }
+
+  private parseInner(def: TypeDef, scope: TypeScope): Type {
+    // `extends` indirection: build the base from the referenced name, wrap
+    // in Extension with local additions/narrowings.
+    if (def.extends) {
+      const base = scope.lookup(def.extends) ?? this.lookup(def.extends);
+      if (!base) {
+        throw new Error(
+          `registry.parse: extends references unknown type '${def.extends}'${didYouMean(def.extends, this.typeNameCandidates())}`,
+        );
+      }
+      // If `extends` names a BUILT-IN class that natively consumes some of the
+      // custom fields present here (obj → props; interface → props/get/call),
+      // those fields are STRUCTURAL and are folded INTO a base built from that
+      // class. Leftover, non-structural fields stay in the Extension local.
+      //
+      // THE ORIGINAL REASON FOR THIS FOLD IS GONE, and the fold is now the
+      // cause of a known defect — read both before touching it. It was "an
+      // Extension's `parse` delegates to its base and never consults the
+      // local, so props stranded in the local silently vanish (an
+      // `extends:'obj'` type would parse every value to `{}`)". Since 0.4.1
+      // `Extension.parse` DOES consult the local: a stored local prop is
+      // filled, required by `valid`, emitted by `encode` and demanded by
+      // `toValueSchema` (see `Extension.storedLocalProps`). So data would no
+      // longer vanish.
+      //
+      // What the fold costs is the open round-trip defect: it re-attributes an
+      // Extension's LOCAL props to the base, turning SURFACE into SHAPE. A
+      // method declared local comes back as a required field, so
+      // `registry.parse(ext.toJSON())` yields a type STRICTER than the one it
+      // serialized — `back.valid(back.parse(row).raw)` is false, and a slot
+      // declared with the round-tripped type refuses the original with the
+      // baffling "declared `X` but the value carries `X`".
+      //
+      // Not removed here, and the blocker is specific: `Extension.compatible`
+      // compares BASES only. Move the props to the local and every Extension
+      // over `obj` gets the same empty base, so `HttpParam.compatible(
+      // HttpHeader)` becomes TRUE — a vacuous relation, and compatibility is
+      // what every declared-return and claim check in the ecosystem rests on.
+      // Closing this properly means teaching `compatible` about stored local
+      // props FIRST; doing it in the other order silently widens everything.
+      //
+      // GENERIC extensions are excluded: their props reference type-parameter
+      // placeholders (`{ name: 'T' }` AliasTypes) that must stay in the local
+      // to be resolved against the specialization scope, so they are NOT folded.
+      const baseCls = this.classes.get(def.extends);
+      const isGeneric = def.generic !== undefined && Object.keys(def.generic).length > 0;
+      const structural = baseCls && !isGeneric
+        ? ALL_CUSTOM_FIELDS.filter((f) => def[f] !== undefined && (baseCls.consumes ?? []).includes(f))
+        : [];
+      if (baseCls && structural.length > 0) {
+        const baseDef: TypeDef = {
+          name: def.extends,
+          ...(structural.includes('props') ? { props: def.props } : {}),
+          ...(structural.includes('get') ? { get: def.get } : {}),
+          ...(structural.includes('call') ? { call: def.call } : {}),
+          ...(structural.includes('init') ? { init: def.init } : {}),
+        };
+        const structuralBase = baseCls.from(baseDef, scope);
+        const localDef: TypeDef = { ...def };
+        delete localDef.extends;
+        for (const f of structural) delete localDef[f];
+        return new Extension(this, structuralBase, this.buildLocal(localDef, scope));
+      }
+      return new Extension(this, base, this.buildLocal(def, scope));
+    }
+
+    // Bare-name shape: dispatch via scope chain.
+    if (this.isBareNameDef(def)) {
+      // Walk above-registry layers — if the name is bound LOCALLY in
+      // any LocalScope (generic placeholder, call.types alias), wrap in
+      // AliasType so substitute / scope resolution works correctly.
+      let s: TypeScope | undefined = scope;
+      while (s && s !== this) {
+        if (s.localLookup(def.name) !== undefined) {
+          return new AliasType(scope, { name: def.name });
+        }
+        s = s.parent;
+      }
+      // Registered named type — return directly (preserves instanceof).
+      if (this.namedTypes.has(def.name)) return this.namedTypes.get(def.name)!;
+      // Built-in class — dispatch eagerly to canonical instance.
+      const cls = this.classes.get(def.name);
+      if (cls) return cls.from(def, scope);
+      // Unknown name — AliasType (lazy; supports forward-refs to types
+      // registered later, e.g. self-referential `r.alias('Node')` during
+      // construction of Node).
+      return new AliasType(scope, { name: def.name });
+    }
+
+    // A USE-SITE reference: a name plus generic arguments and/or narrowing
+    // options and nothing else (`Node<T>`, `PlayerText{maxLength=40}`).
+    // Resolved like a bare name — LocalScope first, then the registry, then
+    // lazily — so a name bound in a scope overlay, a self reference inside
+    // its own definition, and a forward reference all parse. Before this a
+    // non-bare reference consulted `namedTypes` only: anything not yet
+    // registered threw "unknown type", and use-site options on a registered
+    // name were silently DROPPED (`PlayerText{maxLength=4}` accepted 8 chars).
+    const useSite = this.isUseSiteDef(def);
+    if (useSite && this.boundAboveRegistry(def.name, scope)) {
+      return this.useSiteAlias(def, scope);
+    }
+
+    // Previously-registered named type (Extension or programmatically defined).
+    // A reference that carries `generic` is a SPECIALIZATION of that type —
+    // `{name:'QueryResult', generic:{Row:{…}}}`. Before this the bindings
+    // were silently dropped and the unbound declaration handed straight
+    // back, so `QueryResult<Row>` bound to a concrete row behaved, and
+    // printed, as a bare `QueryResult`.
+    if (this.namedTypes.has(def.name)) {
+      const named = this.namedTypes.get(def.name)!;
+      if (useSite) return this.applyUse(named, this.parseGenericArgs(def, scope), def.options, scope);
+      if (def.generic && named instanceof Extension) {
+        return named.specialize(this.parseGenericArgs(def, scope));
+      }
+      return named;
+    }
+
+    const cls = this.classes.get(def.name);
+    if (!cls) {
+      // Not bound anywhere YET: a self reference (`next?: Node<T>` inside
+      // `Node<T>`) or a forward one (`When<A>` ↔ `Condition<A>`). Lazy, as
+      // a bare forward name already is; the arguments apply on resolve.
+      // One carve-out keeps the typo guard: a lowercase name one edit from a
+      // built-in class (`tex{…}`, `lst<…>`) is a misspelled built-in, not a
+      // type declared later — named types are written in PascalCase.
+      if (useSite && !this.nearBuiltin(def.name)) return this.useSiteAlias(def, scope);
+      throw new Error(
+        `registry.parse: unknown type '${def.name}'${didYouMean(def.name, this.typeNameCandidates())}`,
+      );
+    }
+
+    // Auto-Extension: if the TypeDef has customization fields the class
+    // doesn't natively consume, build the base from the structural fields
+    // and wrap in Extension with the leftover custom fields.
+    const consumed = new Set<CustomField>(cls.consumes ?? []);
+    const leftover = ALL_CUSTOM_FIELDS.filter((f) => def[f] !== undefined && !consumed.has(f));
+
+    if (leftover.length === 0) return cls.from(def, scope);
+
+    const stripped: TypeDef = { ...def };
+    for (const f of leftover) delete stripped[f];
+    const base = cls.from(stripped, scope);
+
+    const local: ExtensionLocal = {
+      name: def.name,
+      docs: def.docs,
+      props: leftover.includes('props') && def.props ? Prop.fromMap(def.props, scope) : undefined,
+      get: leftover.includes('get') && def.get ? GetSet.from(def.get, scope) : undefined,
+      call: leftover.includes('call') && def.call ? Call.from(def.call, scope) : undefined,
+      init: leftover.includes('init') && def.init ? Init.from(def.init, scope) : undefined,
+    };
+    return new Extension(this, base, local);
+  }
+
+  /**
+   * Enumerate every registered type (class defaults + named instances)
+   * that structurally satisfies the given interface by name. Useful for
+   * "find all types that implement Comparable" style queries.
+   */
+  getTypesFor(ifaceName: string): Type[] {
+    const iface = this.lookup(ifaceName);
+    if (!iface) return [];
+    const out: Type[] = [];
+
+    for (const t of this.namedTypes.values()) {
+      if (t === iface) continue;
+      try {
+        if (iface.compatible(t)) out.push(t);
+      } catch {
+        // lazy proxies (alias) may throw during compat — skip.
+      }
+    }
+
+    for (const [name, cls] of this.classes) {
+      if (name === ifaceName) continue;
+      let t: Type;
+      try {
+        t = cls.from({ name }, this);
+      } catch {
+        continue;
+      }
+      try {
+        if (iface.compatible(t)) out.push(t);
+      } catch {
+        // skip proxies that can't resolve
+      }
+    }
+
+    return out;
+  }
+
+  /** Decode all customization fields from a TypeDef into an ExtensionLocal. */
+  private buildLocal(def: TypeDef, scope: TypeScope): ExtensionLocal {
+    const generic = def.generic
+      ? Object.fromEntries(
+          Object.entries(def.generic).map(([k, v]) => [k, this.parse(v, scope)]),
+        )
+      : undefined;
+    return {
+      name: def.name,
+      docs: def.docs,
+      options: def.options,
+      generic,
+      props: def.props ? Prop.fromMap(def.props, scope) : undefined,
+      get: def.get ? GetSet.from(def.get, scope) : undefined,
+      call: def.call ? Call.from(def.call, scope) : undefined,
+      init: def.init ? Init.from(def.init, scope) : undefined,
+      constraint: def.constraint ? this.parseExpr(def.constraint, scope) : undefined,
+    };
+  }
+
+  // ─── TYPE BUILDER IMPL ───────────────────────────────────────────────────
+
+  any(): AnyType { return new AnyType(this, {}); }
+  void(): VoidType { return new VoidType(this, {}); }
+  null(): NullType { return new NullType(this, {}); }
+
+  bool(options?: BoolOptions): BoolType { return new BoolType(this, options ?? {}); }
+  num(options?: NumOptions): NumType { return new NumType(this, options ?? {}); }
+  text(options?: TextOptions): TextType { return new TextType(this, options ?? {}); }
+
+  list<V>(item: Type<V>, options?: ListOptions): ListType<V> {
+    return new ListType<V>(this, item, options ?? {});
+  }
+  map<K, V>(key: Type<K>, value: Type<V>): MapType<K, V> {
+    return new MapType<K, V>(this, key, value);
+  }
+  tuple<const E extends readonly Type[]>(elements: E): TupleType<TupleValue<E>> {
+    return new TupleType<TupleValue<E>>(this, [...elements]);
+  }
+  obj<const P extends FieldsInput>(props: P): ObjType<ObjValue<P>> {
+    return new ObjType<ObjValue<P>>(this, props);
+  }
+  field<X extends Type>(type: X, options?: FieldOptions): FieldSpec<X> {
+    return {
+      type,
+      docs: options?.docs,
+      default: options?.default === undefined ? undefined : this.parseExpr(options.default),
+    };
+  }
+
+  optional<T>(inner: Type<T>): OptionalType<T> { return new OptionalType<T>(this, inner); }
+  nullable<T>(inner: Type<T>): NullableType<T> { return new NullableType<T>(this, inner); }
+  not(excluded: Type): NotType { return new NotType(this, excluded); }
+
+  or<const V extends readonly Type[]>(variants: V): OrType<Infer<V[number]>> {
+    return new OrType<Infer<V[number]>>(this, [...variants]);
+  }
+  and<const V extends readonly Type[]>(parts: V): AndType<IntersectValues<V>> {
+    return new AndType<IntersectValues<V>>(this, [...parts]);
+  }
+
+  enum<const E extends Record<string, B>, B>(values: E, value: Type<B>): EnumType<E[keyof E], B>;
+  enum<const L extends readonly string[]>(labels: L): EnumType<L[number], string>;
+  enum(values: Record<string, unknown> | readonly string[], value?: Type): EnumType {
+    if (isLabelList(values)) {
+      return new EnumType(this, this.text(), { values: Object.fromEntries(values.map((l) => [l, l])) });
+    }
+    return new EnumType(this, value ?? this.text(), { values });
+  }
+
+  literal<const T extends B, B>(inner: Type<B>, value: T): LiteralType<T, B>;
+  literal<const T extends string | number | boolean>(value: T): LiteralType<T, Widen<T>>;
+  literal(innerOrValue: Type | string | number | boolean, value?: unknown): LiteralType {
+    if (innerOrValue instanceof Type) return new LiteralType(this, innerOrValue, value);
+    const inner: Type = this.primitiveOf(innerOrValue);
+    return new LiteralType(this, inner, innerOrValue);
+  }
+
+  /** The built-in type a primitive JS value belongs to. */
+  private primitiveOf(value: string | number | boolean): TextType | NumType | BoolType {
+    switch (typeof value) {
+      case 'string': return this.text();
+      case 'number': return this.num();
+      case 'boolean': return this.bool();
+    }
+  }
+
+  date(options?: DateOptions): DateType { return new DateType(this, options ?? {}); }
+  timestamp(options?: TimestampOptions): TimestampType { return new TimestampType(this, options ?? {}); }
+  duration(): DurationType { return new DurationType(this, {}); }
+
+  color(options?: ColorOptions): ColorType { return new ColorType(this, options ?? {}); }
+
+  fn<A extends object, R = void, E = never>(opts: FnSpec<A, R, E>): FnType<A, R, E> {
+    return new FnType<A, R, E>(
+      this,
+      { args: opts.args, returns: opts.returns, throws: opts.throws, get: opts.call },
+      opts.generic ?? {},
+    );
+  }
+
+  iface<const P extends FieldsInput = {}>(spec: IfaceSpec<P>): IfaceType<ObjValue<DataFields<P>>> {
+    return new IfaceType<ObjValue<DataFields<P>>>(this, {
+      props: spec.props ? Prop.fromMap(spec.props, this) : {},
+      get: spec.get ? GetSet.from(spec.get, this) : undefined,
+      call: spec.call ? Call.from(spec.call, this) : undefined,
+    });
+  }
+
+  /** Bare-name reference / generic-parameter placeholder.
+   *  JSON form is `{name: 'X'}` — interpretation depends on scope:
+   *  resolves to a registered named type, a built-in class instance, a
+   *  generic placeholder bound on the enclosing fn, or a `call.types`
+   *  alias. Call-site specialization (e.g. path-step `<R: num>`)
+   *  passes an extra `TypeScope` at access time; AliasType.resolve
+   *  consults it before its captured scope. No type-tree rebuild.
+   *  `T` is the value the name stands for: TypeScript cannot see
+   *  through a name, so it defaults to `unknown`. */
+  alias<T = unknown>(name: string): AliasType<T> { return new AliasType<T>(this, { name }); }
+
+  typ<T>(constraint: Type<T>): TypType<T> {
+    return new TypType<T>(this, constraint);
+  }
+
+  // ─── COMPATIBILITY QUERIES ──────────────────────────────────────────────
+
+  /**
+   * Every Type known to the registry (native classes + named Extensions)
+   * whose `.compatible(t)` returns true. Class-level types are probed via
+   * a canonical instance built from `cls.from({name})` — classes whose
+   * `from` throws without options are skipped.
+   *
+   * Deduplicated by name.
+   */
+  compatible(t: Type): Type[] {
+    const out: Type[] = [];
+    const seen = new Set<string>();
+    const push = (x: Type) => {
+      if (seen.has(x.name)) return;
+      seen.add(x.name);
+      out.push(x);
+    };
+
+    // Native classes. A class's canonical form (from `{name}` alone) may
+    // be "universal" — i.e. its `.compatible(x)` is trivially true for
+    // almost any x (see Type.isUniversal). Those pollute the match set and
+    // only participate when the query IS for this class by name.
+    for (const cls of this.typeClasses()) {
+      let canonical: Type;
+      try {
+        canonical = cls.from({ name: cls.NAME } as TypeDef, this);
+      } catch {
+        continue;
+      }
+      if (canonical.isUniversal() && t.name !== cls.NAME) continue;
+      try {
+        if (canonical.compatible(t)) push(canonical);
+      } catch {
+        continue;
+      }
+    }
+
+    // Named types (Extensions, programmatically registered).
+    for (const named of this.namedTypeList()) {
+      try {
+        if (named.compatible(t)) push(named);
+      } catch {
+        continue;
+      }
+    }
+
+    return out;
+  }
+
+  /**
+   * Or-wrap of `compatible(t)`, with each match narrowed by `.like(t)` so
+   * container classes recurse through their inner types. Zero matches →
+   * `null` type; one match → that type; many → `or<...>`.
+   */
+  like(t: Type): Type {
+    const narrowed = this.compatible(t).map((m) => m.like(t));
+    if (narrowed.length === 0) return this.null();
+    if (narrowed.length === 1) return narrowed[0]!;
+    return this.or(narrowed);
+  }
+
+  extend<T, O, const P extends FieldsInput = {}>(
+    base: Type<T, O>,
+    local: ExtendLocal<T, O, P>,
+  ): Extension<WithData<T, P>, O>;
+  extend<const N extends string, const P extends FieldsInput = {}>(
+    base: N,
+    local: ExtendLocal<NamedValue<N>, any, P>,
+  ): Extension<WithData<NamedValue<N>, P>>;
+  extend(base: Type | string, local: ExtensionLocal): Extension {
+    const baseType = typeof base === 'string'
+      ? this.lookup(base) ?? (() => { throw new Error(`extend: unknown base '${base}'`); })()
+      : base;
+    return new Extension(this, baseType, local);
+  }
+
+  // ─── PROP BUILDERS ───────────────────────────────────────────────────────
+
+  /**
+   * Convenience for `Type` subclasses building `Prop` / `GetSet` /
+   * `Call` / `Init` specs that point at a built-in native. Returns a
+   * parsed `NativeExpr` referencing `id` so the surrounding spec field
+   * can hold a parsed `Expr` (per the runtime-stores-Expr rule)
+   * without the caller writing `this.parseExpr({kind:'native', id})`
+   * themselves.
+   */
+  nativeExpr(id: string): Expr {
+    return this.parseExpr({ kind: 'native', id });
+  }
+
+  prop<T>(type: Type<T>, nativeId: string, docs?: string): ComputedProp<T> {
+    return computed(new Prop<T>({ type, get: this.nativeExpr(nativeId), docs }));
+  }
+
+  method<const A extends Record<string, Type>, R>(
+    args: A,
+    returns: Type<R>,
+    nativeId: string,
+    options?: { docs?: string; generic?: Record<string, Type> },
+  ): ComputedProp<FnValue<ObjValue<A>, R>> {
+    return computed(new Prop({
+      type: this.fn({ args: this.obj(args), returns, generic: options?.generic }),
+      get: this.nativeExpr(nativeId),
+      docs: options?.docs,
+    }));
+  }
+}
+
+/** A label list (`['low', 'high']`) rather than a `{label: value}` record. */
+function isLabelList(values: Record<string, unknown> | readonly string[]): values is readonly string[] {
+  return Array.isArray(values);
+}
+
+/** A prop that carries its `get` — checked, so `ComputedProp` is never a promise unkept. */
+function computed<T>(prop: Prop<T>): ComputedProp<T> {
+  if (!hasGet(prop)) throw new Error('registry: a computed prop must carry a get expression');
+  return prop;
+}
+
+function hasGet<T>(prop: Prop<T>): prop is ComputedProp<T> {
+  return prop.get !== undefined;
+}
+
+// ─── BUILT-IN REGISTRATION ────────────────────────────────────────────────
+
+/** All built-in Type classes, in a stable order for tests / docs. */
+export const BUILTIN_TYPES: TypeClass[] = [
+  AnyType,
+  VoidType,
+  NullType,
+  BoolType,
+  NumType,
+  TextType,
+  ListType,
+  MapType,
+  TupleType,
+  ObjType,
+  OptionalType,
+  NullableType,
+  NotType,
+  OrType,
+  AndType,
+  EnumType,
+  LiteralType,
+  FnType,
+  IfaceType,
+  TypType,
+  DateType,
+  TimestampType,
+  DurationType,
+  ColorType,
+];
+
+/** All built-in Expr classes, one per ExprDef.kind. */
+import { NewExpr } from './exprs/new';
+import { GetExpr } from './exprs/get';
+import { SetExpr } from './exprs/set';
+import { DefineExpr } from './exprs/define';
+import { BlockExpr } from './exprs/block';
+import { IfExpr } from './exprs/if';
+import { SwitchExpr } from './exprs/switch';
+import { LoopExpr } from './exprs/loop';
+import { LambdaExpr } from './exprs/lambda';
+import { TemplateExpr } from './exprs/template';
+import { FlowExpr } from './exprs/flow';
+import { NativeExpr } from './exprs/native';
+
+export const BUILTIN_EXPRS: ExprClass[] = [
+  NewExpr, GetExpr, SetExpr, DefineExpr, BlockExpr,
+  IfExpr, SwitchExpr, LoopExpr, LambdaExpr, TemplateExpr,
+  FlowExpr, NativeExpr,
+];
+
+/** Create a Registry pre-populated with all built-in Type classes, native
+ *  implementations, and Expr classes. */
+export function createRegistry(): Registry {
+  const r = new Registry();
+  for (const cls of BUILTIN_TYPES) r.define(cls);
+  for (const cls of BUILTIN_EXPRS) r.defineExpr(cls);
+  registerBuiltinNatives(r);
+  return r;
+}

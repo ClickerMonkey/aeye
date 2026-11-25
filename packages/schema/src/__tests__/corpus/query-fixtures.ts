@@ -3,7 +3,7 @@
  * capability-gating.test.ts, operator.test.ts) as real `@aeye/query`
  * registries, and the adapter from a registry to the port's catalog.
  */
-import { createRegistry, type FunctionDef, type Registry, type TypeDef } from '@aeye/query';
+import { createRegistry, type FunctionDef, type Registry, type TypeDef } from '../../../bench/legacy-query';
 import type { CatalogType, GatedKind, QueryCatalog } from './query';
 
 // ============================================================================

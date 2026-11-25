@@ -9,7 +9,7 @@
  */
 import Handlebars from 'handlebars';
 import { describe, expect, it } from 'vitest';
-import { buildSchemas, createRegistry } from '@aeye/query';
+import { buildSchemas, createRegistry } from '../../../bench/legacy-query';
 import { ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, ModelProfile, OPENAI_STRICT, XAI_STRICT, type RequestItem } from '../../index';
 import { asTool, clone, profileProblems, unexplained } from './_check';
 import {

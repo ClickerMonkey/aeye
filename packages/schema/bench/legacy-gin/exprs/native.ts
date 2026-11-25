@@ -1,0 +1,120 @@
+// @ts-nocheck — frozen zod-path baseline (see ./index.ts); compiled as it was in its own package, not under this one's stricter test flags.
+import type { Engine } from '../engine';
+import type { Scope } from '../scope';
+import type { NativeExprDef } from '../schema';
+import { Value, val } from '../value';
+import type { Registry } from '../registry';
+import type { Type } from '../type';
+import type { Locals } from '../analysis';
+import type { Problems } from '../problem';
+import { Expr, type ValidateContext } from '../expr';
+import type { CodeOptions, SchemaOptions } from '../node';
+import { Code } from '../code';
+import { z } from 'zod';
+import { baseExprFields } from '../schemas';
+import type { TypeScope } from '../type-scope';
+import { Effects } from '../effects';
+
+/**
+ * NativeExpr — escape hatch calling a registered native impl by id.
+ */
+export class NativeExpr extends Expr {
+  static readonly KIND = 'native';
+  readonly kind = NativeExpr.KIND;
+
+  constructor(
+    readonly id: string,
+    readonly type?: Type,
+    /** Effects pre-resolved from the registry at parse time. Falls back
+     *  to the conservative `STATE|SYSTEM|EXTERNAL` when constructed
+     *  directly without a registry. */
+    private readonly resolvedEffects: Effects = Effects.STATE | Effects.SYSTEM | Effects.EXTERNAL,
+  ) {
+    super();
+  }
+
+  static from(json: NativeExprDef, scope: TypeScope): NativeExpr {
+    return new NativeExpr(
+      json.id,
+      json.type ? scope.registry.parse(json.type, scope) : undefined,
+      scope.registry.nativeEffects(json.id),
+    ).withComment(json.comment);
+  }
+
+  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
+    return z.object({
+      kind: z.literal('native'),
+      ...baseExprFields,
+      id: z.string().describe(
+        'Identifier of a native impl registered via `registry.setNative(id, fn)` (e.g. `list.push`, `num.add`). The model should NOT generate `native` expressions directly — methods on built-in types are reached via `get` paths, which gin resolves to natives internally.',
+      ),
+      type: opts.Type.optional().describe(
+        'Optional type to wrap the native\'s raw return value with when the impl returns a non-Value. Defaults to `any` if omitted.',
+      ),
+    }).meta({ aid: 'Expr_native' });
+  }
+
+  async evaluate(engine: Engine, scope: Scope): Promise<Value> {
+    const impl = engine.registry.getNative(this.id);
+    if (!impl) throw new Error(`native: no impl registered for '${this.id}'`);
+    const out = await impl(scope, engine.registry);
+    if (out instanceof Value) return out;
+    const type = this.type ?? engine.registry.any();
+    return val(type, out);
+  }
+
+  typeOf(engine: Engine, _scope: Locals): Type {
+    return this.type ?? engine.registry.any();
+  }
+
+  validateWalk(engine: Engine, _scope: Locals, p: Problems, _ctx: ValidateContext): Type {
+    if (!engine.registry.getNative(this.id)) {
+      p.warn('native.unknown', `native impl '${this.id}' is not registered`);
+    }
+    return this.type ?? engine.registry.any();
+  }
+
+  toCode(_registry?: Registry, options: CodeOptions = {}): string {
+    return this.commentPrefix(options) + `/* native: ${this.id} */`;
+  }
+
+  toJSON(): NativeExprDef {
+    const out: NativeExprDef = { kind: 'native', id: this.id };
+    if (this.type) out.type = this.type.toJSON();
+    return this.withCommentOn(out);
+  }
+
+  toJSONCode(
+    path: ReadonlyArray<string | number> = [],
+    indent: number = 2,
+    level: number = 0,
+  ): Code {
+    const typeCode = this.type
+      ? this.type.toJSONCode([...path, 'type'], indent, level + 1)
+      : undefined;
+    return Code.jsonObject(
+      [
+        { key: 'kind', value: Code.jsonString('native') },
+        { key: 'id', value: Code.jsonString(this.id) },
+        { key: 'type', value: typeCode },
+        ...(this.comment ? [{ key: 'comment', value: Code.jsonString(this.comment) }] : []),
+      ],
+      { path, expr: this },
+      level,
+      indent,
+    );
+  }
+
+  clone(): NativeExpr {
+    return new NativeExpr(this.id, this.type?.clone(), this.resolvedEffects).withComment(this.comment);
+  }
+
+  /** Effects come from the registry's per-native declaration (see
+   *  `setNative(id, impl, effects)`). Pre-resolved at parse time. */
+  effects(): Effects { return this.resolvedEffects; }
+
+  /** A native dispatch is a single opaque cost — the implementation
+   *  lives in JS and isn't part of the gin tree the model is
+   *  authoring. Effectively the helper-discount in primordial form. */
+  complexity(): number { return 1; }
+}

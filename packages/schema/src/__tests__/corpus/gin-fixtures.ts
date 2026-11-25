@@ -4,7 +4,7 @@
  * new-strict-schema.test.ts, code-render-demo.test.ts), plus TypeDefs a
  * model writes. Runtime-only use of `@aeye/gin` (its Registry type).
  */
-import { createRegistry, type Registry } from '@aeye/gin';
+import { createRegistry, type Registry } from '../../../bench/legacy-gin';
 import type { GinRegistryLike, GinTypeDef } from '../../index';
 import type { ExprDefT, NewExprT, TypeDefT } from './gin-grammar';
 

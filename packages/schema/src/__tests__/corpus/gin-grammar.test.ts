@@ -6,7 +6,7 @@
  */
 import Handlebars from 'handlebars';
 import { describe, expect, it } from 'vitest';
-import { buildSchemas } from '@aeye/gin';
+import { buildSchemas } from '../../../bench/legacy-gin';
 import {
   a, ANTHROPIC_STRICT, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT, PEOPLE, schemaHelpers, XAI_STRICT,
 } from '../../index';

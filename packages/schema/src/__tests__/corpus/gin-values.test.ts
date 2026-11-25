@@ -7,7 +7,7 @@
  */
 import Handlebars from 'handlebars';
 import { describe, expect, it } from 'vitest';
-import { createRegistry } from '@aeye/gin';
+import { createRegistry } from '../../../bench/legacy-gin';
 import {
   a, ANTHROPIC_STRICT, fromGin, ginNamedTypes, GOOGLE_OPENAPI, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT,
   schemaHelpers, XAI_STRICT, type AnySchema, type GinRegistryLike, type GinTypeDef, type Rendered,

@@ -9,7 +9,7 @@
 import Handlebars from 'handlebars';
 import { isDeepStrictEqual } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { buildSchemas, type ExprDef, type QueryDef, type Registry } from '@aeye/query';
+import { buildSchemas, type ExprDef, type QueryDef, type Registry } from '../../../bench/legacy-query';
 import { catalogOf, fixtureRegistry, geoRegistry, plainRegistry } from './query-fixtures';
 import {
   a, ANTHROPIC_STRICT, GOOGLE_OPENAPI, GOOGLE_STRICT, LENIENT, MINIMAL, ModelProfile, OPENAI_STRICT, PEOPLE, XAI_STRICT,
