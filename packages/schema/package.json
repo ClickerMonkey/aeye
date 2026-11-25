@@ -30,7 +30,8 @@
     "bench:equivalence": "node --import tsx bench/equivalence.ts",
     "bench:errors": "node --expose-gc --max-old-space-size=12288 --import tsx bench/errors.ts",
     "bench:core": "node --conditions=source --expose-gc --max-old-space-size=12288 --import tsx bench/core.ts",
-    "bench:plan": "node --expose-gc --max-old-space-size=8192 --import tsx bench/plan.ts"
+    "bench:plan": "node --expose-gc --max-old-space-size=8192 --import tsx bench/plan.ts",
+    "bench:leak": "node --conditions=source --expose-gc --max-old-space-size=8192 --import tsx bench/leak.ts"
   },
   "keywords": [
     "ai",

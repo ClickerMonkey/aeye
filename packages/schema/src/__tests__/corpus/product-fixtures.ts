@@ -61,11 +61,12 @@ export const ticket: TypeDef = {
 // type-parse.test.ts:210 order (+ total for QUERY_SET_EXAMPLES)
 export const order: TypeDef = { name: 'order', description: 'orders', count: 100, fields: [{ name: 'id', type: { kind: 'text' } }, { name: 'city', type: { kind: 'text' } }, { name: 'total', type: { kind: 'number' } }] };
 
-export function sessionRegistry(types: readonly TypeDef[]): Registry {
-  const registry = createRegistry();
+/** A session's registry; `create` defaults to the frozen zod-era query (bench/legacy-query), the bench passes today's. */
+export function sessionRegistry<R = Registry>(types: readonly TypeDef[], create: () => R = createRegistry as unknown as () => R): R {
+  const registry = create() as unknown as Registry;
   for (const t of types) registry.registerType(registry.parseType(t));
   registry.finalize();
-  return registry;
+  return registry as unknown as R;
 }
 
 export const ALL = [fnUse, user, task, project, ticket, order];

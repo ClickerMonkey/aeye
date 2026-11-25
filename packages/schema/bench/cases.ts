@@ -34,7 +34,10 @@ import { asGrammarRegistry, everythingProgram, fixtureRegistry as ginFixtureRegi
 import { QueryModule, type BuildOptions, type QueryCatalog } from '../src/__tests__/corpus/query';
 import { catalogOf, fixtureRegistry as queryFixtureRegistry } from '../src/__tests__/corpus/query-fixtures';
 import { QuerySetArgs } from '../src/__tests__/corpus/product';
-import { ANSWERS as PRODUCT_ANSWERS, ctx as productCtx, prefedRegistry } from '../src/__tests__/corpus/product-fixtures';
+import { ALL as PRODUCT_TYPES, ANSWERS as PRODUCT_ANSWERS, ctx as productCtx, prefedRegistry, sessionRegistry } from '../src/__tests__/corpus/product-fixtures';
+// Today's gin and query (step 2): their own `a` grammars, as their consumers call them.
+import { createRegistry as ginNewRegistry, GinGrammar, ginValue } from '../../gin/src/index';
+import { createRegistry as queryNewRegistry, QueryArgs, QueryGrammar } from '../../query/src/index';
 import { a, fromGin } from '../src/index';
 
 // ============================================================================
@@ -230,6 +233,12 @@ export interface Case {
   readonly aBound: (fresh: boolean) => Bound<any>;
   /** zod: the schema as the caller builds it (per call for the dynamic ones, as product/gin do). */
   readonly zod: () => z.ZodType;
+  /**
+   * The real package's `a` path (step 2), as its consumer calls it on every request: gin's grammar /
+   * `ginValue`, query's `QueryArgs` / `QueryGrammar` bound on today's registry (binds cached per
+   * registry identity + version + options, so a request after the first is a cache hit).
+   */
+  readonly real?: () => Bound<any>;
   readonly answers: readonly Answer[];
   readonly dynamic: boolean;
   /** Static cases: build the schema (new instances). */
@@ -246,6 +255,14 @@ const ginReg0 = ginFixtureRegistry();
 const ginReg = asGrammarRegistry(ginReg0);
 const qReg = queryFixtureRegistry();
 const qCat = catalogOf(qReg);
+
+// The same fixtures on today's gin / query.
+const ginRegNew = ginFixtureRegistry(ginNewRegistry);
+const GinWriteArgs = GinGrammar.result(a.object({ program: a.ref('Expr') }));
+const ginTaskNew = ginNewRegistry().parse(TaskDef as never);
+const qRegNew = queryFixtureRegistry(queryNewRegistry);
+const prefedNew = sessionRegistry(PRODUCT_TYPES, queryNewRegistry);
+const QuerySetArgsNew = QueryGrammar.result(a.object({ value: a.ref('Query') }));
 let version = 1_000_000;
 const freshCatalog = (c: QueryCatalog): QueryCatalog => ({ ...c, version: ++version });
 export const QueryTool = QueryModule.result(a.object({ query: a.ref('Query') }));
@@ -254,6 +271,7 @@ const queryCase = (id: string, label: string, o: BuildOptions): Case => ({
   id, label, dynamic: true,
   aBound: (fresh) => QueryTool.bind(fresh ? freshCatalog(qCat) : qCat, o),
   zod: () => z.object({ query: queryBuildSchemas(qReg, o as never).Query }),
+  real: () => QueryArgs.bind(qRegNew, o as never),
   answers: [
     { name: 'rich select', code: () => ({ query: richQuery() }), invalid: [['query', 'where', 0, 'op'], 'xor'] },
     { name: 'insert 1k rows', big: true, code: () => ({ query: insertRows(1000, o.strict === true) }), invalid: o.strict === true ? [['query', 'rows', 999, 'id'], 'one'] : [['query', 'rows', 999], 5] },
@@ -274,7 +292,7 @@ export const CASES: readonly Case[] = [
   },
   {
     id: 'gin-value', label: 'gin value (Task obj via toValueSchema)', dynamic: false,
-    aBound: staticCase(TaskA), aBuild: TaskA, zod: TaskZ,
+    aBound: staticCase(TaskA), aBuild: TaskA, zod: TaskZ, real: () => ginValue(ginTaskNew),
     answers: [{ name: 'task', code: task, zodCode: ginTaskCode, invalid: [['points'], -1] }],
   },
   {
@@ -295,6 +313,7 @@ export const CASES: readonly Case[] = [
     // gin binds are keyed by the registry's content: a fresh bind empties the bundle's bind cache first.
     aBound: (fresh) => { if (fresh) (WriteArgs as unknown as { cache: Map<unknown, unknown> }).cache.clear(); return WriteArgs.bind(ginReg); },
     zod: () => z.object({ program: ginBuildSchemas(ginReg0).Expr }),
+    real: () => GinWriteArgs.bind(ginRegNew),
     answers: [
       { name: 'everything program', code: () => ({ program: everythingProgram }), invalid: [['program', 'lines', 0, 'kind'], 'nope'] },
       { name: 'block of 200 programs', big: true, code: () => ({ program: wideBlock(200) }), invalid: [['program', 'lines', 199, 'body', 'lines', 2, 'kind'], 'nope'] },
@@ -309,6 +328,7 @@ export const CASES: readonly Case[] = [
     id: 'product-query-set', label: 'product query_set (strict, maxEnumSize 100)', dynamic: true,
     aBound: (fresh) => QuerySetArgs.bind(productCtx(fresh ? { catalog: freshCatalog(productCtx().catalog) } : {})),
     zod: () => z.object({ value: queryBuildSchemas(prefedRegistry, { strict: true, maxEnumSize: 100 }).Query }),
+    real: () => QuerySetArgsNew.bind(prefedNew, { strict: true, maxEnumSize: 100 }),
     answers: [
       { name: 'groupCount', code: () => ({ value: PRODUCT_ANSWERS.groupCount }), invalid: [['value', 'from', 'type'], 'invoice'] },
       { name: 'insert', code: () => ({ value: PRODUCT_ANSWERS.insertValues }), invalid: [['value', 'rows', 0, 'status'], 'later'] },

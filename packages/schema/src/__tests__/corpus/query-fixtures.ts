@@ -40,14 +40,14 @@ const genRows: FunctionDef = { name: 'genRows', shape: 'tabular', params: [], ou
 // capability-gating.test.ts plainEngine(): a capability-free type
 const widgetTypeDef: TypeDef = { name: 'widget', fields: [{ name: 'id', type: { kind: 'number', whole: true } }, { name: 'label', type: { kind: 'text' } }], count: 10 };
 
-/** _utils.ts `fixture()` (+ genRows). */
-export function fixtureRegistry(): Registry {
-  const registry = createRegistry();
+/** _utils.ts `fixture()` (+ genRows). `create` defaults to the frozen zod-era query (bench/legacy-query). */
+export function fixtureRegistry<R = Registry>(create: () => R = createRegistry as unknown as () => R): R {
+  const registry = create() as unknown as Registry;
   registry.registerType(registry.parseType(userTypeDef));
   registry.registerType(registry.parseType(orderTypeDef));
   registry.registerFunction(genRows);
   registry.finalize();
-  return registry;
+  return registry as unknown as R;
 }
 export function plainRegistry(): Registry {
   const registry = createRegistry();

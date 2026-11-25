@@ -1,20 +1,22 @@
 /**
- * Core's request path after the integration (step 1), next to the zod path
- * it replaced (bench/legacy-core, the old strictify + toJSONSchema).
+ * Core's request path after the integration (steps 1 and 2), next to the zod
+ * path it replaced (bench/legacy-core, the old strictify + toJSONSchema).
  *
  * Per request, for every case and profile: the time and the heap KEPT of
  * - `a`: `planRequest` over the tool's bound schema for a model of that
  *   family + reading the JSON sent (`sentTools`), as openai.ts / aws.ts now
  *   do on every request (a cached bind: same catalog, as a running agent);
- * - `bridge`: the same through core's TEMPORARY zod bridge, with the zod
- *   schema built per call as gin/query consumers do today (z.toJSONSchema →
- *   fromJSONSchema → plan) — what they pay until step 2;
- * - `zod`: the legacy path, `toJSONSchema(strictify(z, d), d)` per request.
+ * - `real`: (gin and query cases) the same through today's @aeye/gin /
+ *   @aeye/query `a` grammars, bound per request as their consumers do
+ *   (`GinGrammar` / `ginValue`, `QueryArgs` / `QueryGrammar`; the bind is a
+ *   cache hit after the first). Step 1's `bridge` column (core's temporary
+ *   zod bridge, deleted in step 2) is kept in PERFORMANCE.md;
+ * - `zod`: the legacy path, `toJSONSchema(strictify(z, d), d)` per request,
+ *   on the frozen gin / query zod grammars (bench/legacy-gin, legacy-query).
  *
  *   npm run bench:core            (-- --only=query, -- --n=5)
  */
 import { planRequest, sentTools } from '../../core/src/schema';
-import { boundFromZod } from '../../core/src/zod-bridge';
 import type { ModelLike } from '../src/index';
 import { CASES, PROFILES, core } from './cases';
 import { releaseZodIds } from './zod-registries';
@@ -44,7 +46,7 @@ function measure(n: number, fn: () => unknown): { ms: number; keptMB: number } {
   return { ms: +ms.toFixed(3), keptMB };
 }
 
-const rows: string[] = ['| case | profile | a: ms / request | a: MB kept / request | bridge: ms | bridge: MB | zod path: ms | zod path: MB |', '|---|---|---|---|---|---|---|---|'];
+const rows: string[] = ['| case | profile | a: ms / request | a: MB kept / request | real gin/query a: ms | real a: MB | zod path: ms | zod path: MB |', '|---|---|---|---|---|---|---|---|'];
 for (const c of CASES) {
   if (args.only && !c.id.includes(args.only)) continue;
   for (const p of PROFILES) {
@@ -53,12 +55,9 @@ for (const c of CASES) {
     const n = slow ? Math.min(N, 2) : N;
     const bound = c.aBound(false);
     const aRes = measure(n * 20, () => sentTools({ messages: [], tools: [{ name: 't', parameters: bound, strict: 1 }], plan: planRequest({ tools: [{ name: 't', parameters: bound, strict: 1 }] }, model) })[0]!.parameters);
-    const bridge = measure(n, () => {
-      const zod = c.zod();
-      const b = boundFromZod(zod as never);
-      const out = planRequest({ tools: [{ name: 't', parameters: b, strict: 1 }] }, model).get('t').jsonSchema;
-      releaseZodIds();
-      return out;
+    const real = c.real && measure(n * 20, () => {
+      const b = c.real!();
+      return sentTools({ messages: [], tools: [{ name: 't', parameters: b, strict: 1 }], plan: planRequest({ tools: [{ name: 't', parameters: b, strict: 1 }] }, model) })[0]!.parameters;
     });
     const zodRes = measure(n, () => {
       const z = c.zod();
@@ -66,7 +65,7 @@ for (const c of CASES) {
       releaseZodIds();
       return out;
     });
-    rows.push(`| ${c.id} | ${p.id} | ${aRes.ms} | ${aRes.keptMB} | ${bridge.ms} | ${bridge.keptMB} | ${zodRes.ms} | ${zodRes.keptMB} |`);
+    rows.push(`| ${c.id} | ${p.id} | ${aRes.ms} | ${aRes.keptMB} | ${real ? real.ms : '—'} | ${real ? real.keptMB : '—'} | ${zodRes.ms} | ${zodRes.keptMB} |`);
     process.stderr.write(`${rows[rows.length - 1]}\n`);
   }
 }
