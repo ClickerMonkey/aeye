@@ -263,7 +263,9 @@ Every `Expr` implements `effects(): Effects` and `complexity(): number`.
 
 Subclass `Expr` with `static KIND` and `static from(json, scope)`, implement the
 abstract methods (`evaluate`, `typeOf`, `validateWalk`, `toJSON`, `clone`,
-`effects`, `complexity`, `toSchema`), then `registry.defineExpr(YourExpr)`. The 12
+`effects`, `complexity`, `toSchema`), give it a `static toA()` (its ExprDef as an
+`a` schema, refs `a.ref('Expr')` / `a.ref('TypeDef')` into the grammar) so models
+see its shape, then `registry.defineExpr(YourExpr)`. The 12
 built-ins cover essentially all program authoring; you rarely need this.
 
 ## Read next

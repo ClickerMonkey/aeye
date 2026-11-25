@@ -5,6 +5,40 @@ commits); this file starts here and is the place to look from now on.
 
 ## Unreleased
 
+### Model-facing schemas are `@aeye/schema` (`a`), not zod
+
+Everything a model writes against is now an `a` schema: rendered per model
+(records as pairs on OpenAI strict, recursion as JSON text on Anthropic strict,
+…), decoded back into the code shape in one pass, mistakes told in
+`@aeye/schema`'s format (the model's JSON with markers, "did you mean").
+
+- **`type.toA(opts?)`** — every type's value schema (`toNewA` for a `new` value
+  slot, `defineA` for a named type's own shape). Same verdicts as `toValueSchema`;
+  `map<text, V>` is a record in the code shape; registered named types are refs.
+- **`GinGrammar`** — the TypeDef / ExprDef grammar as one module: static defs per
+  aid, one dynamic step `(registry, overrides?)`. Compose tools with
+  `GinGrammar.result(a.object({ program: a.ref('Expr') })).adapt(ctx => [ctx.registry])`.
+- **`buildSchemas(registry, overrides?)`** now returns `{ Type, Expr }` as `a`
+  bounds (`Bound<GinShapes.TypeDef>` / `Bound<GinShapes.ExprDef>`), cached per
+  registry version. `overrides.exprs` is gone (it was never wired).
+- **`ginValue(type)`** — a value of a type, bound with the grammar.
+- **`registry.version`** — bumped by `define` / `register` / `defineExpr` /
+  `augment`; the bind cache key. The old `keptLazy` workaround is gone with zod.
+- **`GinShapes`** — the code types the grammar decodes to.
+- Custom type / expr classes: optional `static toA()` (and `static toNewA()`).
+
+**Migrating.**
+- `buildSchemas(r).Expr` handed to a zod-taking API → `GinGrammar.result(...)`
+  (or `buildSchemas(r).Expr` where a bound is wanted). `.safeParse(v)` →
+  `bound.render(profile).parse(v)`.
+- `z.object({ program: buildSchemas(r).Expr })` as a tool schema →
+  `GinGrammar.result(a.object({ program: a.ref('Expr') })).adapt((ctx) => [ctx.registry])`.
+- `type.toValueSchema()` as a tool / prompt schema → `ginValue(type)` (or
+  `type.toA()` inside a `GinGrammar.result`).
+- The zod grammar is `buildZodSchemas` (deprecated): it only backs
+  `toValueSchema`, which stays for gin's value checks and the harness's zod-gin
+  until the harness moves; then both go.
+
 ### Export to runnable TypeScript
 
 `engine.toTypeScript(expr, options)` compiles a gin expression to a TypeScript

@@ -312,7 +312,8 @@ provides:
 
 - the type system (`num`, `list<V>`, `typ<T>`, user extensions, ...)
 - the expression engine (`engine.run(expr)`)
-- the Zod schema generation the LLM uses to author valid programs
+- the grammar the LLM authors programs against (`GinGrammar`, `type.toA()`:
+  `@aeye/schema` schemas, rendered per model and decoded back)
 
 ginny provides:
 

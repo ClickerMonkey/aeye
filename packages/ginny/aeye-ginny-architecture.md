@@ -178,3 +178,19 @@ calls when an obviously-named entry already exists.
   parse time. If a change is genuinely breaking, the right move is to
   create a new type/fn under a different name so existing callers keep
   working.
+
+## Schemas
+
+Every tool and prompt schema is one static `@aeye/schema` instance (no
+`(ctx) => zod` functions). The grammar-typed ones (`write`, `edit_type`,
+`create_var`, `create_new_fn`, `edit_fn`, the architect's output) are
+`GinGrammar.result(...).adapt((ctx) => [ctx.registry])`: gin's grammar bound
+with the run's registry, cached per registry version, so a turn re-plans for
+free. `test`'s `args` are the authored fn's `argsType.toA({ includeDocs: 'all' })`
+(cached per fn), `create_var`'s `value` is checked against the TypeDef written
+beside it (`.dependent`), and `fns.llm`'s output is `ginValue(outputType)` (a
+`text` output is the model's text). Whether a tool is offered is `applicable`.
+A call that doesn't fit is told back in `@aeye/schema`'s error format; what gin
+finds in a program that fits (`write`'s validation) stays gin's
+`formatProblems` report. `src/__tests__/schemas.test.ts` binds each with a real
+registry on OpenAI strict, Anthropic strict and lenient.

@@ -67,14 +67,14 @@ already in scope, it delegates to specialist sub-agents — **architect**
 entries when nothing matches. The designer authors a new function body by
 **recursively spawning another programmer** (bounded to 3 levels deep).
 Everything is typed end-to-end inside gin's type system, and structured
-outputs are produced through Zod schemas so the model cannot emit invalid
-expressions. See [aeye-ginny-architecture.md](./aeye-ginny-architecture.md).
+outputs are `@aeye/schema` schemas over gin's grammar (bound per ctx, cached per
+registry version) so the model cannot emit malformed expressions. See [aeye-ginny-architecture.md](./aeye-ginny-architecture.md).
 
 ## Relationship to other @aeye packages
 
 - **`@aeye/gin`** — the typed-program runtime ginny builds on: the type
-  system, the expression engine (`engine.run`), and the Zod schema
-  generation the agents use to author valid programs. ginny is a thin
+  system, the expression engine (`engine.run`), and the grammar module
+  (`GinGrammar`, `type.toA()`) the agents author programs against. ginny is a thin
   layer of tool/prompt definitions over gin's public API.
 - **`@aeye/core`** — the prompt / tool / agent primitives (`ai.prompt`,
   `ai.tool`, `Message`, `ToolInterrupt`, prompt-event streaming) that

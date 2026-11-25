@@ -419,11 +419,51 @@ half of the relation, which is guaranteed never to be handed a union.
 semantic question, including from inside a `compatibleType` recursing into a
 slot type.
 
-## Value schemas (`toValueSchema`)
+## Value schemas (`toA`)
+
+`type.toA(opts?)` is the `@aeye/schema` (`a`) schema of a **runtime value** of
+the type — what a model writes when asked for one (a tool's args, a prompt's
+output). It is what models get; render and decode it like any `a` schema.
+
+| Kind | `toA()` |
+|---|---|
+| `text` / `num` / `bool` / `null` / `void` / `any` | `a.string()` (min/max/pattern+flags) / `a.number()` or `a.int()` (min/max) / `a.boolean()` / `a.null()` / `a.null()` / `a.unknown()` |
+| `date` / `timestamp` | a string with gin's prefix / timestamp pattern |
+| `duration` / `color` | milliseconds / a 32-bit integer (gin's dump forms) |
+| `enum` / `literal` | `a.enum(values)` (number values: a union of literals) / `a.literal(v)` |
+| `list<V>` / `tuple` | `a.array(V)` (min/max) / `a.tuple([...])` |
+| `map<text, V>` | **`a.record(V)`** in the code shape; the renderer shows a model that can't write open objects `[{key, value}]` pairs and decodes them back |
+| `map<K, V>` | `a.array(a.object({ key, value }))` |
+| `obj` / `interface` | `a.object(props)` (optional props are optional keys; extra keys pass, `unknownKeys: 'refuse'` closes it) |
+| `optional<T>` / `nullable<T>` | `a.optional(T)` / `a.nullable(T)` |
+| `or` / `and` / `not` | `a.union` / `a.intersection` (objects merge) / `a.not(excluded)` |
+| `typ` | `a.ref('TypeDef')` (narrowed to the fitting branches for `typ<T>`), then the def must parse |
+| `fn` | `a.union([a.string(), a.ref('Expr')])`: a function's name or a program |
+| a registered named type | `a.ref(name)`, defined once (`type.defineA()`) by the grammar module |
+
+`typ`, `fn` and named types are refs into gin's grammar module (`GinGrammar`),
+so a schema that has them is bound with the registry: `ginValue(type, opts?)`
+returns it bound (named types also by name, memoized per type until the registry
+changes), `ginValueBundle(type)` the bundle to bind yourself, and
+`GinGrammar.result(a.object({ args: type.toA() }))` composes it. `toNewA(opts?)`
+is the same for the value slot of a `new` (composites take Exprs, a plain field
+its value or an Expr, a type with `init` its args). The options are those of
+`toValueSchema` below (`includeDocs`, `scope`, `unknownKeys`).
+
+Differences from `toValueSchema`, all deliberate: `map<text, V>` is a record;
+named types are refs (`$defs`), not inlined; a named type's definition always
+carries its docs (`includeDocs: 'all'`, since it is shared); a `typ` value with
+a key gin doesn't read is refused (zod stripped it before gin parsed the def).
+
+A third-party type class that doesn't override `valueA()` takes any JSON value.
+
+## Value schemas, zod (`toValueSchema`, deprecated for models)
 
 `type.toValueSchema(opts?)` builds the Zod schema for a **runtime value** of the
-type — the shape an LLM should produce, or the gate an incoming payload is
-checked against. (`toSchema` is the other direction: it schemas the `TypeDef`
+type — the gate an incoming payload is checked against (gin's own authoring
+checks use it). Nothing in aits gives it to a model any more (`toA` is the
+model-facing form); it stays for gin's value checks and for the harness's
+zod-gin until that moves to `a`. (`toSchema` is the other direction: it schemas the `TypeDef`
 JSON. `toValueSchema` schemas the DATA.) `ValueSchemaOptions`:
 
 | Option | Default | What it does |

@@ -323,7 +323,7 @@ propagate up through the call sites that invoke it.
 
 The package ships scripts (`npm run dump-schema`, `npm run dump-code`) that emit
 the registry's full schema / rendered surface — handy for inspecting exactly what
-an LLM sees. Programmatically, `buildSchemas(registry)` (see
+an LLM sees (`dump-schema` writes gin's `a` grammar as OpenAI strict gets it). Programmatically, `buildSchemas(registry)` (see
 [Registry & Engine](./aeye-gin-registry.md#schema-generation-for-llms)) is the
 runtime equivalent.
 

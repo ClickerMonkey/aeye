@@ -5,7 +5,7 @@
  *  1. WORKED EXAMPLES — `describeGin` folds 3–5 (request → gin program → output)
  *     examples into the prompt. ginny ships ZERO; we include them deliberately to
  *     measure the lift.
- *  2. AUTO RE-PROMPT — the prompt's `parse` hook parses + validates the emitted
+ *  2. AUTO RE-PROMPT — the output schema's codec parses + validates the emitted
  *     program with gin's own engine; on problems it returns a `GinToolError` whose
  *     message lists them, so the prompt's `outputRetries` RE-PROMPTS the model to
  *     self-correct. ginny is one-shot; we auto-repair (the query-proven lever).
@@ -20,13 +20,13 @@
  * schema + type docs, the prompt is (re)built per `ask` from the case's runtime;
  * the AI instance itself is created once.
  */
-import { z } from 'zod';
 
 import { AI, type Provider } from '@aeye/ai';
 import { OpenRouterProvider } from '@aeye/openrouter';
 import { models, strictSupport } from '@aeye/models';
 
-import { buildSchemas, LambdaExpr, type Expr, type ExprDef, type Problem, type TypeDef } from '../src/index';
+import { a } from '@aeye/schema';
+import { GinGrammar, LambdaExpr, type Expr, type ExprDef, type Problem, type TypeDef } from '../src/index';
 import type { CaseRuntime } from './model';
 import { describeGin } from './describe';
 
@@ -88,15 +88,12 @@ export interface GinAsker {
   ask(request: string, runtime: CaseRuntime): Promise<AskResult>;
 }
 
-/** The wire schema, typed at the boundary as the ExprDef it validates to (same
- *  boundary cast query applies to its own query schema). */
-type ExprSchema = z.ZodType<ExprDef>;
 
 /**
  * Build the AI instance + a `GinAsker` over OpenRouter (mirrors query's
- * `createAsker`). The prompt's `parse` REPLACES zod validation with gin's own
- * `parseExpr` + `engine.validate`: zod stays only as the wire schema the model
- * emits against, while the retry feedback is gin's compiler-style diagnostics.
+ * `createAsker`). The output schema is gin's grammar (`Expr`) with a codec that
+ * runs gin's own `parseExpr` + `engine.validate`: a structural mistake is told
+ * in @aeye/schema's format, a semantic one as gin's compiler-style diagnostics.
  */
 export function createAsker(apiKey: string, modelId: string): GinAsker {
   const providers: Record<string, Provider> = { openrouter: new OpenRouterProvider({ apiKey }) };
@@ -113,7 +110,6 @@ export function createAsker(apiKey: string, modelId: string): GinAsker {
   return {
     ask: async (request, runtime): Promise<AskResult> => {
       // Per-case schema + instructions — each case's registry has its own types.
-      const wireSchema = buildSchemas(runtime.registry).Expr as ExprSchema;
       const instructions = describeGin(runtime);
 
       // The last parse/validate error, read through a function so control-flow
@@ -121,13 +117,36 @@ export function createAsker(apiKey: string, modelId: string): GinAsker {
       const errRef: { last: GinToolError | null } = { last: null };
       const takeLastError = (): GinToolError | null => errRef.last;
 
+      const decode = (raw: ExprDef): Expr | GinToolError => {
+        let body: Expr;
+        try {
+          body = runtime.registry.parseExpr(raw as ExprDef);
+        } catch (e) {
+          const err = new GinToolError([], `Malformed gin ExprDef: ${e instanceof Error ? e.message : String(e)}`);
+          errRef.last = err;
+          return err;
+        }
+        const lambda = new LambdaExpr(runtime.fnType, body);
+        const problems = runtime.engine.validate(lambda);
+        const errors = problems.list.filter((p) => p.severity === 'error');
+        if (errors.length > 0) {
+          const err = new GinToolError(errors, formatProblems(errors));
+          errRef.last = err;
+          return err;
+        }
+        return body;
+      };
+      // The grammar's Expr for this case's registry, decoded to the parsed body (or gin's report).
+      const schema = GinGrammar.result(a.codec(a.ref('Expr'), { decode: (raw) => decode(raw as unknown as ExprDef), encode: (e: Expr) => e.toJSON() as never }))
+        .adapt(() => [runtime.registry]);
+
       type PromptInput = { prompt: string };
       const prompt = ai.prompt({
         name: 'gin_eval',
         description: 'Write the body of a gin function from a natural-language request',
         content: '{{instructions}}\n\n{{userPrompt}}',
         input: (i: PromptInput) => ({ instructions, userPrompt: i.prompt }),
-        schema: () => wireSchema,
+        schema,
         // Headroom for the runtime schema-delivery fallback plus the normal
         // validation re-prompts (matches query's tuning).
         outputRetries: 5,
@@ -136,28 +155,9 @@ export function createAsker(apiKey: string, modelId: string): GinAsker {
         strict: false,
         // Maps STRAIGHT onto core's schema delivery (see `EvalMode`).
         schemaDelivery: mode,
-        // `parse` runs gin's own `parseExpr` + `engine.validate` (as a lambda body
-        // so `args` / `recurse` are bound). Clean ⇒ the parsed body `Expr`;
-        // problems ⇒ a `GinToolError` whose report the prompt re-prompts with.
-        parse: (raw: unknown): Expr | GinToolError => {
-          let body: Expr;
-          try {
-            body = runtime.registry.parseExpr(raw as ExprDef);
-          } catch (e) {
-            const err = new GinToolError([], `Malformed gin ExprDef: ${e instanceof Error ? e.message : String(e)}`);
-            errRef.last = err;
-            return err;
-          }
-          const lambda = new LambdaExpr(runtime.fnType, body);
-          const problems = runtime.engine.validate(lambda);
-          const errors = problems.list.filter((p) => p.severity === 'error');
-          if (errors.length > 0) {
-            const err = new GinToolError(errors, formatProblems(errors));
-            errRef.last = err;
-            return err;
-          }
-          return body;
-        },
+        // The schema's codec runs gin's own `parseExpr` + `engine.validate` (as a
+        // lambda body so `args` / `recurse` are bound). Clean ⇒ the parsed body
+        // `Expr`; problems ⇒ a `GinToolError` whose report the prompt re-prompts with.
         metadata,
       });
 

@@ -250,22 +250,38 @@ no-op detection works.
 
 ## Schema generation for LLMs
 
-`buildSchemas(registry, overrides?)` returns a `SchemaOptions` whose `.Type` and
-`.Expr` are Zod schemas describing every valid `TypeDef` / `ExprDef` against
-**this** registry — including extensions and augmentations. Hand `.Expr` to a tool
-and the LLM can only author well-typed programs.
+gin's grammar — every valid `TypeDef` / `ExprDef` against **this** registry,
+extensions and augmentations included — is one `@aeye/schema` module,
+`GinGrammar` (`grammar.ts`). It is built once: static named types per class and
+kind (`Type_num`, `Type_object`, `Expr_define`, `PathStep`, `PropDef`, …,
+recursive through `a.ref('TypeDef')` / `a.ref('Expr')`), plus one dynamic step
+`(registry, overrides?)` for what the registry decides: the `TypeDef` union (the
+registry's named types by name, a branch per type class, the inline Extension),
+`Type_Extension`'s `extends` enum, the `Expr` union of the registered kinds,
+`new` (or its `newStrict` branches `New_<name>` / `New_<class>`), and the named
+types' own value schemas. A bind is cached per registry (identity +
+`registry.version`, bumped by `define` / `register` / `defineExpr` / `augment`)
+and overrides, and rendering for the next request is free. There is nothing to
+regenerate after registering types.
+
+Each model gets the JSON Schema its provider can read (records as pairs for
+OpenAI strict, recursion as JSON text for Anthropic strict, …) and the answer
+is decoded back into the code shape, with mistakes told in `@aeye/schema`'s
+format (the model's JSON with markers, "did you mean").
 
 ```ts
-import { buildSchemas } from '@aeye/gin';
-import { z } from 'zod';
+import { a } from '@aeye/schema';
+import { buildSchemas, GinGrammar } from '@aeye/gin';
 
-const { Expr } = buildSchemas(r);          // regenerate AFTER registering custom types
+buildSchemas(r).Expr;                       // Bound<GinShapes.ExprDef>: render(profile), parse(answer)
+buildSchemas(r, { newStrict: true }).Type;  // Bound<GinShapes.TypeDef>
 
-// e.g. with @aeye/ai:
+// A tool's arguments: a root over the grammar, bound per ctx (e.g. with @aeye/ai):
 const writeProgram = ai.tool({
   name: 'write_program',
-  schema: z.object({ program: Expr }),
-  call: async ({ program }) => {
+  schema: GinGrammar.result(a.object({ program: a.ref('Expr') }))
+    .adapt((ctx: { registry: Registry }) => [ctx.registry, { newStrict: true }]),
+  call: async ({ program }) => {             // program: GinShapes.ExprDef
     const expr = r.parseExpr(program);
     const problems = engine.validate(expr);
     if (problems.hasErrors) {
@@ -277,12 +293,38 @@ const writeProgram = ai.tool({
 });
 ```
 
-`BuildSchemasOverrides`: `{ types?: Type[], exprs?: Expr[], newStrict?: boolean }`.
-- `types` / `exprs` surface specific instances as first-class union branches.
-- `newStrict` locks `new`'s schema to a union over the provided `types`.
+`BuildSchemasOverrides`: `{ types?: Type[], newStrict?: boolean, namedRefs?: boolean }`.
+- `types` surfaces specific instances as first-class branches (explicit ones win over the registry's of the same name).
+- `newStrict` locks `new` to a union over every constructible type: one branch per named type (its own `toNewA()` value) and per class.
+- `namedRefs` also accepts any type by its name alone (`{ name: 'ns/Name' }`), checked when the def is parsed.
 
-The schema is built lazily (`z.lazy`) so recursion resolves on demand; call
-`buildSchemas` again after adding types/natives to capture additions.
+| Export | What it is |
+|---|---|
+| `GinGrammar` | The module: `.result(root)` → a `Bundle` bound with `(registry, overrides?)`; `.adapt(ctx => [...])` for a Tool / Prompt. |
+| `GinGrammarStatic` | The static grammar before the registry step, for a module that adds its own dynamic step (`.declare<…>().dynamic(ctx => ({ ...grammarDefs(ctx.registry), Mine: … }))`). |
+| `grammarDefs(registry, overrides?)`, `grammarKey(...)` | The dynamic step and its cache key, to reuse in such a step. |
+| `TypeDefSchema`, `ExprSchema` | `GinGrammar.result('TypeDef' \| 'Expr')`. |
+| `buildSchemas(registry, overrides?)` | `{ Type, Expr }` bound for one registry. |
+| `type.toA(opts?)`, `ginValue(type, opts?)` | A VALUE of a type (see [Value schemas](./aeye-gin-types.md#value-schemas-toa)). |
+| `GinShapes` | The code types the grammar decodes to (`GinShapes.TypeDef`, `GinShapes.ExprDef`, `GinShapes.TypeNum`, …). |
+
+A type class registered beyond the built-ins contributes its TypeDef branch with
+a `static toA()` (and its class-level `new` value with `static toNewA()`); an
+expr kind its ExprDef with `static toA()`. Without them the branch is a loose
+`{ name }` / `{ kind }` object.
+
+**Errors.** A model's answer that doesn't fit the grammar (an unknown kind, a
+missing field, a misspelt key) is told back in `@aeye/schema`'s format, at the
+tool's `errorFormat`. What gin finds once a program fits — unknown variables,
+type mismatches, a call with the wrong args (`engine.validate`) — is gin's own:
+render it with `Code.formatProblems` (`engine.toGinCode(expr).formatProblems(problems)`),
+as ginny's `write` does. The two never overlap: the schema says what a program
+IS, gin says whether it makes sense.
+
+**Deprecated: the zod grammar.** `buildZodSchemas(registry, overrides?)` (the
+old `buildSchemas`, every class's `static toSchema` / `toNewSchema`) is kept
+only because `toValueSchema` (zod) needs it for `typ` / `fn` values. Nothing in
+aits gives it to a model. It goes once the harness moves to `a`.
 
 ## End-to-end example
 

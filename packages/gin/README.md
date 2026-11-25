@@ -10,7 +10,7 @@ without running them, and can be executed in-process against a
 pluggable registry of native functions.
 
 ```bash
-npm install @aeye/gin zod
+npm install @aeye/gin
 ```
 
 ---
@@ -751,7 +751,8 @@ What this exercises:
   I/O and an abort can land. Without options a run is never interrupted.
 
 Augmentations and extensions live on the registry. Pass that registry
-to the engine — and to any prompt schema generator (`buildSchemas(r)`)
+to the engine — and to the grammar a model writes against (`buildSchemas(r)`,
+`GinGrammar`, `type.toA()`: `@aeye/schema` schemas, bound per registry version)
 — so the LLM authoring programs sees the full surface.
 
 ---

@@ -12,9 +12,8 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { z } from 'zod';
-import { fromZod, getProfile } from '@aeye/core';
-import { createRegistry, buildSchemas, type Registry } from '../src/index';
+import { a, OPENAI_STRICT } from '@aeye/schema';
+import { createRegistry, GinGrammar, type Registry } from '../src/index';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -90,15 +89,9 @@ function main(): void {
   const r = createRegistry();
   registerExamples(r);
 
-  const opts = buildSchemas(r, { newStrict: true, includeDocs: 'all' });
-
-  // The schema the user asked for.
-  const topLevel = z.object({
-    expr: opts.Expr,
-    type: opts.Type,
-  });
-
-  const jsonSchema = fromZod(topLevel as never).bind().render(getProfile('openai-strict')!).jsonSchema;
+  // The schema the user asked for: a program and a type, from gin's grammar, as OpenAI strict sees it.
+  const topLevel = GinGrammar.result(a.object({ expr: a.ref('Expr'), type: a.ref('TypeDef') }));
+  const jsonSchema = topLevel.bind(r, { newStrict: true }).render(OPENAI_STRICT).jsonSchema;
 
   const out = resolve(__dirname, '..', 'schema-dump.json');
   writeFileSync(out, JSON.stringify(jsonSchema, null, 2) + '\n');
