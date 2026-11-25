@@ -1,6 +1,6 @@
 {
   "name": "@aeye/gin",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Gin - A type & expression system for LLM agents",
   "type": "module",
   "main": "dist/index.js",
@@ -30,13 +30,13 @@
     "test:types": "tsc -p tsconfig.typetest.json"
   },
   "dependencies": {
-    "@aeye/schema": "0.10.0"
+    "@aeye/schema": "0.10.1"
   },
   "devDependencies": {
-    "@aeye/ai": "^0.10.0",
-    "@aeye/core": "^0.10.0",
-    "@aeye/models": "^0.10.0",
-    "@aeye/openrouter": "^0.10.0",
+    "@aeye/ai": "^0.10.1",
+    "@aeye/core": "^0.10.1",
+    "@aeye/models": "^0.10.1",
+    "@aeye/openrouter": "^0.10.1",
     "tsup": "^8.0.0",
     "tsx": "^4.19.0",
     "vitest": "^3.0.0",
