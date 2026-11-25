@@ -187,7 +187,7 @@ describe('SchedulePayload and the args program (types.ts:156, server/authoring.t
     const claude = tool(payload, ANTHROPIC_STRICT).jsonSchema;
     expect(claude).toMatchObject({ properties: { args: { $ref: '#/$defs/Expr' } }, description: expect.stringContaining('Named types used by the fields written as JSON text:\ntype Expr = { kind: "get"; path: PathStep[] }') });
     expect(JSON.stringify((claude['$defs'] as Record<string, unknown>)['Expr'])).toContain('\\"Expr\\" contains itself, which this model cannot describe directly.');
-    expect(tool(payload, OPENAI_STRICT).jsonSchema).toMatchObject({ properties: { args: { $ref: '#/$defs/Expr' } }, $defs: { NamedType: { enum: ['schedule/Fire', 'database/main.orders_by_week.args'] } } });
+    expect(tool(payload, OPENAI_STRICT).jsonSchema).toMatchObject({ properties: { args: { anyOf: [{ $ref: '#/$defs/Expr' }] } }, $defs: { NamedType: { enum: ['schedule/Fire', 'database/main.orders_by_week.args'] } } });
   });
 
   it('the authoring draft: worked examples decode on each provider', () => {

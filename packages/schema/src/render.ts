@@ -705,6 +705,11 @@ export class Compiler {
         parts.push(`Example${examples.length > 1 ? 's' : ''}: ${examples.map((e) => JSON.stringify(e)).join(' ; ')}`);
     }
     if (parts.length) out.description = parts.join('\n');
+    // a dialect that refuses keywords beside a `$ref` (OpenAI strict) gets them on a one-option anyOf around it
+    if (this.profile.refSiblings === false && typeof out.$ref === 'string' && (out.description !== undefined || out.title !== undefined || out.examples !== undefined)) {
+      const { $ref, ...annotations } = out;
+      return { anyOf: [{ $ref }], ...annotations };
+    }
     return out;
   }
 

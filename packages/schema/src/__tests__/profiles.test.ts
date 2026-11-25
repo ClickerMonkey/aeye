@@ -49,6 +49,32 @@ describe('"strict models see pairs" is a dialect rule, not a strictness rule', (
   });
 });
 
+/** Every `$ref` in a schema that has other keywords beside it. */
+function refsWithSiblings(json: unknown, at = '#'): string[] {
+  if (json === null || typeof json !== 'object') return [];
+  const here = !Array.isArray(json) && typeof (json as any).$ref === 'string' && Object.keys(json).length > 1 ? [at] : [];
+  return [...here, ...Object.entries(json).flatMap(([k, v]) => refsWithSiblings(v, `${at}/${k}`))];
+}
+
+describe('a described $ref', () => {
+  const Picked = a.define({ FnName: a.string().describe('A fn name.') }).result(a.object({
+    name: a.ref('FnName').describe('Which fn.'),
+    also: a.ref('FnName').describe('Another fn.').optional(),
+    many: a.array(a.ref('FnName').describe('One of several.')),
+  })).bind();
+
+  it('OpenAI strict refuses keywords beside $ref, so the ref is wrapped and keeps its description', () => {
+    const json = Picked.render(OPENAI_STRICT).jsonSchema as any;
+    expect(refsWithSiblings(json)).toEqual([]);
+    expect(json.properties.name).toEqual({ anyOf: [{ $ref: '#/$defs/FnName' }], description: 'Which fn.' });
+    expect(Picked.render(OPENAI_STRICT).parse({ name: 'a', also: null, many: ['b'] })).toMatchObject({ ok: true, value: { name: 'a', many: ['b'] } });
+  });
+
+  it('other dialects keep the description beside the $ref', () => {
+    expect((Picked.render(LENIENT).jsonSchema as any).properties.name).toEqual({ $ref: '#/$defs/FnName', description: 'Which fn.' });
+  });
+});
+
 describe('each profile spells the rest of the shape its own way', () => {
   it('optional: null on OpenAI strict only; omitted everywhere else', () => {
     expect(Budget.render(OPENAI_STRICT).jsonSchema.required).toEqual(['owner', 'limits', 'note', 'at']);

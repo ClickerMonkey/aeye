@@ -74,7 +74,7 @@ describe('code and api drafts (systems/code, systems/api server/authoring.ts)', 
     expect(profileProblems(sig, [W.CODE_EXAMPLES.priceWithTax.signature, W.CODE_EXAMPLES.callsFn.signature])).toEqual([]);
     expect(profileProblems(W.LoadToolArgs, [{ fns: ['tickets/status'], types: ['tickets/Ticket'] }, {}])).toEqual([]);
     expect(profileProblems(W.SearchToolArgs, [{ text: 'the status of a ticket' }])).toEqual([]);
-    expect(tool(sig, OPENAI_STRICT).jsonSchema).toMatchObject({ properties: { args: { $ref: '#/$defs/TypeDef', description: 'An obj type: {"name":"obj","props":{"amount":{"type":{"name":"num"}}}}.' } } });
+    expect(tool(sig, OPENAI_STRICT).jsonSchema).toMatchObject({ properties: { args: { anyOf: [{ $ref: '#/$defs/TypeDef' }], description: 'An obj type: {"name":"obj","props":{"amount":{"type":{"name":"num"}}}}.' } } });
   });
 
   it('encodes a worked example for the guide in the model\'s shape', () => {

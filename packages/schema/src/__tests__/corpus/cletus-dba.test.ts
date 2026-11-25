@@ -193,7 +193,8 @@ describe('emitted JSON', () => {
     expect(one.$defs.Insert.properties.table.enum).toEqual(['orders']);
     const none = QuerySchema.bind([]).render(OPENAI_STRICT).jsonSchema as any;
     expect(none.$defs.Table).toEqual({ type: 'string', description: 'Database table name' });
-    expect(none.$defs.Insert.properties.table.$ref).toBe('#/$defs/Table');
+    // a described ref: OpenAI strict takes no keywords beside $ref, so it is a one-option anyOf
+    expect(none.$defs.Insert.properties.table.anyOf[0].$ref).toBe('#/$defs/Table');
   });
 
   it('Anthropic strict (no recursion): Value is JSON text, and the named types are listed as TypeScript', () => {

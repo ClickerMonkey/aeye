@@ -665,7 +665,9 @@ describe('schemas that crossed a JSON wire (core:schema-wire-records.test.ts)', 
 
   it('a back-reference to a named union is one $ref, not the union again (:43)', () => {
     const text = JSON.stringify(fromJSONSchema(S.WIRE_NAMED_UNION_JSON as unknown as JsonSchema).render(OPENAI_STRICT).jsonSchema);
-    expect((text.match(/"anyOf"/g) ?? []).length).toBe(1);
+    // the union is written once (x, described, is a one-option anyOf around its $ref: OpenAI strict takes no keywords beside it)
+    expect((text.match(/"inner":/g) ?? []).length).toBe(1);
+    expect(text).toContain('"x":{"anyOf":[{"$ref":"#/$defs/T"}],"description":"first"}');
     // DELIBERATE: core renamed the def by its `aid` ('Type'); a JSON import keeps the $defs name.
     expect(text).toContain('"inner":{"$ref":"#/$defs/T"}');
   });

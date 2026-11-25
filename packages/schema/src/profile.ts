@@ -127,6 +127,12 @@ export interface Profile {
   /** Named types may go to `$defs` and be used by `$ref`. Off → inlined. */
   readonly defs: boolean;
   /**
+   * Whether a `$ref` may carry a description, title or examples beside it. `false` (OpenAI strict: "$ref cannot have
+   * keywords {'description'}", which fails the whole request) → the ref is wrapped, `{ anyOf: [{ $ref }], description }`,
+   * so the field keeps its words. Unset means allowed.
+   */
+  readonly refSiblings?: boolean;
+  /**
    * Whether a `$ref` may point back into itself:
    * - `true`: anywhere;
    * - `'guarded'`: only through an optional or nullable field, or an array
@@ -257,6 +263,7 @@ export const OPENAI_STRICT: Profile = Object.freeze({
   conditionals: false,
   patternProperties: false,
   defs: true,
+  refSiblings: false,
   recursion: true,
   // OpenAI's own "any" would be a recursive $defs/Any with pairs, which can't
   // be told apart from a real list of {key, value}; JSON text is exact.

@@ -320,7 +320,7 @@ describe('query: every profile family, several depths', () => {
     expect(js.$defs.Fields_user).toEqual({ type: 'string', enum: ['id', 'name', 'age', 'email', 'tags', 'orders'] });
     // the paired field-ref: one branch per type, the source pinned, the field enum of THAT type
     const fieldRef = js.$defs.Expr.anyOf.find((o: any) => o.anyOf?.[0]?.properties?.kind?.enum?.[0] === 'field-ref');
-    expect(fieldRef.anyOf.map((b: any) => [b.properties.source.enum, b.properties.field.$ref])).toEqual([
+    expect(fieldRef.anyOf.map((b: any) => [b.properties.source.enum, b.properties.field.$ref ?? b.properties.field.anyOf?.[0]?.$ref])).toEqual([
       [['user'], '#/$defs/Fields_user'],
       [['order'], '#/$defs/Fields_order'],
     ]);
