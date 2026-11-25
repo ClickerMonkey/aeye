@@ -278,6 +278,26 @@ describe('repairs and size caps', () => {
     expect(events.find(e => e.type === 'toolArgRepairAttempt')).toMatchObject({ fields: ['program'], success: true });
   });
 
+  it('a repair attempt names its call', async () => {
+    const program = new Tool({ name: 'program', description: 'd', schema: a.object({ program: a.object({ kind: a.string() }) }), call: () => 'ok' });
+    const { events } = await run([program], MODELS.claude, [
+      { raw: [{ name: 'program', arguments: JSON.stringify({ program: JSON.stringify({ kind: 'k' }) }) }] },
+      { content: 'done' },
+    ]);
+    expect(events.find(e => e.type === 'toolArgRepairAttempt')).toMatchObject({ toolCallId: 'raw_0_0' });
+  });
+
+  it('a call a relaying provider found invalid is answered with its message, never decoded or run', async () => {
+    let ran = 0;
+    const program = new Tool({ name: 'program', description: 'd', schema: a.object({ kind: a.string() }), call: () => { ran++; return 'ok'; } });
+    const { toolMessages } = await run([program], MODELS.claude, [
+      { raw: [{ name: 'program', arguments: '{"kind":"k"}', invalid: 'kind: not that one.' }] },
+      { content: 'done' },
+    ]);
+    expect(ran).toBe(0);
+    expect(toolMessages[0]).toBe('Error parsing tool arguments: kind: not that one.');
+  });
+
   it('a field whose JSON text is broken says so', async () => {
     const program = new Tool({ name: 'program', description: 'd', schema: a.object({ program: a.object({ kind: a.string() }) }), call: () => 'ok' });
     const { events, toolMessages } = await run([program], MODELS.claude, [

@@ -123,7 +123,7 @@ Function forms get a value-only encoder: `instructionsFn: (ctx, encode) => \`Cal
 
 ## Repairs
 
-A top-level field sent as a JSON string (Claude does this with large arguments) is parsed back; the prompt emits `toolArgRepairAttempt { fields, success }` either way. A string of JSON text that doesn't parse is told as such ("send the value itself, not as a string").
+A top-level field sent as a JSON string (Claude does this with large arguments) is parsed back; the prompt emits `toolArgRepairAttempt { toolCallId, fields, success }` either way. A provider that relays another provider's plan and decoded the call itself (a gateway) sets `ToolCall.invalid` to the model-facing message of a call that didn't fit; the prompt answers the call with it (`Error parsing tool arguments: …`) without decoding or running it. A string of JSON text that doesn't parse is told as such ("send the value itself, not as a string").
 
 ## zod
 

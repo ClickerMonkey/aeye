@@ -6,6 +6,7 @@ import type { Expr } from './expr';
 import type { Type } from './type';
 import type { TypeScope } from './type-scope';
 import type { Code } from './code';
+import type { AnySchema } from '@aeye/schema';
 
 /**
  * Passed into each class's static `toSchema(opts)` so sub-fields that
@@ -100,6 +101,15 @@ export interface ValueSchemaOptions {
    * is gin's own format and an ignored key there is data loss (see `wire.ts`).
    */
   unknownKeys?: 'strip' | 'refuse';
+  /**
+   * The caller's own schema for some types (`toA` only): asked for every type
+   * `toA` reaches, before gin's mapping; a schema it returns is used as is (a
+   * ref to a named type the caller's module defines, a codec), `undefined`
+   * keeps gin's. The harness maps its fn-name texts to a per-prompt codec this
+   * way. `ginValue` memoizes without it: compose with
+   * `GinGrammar.result(type.toA({ override }))` instead.
+   */
+  override?: (type: Type) => AnySchema | undefined;
   /**
    * Optional pass-through to the full meta-language schema bag. Most
    * `toValueSchema` paths never touch these — they're declared here so

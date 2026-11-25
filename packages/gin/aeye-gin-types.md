@@ -447,7 +447,10 @@ returns it bound (named types also by name, memoized per type until the registry
 changes), `ginValueBundle(type)` the bundle to bind yourself, and
 `GinGrammar.result(a.object({ args: type.toA() }))` composes it. `toNewA(opts?)`
 is the same for the value slot of a `new` (composites take Exprs, a plain field
-its value or an Expr, a type with `init` its args). The options are those of
+its value or an Expr, a type with `init` its args). `override: (type) => schema | undefined`
+supplies the caller's own schema for the types it names, at any depth (the
+harness maps its fn-name texts to a per-prompt codec); `ginValue` doesn't
+memoize with it. The other options are those of
 `toValueSchema` below (`includeDocs`, `scope`, `unknownKeys`).
 
 Differences from `toValueSchema`, all deliberate: `map<text, V>` is a record;

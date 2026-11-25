@@ -101,7 +101,7 @@ Every event carries `request: Request`. Types:
 
 - `request` (`+ iterations`), `textPartial`, `text`, `textComplete`, `textReset` (`+ reason?`)
 - `refusal`, `reason` / `reasonPartial` (reasoning trace)
-- `toolParseName`, `toolParseArguments` (`+ args`), `toolArgRepairAttempt` (`+ fields, success`)
+- `toolParseName`, `toolParseArguments` (`+ args`), `toolArgRepairAttempt` (`+ toolCallId, fields, success`)
 - tool lifecycle: `toolStart`, `toolOutput` (`+ result` raw, `+ toModel` presented value), `toolInterrupt`, `toolSuspend`, `toolError` (`+ error, rawArgs?`) — each carries `tool`, `toolCallId` (the model's call id, also on its `role: 'tool'` reply) and `args`. `onToolIntercept(tool, args, ctx, call)` gets the `ToolCall` too. A valid call left unrun because a sibling in the batch was invalid (an unknown tool) is answered `[not run: …; call it again]`
 - `message` (`+ message`), `suspend`, `complete` (`+ output`)
 - `requestUsage`, `responseTokens`, `usage` (`+ usage`)

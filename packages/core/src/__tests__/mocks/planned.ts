@@ -14,7 +14,7 @@ export interface PlannedTurn {
   /** Calls by their CODE-shape args, written as this model writes them. */
   calls?: { tool: string; args: unknown }[];
   /** Calls exactly as on the wire. */
-  raw?: { name: string; arguments: string }[];
+  raw?: { name: string; arguments: string; invalid?: string }[];
 }
 
 /** What the fake provider sent for one request. */

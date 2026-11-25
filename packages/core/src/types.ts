@@ -650,6 +650,13 @@ export interface ToolCall
   name: string;
   /** The arguments for the tool call as a JSON string */
   arguments: string;
+  /**
+   * Set by a provider that already decoded the call and found its arguments
+   * wrong (a gateway that relays another provider's plan): the message the
+   * model is told. The prompt answers the call with it instead of decoding
+   * the arguments again.
+   */
+  invalid?: string;
 }
 
 /**

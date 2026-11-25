@@ -1404,6 +1404,8 @@ export abstract class Type<T = any, O = any> implements Node {
    * shapes strict) as for `toValueSchema`.
    */
   toA(opts?: ValueSchemaOptions): AnySchema {
+    const own = opts?.override?.(this);
+    if (own) return own;
     if (this.isRegisteredNamed()) return a.ref(this.name);
     return this.defineA(opts);
   }

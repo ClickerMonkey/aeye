@@ -462,7 +462,7 @@ export function ginValue<T = unknown>(type: Type, opts?: ValueSchemaOptions): Bo
 /** `ginValue`'s bundle, before binding: for a module or tool that binds it itself. */
 export function ginValueBundle(type: Type, opts?: ValueSchemaOptions): Bundle<unknown, [Registry, BuildSchemasOverrides?]> {
   const version = type.registry.version;
-  const key = opts?.scope ? undefined : `${opts?.includeDocs ?? 'none'}|${opts?.unknownKeys ?? 'strip'}`;
+  const key = opts?.scope || opts?.override ? undefined : `${opts?.includeDocs ?? 'none'}|${opts?.unknownKeys ?? 'strip'}`;
   const memo = key === undefined ? undefined : valueBundles.get(type)?.get(key);
   if (memo && memo.version === version) return memo.bundle;
   const bundle = GinGrammar.result(type.toA(opts) as never) as unknown as Bundle<unknown, [Registry, BuildSchemasOverrides?]>;

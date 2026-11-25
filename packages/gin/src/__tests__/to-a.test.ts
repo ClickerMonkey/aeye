@@ -196,3 +196,27 @@ describe('ginValue', () => {
     for (const p of PROFILES) expect(() => ginValue(t).render(p)).not.toThrow();
   });
 });
+
+describe('toA override', () => {
+  it('replaces the schema of the types it names, at any depth, and leaves the rest to gin', async () => {
+    const { a } = await import('@aeye/schema');
+    const r = createRegistry();
+    const named = r.text({ pattern: '^[a-z]\S*$' });
+    const t = r.obj({ fn: { type: named }, fns: { type: r.list(named) }, note: { type: r.optional(r.text()) } });
+    const marked = a.string().describe('marked');
+    const schema = t.toA({ override: (type: Type) => (type === named ? marked : undefined) });
+    const json = JSON.stringify(ginValueBundle(r.text()).bind(r).render(LENIENT).jsonSchema);
+    expect(json).toContain('string');
+    const bound = (await import('../index')).GinGrammar.result(schema as never).bind(r);
+    const rendered = JSON.stringify(bound.render(LENIENT).jsonSchema);
+    expect(rendered.match(/"marked"/g)?.length).toBe(2);
+    expect(rendered).not.toContain('\\S');
+    expect(bound.render(LENIENT).parse({ fn: 'x', fns: ['y'] }).ok).toBe(true);
+  });
+
+  it('is not memoized by ginValueBundle', () => {
+    const r = createRegistry();
+    const t = r.text();
+    expect(ginValueBundle(t, { override: () => undefined })).not.toBe(ginValueBundle(t, { override: () => undefined }));
+  });
+});

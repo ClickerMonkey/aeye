@@ -480,7 +480,7 @@ export type PromptEvent<TOutput, TTools extends Tuple<AnyTool>> =
   { type: 'moderation', moderation: Moderation, request: Request } |
   { type: 'toolParseName', tool: PromptTools<TTools>, request: Request } |
   { type: 'toolParseArguments', tool: PromptTools<TTools>, args: string, request: Request } |
-  { type: 'toolArgRepairAttempt', tool: PromptTools<TTools>, fields: ReadonlyArray<string>, success: boolean, request: Request } |
+  { type: 'toolArgRepairAttempt', tool: PromptTools<TTools>, toolCallId: string, fields: ReadonlyArray<string>, success: boolean, request: Request } |
   PromptToolEvents<TTools> |
   { type: 'message', message: Message, request: Request } |
   { type: 'textComplete', content: string, request: Request } |
@@ -933,7 +933,7 @@ export class Prompt<
       const { tool, args } = te;
       const toolCallId = te.toolCall.id;
       if (te.emitRepairAttempt()) {
-        yield emit({ type: 'toolArgRepairAttempt', tool: tool!, fields: te.repairAttempt!.fields, success: te.repairAttempt!.success, request });
+        yield emit({ type: 'toolArgRepairAttempt', tool: tool!, toolCallId, fields: te.repairAttempt!.fields, success: te.repairAttempt!.success, request });
       }
       if (te.emitStart()) {
         yield emitTool({ type: 'toolStart', tool: tool!, toolCallId, args, request });
@@ -2295,6 +2295,14 @@ function newToolExecution<T extends AnyTool>(
         }
         execution.status = 'invalid';
         execution.error = new ToolInputError(toolCall.name, message, args);
+        error.ready = true;
+        return execution;
+      }
+      if (execution.toolCall.invalid !== undefined) {
+        // A relaying provider decoded the call already and says what was wrong.
+        execution.status = 'invalid';
+        const formatted = `Error parsing tool arguments: ${execution.toolCall.invalid}`;
+        execution.error = new ToolInputError(toolCall.name, truncate ? truncate(formatted, validationErrorMaxLength) : formatted, args);
         error.ready = true;
         return execution;
       }
