@@ -1,11 +1,8 @@
 /**
  * Expr barrel — re-exports every concrete `Expr` class plus the
- * `BUILTIN_EXPRS` array the Registry bootstraps from, and a folded
- * `exprDefSchema()` over every kind's `toSchema`.
+ * `BUILTIN_EXPRS` array the Registry bootstraps from.
  */
-import { z } from 'zod';
 import type { ExprClass } from '../expr';
-import type { SchemaOptions } from '../node';
 import { LiteralExpr } from './literal';
 import { OutputRefExpr } from './output-ref';
 import { SorterExpr } from './sorter';
@@ -91,20 +88,3 @@ export const BUILTIN_EXPRS: readonly ExprClass[] = [
   SubqueryExpr,
   ExcludedExpr,
 ];
-
-/**
- * Zod schema for the full `ExprDef` union — the `.or`-fold of every built-in
- * expr's `toSchema(opts)` (mirrors `fieldTypeDefSchema`). Pass `opts.Expr` /
- * `opts.Query` to supply the recursive child slots; otherwise child exprs use
- * a loose placeholder.
- */
-export function exprDefSchema(opts: SchemaOptions = {}): z.ZodTypeAny {
-  const branches = BUILTIN_EXPRS.map((c) => c.toSchema(opts));
-  const first = branches[0];
-  /* v8 ignore next -- unreachable: BUILTIN_EXPRS is a non-empty constant, so branches[0] is always defined */
-  if (!first) return z.never();
-  return branches
-    .slice(1)
-    .reduce<z.ZodTypeAny>((acc, s) => acc.or(s), first)
-    .describe('Expression definition (one of the built-in expression kinds).');
-}

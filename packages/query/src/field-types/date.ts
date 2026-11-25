@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import type { DateFieldTypeDef, FieldTypeDef, TimezonePolicy } from '../schema';
+import type { JsonValue } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { refinementKeySchema } from '../refinement';
@@ -77,6 +79,10 @@ export class DateFieldType extends FieldType {
   }
 
   /** Zod schema validating an ISO date (`YYYY-MM-DD`) value. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    return a.string().pattern(ISO_DATE.source).describe('An ISO date (YYYY-MM-DD).');
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.string().regex(ISO_DATE, 'expected ISO date (YYYY-MM-DD)');
   }

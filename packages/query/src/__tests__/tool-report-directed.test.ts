@@ -19,11 +19,8 @@
  * still UNDERLINED at the offending value.
  */
 import { describe, it, expect } from 'vitest';
-import type { Context } from '@aeye/core';
 import { runtimeFixture, ref } from './_utils';
-import { buildQueryTool, QueryToolError, type BuildQueryToolOptions } from '../llm/tool';
-
-const ctx: Context<{}, {}> = {};
+import { parseQueryTool, QueryToolError, type BuildQueryToolOptions } from '../llm/tool';
 
 /** Parse a (malformed) query and return the thrown `QueryToolError`. */
 async function toolError(
@@ -31,13 +28,11 @@ async function toolError(
   query: unknown,
   options: BuildQueryToolOptions = {},
 ): Promise<QueryToolError> {
-  const tool = buildQueryTool(fx.engine, options);
-  try {
-    await tool.parse(ctx, JSON.stringify({ query }));
-  } catch (err) {
-    if (err instanceof QueryToolError) return err;
-    throw err;
-  }
+  // The standalone parser (owned structural parser + semantic validation, `Code`
+  // report). Through `buildQueryTool` the schema meets structural mistakes first
+  // and the model is told in @aeye/schema's format: see `query-grammar.test.ts`.
+  const out = parseQueryTool(fx.engine, { query }, options);
+  if (out instanceof QueryToolError) return out;
   throw new Error('expected a QueryToolError');
 }
 

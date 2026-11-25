@@ -24,6 +24,7 @@ import {
   type ExprDef,
   type QuerySchemas,
 } from '../src/index';
+import { LENIENT } from '@aeye/schema';
 import { createExampleFixture } from './schema';
 import type { ExampleReport } from './_util';
 
@@ -34,7 +35,7 @@ const UNKNOWN_ARG: ExprDef = e.fn('upper', { wrong: e.value('x') }).toJSON();
 
 /** `accept` / `reject` for one probe against a built Expr schema. */
 function probe(schemas: QuerySchemas, def: ExprDef): string {
-  return schemas.Expr.safeParse(def).success ? 'accept' : 'reject';
+  return schemas.Expr.render(LENIENT).parse(structuredClone(def)).ok ? 'accept' : 'reject';
 }
 
 export async function run(): Promise<ExampleReport> {

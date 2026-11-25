@@ -10,7 +10,7 @@
  * `cost`, `toJSON`, `clone`, and `toCode` (no-value / single / list forms).
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, typeScope, runtimeFixture, ref, lit, param } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, ref, lit, param, exprAccepts } from './_utils';
 import { ArrayOpExpr } from '../exprs/array-op';
 import { ParamExpr } from '../exprs/param';
 import { RuntimeContext } from '../runtime/context';
@@ -85,9 +85,9 @@ describe('ArrayOpExpr.from / toSchema', () => {
 
   it('toSchema parses an array-op def', () => {
     expect(
-      ArrayOpExpr.toSchema({}).safeParse({
-        kind: 'array-op', op: 'contains', target: { kind: 'literal' }, value: { kind: 'literal' },
-      }).success,
+      exprAccepts({
+        kind: 'array-op', op: 'contains', target: { kind: 'literal', value: 1 }, value: { kind: 'literal', value: 1 },
+      }),
     ).toBe(true);
   });
 });

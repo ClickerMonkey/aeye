@@ -12,10 +12,7 @@
  *  - `evaluate` does a basic token match; `toSQL` emits the dialect's
  *    `textSearch` (ANSI substring `LIKE` vs Postgres tsvector).
  */
-import { z } from 'zod';
 import type { ExprDef, TextSearchExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
-import { textSearchSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -91,13 +88,6 @@ export class TextSearchExpr extends BoolExpr {
     (v) => new TextSearchExpr(v.source, v.field, v.query),
     { optional: ['field'], aid: 'Expr_text-search' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Depth-aware: `refs:'open'` (or a bare call) yields free-string source +
-    // field; tighter levels pair them to a searchable Type (see `refSchema`).
-    return textSearchSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     if (this.query.kind === 'param') visit(this.query.param);

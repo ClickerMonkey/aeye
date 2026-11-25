@@ -14,9 +14,7 @@
  */
 import type { z } from 'zod';
 import type { Registry } from './registry';
-import type { Type } from './type';
 import type { FunctionDef } from './schema';
-import type { SchemaCache } from './schema-build';
 
 /**
  * Options consumed by value-side schema generation (`toValueSchema`).
@@ -106,42 +104,16 @@ export interface SelectedFunctions {
 }
 
 /**
- * Options threaded into each class's static `toSchema(opts)`. All fields
- * are optional so a caller can do `Cls.toSchema()` in tests, while richer
- * call sites (later phases) supply the lazy sub-schemas needed to build
- * recursive unions.
+ * Options for the DEFINITION schemas (`Type.toSchema`, `fieldTypeDefSchema` and
+ * each field type's static `toSchema`): zod schemas of the `TypeDef` /
+ * `FieldTypeDef` JSON a catalog is stored as. (The model's query grammar is
+ * `@aeye/schema` — `llm/grammar.ts`.)
  */
 export interface SchemaOptions extends ValueSchemaOptions {
-  /** Registry, so schema builders can enumerate registered classes / types. */
+  /** Registry, so the definition schemas enumerate its field types / refinements. */
   registry?: Registry;
-  /** Lazy schema for "any Expr" — used by composite schemas referencing exprs. */
+  /** The schema of an expression inside a `TypeDef` (a field's default / computed expr); a loose `{ kind }` object when absent. */
   Expr?: z.ZodTypeAny;
-  /** Lazy schema for "any Query" — used by subquery / set-op schemas. */
-  Query?: z.ZodTypeAny;
-  /** Concrete Type instances available to an LLM caller (enumerated choices). */
-  types?: Type[];
-  /**
-   * The resolved per-axis schema depth (replaces the old binary `strict`
-   * flag). Carried so recursive child schemas observe the same tightness; the
-   * top-level `buildSchemas` resolves presets / `strict` sugar / `maxEnumSize`
-   * into this concrete bag before threading it here.
-   */
-  depth?: ResolvedSchemaDepth;
-  /**
-   * The functions (grouped by shape) the `names` / `typed` function-call
-   * schemas enumerate. Set by `buildSchemas` from its `FunctionSelector`; read
-   * by the four function-call expr classes' `toSchema`. Absent for a bare
-   * `Cls.toSchema()` (which then renders the open shape).
-   */
-  functions?: SelectedFunctions;
-  /**
-   * Per-`buildSchemas` cache of shared, `meta.id`-tagged fragment instances
-   * (each Type's field-name enum, the `param` expr, …) so the generated
-   * JSON-Schema factors the largest repeated fragments into single `$def`s +
-   * `$ref`s instead of inlining every copy. Absent for a bare `Cls.toSchema()`
-   * (which then rebuilds the fragments inline, as before).
-   */
-  cache?: SchemaCache;
 }
 
 /**

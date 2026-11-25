@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import type { BoolFieldTypeDef, FieldTypeDef } from '../schema';
+import type { JsonValue } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { refinementKeySchema } from '../refinement';
@@ -56,6 +58,10 @@ export class BoolFieldType extends FieldType {
   }
 
   /** Zod schema validating a boolean value. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    return a.boolean();
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.boolean();
   }

@@ -15,7 +15,7 @@ import { buildSchemas } from '../llm/schemas';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import type { TypeDef, ExprDef, SelectDef, FunctionDef } from '../schema';
-import { fixture } from './_utils';
+import { fixture, accepts, decode } from './_utils';
 
 /** A deliberately "flat" Type: no relations, no array, no searchable/semantic
  *  text, so every gated kind that depends on a Type capability is omitted. */
@@ -48,39 +48,39 @@ describe('capability gating — a capability-free Type set', () => {
     const { Expr, Join } = buildSchemas(plainEngine());
 
     // Gated OUT — no branch matches these kinds.
-    expect(Expr.safeParse({ kind: 'semantic', source: 'widget', query: 'hi' }).success).toBe(false);
-    expect(Expr.safeParse({ kind: 'text-search', source: 'widget', query: 'hi' }).success).toBe(false);
+    expect(accepts(Expr, { kind: 'semantic', source: 'widget', query: 'hi' })).toBe(false);
+    expect(accepts(Expr, { kind: 'text-search', source: 'widget', query: 'hi' })).toBe(false);
     expect(
-      Expr.safeParse({
+      accepts(Expr, {
         kind: 'array-op',
         op: 'isEmpty',
         target: { kind: 'field-ref', source: 'widget', field: 'id' },
-      }).success,
+      }),
     ).toBe(false);
     // `relation-path` is gone; a `relation` join `on` is unavailable when no
     // Type has a relation field (the JoinOn union omits the relation branch).
-    expect(Join.safeParse({ on: { kind: 'relation', source: 'widget', field: 'x', as: 'x' } }).success).toBe(false);
+    expect(accepts(Join, { on: { kind: 'relation', source: 'widget', field: 'x', as: 'x' } })).toBe(false);
 
     // Still available — core field-ref + the (always-applicable) filters.
-    expect(Expr.safeParse({ kind: 'field-ref', source: 'widget', field: 'id' }).success).toBe(true);
-    expect(Expr.safeParse({ kind: 'filters', source: 'widget' }).success).toBe(true);
+    expect(accepts(Expr, { kind: 'field-ref', source: 'widget', field: 'id' })).toBe(true);
+    expect(accepts(Expr, { kind: 'filters', source: 'widget' })).toBe(true);
   });
 
   it('gates the `joins` array out of Select when no Type has relations', () => {
     const { Select } = buildSchemas(plainEngine());
     // An absent / empty joins list is fine…
-    expect(Select.safeParse(widgetSelect({ kind: 'field-ref', source: 'widget', field: 'id' })).success).toBe(true);
+    expect(accepts(Select, widgetSelect({ kind: 'field-ref', source: 'widget', field: 'id' }))).toBe(true);
     // …but any join hop is rejected (joins is gated to an empty/absent list).
     const withJoin: SelectDef = {
       ...widgetSelect({ kind: 'field-ref', source: 'widget', field: 'id' }),
       joins: [{ on: { source: 'widget', field: 'nope' } }],
     };
-    expect(Select.safeParse(withJoin).success).toBe(false);
+    expect(accepts(Select, withJoin)).toBe(false);
   });
 
   it('omits tabular-function-call when no tabular function is selected', () => {
     const { Expr } = buildSchemas(plainEngine());
-    expect(Expr.safeParse({ kind: 'tabular-function-call', function: 'gen', args: {} }).success).toBe(false);
+    expect(accepts(Expr, { kind: 'tabular-function-call', function: 'gen', args: {} })).toBe(false);
   });
 });
 
@@ -100,19 +100,19 @@ describe('capability gating — a fully-capable Type set', () => {
 
     // `user` is searchable + semantic (email), has an array field (tags) and a
     // relation (orders); the registry has scalar/aggregate/window + our tabular.
-    expect(Expr.safeParse({ kind: 'semantic', source: 'user', field: 'email', query: 'ada' }).success).toBe(true);
-    expect(Expr.safeParse({ kind: 'text-search', source: 'user', field: 'email', query: 'ada' }).success).toBe(true);
+    expect(accepts(Expr, { kind: 'semantic', source: 'user', field: 'email', query: 'ada' })).toBe(true);
+    expect(accepts(Expr, { kind: 'text-search', source: 'user', field: 'email', query: 'ada' })).toBe(true);
     expect(
-      Expr.safeParse({
+      accepts(Expr, {
         kind: 'array-op',
         op: 'isEmpty',
         target: { kind: 'field-ref', source: 'user', field: 'tags' },
-      }).success,
+      }),
     ).toBe(true);
     // `relation-path` is gone; the relation crossing is now a `relation` join
     // `on`, gated IN because `user` has the `orders` relation.
-    expect(Join.safeParse({ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' } }).success).toBe(true);
-    expect(Expr.safeParse({ kind: 'tabular-function-call', function: 'genRows', args: {} }).success).toBe(true);
+    expect(accepts(Join, { on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' } })).toBe(true);
+    expect(accepts(Expr, { kind: 'tabular-function-call', function: 'genRows', args: {} })).toBe(true);
 
     // …and a join is expressible.
     const joined: SelectDef = {
@@ -121,6 +121,6 @@ describe('capability gating — a fully-capable Type set', () => {
       from: { kind: 'type', type: 'user' },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'o' } }],
     };
-    expect(Select.safeParse(joined).success).toBe(true);
+    expect(accepts(Select, joined)).toBe(true);
   });
 });

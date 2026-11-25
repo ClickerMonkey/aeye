@@ -10,9 +10,7 @@
  * `Dialect.jsonValue` — one parameter carrying the encoded document, cast to
  * the target column's SQL type. Nothing is ever string-interpolated.
  */
-import { z } from 'zod';
 import type { ExprDef, JsonValue, LiteralExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -26,9 +24,7 @@ import {
   NumberFieldType,
   TextFieldType,
 } from '../field-types/index';
-import { jsonValueSchema } from '../field-types/json';
 import { computed } from './_shared';
-import { withAid } from '../aids';
 import { obj, lit, json } from '../shape';
 import { Value } from '../runtime/value';
 import type { Cost, CostContext } from '../cost';
@@ -69,17 +65,6 @@ export class LiteralExpr extends Expr {
     (v) => new LiteralExpr(v.value),
     { aid: 'Expr_literal' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('literal'),
-        value: withAid(jsonValueSchema(), 'LiteralValue'),
-      }),
-      'Expr_literal',
-    ).describe('A constant value: a scalar, or a whole JSON document for a json / array field.');
-  }
 
   /** Whether this is the SQL `NULL` literal. */
   isNullLiteral(): boolean {

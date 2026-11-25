@@ -11,23 +11,20 @@
  *    fallback line (no crash) — asserted directly against `Code.fromJson`.
  */
 import { describe, it, expect } from 'vitest';
-import type { Context } from '@aeye/core';
 import { runtimeFixture, ref } from './_utils';
-import { buildQueryTool, QueryToolError } from '../llm/tool';
+import { parseQueryTool, QueryToolError } from '../llm/tool';
 import { Code } from '../code';
 import { Problems } from '../problem';
 
-const ctx: Context<{}, {}> = {};
-
-/** Parse a (malformed) query and return the thrown `QueryToolError`. */
+/**
+ * Parse a (malformed) query with the standalone parser (the owned structural
+ * parser + semantic validation, `Code` report) and return its `QueryToolError`.
+ * (Through `buildQueryTool` the schema meets structural mistakes first and the
+ * model is told in @aeye/schema's format: see `query-grammar.test.ts`.)
+ */
 async function toolError(fx: ReturnType<typeof runtimeFixture>, query: unknown): Promise<QueryToolError> {
-  const tool = buildQueryTool(fx.engine);
-  try {
-    await tool.parse(ctx, JSON.stringify({ query }));
-  } catch (err) {
-    if (err instanceof QueryToolError) return err;
-    throw err;
-  }
+  const out = parseQueryTool(fx.engine, { query });
+  if (out instanceof QueryToolError) return out;
   throw new Error('expected a QueryToolError');
 }
 

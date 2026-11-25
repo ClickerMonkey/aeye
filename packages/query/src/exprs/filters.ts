@@ -17,10 +17,7 @@
  * source → its filterable fields). `validateWalk` checks the source resolves and
  * each listed field exists.
  */
-import { z } from 'zod';
 import type { ExprDef, FiltersExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
-import { filtersSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -76,13 +73,6 @@ export class FiltersExpr extends BoolExpr {
     (v) => new FiltersExpr(v.source, v.fields),
     { optional: ['fields'], aid: 'Expr_filters' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Depth-aware on the `filters` axis: `open` (or a bare call) leaves source +
-    // fields free; `paired` pins them to a Type's filterable fields.
-    return filtersSchema(opts.types ?? [], opts.depth?.filters ?? 'open', opts.cache);
-  }
 
   // ─── Resolution / validation ─────────────────────────────────────────────
 

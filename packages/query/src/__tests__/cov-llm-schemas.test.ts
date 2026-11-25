@@ -13,6 +13,7 @@ import {
   querySchema,
 } from '../llm/schemas';
 import type { TypeDef } from '../schema';
+import { accepts, decode } from './_utils';
 
 /** N types, each with a single field named `id` → typeCount N, fieldCount 1. */
 function manyTypes(n: number): QueryEngine {
@@ -85,9 +86,9 @@ describe('tabular function source branch', () => {
 
   it('Source accepts a function source in both open (string) and enum modes', () => {
     const openS = buildSchemas(tabularEngine(), { depth: 'open' });
-    expect(openS.Source.safeParse({ kind: 'function', function: 'genRows', args: { n: { kind: 'literal', value: 1 } }, as: 'g' }).success).toBe(true);
+    expect(accepts(openS.Source, { kind: 'function', function: 'genRows', args: { n: { kind: 'literal', value: 1 } }, as: 'g' })).toBe(true);
     const pairedS = buildSchemas(tabularEngine(), { depth: 'paired' });
-    expect(pairedS.Source.safeParse({ kind: 'function', function: 'genRows', args: { n: { kind: 'literal', value: 1 } }, as: 'g' }).success).toBe(true);
+    expect(accepts(pairedS.Source, { kind: 'function', function: 'genRows', args: { n: { kind: 'literal', value: 1 } }, as: 'g' })).toBe(true);
   });
 
   it('shouldUseStringSchema flags over-budget Type counts', () => {
@@ -104,8 +105,8 @@ describe('tabular function source branch', () => {
     expect(shouldUseStringSchema(types, 10)).toBe(false);
     // `querySchema` honors the same `max` — structured `{ query: <object> }` vs prose `{ query: string }`.
     const structured = querySchema(eight, { max: 10 });
-    expect(structured.safeParse({ query: 'a natural-language description' }).success).toBe(false);
+    expect(accepts(structured, { query: 'a natural-language description' })).toBe(false);
     const prose = querySchema(eight); // default max 5 ⇒ string schema
-    expect(prose.safeParse({ query: 'a natural-language description' }).success).toBe(true);
+    expect(accepts(prose, { query: 'a natural-language description' })).toBe(true);
   });
 });

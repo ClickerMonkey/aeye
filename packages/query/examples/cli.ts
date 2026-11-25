@@ -7,15 +7,13 @@
  * natural-language request at a `query> ` prompt. For each request it:
  *
  *   1. (optionally) narrows the schema to the relevant Types via `selectTypes`,
- *   2. asks an LLM for a STRUCTURED query against `querySchema(engine)`,
+ *   2. asks an LLM for a STRUCTURED query against `queryToolSchema(engine)`,
  *      with the prompt fully informed by `describeEngine(engine)` (every Type,
  *      every usable expr kind, every function) threaded through the prompt's
  *      context,
- *   3. parses the model output with `parseQueryTool(engine, { query })` — which
- *      validates + parses it into a runnable `Query`, returning a
- *      `QueryToolError` (its `.report` is LLM-friendly `Problems`) on failure;
- *      on that failure it does ONE repair round feeding the formatted errors
- *      back,
+ *   3. decodes the model output with that schema — which validates + parses it
+ *      into a runnable `Query` and, on a mistake, tells the model in
+ *      @aeye/schema's format and re-prompts (`outputRetries`),
  *   4. runs the built query via `engine.run(...)` in-memory and prints the rows
  *      + resolved output fields.
  *
@@ -37,7 +35,6 @@ import * as readline from 'node:readline';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, basename, extname } from 'node:path';
-import { z } from 'zod';
 
 import { AI, type Provider } from '@aeye/ai';
 import { OpenAIProvider } from '@aeye/openai';
@@ -50,9 +47,9 @@ import {
   QueryEngine,
   arrayExecutor,
   inferType,
+  queryToolSchema,
   parseQueryTool,
   QueryToolError,
-  querySchema,
   describeTypes,
   describeFunctions,
   describeEngine,
@@ -302,7 +299,6 @@ function modelMetadata(): { model: { id: string } } {
 interface QueryAsker {
   ask(
     content: string,
-    schema: z.ZodTypeAny,
     engine: QueryEngine,
     types: readonly Type[],
     options: BuildQueryToolOptions,
@@ -331,67 +327,35 @@ async function createAsker(
       modelOverrides: [...strictSupport],
     });
 
-  // One hoisted prompt — per-call data (the content + output schema + the ENGINE
-  // it targets) flows through `input`, exactly like ginny's `gin_llm_call`. The
-  // engine + narrowed Types ride the context so the prompt's `{{instructions}}`
-  // are rendered from `describeEngine` — the model is told every Type, every
-  // usable expr kind (with its INSTRUCTIONS), and every function (args +
-  // instructions) — followed by the per-request user text in `{{userPrompt}}`.
-  type PromptInput = {
-    prompt: string;
-    schema?: z.ZodTypeAny;
-    engine?: QueryEngine;
-    types?: readonly Type[];
-  };
-  const promptInstructions = (i: PromptInput): string =>
-    i.engine
-      ? describeEngine(i.engine, { types: i.types, functions: CLI_FUNCTIONS, maxExamples: 2 })
-      : '';
-  const lastErrorRef: { last: QueryToolError | null } = { last: null };
-  const parserContextRef: { engine: QueryEngine | null; options: BuildQueryToolOptions | null } = {
-    engine: null,
-    options: null,
-  };
-  const prompt = ai.prompt({
-    name: 'query_build',
-    description: 'Build a structured query from a natural-language request',
-    content: '{{instructions}}\n\n{{userPrompt}}',
-    input: (i: PromptInput) => ({ instructions: promptInstructions(i), userPrompt: i.prompt }),
-    schema: (i: PromptInput | undefined) => i?.schema ?? false,
-    outputRetries: 5,
-    strict: false,
-    schemaDelivery: 'auto',
-    parse: (raw: unknown): Query | QueryToolError => {
-      const engine = parserContextRef.engine;
-      const options = parserContextRef.options;
-      if (!engine || !options) {
-        throw new Error('Parser context (engine and options) must be set before parsing');
-      }
-      const result = parseQueryTool(engine, raw, options);
-      if (result instanceof QueryToolError) lastErrorRef.last = result;
-      return result;
-    },
-    metadata,
-  });
-
   return {
-    ask: async (content, schema, engine, types, options) => {
-      lastErrorRef.last = null;
-      parserContextRef.engine = engine;
-      parserContextRef.options = options;
+    ask: async (content, engine, types, options) => {
+      // One prompt per request: its output schema is the query tool's own
+      // (`queryToolSchema`: the grammar at this depth, decoded into a runnable
+      // `Query`), so a structural or semantic mistake is told to the model in
+      // @aeye/schema's format and re-prompted through `outputRetries`. The
+      // engine's capability summary rides the instructions (`describeEngine`).
+      const prompt = ai.prompt({
+        name: 'query_build',
+        description: 'Build a structured query from a natural-language request',
+        content: '{{instructions}}\n\n{{userPrompt}}',
+        input: (i: { prompt: string }) => ({
+          instructions: describeEngine(engine, { types, functions: CLI_FUNCTIONS, maxExamples: 2 }),
+          userPrompt: i.prompt,
+        }),
+        schema: queryToolSchema(engine, options),
+        outputRetries: 5,
+        strict: false,
+        schemaDelivery: 'auto',
+        metadata,
+      });
       try {
-        const query = await prompt.get('result', { prompt: content, schema, engine, types });
-        return { query, report: '' };
+        const query = await prompt.get('result', { prompt: content });
+        return { query: query ?? null, report: '' };
       } catch (err) {
         return {
           query: null,
-          report:
-            lastErrorRef.last?.report ??
-            `The model did not return a valid structured query: ${err instanceof Error ? err.message : String(err)}`,
+          report: `The model did not return a valid structured query: ${err instanceof Error ? err.message : String(err)}`,
         };
-      } finally {
-        parserContextRef.engine = null;
-        parserContextRef.options = null;
       }
     },
   };
@@ -469,10 +433,6 @@ async function handleRequest(
     functions: CLI_FUNCTIONS,
     maxEnumSize: CLI_MAX_ENUM_SIZE,
   };
-  // The model-facing schema — the model emits against it and core `decodeWire`s
-  // the response with it. Parsing is done DIRECTLY via `parseQueryTool` (below);
-  // no Tool is built here.
-  const schema = querySchema(engine, options);
   // The engine's full capability summary rides the prompt CONTEXT (see
   // `createAsker`); the per-request text carries only the schema-shape reminder
   // + the active depth constraints and the user request.
@@ -481,11 +441,10 @@ async function handleRequest(
     ? `Emit the query as a structured JSON object matching the schema.\nSchema constraints:\n${note}`
     : 'Emit the query as a structured JSON object matching the schema.';
 
-  // The prompt validates with `parseQueryTool` and re-prompts through its own
-  // `outputRetries` with the parser's report — no manual repair loop.
+  // The prompt's schema decodes + validates the answer and re-prompts through
+  // its own `outputRetries` — no manual repair loop.
   const built = await asker.ask(
     buildContent(schemaNote, request),
-    schema,
     engine,
     selected,
     options,

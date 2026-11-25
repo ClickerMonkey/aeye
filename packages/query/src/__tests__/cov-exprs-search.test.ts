@@ -10,7 +10,7 @@
  * forEachChild, and the private column / sensitivity / query SQL helpers.
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, typeScope, runtimeFixture, lit, ref, param } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, lit, ref, param, exprAccepts } from './_utils';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import type { Embedder } from '../engine';
@@ -157,13 +157,8 @@ describe('TextSearchExpr', () => {
   });
 
   it('toSchema parses a text-search def (bare opts and an explicit depth)', () => {
-    expect(TextSearchExpr.toSchema({}).safeParse({ kind: 'text-search', source: 'u', query: 'foo' }).success).toBe(true);
-    // Explicit `types` + `depth` exercise the `??` left operands on the schema call.
-    const withDepth = TextSearchExpr.toSchema({
-      types: [],
-      depth: { refs: 'open', typeNames: 'open', functions: 'names', filters: 'open' },
-    });
-    expect(withDepth.safeParse({ kind: 'text-search', source: 'u', query: 'foo' }).success).toBe(true);
+    expect(exprAccepts({ kind: 'text-search', source: 'u', query: 'foo' })).toBe(true);
+    expect(exprAccepts({ kind: 'text-search', source: 'u', query: 'foo' }, { depth: { refs: 'open', typeNames: 'open', functions: 'names', filters: 'open' } })).toBe(true);
   });
 
   it('resolve yields a non-nullable bool', () => {
@@ -419,12 +414,8 @@ describe('SemanticExpr', () => {
   });
 
   it('toSchema parses a semantic def (bare opts and an explicit depth)', () => {
-    expect(SemanticExpr.toSchema({}).safeParse({ kind: 'semantic', source: 'u', query: 'foo' }).success).toBe(true);
-    const withDepth = SemanticExpr.toSchema({
-      types: [],
-      depth: { refs: 'open', typeNames: 'open', functions: 'names', filters: 'open' },
-    });
-    expect(withDepth.safeParse({ kind: 'semantic', source: 'u', query: 'foo' }).success).toBe(true);
+    expect(exprAccepts({ kind: 'semantic', source: 'u', query: 'foo' })).toBe(true);
+    expect(exprAccepts({ kind: 'semantic', source: 'u', query: 'foo' }, { depth: { refs: 'open', typeNames: 'open', functions: 'names', filters: 'open' } })).toBe(true);
   });
 
   it('resolve yields a non-nullable number', () => {

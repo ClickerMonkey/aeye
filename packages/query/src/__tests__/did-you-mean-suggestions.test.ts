@@ -12,7 +12,8 @@ import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
 import { fixture, typeScope, runtimeFixture, lit, ref } from './_utils';
 import { EXCLUDED_SOURCE } from '../exprs/excluded';
-import { buildQueryTool, QueryToolError } from '../llm/tool';
+import { buildQueryTool, parseQueryTool, QueryToolError } from '../llm/tool';
+import { SchemaParseError } from '@aeye/schema';
 import type { Context } from '@aeye/core';
 import { Problems } from '../problem';
 import type { ExprDef, InsertDef, UpdateDef, DeleteDef, SelectDef, TypeDef, FunctionDef } from '../schema';
@@ -313,15 +314,13 @@ describe('schema enum failure → nearest allowed value', () => {
       // `notlike` is a case typo of the allowed `notLike` operator.
       where: [{ kind: 'comparison', op: 'notlike', left: ref('user', 'name'), right: ref('user', 'name') }],
     };
-    let err: QueryToolError | undefined;
-    try {
-      await tool.parse(emptyCtx, JSON.stringify({ query: bad }));
-    } catch (e) {
-      if (e instanceof QueryToolError) err = e;
-      else throw e;
-    }
-    expect(err).toBeDefined();
-    const opMsg = err!.problems.list.find((p) => p.message.includes('comparison operator'))?.message ?? '';
+    // Through the tool the schema meets it first: @aeye/schema's "did you mean".
+    const err = await tool.parse(emptyCtx, JSON.stringify({ query: bad })).then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(SchemaParseError);
+    expect((err as SchemaParseError).message).toMatch(/did you mean `notLike`/);
+    // The standalone parser's own directed message says the same.
+    const own = parseQueryTool(fx.engine, { query: bad });
+    const opMsg = own instanceof QueryToolError ? own.problems.list.find((p) => p.message.includes('comparison operator'))?.message ?? '' : '';
     expect(opMsg).toContain('did you mean `notLike`');
   });
 });

@@ -22,9 +22,7 @@
  * so an `output` reference in WHERE / a JOIN `on` / a general expression
  * argument (where no outputs are bound) fails validation (`output.not-available`).
  */
-import { z } from 'zod';
 import type { ExprDef, OutputRefExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -32,7 +30,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { textResult } from './_shared';
-import { withAid, didYouMean } from '../aids';
+import { didYouMean } from '../aids';
 import { obj, lit, str } from '../shape';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -75,17 +73,6 @@ export class OutputRefExpr extends Expr {
     (v) => new OutputRefExpr(v.name),
     { aid: 'Expr_output' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (name is query-local ⇒ a plain string). */
-  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('output'),
-        name: z.string().describe('A SELECT output field name (its `as`, or the natural derived name).'),
-      }),
-      'Expr_output',
-    ).describe('A reference to a SELECT output field by name (valid in groupBy / orderBy / having).');
-  }
 
   /** Resolve to the referenced output field's type (delegates; text fallback when unbound). */
   resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {

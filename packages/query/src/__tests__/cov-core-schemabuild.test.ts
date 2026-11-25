@@ -1,41 +1,43 @@
 /**
- * Coverage: schema-build primitives — empty enum/orFold, refSchema 'none'
- * field mode, selectFunctions array/per-shape selectors, and the tabular +
- * typed function-call schema branches.
+ * Coverage: the grammar's building blocks (`QueryGrammarBuild`) — a reference
+ * with no field ('none' mode), `selectFunctions` array/per-shape selectors, and
+ * the tabular + typed function-call branches — each checked through a bound,
+ * rendered schema.
  */
 import { describe, it, expect } from 'vitest';
-import { z } from 'zod';
+import { a, Bundle, LENIENT, type AnySchema } from '@aeye/schema';
 import { fixture } from './_utils';
-import {
-  enumOf,
-  orFold,
-  refSchema,
-  selectFunctions,
-  functionExprSchema,
-} from '../schema-build';
+import { selectFunctions } from '../schema-build';
+import { QueryGrammarBuild } from '../llm/grammar';
+import { resolveDepthFor } from '../llm/depth';
+import { QueryGrammar } from '../llm/schemas';
 
 const fx = fixture();
-// Register a tabular function so the tabular schema branches have a member.
+// Register a tabular function so the tabular branches have a member.
 fx.registry.registerFunction({ name: 'genRows', shape: 'tabular', params: [{ name: 'n', type: { kind: 'number' } }], output: { type: 'user' } });
 
-const child = z.object({ kind: z.string() }).loose();
+/** A build over the fixture at a depth, as the dynamic step makes one. */
+function build(functions: 'open' | 'names' | 'typed', selector: Parameters<typeof selectFunctions>[1] = 'all'): QueryGrammarBuild {
+  const types = fx.registry.typeList();
+  const selected = selectFunctions(fx.registry, selector);
+  const depth = { ...resolveDepthFor(types, selected, {}), functions };
+  return new QueryGrammarBuild(fx.registry, types, depth, selected);
+}
 
-describe('enumOf / orFold empties collapse to never', () => {
-  it('empty inputs → z.never()', () => {
-    expect(enumOf([]).safeParse('x').success).toBe(false);
-    expect(orFold([]).safeParse({}).success).toBe(false);
-    // de-dupes + single-branch fold still works
-    expect(enumOf(['a', 'a', 'b']).safeParse('b').success).toBe(true);
-  });
-});
+/** Whether `s` (with the build's shared fragments and the grammar's Expr) accepts `value`. */
+function accepts(b: QueryGrammarBuild, s: AnySchema, value: unknown): boolean {
+  const env = QueryGrammar.result('Expr').bind(fx.registry).env;
+  const defs = { ...Object.fromEntries(env), ...b.defs };
+  return new Bundle<unknown>(defs, s).bind().render(LENIENT).parse(structuredClone(value)).ok;
+}
 
-describe('refSchema field mode "none"', () => {
-  it('produces an object with only the key property (paired + flat)', () => {
-    const opts = { keyName: 'source' as const, fieldMode: 'none' as const, eligible: (t: (typeof fx.user)) => t.fields, describe: 'no fields' };
-    const flat = refSchema([fx.user], 'both', opts);
-    expect(flat.safeParse({ source: 'user' }).success).toBe(true);
-    const paired = refSchema([fx.user], 'paired', opts);
-    expect(paired.safeParse({ source: 'user' }).success).toBe(true);
+describe('a reference with field mode "none"', () => {
+  it('is an object with only the key property (paired + flat)', () => {
+    const b = build('open');
+    const opts = { keyName: 'source' as const, fieldMode: 'none' as const, eligible: (t: typeof fx.user) => t.fields, describe: 'no fields' };
+    expect(accepts(b, b.ref('both', opts), { source: 'user' })).toBe(true);
+    expect(accepts(b, b.ref('paired', opts), { source: 'user' })).toBe(true);
+    expect(accepts(b, b.ref('paired', opts), { source: 'ghost' })).toBe(false);
   });
 });
 
@@ -52,45 +54,42 @@ describe('selectFunctions selectors', () => {
   });
 });
 
-describe('functionExprSchema tabular + typed branches', () => {
-  const open = z.object({ kind: z.literal('tabular-function-call') }).loose();
+describe('function-call branches: tabular + typed', () => {
+  const open = a.object({ kind: a.literal('tabular-function-call') });
+  const lit = { kind: 'literal', value: 1 };
 
-  it('open depth / no selection returns the open schema', () => {
-    expect(functionExprSchema('tabular-function-call', open, undefined, 'open', child)).toBe(open);
-    const selected = selectFunctions(fx.registry, 'all');
-    expect(functionExprSchema('tabular-function-call', open, selected, 'open', child)).toBe(open);
+  it('open depth returns the open shape as given', () => {
+    expect(build('open').fn('tabular-function-call', open)).toBe(open);
   });
 
-  it('names + typed depth builds the tabular-function-call object', () => {
-    const selected = selectFunctions(fx.registry, 'all');
-    const named = functionExprSchema('tabular-function-call', open, selected, 'names', child);
-    expect(named.safeParse({ kind: 'tabular-function-call', function: 'genRows', args: { n: { kind: 'literal' } } }).success).toBe(true);
-    const typed = functionExprSchema('tabular-function-call', open, selected, 'typed', child);
-    expect(typed.safeParse({ kind: 'tabular-function-call', function: 'genRows', args: { n: { kind: 'x' } } }).success).toBe(true);
+  it('names + typed depth build the tabular-function-call object', () => {
+    const named = build('names');
+    expect(accepts(named, named.fn('tabular-function-call', open), { kind: 'tabular-function-call', function: 'genRows', args: { n: lit } })).toBe(true);
+    expect(accepts(named, named.fn('tabular-function-call', open), { kind: 'tabular-function-call', function: 'nope', args: {} })).toBe(false);
+    const typed = build('typed');
+    expect(accepts(typed, typed.fn('tabular-function-call', open), { kind: 'tabular-function-call', function: 'genRows', args: { n: lit } })).toBe(true);
   });
 
-  it('typed depth with no selected functions collapses to never', () => {
-    const none = selectFunctions(fx.registry, { tabular: 'none' });
-    const typed = functionExprSchema('tabular-function-call', open, none, 'typed', child);
-    expect(typed.safeParse({ kind: 'tabular-function-call', function: 'genRows', args: {} }).success).toBe(false);
+  it('typed depth with no selected functions accepts nothing', () => {
+    const none = build('typed', { tabular: 'none' });
+    expect(accepts(none, none.fn('tabular-function-call', open), { kind: 'tabular-function-call', function: 'genRows', args: {} })).toBe(false);
   });
 
-  it('typed depth WITHOUT a cache builds fresh args, allowing an omitted optional param', () => {
-    // A scalar function with one required + one OPTIONAL param exercises the
-    // no-cache `typedArgsSchema` fallback's `param.optional` branch.
+  it('typed depth: an optional param may be omitted; an undeclared one is refused; no required param ⇒ args optional', () => {
     fx.registry.registerFunction({
       name: 'optFn',
       shape: 'scalar',
       params: [{ name: 'a', type: { kind: 'number' } }, { name: 'b', type: { kind: 'number' }, optional: true }],
       output: { kind: 'number' },
     });
-    const scalarOpen = z.object({ kind: z.literal('function-call') }).loose();
-    const selected = selectFunctions(fx.registry, { scalar: ['optFn'] });
-    // No `cache` arg ⇒ the fresh-copy path.
-    const typed = functionExprSchema('function-call', scalarOpen, selected, 'typed', child);
-    // Optional `b` omitted ⇒ accepted; the required `a` present.
-    expect(typed.safeParse({ kind: 'function-call', function: 'optFn', args: { a: { kind: 'literal' } } }).success).toBe(true);
-    // An undeclared arg is still rejected by the strict object.
-    expect(typed.safeParse({ kind: 'function-call', function: 'optFn', args: { a: { kind: 'literal' }, z: { kind: 'literal' } } }).success).toBe(false);
+    fx.registry.registerFunction({ name: 'noArgs', shape: 'scalar', params: [], output: { kind: 'number' } });
+    const scalarOpen = a.object({ kind: a.literal('function-call') });
+    const b = build('typed', { scalar: ['optFn', 'noArgs'] });
+    const typed = b.fn('function-call', scalarOpen);
+    expect(accepts(b, typed, { kind: 'function-call', function: 'optFn', args: { a: lit } })).toBe(true);
+    expect(accepts(b, typed, { kind: 'function-call', function: 'optFn', args: { a: lit, z: lit } })).toBe(false);
+    expect(accepts(b, typed, { kind: 'function-call', function: 'noArgs' })).toBe(true);
+    // Signatures, not functions, name the shared args objects.
+    expect(Object.keys(b.defs).filter((k) => k.startsWith('Args'))).toHaveLength(2);
   });
 });

@@ -93,6 +93,20 @@ export interface DialectEntry {
  * JSON defs back into instances by `kind`.
  */
 export class Registry {
+  /**
+   * Bumped by every registration (types, field types, refinements, functions,
+   * operators, expr / query classes): what a cached grammar bind is keyed by
+   * (`buildSchemas`), so a registry that changed is never served a stale grammar.
+   */
+  get version(): number {
+    return this._version;
+  }
+  private _version = 0;
+  /** Record a registration (see `version`). */
+  private touch(): void {
+    this._version++;
+  }
+
   // ─── Wired this phase ───────────────────────────────────────────────────
   private readonly fieldTypeClasses = new Map<string, FieldTypeClass>();
   private readonly namedTypes = new Map<string, Type>();
@@ -115,6 +129,7 @@ export class Registry {
 
   /** Register a built-in FieldType class for JSON parse dispatch. */
   defineFieldType(cls: FieldTypeClass): this {
+    this.touch();
     this.fieldTypeClasses.set(cls.NAME, cls);
     return this;
   }
@@ -164,6 +179,7 @@ export class Registry {
    * loudly, rather than silently degrading to the bare base).
    */
   registerFieldType(def: FieldTypeRefinementDef): this {
+    this.touch();
     this.refuseLateRegistration('registerFieldType', def.name);
     const refinement = FieldTypeRefinement.compile(def, this, (json) => this.parseFieldTypeUnflagged(json));
     this.fieldTypeRefinements.set(refinement.name, refinement);
@@ -255,6 +271,7 @@ export class Registry {
    * as the declaration does.
    */
   registerFieldTypeImpl(name: string, impl: FieldTypeImpl): this {
+    this.touch();
     this.refuseLateRegistration('registerFieldTypeImpl', name);
     const refinement = this.fieldTypeRefinements.get(name);
     if (!refinement) {
@@ -482,6 +499,7 @@ export class Registry {
    * Back-compatible: `registerType(type)` (no backing) keeps working.
    */
   registerType(type: Type, backing?: TypeBacking): this {
+    this.touch();
     if (backing?.defaultConditions) validateDefaultConditions(type, backing.defaultConditions);
     // The catalog now exists, so the refinement vocabulary is frozen — see
     // `refuseLateRegistration`. Both roads are marked because a Type can arrive
@@ -584,6 +602,7 @@ export class Registry {
    * replace the checked one.
    */
   registerFunction(fn: FunctionDef): this {
+    this.touch();
     for (const [what, value] of [['name', fn.name], ['sql', fn.sql]] as const) {
       if (value !== undefined && !FUNCTION_NAME_PATTERN.test(value)) {
         throw new Error(
@@ -611,6 +630,7 @@ export class Registry {
    * match the run's `shape` (so an aggregate def can't be given a scalar run).
    */
   registerFunctionRun(name: string, run: FunctionRun): this {
+    this.touch();
     const def = this.functions.get(name);
     if (def && def.shape !== run.shape) {
       throw new Error(
@@ -650,6 +670,7 @@ export class Registry {
    * parse through the unflagged road for exactly that reason.
    */
   registerOperator(def: OperatorDef): this {
+    this.touch();
     const operator = QueryOperator.compile(def, this, (json) => this.parseFieldTypeUnflagged(json));
     this.operators.set(operator.name, operator);
     return this;
@@ -710,6 +731,7 @@ export class Registry {
 
   /** Register an Expr class so `parseExpr` can dispatch JSON by `kind`. */
   defineExpr(cls: ExprClass): this {
+    this.touch();
     this.exprClasses.set(cls.KIND, cls);
     return this;
   }
@@ -726,6 +748,7 @@ export class Registry {
 
   /** Register a Query class (Phase 3). */
   defineQuery(cls: QueryClassEntry): this {
+    this.touch();
     this.queryClasses.set(cls.KIND, cls);
     return this;
   }

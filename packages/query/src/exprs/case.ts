@@ -5,9 +5,7 @@
  * comparable. Nullable when there is no `else` (an unmatched CASE yields
  * NULL) or any result branch is nullable.
  */
-import { z } from 'zod';
 import type { CaseExprDef, ExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -15,8 +13,7 @@ import type { ResolvedType } from '../resolved-type';
 import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { computed, gatherSources, categoryOf, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { computed, gatherSources, categoryOf } from './_shared';
 import { obj, lit, list, exprRef } from '../shape';
 import { TextFieldType } from '../field-types/index';
 import { Value } from '../runtime/value';
@@ -81,19 +78,6 @@ export class CaseExpr extends Expr {
     (v) => new CaseExpr(v.branches, v.else),
     { optional: ['else'], aid: 'Expr_case' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (when/then branch slots and an optional else). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    return withAid(
-      z.object({
-        kind: z.literal('case'),
-        branches: z.array(z.object({ when: child, then: child })),
-        else: child.optional(),
-      }),
-      'Expr_case',
-    ).describe('Conditional CASE expression.');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     for (const b of this.branches) {

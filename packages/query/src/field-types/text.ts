@@ -1,5 +1,8 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
+import { closedSetA } from './_values';
 import type { FieldTypeDef, TextFieldTypeDef, FieldValueDef } from '../schema';
+import type { JsonValue } from '../schema';
 import {
   fieldValuesSchema,
   checkFieldValues,
@@ -316,6 +319,15 @@ export class TextFieldType extends FieldType {
   }
 
   /** Zod schema validating a string, honoring the closed value set else length / pattern options. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    if (this.options.values?.length) return closedSetA(this.options.values)!;
+    let s = a.string();
+    if (this.options.minLength !== undefined) s = s.min(this.options.minLength);
+    if (this.options.maxLength !== undefined) s = s.max(this.options.maxLength);
+    if (this.options.pattern !== undefined) s = s.pattern(this.options.pattern);
+    return s;
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     // A closed set IS the value schema — length / pattern only ever described
     // the same members less precisely. (A MERGED type keeps that true: its meet

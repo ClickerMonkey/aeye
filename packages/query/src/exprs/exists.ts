@@ -3,17 +3,14 @@
  * subquery's shape is inferred via the Phase-2 structural seam; full subquery
  * validation arrives with the query classes in Phase 3.
  */
-import { z } from 'zod';
 import type { ExistsExprDef, ExprDef, QueryDef, SelectDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, type ExprClass, type ValidateContext } from '../expr';
-import { boolResult, childQuerySchema, emitSubquerySQL } from './_shared';
-import { withAid } from '../aids';
+import { boolResult, emitSubquerySQL } from './_shared';
 import { obj, lit, bool, queryDefRef } from '../shape';
 import { validateSubqueryOutput } from './_subquery';
 import type { RuntimeContext } from '../runtime/context';
@@ -121,18 +118,6 @@ export class ExistsExpr extends BoolExpr {
     (v) => new ExistsExpr(v.query, v.not ?? false),
     { optional: ['not'], aid: 'Expr_exists' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (uses a child Query slot for the subquery). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('exists'),
-        query: childQuerySchema(opts.Query),
-        not: z.boolean().optional(),
-      }),
-      'Expr_exists',
-    ).describe('Existence predicate over a subquery.');
-  }
 
   /** Resolve to a non-nullable bool (EXISTS yields a definite boolean). */
   override resolve(_engine: QueryEngine, _scope: QueryScope): ComputedResolved {

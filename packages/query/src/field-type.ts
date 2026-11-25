@@ -12,6 +12,7 @@
  * map — never a central switch in this file.
  */
 import { z } from 'zod';
+import type { SchemaOf } from '@aeye/schema';
 import type { FieldTypeDef, FieldTypeKind, FieldValueDef, JsonValue } from './schema';
 import type { CodeOptions, Node, SchemaOptions, ValueSchemaOptions } from './node';
 import type { Registry } from './registry';
@@ -661,6 +662,24 @@ export abstract class FieldType implements Node {
     const declared = this.declaredRefinement?.value;
     return declared === undefined ? builtin : z.intersection(builtin, declared);
   }
+
+  /**
+   * The model-facing `@aeye/schema` form of a VALUE of this field type — what a
+   * model writes for this field in a typed INSERT row / UPDATE SET. Mirrors
+   * `toValueSchema` (which stays query's own value gate): bounds, patterns and
+   * closed sets are shown to the model; a refinement's declared value gate is
+   * checked on decode too (named in the message).
+   */
+  toA(): SchemaOf<JsonValue> {
+    const builtin = this.builtinA();
+    const declared = this.declaredRefinement;
+    const gate = declared?.value;
+    if (!declared || gate === undefined) return builtin;
+    return builtin.refine((v) => gate.safeParse(v).success || `Not a valid \`${declared.name}\` value.`);
+  }
+
+  /** The BUILTIN's own `a` value schema, before any refinement narrows it. */
+  protected abstract builtinA(): SchemaOf<JsonValue>;
 
   /** The BUILTIN's own value schema, before any refinement narrows it. */
   protected abstract builtinValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny;

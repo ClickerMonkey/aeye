@@ -4,7 +4,7 @@
  * registered tabular implementation for rows, and emits `fn(args) AS alias`.
  */
 import { describe, it, expect } from 'vitest';
-import { runtimeFixture } from './_utils';
+import { runtimeFixture, accepts } from './_utils';
 import type { SelectDef } from '../schema';
 import { Value } from '../runtime/value';
 import type { NamedArgs } from '../runtime/functions';
@@ -80,22 +80,22 @@ describe('table-valued function source (FROM fn(args) AS alias)', () => {
 
   it('the LLM Source schema offers a function source only when a tabular fn exists', () => {
     const withFn = tabularFixture();
-    const offered = buildSchemas(withFn.engine).Source.safeParse({
+    const offered = accepts(buildSchemas(withFn.engine).Source, {
       kind: 'function',
       function: 'rangeRows',
       args: { count: { kind: 'literal', value: 2 } },
       as: 'r',
     });
-    expect(offered.success).toBe(true);
+    expect(offered).toBe(true);
 
     // No tabular function registered ⇒ the function-source branch is gated out.
     const noFn = runtimeFixture();
-    const gated = buildSchemas(noFn.engine).Source.safeParse({
+    const gated = accepts(buildSchemas(noFn.engine).Source, {
       kind: 'function',
       function: 'nope',
       args: {},
       as: 'r',
     });
-    expect(gated.success).toBe(false);
+    expect(gated).toBe(false);
   });
 });

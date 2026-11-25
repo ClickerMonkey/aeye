@@ -12,6 +12,8 @@ import type { Type } from '../type';
 import type { TypeDef, ExprDef } from '../schema';
 import type { SourceRecord } from '../runtime/row';
 import { arrayExecutor } from '../runtime/executor';
+import { LENIENT, type ParseResult, type Profile, type Rendered } from '@aeye/schema';
+import { buildSchemas, QueryGrammar, type BuildSchemasOptions } from '../llm/schemas';
 
 export const userTypeDef: TypeDef = {
   name: 'user',
@@ -125,3 +127,33 @@ export const cmp = (op: '=' | '<>' | '<' | '<=' | '>' | '>=' | 'like' | 'notLike
   left,
   right,
 });
+
+// ─── The model-facing schema (`@aeye/schema`) ────────────────────────────────
+
+/** Something `buildSchemas` / `querySchema` returns: renders per profile. */
+export interface Renderable {
+  render(profile: Profile): Rendered<unknown>;
+}
+
+/** Decode `value` (written in the code shape) through a schema on a profile (LENIENT: the code shape). */
+export function decode(schema: Renderable | { bind(): { render(profile: Profile): Rendered<unknown> } }, value: unknown, profile: Profile = LENIENT): ParseResult<unknown> {
+  const bound = 'render' in schema ? schema : schema.bind();
+  return bound.render(profile).parse(structuredClone(value));
+}
+
+/** Whether the schema accepts `value` (written in the code shape). */
+export function accepts(schema: Renderable | { bind(): { render(profile: Profile): Rendered<unknown> } }, value: unknown, profile: Profile = LENIENT): boolean {
+  return decode(schema, value, profile).ok;
+}
+
+let grammarFixture: Fixture | undefined;
+/** Whether the model's Expr grammar (the shared fixture, default depth) accepts `def`. */
+export function exprAccepts(def: unknown, options: BuildSchemasOptions = {}): boolean {
+  grammarFixture ??= fixture();
+  return accepts(buildSchemas(grammarFixture.engine, options).Expr, def);
+}
+/** Whether a named type of the query grammar (`Expr_excluded`, `Expr_sorter`, `Query_select`…) accepts `def`. */
+export function grammarAccepts(name: Parameters<typeof QueryGrammar.result>[0] & string, def: unknown, options: BuildSchemasOptions = {}): boolean {
+  grammarFixture ??= fixture();
+  return accepts(QueryGrammar.result(name).bind(grammarFixture.registry, options), def);
+}

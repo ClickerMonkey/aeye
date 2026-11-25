@@ -19,10 +19,7 @@
  *  - `toSQL` emits the dialect's `similarity` — over the query param for a
  *    literal/param query, or over BOTH bound sides' vectors for a pairing query.
  */
-import { z } from 'zod';
 import type { ExprDef, SemanticExprDef, SemanticQueryDef } from '../schema';
-import type { SchemaOptions } from '../node';
-import { semanticSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -252,14 +249,6 @@ export class SemanticExpr extends Expr {
     (v) => new SemanticExpr(v.source, v.field, v.query),
     { optional: ['field'], aid: 'Expr_semantic' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Depth-aware: `refs:'open'` (or a bare call) yields free-string source +
-    // field + query; tighter levels pair them to a semantic Type (see
-    // `refSchema` / `semanticSchema`).
-    return semanticSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     if (this.query.kind === 'param') visit(this.query.param);

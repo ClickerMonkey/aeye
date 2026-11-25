@@ -1,5 +1,8 @@
 import { z } from 'zod';
+import { type SchemaOf } from '@aeye/schema';
+import { numberA } from './number';
 import type { FieldTypeDef, FieldValueDef, MoneyFieldTypeDef, NumberOptions } from '../schema';
+import type { JsonValue } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { refinementKeySchema } from '../refinement';
@@ -121,6 +124,10 @@ export class MoneyFieldType extends FieldType {
   }
 
   /** Zod schema validating the amount, honoring the inner number options. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    return numberA(this.options.number ?? {});
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return numberValueSchema(this.options.number ?? {});
   }

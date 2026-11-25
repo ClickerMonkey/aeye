@@ -2,12 +2,15 @@
  * Coverage: buildQueryTool — the core `Tool` surface across descriptor
  * metadata, valid/run, schema errors, validation errors, string-fallback, and
  * prose input. `tool.parse` returns the built `Query` (or THROWS a
- * `QueryToolError`); `tool.run` executes the validated query.
+ * `SchemaParseError` whose message is what the model is told, in
+ * @aeye/schema's format); `tool.run` executes the validated query.
+ * `parseQueryTool` (no tool) keeps the `QueryToolError` + `Code` report.
  */
 import { describe, it, expect } from 'vitest';
 import type { Context } from '@aeye/core';
+import { SchemaParseError } from '@aeye/schema';
 import { runtimeFixture, ref } from './_utils';
-import { buildQueryTool, QueryToolError, type BuildQueryToolOptions } from '../llm/tool';
+import { buildQueryTool, parseQueryTool, QueryToolError, type BuildQueryToolOptions } from '../llm/tool';
 import type { SelectDef } from '../schema';
 
 const validSelect: SelectDef = {
@@ -20,6 +23,17 @@ const validSelect: SelectDef = {
 /** A minimal, cast-free context for `tool.parse` / `tool.run`. */
 const ctx: Context<{}, {}> = {};
 
+/** The error `tool.parse` rejects with. */
+async function rejection(p: Promise<unknown>): Promise<SchemaParseError> {
+  try {
+    await p;
+  } catch (err) {
+    expect(err).toBeInstanceOf(SchemaParseError);
+    return err as SchemaParseError;
+  }
+  return expect.unreachable('parse should have thrown');
+}
+
 describe('buildQueryTool', () => {
   it('descriptor carries name/description/instructions/schema', () => {
     const fx = runtimeFixture();
@@ -28,7 +42,6 @@ describe('buildQueryTool', () => {
     expect(tool.description).toBe('D');
     expect(tool.input.instructions ?? '').toContain('Types');
     expect(tool.input.schema).toBeTruthy();
-    // Default name/description.
     const dflt = buildQueryTool(fx.engine);
     expect(dflt.name).toBe('query');
     expect(dflt.description).toContain('structured query');
@@ -42,7 +55,7 @@ describe('buildQueryTool', () => {
     expect(result.rows.length).toBe(3);
   });
 
-  it('throws a QueryToolError on validation errors (and does not run)', async () => {
+  it('a SEMANTIC problem is told to the model at its path (and the call does not run)', async () => {
     const fx = runtimeFixture();
     const tool = buildQueryTool(fx.engine);
     const bad: SelectDef = {
@@ -50,161 +63,94 @@ describe('buildQueryTool', () => {
       fields: [{ expr: ref('user', 'ghost') }],
       from: { kind: 'type', type: 'user' },
     };
-    await expect(tool.parse(ctx, JSON.stringify({ query: bad }))).rejects.toBeInstanceOf(QueryToolError);
-    try {
-      await tool.parse(ctx, JSON.stringify({ query: bad }));
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        expect(err.problems.hasErrors).toBe(true);
-        expect(err.report).not.toBe('');
-        expect(err.message).toBe(err.report);
-      }
-    }
+    const err = await rejection(tool.parse(ctx, JSON.stringify({ query: bad })));
+    expect(err.issues.some((i) => JSON.stringify(i.codePath).startsWith('["query","fields",0'))).toBe(true);
+    expect(err.message).toContain("has no field 'ghost'");
+    expect(err.message).toContain('^');
   });
 
-  it('maps structural + envelope failures into aid-directed shape.* problems', async () => {
+  it('a STRUCTURAL problem is the schema\'s: missing members, a wrong type, the envelope', async () => {
     const fx = runtimeFixture();
     const tool = buildQueryTool(fx.engine);
-    // A structured query missing required members: the owned parser records a
-    // `shape.required` per missing member (accumulating), at their own paths.
-    try {
-      await tool.parse(ctx, JSON.stringify({ query: { kind: 'select' } }));
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        const codes = err.problems.list.map((p) => p.code);
-        expect(codes).toContain('shape.required');
-        const paths = err.problems.list.map((p) => JSON.stringify(p.path));
-        expect(paths).toContain(JSON.stringify(['fields']));
-        expect(paths).toContain(JSON.stringify(['from']));
-        expect(err.report).not.toBe('');
-      }
-    }
-    // An array-index error path exercises a numeric path segment: a non-object
-    // select field is a directed `shape.not-object` at `fields.0`.
-    try {
-      await tool.parse(
-        ctx,
-        JSON.stringify({ query: { kind: 'select', from: { kind: 'type', type: 'user' }, fields: [123] } }),
-      );
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        const p = err.problems.list.find((q) => JSON.stringify(q.path) === JSON.stringify(['fields', 0]));
-        expect(p?.code).toBe('shape.not-object');
-      }
-    }
-    // A malformed ENVELOPE with NO `query` key is caught by the (zod-free)
-    // envelope check and still renders a report.
-    try {
-      await tool.parse(ctx, JSON.stringify({ notQuery: 1 }));
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        const p = err.problems.list[0];
-        expect(p?.code).toBe('shape.required');
-        expect(p?.message).toBe('missing required field `query`');
-        expect(err.report).not.toBe('');
-      }
-    }
-    // A non-object envelope (a bare JSON value) is the other envelope arm.
-    try {
-      await tool.parse(ctx, JSON.stringify(42));
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        expect(err.problems.list[0]?.code).toBe('shape.not-object');
-        expect(err.problems.list[0]?.message).toContain('a query request');
-        expect(err.report).not.toBe('');
-      }
-    }
+    const missing = await rejection(tool.parse(ctx, JSON.stringify({ query: { kind: 'select' } })));
+    const paths = missing.issues.map((i) => JSON.stringify(i.codePath));
+    expect(paths).toContain(JSON.stringify(['query', 'fields']));
+    expect(paths).toContain(JSON.stringify(['query', 'from']));
+
+    const notObject = await rejection(
+      tool.parse(ctx, JSON.stringify({ query: { kind: 'select', from: { kind: 'type', type: 'user' }, fields: [123] } })),
+    );
+    expect(notObject.issues.some((i) => JSON.stringify(i.codePath) === JSON.stringify(['query', 'fields', 0]))).toBe(true);
+
+    const envelope = await rejection(tool.parse(ctx, JSON.stringify({ notQuery: 1 })));
+    expect(envelope.issues.some((i) => JSON.stringify(i.codePath) === JSON.stringify(['query']))).toBe(true);
+
+    const scalar = await rejection(tool.parse(ctx, JSON.stringify(42)));
+    expect(scalar.issues.length).toBeGreaterThan(0);
   });
 
   it('string-fallback mode reports needs-structuring', async () => {
     const fx = runtimeFixture();
-    // max 0 → too many Types → string schema.
     const tool = buildQueryTool(fx.engine, { max: 0 });
     expect(tool.input.instructions ?? '').toContain('prose');
-    try {
-      await tool.parse(ctx, JSON.stringify({ query: 'find all users older than 30' }));
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        expect(err.problems.list.some((p) => p.code === 'query.needs-structuring')).toBe(true);
-      }
-    }
+    const err = await rejection(tool.parse(ctx, JSON.stringify({ query: 'find all users older than 30' })));
+    expect(err.message).toContain('must be converted to a structured query');
   });
 
-  it('honors the `report` FormatProblemsOptions override (context / gutter)', async () => {
-    // A query with a deep, off-first-line error so surrounding context is
-    // meaningful: a bad field-ref in the SECOND selected field.
+  it('the `errorFormat` option sets how much the model is told', async () => {
+    const fx = runtimeFixture();
+    const bad = JSON.stringify({ query: { ...validSelect, fields: [{ expr: ref('user', 'ghost') }] } });
+    const full = await rejection(buildQueryTool(fx.engine).parse(ctx, bad));
+    const summary = await rejection(buildQueryTool(fx.engine, { errorFormat: 'summary' }).parse(ctx, bad));
+    expect(summary.message.length).toBeLessThan(full.message.length);
+    expect(summary.message).not.toContain('^');
+  });
+
+  it('parseQueryTool honors the `report` FormatProblemsOptions override (context / gutter)', () => {
+    // A deep, off-first-line error so surrounding context is meaningful: a bad
+    // field-ref in the SECOND selected field.
     const bad: SelectDef = {
       kind: 'select',
       fields: [{ expr: ref('user', 'id') }, { expr: ref('user', 'ghost') }],
       from: { kind: 'type', type: 'user' },
     };
-
-    /** Parse `bad` under a `report` option and return the rendered report. */
-    const reportUnder = async (report?: BuildQueryToolOptions['report']): Promise<string> => {
+    const reportUnder = (report?: BuildQueryToolOptions['report']): string => {
       const fx = runtimeFixture();
-      const tool = buildQueryTool(fx.engine, report ? { report } : {});
-      try {
-        await tool.parse(ctx, JSON.stringify({ query: bad }));
-        expect.unreachable('parse should have thrown');
-      } catch (err) {
-        if (err instanceof QueryToolError) return err.report;
-        throw err;
-      }
-      /* v8 ignore next -- unreachable: the catch above always returns or rethrows */
-      return '';
+      const out = parseQueryTool(fx.engine, { query: bad }, report ? { report } : {});
+      expect(out).toBeInstanceOf(QueryToolError);
+      return out instanceof QueryToolError ? out.report : '';
     };
 
-    const dflt = await reportUnder();
-    const noContext = await reportUnder({ contextLines: 0 });
-    const moreContext = await reportUnder({ contextLines: 4 });
-    const noGutter = await reportUnder({ lineNumbers: false });
+    const dflt = reportUnder();
+    const noContext = reportUnder({ contextLines: 0 });
+    const moreContext = reportUnder({ contextLines: 4 });
+    const noGutter = reportUnder({ lineNumbers: false });
 
-    // The underlined offending value + directed message are present regardless.
-    for (const r of [dflt, noContext, moreContext]) {
+    for (const r of [dflt, noContext, moreContext, noGutter]) {
       expect(r).toContain("has no field 'ghost'");
       expect(r).toContain('^^^');
     }
-
-    // `contextLines: 0` shows NO surrounding context — strictly fewer lines than
-    // the default (contextLines: 2); `contextLines: 4` shows strictly more.
     expect(noContext.split('\n').length).toBeLessThan(dflt.split('\n').length);
     expect(moreContext.split('\n').length).toBeGreaterThan(dflt.split('\n').length);
-
-    // `contextLines: 0` narrows the rendered window to just the underlined span
-    // (lines 12-16); the default (contextLines: 2) extends it to lines 10-18,
-    // so the default renders line 10 in its gutter but `contextLines: 0` does not.
-    expect(dflt).toContain('10 │');
-    expect(noContext).not.toContain('10 │');
-
-    // `lineNumbers: false` drops the `N │` gutter the default renders.
     expect(dflt).toMatch(/\d+ │ /);
     expect(noGutter).not.toContain('│');
   });
 
-  it('prose input in structured mode is rejected', async () => {
+  it('parseQueryTool: envelope, prose and valid inputs', () => {
     const fx = runtimeFixture();
-    // Structured mode, but a string `query` fails the structured envelope.
+    const notObject = parseQueryTool(fx.engine, 42);
+    expect(notObject instanceof QueryToolError && notObject.problems.list[0]?.code).toBe('shape.not-object');
+    const noQuery = parseQueryTool(fx.engine, { notQuery: 1 });
+    expect(noQuery instanceof QueryToolError && noQuery.problems.list[0]?.message).toBe('missing required field `query`');
+    const prose = parseQueryTool(fx.engine, { query: 'just prose' });
+    expect(prose instanceof QueryToolError && prose.problems.list.some((p) => p.code === 'query.needs-structuring')).toBe(true);
+    expect(parseQueryTool(fx.engine, { query: validSelect })).not.toBeInstanceOf(QueryToolError);
+  });
+
+  it('prose input in structured mode is rejected by the schema', async () => {
+    const fx = runtimeFixture();
     const tool = buildQueryTool(fx.engine);
-    try {
-      await tool.parse(ctx, JSON.stringify({ query: 'just prose' }));
-      expect.unreachable('parse should have thrown');
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryToolError);
-      if (err instanceof QueryToolError) {
-        expect(err.problems.list.length).toBeGreaterThan(0);
-      }
-    }
+    const err = await rejection(tool.parse(ctx, JSON.stringify({ query: 'just prose' })));
+    expect(err.issues.length).toBeGreaterThan(0);
   });
 });

@@ -13,9 +13,8 @@ export type { Node, CodeOptions, SchemaOptions, ValueSchemaOptions } from './nod
 export { Problems, QueryTypeError } from './problem';
 export type { Problem } from './problem';
 
-// Aid-directed schema-failure messages (the `withAid` seam + its registry)
+// Aid-directed messages and "did you mean"
 export {
-  withAid,
   aidInfo,
   describeInput,
   editDistance,
@@ -23,10 +22,8 @@ export {
   nearest,
   didYouMean,
   suggestionBudget,
-  directedMessage,
   AID_REGISTRY,
   type AidInfo,
-  type AidOptions,
 } from './aids';
 export {
   Code,

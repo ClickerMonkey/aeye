@@ -3,7 +3,6 @@
  * `ComputedResolved` results and source/nullability/aggregate gathering.
  * Keeps each expr file focused on its own semantics.
  */
-import { z } from 'zod';
 import type { FieldType } from '../field-type';
 import type { FieldTypeCompareDecl } from '../refinement';
 import type { AggregateMerge, QueryDef } from '../schema';
@@ -191,21 +190,6 @@ export function relationValueProblem(a: ResolvedType, b: ResolvedType): string |
   /* v8 ignore next -- one of ra/rb is defined here (the `!ra && !rb` case returned above) */
   if (!rel) return undefined;
   return relationAsValueMessage(rel);
-}
-
-/** A loose `{ kind: string }` placeholder schema for child-expr slots. */
-export function looseExprSchema(): z.ZodTypeAny {
-  return z.looseObject({ kind: z.string() });
-}
-
-/** A child-expr schema slot: the caller's lazy Expr schema, else a loose one. */
-export function childExprSchema(Expr?: z.ZodTypeAny): z.ZodTypeAny {
-  return Expr ?? looseExprSchema();
-}
-
-/** A child-query schema slot: the caller's lazy Query schema, else a loose one. */
-export function childQuerySchema(Query?: z.ZodTypeAny): z.ZodTypeAny {
-  return Query ?? looseExprSchema();
 }
 
 /**

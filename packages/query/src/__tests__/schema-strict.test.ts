@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildSchemas } from '../llm/schemas';
 import type { SelectDef } from '../schema';
-import { fixture } from './_utils';
+import { fixture, accepts, decode } from './_utils';
 
 /** A valid select over the `user` Type (source named after the Type). */
 function validSelect(): SelectDef {
@@ -26,7 +26,7 @@ describe('buildSchemas — strict', () => {
   it('accepts a select with a Type+field-paired field-ref', () => {
     const fx = fixture();
     const schemas = buildSchemas(fx.engine, { strict: true });
-    expect(schemas.Select.safeParse(validSelect()).success).toBe(true);
+    expect(accepts(schemas.Select, validSelect())).toBe(true);
   });
 
   it('accepts a field-ref into a different Type with one of ITS fields', () => {
@@ -37,7 +37,7 @@ describe('buildSchemas — strict', () => {
       fields: [{ expr: { kind: 'field-ref', source: 'order', field: 'total' } }],
       from: { kind: 'type', type: 'order' },
     };
-    expect(schemas.Select.safeParse(orderSelect).success).toBe(true);
+    expect(accepts(schemas.Select, orderSelect)).toBe(true);
   });
 
   it('REJECTS a field-ref pairing a Type with another Type\'s field', () => {
@@ -48,14 +48,14 @@ describe('buildSchemas — strict', () => {
       ...validSelect(),
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'total' } }],
     };
-    expect(schemas.Select.safeParse(crossed).success).toBe(false);
+    expect(accepts(schemas.Select, crossed)).toBe(false);
   });
 
   it('rejects a select whose FROM names an unknown Type', () => {
     const fx = fixture();
     const schemas = buildSchemas(fx.engine, { strict: true });
     const bad: SelectDef = { ...validSelect(), from: { kind: 'type', type: 'ghost' } };
-    expect(schemas.Select.safeParse(bad).success).toBe(false);
+    expect(accepts(schemas.Select, bad)).toBe(false);
   });
 
   it('rejects a field-ref naming a field that exists on the Type', () => {
@@ -65,7 +65,7 @@ describe('buildSchemas — strict', () => {
       ...validSelect(),
       fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'nonexistent' } }],
     };
-    expect(schemas.Select.safeParse(bad).success).toBe(false);
+    expect(accepts(schemas.Select, bad)).toBe(false);
   });
 
   it('roots a relation join at a known Type with a valid first hop', () => {
@@ -79,52 +79,52 @@ describe('buildSchemas — strict', () => {
       from: { kind: 'type', type: 'user' },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
     };
-    expect(schemas.Select.safeParse(ok).success).toBe(true);
+    expect(accepts(schemas.Select, ok)).toBe(true);
     // `name` is a field, NOT a relation — invalid first hop.
     const badHop: SelectDef = {
       ...ok,
       joins: [{ on: { kind: 'relation', source: 'user', field: 'name', as: 'order' } }],
     };
-    expect(schemas.Select.safeParse(badHop).success).toBe(false);
+    expect(accepts(schemas.Select, badHop)).toBe(false);
   });
 
   it('pairs a semantic score with a Type + one of ITS semantic fields', () => {
     const fx = fixture();
     const { Expr } = buildSchemas(fx.engine, { strict: true });
     // `email` is a search-flagged text field ⇒ semantic-eligible.
-    expect(Expr.safeParse({ kind: 'semantic', source: 'user', field: 'email', query: 'ada' }).success).toBe(true);
+    expect(accepts(Expr, { kind: 'semantic', source: 'user', field: 'email', query: 'ada' })).toBe(true);
     // The query may be another semantic Type+field.
     expect(
-      Expr.safeParse({
+      accepts(Expr, {
         kind: 'semantic',
         source: 'user',
         query: { type: 'user', field: 'email' },
-      }).success,
+      }),
     ).toBe(true);
     // `name` is plain (non-semantic) text ⇒ rejected as a semantic field.
-    expect(Expr.safeParse({ kind: 'semantic', source: 'user', field: 'name', query: 'x' }).success).toBe(false);
+    expect(accepts(Expr, { kind: 'semantic', source: 'user', field: 'name', query: 'x' })).toBe(false);
     // A cross-Type field (`total` is an `order` field) is rejected for `user`.
-    expect(Expr.safeParse({ kind: 'semantic', source: 'user', field: 'total', query: 'x' }).success).toBe(false);
+    expect(accepts(Expr, { kind: 'semantic', source: 'user', field: 'total', query: 'x' })).toBe(false);
   });
 
   it('pairs a text-search with a Type + one of ITS text fields', () => {
     const fx = fixture();
     const { Expr } = buildSchemas(fx.engine, { strict: true });
     // `email` / `name` are text fields ⇒ valid narrowed-search targets.
-    expect(Expr.safeParse({ kind: 'text-search', source: 'user', field: 'email', query: 'ada' }).success).toBe(true);
+    expect(accepts(Expr, { kind: 'text-search', source: 'user', field: 'email', query: 'ada' })).toBe(true);
     // `id` is a number ⇒ not a text field, rejected.
-    expect(Expr.safeParse({ kind: 'text-search', source: 'user', field: 'id', query: 'x' }).success).toBe(false);
+    expect(accepts(Expr, { kind: 'text-search', source: 'user', field: 'id', query: 'x' })).toBe(false);
   });
 
   it('locks a `filters` placeholder to a known source + its field-name allowlist', () => {
     const fx = fixture();
     const { Expr } = buildSchemas(fx.engine, { strict: true });
     // A bare placeholder over a known source is valid.
-    expect(Expr.safeParse({ kind: 'filters', source: 'user' }).success).toBe(true);
+    expect(accepts(Expr, { kind: 'filters', source: 'user' })).toBe(true);
     // The `fields` allowlist may only name that Type's fields.
-    expect(Expr.safeParse({ kind: 'filters', source: 'user', fields: ['email', 'age'] }).success).toBe(true);
+    expect(accepts(Expr, { kind: 'filters', source: 'user', fields: ['email', 'age'] })).toBe(true);
     // An unknown field in the allowlist is rejected.
-    expect(Expr.safeParse({ kind: 'filters', source: 'user', fields: ['nope'] }).success).toBe(false);
+    expect(accepts(Expr, { kind: 'filters', source: 'user', fields: ['nope'] })).toBe(false);
   });
 
   it('accepts a field-ref into a JOINED source keyed by the target TYPE name', () => {
@@ -142,7 +142,7 @@ describe('buildSchemas — strict', () => {
       from: { kind: 'type', type: 'user' },
       joins: [{ on: { kind: 'relation', source: 'user', field: 'orders', as: 'order' } }],
     };
-    expect(schemas.Select.safeParse(joined).success).toBe(true);
+    expect(accepts(schemas.Select, joined)).toBe(true);
   });
 
   it('non-strict mode accepts a free-string Type name and aliased source', () => {
@@ -153,6 +153,6 @@ describe('buildSchemas — strict', () => {
       fields: [{ expr: { kind: 'field-ref', source: 'w', field: 'whatever' } }],
       from: { kind: 'aliased', type: 'whatever', as: 'w' },
     };
-    expect(schemas.Select.safeParse(anything).success).toBe(true);
+    expect(accepts(schemas.Select, anything)).toBe(true);
   });
 });

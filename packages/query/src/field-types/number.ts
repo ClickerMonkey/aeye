@@ -1,5 +1,8 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
+import { closedSetA } from './_values';
 import type { FieldTypeDef, FieldTypeKind, FieldValueDef, NumberFieldTypeDef, NumberOptions } from '../schema';
+import type { JsonValue } from '../schema';
 import {
   fieldValuesSchema,
   checkFieldValues,
@@ -67,6 +70,16 @@ export function numberConstraintSchema(o: NumberOptions): z.ZodTypeAny {
  */
 export function checkNumberValues(kind: FieldTypeKind, path: readonly string[], o: NumberOptions): void {
   checkFieldValues(kind, path, o.values, numberConstraintSchema(o));
+}
+
+/** The `a` value schema of a NumberOptions bag (a closed set, else the bounds). */
+export function numberA(o: NumberOptions): SchemaOf<JsonValue> {
+  const set = closedSetA(o.values);
+  if (set) return set;
+  let s = o.whole ? a.int() : a.number();
+  if (o.min !== undefined) s = s.min(o.min);
+  if (o.max !== undefined) s = s.max(o.max);
+  return s;
 }
 
 /** Build a value-side Zod number schema honoring a NumberOptions bag. */
@@ -221,6 +234,10 @@ export class NumberFieldType extends FieldType {
   }
 
   /** Zod schema validating a number value, honoring the options. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    return numberA(this.options);
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return numberValueSchema(this.options);
   }

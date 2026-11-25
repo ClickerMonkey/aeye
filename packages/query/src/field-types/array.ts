@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import type { ArrayFieldTypeDef, FieldTypeDef, JsonValue } from '../schema';
 import type { ClosedSetViolation } from './_values';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
@@ -163,6 +164,13 @@ export class ArrayFieldType extends FieldType {
   }
 
   /** Zod schema validating an array value, honoring element type and bounds. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    let s = a.array(this.item ? this.item.toA() : a.json());
+    if (this.minItems !== undefined) s = s.min(this.minItems);
+    if (this.maxItems !== undefined) s = s.max(this.maxItems);
+    return s;
+  }
+
   protected override builtinValueSchema(opts?: ValueSchemaOptions): z.ZodTypeAny {
     // Each element is validated against the element type when known, else
     // against the permissive JSON-value schema (NO `z.any()`).

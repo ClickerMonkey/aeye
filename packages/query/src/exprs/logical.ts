@@ -2,9 +2,7 @@
  * LogicalExpr — boolean connective `and` / `or` / `not`. A `BoolExpr`. Each
  * operand must itself resolve to a boolean; `not` takes exactly one operand.
  */
-import { z } from 'zod';
 import type { ExprDef, LogicalExprDef, LogicalOp } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -12,8 +10,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { CostContext } from '../cost';
-import { categoryOf, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { categoryOf } from './_shared';
 import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
 import { ParamExpr } from './param';
 import type { RuntimeContext } from '../runtime/context';
@@ -81,18 +78,6 @@ export class LogicalExpr extends BoolExpr {
     (v) => new LogicalExpr(v.op, v.operands),
     { aid: 'Expr_logical' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (operands are child Expr slots). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('logical'),
-        op: withAid(z.enum(['and', 'or', 'not']), 'LogicalOp'),
-        operands: z.array(childExprSchema(opts.Expr)),
-      }),
-      'Expr_logical',
-    ).describe('Boolean connective (and / or / not).');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     for (const o of this.operands) visit(o);

@@ -4,7 +4,7 @@
  * method across BOTH SQL dialects plus the runtime 3VL branches.
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, typeScope, runtimeFixture, lit, ref, param, cmp } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, lit, ref, param, cmp, exprAccepts, grammarAccepts } from './_utils';
 import { asFieldType } from '../resolved-type';
 import { CaseExpr } from '../exprs/case';
 import { IsNullExpr } from '../exprs/is-null';
@@ -75,7 +75,7 @@ const bothSQL = (def: QueryDef): { base: string; pg: string } => ({
 describe('CaseExpr', () => {
   it('static from throws on a mismatched kind; toSchema parses a case def', () => {
     expect(() => CaseExpr.from(lit(1), fx.registry)).toThrow();
-    expect(CaseExpr.toSchema({}).safeParse({ kind: 'case', branches: [] }).success).toBe(true);
+    expect(exprAccepts({ kind: 'case', branches: [] })).toBe(true);
   });
 
   it('resolve mirrors the first then; nullable without else / with nullable branch', () => {
@@ -254,7 +254,7 @@ describe('CaseExpr', () => {
 describe('IsNullExpr', () => {
   it('static from throws on a mismatched kind; toSchema parses', () => {
     expect(() => IsNullExpr.from(lit(1), fx.registry)).toThrow();
-    expect(IsNullExpr.toSchema({}).safeParse({ kind: 'is-null', value: { kind: 'literal' } }).success).toBe(true);
+    expect(exprAccepts({ kind: 'is-null', value: { kind: 'literal', value: 1 } })).toBe(true);
   });
 
   it('resolve / validateWalk yield a non-nullable bool', () => {
@@ -308,12 +308,12 @@ describe('BetweenExpr', () => {
   it('static from throws on a mismatched kind; toSchema parses', () => {
     expect(() => BetweenExpr.from(lit(1), fx.registry)).toThrow();
     expect(
-      BetweenExpr.toSchema({}).safeParse({
+      exprAccepts({
         kind: 'between',
-        value: { kind: 'literal' },
-        lower: { kind: 'literal' },
-        upper: { kind: 'literal' },
-      }).success,
+        value: { kind: 'literal', value: 1 },
+        lower: { kind: 'literal', value: 1 },
+        upper: { kind: 'literal', value: 1 },
+      }),
     ).toBe(true);
   });
 
@@ -416,7 +416,7 @@ describe('BetweenExpr', () => {
 describe('ExcludedExpr', () => {
   it('static from throws on a mismatched kind; toSchema parses; EXCLUDED_SOURCE', () => {
     expect(() => ExcludedExpr.from(lit(1), fx.registry)).toThrow();
-    expect(ExcludedExpr.toSchema({}).safeParse({ kind: 'excluded', field: 'name' }).success).toBe(true);
+    expect(grammarAccepts('Expr_excluded', { kind: 'excluded', field: 'name' })).toBe(true);
     expect(EXCLUDED_SOURCE).toBe('excluded');
   });
 
@@ -503,7 +503,7 @@ describe('InExpr', () => {
   it('static from throws on a mismatched kind; toSchema parses list and subquery forms', () => {
     expect(() => InExpr.from(lit(1), fx.registry)).toThrow();
     expect(
-      InExpr.toSchema({}).safeParse({ kind: 'in', value: { kind: 'literal' }, in: [{ kind: 'literal' }] }).success,
+      exprAccepts({ kind: 'in', value: { kind: 'literal', value: 1 }, in: [{ kind: 'literal', value: 1 }] }),
     ).toBe(true);
   });
 

@@ -5,9 +5,7 @@
  * param can be reported), and resolves to the unified type discovered for it
  * (falling back to a nullable text placeholder until inference completes).
  */
-import { z } from 'zod';
 import type { ExprDef, ParamExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -16,7 +14,6 @@ import type { Problems } from '../problem';
 import type { ParamSet } from '../param';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { computed } from './_shared';
-import { withAid } from '../aids';
 import { obj, lit, str } from '../shape';
 import { TextFieldType } from '../field-types/index';
 import type { Value } from '../runtime/value';
@@ -59,17 +56,6 @@ export class ParamExpr extends Expr {
     (v) => new ParamExpr(v.name),
     { aid: 'Expr_param' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(_opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('param'),
-        name: z.string().describe('Parameter name; its type is inferred from usage.'),
-      }),
-      'Expr_param',
-    ).describe('A named bind parameter (contextually typed).');
-  }
 
   protected override contributeParams(params: ParamSet): void {
     params.reference(this.name);

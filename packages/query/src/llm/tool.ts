@@ -1,44 +1,36 @@
 /**
  * `buildQueryTool` — a ready-wired `@aeye/core` `Tool` an LLM agent can call.
  *
- * It BUILDS a core `Tool` whose wire schema is the engine's query schema and
- * whose custom `parse` REPLACES Zod validation: it validates the envelope,
- * STRUCTURALLY parses the `query` def into a runnable `Query` via the engine's
- * OWNED, zod-free structural parser (`registry.parseCheckedQuery`, see
- * `shape/`), and then runs the full engine SEMANTIC validation (params +
- * per-Type validators + unknown names). On any problem it returns a rich
- * `QueryToolError` whose `.message` is a concise, compiler-style report (via
- * `formatProblems`) — so the model sees the diagnostics instead of Zod's
- * harder-to-follow messages. When the query is clean the decoded value is the
- * built `Query`, and the tool's `call` handler RUNS it, returning a
- * `QueryResult`.
+ * Its schema (`queryToolSchema`) is the query grammar — `{ query: <structured> }`,
+ * or `{ query: string }` past `max` Types — wrapped in a codec whose decode turns
+ * the decoded `QueryDef` into the runnable `Query`:
  *
- * STRUCTURE vs SEMANTICS. Zod is NO LONGER the validator — it is only the
- * model-facing WIRE SCHEMA (`querySchema` / `buildSchemas`), exposed as the
- * tool's `schema` for the model to emit against (and for `compile` / strict
- * mode). The ACTIVE structural gate is the owned parser: it accepts any
- * REGISTERED expr / query / source kind with any string field (capability +
- * depth are wire-schema concerns), accumulating one-or-more aid-directed,
- * `didYouMean`-suggesting problems in a single pass and NEVER throwing. Unknown
- * Types / fields / functions are caught DOWNSTREAM by `validateQuery` /
- * `validateWalk` with the existing aid-directed SEMANTIC messages.
+ *  1. `@aeye/schema` decodes the model's answer from its wire shape (pairs back
+ *     to records, nulls back to absent, …) and checks its STRUCTURE against the
+ *     grammar at the requested depth;
+ *  2. the codec parses it with the engine's owned structural parser
+ *     (`registry.parseCheckedQuery`) and runs the engine's SEMANTIC validation
+ *     (`engine.validateQuery`: params, per-Type validators, unknown names with
+ *     "did you mean");
+ *  3. a problem from 1 or 2 is told to the model in `@aeye/schema`'s error
+ *     format — its own JSON with a marker under each mistake, at the tool's
+ *     `errorFormat` detail level, never past its size cap;
+ *  4. `call` RUNS the validated `Query` and returns the `QueryResult`.
  *
- * The pipeline:
- *  1. validate the ENVELOPE (`{ query: … }`) structurally — no zod;
- *  2. in STRING-FALLBACK mode (too many Types — see `shouldUseStringSchema`) or
- *     when `query` is a prose string, report that it still needs structuring;
- *  3. in STRUCTURED mode, STRUCTURALLY parse the `query` object into a runnable
- *     `Query` (accumulating problems); if it is structurally sound, run the full
- *     engine SEMANTIC validation, rendering any `Problems` LLM-friendly via
- *     `formatProblems`;
- *  4. RUN the validated query in `call`.
+ * In STRING-FALLBACK mode (too many Types — `shouldUseStringSchema`) a prose
+ * query can't run here; the call is answered with "it still needs structuring".
  *
  * The `instructions` embed the engine's capability summary + example query
  * JSON from `describe`, so the prompt is self-contained.
+ *
+ * `parseQueryRequest` / `parseQueryTool` run steps 2–3 without a tool, for a
+ * value that never went through a model's wire shape (a CLI, a file, an
+ * integration harness), reporting with `Code.formatProblems`.
  */
-import { z } from 'zod';
 import { Tool } from '@aeye/core';
+import { a, Rejection, type Bindable, type Bundle, type ErrorFormatInput, type RuleIssue } from '@aeye/schema';
 import type { QueryEngine } from '../engine';
+import type { Registry } from '../registry';
 import type { Query, QueryResult } from '../queries/query';
 import type { RuntimeOptions } from '../runtime/context';
 import { Problems } from '../problem';
@@ -46,26 +38,17 @@ import { isRecord, expected } from '../shape';
 import type { QueryDef } from '../schema';
 import { Code, type FormatProblemsOptions } from '../code';
 import { describeEngine } from './describe';
-import {
-  querySchema,
-  shouldUseStringSchema,
-  depthInstructions,
-  type QuerySchemaOptions,
-} from './schemas';
+import { QueryGrammar } from './grammar';
+import { QueryProseArgs } from './schemas';
+import { shouldUseStringSchema, depthInstructions, type BuildSchemasOptions, type QuerySchemaOptions } from './depth';
 
-/** The argument shape the tool's schema accepts. */
-export interface QueryToolInput {
-  /** A structured query def, or a prose description in string-fallback mode. */
-  query: QueryDef | string;
-}
+export type { QueryToolInput } from './schemas';
 
 /**
- * Thrown / returned when an LLM-supplied query fails to validate. It carries
- * the accumulated `problems` plus their LLM-friendly `report`; its `.message`
- * IS that report, so the model-facing error channel surfaces the concise,
- * compiler-style diagnostics (with `Code` fallback lines) rather than Zod's
- * output. (Distinct from `QueryTypeError`, which carries a single terse
- * `Problem` and cannot render the multi-problem `formatProblems` report.)
+ * Returned by `parseQueryTool` when a query fails to validate. It carries the
+ * accumulated `problems` plus their `report`; its `.message` IS that report:
+ * concise, compiler-style diagnostics (with `Code` fallback lines). (Distinct
+ * from `QueryTypeError`, which carries a single terse `Problem`.)
  */
 export class QueryToolError extends Error {
   constructor(readonly problems: Problems, readonly report: string) {
@@ -83,41 +66,42 @@ export interface BuildQueryToolOptions extends QuerySchemaOptions {
   /** Runtime options for the run (param values, etc.). */
   runtime?: RuntimeOptions;
   /**
-   * Overrides for the compiler-style problem report `formatProblems` renders
-   * into a `QueryToolError.message`. Absent ⇒ the defaults (`contextLines: 2`,
-   * section headers + line-number gutter on). E.g. `{ contextLines: 0 }` drops
-   * the surrounding context (just the underlined line); `{ lineNumbers: false }`
-   * drops the gutter.
+   * How a rejected call is told to the model: a detail level (`'summary'` ·
+   * `'list'` · `'markers'` · `'full'`, the default) or the full `ErrorFormat`
+   * (see @aeye/schema, "Errors for the model").
+   */
+  errorFormat?: ErrorFormatInput;
+  /**
+   * `parseQueryRequest` / `parseQueryTool` only: overrides for the
+   * compiler-style problem report `formatProblems` renders into a
+   * `QueryToolError.message`. Absent ⇒ the defaults (`contextLines: 2`,
+   * section headers + line-number gutter on).
    */
   report?: FormatProblemsOptions;
 }
 
 /**
- * Render problems as compiler-style, UNDERLINED diagnostics over the model's
- * own query JSON. `Code.fromJson(value)` emits the canonical
- * `JSON.stringify(value, null, 2)` text with a span pre-registered for every
- * node, so each problem whose `path` matches a JSON node is underlined (`^^^`)
- * at the offending value with surrounding context; a problem whose path
- * resolves to no node keeps the graceful `<severity>: <message> @ <path>`
- * fallback line. `value` is the JSON the problems' paths are relative to — the
- * structured `query` def for structural/semantic problems, or the raw envelope
- * for envelope failures.
+ * Render problems as compiler-style, UNDERLINED diagnostics over the query
+ * JSON (`Code.fromJson(value).formatProblems`): each problem whose `path`
+ * matches a JSON node is underlined at the offending value; one whose path
+ * resolves to no node keeps a `<severity>: <message> @ <path>` line.
  */
 function reportFor(value: unknown, problems: Problems, opts?: FormatProblemsOptions): string {
   if (problems.list.length === 0) return '';
   return Code.fromJson(value).formatProblems(problems, opts);
 }
 
-/** The parse+validate pipeline (steps 1–3, WITHOUT running the query). */
+/** The message a prose query (string-fallback mode) is answered with. */
+const NEEDS_STRUCTURING = 'Received a prose query; it must be converted to a structured query before it can run.';
+
+/** The parse+validate pipeline for a value in the code shape (WITHOUT running the query). */
 function parseQueryInput(
   engine: QueryEngine,
   useString: boolean,
   raw: unknown,
   reportOpts?: FormatProblemsOptions,
 ): { query: Query | null; problems: Problems; report: string } {
-  // 1. Validate the ENVELOPE structurally (no zod): it must be an object that
-  // carries a `query` member. Both failures render against the raw envelope,
-  // whose root span underlines the whole offending value.
+  // 1. The ENVELOPE: an object carrying a `query` member.
   if (!isRecord(raw)) {
     const problems = new Problems();
     problems.error('shape.not-object', expected('QueryRequest', raw));
@@ -130,43 +114,31 @@ function parseQueryInput(
   }
   const queryValue = raw['query'];
 
-  // 2. String-fallback mode: prose (the degraded string schema) can't be made
-  // runnable here. Preserved from the zod era: the prose branch fires whenever
-  // the schema degraded to the string form OR the `query` value is a string.
+  // 2. String-fallback mode, or a prose `query`: it can't be made runnable here.
   if (useString || typeof queryValue === 'string') {
     const problems = new Problems();
-    problems.info(
-      'query.needs-structuring',
-      'Received a prose query; it must be converted to a structured query before it can run.',
-    );
+    problems.info('query.needs-structuring', NEEDS_STRUCTURING);
     return { query: null, problems, report: reportFor(queryValue, problems, reportOpts) };
   }
 
-  // 3. STRUCTURALLY parse the `query` def into a runnable `Query` via the owned,
-  // zod-free structural parser (accumulating, aid-directed, never throws). On
-  // ANY structural problem, stop here — the source map underlines each one.
+  // 3. STRUCTURALLY parse via the owned parser (accumulating, never throws).
   const problems = new Problems();
   const query = engine.registry.parseCheckedQuery(queryValue, problems);
   if (query === undefined || problems.hasErrors) {
     return { query: null, problems, report: reportFor(queryValue, problems, reportOpts) };
   }
 
-  // 4. Structurally sound ⇒ run SEMANTIC validation (structure walk + params +
-  // per-Type validators + unknown-name diagnostics).
+  // 4. SEMANTIC validation (structure walk + params + per-Type validators + unknown names).
   const semantic = engine.validateQuery(query);
   return { query, problems: semantic, report: reportFor(queryValue, semantic, reportOpts) };
 }
 
 /**
- * STANDALONE parse+validate for a query REQUEST — the same pipeline
- * `buildQueryTool`'s custom `parse` runs, WITHOUT building a Tool. Given the
- * conceptual `{ query: … }` envelope (already wire-decoded by core before any
- * Tool/Prompt custom parse, or a directly-parsed CLI/file def), it validates
- * the envelope, structurally parses the `query` def, and semantically validates
- * it — returning the runnable `Query` (or `null`) alongside the accumulated
- * `problems` and their underlined, aid-directed `report`. Use this when you
- * only need to parse/validate (CLI, file, integration harness); reach for
- * `buildQueryTool` only when you need a runnable core `Tool`.
+ * STANDALONE parse+validate for a query REQUEST (`{ query: … }` in the code
+ * shape: a CLI / file def, an integration harness), WITHOUT building a Tool:
+ * the runnable `Query` (or `null`) with the accumulated `problems` and their
+ * underlined `report`. A model's answer goes through `buildQueryTool` instead,
+ * whose schema decodes the wire shape first.
  */
 export function parseQueryRequest(
   engine: QueryEngine,
@@ -179,12 +151,9 @@ export function parseQueryRequest(
 }
 
 /**
- * STANDALONE convenience over `parseQueryRequest`: return the runnable `Query`
- * when the request is clean, or a rich `QueryToolError` (carrying the problems
- * + underlined report) otherwise. This is the exact result `buildQueryTool`'s
- * custom `parse` produces — the tool reuses it — so a direct
- * `parseQueryTool(engine, { query })` call and `buildQueryTool(engine).parse`
- * are interchangeable for parsing.
+ * STANDALONE convenience over `parseQueryRequest`: the runnable `Query` when
+ * the request is clean, else a `QueryToolError` carrying the problems and the
+ * underlined report.
  */
 export function parseQueryTool(
   engine: QueryEngine,
@@ -195,41 +164,65 @@ export function parseQueryTool(
   return query && !problems.hasErrors ? query : new QueryToolError(problems, report);
 }
 
+/** A query's error problems as `RuleIssue`s at their paths under `query`. */
+function issuesOf(problems: Problems): RuleIssue[] {
+  return problems.list
+    .filter((p) => p.severity === 'error')
+    .map((p) => ({ path: ['query', ...p.path], message: p.message }));
+}
+
 /**
- * Build a ready-wired core `Tool` for an engine: its wire schema is the
- * engine's query schema, its custom `parse` validates + parses an LLM-supplied
- * query into a runnable `Query` (returning a rich `QueryToolError` on any
- * problem), and its `call` handler RUNS the validated query and returns the
- * `QueryResult`. Wire it into any `@aeye/core`-based agent's tool set.
+ * The query tool's arguments: the grammar (or the prose fallback) decoded
+ * into the runnable `Query`. Structural and semantic problems are
+ * rejections at their paths, told to the model in @aeye/schema's format.
+ * A ref-free schema or a bundle with no arguments left (bound for this
+ * engine and options).
+ */
+export function queryToolSchema(engine: QueryEngine, options: QuerySchemaOptions = {}): Bindable<Query> {
+  const types = options.types ?? engine.registry.typeList();
+  if (shouldUseStringSchema(types, options.max)) {
+    const prose = a.codec(QueryProseArgs, {
+      decode: (): Query | Rejection => new Rejection([{ path: ['query'], message: NEEDS_STRUCTURING }]),
+      encode: (q: Query) => ({ query: JSON.stringify(q.toJSON()) }),
+    });
+    return prose;
+  }
+  const args = a.codec(a.object({ query: a.refOf<QueryDef>('Query').describe('The query to execute as a structured Query object.') }), {
+    decode: (v: { query: QueryDef }): Query | Rejection => {
+      const problems = new Problems();
+      const query = engine.registry.parseCheckedQuery(v.query, problems);
+      if (query === undefined || problems.hasErrors) return new Rejection(issuesOf(problems));
+      const semantic = engine.validateQuery(query);
+      return semantic.hasErrors ? new Rejection(issuesOf(semantic)) : query;
+    },
+    encode: (q: Query) => ({ query: q.toJSON() }),
+  });
+  const build: BuildSchemasOptions = options;
+  // The codec's code type is the runnable `Query` class: kept as is, not walked for refs.
+  const bundle = QueryGrammar.result(args) as unknown as Bundle<Query, [Registry, BuildSchemasOptions?]>;
+  return bundle.adapt(() => [engine.registry, build]);
+}
+
+/**
+ * Build a ready-wired core `Tool` for an engine: its schema is the engine's
+ * query grammar decoded into a runnable `Query` (`queryToolSchema`), and its
+ * `call` handler RUNS the query and returns the `QueryResult`. Wire it into
+ * any `@aeye/core`-based agent's tool set.
  */
 export function buildQueryTool(
   engine: QueryEngine,
   options: BuildQueryToolOptions = {},
-): Tool<{}, {}, string, QueryToolInput, Promise<QueryResult>, [], Query> {
+): Tool<{}, {}, string, Query, Promise<QueryResult>, []> {
   const types = options.types ?? engine.registry.typeList();
-  const max = options.max;
-  const useString = shouldUseStringSchema(types, max);
-  // `querySchema` is dynamically composed from `z.ZodTypeAny` building blocks, so
-  // its static type is `ZodType<unknown>` even though it validates exactly the
-  // `QueryToolInput` envelope at runtime. In zod 4.x `ZodTypeAny` is
-  // `ZodType<unknown>` with a COVARIANT output, so it is not statically
-  // assignable to the `ZodType<QueryToolInput>` the core `Tool.schema` field
-  // requires. Assert the validated wire shape once, here, at the boundary.
-  //
-  // Zod is the model-facing WIRE SCHEMA only — the tool exposes it as `schema`
-  // for the model to emit against (and for `compile` / strict mode). The ACTIVE
-  // structural gate is the owned parser inside `parse` (see `parseQueryInput`).
-  const schema = querySchema(engine, options) as z.ZodType<QueryToolInput>;
+  const useString = shouldUseStringSchema(types, options.max);
 
   // In STRUCTURED mode, tell the model which positions the active `depth`
   // constrains (paired field-refs, enum Type names, typed function args, …) so
-  // the prose and the Zod schema agree. Empty in free-string `open` mode.
+  // the prose and the schema agree. Empty in free-string `open` mode.
   const depthNote = useString ? '' : depthInstructions(engine, options);
 
-  // Capability gating: the generated schema OMITS any expr kind the available
-  // Types / functions can't use (e.g. semantic / text-search / array-op / joins
-  // appear only when a Type is semantic / searchable / has an array / has a
-  // relation). Flag it so the model doesn't reach for an absent construct.
+  // Capability gating: the grammar OMITS any expr kind the available Types /
+  // functions can't use. Flag it so the model doesn't reach for an absent construct.
   const gatingNote = useString
     ? ''
     : 'Only expression kinds the available Types and functions can use are offered — e.g. semantic / text-search / array / join appear ONLY when a Type supports them. Do not invent an unavailable kind.';
@@ -242,24 +235,17 @@ export function buildQueryTool(
     depthNote ? `\nSchema constraints:\n${depthNote}` : '',
     gatingNote ? `\n${gatingNote}` : '',
     '',
-    // Forward the function selection so the listed functions match the schema.
-    // `describeEngine` now folds in worked examples (per expr kind, function, and
-    // query kind) from the nodes' own `EXAMPLES` — the one source of truth.
     describeEngine(engine, { types, functions: options.functions }),
   ].join('\n');
 
-  return new Tool<{}, {}, string, QueryToolInput, Promise<QueryResult>, [], Query>({
+  return new Tool<{}, {}, string, Query, Promise<QueryResult>, []>({
     name: options.name ?? 'query',
     description:
       options.description ??
       'Execute a structured query (select / insert / update / delete / set-op / cte) over the available Types.',
     instructions,
-    schema,
-    // Custom parser REPLACES Zod: validate the envelope, STRUCTURALLY parse +
-    // SEMANTICALLY validate the query, then return the runnable `Query` (clean)
-    // or a rich `QueryToolError` (problems). Delegates to the STANDALONE
-    // `parseQueryTool` — ONE parse implementation shared with direct callers.
-    parse: (raw, _ctx) => parseQueryTool(engine, raw, options),
+    schema: queryToolSchema(engine, options),
+    ...(options.errorFormat !== undefined ? { errorFormat: options.errorFormat } : {}),
     // The handler RUNS the (already-validated) query in-memory.
     call: (query, _refs, _ctx) => engine.run(query, options.runtime),
   });

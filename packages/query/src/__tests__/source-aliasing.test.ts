@@ -15,30 +15,32 @@
 import { describe, it, expect } from 'vitest';
 import { buildSchemas } from '../llm/schemas';
 import type { SelectDef, SourceDef } from '../schema';
-import { fixture } from './_utils';
+import { fixture, accepts, decode } from './_utils';
 
 describe('source aliasing — non-strict Source schema', () => {
   it('accepts a plain type source and the aliased escape hatch', () => {
     const fx = fixture();
     const { Source } = buildSchemas(fx.engine);
-    expect(Source.safeParse({ kind: 'type', type: 'user' }).success).toBe(true);
-    expect(Source.safeParse({ kind: 'aliased', type: 'user', as: 'u' }).success).toBe(true);
+    expect(accepts(Source, { kind: 'type', type: 'user' })).toBe(true);
+    expect(accepts(Source, { kind: 'aliased', type: 'user', as: 'u' })).toBe(true);
   });
 
   it('the type branch carries no alias — an `as` key is ignored, not bound', () => {
     const fx = fixture();
     const { Source } = buildSchemas(fx.engine);
-    const parsed = Source.safeParse({ kind: 'type', type: 'user', as: 'u' });
-    expect(parsed.success).toBe(true);
-    // The `type` branch has no `as` field, so the extra key is stripped — the
-    // common path cannot express an inconsistent alias.
-    expect(parsed.success && 'as' in parsed.data).toBe(false);
+    const parsed = decode(Source, { kind: 'type', type: 'user', as: 'u' });
+    expect(parsed.ok).toBe(true);
+    // The `type` branch has no `as` field: the extra key is left in place (an open
+    // object), and the source parser never reads it — the type source stays bound
+    // under its type name, so the common path cannot express an inconsistent alias.
+    const q = fx.engine.parseQuery({ kind: 'select', fields: [{ expr: { kind: 'field-ref', source: 'user', field: 'id' } }], from: { kind: 'type', type: 'user', as: 'u' } as never });
+    expect(fx.engine.validateQuery(q).hasErrors).toBe(false);
   });
 
   it('the aliased branch requires an `as`', () => {
     const fx = fixture();
     const { Source } = buildSchemas(fx.engine);
-    expect(Source.safeParse({ kind: 'aliased', type: 'user' }).success).toBe(false);
+    expect(accepts(Source, { kind: 'aliased', type: 'user' })).toBe(false);
   });
 });
 

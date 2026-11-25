@@ -3,9 +3,7 @@
  * itself null (the test always yields true/false), so it overrides the
  * default bool resolve to force non-nullable.
  */
-import { z } from 'zod';
 import type { ExprDef, IsNullExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -13,8 +11,7 @@ import type { ComputedResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { EQ_SELECTIVITY } from '../cost';
-import { boolResult, gatherSources, anyAggregate, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { boolResult, gatherSources, anyAggregate } from './_shared';
 import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import { relationKeySqls } from './_relation-value';
@@ -61,18 +58,6 @@ export class IsNullExpr extends BoolExpr {
     (v) => new IsNullExpr(v.value, v.not ?? false),
     { optional: ['not'], aid: 'Expr_is-null' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (value is a child Expr slot). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('is-null'),
-        value: childExprSchema(opts.Expr),
-        not: z.boolean().optional(),
-      }),
-      'Expr_is-null',
-    ).describe('Null test (value IS [NOT] NULL).');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.value);

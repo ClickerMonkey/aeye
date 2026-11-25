@@ -21,6 +21,7 @@ import {
   orderTypeDef,
   userRows,
   orderRows,
+  exprAccepts,
 } from './_utils';
 import { createRegistry } from '../registry';
 import { QueryEngine } from '../engine';
@@ -29,7 +30,7 @@ import { RuntimeContext } from '../runtime/context';
 import { FieldRefExpr } from '../exprs/field-ref';
 import { SubqueryExpr } from '../exprs/subquery';
 import { FiltersExpr } from '../exprs/filters';
-import { exprDefSchema, BUILTIN_EXPRS } from '../exprs/index';
+import { BUILTIN_EXPRS } from '../exprs/index';
 import {
   computed,
   boolResult,
@@ -39,9 +40,6 @@ import {
   anyNullable,
   anyAggregate,
   categoryOf,
-  looseExprSchema,
-  childExprSchema,
-  childQuerySchema,
 } from '../exprs/_shared';
 import { asFieldType } from '../resolved-type';
 import { NumberFieldType } from '../field-types/index';
@@ -610,24 +608,14 @@ describe('_shared helpers', () => {
     expect(categoryOf(compRes)).toBe('bool'); // computed kind
   });
 
-  it('loose / child schema slots', () => {
-    expect(looseExprSchema().safeParse({ kind: 'x' }).success).toBe(true);
-    expect(childExprSchema().safeParse({ kind: 'x' }).success).toBe(true);
-    const inner = looseExprSchema();
-    expect(childExprSchema(inner)).toBe(inner);
-    expect(childQuerySchema().safeParse({ kind: 'x' }).success).toBe(true);
-    expect(childQuerySchema(inner)).toBe(inner);
-  });
 });
 
 // ─── exprs/index.ts ──────────────────────────────────────────────────────────
 
-describe('exprs/index — folded ExprDef schema', () => {
-  it('exprDefSchema() folds every builtin; accepts opts; BUILTIN_EXPRS is non-empty', () => {
+describe('exprs/index — BUILTIN_EXPRS', () => {
+  it('BUILTIN_EXPRS is non-empty and the grammar takes a builtin kind', () => {
     expect(BUILTIN_EXPRS.length).toBeGreaterThan(0);
-    const bare = exprDefSchema();
-    expect(bare.safeParse({ kind: 'field-ref', source: 'u', field: 'name' }).success).toBe(true);
-    const withOpts = exprDefSchema({});
-    expect(withOpts.safeParse({ kind: 'literal', value: 1 }).success).toBe(true);
+    expect(exprAccepts({ kind: 'field-ref', source: 'u', field: 'name' })).toBe(true);
+    expect(exprAccepts({ kind: 'literal', value: 1 })).toBe(true);
   });
 });

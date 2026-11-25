@@ -16,9 +16,7 @@
  *  - **a dialect that declares no template is REFUSED, never degraded.** See
  *    {@link OperatorExpr.toSQL}.
  */
-import { z } from 'zod';
 import type { ExprDef, OperatorExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -26,9 +24,8 @@ import type { ComputedResolved, ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { QueryTypeError } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { anyAggregate, anyNullable, computed, gatherSources, textResult, childExprSchema } from './_shared';
-import { orFold } from '../schema-build';
-import { withAid, didYouMean } from '../aids';
+import { anyAggregate, anyNullable, computed, gatherSources, textResult } from './_shared';
+import { didYouMean } from '../aids';
 import { obj, lit, str, record, exprRef } from '../shape';
 import type { FieldType } from '../field-type';
 import type { QueryOperator } from '../operator';
@@ -36,16 +33,7 @@ import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { type NamedArgs, runOperator } from '../runtime/functions';
-import {
-  parseNamedArgs,
-  namedArgSchema,
-  resolveNamedArgs,
-  validateNamedArgs,
-  evaluateNamedArgs,
-  observeNamedParams,
-  namedArgsToJSON,
-  namedArgsToCode,
-} from './_function-args';
+import { parseNamedArgs, resolveNamedArgs, validateNamedArgs, evaluateNamedArgs, observeNamedParams, namedArgsToJSON, namedArgsToCode } from './_function-args';
 import type { Cost, CostContext } from '../cost';
 import { addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
@@ -92,67 +80,6 @@ export class OperatorExpr extends Expr {
     (v) => new OperatorExpr(v.op, v.args),
     { aid: 'Expr_operator' },
   );
-
-  /**
-   * Zod schema for this expr kind's JSON shape.
-   *
-   * `op` is ENUM-LOCKED to the registered operator names whenever a registry is
-   * supplied and the `functions` depth axis asks for more than `open` — the same
-   * argument that made a refinement's `as` an enum rather than a string: a model
-   * free to write `op: '&&'` into a registry that has no `&&` finds out at
-   * validate, one whole round trip later. The glossary carries each operator's
-   * signature and `instructions` inline, because a bare list of glyphs tells a
-   * model what it may write and not what any of them mean.
-   *
-   * At `typed` depth each operator additionally gets its own STRICT operand
-   * object, so a misspelled operand name is refused by the schema rather than by
-   * validation. The axis is `functions` rather than an axis of its own: an
-   * operator IS a named-argument call, and a caller who asked for loose function
-   * calls did not ask for strict operator ones.
-   */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    const registered = opts.registry?.operatorList() ?? [];
-    const depth = opts.depth?.functions ?? 'open';
-    const [first, ...rest] = registered.map((o) => o.name);
-    // No registry (a bare `Cls.toSchema()`) or an explicitly open depth ⇒ the
-    // free-string shape, matching what a `function-call` renders in the same
-    // circumstances.
-    if (depth === 'open' || first === undefined) {
-      return withAid(
-        z.object({
-          kind: z.literal('operator'),
-          op: z.string().describe('Registered operator name.'),
-          args: namedArgSchema(child),
-        }),
-        'Expr_operator',
-      ).describe('A registered operator applied to named operands.');
-    }
-    const glossary = registered.map((o) => `${signatureOf(o)} — ${o.instructions}`).join(' ');
-    if (depth === 'names') {
-      return withAid(
-        z.object({
-          kind: z.literal('operator'),
-          op: withAid(z.enum([first, ...rest]), 'OperatorName').describe(`A registered operator. ${glossary}`),
-          args: namedArgSchema(child),
-        }),
-        'Expr_operator',
-      ).describe('A registered operator applied to named operands.');
-    }
-    const branches = registered.map((operator) =>
-      withAid(
-        z.object({
-          kind: z.literal('operator'),
-          op: z.literal(operator.name).describe(`${signatureOf(operator)} — ${operator.instructions}`),
-          args: z
-            .strictObject(Object.fromEntries(operator.operands.map((o) => [o.name, child])))
-            .describe(`Operands for \`${operator.name}\`.`),
-        }),
-        'Expr_operator',
-      ),
-    );
-    return orFold(branches).describe('A registered operator applied to named operands.');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     for (const a of this.args.values()) visit(a);
@@ -376,7 +303,7 @@ export class OperatorExpr extends Expr {
  * through `llm/describe.ts`'s richer tag, so an expr class stays independent of
  * the description layer.
  */
-function signatureOf(operator: QueryOperator): string {
+export function signatureOf(operator: QueryOperator): string {
   const operands = operator.operands.map((o) => `${o.name}: ${typeOf(o.fieldType)}`).join(', ');
   return `${operator.name}(${operands}) → ${typeOf(operator.output)}`;
 }

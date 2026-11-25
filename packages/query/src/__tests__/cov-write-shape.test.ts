@@ -7,7 +7,7 @@
  * (`names` schema + its `depthInstructions` note).
  */
 import { describe, it, expect } from 'vitest';
-import { runtimeFixture } from './_utils';
+import { runtimeFixture, accepts, decode } from './_utils';
 import { buildSchemas, depthInstructions } from '../llm/schemas';
 import { Problems } from '../problem';
 import type { InsertDef, UpdateDef, ExprDef } from '../schema';
@@ -129,14 +129,14 @@ describe('write model — the `writes` depth axis', () => {
   it("writes:'names' pins per-Type field names (Expr values), rejecting unknown fields + raw values", () => {
     const fx = runtimeFixture();
     const schemas = buildSchemas(fx.engine, { depth: { writes: 'names' } });
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'user', rows: [{ name: lit('A') }] }).success).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'user', rows: [{ name: lit('A') }] })).toBe(true);
     // Unknown field key ⇒ rejected (strict per-Type object).
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'user', rows: [{ bogus: lit('A') }] }).success).toBe(false);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'user', rows: [{ bogus: lit('A') }] })).toBe(false);
     // A RAW value is not accepted at `names` (values must be expressions).
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'user', rows: [{ name: 'raw' }] }).success).toBe(false);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'user', rows: [{ name: 'raw' }] })).toBe(false);
     // UPDATE set uses the same per-Type object.
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'user', set: { name: lit('A') } }).success).toBe(true);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'user', set: { bogus: lit('A') } }).success).toBe(false);
+    expect(accepts(schemas.Update, { kind: 'update', type: 'user', set: { name: lit('A') } })).toBe(true);
+    expect(accepts(schemas.Update, { kind: 'update', type: 'user', set: { bogus: lit('A') } })).toBe(false);
   });
 
   it("depthInstructions notes the writes:'names' constraint", () => {
@@ -150,7 +150,7 @@ describe('write model — the `writes` depth axis', () => {
     // user has several fields ⇒ `typed` degrades two rungs to the loose open shape.
     const schemas = buildSchemas(fx.engine, { depth: { writes: 'typed' }, maxEnumSize: 1 });
     // Open ⇒ a free `{ field: Expr }` record accepting any field name.
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'user', rows: [{ anything: lit('x') }] }).success).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'user', rows: [{ anything: lit('x') }] })).toBe(true);
   });
 });
 

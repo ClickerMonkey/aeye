@@ -21,7 +21,7 @@ import { SqlText } from '../sql/emit';
 import { buildSchemas } from '../llm/schemas';
 import { TextScoreExpr } from '../exprs/text-score';
 import { e } from '../builder';
-import { cctx, lit, param } from './_utils';
+import { cctx, lit, param, exprAccepts, accepts, decode } from './_utils';
 import type { QueryScope } from '../scope';
 import type { TypeDef, SelectDef, ExprDef, QueryDef, TypeBacking } from '../schema';
 import type { SourceRecord } from '../runtime/row';
@@ -263,12 +263,8 @@ describe('TextScoreExpr: conventions', () => {
   });
 
   it('toSchema parses a text-score def (bare opts + explicit depth)', () => {
-    expect(TextScoreExpr.toSchema({}).safeParse({ kind: 'text-score', source: 'u', query: 'foo' }).success).toBe(true);
-    const withDepth = TextScoreExpr.toSchema({
-      types: [],
-      depth: { refs: 'open', typeNames: 'open', functions: 'names', filters: 'open' },
-    });
-    expect(withDepth.safeParse({ kind: 'text-score', source: 'u', query: 'foo' }).success).toBe(true);
+    expect(exprAccepts({ kind: 'text-score', source: 'u', query: 'foo' })).toBe(true);
+    expect(exprAccepts({ kind: 'text-score', source: 'u', query: 'foo' }, { depth: { refs: 'open', typeNames: 'open', functions: 'names', filters: 'open' } })).toBe(true);
   });
 
   it('resolve yields a non-nullable number; forEachChild visits the param only', () => {
@@ -370,12 +366,12 @@ describe('TextScoreExpr: builder + gating', () => {
   it('appears in the LLM Expr schema only where a searchable field exists', () => {
     const engine = makeEngine();
     const withSearch = buildSchemas(engine, { depth: 'open' });
-    expect(withSearch.Expr.safeParse({ kind: 'text-score', source: 'plain', query: 'x' }).success).toBe(true);
+    expect(accepts(withSearch.Expr, { kind: 'text-score', source: 'plain', query: 'x' })).toBe(true);
 
     const registry = createRegistry();
     registry.registerType(registry.parseType(nosrchDef));
     registry.finalize();
     const noSearch = buildSchemas(new QueryEngine(registry), { depth: 'open' });
-    expect(noSearch.Expr.safeParse({ kind: 'text-score', source: 'nosrch', query: 'x' }).success).toBe(false);
+    expect(accepts(noSearch.Expr, { kind: 'text-score', source: 'nosrch', query: 'x' })).toBe(false);
   });
 });

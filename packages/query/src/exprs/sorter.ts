@@ -22,17 +22,14 @@
  * `validateWalk` (`sorter.misplaced`); the SELECT validates a well-placed sorter
  * through {@link validateInOrder} instead.
  */
-import { z } from 'zod';
 import type { ExprDef, SorterDef, SortEntryDef, SortSelectionDef } from '../schema';
-import type { SchemaOptions } from '../node';
-import { sorterSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { textResult, childExprSchema } from './_shared';
+import { textResult } from './_shared';
 import { didYouMean } from '../aids';
 import { obj, lit, str, list, record, exprRef, enumOf, type Shape } from '../shape';
 import { QueryOrder } from '../queries/order';
@@ -98,11 +95,6 @@ export class SorterExpr extends Expr {
     (v) => new SorterExpr(v.sorts, v.defaultSort),
     { optional: ['defaultSort'], aid: 'Expr_sorter' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (its `sorts` values are child exprs). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return sorterSchema(childExprSchema(opts.Expr));
-  }
 
   // ─── Resolution / validation ─────────────────────────────────────────────
 

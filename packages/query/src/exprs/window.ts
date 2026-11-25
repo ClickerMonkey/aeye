@@ -13,30 +13,18 @@
  * per-row named args (injecting the reserved `$order` key the rank functions
  * read).
  */
-import { z } from 'zod';
 import type { ExprDef, OrderDef, SelectDef, WindowExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
-import { computed, childExprSchema } from './_shared';
-import { withAid, didYouMean } from '../aids';
+import { computed } from './_shared';
+import { didYouMean } from '../aids';
 import { obj, lit, str, list, record, enumOf, exprRef } from '../shape';
-import {
-  parseNamedArgs,
-  namedArgSchema,
-  resolveNamedArgs,
-  validateNamedArgs,
-  evaluateNamedArgsRow,
-  observeNamedParams,
-  namedArgsToJSON,
-  namedArgsToCode,
-} from './_function-args';
+import { parseNamedArgs, resolveNamedArgs, validateNamedArgs, evaluateNamedArgsRow, observeNamedParams, namedArgsToJSON, namedArgsToCode } from './_function-args';
 import {
   type NamedArgs,
   runAggregateFunction,
@@ -141,32 +129,6 @@ export class WindowExpr extends Expr {
     (v) => new WindowExpr(v.function, v.args, v.partitionBy ?? [], v.orderBy ?? []),
     { optional: ['partitionBy', 'orderBy'], aid: 'Expr_window' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (named args plus partitionBy/orderBy slots), layered by `functionExprSchema`. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    // The `open` shape (also the bare-call / `functions:'open'` fallback);
-    // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = withAid(
-      z.object({
-        kind: z.literal('window'),
-        function: z.string().describe('Registered window (or aggregate) function name.'),
-        args: namedArgSchema(child),
-        partitionBy: z.array(child).optional(),
-        orderBy: z
-          .array(
-            z.object({
-              expr: child,
-              dir: withAid(z.enum(['asc', 'desc']), 'OrderDir'),
-              nulls: withAid(z.enum(['first', 'last']), 'OrderNulls').optional(),
-            }),
-          )
-          .optional(),
-      }),
-      'Expr_window',
-    ).describe('Window function over a partition / ordering, with named args.');
-    return functionExprSchema('window', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
-  }
 
   protected override windowHere(): boolean {
     return true;

@@ -5,9 +5,7 @@
  * params skip the numeric-operand check (NULL is universally compatible;
  * params are inferred numeric here).
  */
-import { z } from 'zod';
 import type { BinaryExprDef, BinaryOp, ExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -16,19 +14,8 @@ import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { MoneyFieldType, NumberFieldType } from '../field-types/index';
-import {
-  computed,
-  textResult,
-  gatherSources,
-  anyNullable,
-  anyAggregate,
-  categoryOf,
-  childExprSchema,
-  relationAsValueMessage,
-  RELATION_VS_VALUE,
-} from './_shared';
+import { computed, textResult, gatherSources, anyNullable, anyAggregate, categoryOf, relationAsValueMessage, RELATION_VS_VALUE } from './_shared';
 import { relationOf } from '../resolved-type';
-import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
@@ -92,20 +79,6 @@ export class BinaryExpr extends Expr {
     (v) => new BinaryExpr(v.op, v.left, v.right),
     { aid: 'Expr_binary' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (operands use the shared child Expr schema). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    return withAid(
-      z.object({
-        kind: z.literal('binary'),
-        op: withAid(z.enum(['+', '-', '*', '/', '%']), 'BinaryOp'),
-        left: child,
-        right: child,
-      }),
-      'Expr_binary',
-    ).describe('Arithmetic binary operation.');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.left);

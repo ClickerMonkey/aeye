@@ -9,7 +9,7 @@
  * narrow — the only `as` permitted by the task rules).
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, runtimeFixture, typeScope, lit, ref, param, cmp } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, lit, ref, param, cmp, exprAccepts } from './_utils';
 import { BinaryExpr } from '../exprs/binary';
 import { ComparisonExpr } from '../exprs/comparison';
 import { LogicalExpr } from '../exprs/logical';
@@ -95,8 +95,8 @@ describe('BinaryExpr', () => {
     expect(() => BinaryExpr.from(lit(1), fx.registry)).toThrow();
   });
 
-  it('toSchema returns a zod schema', () => {
-    expect(BinaryExpr.toSchema({})).toBeDefined();
+  it('the grammar accepts it', () => {
+    expect(exprAccepts({ kind: 'binary', op: '+', left: lit(1), right: lit(2) })).toBe(true);
   });
 
   it('resolve: number / money (either side) / text-concat (either side)', () => {
@@ -174,8 +174,8 @@ describe('ComparisonExpr', () => {
     expect(() => ComparisonExpr.from(lit(1), fx.registry)).toThrow();
   });
 
-  it('toSchema returns a zod schema', () => {
-    expect(ComparisonExpr.toSchema({})).toBeDefined();
+  it('the grammar accepts it', () => {
+    expect(exprAccepts({ kind: 'comparison', op: '=', left: lit(1), right: lit(1) })).toBe(true);
   });
 
   it('validateWalk: LIKE family, comparability, exempt, param inference', () => {
@@ -282,8 +282,8 @@ describe('LogicalExpr', () => {
     expect(() => LogicalExpr.from(lit(1), fx.registry)).toThrow();
   });
 
-  it('toSchema returns a zod schema', () => {
-    expect(LogicalExpr.toSchema({})).toBeDefined();
+  it('the grammar accepts it', () => {
+    expect(exprAccepts({ kind: 'logical', op: 'and', operands: [lit(true)] })).toBe(true);
   });
 
   it('validateWalk: arity, non-bool, param skip, Type operand', () => {
@@ -332,7 +332,7 @@ describe('LiteralExpr', () => {
   it('full surface: from / schema / null / resolve / evaluate / sql / code', async () => {
     expect(LiteralExpr.from(lit(1), fx.registry).value).toBe(1);
     expect(() => LiteralExpr.from(param('p'), fx.registry)).toThrow();
-    expect(LiteralExpr.toSchema({})).toBeDefined();
+    expect(exprAccepts(lit(1))).toBe(true);
     expect(LiteralExpr.from(lit(null), fx.registry).isNullLiteral()).toBe(true);
     expect(LiteralExpr.from(lit(1), fx.registry).isNullLiteral()).toBe(false);
 
@@ -365,7 +365,7 @@ describe('ParamExpr', () => {
   it('full surface: from / schema / collect / resolve / validate / evaluate / sql', async () => {
     expect(ParamExpr.from(param('p'), fx.registry).name).toBe('p');
     expect(() => ParamExpr.from(lit(1), fx.registry)).toThrow();
-    expect(ParamExpr.toSchema({})).toBeDefined();
+    expect(exprAccepts(param('p'))).toBe(true);
 
     // contributeParams (via collectParams)
     const sc = typeScope(fx);

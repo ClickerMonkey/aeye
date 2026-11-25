@@ -3,9 +3,7 @@
  * `upper` must each be comparable with `value`; params on a bound observe the
  * value's field type.
  */
-import { z } from 'zod';
 import type { BetweenExprDef, ExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -15,8 +13,7 @@ import type { FieldType } from '../field-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import { RANGE_SELECTIVITY } from '../cost';
-import { childExprSchema, declaredArmRefusal, relationValueProblem, RELATION_VS_VALUE } from './_shared';
-import { withAid } from '../aids';
+import { declaredArmRefusal, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { obj, lit, bool, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import { ParamExpr } from './param';
@@ -73,21 +70,6 @@ export class BetweenExpr extends BoolExpr {
     (v) => new BetweenExpr(v.value, v.lower, v.upper, v.not ?? false),
     { optional: ['not'], aid: 'Expr_between' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (value/lower/upper are child Expr slots). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    return withAid(
-      z.object({
-        kind: z.literal('between'),
-        value: child,
-        lower: child,
-        upper: child,
-        not: z.boolean().optional(),
-      }),
-      'Expr_between',
-    ).describe('Range predicate (value BETWEEN lower AND upper).');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.value);

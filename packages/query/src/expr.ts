@@ -26,10 +26,11 @@
  * `toSQL` still waits for Phase 5.
  * ─────────────────────────────────────────────────────────────────────────
  */
-import type { z } from 'zod';
+import type { AnySchema } from '@aeye/schema';
+import type { QueryGrammarBuild } from './llm/grammar';
 import type { ExprDef, ExprKind, QueryDef } from './schema';
 import type { Shape } from './shape';
-import type { CodeOptions, Node, SchemaOptions } from './node';
+import type { CodeOptions, Node } from './node';
 import type { Registry } from './registry';
 import type { ResolvedType, ComputedResolved, FieldResolved } from './resolved-type';
 import { isScalar, sourcesOf } from './resolved-type';
@@ -137,8 +138,14 @@ export interface ExprClass {
   readonly EXAMPLES?: readonly string[];
   /** Build an instance from its JSON branch, recursing into child defs via `registry.parseExpr`. */
   from(json: ExprDef, registry: Registry): Expr;
-  /** Zod schema for this expr kind's JSON `ExprDef` branch. */
-  toSchema(opts: SchemaOptions): z.ZodTypeAny;
+  /**
+   * OPTIONAL: this kind's branch of the model's grammar (`buildSchemas`), for
+   * an expr class that isn't one of the builtin kinds. `build` carries the
+   * Types offered, the resolved depth and functions, and the shared
+   * references / fragments (`build.ref`, `build.fn`, `build.Expr`…). A
+   * registered class without it is left out of the model's grammar.
+   */
+  toA?(build: QueryGrammarBuild): AnySchema;
   /**
    * OPTIONAL owned structural {@link Shape} for this kind's JSON — the zod-free
    * parallel parser that `Registry.parseCheckedExpr` dispatches to (never

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import type { FieldTypeDef, JsonFieldTypeDef, JsonValue } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
@@ -92,6 +93,10 @@ export class JsonFieldType extends FieldType {
   }
 
   /** Zod schema validating any JSON value. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    return a.json();
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return jsonValueSchema();
   }

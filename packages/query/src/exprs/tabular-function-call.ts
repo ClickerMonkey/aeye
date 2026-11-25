@@ -4,35 +4,21 @@
  * Type when tabular, else a synthetic empty type) and does light arg
  * validation. Row production + SQL emission land in Phase 4/5.
  */
-import { z } from 'zod';
 import type { ExprDef, TabularFunctionCallExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType, TypeResolved } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { functionExprSchema } from '../schema-build';
 import { Type } from '../type';
-import { childExprSchema } from './_shared';
-import { withAid, didYouMean } from '../aids';
+import { didYouMean } from '../aids';
 import { obj, lit, str, record, exprRef } from '../shape';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { type NamedArgs, runTabularFunction } from '../runtime/functions';
-import {
-  parseNamedArgs,
-  namedArgSchema,
-  resolveNamedArgs,
-  validateNamedArgs,
-  evaluateNamedArgs,
-  orderedArgSql,
-  observeNamedParams,
-  namedArgsToJSON,
-  namedArgsToCode,
-} from './_function-args';
+import { parseNamedArgs, resolveNamedArgs, validateNamedArgs, evaluateNamedArgs, orderedArgSql, observeNamedParams, namedArgsToJSON, namedArgsToCode } from './_function-args';
 import type { Cost, CostContext } from '../cost';
 import { addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
@@ -77,22 +63,6 @@ export class TabularFunctionCallExpr extends Expr {
     (v) => new TabularFunctionCallExpr(v.function, v.args),
     { aid: 'Expr_tabular-function-call' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (named-arg map), layered by `functionExprSchema`. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    // The `open` shape (also the bare-call / `functions:'open'` fallback);
-    // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = withAid(
-      z.object({
-        kind: z.literal('tabular-function-call'),
-        function: z.string().describe('Registered tabular function name.'),
-        args: namedArgSchema(child),
-      }),
-      'Expr_tabular-function-call',
-    ).describe('A type-valued function call (produces rows).');
-    return functionExprSchema('tabular-function-call', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     for (const a of this.args.values()) visit(a);

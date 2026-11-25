@@ -13,6 +13,7 @@
  */
 import { z } from 'zod';
 import type { FieldTypeKind, FieldValueDef, JsonValue } from '../schema';
+import { a, type SchemaOf } from '@aeye/schema';
 import { QueryTypeError } from '../problem';
 import { met, MEET_CONFLICT, type MeetResult } from './_meet';
 
@@ -82,6 +83,12 @@ export function compactFieldValues(values: readonly FieldValueDef[] | undefined)
  * two or more); the general case is a union of literals, which handles a
  * mixed-scalar set that `z.enum` could not.
  */
+/** A closed set as `a` literals (`undefined` when none is declared). */
+export function closedSetA(values: readonly FieldValueDef[] | undefined): SchemaOf<JsonValue> | undefined {
+  if (!values || values.length === 0) return undefined;
+  return values.length === 1 ? a.literal(values[0]!.value) : a.union(values.map((v) => a.literal(v.value)));
+}
+
 export function closedSetValueSchema(values: readonly FieldValueDef[] | undefined): z.ZodTypeAny | undefined {
   if (!values || values.length === 0) return undefined;
   const first = values[0]!;

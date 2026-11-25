@@ -1,7 +1,8 @@
 /**
  * LLM-tooling barrel — everything needed to let an LLM author, narrow, and
  * validate queries against an engine:
- *  - `buildSchemas` / `querySchema` — strict-or-string Zod schemas.
+ *  - `buildSchemas` / `querySchema` / `QueryGrammar` — the query language as
+ *    `@aeye/schema` (structured at a depth, or prose past `max` Types).
  *  - `describe*` — compact, promptable descriptions of Types / functions.
  *  - `selectTypes` — semantic Type pre-selection.
  *  - `buildQueryTool` — a ready-wired `@aeye/core` `Tool`.
@@ -9,6 +10,15 @@
 export {
   buildSchemas,
   querySchema,
+  QueryArgs,
+  QueryProseArgs,
+  QueryGrammar,
+  QueryGrammarBuild,
+  QUERY_RESULTS,
+  QUERY_BIND_CACHE_SIZE,
+  type ModelExprDef,
+  type QueryToolInput,
+  type WriteDepth,
   shouldUseStringSchema,
   resolveSchemaDepth,
   depthInstructions,
@@ -56,9 +66,9 @@ export { selectTypes, type SelectTypesOptions } from './select-types';
 
 export {
   buildQueryTool,
+  queryToolSchema,
   parseQueryTool,
   parseQueryRequest,
   QueryToolError,
-  type QueryToolInput,
   type BuildQueryToolOptions,
 } from './tool';

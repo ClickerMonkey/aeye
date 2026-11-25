@@ -16,6 +16,7 @@ import type { Registry } from '../registry';
 import type { TypeBacking } from '../backing';
 import type { TypeDef, InsertDef, InsertRowDef, UpdateDef, DeleteDef, ExprDef } from '../schema';
 import type { SourceRecord } from '../runtime/row';
+import { accepts, decode } from './_utils';
 
 const ref = (source: string, field: string): ExprDef => ({ kind: 'field-ref', source, field });
 const lit = (value: string | number | boolean | null): ExprDef => ({ kind: 'literal', value });
@@ -262,34 +263,34 @@ describe('write-model: validation gates', () => {
 describe('write-model: schema building', () => {
   it('drops the insert/update/delete kinds when NO Type permits them', () => {
     const schemas = buildSchemas(frozenEngine(), { depth: 'paired' });
-    expect(schemas.Query.safeParse({ kind: 'insert', into: 'frozen', rows: [{}] }).success).toBe(false);
-    expect(schemas.Query.safeParse({ kind: 'update', type: 'frozen', set: {} }).success).toBe(false);
-    expect(schemas.Query.safeParse({ kind: 'delete', from: 'frozen' }).success).toBe(false);
+    expect(accepts(schemas.Query, { kind: 'insert', into: 'frozen', rows: [{}] })).toBe(false);
+    expect(accepts(schemas.Query, { kind: 'update', type: 'frozen', set: {} })).toBe(false);
+    expect(accepts(schemas.Query, { kind: 'delete', from: 'frozen' })).toBe(false);
     // But a SELECT still works.
-    expect(schemas.Query.safeParse({ kind: 'select', fields: [{ expr: ref('frozen', 'id') }], from: { kind: 'type', type: 'frozen' } }).success).toBe(true);
+    expect(accepts(schemas.Query, { kind: 'select', fields: [{ expr: ref('frozen', 'id') }], from: { kind: 'type', type: 'frozen' } })).toBe(true);
   });
 
   it('filters into / type / from to the permitted Type subset (enum depth)', () => {
     const engine = perKindEngine();
     const schemas = buildSchemas(engine, { depth: { typeNames: 'enum' } });
     // insOnly is insertable but not updatable / deletable.
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'insOnly', rows: [{ id: lit('a') }] }).success).toBe(true);
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'updOnly', rows: [{ id: lit('a') }] }).success).toBe(false);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'updOnly', set: { id: lit('a') } }).success).toBe(true);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'insOnly', set: { id: lit('a') } }).success).toBe(false);
-    expect(schemas.Delete.safeParse({ kind: 'delete', from: 'delOnly' }).success).toBe(true);
-    expect(schemas.Delete.safeParse({ kind: 'delete', from: 'insOnly' }).success).toBe(false);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'insOnly', rows: [{ id: lit('a') }] })).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'updOnly', rows: [{ id: lit('a') }] })).toBe(false);
+    expect(accepts(schemas.Update, { kind: 'update', type: 'updOnly', set: { id: lit('a') } })).toBe(true);
+    expect(accepts(schemas.Update, { kind: 'update', type: 'insOnly', set: { id: lit('a') } })).toBe(false);
+    expect(accepts(schemas.Delete, { kind: 'delete', from: 'delOnly' })).toBe(true);
+    expect(accepts(schemas.Delete, { kind: 'delete', from: 'insOnly' })).toBe(false);
   });
 
   it('open depth leaves DML Type names as free strings', () => {
     const schemas = buildSchemas(docEngine()); // open
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'anything', rows: [{ x: lit('a') }] }).success).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'anything', rows: [{ x: lit('a') }] })).toBe(true);
   });
 
   it('paired Insert.rows require the required fields, allow the optional ones, and offer only insertable fields', () => {
     const schemas = buildSchemas(docEngine(), { depth: 'paired' });
     const ins = (fields: string[]): boolean =>
-      schemas.Insert.safeParse({ kind: 'insert', into: 'doc', rows: [row(fields, () => lit('x'))] }).success;
+      accepts(schemas.Insert, { kind: 'insert', into: 'doc', rows: [row(fields, () => lit('x'))] });
     const required = ['id', 'title', 'body', 'tags', 'rank', 'onlyCmp'];
     expect(ins(required)).toBe(true); // all required present
     expect(ins([...required, 'status'])).toBe(true); // optional allowed
@@ -300,7 +301,7 @@ describe('write-model: schema building', () => {
 
   it('paired Update.set offers only updatable fields', () => {
     const schemas = buildSchemas(docEngine(), { depth: 'paired' });
-    const set = (field: string): boolean => schemas.Update.safeParse({ kind: 'update', type: 'doc', set: { [field]: lit('x') } }).success;
+    const set = (field: string): boolean => accepts(schemas.Update, { kind: 'update', type: 'doc', set: { [field]: lit('x') } });
     expect(set('body')).toBe(true);
     expect(set('locked')).toBe(false); // updatable:false
     expect(set('slug')).toBe(false); // computed
@@ -309,22 +310,22 @@ describe('write-model: schema building', () => {
   it('paired schema omits a field that excludes the expr kind from operand enums', () => {
     const schemas = buildSchemas(docEngine(), { depth: 'paired' });
     // onlyCmp excludes 'field-ref' ⇒ never offered in a field-ref enum.
-    expect(schemas.Expr.safeParse(ref('doc', 'onlyCmp')).success).toBe(false);
-    expect(schemas.Expr.safeParse(ref('doc', 'body')).success).toBe(true);
+    expect(accepts(schemas.Expr, ref('doc', 'onlyCmp'))).toBe(false);
+    expect(accepts(schemas.Expr, ref('doc', 'body'))).toBe(true);
   });
 
   it('gates array-op AWAY entirely when every array field excludes it', () => {
     const withArray = buildSchemas(docEngine(), { depth: 'paired' });
-    expect(withArray.Expr.safeParse({ kind: 'array-op', op: 'isEmpty', target: ref('doc', 'tags') }).success).toBe(true);
+    expect(accepts(withArray.Expr, { kind: 'array-op', op: 'isEmpty', target: ref('doc', 'tags') })).toBe(true);
     const noArrayOp = buildSchemas(arrEngine(), { depth: 'paired' });
-    expect(noArrayOp.Expr.safeParse({ kind: 'array-op', op: 'isEmpty', target: ref('arr', 'items') }).success).toBe(false);
+    expect(accepts(noArrayOp.Expr, { kind: 'array-op', op: 'isEmpty', target: ref('arr', 'items') })).toBe(false);
   });
 
   it('paired schema tolerates a Type with no insertable / updatable fields', () => {
     const schemas = buildSchemas(computedOnlyEngine(), { depth: 'paired' });
     // The one field is computed ⇒ no insertable / updatable fields; an empty row still parses.
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'comp', rows: [{}] }).success).toBe(true);
-    expect(schemas.Update.safeParse({ kind: 'update', type: 'comp', set: {} }).success).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'comp', rows: [{}] })).toBe(true);
+    expect(accepts(schemas.Update, { kind: 'update', type: 'comp', set: {} })).toBe(true);
   });
 });
 

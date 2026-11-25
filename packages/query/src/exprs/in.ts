@@ -7,9 +7,7 @@
  * The subquery form uses the Phase-2 structural seam (`inferSubqueryOutput`)
  * to learn the subquery's output type without query classes (Phase 3).
  */
-import { z } from 'zod';
 import type { ExprDef, InExprDef, QueryDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -18,8 +16,7 @@ import type { FieldType } from '../field-type';
 import { asFieldType, relationOf } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { categoryOf, childExprSchema, childQuerySchema, declaredArmRefusal, emitSubquerySQL, relationValueProblem, RELATION_VS_VALUE } from './_shared';
-import { withAid } from '../aids';
+import { declaredArmRefusal, emitSubquerySQL, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { obj, lit, bool, exprRef, list, queryDefRef, isRecord, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
 import type { Dialect } from '../sql/dialect';
@@ -154,19 +151,6 @@ export class InExpr extends BoolExpr {
     (v) => new InExpr(v.value, undefined, v.in, v.not ?? false),
     { optional: ['not'], aid: 'Expr_in' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (`in` is a child Expr list or a child Query slot). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('in'),
-        value: childExprSchema(opts.Expr),
-        in: z.union([z.array(childExprSchema(opts.Expr)), childQuerySchema(opts.Query)]),
-        not: z.boolean().optional(),
-      }),
-      'Expr_in',
-    ).describe('Membership predicate (value IN list / subquery).');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.value);

@@ -5,7 +5,7 @@
  * JSON / clone / code round-trips.
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, typeScope, runtimeFixture, ref, cmp, lit } from './_utils';
+import { cctx, fixture, typeScope, runtimeFixture, ref, cmp, lit, exprAccepts } from './_utils';
 import { asFieldType } from '../resolved-type';
 import { ExistsExpr } from '../exprs/exists';
 import type { ExprDef, QueryDef, SelectDef } from '../schema';
@@ -40,7 +40,7 @@ function whereUsers(where: ExprDef): SelectDef {
 describe('ExistsExpr', () => {
   it('static from throws on a mismatched kind; toSchema parses an exists def', () => {
     expect(() => ExistsExpr.from(lit(1), fx.registry)).toThrow();
-    expect(ExistsExpr.toSchema({}).safeParse({ kind: 'exists', query: { kind: 'expr', expr: lit(1) } }).success).toBe(true);
+    expect(exprAccepts({ kind: 'exists', query: { kind: 'expr', expr: lit(1) } })).toBe(true);
   });
 
   it('resolves to a definite (non-nullable) boolean', () => {

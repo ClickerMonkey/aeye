@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import type { FieldTypeDef, RelationFieldTypeDef } from '../schema';
+import type { JsonValue } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import type { Type } from '../type';
 import type { QueryEngine } from '../engine';
@@ -298,6 +300,11 @@ export class RelationFieldType extends FieldType {
   }
 
   /** Zod schema validating a relation value (the related row's identifier). */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    // The related row's identifier.
+    return a.string();
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     // The value of a relation field is the related row's identifier.
     return z.string();

@@ -4,17 +4,14 @@
  * (`inferSubqueryOutput`); when Phase 3's query classes land, that seam swaps
  * to real query resolution and this class needs no change.
  */
-import { z } from 'zod';
 import type { ExprDef, QueryDef, SubqueryExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { childQuerySchema, emitSubquerySQL } from './_shared';
-import { withAid } from '../aids';
+import { emitSubquerySQL } from './_shared';
 import { obj, lit, queryDefRef } from '../shape';
 import { inferSubqueryOutput, validateSubqueryOutput } from './_subquery';
 import type { Dialect } from '../sql/dialect';
@@ -111,17 +108,6 @@ export class SubqueryExpr extends Expr {
     (v) => new SubqueryExpr(v.query),
     { aid: 'Expr_subquery' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('subquery'),
-        query: childQuerySchema(opts.Query),
-      }),
-      'Expr_subquery',
-    ).describe('A subquery used in value position.');
-  }
 
   /** Infer the subquery's output type via the structural seam. */
   resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {

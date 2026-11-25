@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { a, type SchemaOf } from '@aeye/schema';
 import type { FieldTypeDef, TimestampFieldTypeDef, TimezonePolicy } from '../schema';
+import type { JsonValue } from '../schema';
 import type { SchemaOptions, ValueSchemaOptions } from '../node';
 import { FieldType, type FieldTypeClass, type ScalarKind } from '../field-type';
 import { refinementKeySchema } from '../refinement';
@@ -90,6 +92,10 @@ export class TimestampFieldType extends FieldType {
   }
 
   /** Zod schema validating an ISO timestamp (`YYYY-MM-DD HH:MM`) value. */
+  protected override builtinA(): SchemaOf<JsonValue> {
+    return a.string().pattern(ISO_TIMESTAMP.source).describe('An ISO timestamp (YYYY-MM-DD HH:MM…).');
+  }
+
   protected override builtinValueSchema(_opts?: ValueSchemaOptions): z.ZodTypeAny {
     return z.string().regex(ISO_TIMESTAMP, 'expected ISO timestamp (YYYY-MM-DD HH:MM)');
   }

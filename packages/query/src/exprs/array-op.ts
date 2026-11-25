@@ -17,9 +17,7 @@
  * `QueryTypeError` thrown from the dialect; emptiness (which only needs the array
  * length) still works via `Dialect.arrayLength`.
  */
-import { z } from 'zod';
 import type { ArrayOp, ArrayOpExprDef, ExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -28,9 +26,8 @@ import type { FieldType } from '../field-type';
 import { asFieldType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
-import { categoryOf, childExprSchema, declaredArmRefusal } from './_shared';
+import { categoryOf, declaredArmRefusal } from './_shared';
 import { effectiveCasing, foldsAtRuntime, type TextCasing } from '../text-casing';
-import { withAid } from '../aids';
 import { obj, lit, enumOf, list, exprRef, INVALID, type Shape } from '../shape';
 import { operandCtx } from './_field-guard';
 import { ParamExpr } from './param';
@@ -116,34 +113,6 @@ export class ArrayOpExpr extends BoolExpr {
     (v) => new ArrayOpExpr(v.op, v.target, v.value ?? []),
     { optional: ['value'], aid: 'Expr_array-op' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (target plus a single/list/omitted value child). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    return withAid(
-      z.object({
-        kind: z.literal('array-op'),
-        op: withAid(z.enum(['contains', 'containsAny', 'containsAll', 'isEmpty', 'notEmpty']), 'ArrayOp').describe(
-          'Array predicate: element membership / overlap / emptiness.',
-        ),
-        // The target is the recursive `Expr` union (`opts.Expr` is a shared
-        // `z.lazy`). Use it DIRECTLY — never `.describe()` it here. `.describe()`
-        // CLONES the lazy into a fresh, aid-less wrapper whose new identity
-        // defeats BOTH of the converter's recursion cache keys (instance identity
-        // AND the lazy's `aid`), so `toJSONSchema` re-evaluates the getter on every
-        // encounter and recurses until the stack overflows. (The description is
-        // dropped at a recursive `$ref` position anyway, which is why every other
-        // expr class threads `childExprSchema(opts.Expr)` in bare — see #array-op
-        // overflow.) The wrapping object's own `.describe` still documents the kind.
-        target: child,
-        value: z
-          .union([child, z.array(child)])
-          .optional()
-          .describe('Single element (contains), element list (containsAny/All), or omitted (isEmpty/notEmpty).'),
-      }),
-      'Expr_array-op',
-    ).describe('Array containment / emptiness predicate.');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.target);

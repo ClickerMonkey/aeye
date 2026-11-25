@@ -36,6 +36,7 @@ import type { FieldType } from '../field-type';
 import type { OperatorDef } from '../operator';
 import type { FieldTypeRefinementDef } from '../refinement';
 import type { ExprDef, JsonValue, QueryDef, SelectDef, TypeDef } from '../schema';
+import { exprAccepts, accepts, decode } from './_utils';
 
 // ─── The worked PostGIS registry ─────────────────────────────────────────────
 
@@ -1200,7 +1201,7 @@ describe('what a model is told about a registered operator', () => {
     // glossary was rendered without the schema's internals being spelled out
     // here (the union is lazy, so it has no readable shape until it is used).
     const schema = buildSchemas(registry, { depth: { functions: 'names' }, functions: 'none' });
-    expect(schema.Expr.safeParse(SHAPE_OVERLAPS_BOX).success).toBe(true);
+    expect(accepts(schema.Expr, SHAPE_OVERLAPS_BOX)).toBe(true);
   });
 
   it('lists the `operator` kind in the expression catalog only when one is reachable', () => {
@@ -1248,25 +1249,22 @@ describe('capability gating', () => {
       buildSchemas(geo, { depth: { functions }, functions: 'none' });
     const shape: ExprDef = SHAPE_OVERLAPS_BOX;
     const names = build('names');
-    expect(names.Expr.safeParse(shape).success).toBe(true);
-    expect(names.Expr.safeParse({ ...shape, op: '&&&' }).success).toBe(false);
+    expect(accepts(names.Expr, shape)).toBe(true);
+    expect(accepts(names.Expr, { ...shape, op: '&&&' })).toBe(false);
     const typed = build('typed');
-    expect(typed.Expr.safeParse(shape).success).toBe(true);
+    expect(accepts(typed.Expr, shape)).toBe(true);
     // A misspelled OPERAND is refused by the schema itself at `typed`.
     expect(
-      typed.Expr.safeParse({
+      accepts(typed.Expr, {
         kind: 'operator',
         op: '&&',
         args: { left: { kind: 'field-ref', source: 'parcel', field: 'shape' }, rigt: { kind: 'param', name: 'b' } },
-      }).success,
+      }),
     ).toBe(false);
     // …and an `open` depth keeps the free-string shape, as a function call does.
-    expect(build('open').Expr.safeParse({ ...shape, op: '&&&' }).success).toBe(true);
+    expect(accepts(build('open').Expr, { ...shape, op: '&&&' })).toBe(true);
   });
 
-  it('renders the free shape for a bare `toSchema()` with no registry', () => {
-    expect(OperatorExpr.toSchema({}).safeParse(SHAPE_OVERLAPS_BOX).success).toBe(true);
-  });
 });
 
 // ─── Conformance ─────────────────────────────────────────────────────────────

@@ -4,9 +4,7 @@
  * to bool. Validation checks operand comparability and observes any bind
  * param against the other operand's field type.
  */
-import { z } from 'zod';
 import type { ComparisonExprDef, ComparisonOp, ExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -17,9 +15,8 @@ import { BoolExpr, Expr, type ExprClass, type ValidateContext } from '../expr';
 import type { FieldTypeCompareDecl } from '../refinement';
 import type { CostContext, IndexProbe } from '../cost';
 import { EQ_SELECTIVITY, RANGE_SELECTIVITY } from '../cost';
-import { categoryOf, childExprSchema, declaredArmRefusal, relationValueProblem, RELATION_VS_VALUE } from './_shared';
+import { categoryOf, declaredArmRefusal, relationValueProblem, RELATION_VS_VALUE } from './_shared';
 import { relationCompare, evaluateRelationCompare, emitRelationCompare, evaluateHasMany, emitHasMany, runtimeTypeOf, sqlTypeOf } from './_relation-compare';
-import { withAid } from '../aids';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { operandCtx } from './_field-guard';
 import { LiteralExpr } from './literal';
@@ -214,20 +211,6 @@ export class ComparisonExpr extends BoolExpr {
     (v) => new ComparisonExpr(v.op, v.left, v.right),
     { aid: 'Expr_comparison' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (left/right are child Expr slots). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    return withAid(
-      z.object({
-        kind: z.literal('comparison'),
-        op: withAid(z.enum(['=', '<>', '<', '<=', '>', '>=', 'like', 'notLike', 'ilike']), 'ComparisonOp'),
-        left: child,
-        right: child,
-      }),
-      'Expr_comparison',
-    ).describe('Scalar comparison predicate.');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.left);

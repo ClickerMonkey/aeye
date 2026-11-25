@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { buildQueryTool } from '../llm/tool';
 import { querySchema, depthInstructions } from '../llm/schemas';
 import type { SelectDef, ExprDef } from '../schema';
-import { fixture } from './_utils';
+import { fixture, accepts, decode } from './_utils';
 
 /** Wrap a field-expression in a minimal SELECT over `user`. */
 function selectOf(expr: ExprDef): SelectDef {
@@ -22,15 +22,15 @@ describe('buildQueryTool — depth threading', () => {
     // The tool's wire schema is `querySchema(engine, opts)` — assert against it.
     const schema = querySchema(fx.engine, opts);
     // `total` is an `order` field; pairing it with a `user` source is rejected.
-    const bad = schema.safeParse({
+    const bad = decode(schema, {
       query: selectOf({ kind: 'field-ref', source: 'user', field: 'total' }),
     });
-    expect(bad.success).toBe(false);
+    expect(bad.ok).toBe(false);
     // The correct pairing validates.
-    const good = schema.safeParse({
+    const good = decode(schema, {
       query: selectOf({ kind: 'field-ref', source: 'user', field: 'name' }),
     });
-    expect(good.success).toBe(true);
+    expect(good.ok).toBe(true);
   });
 
   it("instructions reflect the active depth (paired note present, open empty)", () => {
@@ -54,23 +54,23 @@ describe('querySchema — function selection threading', () => {
       functions: { scalar: ['upper'] },
     });
     // `upper` is selected ⇒ accepted.
-    const good = schema.safeParse({
+    const good = decode(schema, {
       query: selectOf({
         kind: 'function-call',
         function: 'upper',
         args: { value: { kind: 'field-ref', source: 'user', field: 'name' } },
       }),
     });
-    expect(good.success).toBe(true);
+    expect(good.ok).toBe(true);
     // `lower` is a real function but NOT selected ⇒ rejected.
-    const bad = schema.safeParse({
+    const bad = decode(schema, {
       query: selectOf({
         kind: 'function-call',
         function: 'lower',
         args: { value: { kind: 'field-ref', source: 'user', field: 'name' } },
       }),
     });
-    expect(bad.success).toBe(false);
+    expect(bad.ok).toBe(false);
   });
 
   // Rejecting against the large `paired` union explores every function branch;
@@ -78,13 +78,13 @@ describe('querySchema — function selection threading', () => {
   it("depth:'paired' typed args reject an unknown argument name", { timeout: 30000 }, () => {
     const fx = fixture();
     const schema = querySchema(fx.engine, { depth: 'paired' });
-    const bad = schema.safeParse({
+    const bad = decode(schema, {
       query: selectOf({
         kind: 'function-call',
         function: 'upper',
         args: { wrong: { kind: 'literal', value: 'x' } },
       }),
     });
-    expect(bad.success).toBe(false);
+    expect(bad.ok).toBe(false);
   });
 });

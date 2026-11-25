@@ -7,7 +7,6 @@
  *
  * No `any` / casts.
  */
-import { z } from 'zod';
 import type { ExprDef } from '../schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
@@ -18,7 +17,6 @@ import type { Expr, ValidateContext } from '../expr';
 import type { DeclaredArg, QueryFunction } from '../function';
 import { ParamExpr } from './param';
 import { LiteralExpr } from './literal';
-import { withAid } from '../aids';
 import type { Value } from '../runtime/value';
 import type { NamedArgs } from '../runtime/functions';
 import type { RuntimeContext } from '../runtime/context';
@@ -34,13 +32,6 @@ export function parseNamedArgs(
   const out = new Map<string, Expr>();
   for (const [name, def] of Object.entries(json)) out.set(name, registry.parseExpr(def));
   return out;
-}
-
-/** The Zod schema for a named-arg object: `{ <param>: <childExpr> }`. */
-export function namedArgSchema(child: z.ZodTypeAny): z.ZodTypeAny {
-  return withAid(z.record(z.string(), child), 'FunctionArgs').describe(
-    'Arguments keyed by declared parameter name.',
-  );
 }
 
 /** Resolve each named arg's type, preserving the argument order. */

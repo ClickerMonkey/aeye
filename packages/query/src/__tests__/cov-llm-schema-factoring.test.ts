@@ -1,71 +1,49 @@
 /**
- * Part B — the tool-call JSON-Schema is factored into shared, aid-named `$defs`.
+ * Part B — the query grammar is factored into shared, named `$defs`.
  *
  * Two guarantees are pinned here, both measured over the bundled EXAMPLE fixture
  * (user / order / product, 100+ builtin functions):
  *
- *  1. SIZE — `z.toJSONSchema` of the generated schema is BELOW a threshold set
- *     from the measured post-factoring size, so a regression that re-inlines the
- *     shared fragments (field-name enums, `param`, typed function args) — which
- *     would bloat the `paired` schema back past ~105 KB — is caught. The shared
- *     `$defs` (`Fields_*`, `Args*`, `param`, `Limit`) are asserted present.
+ *  1. SIZE — the JSON Schema a model is sent stays BELOW a threshold set from
+ *     the measured size, so a regression that re-inlines the shared fragments
+ *     (field-name enums `Fields_<Type>`, typed function args `Args…`, `param`,
+ *     `Limit`) is caught. The shared `$defs` are asserted present by name.
  *
- *     The shared-fragment `$def` ids live in the process-LOCAL `sharedIdRegistry`
- *     (NOT zod's global registry — see `aids.ts` for why: it keeps `strictify`
- *     collision-free), so the conversion is told to read ids from it via the
- *     `metadata` option. The ids are salted per schema-generation (`_g<n>`), so
- *     the names are asserted by PATTERN (`Fields_*` / `Args*` / `param(_g<n>)?` /
- *     `Limit(_g<n>)?`), never by exact spelling.
- *
- *  2. GOLDEN accept/reject + directed-message INVARIANCE — a fixed set of ~10
- *     valid + ~10 invalid query defs must parse to the SAME accept/reject AND
- *     (for the invalids) the SAME aid-directed error text. Factoring changes the
- *     schema's STRUCTURE / SIZE only; its ACCEPTANCE and diagnostics are unchanged.
+ *  2. GOLDEN accept/reject — a fixed set of ~10 valid + ~10 invalid query defs
+ *     must get the SAME accept/reject from the schema and the full tool; the
+ *     model's message for an invalid one is @aeye/schema's (its own JSON with a
+ *     marker, under the size cap), and the standalone parser's directed text
+ *     (`parseQueryTool`) is unchanged.
  */
 import { describe, it, expect } from 'vitest';
-import { z } from 'zod';
 import type { Context } from '@aeye/core';
+import { LENIENT, OPENAI_STRICT, SchemaParseError } from '@aeye/schema';
 import { createExampleFixture } from '../../examples/schema';
 import { querySchema } from '../llm/schemas';
-import { buildQueryTool, QueryToolError } from '../llm/tool';
-import { sharedIdRegistry } from '../aids';
+import { buildQueryTool, parseQueryTool, QueryToolError } from '../llm/tool';
 import type { QueryDef } from '../schema';
+import { accepts } from './_utils';
 
 const ctx: Context<{}, {}> = {};
 
-describe('Part B — shared-`$def` factoring: size', () => {
+describe('Part B — shared `$defs` factoring: size', () => {
   it('paired + open schemas stay factored (below the re-inline threshold)', () => {
     const { engine } = createExampleFixture();
-    // Read the shared-fragment ids from the process-LOCAL registry (they are kept
-    // off zod's global registry so `strictify` never collides on them).
-    const convert = (depth: 'open' | 'paired'): { $defs?: Record<string, unknown> } =>
-      z.toJSONSchema(querySchema(engine, { depth }), {
-        unrepresentable: 'any',
-        metadata: sharedIdRegistry,
-      });
-    const open = convert('open');
-    const paired = convert('paired');
-    const openLen = JSON.stringify(open).length;
-    const pairedLen = JSON.stringify(paired).length;
+    const sent = (depth: 'open' | 'paired', profile = LENIENT) => {
+      const s = querySchema(engine, { depth });
+      return ('bind' in s ? s.bind() : s).render(profile).jsonSchema as { $defs?: Record<string, unknown> };
+    };
+    // Measured: open 16.4 KB (LENIENT) / 22.5 KB (OpenAI strict); paired 78 KB / 96 KB.
+    expect(JSON.stringify(sent('open')).length).toBeLessThan(20000);
+    expect(JSON.stringify(sent('open', OPENAI_STRICT)).length).toBeLessThan(27000);
+    expect(JSON.stringify(sent('paired')).length).toBeLessThan(90000);
+    expect(JSON.stringify(sent('paired', OPENAI_STRICT)).length).toBeLessThan(110000);
 
-    // Post-factoring the shared fragments collapse to `$def`s + `$ref`s; a
-    // regression that re-inlines them jumps the `open` schema back past ~21 KB and
-    // the `paired` schema back past ~105 KB (the unfactored sizes), so these bounds
-    // catch it. (The absolute numbers are smaller than the model-facing schema's
-    // because a plain `z.toJSONSchema` fed only the id registry omits descriptions —
-    // it is a pure structural re-inline guard, not a wire-size measurement.)
-    expect(openLen).toBeLessThan(21000);
-    expect(pairedLen).toBeLessThan(100000);
-
-    // The largest repeated fragments are factored into shared, readably-named
-    // `$defs` (field-name enums, typed args, `param`, `Limit`).
-    const defs = Object.keys(paired.$defs ?? {});
-    expect(defs.some((d) => d.startsWith('Fields_'))).toBe(true);
+    const defs = Object.keys(sent('paired').$defs ?? {});
+    expect(defs).toContain('Fields_user');
     expect(defs.some((d) => d.startsWith('Args'))).toBe(true);
-    expect(defs.some((d) => d === 'param' || d.startsWith('param_'))).toBe(true);
-    expect(defs.some((d) => d === 'Limit' || d.startsWith('Limit_'))).toBe(true);
-    // Many distinct fragments share via `$ref` — far more `$defs` than the two
-    // (`__schema0/1`) the unfactored schema emitted.
+    expect(defs).toContain('param');
+    expect(defs).toContain('Limit');
     expect(defs.length).toBeGreaterThan(20);
   });
 });
@@ -106,7 +84,7 @@ const INVALID: ReadonlyArray<readonly [string, object, string | null]> = [
   ['undeclared fn arg', { kind: 'select', fields: [{ expr: { kind: 'function-call', function: 'lower', args: { wrong: { kind: 'field-ref', source: 'user', field: 'name' } } } }], from: { kind: 'type', type: 'user' } }, null],
 ];
 
-describe('Part B — golden accept/reject + directed-message invariance', () => {
+describe('Part B — golden accept/reject', () => {
   it('has ~10 valid + ~10 invalid fixed cases', () => {
     expect(VALID.length).toBe(10);
     expect(INVALID.length).toBe(10);
@@ -117,29 +95,27 @@ describe('Part B — golden accept/reject + directed-message invariance', () => 
     const schema = querySchema(engine, { depth: 'paired' });
     const tool = buildQueryTool(engine, { depth: 'paired' });
     for (const [label, query] of VALID) {
-      expect(schema.safeParse({ query }).success, `schema should accept: ${label}`).toBe(true);
-      // Full pipeline: parse returns the built Query (never a QueryToolError).
+      expect(accepts(schema, { query }), label).toBe(true);
       const parsed = await tool.parse(ctx, JSON.stringify({ query }));
-      expect(parsed, `full validation should accept: ${label}`).not.toBeInstanceOf(QueryToolError);
+      expect(parsed, label).toBeTruthy();
     }
   });
 
-  // The `paired` schema is a large union; exhaustively rejecting the invalids
-  // (which explore every branch) is inherently slow, so allow extra time.
-  it('rejects every invalid query with the same directed message', { timeout: 30000 }, async () => {
+  it('rejects every invalid query; the model is told in the schema format; the directed text is unchanged', { timeout: 30000 }, async () => {
     const { engine } = createExampleFixture();
     const schema = querySchema(engine, { depth: 'paired' });
     const tool = buildQueryTool(engine, { depth: 'paired' });
     for (const [label, query, message] of INVALID) {
-      expect(schema.safeParse({ query }).success, `schema should reject: ${label}`).toBe(false);
-      try {
-        await tool.parse(ctx, JSON.stringify({ query }));
-        expect.unreachable(`parse should have thrown for: ${label}`);
-      } catch (err) {
-        expect(err, label).toBeInstanceOf(QueryToolError);
-        if (err instanceof QueryToolError && message !== null) {
-          expect(err.report, `directed message for: ${label}`).toContain(message);
-        }
+      expect(accepts(schema, { query }), label).toBe(false);
+      const err = await tool.parse(ctx, JSON.stringify({ query })).then(() => undefined, (e: unknown) => e);
+      expect(err, label).toBeInstanceOf(SchemaParseError);
+      const text = (err as SchemaParseError).message;
+      expect(text.length, label).toBeLessThanOrEqual(2000);
+      expect(text, label).toContain('^');
+      const own = parseQueryTool(engine, { query }, { depth: 'paired' });
+      expect(own, label).toBeInstanceOf(QueryToolError);
+      if (own instanceof QueryToolError && message !== null) {
+        expect(own.report, label).toContain(message);
       }
     }
   });

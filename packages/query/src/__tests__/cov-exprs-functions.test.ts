@@ -12,7 +12,7 @@
  * toCode, forEachChild, and the full _function-args helper surface.
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, runtimeFixture, typeScope, lit, ref, param } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, lit, ref, param, accepts, decode } from './_utils';
 import type { ExprDef, SelectDef, FunctionDef, Order } from '../schema';
 import { AggregateExpr } from '../exprs/aggregate';
 import { WindowExpr } from '../exprs/window';
@@ -681,12 +681,12 @@ describe('TabularFunctionCallExpr', () => {
 // ════════════════════════════════════════════════════════════════════════════
 
 describe('_function-args schema + helper coverage', () => {
-  it('every function-call expr kind contributes a Zod schema (namedArgSchema/toSchema)', () => {
+  it('every function-call expr kind contributes a branch to the grammar', () => {
     const schemas = buildSchemas(fx.engine);
     expect(schemas.Expr).toBeDefined();
     // The named-arg shape round-trips through the built schema.
-    const ok = schemas.Expr.safeParse(agg('count', {}));
-    expect(ok.success).toBe(true);
+    const ok = decode(schemas.Expr, agg('count', {}));
+    expect(ok.ok).toBe(true);
   });
 
   it('namedArgsToCode renders `name: code` pairs for a multi-arg call', () => {

@@ -16,15 +16,15 @@
  * rejecting it in the general Expr union, and the drill-down expansion / drop.
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, runtimeFixture, typeScope, ref, lit, cmp } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, ref, lit, cmp, accepts, decode } from './_utils';
 import { createRegistry } from '../registry';
 import { RuntimeContext } from '../runtime/context';
 import { SorterExpr } from '../exprs/sorter';
 import { canonicalize } from '../expr';
 import { Problems } from '../problem';
 import { isRecord } from '../shape';
-import { buildSchemas } from '../llm/schemas';
-import { exprKindApplicable, selectFunctions, sorterSchema } from '../schema-build';
+import { buildSchemas, QueryGrammar } from '../llm/schemas';
+import { exprKindApplicable, selectFunctions } from '../schema-build';
 import { describeEngine } from '../llm/describe';
 import { drillDown } from '../transforms/drill-down';
 import { JoinCtePlanner } from '../sql/planner';
@@ -79,16 +79,16 @@ describe('sorter: serialization, schema, static from', () => {
     expect(() => SorterExpr.from(lit(1), fx.registry)).toThrow(/expected 'sorter'/);
   });
 
-  it('toSchema accepts a well-formed sorter and rejects a bad one', () => {
-    const schema = SorterExpr.toSchema({});
-    expect(schema.safeParse(nameAgeSorter([{ sort: 'name', dir: 'asc' }])).success).toBe(true);
-    expect(schema.safeParse({ kind: 'sorter' }).success).toBe(false); // missing `sorts`
-    expect(schema.safeParse({ kind: 'sorter', sorts: { a: ref('user', 'name') }, defaultSort: [{ sort: 'a' }] }).success).toBe(false); // entry missing `dir`
+  it('the grammar\'s sorter accepts a well-formed sorter and rejects a bad one', () => {
+    const schema = QueryGrammar.result('Expr_sorter').bind(fx.registry);
+    expect(accepts(schema, nameAgeSorter([{ sort: 'name', dir: 'asc' }]))).toBe(true);
+    expect(accepts(schema, { kind: 'sorter' })).toBe(false); // missing `sorts`
+    expect(accepts(schema, { kind: 'sorter', sorts: { a: ref('user', 'name') }, defaultSort: [{ sort: 'a' }] })).toBe(false); // entry missing `dir`
   });
 
-  it('sorterSchema builds the same shape from a child-expr slot', () => {
-    const s = sorterSchema(buildSchemas(fx.engine).Expr);
-    expect(s.safeParse(nameAgeSorter()).success).toBe(true);
+  it('a SELECT order entry takes the sorter', () => {
+    const s = QueryGrammar.result('SelectOrderEntry').bind(fx.registry);
+    expect(accepts(s, nameAgeSorter())).toBe(true);
   });
 });
 
@@ -357,13 +357,13 @@ describe('sorter: LLM schema position gating', () => {
         { kind: 'sorter', sorts: { age: ref('user', 'age') }, defaultSort: [{ sort: 'age', dir: 'desc' }] },
       ],
     };
-    expect(schemas.Select.safeParse(def).success).toBe(true);
+    expect(accepts(schemas.Select, def)).toBe(true);
   });
 
   it('does NOT offer a sorter in the general Expr union / WHERE', () => {
-    expect(schemas.Expr.safeParse(nameAgeSorter()).success).toBe(false);
+    expect(accepts(schemas.Expr, nameAgeSorter())).toBe(false);
     const badWhere = { ...userSelect(undefined), where: [nameAgeSorter()] };
-    expect(schemas.Select.safeParse(badWhere).success).toBe(false);
+    expect(accepts(schemas.Select, badWhere)).toBe(false);
   });
 
   it('exprKindApplicable gates `sorter` out of the general union', () => {

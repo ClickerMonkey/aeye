@@ -3,9 +3,7 @@
  * mirroring the operand's numeric category. Requires a numeric operand
  * (NULL literal / param exempt).
  */
-import { z } from 'zod';
 import type { ExprDef, UnaryExprDef, UnaryOp } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -13,8 +11,7 @@ import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
 import { MoneyFieldType, NumberFieldType } from '../field-types/index';
-import { computed, gatherSources, categoryOf, childExprSchema } from './_shared';
-import { withAid } from '../aids';
+import { computed, gatherSources, categoryOf } from './_shared';
 import { obj, lit, enumOf, exprRef } from '../shape';
 import { LiteralExpr } from './literal';
 import { ParamExpr } from './param';
@@ -65,18 +62,6 @@ export class UnaryExpr extends Expr {
     (v) => new UnaryExpr(v.op, v.operand),
     { aid: 'Expr_unary' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (operand uses the shared child Expr schema). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return withAid(
-      z.object({
-        kind: z.literal('unary'),
-        op: withAid(z.enum(['-', '+']), 'UnaryOp'),
-        operand: childExprSchema(opts.Expr),
-      }),
-      'Expr_unary',
-    ).describe('Unary arithmetic operation.');
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     visit(this.operand);

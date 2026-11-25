@@ -7,36 +7,21 @@
  * / tabular calls have their own expr kinds; a non-scalar function here is a
  * `function.wrong-shape` problem.
  */
-import { z } from 'zod';
 import type { ExprDef, FunctionCallExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { functionExprSchema } from '../schema-build';
-import { textResult, childExprSchema } from './_shared';
-import { withAid, didYouMean } from '../aids';
+import { textResult } from './_shared';
+import { didYouMean } from '../aids';
 import { obj, lit, str, record, exprRef } from '../shape';
-import { ParamExpr } from './param';
 import type { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
 import type { SourceRow } from '../runtime/row';
 import { type NamedArgs, runScalarFunction } from '../runtime/functions';
-import {
-  parseNamedArgs,
-  namedArgSchema,
-  resolveNamedArgs,
-  validateNamedArgs,
-  evaluateNamedArgs,
-  orderedArgSql,
-  observeNamedParams,
-  validateRawArgs,
-  namedArgsToJSON,
-  namedArgsToCode,
-} from './_function-args';
+import { parseNamedArgs, resolveNamedArgs, validateNamedArgs, evaluateNamedArgs, orderedArgSql, observeNamedParams, validateRawArgs, namedArgsToJSON, namedArgsToCode } from './_function-args';
 import type { Cost, CostContext } from '../cost';
 import { addCost } from '../cost';
 import type { Dialect } from '../sql/dialect';
@@ -92,22 +77,6 @@ export class FunctionCallExpr extends Expr {
     (v) => new FunctionCallExpr(v.function, v.args),
     { aid: 'Expr_function-call' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (named-arg map), layered by `functionExprSchema`. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    // The `open` shape (also the bare-call / `functions:'open'` fallback);
-    // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = withAid(
-      z.object({
-        kind: z.literal('function-call'),
-        function: z.string().describe('Registered scalar function name.'),
-        args: namedArgSchema(child),
-      }),
-      'Expr_function-call',
-    ).describe('A scalar function call with named arguments.');
-    return functionExprSchema('function-call', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     for (const a of this.args.values()) visit(a);

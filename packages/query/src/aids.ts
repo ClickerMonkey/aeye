@@ -1,74 +1,16 @@
 /**
- * DIRECTED, domain-specific schema-failure messages.
- *
- * The LLM query schema is a deep tree of `.or`-folded discriminated unions,
- * enums, records and objects. When a model emits a malformed query, Zod's stock
- * messages ("expected object, received string", "Value does not match any of
- * the allowed shapes") name Zod's TYPES, not the query DOMAIN — so the model has
- * to reverse-engineer which construct it got wrong.
- *
- * This module makes every generated schema node carry an **`aid`** (a stable
- * identifier) plus a per-schema, aid-directed **error map** so the SAME failure
- * reads in the query's own vocabulary instead:
- *  - a wrong-shape / `invalid_type` → `expected <label>[, got <received>]`
- *    (e.g. "expected an expression, got a string");
- *  - a union `.or` no-match whose value carries a bogus string `kind` →
- *    "unknown <noun> kind `<kind>` — did you mean `<nearest>`? (available: …)"
- *    via a small edit-distance over the union's branch kinds; else the union's
- *    own `<label>` ("expected an expression");
- *  - an enum failure → `expected <label>: <allowed values>` (e.g. "expected a
- *    comparison operator: =, <>, <, <=, >, >=, like, notLike, ilike"), with a
- *    trailing "— did you mean `notLike`?" when the received value is a near-miss.
- *
- * The same {@link didYouMean} suggester powers the enum tail here AND the
- * unknown-NAME diagnostics validation emits (unknown field / source / Type /
- * relation / function / arg / output) — every unknown-name error in the package
+ * DIRECTED, domain-specific messages for the query language: the `aid` vocabulary
+ * (`AID_REGISTRY`: "expected an expression", "a comparison operator", …) the
+ * owned structural parser (`shape/`) names what it expected with, and the
+ * {@link didYouMean} suggester behind every unknown-name diagnostic (unknown
+ * field / source / Type / relation / function / arg / output) — every one
  * suggests the nearest valid name.
  *
- * `withAid(schema, aid, opts?)` is the single seam: it attaches `.meta({ aid })`
- * (so the JSON-schema `$defs` key is unchanged) AND a captured error closure
- * that renders the directed text off {@link AID_REGISTRY}. The wire schema the
- * model consumes is byte-for-byte identical except the added `aid` metadata and
- * the friendlier error text (which is never serialized into JSON-schema).
+ * (The model-facing schema is `@aeye/schema` now — `llm/grammar.ts` — and its
+ * errors for the model come from that package's format.)
  *
  * No `any` / `unknown` casts: every value is narrowed by a type guard.
  */
-import { z } from 'zod';
-
-/**
- * A PROCESS-LOCAL registry for the shared-fragment `$def` ids (`Fields_*`,
- * `Args*`, `param`, `Limit`), kept OFF zod's process-GLOBAL registry.
- *
- * WHY: `.meta({ id })` registers into zod's global registry, which THROWS on any
- * duplicate id. Core's `strictify` (used to build the model wire schema) CLONES
- * every node and re-applies its `.meta()` — so a schema whose shared fragments
- * carry a global `id` collides the instant it is strictified ("ID param_g2
- * already exists in the registry"), crashing the tool-call compile before the
- * request is even sent. A `.meta({ aid })` does NOT hit the id map (zod's
- * `add()` only guards the `"id"` key), so re-registering an aid is always safe.
- *
- * The shared-fragment ids are needed ONLY so that a PLAIN `z.toJSONSchema` (which
- * factors reused instances solely by id) still emits one `$def` + `$ref`s rather
- * than inlining every copy. Routing those ids through THIS local registry (fed to
- * `z.toJSONSchema` via its `metadata` option) keeps that factoring while leaving
- * zod's global registry — and therefore `strictify` — id-free and collision-proof.
- * Core's OWN converter never needed the id: it factors by `aid` (the field-name
- * enums, `Limit`) or, for the aid-less fragments (`param`, typed `Args`), by
- * re-encountering the SAME memoized instance (an identity `$ref`), so the
- * model-facing wire schema stays factored regardless.
- */
-export const sharedIdRegistry: z.core.$ZodRegistry<{ id: string }> = z.registry<{ id: string }>();
-
-/**
- * Tag `schema` with a shared-fragment `$def` id in {@link sharedIdRegistry}
- * (NOT zod's global registry — see its docs). Returns `schema` for chaining. Call
- * it on the FINAL shared instance (after any `.describe()`), since zod strips an
- * inherited `id` from a `.describe()`/`.meta()` clone.
- */
-export function withSharedId(schema: z.ZodTypeAny, id: string): z.ZodTypeAny {
-  sharedIdRegistry.add(schema, { id });
-  return schema;
-}
 
 /** A directed description for one `aid` node. */
 export interface AidInfo {
@@ -188,11 +130,6 @@ export const AID_REGISTRY: Readonly<Record<string, AidInfo>> = {
 /** Resolve an aid to its {@link AidInfo}, falling back to a generic label. */
 export function aidInfo(aid: string): AidInfo {
   return AID_REGISTRY[aid] ?? { label: `a \`${aid}\` value` };
-}
-
-/** A plain, non-array record (so `value.kind` can be read by a guard). */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -336,106 +273,4 @@ function orList(items: readonly string[]): string {
  */
 export function nearestKind(kind: string, kinds: readonly string[]): string | undefined {
   return nearest(kind, kinds);
-}
-
-/**
- * The "unknown <noun> kind `<kind>` — did you mean `<nearest>`? (available: …)"
- * message for a union no-match whose value is an object with a bogus string
- * `kind`. `undefined` when the value is not such an object (so the caller uses
- * the plain "expected <label>").
- */
-function unknownKindMessage(
-  input: unknown,
-  kinds: readonly string[] | undefined,
-  info: AidInfo,
-): string | undefined {
-  if (!kinds || kinds.length === 0) return undefined;
-  if (!isRecord(input)) return undefined;
-  const kind = input['kind'];
-  if (typeof kind !== 'string') return undefined;
-  const noun = info.noun ?? 'value';
-  const nearest = nearestKind(kind, kinds);
-  const suggestion = nearest !== undefined ? ` — did you mean \`${nearest}\`?` : '';
-  return `unknown ${noun} kind \`${kind}\`${suggestion} (available: ${kinds.join(', ')})`;
-}
-
-/**
- * Render the DIRECTED message for one raw Zod issue at an aid-tagged node,
- * dispatching on the issue code:
- *  - `invalid_type` → `expected <label>[, got <received>]`;
- *  - `invalid_value` (enum / literal) → `expected <label>: <allowed>`;
- *  - `invalid_union` → the "did you mean" kind message, else `expected <label>`;
- *  - anything else → `expected <label>` (a safe, still-directed fallback).
- */
-export function directedMessage(
-  issue: z.core.$ZodRawIssue,
-  aid: string,
-  kinds: readonly string[] | undefined,
-): string {
-  const info = aidInfo(aid);
-  switch (issue.code) {
-    case 'invalid_type': {
-      const got = describeInput(issue.input);
-      return got !== undefined ? `expected ${info.label}, got ${got}` : `expected ${info.label}`;
-    }
-    case 'invalid_value': {
-      // An enum / literal mismatch: `issue.values` is the allowed set (always
-      // non-empty for a `z.enum` / `z.literal`), listed after the label. When the
-      // received value is a near-miss STRING of one of them (e.g. `"notlike"` for
-      // `notLike`, `"il ike"` for `ilike`), append the "did you mean" suggestion.
-      const values = issue.values.map((v) => String(v));
-      const allowed = values.join(', ');
-      const suggestion = typeof issue.input === 'string' ? didYouMean(issue.input, values) : '';
-      return `expected ${info.label}: ${allowed}${suggestion}`;
-    }
-    case 'invalid_union': {
-      return unknownKindMessage(issue.input, kinds, info) ?? `expected ${info.label}`;
-    }
-    default:
-      return `expected ${info.label}`;
-  }
-}
-
-/** A captured error map that renders the directed message for one aid node. */
-function makeAidError(aid: string, kinds: readonly string[] | undefined): z.core.$ZodErrorMap {
-  return (issue) => directedMessage(issue, aid, kinds);
-}
-
-/** Options for {@link withAid}. */
-export interface AidOptions {
-  /**
-   * For a UNION node (an `.or` fold of `kind`-discriminated branches), the valid
-   * discriminant kinds — drives the "unknown … kind `x` — did you mean `y`?"
-   * suggestion on a no-match. Omit for non-union nodes.
-   */
-  kinds?: readonly string[];
-  /**
-   * A JSON-Schema `$defs` id to stamp on SHARED, memoized fragment instances so
-   * a plain `z.toJSONSchema` factors them into a single, readably-named `$def` +
-   * `$ref`s instead of inlining every copy. It is registered in the process-LOCAL
-   * {@link sharedIdRegistry} (NOT zod's global registry), so `strictify` never
-   * re-registers it and collides. The `aid` (and its directed error map) is
-   * preserved unchanged. Omit for the common inline nodes.
-   */
-  id?: string;
-}
-
-/**
- * Tag a generated schema node with an `aid` and a directed error map.
- *
- * Attaches `.meta({ aid })` (the JSON-schema `$defs` identifier — unchanged from
- * the plain `.meta({ aid })` sites this upgrades) AND a per-schema error closure
- * that renders {@link directedMessage} off {@link AID_REGISTRY}. The closure is
- * captured (it carries its own `aid` + `kinds`), so it survives Zod's
- * clone-on-`.meta()`/`.describe()` and `z.lazy` wrapping intact.
- *
- * The returned schema is a CLONE, so chain any `.describe(...)` AFTER `withAid`.
- */
-export function withAid(schema: z.ZodTypeAny, aid: string, opts: AidOptions = {}): z.ZodTypeAny {
-  const cloned = schema.clone({ ...schema.def, error: makeAidError(aid, opts.kinds) }).meta({ aid });
-  // The shared-fragment `id` goes into the process-LOCAL registry (see
-  // `sharedIdRegistry`) so it factors under a plain `z.toJSONSchema` WITHOUT
-  // landing in zod's global registry — where `strictify`'s clone-and-re-`.meta()`
-  // would collide on it. The `aid` above stays global (core factors by it).
-  return opts.id !== undefined ? withSharedId(cloned, opts.id) : cloned;
 }

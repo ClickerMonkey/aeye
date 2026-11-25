@@ -15,31 +15,19 @@
  * non-numeric `value`). The runtime aggregation LOGIC lives in the registered
  * `AggregateRun`, not here.
  */
-import { z } from 'zod';
 import type { AggregateExprDef, ExprDef, JsonValue } from '../schema';
-import type { SchemaOptions } from '../node';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
 import type { ResolvedType } from '../resolved-type';
 import type { Problems } from '../problem';
 import { Expr, type ExprClass, type ValidateContext } from '../expr';
-import { functionExprSchema } from '../schema-build';
 import { NumberFieldType } from '../field-types/index';
-import { computed, childExprSchema, type AppliedAggregate } from './_shared';
+import { computed, type AppliedAggregate } from './_shared';
 import { mergeOfAggregateCall, type QueryFunction } from '../function';
-import { withAid, didYouMean } from '../aids';
+import { didYouMean } from '../aids';
 import { obj, lit, str, bool, record, exprRef } from '../shape';
-import {
-  parseNamedArgs,
-  namedArgSchema,
-  resolveNamedArgs,
-  validateNamedArgs,
-  evaluateNamedArgsRow,
-  observeNamedParams,
-  namedArgsToJSON,
-  namedArgsToCode,
-} from './_function-args';
+import { parseNamedArgs, resolveNamedArgs, validateNamedArgs, evaluateNamedArgsRow, observeNamedParams, namedArgsToJSON, namedArgsToCode } from './_function-args';
 import { type NamedArgs, runAggregateFunction } from '../runtime/functions';
 import { Value } from '../runtime/value';
 import type { RuntimeContext } from '../runtime/context';
@@ -116,23 +104,6 @@ export class AggregateExpr extends Expr {
     (v) => new AggregateExpr(v.function, v.args, v.distinct ?? false),
     { optional: ['distinct'], aid: 'Expr_aggregate' },
   );
-
-  /** Zod schema for this expr kind's JSON shape (named-arg map plus distinct), layered by `functionExprSchema`. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    const child = childExprSchema(opts.Expr);
-    // The `open` shape (also the bare-call / `functions:'open'` fallback);
-    // `names` / `typed` are layered on by `functionExprSchema`.
-    const open = withAid(
-      z.object({
-        kind: z.literal('aggregate'),
-        function: z.string().describe('Registered aggregate function name (count for count(*)).'),
-        args: namedArgSchema(child),
-        distinct: z.boolean().optional(),
-      }),
-      'Expr_aggregate',
-    ).describe('Aggregate function over named args (count with empty args = count(*)).');
-    return functionExprSchema('aggregate', open, opts.functions, opts.depth?.functions ?? 'open', child, opts.cache);
-  }
 
   protected override aggregateHere(): boolean {
     return true;

@@ -26,6 +26,7 @@ import { QueryEngine } from '../engine';
 import { arrayExecutor } from '../runtime/executor';
 import { buildSchemas } from '../llm/schemas';
 import type { TypeDef, SelectDef, InsertDef, UpdateDef, ExprDef, JsonValue } from '../schema';
+import { accepts, decode } from './_utils';
 
 /** A Type shaped like the ones this ask came from: a settings blob + a tag list. */
 const widgetDef: TypeDef = {
@@ -386,7 +387,7 @@ describe('A9 — the wire schema and the parser accept the same write values', (
     // so the model was INVITED to emit a document into a json cell and the
     // parser then reported `shape.type`. That was the disagreement.
     const schemas = buildSchemas(engineOf(), { depth: { writes: 'typed' } });
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'widget', rows: [row] }).success).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'widget', rows: [row] })).toBe(true);
   });
 
   it("writes:'names' accepts the same document as a LITERAL expr", () => {
@@ -396,7 +397,7 @@ describe('A9 — the wire schema and the parser accept the same write values', (
       into: 'widget',
       rows: [{ id: { kind: 'literal', value: 1 }, name: { kind: 'literal', value: 'w' }, settings: { kind: 'literal', value: SETTINGS } }],
     };
-    expect(schemas.Insert.safeParse(asLiteral).success).toBe(true);
+    expect(accepts(schemas.Insert, asLiteral)).toBe(true);
   });
 });
 

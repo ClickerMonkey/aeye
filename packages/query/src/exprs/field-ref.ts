@@ -5,10 +5,7 @@
  * nullability widened by any nullability the source carries (e.g. an
  * outer-joined source).
  */
-import { z } from 'zod';
 import type { ExprDef, FieldRefExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
-import { fieldRefSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -93,13 +90,6 @@ export class FieldRefExpr extends Expr {
     (v) => new FieldRefExpr(v.source, v.field),
     { aid: 'Expr_field-ref' },
   );
-
-  /** Depth-aware Zod schema for this expr kind's JSON shape (per `opts.depth.refs`). */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    // Depth-aware: `refs:'open'` (or a bare call) yields the free-string shape;
-    // tighter levels enumerate / pair `source` + `field` (see `refSchema`).
-    return fieldRefSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
-  }
 
   /** Resolve to the named field on the bound source, widening nullability by the source's. */
   resolve(engine: QueryEngine, scope: QueryScope): ResolvedType {

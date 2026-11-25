@@ -16,10 +16,7 @@
  *  - `evaluate` returns a deterministic in-memory relevance (the fraction of
  *    query tokens present), honoring `SearchBacking.run` (boolean ⇒ 1/0).
  */
-import { z } from 'zod';
 import type { ExprDef, TextScoreExprDef } from '../schema';
-import type { SchemaOptions } from '../node';
-import { textScoreSchema } from '../schema-build';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryScope } from '../scope';
@@ -94,11 +91,6 @@ export class TextScoreExpr extends Expr {
     (v) => new TextScoreExpr(v.source, v.field, v.query),
     { optional: ['field'], aid: 'Expr_text-score' },
   );
-
-  /** Zod schema for this expr kind's JSON shape. */
-  static toSchema(opts: SchemaOptions): z.ZodTypeAny {
-    return textScoreSchema(opts.types ?? [], opts.depth?.refs ?? 'open', opts.cache);
-  }
 
   override forEachChild(visit: (child: Expr) => void): void {
     if (this.query.kind === 'param') visit(this.query.param);

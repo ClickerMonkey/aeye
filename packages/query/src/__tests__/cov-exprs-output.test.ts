@@ -15,12 +15,13 @@
  * drill-down expansion of every wrapping expr kind.
  */
 import { describe, it, expect } from 'vitest';
-import { cctx, fixture, runtimeFixture, typeScope, ref, lit, cmp, param } from './_utils';
+import { cctx, fixture, runtimeFixture, typeScope, ref, lit, cmp, param, exprAccepts, accepts, decode } from './_utils';
 import { RuntimeContext } from '../runtime/context';
 import { OutputRefExpr } from '../exprs/output-ref';
 import { UnaryExpr } from '../exprs/unary';
 import { canonicalize } from '../expr';
-import { buildSchemas } from '../llm/schemas';
+import { buildSchemas, QueryGrammar } from '../llm/schemas';
+import { createRegistry } from '../registry';
 import { exprKindApplicable, selectFunctions } from '../schema-build';
 import { drillDown } from '../transforms/drill-down';
 import { JoinCtePlanner } from '../sql/planner';
@@ -53,10 +54,10 @@ describe('output-ref: serialization, schema, static from', () => {
     expect(() => OutputRefExpr.from(lit(1), fx.registry)).toThrow(/expected 'output'/);
   });
 
-  it('toSchema accepts a well-formed ref and rejects a missing name', () => {
-    const schema = OutputRefExpr.toSchema({});
-    expect(schema.safeParse({ kind: 'output', name: 'x' }).success).toBe(true);
-    expect(schema.safeParse({ kind: 'output' }).success).toBe(false);
+  it('the grammar\'s output ref accepts a well-formed ref and rejects a missing name', () => {
+    const schema = QueryGrammar.result('Expr_output').bind(createRegistry());
+    expect(accepts(schema, { kind: 'output', name: 'x' })).toBe(true);
+    expect(accepts(schema, { kind: 'output' })).toBe(false);
   });
 });
 
@@ -257,14 +258,14 @@ describe('output-ref: LLM schema position gating', () => {
   });
 
   it('offers `output` in groupBy / orderBy / having', () => {
-    expect(schemas.Select.safeParse(sel({ groupBy: [outRef('name')] })).success).toBe(true);
-    expect(schemas.Select.safeParse(sel({ having: [outRef('name')] })).success).toBe(true);
-    expect(schemas.Select.safeParse(sel({ order: [{ expr: outRef('name'), dir: 'asc' }] })).success).toBe(true);
+    expect(accepts(schemas.Select, sel({ groupBy: [outRef('name')] }))).toBe(true);
+    expect(accepts(schemas.Select, sel({ having: [outRef('name')] }))).toBe(true);
+    expect(accepts(schemas.Select, sel({ order: [{ expr: outRef('name'), dir: 'asc' }] }))).toBe(true);
   });
 
   it('does NOT offer `output` in WHERE or the general Expr union', () => {
-    expect(schemas.Expr.safeParse(outRef('name')).success).toBe(false);
-    expect(schemas.Select.safeParse(sel({ where: [outRef('name')] })).success).toBe(false);
+    expect(accepts(schemas.Expr, outRef('name'))).toBe(false);
+    expect(accepts(schemas.Select, sel({ where: [outRef('name')] }))).toBe(false);
   });
 
   it('exprKindApplicable gates `output` out of the general union', () => {
@@ -416,7 +417,7 @@ describe('output-ref: full unary.ts coverage (v8 merge workaround)', () => {
 
   it('from / toSchema / forEachChild / cost / serialization', () => {
     expect(() => UnaryExpr.from(lit(1), fx.registry)).toThrow(/expected 'unary'/);
-    expect(UnaryExpr.toSchema({}).safeParse({ kind: 'unary', op: '-', operand: { kind: 'literal', value: 1 } }).success).toBe(true);
+    expect(exprAccepts({ kind: 'unary', op: '-', operand: { kind: 'literal', value: 1 } })).toBe(true);
     const e = fx.engine.parse(un('-', ref('o', 'total')));
     let n = 0;
     e.forEachChild(() => n++);

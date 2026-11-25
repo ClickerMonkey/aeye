@@ -26,6 +26,7 @@ import { QueryEngine } from '../engine';
 import { arrayExecutor } from '../runtime/executor';
 import { buildSchemas } from '../llm/schemas';
 import type { TypeDef, InsertDef, UpdateDef, JsonValue } from '../schema';
+import { accepts, decode } from './_utils';
 
 /** A Type with both temporal kinds, plus a `text` control column. */
 const eventDef: TypeDef = {
@@ -135,7 +136,7 @@ describe('a temporal column REFUSES every literal (A11 — pinned as shipped)', 
     expect(engine.type('event')!.field('day')!.fieldType.toValueSchema().safeParse(DAY).success).toBe(true);
     const schemas = buildSchemas(engine, { depth: { writes: 'typed' } });
     const row = { id: 1, label: 'launch', day: DAY, at: AT };
-    expect(schemas.Insert.safeParse({ kind: 'insert', into: 'event', rows: [row] }).success).toBe(true);
+    expect(accepts(schemas.Insert, { kind: 'insert', into: 'event', rows: [row] })).toBe(true);
     expect(engine.validateQuery({ kind: 'insert', into: 'event', rows: [row] }).list.map((p) => p.code))
       .toEqual(['write.type', 'write.type']);
   });

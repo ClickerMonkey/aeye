@@ -32,6 +32,7 @@ import type { Dialect } from '../sql/dialect';
 import type { TypeDef, SelectDef, ExprDef, TypeBacking } from '../schema';
 import type { SourceRecord } from '../runtime/row';
 import type { Problems } from '../problem';
+import { accepts, decode } from './_utils';
 
 // ─── A deterministic stub embedder ─────────────────────────────────────────────
 const stubEmbedder: Embedder = {
@@ -395,11 +396,11 @@ describe('semantic pairing: builder / JSON / schema', () => {
 
   it('the LLM Expr schema accepts a bound-source semantic query', () => {
     const schemas = buildSchemas(fx.engine, { depth: 'open' });
-    const ok = schemas.Expr.safeParse({
+    const ok = decode(schemas.Expr, {
       kind: 'semantic',
       source: 'paper',
       query: { source: 'topic', field: 'label' },
     });
-    expect(ok.success).toBe(true);
+    expect(ok.ok).toBe(true);
   });
 });
