@@ -2,7 +2,9 @@
  * Gin fixtures shared by the gin and ginny corpus tests: gin's own test
  * registries and programs (person.test.ts, build-schemas-named.test.ts,
  * new-strict-schema.test.ts, code-render-demo.test.ts), plus TypeDefs a
- * model writes. Runtime-only use of `@aeye/gin` (its Registry type).
+ * model writes. The registries are the frozen zod-era gin (bench/legacy-gin),
+ * the baseline the differentials compare with; gin's own tests pass their
+ * `createRegistry` to build the same fixture on today's gin.
  */
 import { createRegistry, type Registry } from '../../../bench/legacy-gin';
 import type { GinRegistryLike, GinTypeDef } from '../../index';
@@ -15,8 +17,8 @@ export const asGrammarRegistry = (r: Registry): GinRegistryLike => ({
 });
 
 /** person.test.ts:20 Person, build-schemas-named.test.ts:12 Task, new-strict-schema.test.ts:24 Pair. */
-export function fixtureRegistry(): Registry {
-  const r = createRegistry();
+export function fixtureRegistry<R = Registry>(create: () => R = createRegistry as unknown as () => R): R {
+  const r = create() as unknown as Registry;
   r.register(r.extend(r.obj({ firstName: { type: r.text() }, lastName: { type: r.text() } }), {
     name: 'Person',
     props: {
@@ -39,7 +41,7 @@ export function fixtureRegistry(): Registry {
   } as never));
   r.register(r.extend('obj', { name: 'Task', docs: 'a work item', props: { title: { type: r.text({ minLength: 1 }), docs: 'short summary' }, done: { type: r.bool() } } }));
   r.register(r.extend(r.tuple([r.text(), r.num()]), { name: 'Pair', docs: 'a (label, value) pair' }));
-  return r;
+  return r as unknown as R;
 }
 
 /** A `new` of a builtin with a raw value (the common leaf of gin's fixtures). */

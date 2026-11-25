@@ -17,7 +17,7 @@ import {
   BAD_PROGRAMS, everythingProgram, fixtureRegistry, lambdaProgram, loopProgram, personProgram, PROGRAMS, switchProgram, t, TYPEDEFS,
 } from '../../../schema/src/__tests__/corpus/gin-fixtures';
 
-const reg = fixtureRegistry();
+const reg = fixtureRegistry(createRegistry);
 const zodOpts = buildZodSchemas(reg);
 const zodStrict = buildZodSchemas(reg, { newStrict: true });
 const zodRefs = buildZodSchemas(reg, { namedRefs: true });
@@ -191,7 +191,7 @@ describe('binding and requests', () => {
   it('binds are cached per registry and version; a registered type makes a new bind; the static grammar is shared', () => {
     expect(ExprSchema.bind(reg)).toBe(ExprSchema.bind(reg));
     expect(ExprSchema.bind(reg, { newStrict: true })).not.toBe(ExprSchema.bind(reg));
-    const r2 = fixtureRegistry();
+    const r2 = fixtureRegistry(createRegistry);
     const before = ExprSchema.bind(r2);
     r2.register(r2.extend('obj', { name: 'Project', props: { name: { type: r2.text() } } }));
     const after = ExprSchema.bind(r2);
