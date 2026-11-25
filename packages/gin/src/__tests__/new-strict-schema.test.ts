@@ -40,7 +40,9 @@ describe('NewExpr strict schema — full registry + custom types', () => {
     // anyOf union of per-type branches.
     const defs = (jsonSchema as { $defs?: Record<string, unknown> }).$defs ?? {};
     const resolve = (b: unknown): unknown => {
-      const ref = (b as { $ref?: string }).$ref;
+      // a described ref is a one-option anyOf on OpenAI strict (no keywords beside $ref)
+      const wrapped = (b as { anyOf?: unknown[] }).anyOf;
+      const ref = (b as { $ref?: string }).$ref ?? (wrapped?.length === 1 ? (wrapped[0] as { $ref?: string }).$ref : undefined);
       if (!ref) return b;
       const key = ref.replace(/^#\/\$defs\//, '');
       return defs[key];
