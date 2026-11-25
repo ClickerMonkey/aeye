@@ -21,7 +21,7 @@ import { a, type Bundle } from '@aeye/schema';
 import type { Registry } from '../registry';
 import type { QueryEngine } from '../engine';
 import type { QueryDef } from '../schema';
-import { QUERY_RESULTS, QueryGrammar, type QuerySchemas } from './grammar';
+import { QUERY_RESULTS, QueryGrammar, type QueryBundle, type QuerySchemas } from './grammar';
 import {
   DEFAULT_MAX_QUERY_SCHEMA_TYPES, shouldUseStringSchema, toRegistry, type BuildSchemasOptions, type QuerySchemaOptions,
 } from './depth';
@@ -54,7 +54,7 @@ export function buildSchemas(engineOrRegistry: QueryEngine | Registry, options: 
 export type QueryToolInput = { query: QueryDef } | { query: string };
 
 /** `{ query: <structured Query> }`, bound with `(registry, options?)`. */
-export const QueryArgs = QueryGrammar.result(a.object({ query: a.ref('Query').describe('The query to execute as a structured Query object.') }));
+export const QueryArgs: QueryBundle<{ query: QueryDef }> = QueryGrammar.result(a.object({ query: a.ref('Query').describe('The query to execute as a structured Query object.') }));
 
 /** `{ query: <prose> }`: the string fallback past `max` Types. */
 export const QueryProseArgs = a.object({

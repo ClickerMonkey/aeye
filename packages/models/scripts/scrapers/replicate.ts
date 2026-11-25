@@ -13,7 +13,7 @@ import * as path from 'path';
 import Replicate from 'replicate';
 import ts from 'typescript';
 import * as url from 'url';
-import { z } from 'zod';
+import { a } from '@aeye/core';
 import { writeModelTS } from '../codegen';
 import { exec, spawn } from 'child_process';
 
@@ -236,10 +236,9 @@ const jsonReplacer = (key: string, value: any) => {
 
 const typeInfo = await fs.readFile(path.join(__dirname, 'extract.md'), 'utf-8');
 
-const optionalTransform = (val: any) => 
-  !val || Object.values(val).every((v) => v === null || v === undefined) 
-    ? undefined
-    : Object.fromEntries(Object.entries(val).filter(([_, v]) => v !== null && v !== undefined));
+/** A group of optional values with nothing set is left out (decoding already drops the nulls a strict model writes). */
+const optionalTransform = <T extends object>(val: T | undefined): T | undefined =>
+  !val || Object.values(val).every((v) => v === null || v === undefined) ? undefined : val;
 
 const extract = ai.prompt({
   name: 'extract',
@@ -354,12 +353,12 @@ The request parameters in the converted request should only be the properties th
   `,
   strict: true,
   outputRetries: 3,
-  schema: z.object({
-    transformerImplementation: z.string()
+  schema: a.object({
+    transformerImplementation: a.string()
     // .regex(/^\{\n\s+"[^"]+\/[^"]+": \(\(\) => \{(.|\r|\n)*\}\)\(\),\n\}$/)
       .describe(`The TypeScript implementation of the model handler (without imports or \`\`\` marks) - described BETWEEN the <exampleTransformerImplementation> tags. Follow the rules outlined.`),
-    modelInfo: z.object({
-      capabilities: z.array(z.enum([
+    modelInfo: a.object({
+      capabilities: a.array(a.enum([
         'chat',
         'tools',
         'vision',
@@ -390,65 +389,58 @@ The request parameters in the converted request should only be the properties th
   - imageEmbedding: Image -> embedding generation
   - crossModalEmbedding: Text and image embeddings share one vector space (CLIP-like)
   - zdr: Supports zero-data-retention through a parameter`),
-      tier: z.enum(['flagship', 'efficient', 'legacy', 'experimental']).describe(`Model performance and quality tiers.
+      tier: a.enum(['flagship', 'efficient', 'legacy', 'experimental']).describe(`Model performance and quality tiers.
   Used for categorizing models by their capabilities and cost.
   
   - flagship: Top-tier models with best performance
   - efficient: Smaller, faster, more cost-effective models
   - legacy: Older models, may be deprecated
   - experimental: Preview/beta models`),
-      pricing: z.object({
-        text: z.object({
-          input: z.number().optional(),
-          output: z.number().optional(),
-          cached: z.number().optional(),
-        }).optional()
-          .transform(optionalTransform),
-        audio: z.object({
-          input: z.number().optional(),
-          output: z.number().optional(),
-          perSecond: z.number().optional(),
-        }).optional()
-          .transform(optionalTransform),
-        image: z.object({
-          input: z.number().optional(),
-          output: z.array(z.object({
-            quality: z.string().describe('Quality level - like low, medium, high'),
-            sizes: z.array(z.object({
-              width: z.number(),
-              height: z.number(),
-              cost: z.number().describe('Cost per image in USD'),
+      pricing: a.object({
+        text: a.object({
+          input: a.number().optional(),
+          output: a.number().optional(),
+          cached: a.number().optional(),
+        }).optional(),
+        audio: a.object({
+          input: a.number().optional(),
+          output: a.number().optional(),
+          perSecond: a.number().optional(),
+        }).optional(),
+        image: a.object({
+          input: a.number().optional(),
+          output: a.array(a.object({
+            quality: a.string().describe('Quality level - like low, medium, high'),
+            sizes: a.array(a.object({
+              width: a.number(),
+              height: a.number(),
+              cost: a.number().describe('Cost per image in USD'),
             })).describe('Supported image sizes and their costs'),
-          })).optional()
-            .transform(optionalTransform),
-        }).optional()
-          .transform(optionalTransform),
-        reasoning: z.object({
-          input: z.number().optional(),
-          output: z.number().optional(),
-          cached: z.number().optional(),
-        }).optional()
-          .transform(optionalTransform),
-        embeddings: z.object({
-          cost: z.number().optional(),
-        }).optional()
-          .transform(optionalTransform),
-        perRequest: z.number().optional().describe('Flat cost per request in USD'),
+          })).optional(),
+        }).optional(),
+        reasoning: a.object({
+          input: a.number().optional(),
+          output: a.number().optional(),
+          cached: a.number().optional(),
+        }).optional(),
+        embeddings: a.object({
+          cost: a.number().optional(),
+        }).optional(),
+        perRequest: a.number().optional().describe('Flat cost per request in USD'),
       }).describe('Pricing information. input/output/cached are per 1 million tokens unless otherwise specified. Leave null/undefined if unknown - 0 is free. Do not specify 0 unless it is free.'),
-      contextWindow: z.number(),
-      maxOutputTokens: z.number().optional(),
-      metrics: z.object({
-        tokensPerSecond: z.number().optional().describe('Processing speed in tokens per second'),
-        timeToFirstToken: z.number().optional().describe('Time to first token in milliseconds'),
-        averageRequestDuration: z.number().optional().describe('Average request duration in milliseconds'),
-        accuracyScore: z.number().optional().describe('Accuracy score based on benchmark tests 0-1'),
+      contextWindow: a.number(),
+      maxOutputTokens: a.number().optional(),
+      metrics: a.object({
+        tokensPerSecond: a.number().optional().describe('Processing speed in tokens per second'),
+        timeToFirstToken: a.number().optional().describe('Time to first token in milliseconds'),
+        averageRequestDuration: a.number().optional().describe('Average request duration in milliseconds'),
+        accuracyScore: a.number().optional().describe('Accuracy score based on benchmark tests 0-1'),
       }).optional()
-        .transform(optionalTransform)
         .describe('Performance metrics if available'),
-      tokenizer: z.enum(([
+      tokenizer: a.enum(([
         'Other', 'GPT', 'Mistral', 'Llama3', 'Qwen3', 'Qwen', 'Gemini', 'DeepSeek', 'Claude', 'Grok', 'Llama4', 'Llama2', 'Cohere', 'Nova', 'Router'
       ])).optional().describe('The tokenizer type used by this model if known, otherwise leave undefined'),
-      supportedParameters: z.array(z.enum([
+      supportedParameters: a.array(a.enum([
         // Chat Request
         'maxTokens', // max_tokens / max_completion_tokens
         'temperature', // temperature
@@ -973,10 +965,10 @@ export async function scrapeReplicate(
                 name: converted.name,
                 contextWindow: result.modelInfo.contextWindow,
                 maxOutputTokens: result.modelInfo.maxOutputTokens,
-                pricing: result.modelInfo.pricing,
+                pricing: Object.fromEntries(Object.entries(result.modelInfo.pricing).filter(([, v]) => typeof v !== 'object' || optionalTransform(v) !== undefined)),
                 tier: result.modelInfo.tier,
                 capabilities: new Set(result.modelInfo.capabilities),
-                metrics: result.modelInfo.metrics,
+                metrics: optionalTransform(result.modelInfo.metrics),
                 tokenizer: result.modelInfo.tokenizer,
                 supportedParameters: new Set(result.modelInfo.supportedParameters),
                 metadata: converted.metadata,
