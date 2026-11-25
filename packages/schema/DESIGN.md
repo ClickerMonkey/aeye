@@ -154,6 +154,36 @@ Nothing model-facing is zod: core takes no zod, and no provider path builds JSON
 - An output that fails on the hub is reported by the system's lenient parse; it has no `invalid` channel.
 - Saved interactions record the lenient schemas unless a plan was already pinned.
 
+#### Step 3b: every example through the encoder
+
+> Phil: "Hmm are all examples going through the encoded functionality so they match the over the line schema" → "That's the next thing to update - make sure that's used everywhere".
+
+Before this, no example reached a model through the encoder: code-shape JSON went out as written while the plan could
+differ (records as pairs on OpenAI / Anthropic strict and Gemini's OpenAPI subset, absent optionals as `null`,
+people-only fields dropped, fn names as model names), patched only by the harness's fn-name guess.
+
+- **schema** (`deferred.ts`): deferred values, `⟦encode {spec}⟧` text holding the code-shape value and which schema of
+  the request writes it (`tool` / `output`, `path`, `pick`, `pretty`, a carried `schema` + `strict` for a tool the
+  request lacks, a `fallback`, `type` for `{{schema}}`); `deferEncode`, `deferSchema`, `fillDeferred(text, plan)`,
+  `plainDeferred`, `hasDeferred`, `DEFERRED_SPAN`, and `deferredRequest(plan, known?)`, a stand-in plan whose encoders
+  and helpers write deferred values. A whole value must read back as itself through its schema, else it shows its
+  fallback (a stale example, an optional nullable field a strict dialect can only write as `null`).
+- **core**: `prepareRequest` fills every deferred value in the request's messages and tool descriptions once planned
+  (`fillRequest`); planning sees descriptions in the code shape (the dispatcher's list); `deferRequest(request,
+  known?)` renders a relay's templates deferred.
+- **Schema-level examples** (`.example()`): already encoded per profile in `decorate` (`node.encode`, codecs
+  included); `deferred.test.ts` pins it.
+- **The harness** (reviewed there): every tool example is a deferred value (filled by core after its provider plans);
+  static mode's cards are `run` deferred values with `pick: 'args'`; a fn that isn't a tool here is written as its tool
+  would be once loaded; the systems' authoring prompts write example calls with the SDK's `ShowArgs` (deferred values
+  that cross the gateway as text and are filled by the hub's plan). Design in harness `docs/architecture.md`, "What a
+  model sees: @aeye/schema", "Examples".
+
+Tests: schema `deferred.test.ts` (fill per profile and read back, parts, pick, fallback, carried schemas, a relay's
+templates through `deferredRequest`, schema-level examples per profile); core `schema-tools.test.ts` ("deferred
+values": a relay defers, the planner fills for OpenAI and Gemini; descriptions and messages filled, the request
+unchanged).
+
 ### Pass 1 decisions
 
 - **Request budget API.** `profileFor(model).request(items)` returns a `RenderedRequest`. Each `RequestEntry` records the exact profile it was rendered with (a memoized variant of the model's profile, e.g. `anthropic-strict[optional=null]`), its `adjustments`, `reasons`, `strict` and `delivery`. `parse`, `encode`, examples and the template helpers all go through the entry's one `Rendered`, so they match the JSON sent by construction. The fitting ladder (as is, then optionals as null, then widened enums, then deep nesting as JSON text, then not strict or prompt text) generalises core's `SchemaBudget`, measured on the emitted JSON instead of estimated from zod.

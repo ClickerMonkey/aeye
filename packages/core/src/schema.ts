@@ -24,7 +24,11 @@ import Handlebars from 'handlebars';
 import {
   a,
   DEFAULT_JSON_INSTRUCTION,
+  deferredRequest,
   familyProfile,
+  fillDeferred,
+  hasDeferred,
+  plainDeferred,
   LENIENT,
   ModelProfile,
   profileFor,
@@ -207,7 +211,9 @@ export function planRequest(request: Pick<Request, 'tools' | 'responseFormat' | 
     name: tool.name,
     schema: tool.parameters,
     strict: tool.strict ?? 1,
-    ...(tool.description ? { description: tool.description } : {}),
+    // a deferred value (`deferEncode`) is written once this plan exists: what the plan itself holds (the dispatcher's
+    // list of the tools behind it) shows it in the code shape
+    ...(tool.description ? { description: plainDeferred(tool.description) } : {}),
     ...(tool.errorFormat ? { errorFormat: tool.errorFormat } : {}),
   }));
   const format = objectFormat(request.responseFormat);
@@ -276,7 +282,44 @@ export async function prepareRequest(request: Request, model: ModelLike | undefi
     responseFormat = format.schemaDelivery === 'json' ? 'json' : undefined;
     messages = withSystemText(messages, outputInstructions(output));
   }
-  return { ...request, messages, responseFormat, plan };
+  return { ...request, ...fillRequest({ messages, tools: request.tools }, plan), responseFormat, plan };
+}
+
+/**
+ * Every deferred value (`deferEncode`: from a relay's `deferRequest`, or text assembled before the request was
+ * planned) in a request's messages and tool descriptions, written through its plan. Untouched messages and tools stay
+ * the same objects; a tool whose description has a deferred value is copied with it written.
+ */
+export function fillRequest(request: Pick<Request, 'messages' | 'tools'>, plan: RequestPlan): Pick<Request, 'messages' | 'tools'> {
+  const fill = (text: string): string => fillDeferred(text, plan);
+  const messages = request.messages.map(message => {
+    if (typeof message.content === 'string') {
+      return hasDeferred(message.content) ? { ...message, content: fill(message.content) } : message;
+    }
+    if (!message.content.some(part => part.type === 'text' && typeof part.content === 'string' && hasDeferred(part.content))) {
+      return message;
+    }
+    return { ...message, content: message.content.map(part => (part.type === 'text' && typeof part.content === 'string' ? { ...part, content: fill(part.content) } : part)) };
+  });
+  const tools = request.tools?.map(tool => (tool.description && hasDeferred(tool.description) ? { ...tool, description: fill(tool.description) } : tool));
+  return { messages, ...(tools ? { tools } : {}) };
+}
+
+/**
+ * A request as a relaying provider forwards it to the one that plans it (a gateway, a hub): its templated system text
+ * (`{{encode}}`, `{{schema}}`, an encoder in a function-form instruction or input) rendered with every value DEFERRED
+ * (`deferredRequest`), so it travels as text and is written through the plan made where the request is planned
+ * (`prepareRequest` fills every deferred value). `known` supplies schemas a template names that this request doesn't
+ * have (a tool offered in a later step): their values carry the schema. A request without templates comes back as it is.
+ */
+export async function deferRequest(request: Request, known?: (name: string) => Bound<any> | undefined): Promise<Request> {
+  const templates = request.templates;
+  if (!templates) {
+    return request;
+  }
+  const content = await templates.render(deferredRequest(requestPlan(request), known));
+  const { templates: _rendered, ...rest } = request;
+  return { ...rest, messages: request.messages.map(message => (message === templates.message ? { ...message, content } : message)) };
 }
 
 /**

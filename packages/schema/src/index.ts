@@ -10,6 +10,7 @@ export * from './model';
 export * from './request';
 export * from './measure';
 export * from './template';
+export * from './deferred';
 export * from './errors';
 export {
   DEFAULT_ERROR_FORMAT, errorFormat, mergeErrorFormats, formatErrors, issueKind, suggestionFor, modelPath, shortType,

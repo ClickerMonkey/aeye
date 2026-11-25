@@ -119,6 +119,8 @@ Search takes {{encode q tool="search"}}.      {{!-- another schema of the reques
 The shape: {{schema}}                          {{!-- as TypeScript --}}
 ```
 
+**Deferred values** (`@aeye/schema`'s `deferEncode`, "Deferred values" in `aeye-schema.md`): text written before the request is planned (a tool's description, a message, a system message an application assembled) may hold values to be written through the plan. `prepareRequest` fills every one in the request's messages and tool descriptions once it has planned (`fillRequest(request, plan)` does just that); what the plan itself holds (the dispatcher's list of the tools behind it) shows them in the code shape. A relaying provider that forwards a request to the one that plans it (a gateway) calls `deferRequest(request, known?)` first: the request's templates are rendered for `deferredRequest(requestPlan(request), known)`, so every `{{encode}}`, `{{schema}}` and encoder value travels deferred and is written through the plan made where the request is planned, never the relay's lenient one.
+
 Function forms get a value-only encoder: `instructionsFn: (ctx, encode) => \`Call like ${encode(example)}\``, tool `input: (ctx, encode) => ...`, prompt `input: (input, ctx, encode) => ...`; also `await tool.encoder(ctx, plan?)`. Text that uses them is rendered once in the code shape and again for the model when the request is planned (so an instruction function runs twice); text that doesn't is rendered once. A template variable named `encode` or `schema` still wins over the helper.
 
 ## Repairs

@@ -7,11 +7,11 @@
  * __tests__/corpus/core-tools.ts — core's own README/doc/test schemas, ported
  * to `a`), so core is tested on the shapes it documents.
  */
-import { a } from '@aeye/schema';
+import { a, deferEncode, hasDeferred, LENIENT } from '@aeye/schema';
 import { Prompt } from '../prompt';
 import { Tool } from '../tool';
-import { planRequest } from '../schema';
-import type { Context } from '../types';
+import { deferRequest, fillRequest, planRequest, prepareRequest, sentTools } from '../schema';
+import type { Context, Executor, Request } from '../types';
 import { MODELS, plannedExecutor } from './mocks/planned';
 
 // corpus: core:README.md:512 — "same schema, different wire shapes".
@@ -306,5 +306,46 @@ describe('repairs and size caps', () => {
     ]);
     expect(toolMessages[0]).toContain("JSON text that doesn't parse");
     expect(events.find(e => e.type === 'toolArgRepairAttempt')).toMatchObject({ fields: ['program'], success: false });
+  });
+});
+
+describe('deferred values: text written before the request is planned', () => {
+  const example = { name: 'shirt', tags: { color: 'red' } };
+
+  it('a relay defers its templates; the provider that plans fills them for its model', async () => {
+    const tag = new Tool({ name: 'tag', description: 'Tags', instructions: 'Call it like {{encode example}}.', input: () => ({ example }), schema: TaggedArgs, call: () => 'ok' });
+    const prompt = new Prompt({ name: 'p', description: 'p', content: 'Use the tools.', tools: [tag] } as any);
+    const forwarded: Request[] = [];
+    // the relay: no model known, so it defers every value and forwards the text (here, through JSON)
+    const relay: Executor<any, any> = async (request) => {
+      const deferred = await deferRequest(request);
+      forwarded.push(JSON.parse(JSON.stringify({ messages: deferred.messages })) as Request);
+      return { content: 'done', finishReason: 'stop', model: 'relay' };
+    };
+    for await (const _ of prompt.get('stream', {}, { execute: relay } as any)) { /* drain */ }
+    const system = String(forwarded[0]!.messages[0]!.content);
+    expect(hasDeferred(system)).toBe(true);
+    // where it is planned: the same tool, rebuilt from its lenient JSON Schema as a gateway does
+    const tool = { name: 'tag', description: 'Tags', parameters: a.fromJSONSchema(TaggedArgs.render(LENIENT).jsonSchema).bind() };
+    const gpt = await prepareRequest({ messages: forwarded[0]!.messages, tools: [{ ...tool }] }, MODELS.gpt);
+    expect(String(gpt.messages[0]!.content)).toContain('Call it like {"name":"shirt","tags":[{"key":"color","value":"red"}]}.');
+    const gemini = await prepareRequest({ messages: forwarded[0]!.messages, tools: [{ ...tool }] }, MODELS.gemini);
+    expect(String(gemini.messages[0]!.content)).toContain('Call it like {"name":"shirt","tags":{"color":"red"}}.');
+  });
+
+  it('deferred values in tool descriptions and messages are filled when planned; the dispatcher lists the code shape', async () => {
+    const value = deferEncode({ tool: 'tag', value: example });
+    const request: Request = {
+      messages: [{ role: 'system', content: `Like ${value}` }, { role: 'user', content: [{ type: 'text', content: `Or ${value}` }] }],
+      tools: [{ name: 'tag', description: `Tags. Example: ${value}`, parameters: TaggedArgs.bind() }],
+    };
+    const sent = await prepareRequest(request, MODELS.gpt);
+    const pairs = '{"name":"shirt","tags":[{"key":"color","value":"red"}]}';
+    expect(sent.messages[0]!.content).toBe(`Like ${pairs}`);
+    expect((sent.messages[1]!.content as any)[0].content).toBe(`Or ${pairs}`);
+    expect(sentTools(sent)[0]!.description).toBe(`Tags. Example: ${pairs}`);
+    // the request itself is unchanged, so it can be planned again for another model
+    expect(request.tools![0]!.description).toContain('⟦encode');
+    expect(fillRequest(request, sent.plan!).messages[0]!.content).toBe(`Like ${pairs}`);
   });
 });

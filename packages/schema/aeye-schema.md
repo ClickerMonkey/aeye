@@ -311,6 +311,34 @@ encode({ kind: 'note' }, { path: 'filters' });
 encode.wire({ query: 'x' });                 // the same, as a JSON value
 ```
 
+### Deferred values: text written before the plan
+
+Text made before the request it goes in is planned can't encode yet: a relaying provider forwards the request to the
+one that plans it, or an application assembles a prompt (tool descriptions, a system message, a message) before its
+provider plans. It holds a **deferred value** instead: the code-shape value and the schema it is written with.
+
+```ts
+const text = `Example args: ${deferEncode({ tool: 'search', value: { query: 'x', limits: { food: 3 } } })}`;
+fillDeferred(text, plan);   // written through the plan's `search` entry: pairs on OpenAI strict, …
+plainDeferred(text);        // before a plan: the fallback, else the code shape (estimates, logs, people)
+```
+
+| `DeferredSpec` | Meaning |
+|---|---|
+| `tool` / `output` | which schema of the request writes it |
+| `value`, `path`, `pretty` | as `encodeText` (a part at a code path) |
+| `pick` | write the whole value, then show this part of what was written (a wire path: `{ fn, args }`, pick `args`) |
+| `schema`, `strict` | for a tool the request may not have (offered in a later step): its lenient JSON Schema, planned alone for the request's model |
+| `fallback` | what to show where the plan can't write it (no such tool, no plan, a value that doesn't fit); else the code shape |
+| `type: true` (`deferSchema`) | the schema as TypeScript-like text (`{{schema}}`) |
+
+A whole value must read back as itself through the schema it was written for, or it is shown as its fallback: a
+stale example is never dressed up as if it fitted. A value with no `tool` is written as it is (text already in the
+model's shape, kept from later processing). The form is `⟦encode {…}⟧`; `DEFERRED_SPAN` splits a text around them.
+`deferredRequest(plan, known?)` is a stand-in plan whose encoders and helpers write deferred values: render templates
+for it and they carry every `{{encode}}`, `{{schema}}` and encoder value to where the request is planned (core's
+`deferRequest`; core's `prepareRequest` fills every deferred value of a request it plans).
+
 ## Decoding
 
 ```ts
