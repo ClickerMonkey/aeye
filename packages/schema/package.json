@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "test": "vitest run && npm run test:types",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -31,6 +31,19 @@
     "bench:core": "node --conditions=source --expose-gc --max-old-space-size=12288 --import tsx bench/core.ts",
     "bench:plan": "node --expose-gc --max-old-space-size=8192 --import tsx bench/plan.ts",
     "bench:leak": "node --conditions=source --expose-gc --max-old-space-size=8192 --import tsx bench/leak.ts"
+  },
+  "tsup": {
+    "entry": [
+      "src/index.ts"
+    ],
+    "format": [
+      "esm"
+    ],
+    "dts": {
+      "compilerOptions": {
+        "composite": false
+      }
+    }
   },
   "keywords": [
     "ai",
