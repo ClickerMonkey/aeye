@@ -478,7 +478,8 @@ describe('query: requests, fallback and caching', () => {
     expect(req.get('system_set').strict).toBe(true);
     const q = req.get('query_set');
     expect(q.strict).toBe(true);
-    expect(q.adjustments).toEqual([{ kind: 'enums-widened', maxEnumValues: 8 }, { kind: 'depth-limited', maxDepth: 1 }]);
+    // Optionals and unions are over: only cutting depth helps, so the enums are kept (no 'enums-widened').
+    expect(q.adjustments).toEqual([{ kind: 'depth-limited', maxDepth: 1 }]);
     expect(q.reasons).toEqual(['"query_set" alone: 140 optional properties (limit 24)', '"query_set" alone: 62 union-typed properties (limit 16)']);
     expect(q.measure.optional + req.get('system_set').measure.optional).toBeLessThanOrEqual(24);
     expect(req.used.unions).toBeLessThanOrEqual(16);

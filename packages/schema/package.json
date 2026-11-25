@@ -29,7 +29,8 @@
     "bench:memory": "node --expose-gc --max-semi-space-size=256 --import tsx bench/memory.ts",
     "bench:equivalence": "node --import tsx bench/equivalence.ts",
     "bench:errors": "node --expose-gc --max-old-space-size=12288 --import tsx bench/errors.ts",
-    "bench:core": "node --conditions=source --expose-gc --max-old-space-size=12288 --import tsx bench/core.ts"
+    "bench:core": "node --conditions=source --expose-gc --max-old-space-size=12288 --import tsx bench/core.ts",
+    "bench:plan": "node --expose-gc --max-old-space-size=8192 --import tsx bench/plan.ts"
   },
   "keywords": [
     "ai",

@@ -48,7 +48,7 @@ import type { Bindable, Bound } from './module';
 import { Bundle } from './module';
 import { LENIENT, variant, type Profile, type ProfileAdjustment, type RequestLimits, type SchemaLimits, DEFAULT_JSON_INSTRUCTION } from './profile';
 import type { CopyStats, EncodeTextOptions, Encoder, Issue, JsonSchema, ParseOptions, ParseResult, Rendered } from './render';
-import { addMeasures, overLimits, ZERO_MEASURE, type SchemaMeasure } from './measure';
+import { addMeasures, brokenLimits, overLimits, ZERO_MEASURE, type LimitName, type SchemaMeasure } from './measure';
 import { RequestLimitError } from './errors';
 import { schemaHelpers, type HelperSet } from './template';
 import { errorFormat, formatErrors, mergeErrorFormats, recordIssue, type ErrorFormat, type ErrorFormatInput } from './feedback';
@@ -383,23 +383,77 @@ function requestLimitsOf(target: ModelProfile): RequestLimits {
 
 const ENUM_CAPS = [250, 100, 40, 16, 8];
 
-/** The profiles to try for one schema, in order, after the base. */
-function* candidates(base: Profile, m: SchemaMeasure, wantNull: boolean): Generator<{ profile: Profile; adj: ProfileAdjustment }> {
+/** Limits that widening enums can bring under (it shrinks enum values and their characters, nothing else). */
+const ENUM_LIMITS: ReadonlySet<LimitName> = new Set<LimitName>(['maxEnumValues', 'maxStringChars', 'largeEnum']);
+
+/** One rung tried: its profile, what changed, the rendering and its problems (empty = fits). */
+interface Try { readonly profile: Profile; readonly adj: ProfileAdjustment; readonly rendered: Rendered<unknown>; readonly problems: string[] }
+
+/**
+ * The fitting ladder for one schema that didn't fit as is (see the top of
+ * this file). The rungs, least degraded first:
+ *
+ * 1. absent optionals as `null` (when the request's optional total is short);
+ * 2. widened enums, the largest cap that fits — only when every limit
+ *    broken is one widening can fix (enum values, their characters);
+ * 3. deep nesting as JSON text, the DEEPEST level that fits, with enums
+ *    widened only as far as that level still needs.
+ *
+ * Each rung's fit is monotone (a smaller cap or depth never measures more),
+ * so caps and depths are bisected rather than walked: a few renders instead
+ * of one per cap and per level. The shallowest depth is tried first; when
+ * even it doesn't fit, nothing deeper will and the search stops at once.
+ */
+function climb(
+  base: Profile,
+  first: Try,
+  broken: ReadonlySet<LimitName>,
+  wantNull: boolean,
+  attempt: (profile: Profile, adj: ProfileAdjustment) => Try,
+): Try | undefined {
   const keep: ProfileAdjustment = base.rootObject ? { rootObject: true } : {};
-  if (wantNull && m.optional > 0 && base.optional !== 'null') yield { profile: variant(base, { ...keep, optionalAsNull: true }), adj: { optionalAsNull: true } };
+  const m = first.rendered.measure;
+  if (wantNull && m.optional > 0 && base.optional !== 'null') {
+    const t = attempt(variant(base, { ...keep, optionalAsNull: true }), { optionalAsNull: true });
+    if (!t.problems.length) return t;
+  }
   const biggest = Math.max(0, ...m.enums.map((e) => e.values));
-  let lastCap: number | undefined;
-  for (const cap of ENUM_CAPS) {
-    if (biggest > cap && cap < (base.maxEnumValues ?? Infinity)) {
-      lastCap = cap;
-      yield { profile: variant(base, { ...keep, maxEnumValues: cap }), adj: { maxEnumValues: cap } };
+  const caps = ENUM_CAPS.filter((cap) => biggest > cap && cap < (base.maxEnumValues ?? Infinity));
+  const withCap = (cap: number | undefined, depth?: number): Try => {
+    const adj: ProfileAdjustment = { ...(depth !== undefined ? { maxDepth: depth } : {}), ...(cap !== undefined ? { maxEnumValues: cap } : {}) };
+    return attempt(variant(base, { ...keep, ...adj }), adj);
+  };
+  /** The least widening (none, then caps from the largest) that fits at `depth`, given that `known` (the last cap) does. */
+  const leastCap = (depth: number | undefined, options: readonly (number | undefined)[], known: Try): Try => {
+    // options[i] fits ⇒ options[i + 1] fits; options[last] is known to fit.
+    let lo = 0, hi = options.length - 1, best = known;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const t = withCap(options[mid], depth);
+      if (!t.problems.length) { best = t; hi = mid; } else lo = mid + 1;
     }
+    return best;
+  };
+
+  // 2. Enums alone, if widening can fix everything that broke.
+  if (caps.length && [...broken].every((k) => ENUM_LIMITS.has(k))) {
+    const last = withCap(caps[caps.length - 1]);
+    if (!last.problems.length) return caps.length > 1 ? leastCap(undefined, caps, last) : last;
   }
+
+  // 3. Depth: the deepest level that fits with every cap applied, then the least widening there.
   const top = Math.min(m.depth - 1, (base.maxDepth ?? Infinity) - 1);
-  for (let d = top; d >= 1; d--) {
-    const adj: ProfileAdjustment = { maxDepth: d, ...(lastCap !== undefined ? { maxEnumValues: lastCap } : {}) };
-    yield { profile: variant(base, { ...keep, ...adj }), adj };
+  if (top < 1) return undefined;
+  const lastCap = caps.length ? caps[caps.length - 1] : undefined;
+  const shallow = withCap(lastCap, 1);
+  if (shallow.problems.length) return undefined;
+  let lo = 1, hi = top, best = shallow;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    const t = withCap(lastCap, mid);
+    if (!t.problems.length) { best = t; lo = mid; } else hi = mid - 1;
   }
+  return caps.length ? leastCap(lo, [undefined, ...caps], best) : best;
 }
 
 function adjustmentsOf(adj: ProfileAdjustment): Adjustment[] {
@@ -542,17 +596,21 @@ export function planRequest<const I extends readonly RequestItem[]>(target: Mode
     };
 
     let chosen: { profile: Profile; adj: ProfileAdjustment; rendered: Rendered<unknown> } | undefined;
-    const first = bound.render(base) as Rendered<unknown>;
-    const firstProblems = fits(first, base);
-    if (!firstProblems.length) chosen = { profile: base, adj: {}, rendered: first };
+    const attempt = (profile: Profile, adj: ProfileAdjustment) => {
+      const rendered = bound.render(profile) as Rendered<unknown>;
+      return { profile, adj, rendered, problems: fits(rendered, profile) };
+    };
+    const first = attempt(base, {});
+    const firstProblems = first.problems;
+    if (!firstProblems.length) chosen = first;
     else if (!firstProblems.some((x) => x.includes('no strict tool slots left'))) {
       reasons.push(...firstProblems);
-      const wantNull = !!totals?.maxOptional && (used.optional + first.measure.optional > totals.maxOptional);
-      for (const cand of candidates(base, first.measure, wantNull)) {
-        const r = bound.render(cand.profile) as Rendered<unknown>;
-        const pr = fits(r, cand.profile);
-        if (!pr.length) { chosen = { ...cand, rendered: r }; break; }
-      }
+      const m = first.rendered.measure;
+      const broken = brokenLimits(m, base.limits);
+      brokenLimits(m, totals, broken);
+      brokenLimits(addMeasures(used, m), totals, broken);
+      const wantNull = !!totals?.maxOptional && (used.optional + m.optional > totals.maxOptional);
+      chosen = climb(base, first, broken, wantNull, attempt);
     } else reasons.push(...firstProblems);
 
     if (chosen) {

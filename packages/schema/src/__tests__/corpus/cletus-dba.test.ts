@@ -14,21 +14,8 @@ import { asTool, MODEL_PROFILES, profileProblems, validate } from './_check';
 import type { CletusCtx, TypeDefinition } from './cletus-tools';
 import { QUERY_STRING_DOC, QuerySchema, QueryOutput, QueryToolArgs, queryTool, type BooleanValue, type Comparison, type Query, type Value } from './cletus-dba';
 import { lines } from '../_lines';
-
-const t = (name: string, fields: string[]): TypeDefinition => ({
-  name, friendlyName: name[0]!.toUpperCase() + name.slice(1), knowledgeTemplate: '',
-  fields: fields.map((f) => ({ name: f, friendlyName: f, type: 'string' })),
-});
-/** The tables the examples use. */
-export const TYPES: TypeDefinition[] = [
-  t('users', ['name', 'email', 'age', 'active', 'lastLogin', 'firstName', 'lastName', 'emailDomain', 'deactivatedAt']),
-  t('orders', ['userId', 'total']),
-  t('products', ['category', 'price']),
-  t('archive_users', ['name', 'email']),
-  t('temp_data', []),
-  t('transactions', ['amount']),
-  t('projects', ['name', 'parentId', 'status', 'assignedTo']),
-];
+export { TYPES } from './cletus-dba-fixtures';
+import { TYPES } from './cletus-dba-fixtures';
 const ctxOf = (types: TypeDefinition[], maxQuerySchemaTypes?: number): CletusCtx => {
   const data = { types, user: maxQuerySchemaTypes === undefined ? {} : { maxQuerySchemaTypes } };
   return { config: { getData: () => data } };
@@ -324,9 +311,9 @@ describe('gaps', () => {
     expect(profileProblems(QuerySchema.bind([]), EXAMPLES.slice(0, 1), { tool: false, profiles: [MINIMAL] })).toEqual([]);
   });
 
-  // Fitting the query tool for OpenAI: only the depth is over (17 > 10), yet the ladder also widens every
-  // enum over 8 values (Function, column enums), dropping enum constraints the model could have kept.
-  it.fails('GAP: ladder-widens-enums — a depth-only overflow also widens enums', () => {
+  // Fitting the query tool for OpenAI: only the depth is over (17 > 10), so only the depth is cut; the
+  // enums over 8 values (Function, column enums) keep their constraints. (Was GAP ladder-widens-enums.)
+  it('a depth-only overflow cuts the depth and keeps the enums (was GAP ladder-widens-enums)', () => {
     const data = { types: TYPES, user: { maxQuerySchemaTypes: 10 } };
     const e = ModelProfile.of(OPENAI_STRICT).request([{ kind: 'tool', name: 'query', schema: QueryToolArgs.bind({ config: { getData: () => data } }) }]).get('query');
     expect(e.adjustments.map((x) => x.kind)).toEqual(['depth-limited']);

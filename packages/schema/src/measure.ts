@@ -75,30 +75,112 @@ export function measureJson(schema: J): SchemaMeasure {
   count(body);
   for (const d of Object.values(defs)) count(d);
 
-  // Depth follows $refs, with a guard so a recursive schema stops at its cycle.
-  const depthOf = (j: unknown, open: Set<string>): number => {
+  // Depth follows $refs, with a guard so a recursive schema stops at its cycle:
+  // the longest path that enters each named type at most once. Through a
+  // recursive grammar that is a longest-SIMPLE-path search, exponential if
+  // walked naively (cletus's DBA grammar took 0.66 s per measure), so a named
+  // type's depth is memoized by the part of the open set it can reach: only
+  // the open members of its own strongly connected component (every open name
+  // is an ancestor on the path, so it reaches this type; this type reaches it
+  // back only within one component). Exact, and each (type, open component
+  // members) state is computed once.
+  const refName = (o: J): string | undefined => {
+    if (typeof o.$ref !== 'string') return undefined;
+    return /^#\/\$defs\/(.+)$/.exec(o.$ref)?.[1]?.replace(/~1/g, '/').replace(/~0/g, '~');
+  };
+  const sccOf = components(defs, refName);
+  const open = new Set<string>();
+  const memo = new Map<string, number>();
+  const depthOf = (j: unknown): number => {
     if (!j || typeof j !== 'object' || Array.isArray(j)) return 0;
     const o = j as J;
     if (typeof o.$ref === 'string') {
-      const name = /^#\/\$defs\/(.+)$/.exec(o.$ref)?.[1]?.replace(/~1/g, '/').replace(/~0/g, '~');
+      const name = refName(o);
       if (!name || open.has(name) || !defs[name]) return 0;
+      const comp = sccOf.get(name);
+      let key = name;
+      if (comp) {
+        key += '|';
+        for (const m of comp) key += open.has(m) ? '1' : '0';
+      }
+      const hit = memo.get(key);
+      if (hit !== undefined) return hit;
       open.add(name);
-      const d = depthOf(defs[name], open);
+      const d = depthOf(defs[name]);
       open.delete(name);
+      memo.set(key, d);
       return d;
     }
     const container = o.type === 'object' || o.type === 'array'
       || (Array.isArray(o.type) && (o.type.includes('object') || o.type.includes('array')));
     let inner = 0;
-    const visit = (x: unknown) => { inner = Math.max(inner, depthOf(x, open)); };
+    const visit = (x: unknown) => { const d = depthOf(x); if (d > inner) inner = d; };
     if (o.properties && typeof o.properties === 'object') for (const p of Object.values(o.properties as J)) visit(p);
     for (const k of ['items', 'additionalProperties', 'not']) if (k in o) visit(o[k]);
     for (const k of ['prefixItems', 'anyOf', 'oneOf', 'allOf']) if (Array.isArray(o[k])) for (const x of o[k] as unknown[]) visit(x);
     return (container ? 1 : 0) + inner;
   };
-  const depth = depthOf(body, new Set());
+  const depth = depthOf(body);
 
   return { properties, depth, stringChars, enumValues, enums, optional, unions };
+}
+
+/**
+ * The recursive components of a schema's `$defs` ref graph: for each named
+ * type in a component of 2+ types (or one that refers to itself), the
+ * component's members in a fixed order. Non-recursive types are absent.
+ */
+function components(defs: Record<string, J>, refName: (o: J) => string | undefined): Map<string, readonly string[]> {
+  const edges = new Map<string, string[]>();
+  const collect = (j: unknown, out: Set<string>): void => {
+    if (!j || typeof j !== 'object') return;
+    if (Array.isArray(j)) { for (const x of j) collect(x, out); return; }
+    const n = refName(j as J);
+    if (n !== undefined && defs[n]) out.add(n);
+    for (const v of Object.values(j as J)) collect(v, out);
+  };
+  for (const name of Object.keys(defs)) {
+    const out = new Set<string>();
+    collect(defs[name], out);
+    edges.set(name, [...out]);
+  }
+  // Tarjan's algorithm, iterative (grammars can be deep).
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const onStack = new Set<string>();
+  const stack: string[] = [];
+  const result = new Map<string, readonly string[]>();
+  let next = 0;
+  for (const root of edges.keys()) {
+    if (index.has(root)) continue;
+    const work: [string, number][] = [[root, 0]];
+    while (work.length) {
+      const frame = work[work.length - 1]!;
+      const [v, i] = frame;
+      if (i === 0) {
+        index.set(v, next); low.set(v, next); next++;
+        stack.push(v); onStack.add(v);
+      }
+      const out = edges.get(v)!;
+      if (i < out.length) {
+        frame[1]++;
+        const w = out[i]!;
+        if (!index.has(w)) work.push([w, 0]);
+        else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!));
+        continue;
+      }
+      work.pop();
+      const parent = work[work.length - 1];
+      if (parent) low.set(parent[0], Math.min(low.get(parent[0])!, low.get(v)!));
+      if (low.get(v) === index.get(v)) {
+        const comp: string[] = [];
+        let w: string;
+        do { w = stack.pop()!; onStack.delete(w); comp.push(w); } while (w !== v);
+        if (comp.length > 1 || out.includes(v)) for (const m of comp) result.set(m, comp);
+      }
+    }
+  }
+  return result;
 }
 
 /** Add measures (request totals). */
@@ -133,6 +215,25 @@ export function overLimits(m: SchemaMeasure, limits: SchemaLimits | undefined, s
         out.push(`${scope}: an enum of ${e.values} values has ${e.chars} characters (limit ${limits.maxLargeEnumChars} above ${limits.largeEnumValues} values)`);
       }
     }
+  }
+  return out;
+}
+
+/** The limit a measure breaks, by name (`largeEnum` for the large-enum characters rule). */
+export type LimitName = Exclude<keyof SchemaLimits, 'largeEnumValues' | 'maxLargeEnumChars'> | 'largeEnum';
+
+/** Which limits a measure breaks, by name (what `overLimits` explains). */
+export function brokenLimits(m: SchemaMeasure, limits: SchemaLimits | undefined, out: Set<LimitName> = new Set()): Set<LimitName> {
+  if (!limits) return out;
+  const over = (k: LimitName, n: number, max: number | undefined) => { if (max !== undefined && n > max) out.add(k); };
+  over('maxProperties', m.properties, limits.maxProperties);
+  over('maxDepth', m.depth, limits.maxDepth);
+  over('maxStringChars', m.stringChars, limits.maxStringChars);
+  over('maxEnumValues', m.enumValues, limits.maxEnumValues);
+  over('maxOptional', m.optional, limits.maxOptional);
+  over('maxUnions', m.unions, limits.maxUnions);
+  if (limits.largeEnumValues !== undefined && limits.maxLargeEnumChars !== undefined) {
+    for (const e of m.enums) if (e.values > limits.largeEnumValues && e.chars > limits.maxLargeEnumChars) out.add('largeEnum');
   }
   return out;
 }

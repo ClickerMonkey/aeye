@@ -347,10 +347,11 @@ describe('binding and requests', () => {
     }
     expect(req.used.unions).toBeLessThanOrEqual(16);
     expect(req.used.optional).toBeLessThanOrEqual(24);
-    // Each grammar alone has ~100 optional properties (limit 24): nesting is cut to JSON text and enums widened.
+    // Each grammar alone has ~100 optional properties (limit 24): nesting is cut to JSON text; widening
+    // enums wouldn't lower that count, so the enums are kept.
     for (const e of req.entries) {
       expect(e.strict).toBe(true);
-      expect(e.adjustments.map((x) => x.kind)).toEqual(['enums-widened', 'depth-limited']);
+      expect(e.adjustments.map((x) => x.kind)).toEqual(['depth-limited']);
       expect(e.reasons.join(' ')).toMatch(/optional properties \(limit 24\)/);
     }
   });
