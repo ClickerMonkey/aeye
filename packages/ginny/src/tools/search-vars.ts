@@ -21,7 +21,7 @@ export const searchVars = ai.tool({
     keywords: a.array(a.string()).default([]),
     limit: a.number().default(20),
   }),
-  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
+  call: async (input, _refs, ctx) => {
     const results = ctx.store.searchVars({ keywords: input.keywords, limit: input.limit });
     if (results.length === 0) {
       return input.keywords.length === 0

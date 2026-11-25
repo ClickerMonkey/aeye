@@ -69,7 +69,7 @@ interface RunResult {
   assistantCalls: string[];
 }
 
-async function collect(prompt: Prompt<any, any, any, any, any, any, any>, ctx: Ctx, onEvent?: (event: Ev) => void): Promise<RunResult> {
+async function collect(prompt: Prompt<any, any, any, any, any, any>, ctx: Ctx, onEvent?: (event: Ev) => void): Promise<RunResult> {
   const events: Ev[] = [];
   for await (const event of prompt.get('stream', {}, ctx)) {
     events.push(event as Ev);

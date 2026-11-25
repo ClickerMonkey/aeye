@@ -58,8 +58,7 @@ type AIToolInput<
   TName extends string = string,
   TParams extends object = {},
   TOutput = unknown,
-  TRefs extends Tuple<ComponentFor<T>> = [],
-  TDecoded extends unknown = TParams
+  TRefs extends Tuple<ComponentFor<T>> = []
 > = Omit<ToolInput<
   AIContext<T>,
   AIMetadata<T>,
@@ -67,8 +66,7 @@ type AIToolInput<
   TParams,
   TOutput,
   // @ts-ignore
-  TRefs,
-  TDecoded
+  TRefs
 >, 'types'>;
 
 type AIPromptInput<
@@ -76,8 +74,7 @@ type AIPromptInput<
   TName extends string = string,
   TInput extends object = {},
   TOutput extends object | string = string,
-  TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = [],
-  TDecoded extends unknown = TOutput
+  TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = []
 > = Omit<PromptInput<
   AIContext<T>,
   AIMetadata<T>,
@@ -85,8 +82,7 @@ type AIPromptInput<
   TInput,
   TOutput,
   // @ts-ignore
-  TTools,
-  TDecoded
+  TTools
 >, 'types' | 'retool'> & {
   retool?: Fn<RetoolResult<AIContextRequired<T>, AIMetadataRequired<T>, TTools>, [TInput | undefined, Context<T>]>;
 };
@@ -749,10 +745,9 @@ export class AI<T extends AIBaseTypes> {
     TName extends string = string,
     TInput extends object = {},
     TOutput extends object | string = string,
-    TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = [],
-    TDecoded extends unknown = TOutput
+    TTools extends Tuple<ToolCompatible<AIContextRequired<T>, AIMetadataRequired<T>>> = []
   >(
-    options: AIPromptInput<T, TName, TInput, TOutput, TTools, TDecoded>
+    options: AIPromptInput<T, TName, TInput, TOutput, TTools>
   ) {
     const { input, schema, config, reconfig, retool, validate, review, applicable, metadataFn, onToolIntercept, ...rest } = options;
 
@@ -772,8 +767,7 @@ export class AI<T extends AIBaseTypes> {
       TName,
       TInput,
       TOutput,
-      TTools,
-      TDecoded
+      TTools
     >({
       ...rest,
       input: hydrateFn(input, (r) => (async (input, ctxPartial, encode) => {
@@ -848,10 +842,9 @@ export class AI<T extends AIBaseTypes> {
     TName extends string = string,
     TParams extends object = {},
     TOutput = unknown,
-    TRefs extends Tuple<ComponentFor<T>> = [],
-    TDecoded extends unknown = TParams
+    TRefs extends Tuple<ComponentFor<T>> = []
   >(
-    options: AIToolInput<T, TName, TParams, TOutput, TRefs, TDecoded>
+    options: AIToolInput<T, TName, TParams, TOutput, TRefs>
   ) {
     const { input, schema, call, validate, applicable, parallelClaims, ...rest } = options;
 
@@ -871,8 +864,7 @@ export class AI<T extends AIBaseTypes> {
       TName,
       TParams,
       Promise<TOutput>,
-      TRefs,
-      TDecoded
+      TRefs
     >({
       ...rest,
       instructionsFn: hydrateFn(rest.instructionsFn, (r) => (async (ctxPartial, encode) => {

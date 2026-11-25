@@ -1,6 +1,6 @@
 import { a } from '@aeye/schema';
 import { Code, GinGrammar, Problems } from '@aeye/gin';
-import type { ExprDef, Problem } from '@aeye/gin';
+import type { Problem } from '@aeye/gin';
 import { ai } from '../ai';
 import type { GrammarCtx } from '../schemas';
 import { logger, genId } from '../logger';
@@ -35,7 +35,7 @@ export const write = ai.tool({
   maxArgsLength: WRITE_MAX_ARGS_LENGTH,
   // gin's grammar with `new` locked to the constructible types, bound per ctx.
   schema: GinGrammar.result(a.object({ program: a.ref('Expr') })).adapt((ctx: GrammarCtx) => [ctx.registry, { newStrict: true }]),
-  call: async (input: { program: ExprDef }, _refs, ctx) => {
+  call: async (input, _refs, ctx) => {
     ctx.runState.draft = input.program;
     ctx.runState.lastTest = null;
 

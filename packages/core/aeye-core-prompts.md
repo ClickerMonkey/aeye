@@ -5,12 +5,11 @@
 ```typescript
 class Prompt<TContext = {}, TMetadata = {}, TName extends string = string,
   TInput extends object = {}, TOutput extends object | string = string,
-  TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = [],
-  TDecoded extends unknown = TOutput>
+  TTools extends Tuple<ToolCompatible<TContext, TMetadata>> = []>
   implements Component<...>
 ```
 
-`TOutput` is the schema's code-shape type: with `a.codec` **any** value (a built AST/class instance, a number, an array, …); it types `validate` and the output. `TDecoded` defaults to `TOutput` and is only kept for source compatibility (the custom `parse` hook that produced it is gone).
+`TOutput` is the schema's code-shape type: with `a.codec` **any** value (a built AST/class instance, a number, an array, …); it types `validate` and the output.
 
 A `Prompt` only does real work when the context supplies `execute` and/or `stream` (see [types doc](./aeye-core-types.md)). Without them, get/run yields nothing.
 

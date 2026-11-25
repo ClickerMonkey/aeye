@@ -7,12 +7,11 @@ Both are `Component`s. A **Tool** is a single callable function exposed to the m
 ```typescript
 class Tool<TContext = {}, TMetadata = {}, TName extends string = string,
   TParams extends object = {}, TOutput = string,
-  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],
-  TDecoded extends unknown = TParams>
+  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = []>
   implements Component<...>
 ```
 
-`TParams` is the schema's code-shape type: with `a.codec` **any** value (a built class instance, a number, a `Date`, …); it types `call`, `validate` and `metadataFn`. `TDecoded` defaults to `TParams` and is only kept for source compatibility (the custom `parse` hook that produced it is gone).
+`TParams` is the schema's code-shape type: with `a.codec` **any** value (a built class instance, a number, a `Date`, …); it types `call`, `validate` and `metadataFn`.
 
 ### `ToolInput` (constructor config)
 

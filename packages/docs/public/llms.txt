@@ -370,11 +370,10 @@ class PromptSuspend extends Error {
   constructor(message?: string);
 }
 
-// TDecoded is the decoded type a custom `parse` produces from the raw wire args (e.g. a built
-// class instance); it types call/validate/metadataFn. Defaults to the wire TParams when no custom
-// `parse` is supplied — `schema` always stays the wire type.
-class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs, TDecoded extends unknown = TParams> implements Component {
-  constructor(input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>);
+// TParams is the schema's code-shape type (with a.codec, a decoded value such as a class instance);
+// it types call/validate/metadataFn.
+class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs> implements Component {
+  constructor(input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs>);
   get kind(): 'tool';
   get name(): TName;
   get description(): string;
@@ -435,9 +434,8 @@ interface PromptInput<TContext, TMetadata, TName extends string, TInput extends 
   userTurn?: string;                // user message added without a conversation; default ctx's, then DEFAULT_USER_TURN ('Begin.')
   onToolIntercept?: (tool: Tool, args: unknown, ctx: Context<TContext, TMetadata>) => unknown | false | Promise<unknown | false>; // a value short-circuits the tool
   onToolResult?: (event: { tool; result; args; ctx; request }) => unknown; // what the model sees for a tool result
-  parse?: (raw: unknown, ctx: Context<TContext, TMetadata>) => TDecoded | Error | Promise<TDecoded | Error>; // replaces Zod for structured output
-  validate?: (output: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
-  review?: (output: TDecoded, context: { input: TInput; request: Request; ctx: Context<TContext, TMetadata>; attempt: number }) => PromptReview | Promise<PromptReview>;
+  validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  review?: (output: TOutput, context: { input: TInput; request: Request; ctx: Context<TContext, TMetadata>; attempt: number }) => PromptReview | Promise<PromptReview>;
   reviewRetries?: number;           // rounds of review feedback the model answers (default 1)
   applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>;
   metadata?: TMetadata;
@@ -476,11 +474,10 @@ type PromptEvent<TOutput, TTools> =
   | { type: 'responseTokens'; tokens: number; request: Request }
   | { type: 'usage'; usage: Usage; request: Request };
 
-// TDecoded is the decoded type a custom `parse` produces from the model's structured output (e.g. a
-// built AST/class instance); it types validate and the decoded output. Defaults to the wire TOutput
-// when no custom `parse` is supplied — `schema` always stays the wire type.
-class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools, TDecoded extends unknown = TOutput> implements Component {
-  constructor(input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded>);
+// TOutput is the schema's code-shape type (with a.codec, a decoded value such as a built AST);
+// it types validate/review and the output.
+class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools> implements Component {
+  constructor(input: PromptInput<TContext, TMetadata, TName, TInput, TOutput, TTools>);
   get kind(): 'prompt';
   get name(): TName;
   get description(): string;

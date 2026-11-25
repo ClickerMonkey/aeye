@@ -169,22 +169,21 @@ const prompt = ai.prompt({
 
 Validation errors trigger a retry with the error message sent to the model.
 
-## Custom Parser (bring your own)
+## Custom Decoding (codecs)
 
-Supply a `parse` function to **replace Zod** for structured output. It receives the raw `JSON.parse`-d value and fully owns turning it into the decoded value; **its return type drives the decoded output** (the trailing `TDecoded` type parameter). Return (or throw) an `Error` to reject — routed through the same `outputRetries` channel a Zod failure would, surfacing the error's own `.message`.
+Wrap a schema in `a.codec(wire, { decode, encode })` to turn the model's answer into your own value (a built AST, a class instance, …). `decode`'s result is what the prompt returns and what `validate` / `review` receive, so `TOutput` is the decoded type. Return an `Error` (or a `Rejection` of issues at paths) from `decode` to reject — routed through the same `outputRetries` channel as any schema failure, surfacing your own message.
 
 ```typescript
 const prompt = ai.prompt({
-  schema: z.object({ expr: z.string() }),      // still required — drives the model wire format
-  parse: (raw, ctx) => {
-    const result = compile((raw as { expr: string }).expr); // your parser → a built AST
-    if (result.errors) return new Error(result.report);      // compiler-style diagnostics to the model
-    return result.program;                                   // decoded value flows out typed
-  },
+  schema: a.codec(a.object({ expr: a.string() }), {   // the wire shape still drives what the model writes
+    decode: ({ expr }) => {
+      const result = compile(expr);                     // your parser → a built AST
+      return result.errors ? new Error(result.report) : result.program;
+    },
+    encode: (program) => ({ expr: print(program) }),
+  }),
 });
 ```
-
-Only runs where Zod validation runs today (a structured `schema` is present); the `schema` is still required and still drives the wire format. Absent ⇒ the unchanged Zod path. This is how `@aeye/query` returns concise, compiler-style errors instead of Zod's aggregate messages.
 
 ## Retry Behavior
 

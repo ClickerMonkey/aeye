@@ -175,11 +175,11 @@ for await (const t of assistant.get('streamContent', { question: '...' })) proce
 const out = await ai.run(assistant, { question: '...' }, { userId: 'u1' });
 ```
 
-Every callback given to `ai.prompt` (`input`, `schema`, `config`, `reconfig`, `retool`, `parse`, `validate`, `review`, `onToolIntercept`, `applicable`, `metadataFn`) receives the full AI context. Prompts also take `review` / `reviewRetries` (check valid output, send feedback for another round), `schemaFallbacks` (steps taken when a provider rejects a schema; default `SCHEMA_FALLBACKS`, AI-wide via `defaultContext`), and `userTurn` (the user message added when run without a conversation, default `'Begin.'`). Errors carry `kind: 'model' | 'tool'` (`PromptError`, `ToolInputError`, `ToolExecutionError`, `OutputValidationError`, `ReviewRejectedError`, all from core).
+Every callback given to `ai.prompt` (`input`, `schema`, `config`, `reconfig`, `retool`, `validate`, `review`, `onToolIntercept`, `applicable`, `metadataFn`) receives the full AI context. Prompts also take `review` / `reviewRetries` (check valid output, send feedback for another round), `schemaFallbacks` (steps taken when a provider rejects a schema; default `SCHEMA_FALLBACKS`, AI-wide via `defaultContext`), and `userTurn` (the user message added when run without a conversation, default `'Begin.'`). Errors carry `kind: 'model' | 'tool'` (`PromptError`, `ToolInputError`, `ToolExecutionError`, `OutputValidationError`, `ReviewRejectedError`, all from core).
 
 `ai.agent({ name, description, refs, call })` composes other components; `call(input, [..refs], ctx)` receives the resolved refs tuple and the full AI context.
 
-`ai.tool()` and `ai.prompt()` forward a trailing **`TDecoded`** generic to the underlying core `Tool`/`Prompt`, so a custom `parse` (which replaces Zod — see the [structured-output](../docs/guides/structured-output.md) / [tool-calling](../docs/guides/tool-calling.md) guides) has its **return type surface through the wrapper**: `call`/`validate` receive the decoded value, not the wire params/output. Absent a custom `parse`, `TDecoded` defaults to the wire type.
+`ai.tool()` and `ai.prompt()` type `call` / `validate` / `review` with the schema's code shape (`TParams` / `TOutput`). To decode into your own value (a built AST, a class instance), wrap the schema in `a.codec(wire, { decode, encode })` — see the [structured-output](../docs/guides/structured-output.md) / [tool-calling](../docs/guides/tool-calling.md) guides.
 
 ## Provider & core integration
 

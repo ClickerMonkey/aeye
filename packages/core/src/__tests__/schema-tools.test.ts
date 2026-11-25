@@ -47,7 +47,7 @@ const BuiltArgs = a.codec(a.object({ value: a.number() }), {
 });
 
 /** Runs a prompt with these tools against a planned model; returns the tool messages, events and what was sent. */
-async function run<T extends Tool<any, any, any, any, any, any, any>[]>(
+async function run<T extends Tool<any, any, any, any, any, any>[]>(
   tools: T,
   model: Parameters<typeof plannedExecutor>[0],
   turns: Parameters<typeof plannedExecutor>[1],
@@ -175,7 +175,7 @@ describe('errorFormat reaches the model at every level', () => {
     ...(errorFormat ? { errorFormat } : {}),
     call: () => 'ok',
   });
-  const firstMessage = async (tool: Tool<any, any, any, any, any, any, any>, ctx: Record<string, unknown> = {}) =>
+  const firstMessage = async (tool: Tool<any, any, any, any, any, any>, ctx: Record<string, unknown> = {}) =>
     (await run([tool], MODELS.gpt, [{ raw: [{ name: 'tag', arguments: bad }] }, { content: 'done' }], ctx)).toolMessages[0]!;
 
   it("default 'full': the model's JSON with markers and the expected type", async () => {

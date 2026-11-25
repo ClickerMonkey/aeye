@@ -28,7 +28,7 @@ function makeTools(n: number, strict: (i: number) => boolean | number = () => 1)
   return { tools, calls };
 }
 
-async function run(tools: Tool<any, any, any, any, any, any, any>[], model: Parameters<typeof plannedExecutor>[0], turns: ReadonlyArray<PlannedTurn | ((sent: Sent) => PlannedTurn)>) {
+async function run(tools: Tool<any, any, any, any, any, any>[], model: Parameters<typeof plannedExecutor>[0], turns: ReadonlyArray<PlannedTurn | ((sent: Sent) => PlannedTurn)>) {
   const { execute, sent } = plannedExecutor(model, turns);
   const prompt = new Prompt({ name: 'p', description: 'p', content: 'Use the tools.', tools, toolRetries: 3 } as any);
   const events: any[] = [];

@@ -57,8 +57,7 @@ export interface ToolInput<
   TName extends string,
   TParams extends object,
   TOutput,
-  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>,
-  TDecoded extends unknown = TParams,
+  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>
 > {
   /** The unique name of the tool */
   name: TName;
@@ -135,9 +134,9 @@ export interface ToolInput<
   /** The function that implements the tool's behavior. Receives the DECODED
    * input in the code shape (records are records, absent is absent, whatever
    * the model wrote): `TParams`, codecs applied. */
-  call: (input: TDecoded, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
-  /** Optional post-validation hook that runs after decoding succeeds. Receives the DECODED value (`TDecoded`). Can throw to trigger re-prompting. */
-  validate?: (input: TDecoded, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
+  call: (input: TParams, refs: TRefs, ctx: Context<TContext, TMetadata>) => TOutput;
+  /** Optional post-validation hook that runs after decoding succeeds. Receives the DECODED value (`TParams`). Can throw to trigger re-prompting. */
+  validate?: (input: TParams, ctx: Context<TContext, TMetadata>) => void | Promise<void>;
   /**
    * Optional hard cap on the raw arguments STRING length. When set,
    * `Tool.parse` rejects the call BEFORE attempting `JSON.parse` if
@@ -189,7 +188,7 @@ export interface ToolInput<
    * // A migration that must never overlap any other tool call.
    * parallelClaims: ['*'],
    */
-  parallelClaims?: Fn<ToolClaims | undefined, [TDecoded, Context<TContext, TMetadata>]>;
+  parallelClaims?: Fn<ToolClaims | undefined, [TParams, Context<TContext, TMetadata>]>;
   /** Optional function to determine if the component is applicable in the given context */
   applicable?: <
     TRuntimeContext extends TContext, 
@@ -198,11 +197,11 @@ export interface ToolInput<
   /** Metadata about the tool to be passed during execution/streaming. Typically contains requirements, configuration, etc. */
   metadata?: TMetadata;
   /** A function/promise that returns metadata about the tool to be passed during execution/streaming. */
-  metadataFn?: (input: TDecoded, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
+  metadataFn?: (input: TParams, ctx: Context<TContext, TMetadata>) => TMetadata | Promise<TMetadata>;
   /** Optional way to explicitly declare the types used in this component */
   types?: {
     params?: TParams;
-    decoded?: TDecoded;
+    decoded?: TParams;
     output?: TOutput;
     context?: TContext;
     metadata?: TMetadata;
@@ -212,12 +211,12 @@ export interface ToolInput<
 /**
  * A type representing any tool.
  */
-export type AnyTool = Tool<any, any, any, any, any, any, any>;
+export type AnyTool = Tool<any, any, any, any, any, any>;
 
 /**
  * A type representing a tool compatible with the given context and metadata.
  */
-export type ToolCompatible<TContext, TMetadata> = Tool<TContext, TMetadata, any, any, any, any, any>;
+export type ToolCompatible<TContext, TMetadata> = Tool<TContext, TMetadata, any, any, any, any>;
 
 /**
  * Error class used to indicate that a prompt should be interrupted and control returned to the caller.
@@ -289,9 +288,8 @@ export class Tool<
   TName extends string = string,
   TParams extends object = {},
   TOutput = string,
-  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],
-  TDecoded extends unknown = TParams,
-> implements Component<TContext, TMetadata, TName, TDecoded, TOutput, TRefs> {
+  TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = []
+> implements Component<TContext, TMetadata, TName, TParams, TOutput, TRefs> {
 
   /**
    * Compiles an instructions template. A template is applied with Handlebars
@@ -314,7 +312,7 @@ export class Tool<
    * @param input - The tool input configuration.
    */
   constructor(
-    public input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs, TDecoded>,
+    public input: ToolInput<TContext, TMetadata, TName, TParams, TOutput, TRefs>,
     private instructions = input.instructions ? Tool.compileInstructions(input.instructions, !!input.input) : undefined,
     // The schema stays one static instance; its dynamic part is bound per
     // call, and the request plans its rendering once the model is known.
@@ -428,7 +426,7 @@ export class Tool<
     plan?: RequestPlan,
     onRepairAttempt?: (info: { fields: ReadonlyArray<string>; success: boolean }) => void,
     call: { name?: string; errorFormat?: ErrorFormatInput } = {},
-  ): Promise<TDecoded> {
+  ): Promise<TParams> {
     // Hard cap on raw args length, applied BEFORE JSON.parse. Some
     // provider wire dialects (Claude Sonnet 4.5 via OpenRouter,
     // observed) double-encode large tool args AND corrupt the inner
@@ -484,7 +482,7 @@ export class Tool<
     }
 
     // The schema's code shape (codecs applied) is what the tool takes.
-    const result = decoded.value as TDecoded;
+    const result = decoded.value as TParams;
     if (this.input.validate) {
       await this.input.validate(result, ctx);
     }
@@ -518,10 +516,10 @@ export class Tool<
     TRuntimeContext extends TContext, 
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(...[inputMaybe, contextMaybe]: OptionalParams<[TDecoded, TCoreContext]>): TOutput {
-    const input = (inputMaybe || {}) as TDecoded;
+  >(...[inputMaybe, contextMaybe]: OptionalParams<[TParams, TCoreContext]>): TOutput {
+    const input = (inputMaybe || {}) as TParams;
     const ctx = (contextMaybe || {}) as Context<TContext, TMetadata>;
-    const tool = this as Component<TContext, TMetadata, TName, TDecoded, TOutput, TRefs>;
+    const tool = this as Component<TContext, TMetadata, TName, TParams, TOutput, TRefs>;
 
     return ctx.runner
       ? ctx.runner(tool, input, ctx, (innerCtx) => this.input.call(input, this.refs, innerCtx))
@@ -575,7 +573,7 @@ export class Tool<
     TRuntimeContext extends TContext,
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(input: TDecoded, ctx: TCoreContext): Promise<ToolClaims> {
+  >(input: TParams, ctx: TCoreContext): Promise<ToolClaims> {
     return await this.parallelClaims(input, ctx) ?? NO_CLAIMS;
   }
 
@@ -592,18 +590,18 @@ export class Tool<
     TRuntimeContext extends TContext,
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(input?: TDecoded, ctx?: TCoreContext): Promise<TMetadata>;
+  >(input?: TParams, ctx?: TCoreContext): Promise<TMetadata>;
   metadata<
     TRuntimeContext extends TContext,
     TRuntimeMetadata extends TMetadata,
     TCoreContext extends Context<TRuntimeContext, TRuntimeMetadata>,
-  >(input?: TDecoded, ctx?: TCoreContext): TMetadata | Promise<TMetadata> {
+  >(input?: TParams, ctx?: TCoreContext): TMetadata | Promise<TMetadata> {
     // If both input and context are not specified, just return static metadata
     if (input === undefined && ctx === undefined) {
       return (this.input.metadata || {}) as TMetadata;
     }
 
-    const actualInput = (input || {}) as TDecoded;
+    const actualInput = (input || {}) as TParams;
     const actualCtx = (ctx || {}) as Context<TContext, TMetadata>;
 
     return this.metadataFn(actualInput, actualCtx).then(dynamicMetadata => ({

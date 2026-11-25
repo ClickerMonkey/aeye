@@ -14,7 +14,7 @@ const searchTypes = ai.tool({
     keywords: a.array(a.string()).describe('Keywords to search for'),
     limit: a.number().default(10),
   }),
-  call: async (input: { keywords: string[]; limit?: number }, _refs, ctx) => {
+  call: async (input, _refs, ctx) => {
     const results = ctx.store.searchTypes({ keywords: input.keywords, limit: input.limit });
     if (results.length === 0) return 'No matching types found.';
     return results.map((r) => `${r.name}: ${r.summary}`).join('\n');

@@ -72,10 +72,8 @@ export interface Component<
   TMetadata = {},
   TName extends string = string,
   // Widened from `object` to `unknown`: a component's input is the DECODED
-  // value, and a custom `parse` (Tool/Prompt) may legitimately decode to a
-  // primitive/array/class instance rather than an object. Keeps `TInput`
-  // permissive so `Tool<…, TDecoded>` (where `TDecoded extends unknown`) can
-  // satisfy this slot. Default stays `{}`.
+  // value (a codec may decode to a class instance or other non-plain
+  // object), so `TInput` stays permissive. Default stays `{}`.
   TInput extends unknown = {},
   TOutput = string,
   TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>> = [],

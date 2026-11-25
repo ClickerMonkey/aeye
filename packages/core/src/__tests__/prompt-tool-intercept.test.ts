@@ -37,7 +37,7 @@ interface RunResult {
 }
 
 async function runToolCalls(
-  prompt: Prompt<any, any, any, any, any, any, any>,
+  prompt: Prompt<any, any, any, any, any, any>,
   toolCalls: ToolCallSpec[],
 ): Promise<RunResult> {
   const executor = createMockExecutor({

@@ -35,7 +35,7 @@ const types: TypeDefinition[] = [
 const ctx = { config: { getData: () => ({ types, user: {} }) } } as unknown as TypesContext;
 
 /** A tool's definition and plan for OpenAI strict, and its args parsed through it. */
-async function parseStrict<T extends object>(tool: Tool<any, any, string, T, any, any, any>, args: unknown) {
+async function parseStrict<T extends object>(tool: Tool<any, any, string, T, any, any>, args: unknown) {
   const definition = (await tool.definition(ctx as any))!;
   const plan = planRequest({ tools: [definition] }, STRICT);
   const entry = plan.get(tool.name as never) as unknown as { strict: boolean; jsonSchema: unknown };

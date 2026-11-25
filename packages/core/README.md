@@ -517,10 +517,10 @@ A bad call or answer is told to the model in its own shape: its JSON echoed back
 ### Prompt
 
 ```typescript
-class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools extends Tuple<ToolCompatible<TContext, TMetadata>>, TDecoded extends unknown = TOutput>
+class Prompt<TContext, TMetadata, TName extends string, TInput extends object, TOutput extends object | string, TTools extends Tuple<ToolCompatible<TContext, TMetadata>>>
 ```
 
-`TOutput` is the schema's code-shape type (use `a.codec` to decode into a class instance). `TDecoded` defaults to `TOutput`; the custom `parse` hook that set it is gone.
+`TOutput` is the schema's code-shape type (use `a.codec` to decode into a class instance); it types `validate`, `review` and the output.
 
 **Constructor Options (`PromptInput`):**
 - `name: string` - Unique identifier
@@ -542,7 +542,7 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 - `schemaFallbacks?: readonly SchemaFallback[]` - Steps taken when a provider rejects a schema (default: the context's, then `SCHEMA_FALLBACKS`)
 - `metadata?: TMetadata` - Static metadata for this prompt
 - `validate?: (output: TOutput, ctx: Context<TContext, TMetadata>) => void | Promise<void>` - Post-parse validation
-- `review?: (output: TDecoded, context: PromptReviewContext) => PromptReview | Promise<PromptReview>` - Review the valid output: `{ pass: true }` or `{ feedback }` for another round
+- `review?: (output: TOutput, context: PromptReviewContext) => PromptReview | Promise<PromptReview>` - Review the valid output: `{ pass: true }` or `{ feedback }` for another round
 - `reviewRetries?: number` - Rounds the model gets to answer review feedback (default: 1)
 - `applicable?: (ctx: Context<TContext, TMetadata>) => boolean | Promise<boolean>` - Availability check
 
@@ -554,10 +554,10 @@ class Prompt<TContext, TMetadata, TName extends string, TInput extends object, T
 ### Tool
 
 ```typescript
-class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>, TDecoded extends unknown = TParams>
+class Tool<TContext, TMetadata, TName extends string, TParams extends object, TOutput, TRefs extends Tuple<ComponentCompatible<TContext, TMetadata>>>
 ```
 
-`TParams` is the schema's code-shape type (use `a.codec` to decode into a class instance). `TDecoded` defaults to `TParams`; the custom `parse` hook that set it is gone.
+`TParams` is the schema's code-shape type (use `a.codec` to decode into a class instance); it types `call`, `validate` and `metadataFn`.
 
 **Constructor Options (`ToolInput`):**
 - `name: string` - Unique identifier (shown to the AI model)

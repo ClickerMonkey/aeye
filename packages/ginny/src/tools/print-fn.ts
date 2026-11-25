@@ -36,7 +36,7 @@ export const printFn = ai.tool({
       .default(true)
       .describe('Include inline `/* docs */` and `// line` comments. Default true.'),
   }),
-  call: async (input: { name: string; includeComments?: boolean }, _refs, ctx) => {
+  call: async (input, _refs, ctx) => {
     let typeDef: TypeDef;
     try {
       typeDef = ctx.store.readFn(input.name);

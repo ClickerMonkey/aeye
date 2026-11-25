@@ -39,7 +39,7 @@ const Classified = a
 // corpus: core:prompt-miscellaneous-simple.test.ts:367 — `schema: z.string().min(5)`: the raw text.
 const TextMin5 = a.string().min(5);
 
-async function run(prompt: Prompt<any, any, any, any, any, any, any>, model: Parameters<typeof plannedExecutor>[0], turns: ReadonlyArray<PlannedTurn | ((sent: Sent) => PlannedTurn)>, input: unknown = {}, ctx: Record<string, unknown> = {}) {
+async function run(prompt: Prompt<any, any, any, any, any, any>, model: Parameters<typeof plannedExecutor>[0], turns: ReadonlyArray<PlannedTurn | ((sent: Sent) => PlannedTurn)>, input: unknown = {}, ctx: Record<string, unknown> = {}) {
   const { execute, sent } = plannedExecutor(model, turns);
   const events: any[] = [];
   let output: unknown;

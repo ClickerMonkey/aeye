@@ -5,10 +5,10 @@ The `Prompt` class manages the full lifecycle of an AI interaction including tem
 ## Constructor
 
 ```typescript
-new Prompt<TContext, TMetadata, TName, TInput, TOutput, TTools, TDecoded = TOutput>(input: PromptInput)
+new Prompt<TContext, TMetadata, TName, TInput, TOutput, TTools>(input: PromptInput)
 ```
 
-`TDecoded` is the decoded type a custom `parse` produces from the model's structured output (e.g. a built AST/class instance); it types `validate` and the decoded output. It defaults to the wire `TOutput` when no custom `parse` is supplied — `schema` always stays the wire type.
+`TOutput` is the schema's code-shape type: with `a.codec` it can be a built AST/class instance. It types `validate`, `review` and the decoded output.
 
 See [Prompts component page](/components/prompts) for the full `PromptInput` configuration reference.
 

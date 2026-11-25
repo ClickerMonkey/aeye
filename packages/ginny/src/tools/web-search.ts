@@ -11,7 +11,7 @@ export const webSearch = ai.tool({
     query: a.string().describe('Search query'),
     maxResults: a.number().default(5).describe('Max results (default 5)'),
   }),
-  call: async (input: { query: string; maxResults?: number }, _refs, ctx) => {
+  call: async (input, _refs, ctx) => {
     throwIfAborted(ctx.signal);
     try {
       const client = tavily({ apiKey: process.env['TAVILY_API_KEY']! });
